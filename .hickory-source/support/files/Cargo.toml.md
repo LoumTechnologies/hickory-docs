@@ -1,0 +1,104 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# Cargo.toml
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+
+Captured SHA-256: `d075f4ddfa66c05690a76d090de5aba203e7a3fdc12ce8297691644591f18c23`.
+
+<book:entry path="Cargo.toml">
+[workspace]
+resolver = "3"
+members = [
+    "crates/hick-coverage",
+    "crates/hick-profile",
+    "crates/hick-case",
+    "crates/hick-context-protocol",
+    "crates/hick-context-store",
+    "crates/hick-classify",
+    "crates/hick-condition",
+    "crates/hick-exec",
+    "crates/hick-feature",
+    "crates/hick-flow",
+    "crates/hick-formula",
+    "crates/hick-plugins",
+    "crates/hick-grove",
+    "crates/hick-handlers",
+    "crates/hick-lang",
+    "crates/hick-lang-wasm",
+    "crates/hick-blocks",
+    "crates/hick-dap",
+    "crates/hick-observe",
+    "crates/hick-lsp",
+    "crates/hick-project-env",
+    "crates/hick-structure",
+    "crates/hick-transcript",
+    "crates/hick-term",
+    "crates/hick-merge",
+    "crates/hick-secrets",
+    "crates/hick-sink",
+    "crates/hick-store",
+    "crates/hick-token",
+    "crates/hick-xml",
+    "crates/hick-literate",
+    "crates/hick-search",
+    "crates/hickory-executor",
+    "crates/hickory-agent",
+    "crates/hickory-executor-canopy",
+    "crates/hickory-executor-docker",
+    "crates/hickory-executor-sandbox",
+    "crates/hickory-cli",
+    "crates/hickory-collab",
+    "crates/hickory-broker",
+    "crates/hickory-fleet",
+    "crates/hickory-peer",
+    "crates/hickory-lineage",
+    "crates/hickory-workspace",
+]
+# editors/zed-hick is a standalone wasm extension crate built by Zed's
+# toolchain, not part of this workspace.
+exclude = ["editors/zed-hick"]
+
+[workspace.package]
+edition = "2024"
+publish = false
+license = "GPL-3.0-or-later"
+repository = "https://github.com/LoumTechnologies/hickory-docs"
+
+[workspace.dependencies]
+hick-lang = { version = "0.1", path = "crates/hick-lang" }
+hick-transcript = { version = "0.1", path = "crates/hick-transcript" }
+hick-exec = { version = "0.1", path = "crates/hick-exec" }
+hick-blocks = { version = "0.1", path = "crates/hick-blocks" }
+
+# Settings for the binaries people download. `cargo build` and CI's test run
+# use the dev profile, so the inner loop is unaffected.
+# Debug builds carry line tables rather than full debug info.
+#
+# This workspace links ~50 integration-test binaries for `hickory-cli` alone,
+# each pulling the whole crate graph. With full `debuginfo=2` that made the
+# LINKER exhaust memory on a 31 GB machine once the peer channel's QUIC stack
+# joined the graph — reported as `linking with cc failed`, which reads like a
+# toolchain problem and is not one. It is also the same pressure CI already
+# works around by reclaiming runner disk before the build.
+#
+# Line tables keep file-and-line in every backtrace and panic, which is what a
+# test failure actually needs; what is given up is stepping through locals in
+# a debugger, and `debug = 2` in a scratch profile buys that back when
+# somebody wants it.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.release]
+# Debug symbols are a large share of an unstripped binary, and nobody
+# debugging a downloaded release has the matching source checkout anyway.
+strip = true
+# Whole-program optimization across crate boundaries: this is a 23-crate
+# workspace, so most inlining opportunities are cross-crate.
+lto = "thin"
+codegen-units = 1
+</book:entry>
+
+</book:doc>

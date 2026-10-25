@@ -1,0 +1,444 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# apps/web/src/views/workspaceState.ts
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+- [A Plain File Opens, Edits, And Never Silently Loses A Byte](../../../../../../guarantees/authoring/a-plain-file-opens-and-saves/contract.md)
+- [Adoption Is Byte-Exact, Or It Does Not Happen](../../../../../../guarantees/authoring/adoption-is-byte-exact-or-refused/contract.md)
+- [New Document Creates Another Unnamed Buffer](../../../../../../guarantees/authoring/new-document-is-an-act/contract.md)
+- [Open File Tabs Follow Renames](../../../../../../guarantees/authoring/open-file-tabs-follow-renames/contract.md)
+- [The App Starts As A Lightweight Editor](../../../../../../guarantees/authoring/the-app-starts-as-a-lightweight-editor/contract.md)
+- [Typed Text Is Prose, Not A Transcript](../../../../../../guarantees/authoring/typed-text-is-prose-not-a-transcript/contract.md)
+- [Pair identity without silently granting execution](../../../../../../guarantees/collaboration/a-machine-is-a-keypair/contract.md)
+- [The History Lens Reads The Repository As A Story](../../../../../../guarantees/lenses/the-history-lens-reads-the-repository-as-a-story/contract.md)
+
+Captured SHA-256: `5721a66674c22a43ce5a4cc4213dbee4ac2005968e387eab70e4ddd40d405f34`.
+
+<book:entry path="apps/web/src/views/workspaceState.ts">
+// The workspace's opening rules: what happens to ONE layout when documents
+// come and go around it.
+//
+// Pure, like shell/layout.ts, and for the same reason. The invariant every
+// function here protects is the one the old per-document view broke: opening
+// a document ADDS to the arrangement — a tab in a sensible pane, or the
+// activation of a tab that already exists — and never closes, rebuilds, or
+// resets anything the person already has open. Navigation is "ensure open",
+// not "replace the world".
+
+import {
+  closeTab,
+  activate,
+  freeform,
+  fromRegions,
+  open as openInLayout,
+  paneFor,
+  panes,
+  split,
+  tab as makeTab,
+  withRail,
+  withTree,
+  type Layout,
+  type Pane,
+  type Region,
+  type Tab,
+} from "../shell/layout";
+
+/** The tab the agent conversation lives in. */
+export const CHAT_TAB = "chat";
+
+/** The tab the commit graph lives in. */
+export const GIT_TAB = "git";
+
+/** Show the history. Opening it twice fronts the one that exists. */
+export function openGitTab(layout: Layout): Layout {
+  for (const pane of panes(layout.root)) {
+    const index = pane.tabs.findIndex((t) => t.kind === "tool" && t.target === GIT_TAB);
+    if (index >= 0) return activate(layout, pane.id, index);
+  }
+  return openInLayout(layout, makeTab("tool", GIT_TAB, "History"), layout.focus);
+}
+
+/** The tab the history lens lives in: the same repository as `GIT_TAB`,
+ * read as a story. docs/specs/freeform/lenses.md */
+export const STORY_TAB = "story";
+
+/** Read the history as a story. Opening it twice fronts the one that exists. */
+export function openStoryTab(layout: Layout): Layout {
+  for (const pane of panes(layout.root)) {
+    const index = pane.tabs.findIndex((t) => t.kind === "tool" && t.target === STORY_TAB);
+    if (index >= 0) return activate(layout, pane.id, index);
+  }
+  return openInLayout(layout, makeTab("tool", STORY_TAB, "Story"), layout.focus);
+}
+
+/** The tab this machine's fleet lives in. */
+export const FLEET_TAB = "fleet";
+
+/** Show the fleet. Opening it twice fronts the one that exists. */
+export function openFleetTab(layout: Layout): Layout {
+  for (const pane of panes(layout.root)) {
+    const index = pane.tabs.findIndex((t) => t.kind === "tool" && t.target === FLEET_TAB);
+    if (index >= 0) return activate(layout, pane.id, index);
+  }
+  return openInLayout(layout, makeTab("tool", FLEET_TAB, "Machines"), layout.focus);
+}
+
+/** The tab a merged view lives in. One per path, because the view IS of a
+ * path: two files compared at once are two tabs, not one confused one. */
+export const MERGED_TAB = "merged:";
+
+/** Compare one file across this repository's worktrees. */
+export function openMergedTab(layout: Layout, path: string): Layout {
+  const target = `${MERGED_TAB}${path}`;
+  for (const pane of panes(layout.root)) {
+    const index = pane.tabs.findIndex((t) => t.kind === "tool" && t.target === target);
+    if (index >= 0) return activate(layout, pane.id, index);
+  }
+  const name = path.split("/").pop() ?? path;
+  return openInLayout(layout, makeTab("tool", target, `${name} · worktrees`), layout.focus);
+}
+
+/** The tab the welcome page lives in. A tool tab, so it counts as furniture
+ * and an arrangement holding only it is still "empty". */
+export const WELCOME_TAB = "welcome";
+
+/** Show the welcome page. Opening it twice fronts the one that exists. */
+export function openWelcomeTab(layout: Layout): Layout {
+  for (const pane of panes(layout.root)) {
+    const index = pane.tabs.findIndex((t) => t.kind === "tool" && t.target === WELCOME_TAB);
+    if (index >= 0) return activate(layout, pane.id, index);
+  }
+  return openInLayout(layout, makeTab("tool", WELCOME_TAB, "Welcome"), layout.focus);
+}
+
+/** A new workspace starts with only its editor. Tools open on demand. */
+export function initialWorkspace(): Layout {
+  return freeform();
+}
+
+/** Show the agent conversation. Opening it twice fronts the one that exists. */
+export function openChatTab(layout: Layout): Layout {
+  for (const pane of panes(layout.root)) {
+    const index = pane.tabs.findIndex((t) => t.kind === "chat");
+    if (index >= 0) return activate(layout, pane.id, index);
+  }
+  return withRail(layout, makeTab("chat", CHAT_TAB, "Agent"));
+}
+
+/** Furniture: panes that are part of the window rather than of the work.
+ *
+ * The folder tree, and any other tool pane. There used to be a second entry
+ * here — a pane listing every terminal session — and removing it is the point
+ * of this window having ONE tree: a terminal has a working directory, the
+ * tree already draws directories, and two trees meant two places to look for
+ * "what is going on", neither of them the place you were already looking.
+ * Terminals are icons on their directory's row now (shell/FolderTreePane). */
+function isFurniture(t: Tab): boolean {
+  return t.kind === "tree" || t.kind === "tool" || t.kind === "chat";
+}
+
+/**
+ * Whether the workspace is still untouched: nothing open but furniture (the
+ * tree pane, the terminals list). Only here may a document's declared layout
+ * be applied — an arrangement someone has started filling is theirs, and a
+ * declaration must never reset it (merging a declared layout into a busy
+ * workspace is out of scope, deliberately).
+ */
+export function isWorkspaceEmpty(layout: Layout): boolean {
+  return panes(layout.root).every((pane) => pane.tabs.every(isFurniture));
+}
+
+/** The pane holding a document's tab, when one does. Identity is the doc id:
+ * a path can be renamed under a tab, an id cannot. */
+export function findDocTab(
+  layout: Layout,
+  docId: string,
+): { pane: Pane; tab: Tab; index: number } | null {
+  for (const pane of panes(layout.root)) {
+    const index = pane.tabs.findIndex((t) => t.kind === "document" && t.docId === docId);
+    if (index >= 0) return { pane, tab: pane.tabs[index], index };
+  }
+  return null;
+}
+
+/** Every document the layout involves: doc tabs' own ids plus the owners of
+ * generated tabs, in first-appearance order. These are the documents whose
+ * machinery (CRDT room, runs, LSP, debugger) must be alive. */
+export function docIdsIn(layout: Layout): string[] {
+  const ids: string[] = [];
+  for (const pane of panes(layout.root)) {
+    for (const t of pane.tabs) {
+      if (!t.docId) continue;
+      if ((t.kind === "document" || t.kind === "generated") && !ids.includes(t.docId)) {
+        ids.push(t.docId);
+      }
+    }
+  }
+  return ids;
+}
+
+/** A pane a document may open into: the focus, unless the focus is the tree
+ * pane (opening over the tree would bury it) — then any other pane. */
+function openablePane(layout: Layout): string | null {
+  const all = panes(layout.root);
+  const focused = all.find((pane) => pane.id === layout.focus);
+  if (focused && !focused.tabs.some((t) => t.kind === "tree")) return focused.id;
+  const other = all.find((pane) => !pane.tabs.some((t) => t.kind === "tree"));
+  return other?.id ?? null;
+}
+
+/**
+ * Open a document: activate its tab wherever it already is, or add a tab in
+ * the focused pane. The rest of the layout is untouched — every other pane,
+ * tab, size and collapse survives exactly as it was.
+ */
+export function openDocTab(layout: Layout, docId: string, path: string, preferred?: string): Layout {
+  const existing = findDocTab(layout, docId);
+  if (existing) return activate(layout, existing.pane.id, existing.index);
+  const into = preferred && panes(layout.root).some(pane => pane.id === preferred) ? preferred : openablePane(layout);
+  const entry = makeTab("document", path, path.split("/").pop(), docId);
+  if (into) return openInLayout(layout, entry, into);
+  // Every pane is the tree's (or there are none): give the document a pane
+  // of its own beside the tree rather than burying the folder under it.
+  const grown = split(layout, layout.focus, "row");
+  return openInLayout(grown, entry, grown.focus);
+}
+
+/**
+ * Show a terminal session: front its tab if one exists, else add one.
+ *
+ * The same "ensure open" shape as a document, and for the same reason —
+ * answering a prompt or clicking a session row must never rearrange the
+ * window someone has built. The tab's target is the session id, so a session
+ * has at most one tab however many times it is asked for.
+ */
+export function openTerminalTab(layout: Layout, sessionId: string, title: string): Layout {
+  for (const pane of panes(layout.root)) {
+    const index = pane.tabs.findIndex((t) => t.kind === "terminal" && t.target === sessionId);
+    if (index >= 0) return activate(layout, pane.id, index);
+  }
+  const entry = makeTab("terminal", sessionId, title);
+  const into = openablePane(layout);
+  if (into) return openInLayout(layout, entry, into);
+  const grown = split(layout, layout.focus, "row");
+  return openInLayout(grown, entry, grown.focus);
+}
+
+/** Activate a document's tab if it has one. Null when it does not — the
+ * caller then knows an open (with a fetched path) is needed. */
+export function activateDocTab(layout: Layout, docId: string): Layout | null {
+  const existing = findDocTab(layout, docId);
+  if (!existing) return null;
+  // Already front-and-centre: hand back the same layout so effects that
+  // compare identity can tell nothing happened.
+  if (existing.pane.active === existing.index && layout.focus === existing.pane.id) return layout;
+  return activate(layout, existing.pane.id, existing.index);
+}
+
+/**
+ * A document opened into an EMPTY workspace, when the document declares its
+ * own layout: build the declared regions, keep the tree, and put the
+ * document where its globs say. The only situation a declaration may shape
+ * the window — see isWorkspaceEmpty.
+ */
+export function openIntoDeclared(regions: readonly Region[], docId: string, path: string): Layout {
+  const built = withTree(fromRegions(regions), makeTab("tree", "folder", "Files"));
+  const target = paneFor(built, regions, path);
+  return openInLayout(built, makeTab("document", path, path.split("/").pop(), docId), target);
+}
+
+/**
+ * Open a generated file, owned by `docId`.
+ *
+ * Under a declared layout the regions say where. Freeform opens it BESIDE
+ * the pane showing its document — a generated file on top of the document
+ * that produced it hides the comparison it exists for, and no ribbon can be
+ * drawn between a pane and itself.
+ */
+export function openGeneratedTab(
+  layout: Layout,
+  docId: string,
+  path: string,
+  regions: readonly Region[],
+  preferred?: string,
+): Layout {
+  const entry = makeTab("generated", path, path.split("/").pop(), docId);
+  if (preferred && panes(layout.root).some(pane => pane.id === preferred)) return openInLayout(layout, entry, preferred);
+  if (regions.length > 0) return openInLayout(layout, entry, paneFor(layout, regions, path));
+  // Beside the document's own pane when it has one, else beside the focus —
+  // and never onto the tree pane, which is chrome the way dragDrop.ts's
+  // refusal already says: a file joined to it would bury the folder.
+  const anchor = findDocTab(layout, docId)?.pane.id ?? layout.focus;
+  const others = panes(layout.root).filter(
+    (pane) => pane.id !== anchor && !pane.tabs.some((t) => t.kind === "tree"),
+  );
+  const side = (others.find((pane) => pane.tabs.length === 0) ??
+    others.find((pane) => !pane.tabs.some((t) => t.kind === "document")) ??
+    others[0])?.id;
+  if (side) return openInLayout(layout, entry, side);
+  const opened = split(layout, anchor, "row");
+  return openInLayout(opened, entry, opened.focus);
+}
+
+/** The pane holding a plain file's tab, when one does. Identity is the
+ * path — a plain file has no id, and the path is what the tab shows. */
+export function findFileTab(
+  layout: Layout,
+  path: string,
+): { pane: Pane; tab: Tab; index: number } | null {
+  for (const pane of panes(layout.root)) {
+    const index = pane.tabs.findIndex((t) => t.kind === "file" && t.target === path);
+    if (index >= 0) return { pane, tab: pane.tabs[index], index };
+  }
+  return null;
+}
+
+/**
+ * Open a plain file: activate its tab wherever it already is, or add a tab
+ * in the focused pane — the same "ensure open" a document gets, with no
+ * docId because no document owns it.
+ */
+export function openFileTab(layout: Layout, path: string, preferred?: string): Layout {
+  const existing = findFileTab(layout, path);
+  if (existing) return activate(layout, existing.pane.id, existing.index);
+  const into = preferred && panes(layout.root).some(pane => pane.id === preferred) ? preferred : openablePane(layout);
+  const entry = makeTab("file", path, path.split("/").pop());
+  if (into) return openInLayout(layout, entry, into);
+  const grown = split(layout, layout.focus, "row");
+  return openInLayout(grown, entry, grown.focus);
+}
+
+/** A filesystem rename keeps its already-open editor exactly where it is;
+ * only the path identity and tab caption move with the file. */
+export function renameFileTab(layout: Layout, from: string, to: string): Layout {
+  const replace = (tab: Tab): Tab =>
+    tab.kind === "file" && tab.target === from
+      ? { ...tab, target: to, title: to.split("/").pop() ?? to }
+      : tab;
+  const walk = (node: Layout["root"]): Layout["root"] =>
+    node.type === "pane"
+      ? { ...node, tabs: node.tabs.map(replace) }
+      : { ...node, children: node.children.map(walk) };
+  return { ...layout, root: walk(layout.root) };
+}
+
+/** Remove tabs whose backing file disappeared. A deleted directory also
+ * retires every file tab under it; drafts and tools do not have a backing
+ * filesystem path and deliberately remain. */
+export function closeTabsForDeletedPaths(layout: Layout, paths: readonly string[]): Layout {
+  const deleted = paths.filter(Boolean);
+  if (!deleted.length) return layout;
+  const removed = (target: string) => deleted.some(path => target === path || target.startsWith(`${path}/`));
+  let next = layout;
+  for (const pane of panes(layout.root)) {
+    for (const entry of pane.tabs) {
+      if (["document", "generated", "file"].includes(entry.kind) && removed(entry.target)) {
+        const live = panes(next.root).find(candidate => candidate.tabs.some(tab => tab.id === entry.id));
+        if (live) next = closeTab(next, live.id, entry.id);
+      }
+    }
+  }
+  return next;
+}
+
+/**
+ * A plain file was adopted into a document: its tab becomes a GENERATED tab
+ * owned by `docId`, in place — the same surgery adoptUntitledTab performs,
+ * for the same reason: the buffer's position among its neighbours must not
+ * move when the file underneath it gains an owner. The target changes from
+ * the tree's root-relative path to `outputPath`, the document-relative name
+ * the weave keys the output by, which is what generated panes fetch.
+ */
+export function adoptPlainFileTab(
+  layout: Layout,
+  path: string,
+  docId: string,
+  outputPath: string,
+): Layout {
+  const swap = (t: Tab): Tab =>
+    t.kind === "file" && t.target === path
+      ? { ...t, kind: "generated", target: outputPath, docId }
+      : t;
+  const apply = (node: Layout["root"]): Layout["root"] =>
+    node.type === "pane"
+      ? { ...node, tabs: node.tabs.map(swap) }
+      : { ...node, children: node.children.map(apply) };
+  return { ...layout, root: apply(layout.root) };
+}
+
+/** Ensure the route has an unnamed buffer; an explicit New always adds one. */
+export function openUntitledTab(layout: Layout, create = false): Layout {
+  const existing = panes(layout.root).flatMap(pane => pane.tabs).filter(tab => tab.kind === "untitled");
+  if (!create) {
+    const focused = panes(layout.root).find(pane => pane.id === layout.focus);
+    if (focused?.tabs[focused.active]?.kind === "untitled") return layout;
+    for (const pane of panes(layout.root)) {
+      const index = pane.tabs.findIndex(tab => tab.kind === "untitled");
+      if (index >= 0) return activate(layout, pane.id, index);
+    }
+  }
+  const into = openablePane(layout);
+  const titles = new Set(existing.map(tab => tab.title));
+  let title = "Untitled";
+  for (let n = 2; titles.has(title); n++) title = `Untitled ${n}`;
+  const entry = { ...makeTab("untitled", "untitled", title), id: `untitled-${crypto.randomUUID()}` };
+  if (existing.length) entry.target = entry.id;
+  if (into) return openInLayout(layout, entry, into);
+  const grown = split(layout, layout.focus, "row");
+  return openInLayout(grown, entry, grown.focus);
+}
+
+/** Open (or re-activate) the scratchpad. One at a time: a second scratchpad would split someone's train of thought across
+ * two places, and the point of it is that there is one place to put a thought
+ * before it has a name. */
+export function openScratchpadTab(layout: Layout): Layout {
+  for (const pane of panes(layout.root)) {
+    const index = pane.tabs.findIndex((t) => t.kind === "scratchpad");
+    if (index >= 0) return activate(layout, pane.id, index);
+  }
+  const into = openablePane(layout);
+  const entry = makeTab("scratchpad", "scratchpad", "Scratchpad");
+  if (into) return openInLayout(layout, entry, into);
+  const grown = split(layout, layout.focus, "row");
+  return openInLayout(grown, entry, grown.focus);
+}
+
+/**
+ * The untitled buffer became a real document: convert its tab IN PLACE.
+ *
+ * Surgery on the tab rather than close-and-open, so the buffer's position
+ * among its neighbours — the thing the person can see — does not move when
+ * the file underneath it gains a name.
+ */
+export function adoptUntitledTab(layout: Layout, tabId: string, docId: string, path: string): Layout {
+  const swap = (t: Tab): Tab =>
+    t.id === tabId && t.kind === "untitled"
+      ? { ...t, kind: "document", target: path, title: path.split("/").pop(), docId }
+      : t;
+  const apply = (node: Layout["root"]): Layout["root"] =>
+    node.type === "pane"
+      ? { ...node, tabs: node.tabs.map(swap) }
+      : { ...node, children: node.children.map(apply) };
+  return { ...layout, root: apply(layout.root) };
+}
+
+/**
+ * Which document the keyboard would reach: the focused pane's active tab's
+ * document. A focused tree (or an empty pane) answers null, and the caller
+ * falls back to the document that was focused last — chrome must not make
+ * "the current document" flicker to nothing.
+ */
+export function focusedDocId(layout: Layout): string | null {
+  const pane = panes(layout.root).find((candidate) => candidate.id === layout.focus);
+  const active = pane?.tabs[pane.active];
+  if (!active) return null;
+  if ((active.kind === "document" || active.kind === "generated") && active.docId) {
+    return active.docId;
+  }
+  return null;
+}
+</book:entry>
+
+</book:doc>

@@ -1,0 +1,87 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# examples/receipts/hick-agent/fix.md
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+This is preserved output from the original capture. Current requirement dispositions are in the integrated guarantee pages.
+
+
+Captured SHA-256: `2d13428f58e2238fa712c77b81d051c1b5d70d9f2d6b255a65982188ed9aeda8`.
+
+<book:entry path="examples/receipts/hick-agent/fix.md">
+---
+date: 2026-08-21
+---
+
+# The pool fix
+
+<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.md" />
+
+## Proposal
+
+<hick:paste select="#transcript-u5" />
+
+## Implementation
+
+<hick:container name="py" image="python:3.12" />
+<hick:volume name="src" input="." />
+
+<hick:file path="fix/pool.py">
+import os
+
+DEFAULT_POOL_SIZE = 10
+FIXED_POOL_SIZE = 40
+ACQUIRE_TIMEOUT_SECONDS = 2.0
+
+def pool_settings(env=os.environ):
+    if env.get('CHECKOUT_POOL_FIX') == '1':
+        return {'size': FIXED_POOL_SIZE, 'acquire_timeout': ACQUIRE_TIMEOUT_SECONDS}
+    else:
+        return {'size': DEFAULT_POOL_SIZE, 'acquire_timeout': None}
+</hick:file>
+
+<hick:exec id="test-pool" container="py" mount="src:project" show="output">
+cat > /tmp/pool.py << 'PYEOF'
+import os
+
+DEFAULT_POOL_SIZE = 10
+FIXED_POOL_SIZE = 40
+ACQUIRE_TIMEOUT_SECONDS = 2.0
+
+def pool_settings(env=os.environ):
+    if env.get('CHECKOUT_POOL_FIX') == '1':
+        return {'size': FIXED_POOL_SIZE, 'acquire_timeout': ACQUIRE_TIMEOUT_SECONDS}
+    else:
+        return {'size': DEFAULT_POOL_SIZE, 'acquire_timeout': None}
+PYEOF
+
+python3 << 'EOF'
+import sys
+sys.path.insert(0, '/tmp')
+import pool
+import os
+
+print(pool.pool_settings({}))
+os.environ['CHECKOUT_POOL_FIX'] = '1'
+print(pool.pool_settings())
+EOF
+<hick:expect match="exact">{'size': 10, 'acquire_timeout': None}
+{'size': 40, 'acquire_timeout': 2.0}
+</hick:expect>
+<hick:ingested key="fd2afee96a9ba93e7a15de9ff1d24943fa6799d99929091466fccf4e7edcf780" sha256="cf2706682adde03d90616e2ba42f51c942a3ec825a77fe5ddb0b2dcfa41d8858" at="2026-09-03">
+{'size': 10, 'acquire_timeout': None}
+{'size': 40, 'acquire_timeout': 2.0}
+</hick:ingested></hick:exec>
+
+## Findings
+
+<hick:copy id="fix-summary" class="finding">
+The fix raises the connection pool from 10 to 40 connections and adds a 2-second acquire timeout. The change is gated behind the CHECKOUT_POOL_FIX=1 environment variable.
+</hick:copy>
+
+<hick:copy id="forty-is-safe" class="finding">
+Forty connections per replica is safe: the Postgres instance is configured for 200 connections, three app replicas at 40 each totals 120, which is within capacity.
+</hick:copy>
+</book:entry>
+
+</book:doc>

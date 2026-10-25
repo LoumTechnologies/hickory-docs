@@ -1,0 +1,18 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# .skills/scaffold-hand-skill/agents/openai.yaml
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+This is preserved output from the original capture. Current requirement dispositions are in the integrated guarantee pages.
+
+
+Captured SHA-256: `bae801840d16302bfcc80a345b2fa0ff69c29cc724285dc365391a1400dcc669`.
+
+<book:entry path=".skills/scaffold-hand-skill/agents/openai.yaml">
+interface:
+  display_name: "Scaffold Hand Skill"
+  short_description: "Author/update/retire technology hands for the market-learning brain"
+  default_prompt: "Use $scaffold-hand-skill to author, update, or retire a technology-specific hand skill for the $maximize-market-learning system from a one-line hand intent (technology · job · driving cohort). Enforce the shared two-way contract — every hand must return a priori feasibility, observed reality, typed confusion, and declared unknowables specific to its technology — plus the subagent/on-disk-file execution model, graceful degradation, and reuse of existing substrates. Follow repo conventions exactly (SKILL.md + agents/openai.yaml, capability name with no brain-family prefix), then register the hand in the brain's delegation table and the design doc. Retirement mirrors persona-retire discipline: evidence-based, not churn."
+</book:entry>
+
+</book:doc>

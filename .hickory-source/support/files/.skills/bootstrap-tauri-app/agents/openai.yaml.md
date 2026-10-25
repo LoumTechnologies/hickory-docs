@@ -1,0 +1,18 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# .skills/bootstrap-tauri-app/agents/openai.yaml
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+This is preserved output from the original capture. Current requirement dispositions are in the integrated guarantee pages.
+
+
+Captured SHA-256: `535ddbee051303eb1698873fc6981a324a568eea7e7d2d1a142c6dafad4871f6`.
+
+<book:entry path=".skills/bootstrap-tauri-app/agents/openai.yaml">
+interface:
+  display_name: "Bootstrap Tauri App"
+  short_description: "Single entry point for a new Tauri v2 app: structure, feedback loop, optional CLI twins, optional mobile"
+  default_prompt: "Use $bootstrap-tauri-app to create a new Tauri v2 app: a shell composing ordinary Rust core crates and React/TypeScript UI packages without a plugin framework, wired up with the $retrofit-tauri-loop feedback loop from the start, and optionally CLI twins and iPhone/Android/desktop-everywhere support based on what the user wants."
+</book:entry>
+
+</book:doc>

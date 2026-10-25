@@ -1,0 +1,4801 @@
+{
+  "documents": [
+    {
+      "path": "docs/guarantees/agent/a-claude-code-transcript-imports-as-a-session.md",
+      "sha256": "5da2f5ddedcb8b990ea03c495ec3ecd068ba0271302d886bb1dea2b1df16fb6b",
+      "bytes": 5604,
+      "lines": 95,
+      "title": "A Claude Code Transcript Imports As A Session",
+      "headings": [
+        "## The mapping",
+        "## The no-escaping invariant",
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/a-desktop-app-bundles-its-python-agent.md",
+      "sha256": "f97cac57da7e5ca22f9767f7dc8e0ee22554660b8ebd75183339271794744cd5",
+      "bytes": 6907,
+      "lines": 105,
+      "title": "A desktop app bundles its own Python agent",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/a-missing-key-degrades-to-a-note.md",
+      "sha256": "0f8298955d0273fb77947eca133be57ce657db78a4dd11bf50ea6874a0d2054e",
+      "bytes": 2206,
+      "lines": 40,
+      "title": "A Missing Key Degrades to a Note, Never a Crash",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/a-running-agent-can-be-stopped.md",
+      "sha256": "b58072897dd7ca7717f33e7a76a291bff25ba8b6c80ff8eae59fd93aba0f7603",
+      "bytes": 3763,
+      "lines": 70,
+      "title": "A running agent can be stopped",
+      "headings": [
+        "## Historical evidence for the retired implementation"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/a-script-cannot-hang-or-flood-a-session.md",
+      "sha256": "f3c00f17bb79b3d9bca77f6c8062597718c3f1903f31b001c1bf967d61dbc7f6",
+      "bytes": 2081,
+      "lines": 40,
+      "title": "Model snippets cannot hang or flood an agent session indefinitely",
+      "headings": [
+        "## Historical evidence for the retired implementation"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/a-session-is-the-conversation.md",
+      "sha256": "9abb31fc274dca00a19fa771a731689847e790ebadea98ae9b6c978335a8df80",
+      "bytes": 8146,
+      "lines": 133,
+      "title": "A Session File Is The Conversation, And Opens As One",
+      "headings": [
+        "## Boundary",
+        "## Shared UI continuation \u2014 2026-10-20"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/agent/a-session-names-the-provider-it-actually-ran-on.md",
+      "sha256": "879359ccca1cade057071947456a7704d9721a1243ba7a1f7331138839cd6958",
+      "bytes": 2594,
+      "lines": 48,
+      "title": "A Session Names the Provider It Actually Ran On",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/acp-agents-are-first-class.md",
+      "sha256": "0def8776d83037d86b2516a3b296aba9c941175b57a9509b83d42d6b1794a5d1",
+      "bytes": 7555,
+      "lines": 121,
+      "title": "ACP Agents Work In The Agent Pane And Leave A Hickory Record",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/an-agent-cell-is-a-dag-barrier.md",
+      "sha256": "4965b0c1027c366511395d06d1f2aa3973118c1657e7eae0463efbc6e2776a69",
+      "bytes": 5407,
+      "lines": 99,
+      "title": "An Agent Cell Is A DAG Vertex, And Its Edges Are A Barrier",
+      "headings": [
+        "## Why a barrier, and not something cleverer",
+        "## Identity: containerless",
+        "## Not guaranteed"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/an-agent-recording-is-keyed-by-prompt-and-model.md",
+      "sha256": "69404d8fb843176a4c980867ca531d88ee352c8137d7896678373d75070a2cbd",
+      "bytes": 4262,
+      "lines": 83,
+      "title": "An Agent Recording Is Keyed By The Prompt And The Model",
+      "headings": [
+        "## Why both, and why not more",
+        "## The model must be nameable before the cell runs",
+        "## The honest cost"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/an-answer-in-the-agent-pane-has-ribbons.md",
+      "sha256": "c43e071eb3177e894e0b0b1d150840cf5b3e34156625bc5a1dbe6619bb7768d9",
+      "bytes": 16209,
+      "lines": 252,
+      "title": "An Answer In The Agent Pane Has Ribbons",
+      "headings": [
+        "## How it reads (amended 2026-09-06, from using it)",
+        "## ACP answers and visibility (2026-10-01)",
+        "## Boundary"
+      ],
+      "supersession_mentions": 7
+    },
+    {
+      "path": "docs/guarantees/agent/an-empty-response-never-kills-a-session.md",
+      "sha256": "4baf6421125868c6648790b4fc5d9b6c59abffb40ba1d5b7f50adff7bc5effd4",
+      "bytes": 2276,
+      "lines": 43,
+      "title": "An Empty Response Never Kills a Session",
+      "headings": [],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/guarantees/agent/an-exhausted-turn-budget-hands-off.md",
+      "sha256": "69b69423f5fa02b38ce60df10ad2dbafb2603b3aaf745592b0455c283a5dac60",
+      "bytes": 1944,
+      "lines": 38,
+      "title": "An exhausted Python iteration budget retains incomplete work",
+      "headings": [
+        "## Historical evidence for the retired implementation"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/an-upstream-refusal-names-the-declaring-document.md",
+      "sha256": "3eb2ae3be0cc3d75197159959d5839752c29b8862f67d9e026a5be8ee3f85c48",
+      "bytes": 3688,
+      "lines": 65,
+      "title": "An Upstream Refusal Names The Declaring Document",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/assumptions-remain-auditable-after-the-work.md",
+      "sha256": "6fd009c24110aa3cdc39abb9241886ad2888d236b14806f68c4617bdb6c59eae",
+      "bytes": 3957,
+      "lines": 68,
+      "title": "Assumptions remain auditable after the work",
+      "headings": [
+        "## Shared audit inspection and declaration authority (2026-10-20)"
+      ],
+      "supersession_mentions": 6
+    },
+    {
+      "path": "docs/guarantees/agent/byo-agent-tool-surface.md",
+      "sha256": "d1e100cbe2b67b55a834183930e61d9a5f18efb0c6220776ae69d89cf112f531",
+      "bytes": 5234,
+      "lines": 92,
+      "title": "An Outside Coding Agent Gets The Same Document Tools As The Built-In One",
+      "headings": [
+        "## Why the MCP surface is the better one",
+        "## Boundary \u2014 what an outside agent's session does NOT contain"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/agent/byok-key-at-rest.md",
+      "sha256": "da6003b164e1c37d3e38b3599f4b73fb59ea4ccdc0b71f421ad5402e171c7bc3",
+      "bytes": 3106,
+      "lines": 56,
+      "title": "A Stored Provider Key Is Sealed At Rest And Never Readable Back",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/byok-key-selection.md",
+      "sha256": "f03faf2d3eadf6a6f4e0764f15abba66dc5dcb0d44e34c213bb8f8847c0a2b54",
+      "bytes": 2289,
+      "lines": 46,
+      "title": "One Key Is Chosen Without Asking; A Second Key Creates A Question",
+      "headings": [
+        "## Why \"never asked\" is a guarantee and not a UI detail"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/byok-plan-boundary.md",
+      "sha256": "8b1bf9c13ccb59389bb4ac30a94de7f02576f829bb27f01f1e1e0fc469f6f898",
+      "bytes": 3960,
+      "lines": 73,
+      "title": "A Bring-Your-Own-Key Plan Never Spends The Deployment's Credential",
+      "headings": [
+        "## Why this is a guarantee and not a preference",
+        "## Boundary"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/agent/changeset-completion-is-negotiated-and-checked.md",
+      "sha256": "e05012266ca93b0847a1f4e97d54e6498911ed09e6d58c964c412fa3df6030a9",
+      "bytes": 11265,
+      "lines": 180,
+      "title": "Changeset completion is negotiated and checked",
+      "headings": [
+        "## Inspected dependency hashes",
+        "## Final regression results",
+        "## Workspace/editor continuation (2026-10-17)",
+        "## Final-artifact revision continuation (2026-10-17)"
+      ],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/guarantees/agent/completion-does-not-certify-verification.md",
+      "sha256": "f7c20e3135231fe6149882a1577051879a35a7de3fb056d8484ccb2b29a5310b",
+      "bytes": 2134,
+      "lines": 43,
+      "title": "Completion does not certify runtime verification",
+      "headings": [
+        "## Historical evidence for the retired implementation"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/context-protocol-validates-lineage.md",
+      "sha256": "5ffc4ceae9e07ca1725672c94af51716aa0e939945555504c9b747f0f11b26c1",
+      "bytes": 6651,
+      "lines": 98,
+      "title": "Context protocol validates declared byte lineage before integration",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/context-provenance-is-derived-from-the-session.md",
+      "sha256": "3f905926f6a26e2e668379c44647fa0049cc81f2cd16c9125b3dac419b02f534",
+      "bytes": 5528,
+      "lines": 95,
+      "title": "Context Provenance Is Derived From The Session, Never From The Model",
+      "headings": [
+        "## Exact returned ranges (2026-10-07)",
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/conversation-edits-use-the-client-review-policy.md",
+      "sha256": "2fac73bc3fe2e302436d7319f42147972c482974254f1dba547d7cc57375eb54",
+      "bytes": 6506,
+      "lines": 104,
+      "title": "Conversation edits use the client's review policy",
+      "headings": [
+        "## October 21 reachable-review correction"
+      ],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/guarantees/agent/edit-session-staleness-impossible.md",
+      "sha256": "a6f1c18c8d295d3bdc894ff8c5e3c2bd66fc1f3fa474ec260265c514493641e1",
+      "bytes": 2442,
+      "lines": 44,
+      "title": "An Agent Edit Session Never Applies A Stale Edit",
+      "headings": [],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/agent/expanded-reading-projection.md",
+      "sha256": "805c1214cc901e40e316a30474547521725b83b6805f6e23d3e396f5d8b9e31a",
+      "bytes": 4856,
+      "lines": 78,
+      "title": "Selected reading scope remains separate from complete edit state",
+      "headings": [
+        "## 2026-10-22 inline runtime disclosure review"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/explicit-context-updates.md",
+      "sha256": "ee8426e707c2abe5e60cc0408f730e2c01f13a8b7f8d5960da746469636e362c",
+      "bytes": 6511,
+      "lines": 105,
+      "title": "Explicit context updates preserve confirmed history",
+      "headings": [
+        "## October 21 provider-workflow continuation"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/agent/final-changeset-revisions-apply-b-to-c.md",
+      "sha256": "19edc09e638919fefee8c6d073f10e2bd0f589ec0ff22f52c946e711c447e3b3",
+      "bytes": 4752,
+      "lines": 74,
+      "title": "A final changeset revision applies B to C",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/historical-evidence-stays-historical.md",
+      "sha256": "386ffbb5e6dd00a8bd72244a068040c931a9b2fac3183240d42d4679da435eb6",
+      "bytes": 2221,
+      "lines": 41,
+      "title": "Historical evidence stays historical",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/immutable-context-lineage.md",
+      "sha256": "b536157b0d2dc71bb0f05691ba8e601067e7c7a3a40f195dbedc8bd257beddc3",
+      "bytes": 8847,
+      "lines": 124,
+      "title": "Host context observations are immutable and changes are source-backed",
+      "headings": [
+        "## Captured image artifacts \u2014 October 20 follow-up"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/keys-are-stored-locally-and-never-leave.md",
+      "sha256": "5ffad2b998faab5ae4762f4fcd403dc4b910bac98fcef71d0c89300d019b777b",
+      "bytes": 5119,
+      "lines": 89,
+      "title": "A Provider Key Entered in Settings Stays on This Machine",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/agent/python-execution-has-two-boundaries.md",
+      "sha256": "a286a951db1d57388d5fcc9f0cfb22a14ad6ebe0b50ce26cefe179d06ff3b5bc",
+      "bytes": 10819,
+      "lines": 156,
+      "title": "Python agent code crosses two explicit boundaries",
+      "headings": [
+        "## Historical evidence for the retired implementation"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/agent/python-requests-have-validated-context.md",
+      "sha256": "92805b2a84182d713a64a461e71307c94ba4ca7b2caae4d7b4722640b6b9d250",
+      "bytes": 5012,
+      "lines": 76,
+      "title": "Python model requests carry validated context manifests",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/re-preparation-terminates.md",
+      "sha256": "3821a51897984be58939e769ec2173ed53fda242714fd5769f577678d0738cca",
+      "bytes": 4594,
+      "lines": 87,
+      "title": "Re-Preparation After An Agent Edit Terminates, Under A Declared Bound",
+      "headings": [
+        "## The fixed point",
+        "## The bound",
+        "## Identity across the agent's own edits",
+        "## Not guaranteed"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/reasoning-is-shown-apart-from-the-answer.md",
+      "sha256": "76fa2558fd06dc1186d6598de0c1efb298060edccdb75685ff77f5c5fa37c694",
+      "bytes": 1959,
+      "lines": 37,
+      "title": "The Model's Reasoning Is Shown Apart From Its Answer, Folded",
+      "headings": [],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/agent/recording-failure-is-visible.md",
+      "sha256": "ca3c59c0c1701aa6a6286326ece4db092a0473adfe7e791ebff0291d1d3aca41",
+      "bytes": 1439,
+      "lines": 30,
+      "title": "Recording failure is visible",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/refresh-experiments-preserve-evidence.md",
+      "sha256": "faa7df3d2b272c14947ec1ce7d9d40035372000d4496286fba79fc10b41a0bcd",
+      "bytes": 3650,
+      "lines": 61,
+      "title": "Local refresh experiments preserve historical request evidence",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/rewind-and-re-run-are-two-different-acts.md",
+      "sha256": "8410a3737773a45e31a3341e51d5ce9a792d8e80dbe6ff51fc3c4cbc2c151c01",
+      "bytes": 3680,
+      "lines": 66,
+      "title": "Rewind And Re-Run Are Named Apart, And The Difference Is What Is Kept",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/scoped-reading-surfaces-share-native-actions.md",
+      "sha256": "eeb2f124f3bd9b1582493d12c26617b5888a2200c982519bba2116df3a567d06",
+      "bytes": 11227,
+      "lines": 169,
+      "title": "Captured reading surfaces share owned native actions",
+      "headings": [
+        "## Verification record \u2014 2026-10-20",
+        "## Source launch rail continuation"
+      ],
+      "supersession_mentions": 4
+    },
+    {
+      "path": "docs/guarantees/agent/test-never-spends-tokens.md",
+      "sha256": "0b7624b10c880d08b1fea9fdb8e3354015bf1b7140d68725514d731cde6734de",
+      "bytes": 3685,
+      "lines": 69,
+      "title": "`hick test` Never Spends The Reader's Tokens",
+      "headings": [
+        "## Why",
+        "## What the reader sees"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/the-agent-can-author-a-diagram.md",
+      "sha256": "e0ca7404478ddf872e32fb898e2afec3f96fae2bd97d172066af672136dbf5bd",
+      "bytes": 2380,
+      "lines": 44,
+      "title": "The Agent Can Author A Diagram",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/the-agent-is-told-the-language.md",
+      "sha256": "7368fc1b0ebab71d441611fc661aa777601619e9f7780f3e634ac1f088796e6f",
+      "bytes": 2701,
+      "lines": 52,
+      "title": "The Built-In Agent Is Told The Document Language, And Where Its Scripts Run",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/agent/the-agent-pane-is-a-live-document.md",
+      "sha256": "8e15f39fa0d1c845e95c26bbd073be5882a0a7cddf82d580b3aa876d2a5e9053",
+      "bytes": 5324,
+      "lines": 87,
+      "title": "The Agent pane is a live document",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/the-agent-sees-the-open-editors.md",
+      "sha256": "95de37d6ead137366e8f26ae0e1173f2b8b83a5aa4e00c04848b37ba95db147d",
+      "bytes": 4791,
+      "lines": 78,
+      "title": "The agent sees the open editors",
+      "headings": [],
+      "supersession_mentions": 3
+    },
+    {
+      "path": "docs/guarantees/agent/the-dock-reports-spend-and-runs-the-chosen-model.md",
+      "sha256": "ddecd0c320de67274605ceec75173c172f78654d41b27fa545505fd6362bae68",
+      "bytes": 3057,
+      "lines": 56,
+      "title": "The Dock Reports Spend and Runs the Chosen Model",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/the-editable-set-is-the-pipeline-closure.md",
+      "sha256": "ee90f054133a0e5533434a59cb41997a8f5ba22ca8a30305143bbeebfddc05df",
+      "bytes": 2906,
+      "lines": 53,
+      "title": "The Editable Set Is the Pipeline Closure",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/the-mounted-workspace-keeps-source-and-output-together.md",
+      "sha256": "e7925d19fc891c49533788a9fec41bcd6ce3ba58d31fa5f7a64b5fd08ca33bb2",
+      "bytes": 3418,
+      "lines": 56,
+      "title": "A protected workspace save is validated against the revision it read",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/ui-action-dispatch.md",
+      "sha256": "46c72e4344eb8c6355706af3848cb0d9da48ccf3c2e31494c30f2835f0472b18",
+      "bytes": 89097,
+      "lines": 1016,
+      "title": "Explicit UI action dispatch checks scope, state, policy and retries",
+      "headings": [
+        "## 2026-10-22: native window controls and post-End close",
+        "## 2026-10-22: shared tooltip disclosure",
+        "## Monotonic browser confinement \u2014 October 22"
+      ],
+      "supersession_mentions": 16
+    },
+    {
+      "path": "docs/guarantees/agent/unsent-responses-survive-restart.md",
+      "sha256": "51454c4b5643118a14805e6d50ddd513c29777ee9dab936e74a350efe6e7b02c",
+      "bytes": 7340,
+      "lines": 110,
+      "title": "Unsent responses survive restart",
+      "headings": [
+        "## Limits"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/agent/verify-covers-the-whole-editable-set.md",
+      "sha256": "4baebb23a38a46c1b392bd28d7af420a7dce2d5ddc88f7ddf6af9dfcf417a932",
+      "bytes": 5072,
+      "lines": 85,
+      "title": "Verify Covers the Whole Editable Set",
+      "headings": [
+        "## Optional verified publication \u2014 October 21, 2026 continuation"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/analytics/landing-attribution-is-first-touch.md",
+      "sha256": "6ec82611c3f326eccf78f5dd72d8a8ef7b651e5482e03da1e3aafd4d0a96421e",
+      "bytes": 2548,
+      "lines": 43,
+      "title": "Landing Attribution Credits The First Touch, And Survives The Hash Router",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/analytics/landing-beacon-is-narrow.md",
+      "sha256": "fe3f2537a25e05907e78380aad5696a337ffe9ca81e020207943b1943a9c19ad",
+      "bytes": 2440,
+      "lines": 43,
+      "title": "The Landing Beacon Forwards Only Declared Events With Scalar Properties",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/analytics/landing-declared-vs-revealed.md",
+      "sha256": "6547104e425546d379a6499d2089c454dc0e8de4155fb0d078cd4d43112b2cbd",
+      "bytes": 2720,
+      "lines": 48,
+      "title": "Declared Identity Is Recorded Separately From Revealed Interest, And Both",
+      "headings": [],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/analytics/landing-demo-engagement.md",
+      "sha256": "e7b2abc372bd44754b6fd7b8f2b69919dd9eecd88e2d29f9a6cf10c2c01cf1e0",
+      "bytes": 2400,
+      "lines": 45,
+      "title": "Driving The Home-Page Demo Is Reported As Revealed Interest",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/analytics/landing-events-fire-once.md",
+      "sha256": "7d5c3d45f5ffe82acd8a43947901273b515ae4bc2fa83888b2fa73a9e4da2be2",
+      "bytes": 1343,
+      "lines": 27,
+      "title": "A Visit Is Reported Exactly Once Per Page Load",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/analytics/landing-interest-vector.md",
+      "sha256": "b1fab8c9c67ab5d453772da3b79b08d9edd82ed4350605b4c737e36063902fdb",
+      "bytes": 2436,
+      "lines": 44,
+      "title": "Opening An Interest Section Is Recorded, With Dwell On Close",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/audits/2026-10-07-agent-misleading-output.md",
+      "sha256": "7c2411b309bedc02ffdc035c6da225bbc385726d7779391e023739bf22139033",
+      "bytes": 27133,
+      "lines": 415,
+      "title": "Can a person discover misleading agent output before relying on it?",
+      "headings": [
+        "## Assessment",
+        "## What the implementation gets right",
+        "## Failure scenarios and whether a person can catch them",
+        "## Concrete implementation findings",
+        "## How the guarantee-maintainer skill should work here",
+        "## Priorities for making failures discoverable before reliance",
+        "## Initial audit verification and limits",
+        "## Implementation and retrospective audit (2026-10-08)"
+      ],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/guarantees/audits/2026-10-08-coherent-working-surfaces.md",
+      "sha256": "1b6cd2c215157697f5519478b0fe1699ba953110f04c8f86e6ed750e22722a69",
+      "bytes": 10605,
+      "lines": 128,
+      "title": "Coherent working surfaces: implementation audit",
+      "headings": [
+        "## Decisions and challenges",
+        "## Verification statuses",
+        "## Evidence dependencies"
+      ],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/guarantees/audits/2026-10-17-agent-document-parity.md",
+      "sha256": "349c0924b5e5b5ee606a8e1656708395bf6ce1e5acadcd3760765ae13366a60d",
+      "bytes": 11859,
+      "lines": 131,
+      "title": "Agent pane and document behavior differences",
+      "headings": [
+        "## Changes made",
+        "## Differences requiring evaluation",
+        "## Evidence and limits",
+        "## Implementation continuation after the comments",
+        "## Editable final-artifact continuation (2026-10-17)"
+      ],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/guarantees/audits/2026-10-18-python-agent-ownership.md",
+      "sha256": "647366786aa94c7cc28e92f1029d0e1804a5b845e4c3c940437743b5eb4e7233",
+      "bytes": 6547,
+      "lines": 98,
+      "title": "Built-in agent ownership migration",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/audits/2026-10-19-issue-72.md",
+      "sha256": "372fb1a08cf5498920c159f4b42c77deb300da4003c6a1a42678d958c67ed657",
+      "bytes": 10207,
+      "lines": 149,
+      "title": "Issue 72 implementation audit \u2014 October 19",
+      "headings": [
+        "## Consequential assumptions",
+        "## Executed focused evidence",
+        "## Outstanding work",
+        "## Inspected dependency fingerprints",
+        "## Subsequent implementation review and correction"
+      ],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/guarantees/audits/2026-10-24-literate-surface-ui.md",
+      "sha256": "d1465339ee3f99746318173d9171f6c3bc0eb69e5bb056a80b18eb1ae93562e5",
+      "bytes": 6020,
+      "lines": 92,
+      "title": "Literate Surface UI Audit",
+      "headings": [
+        "## Direction applied",
+        "## Inventory",
+        "## Findings and changes"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-cell-with-an-id-is-quotable.md",
+      "sha256": "510a745e69cfe6ade55eebc84abfeac38583d4f4357fb3bc911dda26342530e2",
+      "bytes": 2342,
+      "lines": 46,
+      "title": "A Cell With An Id Is Quotable, And The Quote Keeps The Cell's Provenance",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-claim-says-who-is-asserting-it.md",
+      "sha256": "ca7333c77773e9da2f834014230e275954caeaa32518c19f78c8881e244d7101",
+      "bytes": 5326,
+      "lines": 90,
+      "title": "A Claim Says Who Is Asserting It, And Never Looks Verified",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-derived-diagram-keeps-your-layout.md",
+      "sha256": "4c5da6a33a1f09ee86d322509c56462b88d7f48ea4605f8b284398d1f54ce5c4",
+      "bytes": 3561,
+      "lines": 60,
+      "title": "A Derived Diagram Keeps Your Layout",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-desktop-build-carries-the-ui.md",
+      "sha256": "75e06b1b692c071471b7ed7736ced819d56e98bb8683ffc3ca42c40e1ee10175",
+      "bytes": 1321,
+      "lines": 27,
+      "title": "A Desktop Build Carries The UI",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-diagram-names-what-proves-it.md",
+      "sha256": "addefbe4b090b6c1e73b31c7995bc70e08b0880a244d4ed08b692c847e18c21c",
+      "bytes": 4939,
+      "lines": 83,
+      "title": "A Diagram Names What Proves It",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-diagram-the-code-can-regenerate.md",
+      "sha256": "4c29da57d4c68bd8a7e3625d7a92f2c2424fbdfa27f9affd090124d79a031447",
+      "bytes": 5296,
+      "lines": 87,
+      "title": "A Diagram The Code Can Regenerate",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-document-may-begin-with-markdown.md",
+      "sha256": "4628125d7517aa214bc4479d0c4b74766e656deae0971ed45be150c7a6f08feb",
+      "bytes": 7869,
+      "lines": 134,
+      "title": "A Document May Begin With Markdown",
+      "headings": [
+        "## Boundary",
+        "## A byte-order mark is an encoding signature, not the start of the document"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-drawn-diagram-is-document-text.md",
+      "sha256": "9972b184de2f5cba08d1bdd33ec0e9a82882d5e5358f664dca67c89693625dfa",
+      "bytes": 8546,
+      "lines": 139,
+      "title": "A Drawn Diagram Is Document Text",
+      "headings": [
+        "## Shared controller and current evidence (2026-10-20)"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/authoring/a-fence-becomes-a-cell-that-runs.md",
+      "sha256": "11592f5d5bfe531159eca99f53dc2206ae9ab87e72356d21584632b111a56d41",
+      "bytes": 6410,
+      "lines": 109,
+      "title": "A Fence Becomes A Cell That Runs",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-file-is-ingested-from-the-tree.md",
+      "sha256": "99087f5365a0879ca322347a7df496719369c660a042d23bee5bae7db392b791",
+      "bytes": 2421,
+      "lines": 52,
+      "title": "A File Is Ingested From The Tree",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-fill-handle-extends-formulas.md",
+      "sha256": "684fbdb703d4bf18db12ecd4986e594b7f4888d266891f46d04e222a271a81de",
+      "bytes": 6125,
+      "lines": 94,
+      "title": "A fill handle extends formulas",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-folder-remembers-its-window.md",
+      "sha256": "2d0cc1b08591fa26d324a7ee7e786fc534b65a3fe2a1264a46cc329c6eab46f8",
+      "bytes": 8315,
+      "lines": 127,
+      "title": "A Folder Remembers Its Window",
+      "headings": [],
+      "supersession_mentions": 3
+    },
+    {
+      "path": "docs/guarantees/authoring/a-generated-file-refuses-an-edit.md",
+      "sha256": "33878149cf45f5c580b752eae001c8d67c683d9a11df6cf86246dec593fdc0b7",
+      "bytes": 4375,
+      "lines": 78,
+      "title": "Generated Text Refuses An Edit, And Says So Before You Type",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-generated-picture-shows-as-a-picture.md",
+      "sha256": "c5e8687463b3167c620e95f4942fe3c699ab074da504c356e8e3dcdf1811ef14",
+      "bytes": 8851,
+      "lines": 144,
+      "title": "A Generated Picture Shows As A Picture",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/authoring/a-keystroke-redraws-only-the-editor.md",
+      "sha256": "da1855848b63d7a3b3e73d782ad2c05e4025a91851c4689eb569ea30b7049f83",
+      "bytes": 5033,
+      "lines": 81,
+      "title": "A Keystroke Redraws Only The Editor",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-link-between-documents-lands-in-the-weave.md",
+      "sha256": "a814dad31b6d9847d43e02b3e9a67e7ccd012837da2d4160143461fb64ae648c",
+      "bytes": 3253,
+      "lines": 63,
+      "title": "A Link Between Documents Lands In The Weave",
+      "headings": [
+        "## Why markdown and not a tag",
+        "## The rules",
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-literate-file-opens-rendered.md",
+      "sha256": "82cac005e8081b23ddddbb28323c0e56b3f2e15cc0f508cf4eebd99088cef3cd",
+      "bytes": 5381,
+      "lines": 92,
+      "title": "A Literate File Opens Rendered, And Its Source Is One Click Away",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-literate-view-writes-through-to-ordinary-source.md",
+      "sha256": "aff7641fc1d8b3502f6183304fdd1f30eb19ff5c6aac00cd4c7a08590c9ecb7a",
+      "bytes": 1856,
+      "lines": 35,
+      "title": "A literate view writes through to ordinary source",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-new-project-is-a-recipe-commit.md",
+      "sha256": "fff278d580954deae77023d578966b4c8956a57a4b531936b6d3b1436db15eb4",
+      "bytes": 10309,
+      "lines": 175,
+      "title": "A New Project Is A Recipe Commit, Made As One Act",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-new-project-reads-the-scaffolder-s-own-options.md",
+      "sha256": "ee5016cf4f5743ae802b83e6d9e0c3e57f5caf84c00a302de98d38f2537a2fa2",
+      "bytes": 6682,
+      "lines": 111,
+      "title": "New Project Offers The Scaffolder's Own Options, Not A List This Product Maintains",
+      "headings": [
+        "## Shared project form and source-bound replies (2026-10-20)"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-new-project-uses-the-toolchain-the-language-uses.md",
+      "sha256": "8188ef5bd752556cede5c35bcc1954943b427d1bc8ac2a665e0e812deb577d2d",
+      "bytes": 5399,
+      "lines": 96,
+      "title": "A New Project Uses The Toolchain The Language Uses",
+      "headings": [
+        "## Why"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-paste-collects-on-terms-it-can-be-held-to.md",
+      "sha256": "354637130ae327e6f9e57ed44a762131792e2a29eb4172819d663dd397375f48",
+      "bytes": 3931,
+      "lines": 71,
+      "title": "A Paste Collects On Terms It Can Be Held To",
+      "headings": [
+        "## Why the gate needed building twice"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-plain-file-opens-and-saves.md",
+      "sha256": "caf71a151635b7284105fab6511f86d59e5de4d5959fa563bc9a48e6be5f6377",
+      "bytes": 4425,
+      "lines": 78,
+      "title": "A Plain File Opens, Edits, And Never Silently Loses A Byte",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-refactor-baseline-reports-drift.md",
+      "sha256": "a30f7330aa3fb83f811f0f2279286013a62cc4fb59bd099042fe9d2b613e1c21",
+      "bytes": 2925,
+      "lines": 54,
+      "title": "A Refactor Baseline Reports The Moment An Output Would Move",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-sample-shows-generated-lines-without-storing-them.md",
+      "sha256": "4a3a2d521965f8d468a515f9ea5ae1a3717d7f5558ea1f22f01a1be104d15440",
+      "bytes": 6453,
+      "lines": 110,
+      "title": "A Sample Shows Generated Lines Without Storing Them",
+      "headings": [
+        "## Why",
+        "## Selected-byte dispatch checkpoint \u2014 October 21"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-silent-tag-does-not-double-a-blank-line.md",
+      "sha256": "4f0cf042173a2529b615279d42fd2ef03dd3aa954db82c1410f73a44991da031",
+      "bytes": 5157,
+      "lines": 89,
+      "title": "A Silent Tag Does Not Double A Blank Line",
+      "headings": [
+        "## Why",
+        "## The fix, and what it deliberately does not touch"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-syntax-error-names-the-invariant-it-hit.md",
+      "sha256": "bef62be86631f4e3536af4b8402519a297265d38d6652c4edfbba099b00642e4",
+      "bytes": 3729,
+      "lines": 69,
+      "title": "A Syntax Error Names The Invariant It Hit",
+      "headings": [
+        "## Why",
+        "## What changed, and what didn't"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-table-is-a-dataset-and-a-paragraph.md",
+      "sha256": "e070ad5cb661c4f6d8a41c8850f0131602deac775dcd69cb5fb2addf4b3befc2",
+      "bytes": 34997,
+      "lines": 542,
+      "title": "A Table Is A Dataset And A Paragraph",
+      "headings": [
+        "## The rules",
+        "## The grid is a spreadsheet, because that is what people know",
+        "## The row is where the hand already is",
+        "## A fence is prose until it is promoted",
+        "## Boundary"
+      ],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/guarantees/authoring/a-transcript-derives-its-speaker-turns.md",
+      "sha256": "82d0572b34c0dc0f320dbc954c8fbb80d82966105b3a90590259a37dde776e87",
+      "bytes": 6339,
+      "lines": 105,
+      "title": "A Transcript Derives Its Speaker Turns, And Cannot Disagree With Itself",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-tree-row-opens-in-the-platform.md",
+      "sha256": "44b823646421e98c3ff30415c3e983058b36c15f22c6d421b64d5e75890e757a",
+      "bytes": 5095,
+      "lines": 86,
+      "title": "A Tree Row Hands Its File To The Rest Of The Machine",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/a-write-exposes-its-proposed-effects.md",
+      "sha256": "c18043142e3497cdd99695d95b24f1fba1d623667392d8f42627ec6d307d13f1",
+      "bytes": 2285,
+      "lines": 34,
+      "title": "A write exposes its proposed effects",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/adoption-is-byte-exact-or-refused.md",
+      "sha256": "ab55d5041d1220d7826bd4ac6a973784c7ff2288142d88d1e4e1c49b692d96bd",
+      "bytes": 4951,
+      "lines": 88,
+      "title": "Adoption Is Byte-Exact, Or It Does Not Happen",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/authoring/an-equation-renders-and-shows-its-source.md",
+      "sha256": "297f36637fb3e669a1e09be3075deab8402f4ff28f6caee8700ea00a174e129a",
+      "bytes": 6141,
+      "lines": 106,
+      "title": "An Equation Renders And Shows Its Source",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/an-image-dropped-in-becomes-a-file-and-a-reference.md",
+      "sha256": "58fd15781a6aeb601f41d024f1455749b7ab67099a726d18246e7474e137c69d",
+      "bytes": 6510,
+      "lines": 109,
+      "title": "An Image Dropped In Becomes A File And A Reference",
+      "headings": [
+        "## Why a file and not a blob",
+        "## The rules",
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/an-ingest-says-when-it-could-not-check-gitignore.md",
+      "sha256": "5329579baee76ea61251a3b31c399e6fd23ee76d261c714fa419d82f670c6b0d",
+      "bytes": 2996,
+      "lines": 56,
+      "title": "An Ingest Says When It Could Not Check `.gitignore`",
+      "headings": [
+        "## Why",
+        "## What changed, and what didn't"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/an-ingested-scaffold-opens-as-a-tree.md",
+      "sha256": "b95505653c25cab5a6de94fbee45907bdbe2dfdf00788628d05daa0f30e4f4cf",
+      "bytes": 5410,
+      "lines": 101,
+      "title": "An Ingested Scaffold Opens As A Tree",
+      "headings": [
+        "## Why",
+        "## Three properties hold it up",
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/an-output-edit-lands-in-its-document.md",
+      "sha256": "71ae0f499bdcf69f20a4a3a694cd7662a55e234d723ab2c9aab3d85ddeb0d0d5",
+      "bytes": 9944,
+      "lines": 155,
+      "title": "An Edit Saved In A Woven File Lands In Its Document",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/an-output-is-named-from-the-open-folder.md",
+      "sha256": "a3b8db83e0f385ce6b104c62389d7af3817eadd7b6c1b1195b7adc37ed993b48",
+      "bytes": 2287,
+      "lines": 49,
+      "title": "An Output Is Named From The Open Folder",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/an-output-that-cannot-be-carried-back-is-held.md",
+      "sha256": "91dd41b19a6377c829518f436c3e33f953c9b03958c620c2618fc2c998d3f8a5",
+      "bytes": 4904,
+      "lines": 71,
+      "title": "An Output That Cannot Be Carried Back Is Held, Never Undone",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 3
+    },
+    {
+      "path": "docs/guarantees/authoring/another-window-is-a-node-you-can-focus.md",
+      "sha256": "15588c6965b0e20cc81a5dc5a76df583396d7320760749b5e8f0382868fee936",
+      "bytes": 891,
+      "lines": 21,
+      "title": "Another Window Is A Node You Can Focus",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/cell-formatting-keeps-numbers-numeric.md",
+      "sha256": "fc34a47807e4a23a333678c04aa10545bee1e96836e87444d3868db49d67bdc0",
+      "bytes": 6719,
+      "lines": 112,
+      "title": "Cell formatting keeps numbers numeric",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/conflict-actions-name-the-write.md",
+      "sha256": "ec7ef289e993c93f871cdaf295b4d06bafda2291c392640d81c3db09d1b3ccc4",
+      "bytes": 1824,
+      "lines": 32,
+      "title": "Conflict actions name the write",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/every-document-weaves-a-markdown-file.md",
+      "sha256": "1f3b494a4abe00cd971d7b8de0067ffe55bd1e825d78581b7be1e1df417b409f",
+      "bytes": 4846,
+      "lines": 84,
+      "title": "Every Document Weaves A Markdown File Of Its Own Name",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/every-hover-hint-is-drawn-in-the-app-theme.md",
+      "sha256": "5613157e61bc6b1dde655e10ec69825781691d9fbdd01882dd12dfc39e4715ca",
+      "bytes": 4784,
+      "lines": 81,
+      "title": "Every Hover Hint Is Drawn In The App Theme",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/file-menu-preserves-the-originating-window.md",
+      "sha256": "54a2b81e77fc7a0af765b6d1b387d0699b2d84b7543aefc848500b189c0380ef",
+      "bytes": 3520,
+      "lines": 57,
+      "title": "The File Menu Preserves The Originating Window",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/github-reviews-retain-reviewed-revisions.md",
+      "sha256": "29301523ae95c5a772b8c6a32fb30316a93343efcdf5669a1bc6a442d4300193",
+      "bytes": 4599,
+      "lines": 72,
+      "title": "GitHub reviews retain reviewed revisions and external identity",
+      "headings": [
+        "## Requirements",
+        "## Verification and limits"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/hick-open-hands-a-folder-to-the-app.md",
+      "sha256": "18e7e24295498b7c3d95fbf491bb1e4fdc8f20331efce5bdbb1634cdefa6a1ac",
+      "bytes": 1552,
+      "lines": 31,
+      "title": "hick Opens The App While Explicit Verbs Keep Their CLI Behavior",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/ingest-does-not-require-the-rest-of-the-document-to-already-pass.md",
+      "sha256": "fc236271bc18a0f6f4822effd85c9ab2902e015deb1fd71794e6f54a1200b1ce",
+      "bytes": 4221,
+      "lines": 77,
+      "title": "Ingest Does Not Require The Rest Of The Document To Already Pass",
+      "headings": [
+        "## Why",
+        "## What changed, and what did not",
+        "## What this does not fix"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/ingest-keeps-the-original-bytes.md",
+      "sha256": "4d9ba78744bd4341f01ff72ee700a4848cdd4ba08230fea666afeb8ae40a10c4",
+      "bytes": 11649,
+      "lines": 189,
+      "title": "Ingest Keeps The Original Bytes, Calls No Model, And Never Deletes Your File",
+      "headings": [
+        "## What the note records about where it came from",
+        "## Boundary",
+        "## How the bytes sit in the document"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/ingest-owns-what-a-scaffolder-wrote.md",
+      "sha256": "bbd1f8d6b0ab2d960266392d08be1d6823406596d724b5a4b00d589592145e3c",
+      "bytes": 6055,
+      "lines": 106,
+      "title": "A Scaffolder's Output Becomes Bytes The Document Owns, Or The Ingest Is Refused",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/inserting-an-element-writes-hick-you-could-have-typed.md",
+      "sha256": "2ceeaa157fbccf81c9e48b43a9e129e0ac32f81922d32ecaaac4a11cd2129549",
+      "bytes": 8029,
+      "lines": 134,
+      "title": "Inserting An Element Writes Hick You Could Have Typed Yourself",
+      "headings": [
+        "## Boundary",
+        "## Captured form target and agent adapter \u2014 2026-10-19"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/local-history-is-the-interval-below-the-commit.md",
+      "sha256": "2fc56035de382a135f1a60943bff6fd4fc2029615f683e95d5d8bd965c5f4faa",
+      "bytes": 7756,
+      "lines": 125,
+      "title": "Local History Is The Interval Below The Commit",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/many-documents-contribute-to-one-file.md",
+      "sha256": "fca07a5a8a6ff5d98aac8d8835805a40280fbb4b3ad3162b235082ec0ce63db2",
+      "bytes": 3675,
+      "lines": 70,
+      "title": "Many Documents Contribute To One File, And None Of Them Names The Others",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/markdown-quotes-and-task-lists-are-read-as-prose.md",
+      "sha256": "a8ee8350c0dba5c7b6a68afd794e452df29098d04c0a61b810b15780bda19469",
+      "bytes": 6892,
+      "lines": 122,
+      "title": "Markdown Quotes And Task Lists Are Read As Prose",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/markdown-tables-use-the-table-editor.md",
+      "sha256": "2570af903a30c7db33d6202525afb51492ffd8381de93ec609fd820e4fc2ea31",
+      "bytes": 3712,
+      "lines": 65,
+      "title": "Markdown tables use the table editor",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/meeting-import-preserves-source.md",
+      "sha256": "78a2f859426d9cb8a680e1d7136551ca82f83fc41b4f020baea4a959caffafc0",
+      "bytes": 2982,
+      "lines": 48,
+      "title": "Meeting import retains original evidence without invoking a model",
+      "headings": [],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/authoring/new-document-is-an-act.md",
+      "sha256": "24bc806142b2c3923c1f1119b036109893ebc3752f7a2b07e5a09cec72bf83a0",
+      "bytes": 7540,
+      "lines": 120,
+      "title": "New Document Creates Another Unnamed Buffer",
+      "headings": [
+        "## New-file creation refuses overwrite \u2014 2026-10-20",
+        "## Shared destination saves \u2014 2026-10-20"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/authoring/one-loop-owns-a-directory.md",
+      "sha256": "76440d1380d504e279a7182f192a0566b04d0df67d9da513759e6923a2830113",
+      "bytes": 1777,
+      "lines": 37,
+      "title": "One loop owns a directory and never reacts to itself",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/one-verb-brings-bytes-into-a-document.md",
+      "sha256": "6aa84a9ad89cc256dfb1bac4a9e31f97e8ef2ddb2008f924cb2355dc125d0542",
+      "bytes": 2266,
+      "lines": 44,
+      "title": "One Verb Brings Bytes Into A Document",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/open-file-tabs-follow-renames.md",
+      "sha256": "3207f59025e5906e9f76b2dab422f50f51e05cfc70d646d3811b326ad7a81243",
+      "bytes": 793,
+      "lines": 19,
+      "title": "Open File Tabs Follow Renames",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/paragraphs-unwrap-by-default.md",
+      "sha256": "f3de5fc10908d1d0bdc9c80c7db26d8e10cb12af5c9d4f3178092aea5ca84439",
+      "bytes": 2425,
+      "lines": 44,
+      "title": "Markdown Paragraphs Unwrap By Default",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/pasting-a-url-over-words-makes-a-link.md",
+      "sha256": "ded7f90b227add79e48a2855f182141b658a1c63501bfd4cdeb79aa2f9d166f7",
+      "bytes": 3875,
+      "lines": 72,
+      "title": "Pasting A URL Over Words Makes A Link",
+      "headings": [
+        "## Why this is the right default",
+        "## The rules",
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/print-requests-do-not-attest-physical-output.md",
+      "sha256": "3f1a3eb7347edc424615a9eddc3968ab424b45e30ecccbec4c058f273c09e5c8",
+      "bytes": 2991,
+      "lines": 48,
+      "title": "Shared print requests do not attest physical output",
+      "headings": [
+        "## Verification \u2014 2026-10-20"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/recordings-stay-local.md",
+      "sha256": "75ae7b6054cebd716bb12fcce39c7b8d646486319d8f0e1f41f7072fca2796da",
+      "bytes": 3004,
+      "lines": 49,
+      "title": "Meeting recordings remain recoverable local evidence",
+      "headings": [],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/guarantees/authoring/review-investigations-link-observed-agent-work.md",
+      "sha256": "bd619d76d89bf847a61c9aac0a09fea1ab37ae7a6173a722027f00364688ae22",
+      "bytes": 3072,
+      "lines": 50,
+      "title": "Review investigations link observed agent work without resolving human review",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/review-threads-preserve-the-questioned-target.md",
+      "sha256": "f587a002d89bfbb86ec9102b064e5348641e29a55bb636d0360d2b209016bb5b",
+      "bytes": 3511,
+      "lines": 58,
+      "title": "Review threads preserve the questioned target",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/saved-means-the-displayed-bytes-reached-the-file.md",
+      "sha256": "cc3707310a9396259d558326aa998478935616adf75e13c09f6b7651e3035c9c",
+      "bytes": 2520,
+      "lines": 37,
+      "title": "Saved means the displayed bytes reached the file",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/settings-preserves-the-open-workspace.md",
+      "sha256": "a0ff90336c0efeb57a25563bfd418d2e561c63feffeb0e22bb456ff76a9faf3d",
+      "bytes": 1778,
+      "lines": 32,
+      "title": "Settings preserves the open workspace",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/several-cursors-edit-at-once.md",
+      "sha256": "9a3f21ccdfa218387c743fe25a4f9270888269d7c22dd0f45f7fe685b542591f",
+      "bytes": 1342,
+      "lines": 29,
+      "title": "Several Cursors Edit At Once",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/the-app-and-the-cli-are-one-engine.md",
+      "sha256": "5e1aa25d95f62e97efff504b3e4845aee2704518a4bf821d70d68978b39648b3",
+      "bytes": 4355,
+      "lines": 83,
+      "title": "The Desktop App And The CLI Are One Engine",
+      "headings": [
+        "## Where the static files live",
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/the-app-starts-as-a-lightweight-editor.md",
+      "sha256": "b918b6b0e0fdcda69553acb31339fbfe714bb55a6566e025c5139d1228bc7927",
+      "bytes": 4418,
+      "lines": 70,
+      "title": "The App Starts As A Lightweight Editor",
+      "headings": [],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/guarantees/authoring/the-daemon-exits-with-its-last-client.md",
+      "sha256": "2268eea668520965a885f40a266fb014a296af485ccacafe4e0cb1cc305f296a",
+      "bytes": 4634,
+      "lines": 71,
+      "title": "The daemon exits with its last client",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/the-editor-does-not-wait-for-workspace-preparation.md",
+      "sha256": "263bdcf190ef68284e65134d579d7932fa3ab43c3ed2b72a47c74df4eea9b179",
+      "bytes": 7061,
+      "lines": 106,
+      "title": "The Editor Does Not Wait For Workspace Preparation",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/the-editor-keeps-its-space.md",
+      "sha256": "b8a68a528f81d8feb70ee63040f2213205fc399519cd2aa6c1a7bd050c9a28cc",
+      "bytes": 10368,
+      "lines": 156,
+      "title": "The editor keeps its space",
+      "headings": [
+        "## 2026-10-22 header/menu parity review",
+        "## 2026-10-22 early pane status review"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/the-engineer-tour-distinguishes-replay-from-execution.md",
+      "sha256": "5a4be8cc8a00ef9393911b73d4f890f45ecc593d7c22e62a7ac58fc51cbcf1a4",
+      "bytes": 8754,
+      "lines": 139,
+      "title": "The engineer tour distinguishes replay from execution",
+      "headings": [
+        "## 2026-10-22 anchored native layout correction"
+      ],
+      "supersession_mentions": 5
+    },
+    {
+      "path": "docs/guarantees/authoring/the-gutters-never-skip-a-number.md",
+      "sha256": "f3277647ae0b9d7ac713ee2942675872422d2e2297e04be333583ffff7307a82",
+      "bytes": 9342,
+      "lines": 152,
+      "title": "The Gutters Never Skip A Number",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/the-lineage-browser-shows-one-column-per-stage.md",
+      "sha256": "75a9cbc106be6085463d56fa008403338b59f6878233c64cb68ef09ad0327795",
+      "bytes": 5155,
+      "lines": 89,
+      "title": "The Lineage Browser Shows One Column Per Stage",
+      "headings": [
+        "## Shared UI continuation \u2014 2026-10-20"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/the-measure-says-what-it-measures.md",
+      "sha256": "ca2107263097875471b306e8602580a5160ae918fb203e05e37116370a65e114",
+      "bytes": 5670,
+      "lines": 102,
+      "title": "The Measure Says What It Measures",
+      "headings": [
+        "## The question this answers",
+        "## The rules",
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/the-tree-is-a-dired.md",
+      "sha256": "a615ed13a9eb0e804a97be868833e838c30a029b6ee22f761897ca9ec5bed1fe",
+      "bytes": 5144,
+      "lines": 93,
+      "title": "Filesystem Acts Keep Dired's Safety",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/the-workspace-tree-edits-like-an-editor.md",
+      "sha256": "02bdc5cfea530b1e4d893dfe3b9375e5bd22fa57101a643ef625048c201b96b7",
+      "bytes": 8881,
+      "lines": 142,
+      "title": "The Workspace Tree Is An Editor Buffer",
+      "headings": [
+        "## Boundary",
+        "## Shared Files reconciliation controls (2026-10-20)"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/the-workspace-tree-is-a-lens.md",
+      "sha256": "f82141d8f0f1dd5bec4cb103ad2cbbc1b9b008e44a7fdd61873adb8dd54c4f5a",
+      "bytes": 1456,
+      "lines": 29,
+      "title": "The Workspace Tree Is A Lens",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/typed-text-is-prose-not-a-transcript.md",
+      "sha256": "036dc2dc8b1ea97c84843ab9e14a5ff0b23b1aabfb29331840295af3a9c4a3c7",
+      "bytes": 6385,
+      "lines": 108,
+      "title": "Typed Text Is Prose, Not A Transcript",
+      "headings": [
+        "## Boundary",
+        "## Shared input and truthful authorship (2026-10-20)"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md",
+      "sha256": "1a86bedf10fdff912719e24dab8fbe6bba03c9e98287208346a7cc040cb0236e",
+      "bytes": 16657,
+      "lines": 256,
+      "title": "Unsaved Work Survives Closing The App",
+      "headings": [
+        "## What happens when the file moved on",
+        "## Boundary",
+        "## Source-bound tab close and resumed recovery \u2014 2026-10-20",
+        "## Shared whole-window close preparation \u2014 2026-10-21"
+      ],
+      "supersession_mentions": 5
+    },
+    {
+      "path": "docs/guarantees/authoring/word-navigation-is-the-persons-choice.md",
+      "sha256": "9cdd40785ea5f1b472b2899a7f35c6f1157149c9051bb5970fe3f205329dbbe4",
+      "bytes": 5376,
+      "lines": 97,
+      "title": "Word Navigation Is The Person's Choice",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/collaboration/a-machine-is-a-keypair.md",
+      "sha256": "9bf0d07e3a58dfb45937265ca8df283ff29ba87d32f5f5c177d6b495dc16eec6",
+      "bytes": 8941,
+      "lines": 148,
+      "title": "A Machine Is A Keypair, A Fleet Is A Mutual List Of Keys, And Nothing Is Reachable Yet",
+      "headings": [
+        "## Shared local fleet controller checkpoint (2026-10-20)"
+      ],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/guarantees/collaboration/a-merged-view-write-reports-per-target.md",
+      "sha256": "e5240eabbaa6e5d7dafc9e9200b32535bfe3f8be81ab3aa514b4a130544529a0",
+      "bytes": 7084,
+      "lines": 120,
+      "title": "A Write Through The Merged View Reports Per Target, And Undo Reaches All Of Them",
+      "headings": [
+        "## Continuation review (2026-10-12)"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/collaboration/a-missing-merge-driver-is-a-button.md",
+      "sha256": "40b2924e9836ed691bdb7be08d626dc7bfe776939775950331008f14c9fe3277",
+      "bytes": 3797,
+      "lines": 70,
+      "title": "A Missing Merge Driver Is A Button, Not A Command To Go And Type",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/collaboration/a-phrase-pairs-both-machines.md",
+      "sha256": "348b7e169691edc73ad14715cb86f9acd54613bfae14b22cb1a9087e79182ba1",
+      "bytes": 8626,
+      "lines": 143,
+      "title": "One Spoken Phrase Enrols Both Machines, With No Server And Nobody Trusted",
+      "headings": [
+        "## Cancellable peer exchange foundation (2026-10-20)"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/collaboration/document-text-never-duplicates.md",
+      "sha256": "438066fd5de8896909fcdce24f52b3823df6667fb47fe4d842995475f7a9d8b8",
+      "bytes": 3193,
+      "lines": 56,
+      "title": "A Document's Text Is Never Duplicated Or Silently Rewritten By Sync",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/collaboration/emission-shows-what-it-would-do.md",
+      "sha256": "6055c49dc4326153efae8e47b9b00d1728484740d05cf67b6177f2a066613baa",
+      "bytes": 3188,
+      "lines": 61,
+      "title": "A Re-Emission Is Shown Before It Is Done, And Refuses To Rewrite What Is Published",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/collaboration/hick-documents-merge-through-hick.md",
+      "sha256": "49c156d3b53cb5f0cc35632c2e15e09a8cf269dce48ed075a37c9a979e0fdfac",
+      "bytes": 5019,
+      "lines": 88,
+      "title": "`.md` Documents Merge Through Hick, And A Clone That Cannot Is Told",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/collaboration/local-session-writes-your-files.md",
+      "sha256": "bdc3dc25299b7b4f38cdd776fb1d9339c9cf43dee7c9eeeb436b041c5e495fe7",
+      "bytes": 3769,
+      "lines": 71,
+      "title": "A Local Session's Durable State Is The Working Tree",
+      "headings": [
+        "## Why a CRDT with one user",
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/collaboration/one-road-out-with-a-toll-booth.md",
+      "sha256": "f98082035840a217f3d0411b264ef2d0f93a17c3f52c4c026fa110a4ff9794b2",
+      "bytes": 4938,
+      "lines": 91,
+      "title": "One Road Out, With A Toll Booth On It \u2014 Never An Airgap",
+      "headings": [
+        "## The seal",
+        "## The broker"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/collaboration/the-app-sees-external-edits.md",
+      "sha256": "6ee9e2f3b97cd197e8496a5cf84350103838e328e5ee6caa91b7133887504007",
+      "bytes": 3229,
+      "lines": 59,
+      "title": "The App Runs The Up-Loop: External Edits Are Seen, Never Clobbered",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/collaboration/the-git-pane-does-the-daily-loop.md",
+      "sha256": "02c9cc60bce65416adb5db05be17263086061d05d7b86aac2dc7d5ac8e79253c",
+      "bytes": 2544,
+      "lines": 47,
+      "title": "The Git Pane Does The Daily Loop",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 3
+    },
+    {
+      "path": "docs/guarantees/collaboration/the-merged-view-is-a-lens.md",
+      "sha256": "f3bbc62fefb452be2fad19237c20637342f14025d6654c7009ad1660b3b2e2e0",
+      "bytes": 6835,
+      "lines": 116,
+      "title": "The Merged View Is A Lens Over Several Worktrees, Never A Document",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/collaboration/the-peer-channel-carries-grants.md",
+      "sha256": "310b347c0c188509ba0a7c2c27cb5b4504fe673f9a16f2abb6eb4e4b51b97deb",
+      "bytes": 6104,
+      "lines": 103,
+      "title": "The Peer Channel Admits Only Keys You Hold, And Serves Them Only What Their Grants Allow",
+      "headings": [
+        "## Who is in the path, and why it is said out loud"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/collaboration/the-publication-floor-is-computed-and-shown.md",
+      "sha256": "10f65b780c0301669b7bf7d6ddd78fa826814be82a77fa650e130939577342f7",
+      "bytes": 3464,
+      "lines": 63,
+      "title": "The Publication Floor Is Computed On Every Read And Shown",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/debugging/a-breakpoint-can-carry-a-condition.md",
+      "sha256": "830063cc1a89ea081b0c6d3a15ca2ae7d8c0265dff33f93c24abf38df625f980",
+      "bytes": 5321,
+      "lines": 94,
+      "title": "A Breakpoint Can Carry A Condition",
+      "headings": [
+        "## Why",
+        "## 2026-10-22 imperative debugger form review"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/debugging/a-breakpoint-that-is-not-bound-yet-is-not-refused.md",
+      "sha256": "a0a1b7feceb43674c4ede874e9db055f4df3849a73eeed949cfdec2c724c4b1d",
+      "bytes": 4664,
+      "lines": 81,
+      "title": "A Breakpoint That Is Not Bound Yet Is Not Refused",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/debugging/a-capture-records-values-from-inside-a-function.md",
+      "sha256": "8335904366bf5af4e0d15d1ab5f74da8ee1a0d5a9bc45db08a1a1f462e796646",
+      "bytes": 2504,
+      "lines": 47,
+      "title": "A Capture Records Values From Inside A Function, On Every Hit",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/debugging/a-compiled-language-launches-what-a-build-produced.md",
+      "sha256": "ea6ab9dba1c8982ab5f4c5b99bf2470c2a48a729df3aab86c873c16e004cf435",
+      "bytes": 11619,
+      "lines": 182,
+      "title": "A Compiled Language Launches What A Build Produced",
+      "headings": [],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/guarantees/debugging/a-debugger-that-lives-in-a-language-server-is-asked-for.md",
+      "sha256": "37cd91d248764b292309332be822c0cbbc559854889d1aee955eaf63396eb69c",
+      "bytes": 5488,
+      "lines": 101,
+      "title": "A Debugger That Lives In A Language Server Is Asked For",
+      "headings": [
+        "## Why the seam is where it is",
+        "## What was measured, and what it settled",
+        "## On the licence"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/debugging/a-frame-stays-in-document-coordinates.md",
+      "sha256": "6ca5769d32cba25b17169d2b66da1118cc3b94156e750f29d3576611cc894f94",
+      "bytes": 1245,
+      "lines": 22,
+      "title": "A frame stays in document coordinates",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/debugging/a-missing-debugger-is-a-button.md",
+      "sha256": "f3fc362e9f23da2fc6953bcf480973f5137ffe3218c6e75381595f04b1773e19",
+      "bytes": 5957,
+      "lines": 100,
+      "title": "Debug installs a missing supported adapter and continues",
+      "headings": [],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/debugging/a-plain-file-has-the-same-debugger.md",
+      "sha256": "9b961ba0400bd5034fe958fd7049a1a502e575d7459b1d1e79068a91a6a234f4",
+      "bytes": 7926,
+      "lines": 126,
+      "title": "A Plain File Has The Same Debugger A Document Has",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/debugging/an-adapter-that-listens-is-connected-to.md",
+      "sha256": "02ea8005fb134cb8e461e70eb99d3a8ea41cc12eb1aeae438af51fa4fa553452",
+      "bytes": 7194,
+      "lines": 129,
+      "title": "An Adapter That Listens Is Connected To",
+      "headings": [
+        "## Why",
+        "## What this bought, and what it did not",
+        "## Amendment, 2026-09-04: the same question asked of every language"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/debugging/an-adapter-that-runs-on-a-second-connection-is-followed.md",
+      "sha256": "052aa89aef3ef9d776b7c0fb1243aa4dbe082bf53130a142427f47fbb3cbe515",
+      "bytes": 4330,
+      "lines": 79,
+      "title": "An Adapter That Runs On A Second Connection Is Followed",
+      "headings": [
+        "## Why",
+        "## What TypeScript actually rests on"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/debugging/an-adapter-that-ships-as-an-archive-installs-like-any-other.md",
+      "sha256": "946a18bb996f93d711a12052af2792b52623838c0074bc94dd117b2375ca5ff5",
+      "bytes": 5040,
+      "lines": 88,
+      "title": "An Adapter That Ships As An Archive Installs Like Any Other",
+      "headings": [],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/debugging/an-exception-breakpoint-uses-the-adapters-own-filters.md",
+      "sha256": "7ec6693c59b4bf7db70322c64a1c7ca779bc346a0d8bfa403fc008aac0d3f798",
+      "bytes": 3425,
+      "lines": 65,
+      "title": "An Exception Breakpoint Uses The Adapter's Own Filters",
+      "headings": [
+        "## Why"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/debugging/browser-debugging-runs-edited-source.md",
+      "sha256": "ad297de0b33540d7ebda8fc15750474b42a892c07a43389a9f2fb0bf29c691c7",
+      "bytes": 3658,
+      "lines": 61,
+      "title": "Browser debugging runs edited source",
+      "headings": [],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/debugging/debug-controls-preserve-editor-space.md",
+      "sha256": "1ebf856c59331b3bf8d8592453b04dbe71fab3a0dd2282310d525dd4d7041c47",
+      "bytes": 6244,
+      "lines": 96,
+      "title": "Debug controls preserve editor space",
+      "headings": [],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/debugging/debug-uses-the-latest-project-containing-the-displayed-code.md",
+      "sha256": "2d8afbff2878e9fd0734d84302c973e046e775652e914dd2f9561c3bd11c99d7",
+      "bytes": 8108,
+      "lines": 111,
+      "title": "Debug uses the latest project containing the displayed code",
+      "headings": [],
+      "supersession_mentions": 3
+    },
+    {
+      "path": "docs/guarantees/debugging/debugging-never-writes-to-the-project.md",
+      "sha256": "34a9bdc875114f0efdf8a5431c6bf2c893a3c1279252dd78e2da4de420d1e644",
+      "bytes": 3396,
+      "lines": 61,
+      "title": "Debugging A Document Never Writes To The Project",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project.md",
+      "sha256": "9271bb949c5afe1e1bf141288fc5c6dad13ffd4c04c92a36e319ca67bd93d70d",
+      "bytes": 7036,
+      "lines": 109,
+      "title": "Launch profiles choose targets within the viewed project",
+      "headings": [
+        "## Shared UI continuation \u2014 2026-10-20"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/debugging/source-anchored-observation-reading.md",
+      "sha256": "9e2371c51902a4c6b66a064bbfd3bc70bb63157bcc7be4b49284384672f00980",
+      "bytes": 11566,
+      "lines": 174,
+      "title": "Observations read beside their captured source",
+      "headings": [
+        "## 2026-10-22 imperative debugger form review"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/debugging/stepping-prefers-the-literate-view.md",
+      "sha256": "009aa800ce899ac5b42c331514043733cb45619abeeed1d0f16127d2c3b11e87",
+      "bytes": 3384,
+      "lines": 56,
+      "title": "Stepping prefers the launching literate view",
+      "headings": [],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/editing/a-comparison-keeps-current-code-editable.md",
+      "sha256": "13419dc0b3657bdb3e7929ff6646da247aad928af81c7d0f85f77abbcb8deffd",
+      "bytes": 3445,
+      "lines": 60,
+      "title": "A comparison keeps current code editable",
+      "headings": [],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/a-file-block-is-a-file-however-deeply-it-is-nested.md",
+      "sha256": "1153ed0f1b33ad7c2c828ffab40e6baa146394b4b37d879e6d962ac343f385f5",
+      "bytes": 4711,
+      "lines": 92,
+      "title": "A `hick:file` Is A Generated File However Deeply It Is Nested",
+      "headings": [
+        "## The bug this is written from (2026-09-03)",
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/a-hover-is-rendered-not-dumped.md",
+      "sha256": "069f1abc54506294940ec9396cb3d6777e7a92f8d8a1d2d86a4d28477f4c0a7b",
+      "bytes": 3172,
+      "lines": 60,
+      "title": "A Hover Is Rendered, Not Dumped",
+      "headings": [
+        "## Why"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/a-language-server-is-found-without-being-configured.md",
+      "sha256": "7efce91896d8f04dc16cf199fb9672c966a08b85e1d20eba3e2747779891dc15",
+      "bytes": 5452,
+      "lines": 97,
+      "title": "A Language Server Is Found Without Being Configured",
+      "headings": [
+        "## Where it looks, in order",
+        "## What it never does"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/a-plain-file-has-the-same-language-server.md",
+      "sha256": "4bf73d15c0ce5818198ae996048fdf3107acd71c7860b2f9a9b7ff887a606be6",
+      "bytes": 3979,
+      "lines": 70,
+      "title": "A Plain File Has The Same Language Server A Document Has",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/a-project-environment-offers-its-own-sync.md",
+      "sha256": "a6bb055cfa29a361e99397fbd346ba167702d403639bc7b15ff562df2b48347a",
+      "bytes": 4674,
+      "lines": 78,
+      "title": "A project environment offers its own sync",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/a-typed-path-opens-that-file.md",
+      "sha256": "f14c6fadbc244d0cc4757f184d8614d7b822ff1b77f50b748a675449917dc48a",
+      "bytes": 3264,
+      "lines": 61,
+      "title": "A Typed Path Opens That File",
+      "headings": [
+        "## Why"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/actions-belong-to-their-subject.md",
+      "sha256": "d2ae4d67ba9ec1bd5d1e3f5f7152036e6e6a20d751df7044cf112a6a583e46eb",
+      "bytes": 2795,
+      "lines": 45,
+      "title": "Actions belong to their subject",
+      "headings": [],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/an-index-answers-in-documents.md",
+      "sha256": "270fa01acf1a884af317b32bd75f4d09d93f0c5fdb1c29830d0bc04c43501bd6",
+      "bytes": 5206,
+      "lines": 89,
+      "title": "An Index Answers In Documents",
+      "headings": [],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/an-ingested-block-is-marked-in-the-document-view-too.md",
+      "sha256": "7c4c69a0e50df9dccf79d0799d29f2f5bd69e3a80402a5151d1e1fc43be5fa17",
+      "bytes": 3584,
+      "lines": 64,
+      "title": "An Ingested Block Is Marked In The Document View Too",
+      "headings": [
+        "## Why",
+        "## What changed, and what the boundary still is"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/an-ingested-cell-names-itself-in-the-document-view.md",
+      "sha256": "2d33f35761f3528158d74ccbba0e184ffe0ff4dd3cff2fac8fd804ed11d87d2a",
+      "bytes": 3161,
+      "lines": 57,
+      "title": "An Ingested Cell Names Itself In The Document View",
+      "headings": [
+        "## Why",
+        "## What changed, and what stayed a server-computed fact"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/call-hierarchy-answers-in-documents.md",
+      "sha256": "d2bf1238545b86288f09dc4e1ad60c5568478433e2e5d898c7db6be34ffd3f55",
+      "bytes": 4399,
+      "lines": 85,
+      "title": "Call Hierarchy Answers In Documents",
+      "headings": [
+        "## The item round-trip",
+        "## Why `selectionRange` is translated by hand",
+        "## Type hierarchy is not here, and not because it is hard",
+        "## Where this is reachable"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/every-shortcut-is-a-setting.md",
+      "sha256": "ff975125d69043a60277cf394b2afb473df8f57829f216528b3898e515320e74",
+      "bytes": 3650,
+      "lines": 67,
+      "title": "Every Shortcut Is A Setting",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/file-menu-remembers-recent-files-and-folders.md",
+      "sha256": "0fe3dfb0710117ea15cfbe5452b64eda23b69690faab6d4858bd686890f62aa8",
+      "bytes": 1752,
+      "lines": 29,
+      "title": "File remembers recent files and folders",
+      "headings": [
+        "## Verification"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/hick-init-adopts-the-projects-language-servers.md",
+      "sha256": "23e2610443186943305c26671399839ceb193dd9235661518d2326046f7dc47f",
+      "bytes": 5443,
+      "lines": 92,
+      "title": "`hick init` Adopts The Project's Own Language Servers",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/installing-a-language-server-is-itself-sandboxed.md",
+      "sha256": "c6c8d87a6a03a255c7ee802992865594cdb20368cfa543e545188dbb187aa7e5",
+      "bytes": 8309,
+      "lines": 144,
+      "title": "Installing A Language Server Is Itself Sandboxed",
+      "headings": [
+        "## It is never automatic",
+        "## The installer profile",
+        "## What gets installed, and why that package",
+        "## The C# entry, and what it took"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/lsp-channel-degrades-never-errors.md",
+      "sha256": "c254b7dde5a87c21675f61db77033ec1e3f7eda5f2fb96117ba6354a40795079",
+      "bytes": 1612,
+      "lines": 31,
+      "title": "The LSP Channel Degrades To Structural Or Null Answers, Never Errors",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/one-language-server-per-workspace.md",
+      "sha256": "1255a1f34f33ed039d28f694d410cadb65094843958cd376081bbef484e02b97",
+      "bytes": 2134,
+      "lines": 43,
+      "title": "One Language Server Session Per Workspace",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/save-can-format-first.md",
+      "sha256": "54b73aaab3c470123c6438534ba0c8d357d45011ae26af085ceca85dafffc803",
+      "bytes": 3602,
+      "lines": 68,
+      "title": "Save Can Format First, With The File's Own Formatter",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/the-meta-lsp-forwards-what-the-child-supports.md",
+      "sha256": "6179b7d4df8f1dc18920b1544b00c66e13536a8811ba969b50becd6792e9bee1",
+      "bytes": 5992,
+      "lines": 103,
+      "title": "The Meta-LSP Forwards Whatever The Child Supports",
+      "headings": [
+        "## Three translations that are not just range-rewriting",
+        "## What it does not promise"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/the-notebook-asks-the-same-questions-an-editor-does.md",
+      "sha256": "3ef69b3a45fb09e346a0b62120fd04470ce1d25f47df075d4a2ec7636ba140cf",
+      "bytes": 5052,
+      "lines": 85,
+      "title": "The Notebook Asks The Same Questions An Editor Does",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/the-toolbar-uses-words-an-ide-user-knows.md",
+      "sha256": "c7552a90be458e3d43951b631713d8e3d5a9991b499bd542c20801473dba1eb4",
+      "bytes": 4219,
+      "lines": 78,
+      "title": "The Document Toolbar Uses Words An IDE User Already Knows",
+      "headings": [
+        "## Current amendment",
+        "## Why"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/editor-intelligence/undo-never-destroys-unowned-content.md",
+      "sha256": "a2891c746affd670b18484a2c490e853552611dc63125552e491d703701b4a23",
+      "bytes": 1973,
+      "lines": 38,
+      "title": "Undo Only Undoes What This Client Typed",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/embedding/a-local-save-is-revision-checked.md",
+      "sha256": "bb9b464f5440d0cb130ea959573efde3278cc0022667f56e5c50e87d3d99905c",
+      "bytes": 1445,
+      "lines": 28,
+      "title": "A local save is revision checked",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/embedding/a-viewer-snapshot-keeps-recorded-results-historical.md",
+      "sha256": "7f5b1684c5caef155de6e91dab19258c718e156d892c25d8fb66eb14484d4741",
+      "bytes": 5173,
+      "lines": 83,
+      "title": "A viewer snapshot keeps recorded results historical",
+      "headings": [
+        "## Shared captured-view controls \u2014 2026-10-20",
+        "## Standalone scoped controls \u2014 2026-10-21"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/embedding/an-embed-has-no-implicit-host.md",
+      "sha256": "4842072d055d9cec6d757cdb6785a1d6fbbc05a53f0dc7494a5987dbe5e70cbe",
+      "bytes": 1380,
+      "lines": 27,
+      "title": "An embed has no implicit host",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/embedding/an-iframe-validates-its-host.md",
+      "sha256": "fa4037d5539643fa98ed63462ddf2518421cef8e38bc7f3ab0a9eb9857276aa4",
+      "bytes": 3393,
+      "lines": 60,
+      "title": "An iframe validates its host",
+      "headings": [
+        "## Scoped UI requests \u2014 2026-10-20"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/embedding/literal-files-use-native-bytes.md",
+      "sha256": "746b36a5f060892a7fd514af49542840ed4b5c2cc994c810c387d03413085c6a",
+      "bytes": 1943,
+      "lines": 37,
+      "title": "Literal files use native bytes",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/embedding/offline-edits-keep-their-sync-base.md",
+      "sha256": "cb1961b0e80f933ceb884f861400e2da1345eb6e39eff92918f5c9270532d504",
+      "bytes": 1635,
+      "lines": 29,
+      "title": "Offline edits keep their sync base",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/embedding/publication-is-bound-to-reviewed-inputs.md",
+      "sha256": "7b3b8f50635d96f9bfb28e6fa4cf9d354914be05e894d4ba4670e969982455d9",
+      "bytes": 6144,
+      "lines": 98,
+      "title": "Published executable results identify reviewed inputs",
+      "headings": [
+        "## Selected answer-withheld prediction reports"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/embedding/s3-publishes-one-manifest.md",
+      "sha256": "9d17f767badcdfaa51c06d89c41b74276bdb445974ae6aded3268cdeaaca0de4",
+      "bytes": 1872,
+      "lines": 34,
+      "title": "S3 publishes one manifest",
+      "headings": [],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/execution/a-cell-cannot-hang-a-run.md",
+      "sha256": "a1d4f3ff1f2442ba17bc46544eed40b79d8d7198f4e6920ce7b1281133a2eff2",
+      "bytes": 4269,
+      "lines": 70,
+      "title": "A Cell Cannot Hang A Run",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/a-cells-own-path-belongs-to-its-project.md",
+      "sha256": "a39d19c28531ca838664ca238797bcbe251528d299bd4ec2b0e27502db6c5f6e",
+      "bytes": 11070,
+      "lines": 193,
+      "title": "A Cell's Own Path Belongs To Its Project, Not To Your Shell",
+      "headings": [
+        "## Why",
+        "## The same bug, through the empty path",
+        "## Leftovers are swept, by lock and never by name",
+        "## The third time, through the tools bound beside it",
+        "## What this is not"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/a-command-the-app-runs-is-watched-in-a-terminal.md",
+      "sha256": "4fbd4e9173fb1130753d6da4bc16a23fa96edb969c60712aa4e3a726af2a766a",
+      "bytes": 6202,
+      "lines": 108,
+      "title": "A Command The App Runs On Your Behalf Is Watched In A Terminal",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/a-denied-mach-lookup-explains-itself.md",
+      "sha256": "26a6a2cdb2093fce6bbd9528f19f7b69baf608ea031f77ca02bb0666d071c937",
+      "bytes": 2852,
+      "lines": 53,
+      "title": "A Denied Mach Lookup Explains Itself",
+      "headings": [
+        "## Why"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/a-document-says-what-it-needs.md",
+      "sha256": "af0fb8d9325655ca797ff3e9fa07824927bada147c973faa02f67832e0478531",
+      "bytes": 5087,
+      "lines": 100,
+      "title": "A Document Says What It Needs",
+      "headings": [
+        "## Why before, and why all at once",
+        "## The check asks the executor, not the machine",
+        "## What this deliberately does not do"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/a-failed-action-keeps-its-editor.md",
+      "sha256": "7624a477de058d69195d48c44d170c5f11b7b7b8fc76c87d766324b026dd249a",
+      "bytes": 1970,
+      "lines": 32,
+      "title": "A failed action keeps its editor",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/a-formula-is-an-expression-in-a-real-language.md",
+      "sha256": "124e58933ad70e10fde54951d1ada6beeaf58d3bb23e81cf43f583e854918383",
+      "bytes": 13117,
+      "lines": 216,
+      "title": "A Formula Is An Expression In A Real Language",
+      "headings": [
+        "## Why not a formula language",
+        "## The split, which is the whole design",
+        "## The rules",
+        "## Stepping through them",
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/a-run-result-is-distinct-from-what-was-checked.md",
+      "sha256": "b57d76d469e63fc53d93acc9e94f388f9774804294ff089d4b11f1562fe1bb7b",
+      "bytes": 2199,
+      "lines": 34,
+      "title": "A run result is distinct from what was checked",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/a-sandboxed-cell-cannot-reach-past-its-workdir.md",
+      "sha256": "bb9750ce18bbcd249c275ecdd77bb1a7d1c9104a7f33b894bdcd1b93345f7ae7",
+      "bytes": 14872,
+      "lines": 241,
+      "title": "A Sandboxed Cell Cannot Reach Past Its Workdir",
+      "headings": [
+        "## What it does not claim",
+        "## Deliberate details"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/a-test-runs-from-the-line-it-is-written-on.md",
+      "sha256": "f07b7943cc2190360a767df0ae367b05fa9af8aa7b0c2792200464da7ec23033",
+      "bytes": 2910,
+      "lines": 56,
+      "title": "A Test Runs From The Line It Is Written On",
+      "headings": [
+        "## Boundary",
+        "## 2026-10-22 focused issue 72 review"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/a-volume-carries-what-the-repository-carries.md",
+      "sha256": "93aaa7b9ea07f9b16046d48f53a664814c2e603dc7dd8c1645b90ffda30c8422",
+      "bytes": 8464,
+      "lines": 145,
+      "title": "A Volume Carries What The Repository Carries",
+      "headings": [
+        "## Why",
+        "## The other half",
+        "## The digest half"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/execution/an-earlier-cells-output-survives-a-later-cells-failure.md",
+      "sha256": "ab3960a52764395ab5f841b123029124146c0823e3d9da00da616df5ab776337",
+      "bytes": 5078,
+      "lines": 91,
+      "title": "An Earlier Cell's Output Survives A Later Cell's Failure",
+      "headings": [
+        "## Why",
+        "## What the fix is, and what it deliberately is not"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/an-output-path-declared-twice-warns-before-it-runs.md",
+      "sha256": "dce7bf98e6414ee94469465ceebcfcadcf1e0541ea692af9e6d539d4f7f3cf4a",
+      "bytes": 3732,
+      "lines": 66,
+      "title": "An Output Path Declared Twice Warns Before It Runs",
+      "headings": [
+        "## Why",
+        "## What it deliberately does NOT check, and why a broader version was wrong"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/an-output-volume-flushes-only-what-the-run-changed.md",
+      "sha256": "0fe2ccd2a73b5032ad40ea0fe461357e27c967aa0c50ec79501f32af7a80656e",
+      "bytes": 1497,
+      "lines": 30,
+      "title": "An Output Volume Flushes Only What The Run Changed",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/browser-output-has-runtime-source-evidence.md",
+      "sha256": "e2aadabc2a69dba18bbc9c2f306b35b70b67c26c705809aa28e3bbd5d2b8494c",
+      "bytes": 3595,
+      "lines": 59,
+      "title": "Browser output carries actual runtime source and occurrence evidence",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/canopy-api-isolated-to-one-crate.md",
+      "sha256": "9fd704932029aeea9a292568d1beabd55db13198d147850a6bca227eeb44d8bf",
+      "bytes": 1888,
+      "lines": 34,
+      "title": "Only `hickory-executor-canopy` Knows Cloud Canopy's API",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/collab-sessions-never-duplicate-the-document.md",
+      "sha256": "744d8b8a545a1d945d9f663a96d748a7ef064773889d8a28e5e604db5ea4dde9",
+      "bytes": 2069,
+      "lines": 37,
+      "title": "A Collaborative Session Never Duplicates the Document",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/containers-are-offline-by-default.md",
+      "sha256": "48b4faa4fced0aa3a3a82b0af97a2f19e4bc86cff42ae00ab95ac6bc26bba510",
+      "bytes": 2348,
+      "lines": 46,
+      "title": "Containers Are Offline By Default",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/declared-capabilities-are-enforced.md",
+      "sha256": "77086cf40578e484699a3616677d857fecb852ce5a1b7930695a4811c66097d8",
+      "bytes": 6687,
+      "lines": 118,
+      "title": "Declared Capabilities Are Enforced",
+      "headings": [
+        "## Where each half is enforced, and why they differ",
+        "## What this deliberately does not do"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/doc-saves-commit-to-project-git.md",
+      "sha256": "f62c38270fffa2cdd2abcf63c8f8607da618831bc776a03636fd10e0b7871897",
+      "bytes": 1243,
+      "lines": 25,
+      "title": "Every Doc Save Is a Commit in the Project's Git Repository",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/every-desktop-platform-can-confine-a-cell.md",
+      "sha256": "f80617d1edfa789cc125f90fcca1f405abd5d43c4978653a72e8a5235531c8ba",
+      "bytes": 6006,
+      "lines": 104,
+      "title": "Every Desktop Platform Can Confine A Cell",
+      "headings": [
+        "## Why Windows needed a different shape"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/first-run-behaves-like-every-later-run.md",
+      "sha256": "a8ab352aa59fc93d2a35005503114a08016c68539bb34618193f0cd46f0ca330",
+      "bytes": 2027,
+      "lines": 38,
+      "title": "A Document's First Run Behaves Like Every Later Run",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/output-lineage-round-trips-byte-for-byte.md",
+      "sha256": "95ae96e4d755269f88cc2b0d824b979622afff85f90f913f2b17fbee40ac22cd",
+      "bytes": 2411,
+      "lines": 40,
+      "title": "Output Lineage Edits Round-Trip Byte-for-Byte",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/output-paths-stay-inside-the-project.md",
+      "sha256": "e889c3fa825432f0f9587e3313028401cfedc2fda0b314b74238a70af692ba3c",
+      "bytes": 1956,
+      "lines": 38,
+      "title": "An Output Path Never Escapes The Document's Directory",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/profiles-keep-their-measured-scope.md",
+      "sha256": "4ce5d875461d1396731b7267e9298bd8bf8c2035e092b17141a902d37eb02d4a",
+      "bytes": 6949,
+      "lines": 108,
+      "title": "Profiles keep their measured scope",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/python-observations-stay-confined.md",
+      "sha256": "71b4d57939d3fd44b580da33a724b8e6d948194928d1a10d36afce1432330f1e",
+      "bytes": 3984,
+      "lines": 65,
+      "title": "Python observations stay confined and source bound",
+      "headings": [
+        "## Requirements",
+        "## Assumptions and limits",
+        "## Verification"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/python-profile-keeps-function-semantics.md",
+      "sha256": "fb2bfce20b3b73ee0e35bea641c408773873a5fbe91098ad5acf125ead16da8e",
+      "bytes": 6376,
+      "lines": 103,
+      "title": "Python profiles keep function scope and measurement semantics",
+      "headings": [
+        "## Requirements",
+        "## Verification and limits",
+        "## Shared UI continuation \u2014 2026-10-20",
+        "## Delegated profile/edit/remeasure integration \u2014 October 23"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/execution/render-never-blocks-the-server.md",
+      "sha256": "28e9e2994ef8061646390ceb3bb1c393a40b95db2209cf11793ac44fc12d803f",
+      "bytes": 2253,
+      "lines": 41,
+      "title": "Rendering a Document Never Blocks the Server",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/revision-bound-runtime-observations.md",
+      "sha256": "dc2a6e13bc6f7ab2bd781cda7ea2561a01a4c9f057f3312b172f987de4aca929",
+      "bytes": 5420,
+      "lines": 84,
+      "title": "Runtime observations retain their producing revision and occurrence",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/runtime-history-keeps-runs-and-occurrences-separate.md",
+      "sha256": "84382eaebbdd93464b70707e4a6ada19b38e3f12c95158e0eb7ae1d0229b7af3",
+      "bytes": 3919,
+      "lines": 63,
+      "title": "Runtime history keeps runs and invocation occurrences separate",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/runtime-logs-preserve-contributor-relationships.md",
+      "sha256": "9cee8664df2f835b1316e1ee7f204a5121421e77354cfc6b3dbd314d6eed0bdb",
+      "bytes": 5103,
+      "lines": 82,
+      "title": "Execution logs preserve contributor relationships and historical event identity",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/stepping-a-table-replays-the-order-the-host-chose.md",
+      "sha256": "f5251e83122978c9271eac25bdc2704ef9e1bcbea160d7960efea94551e96d31",
+      "bytes": 6692,
+      "lines": 117,
+      "title": "Stepping A Table Replays The Order The Host Chose",
+      "headings": [
+        "## Why the ORDER is the thing being debugged",
+        "## The rules",
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/execution/the-declared-image-is-the-environment.md",
+      "sha256": "a96c0226e48db61d28ca0fb14b08b0bde3ddfc62b9adce86fd905db140f63208",
+      "bytes": 2399,
+      "lines": 46,
+      "title": "The Declared Image Is the Environment",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/git/bisect-keeps-candidates-isolated.md",
+      "sha256": "2f4ed2b31d076580d80d5fadd5edb4f27ae1269f98e08246688d4d6d66a0cef7",
+      "bytes": 1734,
+      "lines": 34,
+      "title": "Bisect keeps candidates isolated",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/integrations/a-github-issue-belongs-to-its-associated-folder.md",
+      "sha256": "28eab1fc5958d7dc51ed148e28d14f50921e4e59523f1e7bc367c6bdfa568293",
+      "bytes": 1557,
+      "lines": 32,
+      "title": "A GitHub Issue Belongs To Its Associated Folder",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/integrations/a-review-belongs-to-the-worktree-for-its-head.md",
+      "sha256": "0dfbe97d9c5a3594614eab40d6b1581a9e9bc9f4292c21f4b6de00e57736674f",
+      "bytes": 1676,
+      "lines": 32,
+      "title": "A Review Belongs To The Worktree For Its Head",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/integrations/an-unread-item-notifies-at-its-nearest-visible-ancestor.md",
+      "sha256": "b9d6879a502747b243814acc7d7438c78bd41ac575ec4cfa909b5598bad4da26",
+      "bytes": 1389,
+      "lines": 26,
+      "title": "An Unread Item Notifies At Its Nearest Visible Ancestor",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/integrations/the-desktop-finds-tools-from-the-shell-path.md",
+      "sha256": "fc308dffc9ee040da571f21cc12f6839f513485c09f97b8652811aeb3b3df218",
+      "bytes": 2779,
+      "lines": 49,
+      "title": "The Desktop Finds Tools From The Shell PATH",
+      "headings": [],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/landing/discovery-page-is-interest-organized.md",
+      "sha256": "c8e3449eb50bfa37cf6d235d6e810e19b73808ee4215baf14595dbceb5793126",
+      "bytes": 2746,
+      "lines": 47,
+      "title": "The Discovery Landing Page Is Organized By Interest, Never By Audience Label",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/landing/home-demos-run-the-real-mechanism.md",
+      "sha256": "692a8293189132675bfec40779fee476a615700f2b03db0c64c38a221b2b52a7",
+      "bytes": 4827,
+      "lines": 81,
+      "title": "The Home Page's Demo Runs The Real Mechanism, And Names What Is Simulated",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/landing/home-page-claims-are-true-of-the-binary.md",
+      "sha256": "87d26a53387bb338b60143b5e23e6b1b8f6b1e87eccf9c5c094e3b20a709cc2f",
+      "bytes": 4419,
+      "lines": 77,
+      "title": "Every Claim On The Home Page Is True Of The Downloaded Binary",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/landing/homepage-opens-paused.md",
+      "sha256": "0f2c39143cdadd7d6d6066998a9ec8c4e5ccebe07ba5863d1bc3c84c0be612d9",
+      "bytes": 1669,
+      "lines": 32,
+      "title": "The homepage opens with a live, paused debugger",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/landing/the-page-leads-with-the-claim-not-the-mechanism.md",
+      "sha256": "41d2e0ea21884452399472b1b9d3327d646e8f8401f5b42be57d8f4355a4d502",
+      "bytes": 3665,
+      "lines": 64,
+      "title": "The Home Page Leads With The Claim, Never With The Edit Format",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/language/a-generated-file-starts-at-its-first-byte.md",
+      "sha256": "afe1aa10602423c07764e064c04c02566777366240d6cd2388b8c3b15f1c0581",
+      "bytes": 3615,
+      "lines": 77,
+      "title": "A Generated File Starts At Its First Byte",
+      "headings": [
+        "## Why this is a correctness rule and not a tidiness one",
+        "## The rule, precisely"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/language/an-action-is-asked-of-the-element.md",
+      "sha256": "cd379aed37759c51c65571db00ede62c38524bd21a2bdded1a785f4f1b3a996d",
+      "bytes": 3107,
+      "lines": 59,
+      "title": "An Action Is Asked Of The Element, And Carried Out By The Host",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/language/an-element-is-declared-once.md",
+      "sha256": "6ed2b6ad91df4ab4a253b921942250490cef010a551db9c11214bde3cac7bbaa",
+      "bytes": 3169,
+      "lines": 61,
+      "title": "An Element Is Declared Once",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/language/an-element-is-drawn-by-its-view.md",
+      "sha256": "60fc51693b09438b4745838d1df11310541c81d48d1e2555a5cffcf0fc132666",
+      "bytes": 3335,
+      "lines": 62,
+      "title": "An Element Is Drawn By Its View",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/language/document-view-decorations-never-mutate-source.md",
+      "sha256": "9a8b911b466dc76257b1d15a28057be85f8f50842f6575f8a92f9109bdb42331",
+      "bytes": 1878,
+      "lines": 33,
+      "title": "Document-View Styling Never Mutates the Source",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/language/prefix-only-parsing-no-escaping.md",
+      "sha256": "3d107c06768e34a2af125918ca43961d75fe5ae02e37f23e1b245418c0bcc12a",
+      "bytes": 1009,
+      "lines": 22,
+      "title": "Only Namespace-Prefixed Tags Are Structured; All Other Text Is Raw",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/language/the-editor-reads-with-the-parser-the-server-uses.md",
+      "sha256": "8a1c06bf335bf1de2b234f7a7ed5d2c42c6e2ce0154c2741e768cd46b713c199",
+      "bytes": 4122,
+      "lines": 72,
+      "title": "The Editor Reads A Document With The Parser The Server Uses",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/languages/a-generator-is-written-in-the-team-s-language.md",
+      "sha256": "c16929b5e55a0411ab76fb25e807c51816115e6071894e1933ce7252b34b7225",
+      "bytes": 4094,
+      "lines": 74,
+      "title": "A Generator Is Written In The Team's Language, Not The Model Server's",
+      "headings": [
+        "## Why",
+        "## What this costs"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/languages/a-language-tier-is-measured-not-declared.md",
+      "sha256": "b11c03d286c377f2a78da644c64d81a18588394a13128a3c5f83b84c544e2555",
+      "bytes": 3303,
+      "lines": 61,
+      "title": "A Language Tier Is Measured, Not Declared",
+      "headings": [
+        "## Why"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/languages/a-routed-language-is-drawn.md",
+      "sha256": "b5d5650db70c9f75b6fc80ef02335cb1ea061cdf3b79342654d3ee42b1055a62",
+      "bytes": 4410,
+      "lines": 79,
+      "title": "A Routed Language Is Drawn, Or Says It Is Not",
+      "headings": [
+        "## Why"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/lenses/a-commit-reads-as-a-literate-change.md",
+      "sha256": "11dea1fc24615af101dbb7fe62a569130b78a0d62cbeaf7b0be4179b4a2a1755",
+      "bytes": 1980,
+      "lines": 35,
+      "title": "A commit reads as a literate change",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/lenses/a-recipe-commit-can-be-replayed.md",
+      "sha256": "ceb2f773328b3118b3400dfd4bcb90fa5e1fc39bb6a67fa2edee400f808c1eb9",
+      "bytes": 4029,
+      "lines": 73,
+      "title": "A Recipe Commit Can Be Replayed, Into A New Commit, Never Over The Old One",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/lenses/a-view-declares-where-edits-land.md",
+      "sha256": "864e29be0eeef68f8b3d0aee95080ba91a0063f0ed2e3831d370c9473183af67",
+      "bytes": 2640,
+      "lines": 44,
+      "title": "A view declares where edits land",
+      "headings": [
+        "## 2026-10-22 early pane status review"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/lenses/the-history-lens-reads-the-repository-as-a-story.md",
+      "sha256": "785b7cdb40e265a3b7156ab1d0cac318c8059773c986e305cb52fc66f544a1da",
+      "bytes": 4296,
+      "lines": 74,
+      "title": "The History Lens Reads The Repository As A Story",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/lenses/the-past-is-edited-by-rebase-above-the-floor.md",
+      "sha256": "712bdca6dd9563c4f8b84ec9d11469a157a8f3a0fb4f5d4fc38b8cf3c12b580f",
+      "bytes": 2679,
+      "lines": 51,
+      "title": "The Past Is Edited By Rebase, Above The Floor Only",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/lenses/the-tail-of-the-story-is-the-next-commit.md",
+      "sha256": "7be3c69a6d76ee81a1d589fb184a60f143f63fcaa19ce00666697ce9e38a1d44",
+      "bytes": 2427,
+      "lines": 46,
+      "title": "The Tail Of The Story Is The Next Commit",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/guarantees/lineage/a-citation-that-points-at-nothing-fails.md",
+      "sha256": "86b836dd5a1fd6045a946a9a40ba88e9493f9b20f5ee04aa3dca81ba84c68a4e",
+      "bytes": 4372,
+      "lines": 83,
+      "title": "A Citation That Points At Nothing Fails",
+      "headings": [
+        "## Why",
+        "## What this does not close"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/lineage/a-refactor-records-what-it-moved.md",
+      "sha256": "10d8e41e9942f2444cdbef306e1606e5113ef426c4b830e656e3212a6264e6e8",
+      "bytes": 4003,
+      "lines": 69,
+      "title": "A Refactor Records What It Moved \u2014 Byte-Exactly, And Only When Continuity Is On",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/lineage/a-rewritten-link-keeps-its-paragraph-attached.md",
+      "sha256": "9a05ee87de221ee4f822c0d84e040d508888cca41f46761667e5d4c0c0ae46b3",
+      "bytes": 4017,
+      "lines": 73,
+      "title": "A Rewritten Link Keeps Its Paragraph Attached",
+      "headings": [
+        "## What this replaces",
+        "## The rules",
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/lineage/a-ribbon-crosses-documents.md",
+      "sha256": "4fbc7af9296d52edff589f1982e4a58591d12513d21d861f9ec450c063cb8cfc",
+      "bytes": 8170,
+      "lines": 132,
+      "title": "A Ribbon Crosses Documents, Because Lineage Does",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/guarantees/lineage/a-ribbon-is-drawn-where-it-is-asked-for.md",
+      "sha256": "8f5f480325e3605d218186eee20f9fc0fc8db4df8af1c933548200633b10af61",
+      "bytes": 4615,
+      "lines": 80,
+      "title": "A Ribbon Is Drawn Where It Is Asked For",
+      "headings": [
+        "## Adjacent sources share a visualization",
+        "## Boundary"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/lineage/agent-lineage-degrades-without-a-session.md",
+      "sha256": "c7f5c4f31605fe2b6cec38068c17b96930fee18e522847dacd89e15f1d9ae5ae",
+      "bytes": 4812,
+      "lines": 83,
+      "title": "Agent-Authored Bytes Always Report Session, Turn, And A Git-Derived Author \u2014 Even When The Session Cannot Be Read",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/lineage/an-edited-ai-passage-stops-claiming-the-model-wrote-it.md",
+      "sha256": "a0d9966cb2a8fef0780cc68ce3d4a7c425728ebfe0bba8f2893f4d8ac38e1f89",
+      "bytes": 3791,
+      "lines": 71,
+      "title": "An Edited AI Passage Stops Claiming The Model Wrote It",
+      "headings": [
+        "## Why"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/lineage/an-unwatched-edit-is-repaired-not-refused.md",
+      "sha256": "dcfe3ef18ec40aacffe1a2dc815836d21a6b252c3bd15047d6a27be7f72149b5",
+      "bytes": 3521,
+      "lines": 67,
+      "title": "An Unwatched Edit Leaves Its Correspondence Behind Before It Is Committed",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/lineage/authorship-display-accepts-non-git-providers.md",
+      "sha256": "6a3c7ec67c0b2def8138cfe6f8ef3ccba770c9eaa6788742c761c5c3adf92ae4",
+      "bytes": 2767,
+      "lines": 48,
+      "title": "Authorship display accepts non-Git providers",
+      "headings": [
+        "## 2026-10-22 shared display reading"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/lineage/included-spans-name-their-own-file.md",
+      "sha256": "47e0c8cbe5630bde3cd722404f9d624b051beaee1e5ddfb2b9f57c87de4138fb",
+      "bytes": 3590,
+      "lines": 64,
+      "title": "An Included Span Names Its Own File, And An Edit Through It Lands There",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/lineage/ingested-bytes-are-not-yours.md",
+      "sha256": "f973e57d2b604c0621e0c334aabdc23f717d8d03d4f8ed9eeda0c754ed2a996e",
+      "bytes": 4730,
+      "lines": 85,
+      "title": "Ingested Bytes Are Editable And Never Report As Yours",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/lineage/ok-mapping-round-trips-byte-exact.md",
+      "sha256": "3c11f32adc116d7eaecef5edb5f87b193052a67387663c3f78cc576930b74836",
+      "bytes": 1703,
+      "lines": 31,
+      "title": "A Mappable Output Edit Round-Trips Byte-For-Byte; Everything Else Is Rejected With A Reason",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/lineage/replay-recomputes-lineage-at-a-commit.md",
+      "sha256": "9e7dcde8906d1600c67689ceed8c5698487c939113165f83d9428ac25c283c9a",
+      "bytes": 4511,
+      "lines": 79,
+      "title": "Replay Recomputes Exact Lineage At Any Commit, And Names Its One Limit",
+      "headings": [
+        "## Shared UI continuation \u2014 2026-10-20"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/lineage/the-blame-column-is-optional-and-honest.md",
+      "sha256": "2e13e5f726af3b18ec609fedb92b0ad47a994b14e4ed42e4952cfc211871fcd8",
+      "bytes": 6547,
+      "lines": 115,
+      "title": "The Blame Column Is Optional And Honest",
+      "headings": [
+        "## Why off by default",
+        "## The rules",
+        "## Boundary",
+        "## 2026-10-22 shared display reading"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/lineage/three-provenances-are-drawn-apart.md",
+      "sha256": "6d8e75c90738c7ab59945515682b73a254d1b8934997104421f53f16702789fb",
+      "bytes": 3460,
+      "lines": 64,
+      "title": "Three Provenances Are Drawn Apart, And Any Subset Can Be Shown",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/literate-projects/candidate-revisions-never-borrow-working-bytes.md",
+      "sha256": "191622613f00d02b944510798b3632129608fe63c7ec843b62775e34576d9c5e",
+      "bytes": 2697,
+      "lines": 48,
+      "title": "Candidate revision checks never borrow working bytes",
+      "headings": [
+        "## Continuation review (2026-10-12)"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/literate-projects/comparison-integration-evidence.md",
+      "sha256": "7e7be2bd849059f436f6532b38c83ea7c30cedfb1272bcf47400129f0bab972d",
+      "bytes": 11248,
+      "lines": 172,
+      "title": "Comparison and agent integration evidence",
+      "headings": [
+        "## Decisions and assumptions",
+        "## Executed witnesses so far",
+        "## Outstanding verification and work",
+        "## Continuation review and executed checks"
+      ],
+      "supersession_mentions": 6
+    },
+    {
+      "path": "docs/guarantees/literate-projects/comparison-permissions-and-evidence-are-independent.md",
+      "sha256": "59fde842ffc5595f982073624bfa58290a1f222d0c738d30140840a27fc2c16d",
+      "bytes": 3117,
+      "lines": 57,
+      "title": "Comparison edit permissions do not establish replay evidence",
+      "headings": [
+        "## Continuation review (2026-10-12)",
+        "## Default presentation (2026-10-16)"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/literate-projects/complete-inventory-is-byte-exact.md",
+      "sha256": "e02167903c5da68b80ede2060ff446b1de514da5c47bcd6c6582495adb035776",
+      "bytes": 2198,
+      "lines": 36,
+      "title": "Complete source inventory includes bytes and metadata",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/literate-projects/finalization-and-incorporation-check-distinct-equalities.md",
+      "sha256": "3914c00007d42fe96a279658a67ee5c65ac1f9a29b97f6a7bd9bb2bdcf25d9ec",
+      "bytes": 3136,
+      "lines": 51,
+      "title": "Finalization and incorporation check distinct equalities",
+      "headings": [
+        "## Continuation review (2026-10-12)"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/literate-projects/implementation-evidence.md",
+      "sha256": "7054753ffc4cbbaf87ad65b04a51960d2004cb98e4067d4aacbbb709b586631e",
+      "bytes": 14217,
+      "lines": 177,
+      "title": "Literate project implementation evidence",
+      "headings": [],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/guarantees/literate-projects/markdown-constructs-the-complete-project.md",
+      "sha256": "54acaa9bf966e39da10f3b46136d2d0858182ce08a96f5f1ec36794dfc3363da",
+      "bytes": 3236,
+      "lines": 54,
+      "title": "The Markdown closure constructs the current project",
+      "headings": [
+        "## Continuation review (2026-10-12)"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/literate-projects/patch-edits-revalidate-downstream-construction.md",
+      "sha256": "de92afbb99a171de8e29da8051b82aae750af62de6045acd5d511b3dc73ba4bf",
+      "bytes": 4377,
+      "lines": 78,
+      "title": "Patch regeneration revalidates downstream construction",
+      "headings": [
+        "## Continuation review (2026-10-12)",
+        "## Direct editing review (2026-10-12)",
+        "## Captured final drafts (2026-10-17)",
+        "## Shared UI continuation \u2014 2026-10-20"
+      ],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/guarantees/literate-projects/patch-layout-breakpoints.md",
+      "sha256": "e84399b59238cecf19bde3bfe3794ddde08a21cb847b36c09ff6dc2d24ae9518",
+      "bytes": 1231,
+      "lines": 25,
+      "title": "Patch layout exposes endpoint breakpoints",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/literate-projects/patch-view-uses-the-shared-diff-renderer.md",
+      "sha256": "2b301a29ba438fc14af59d8c356656bd448b2784b9327754e1be7a32c030255f",
+      "bytes": 1526,
+      "lines": 29,
+      "title": "Patch elements use the shared diff renderer",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/literate-projects/replay-is-exact-and-atomic.md",
+      "sha256": "d2277577b16f446c8b2b5a64567f34b73ab865967c4890867b4d39c15b8d737a",
+      "bytes": 1823,
+      "lines": 31,
+      "title": "A project patch replays exactly as one act",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/literate-projects/tools-select-complete-isolated-endpoints.md",
+      "sha256": "8d35c4ce5c32229fda54a4bf8f859adeadf356ec2cb9c76321c7571be8c3e645",
+      "bytes": 6558,
+      "lines": 107,
+      "title": "Native project tools select complete endpoints",
+      "headings": [
+        "## Continuation review (2026-10-12)",
+        "## Default code tools (2026-10-16)",
+        "## Exact-source debug selection (2026-10-17)"
+      ],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/guarantees/release/a-download-runs-without-a-rust-toolchain.md",
+      "sha256": "523f62bd7f1a02294c625551a6db0a265f29661fd7a837811fdbf800ef5f1e13",
+      "bytes": 15803,
+      "lines": 255,
+      "title": "A Download Runs Without A Rust Toolchain",
+      "headings": [
+        "## Delivery change, 2026-10-25"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/release/a-local-install-is-a-launchable-macos-app.md",
+      "sha256": "0ce58a62adebcbf761f37682ba761f75e356bb8571642f111e858c3b32349944",
+      "bytes": 9915,
+      "lines": 155,
+      "title": "A Local Install Is a Launchable macOS App",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/release/desktop-artifacts-come-from-the-current-build.md",
+      "sha256": "87b1a9df13f43f47e2cae18472f249f52c3b3da9fb84e0aa94699b0e162d081e",
+      "bytes": 2601,
+      "lines": 40,
+      "title": "Desktop collection excludes unchanged cached installers",
+      "headings": [
+        "## Verification record \u2014 2026-10-22"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/release/only-a-green-commit-becomes-downloadable.md",
+      "sha256": "a3c3516966686c18ed7ce07647f88adfbdd6e7369e822187080c48a4031dd6c3",
+      "bytes": 6945,
+      "lines": 123,
+      "title": "Manual Unstable Publication",
+      "headings": [
+        "## Historical contract and review (superseded 2026-10-25)"
+      ],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/guarantees/release/the-app-installs-its-command-for-the-user.md",
+      "sha256": "40e9d220f351f687fa560c20494b1de69484abb36000e27b933f164acf9d0c55",
+      "bytes": 2135,
+      "lines": 40,
+      "title": "The App Installs Its Command For The User",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/release/the-desktop-app-is-its-own-download.md",
+      "sha256": "cf600804958b72f89a0c6fc8a0aed7c8bec99dc28f5a4805efb0aa2794624120",
+      "bytes": 8871,
+      "lines": 140,
+      "title": "The Desktop App Is Its Own Download",
+      "headings": [
+        "## Cache-selection correction \u2014 2026-10-22"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/release/unstable-updates-require-consent.md",
+      "sha256": "72d3bd05fb6d1db140400e0253ab7db168472fcd8c53078dc8910655dad74c60",
+      "bytes": 3040,
+      "lines": 49,
+      "title": "Unstable Updates Require Consent",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/search/find-and-replace-is-exhaustive.md",
+      "sha256": "00a39602960d9705c776d98dc688b2cf25b685f42b96c2245433380c0fb578da",
+      "bytes": 6642,
+      "lines": 116,
+      "title": "Find And Replace Is Exhaustive, And Refuses What It Would Undo",
+      "headings": [
+        "## Why this is not `/api/search`",
+        "## The rules",
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/search/search-is-offline-by-default.md",
+      "sha256": "c9aafec8264ad7a9b556af4cd51c06f83e529e6d038811d402cbba731d8a0700",
+      "bytes": 3368,
+      "lines": 58,
+      "title": "Search Works Offline; Only An Explicit Install Touches The Network",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/shell/spatial-views-preserve-the-editor.md",
+      "sha256": "b9388b2ee6a1a7dca3b27f1e5e9793687f71b531a4d9f6df81c5c531563b4532",
+      "bytes": 29370,
+      "lines": 443,
+      "title": "Spatial Views Preserve The Editor",
+      "headings": [
+        "## Files text-row continuation (2026-10-14)",
+        "## Pin stability correction (2026-10-14)",
+        "## Bypass text/window correction (2026-10-14)",
+        "## 2026-10-22 focused issue 72 review",
+        "## 2026-10-22 live keyboard handler review"
+      ],
+      "supersession_mentions": 10
+    },
+    {
+      "path": "docs/guarantees/terminal/a-full-screen-program-gets-a-real-terminal.md",
+      "sha256": "c897e06d563fdec029b32b28a3ca19776be176dba1bb4371d4cf152667619dfd",
+      "bytes": 3201,
+      "lines": 56,
+      "title": "A Full-Screen Program Gets A Real Terminal",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/terminal/a-monitor-never-steals-focus.md",
+      "sha256": "28afe771f0a4218b453b5753002a9318279174d868080005d09ea84dd4562a17",
+      "bytes": 2430,
+      "lines": 47,
+      "title": "A Monitor Never Steals Focus",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/terminal/a-session-appears-where-it-is-working.md",
+      "sha256": "fe7a3fd0858590c5e42388649004ea6394782fec2ccca92b1423dab8def79dbd",
+      "bytes": 11394,
+      "lines": 183,
+      "title": "A Session Appears Where It Is Working",
+      "headings": [
+        "## Boundary",
+        "## 2026-10-22 root-row parity review"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/terminal/a-session-says-what-it-is-doing.md",
+      "sha256": "8a698c4178f11211fd3740cbaa7f836b14316101f3e1e29663540dbfa5a1d68d",
+      "bytes": 2263,
+      "lines": 46,
+      "title": "A Session Says What It Is Doing",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/terminal/a-terminal-outlives-its-pane.md",
+      "sha256": "6d881865c56c98e09c7821811d9e9ba4d61c300ffcf0baa81763096d744d6141",
+      "bytes": 2213,
+      "lines": 43,
+      "title": "A Terminal Outlives Its Pane",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/terminal/a-watched-cell-shows-what-the-terminal-showed.md",
+      "sha256": "81d98ba5fee208b8b0c6e47589279fa8e4f2ebcb1fd4df146104c75b9f554594",
+      "bytes": 6547,
+      "lines": 109,
+      "title": "A Watched Cell Shows What The Terminal Showed",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/terminal/an-anchored-terminal-writes-what-you-typed.md",
+      "sha256": "f05cbf75efb1ee976f16ef5f84e7ac9fb570fa2c104aa77493d78d9ad4be9cac",
+      "bytes": 14505,
+      "lines": 227,
+      "title": "An Anchored Terminal Writes What You Typed",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/terminal/an-answer-does-not-cost-you-your-place.md",
+      "sha256": "c32068754faa05889bbb3211723d7aaa55e1fa51f4a10986d126c75226979f2a",
+      "bytes": 3694,
+      "lines": 66,
+      "title": "An Answer Does Not Cost You Your Place",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/terminal/the-attention-queue-ranks-by-claim.md",
+      "sha256": "1b5f9056089f9796644b375a62a91a690a690e9dd3134cca5a5247ccad63568a",
+      "bytes": 2743,
+      "lines": 55,
+      "title": "The Attention Queue Ranks By Claim",
+      "headings": [],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/terminal/turbo-never-answers-a-prompt-it-did-not-parse.md",
+      "sha256": "adf304249fdfd4093165f388dcb97d1931bb1d2b2d2726e0ad5a6a274869244f",
+      "bytes": 2448,
+      "lines": 49,
+      "title": "Turbo Never Answers A Prompt It Did Not Parse",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/verification/a-drift-report-names-what-differs.md",
+      "sha256": "5b3189cffd665807f2700fc04a11dcc4004b7e4cdb0fa0c1c153cebe529c6df5",
+      "bytes": 3107,
+      "lines": 58,
+      "title": "A Drift Report Names What Differs",
+      "headings": [
+        "## Why",
+        "## What it does not do"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/verification/a-recording-a-document-keeps-lives-in-the-document.md",
+      "sha256": "aede481a2552684bf7f8d652bdc5621aa8dcf092965df81aacb36c22f30268f9",
+      "bytes": 2570,
+      "lines": 49,
+      "title": "A Recording A Document Keeps Lives In The Document",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/verification/a-recording-is-keyed-by-the-cells-inputs.md",
+      "sha256": "fcd783f5ce2fb3eac0859c2049addb39b1540216902e79516c3a705ef59ccc1a",
+      "bytes": 7579,
+      "lines": 130,
+      "title": "A Recording Is Keyed By What The Cell Read, Not Only By What It Says",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/guarantees/verification/a-report-is-not-a-reproducible-artifact.md",
+      "sha256": "80eedc1bb79293362fa55d9f827703a4ec1e9ee55f2685ff289098718b6ecf93",
+      "bytes": 2850,
+      "lines": 51,
+      "title": "A Report Is Not a Reproducible Artifact",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/verification/a-transform-is-checked-against-the-bytes-it-read.md",
+      "sha256": "063a5252f8beb3f76d450545959576ba05c8b3802705c45897699b1f77992a6f",
+      "bytes": 3223,
+      "lines": 58,
+      "title": "A Transform Is Checked Against The Bytes It Read, Wherever They Live",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/verification/a-weave-without-a-recording-keeps-the-artifact.md",
+      "sha256": "38cc9c5608de85b0a4e4e8524be7a6a9f1f39aa7331eaa4edb5681163e9a7c47",
+      "bytes": 4879,
+      "lines": 87,
+      "title": "A Weave Without A Recording Keeps The Artifact It Cannot Reproduce",
+      "headings": [
+        "## Why",
+        "## What this is not"
+      ],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/guarantees/verification/a-woven-fenced-block-has-no-leading-bom.md",
+      "sha256": "7ba4c06aa0748643aac56223803051d91feef69ee4bec82d54c377d527e1a9f9",
+      "bytes": 4322,
+      "lines": 79,
+      "title": "A Woven Fenced Block Has No Leading BOM",
+      "headings": [
+        "## Why",
+        "## What changed, and what stayed exactly the same"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/verification/an-expectation-means-the-same-on-every-platform.md",
+      "sha256": "eb3c92dc4665d803ccae23ba933c3cc7ed5f74924f8b8c13929c637d1834b2aa",
+      "bytes": 4798,
+      "lines": 80,
+      "title": "An Expectation Means The Same Thing On Every Platform",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/verification/browser-predictions-use-the-shared-gate.md",
+      "sha256": "7148277696fce44c65265f3d7775608873c5bb1dc1157cc3919788fbcd40c20a",
+      "bytes": 11792,
+      "lines": 158,
+      "title": "Browser-local prediction practice uses the shared gate",
+      "headings": [
+        "## Assurance boundary and assumptions",
+        "## Verification evidence \u2014 October 22"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/verification/coverage-retains-its-measured-scope.md",
+      "sha256": "a6bb5228271a7d36d943ce32deb09a129880b72b70d8a9c82191cdc0b4f7dcc2",
+      "bytes": 6809,
+      "lines": 108,
+      "title": "Coverage retains its measured scope",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/verification/freeze-is-declared-per-cell.md",
+      "sha256": "9b74950070d09171f452c05e38d46a422ec94c416a1393b5a9cf3e4b6ff5ad85",
+      "bytes": 6236,
+      "lines": 111,
+      "title": "Freeze Is Declared Per Cell, With The Run-Wide Flag As Its Default",
+      "headings": [
+        "## The honest cost of freeze"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/verification/one-comparison-behind-test-equiv-pin-and-merge.md",
+      "sha256": "eec27d096a48e9d5685c2316629850e195d2ec03eef99fca4454143061e202ee",
+      "bytes": 3150,
+      "lines": 60,
+      "title": "One Comparison Behind Test, Equiv, The Pin, And The Merge Check",
+      "headings": [
+        "## Boundary"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/verification/predictions-precede-managed-observation.md",
+      "sha256": "756fcb015881ba00c200b91378e5921e23bfb3f4efb520613ffc2450ed981e33",
+      "bytes": 71924,
+      "lines": 990,
+      "title": "Prediction history preserves order and distinguishes observation from verification",
+      "headings": [
+        "## Historical checkpoint before continuation \u2014 2026-10-21",
+        "## Bounded live adapters \u2014 October 21 continuation",
+        "## Unified gate and same-revision evidence",
+        "## Continuation review correction and selected history",
+        "## October 22 engine/context continuation review",
+        "## October 22 private coach/runtime review",
+        "## 2026-10-22: native window controls and post-End close",
+        "## 2026-10-22: actual packaged native window witness and long-source repair",
+        "## Browser adapter continuation \u2014 October 22"
+      ],
+      "supersession_mentions": 11
+    },
+    {
+      "path": "docs/guarantees/verification/private-proposals-wait-for-review.md",
+      "sha256": "df3932c952fe73a1a36714974af90699ad22e2b707f78491beb4bf60700dbcdb",
+      "bytes": 6927,
+      "lines": 94,
+      "title": "Private edit proposals open review before writing",
+      "headings": [],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/guarantees/verification/recordings-are-written-only-when-asked-for.md",
+      "sha256": "5a87857d85aa736a1ff642208827a4a4e5750e5fa273f7be1f8bf5db65e1de93",
+      "bytes": 5449,
+      "lines": 88,
+      "title": "Recordings Are Written Only When A Run Is Asked To Write One, And Never By `test`",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/verification/test-fails-on-drift.md",
+      "sha256": "b9d6e6b3fe5449fd01c76ae29f1bb0cce47dd667fa26eb74da1990a478d5b810",
+      "bytes": 3153,
+      "lines": 56,
+      "title": "`hick test` Fails When Documented Output Drifts From Real Output",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/guarantees/verification/test-separates-unverifiable-from-drifted.md",
+      "sha256": "5b33967a1722ac3238575465b16ffc26b77f7960b9df1a813a64fae07300276d",
+      "bytes": 9626,
+      "lines": 159,
+      "title": "`hick test` Gives Each Kind Of Failure Its Own Exit Code",
+      "headings": [],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/guarantees/verification/the-installed-hook-names-the-outcome.md",
+      "sha256": "c399b299aee35661b11b5930ad93117be90c6845ce4fcf72eeebd93892b1acc6",
+      "bytes": 2508,
+      "lines": 46,
+      "title": "The Pre-Commit Hook `hick init` Installs Names Which Outcome Blocked The Commit",
+      "headings": [],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/a-diagram-you-can-drag.md",
+      "sha256": "efb20592d3f894f3efcfbeedaf41694ca6065dbeb14f5a21b8674089f3ecfed0",
+      "bytes": 12016,
+      "lines": 227,
+      "title": "A diagram you can drag",
+      "headings": [
+        "## The problem",
+        "## The format",
+        "## The editor is not a store",
+        "## Derived scenes: paste the topology, own the layout",
+        "## The weave: the picture that was drawn",
+        "## The one string a scene cannot hold",
+        "## Assertions, unchanged",
+        "## Styling, sizing, and the grid (built 2026-08-25)",
+        "## What is not built yet"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/a-terminal-that-writes-the-document.md",
+      "sha256": "cb573159acccde35c5ab93411094bff0b5fbb22a1908350fe47788d28d8c59fd",
+      "bytes": 21941,
+      "lines": 421,
+      "title": "A terminal that writes the document",
+      "headings": [
+        "## Three bindings, one component",
+        "## One surface, because the characters are the same",
+        "## A persistent terminal is a container",
+        "## One cell that grows, not one cell per line",
+        "## Suspending the anchor",
+        "## What is built",
+        "## Refusals",
+        "## What this unlocks"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/agent-cells.md",
+      "sha256": "6e1b298e9c756fdb8ebe2a930d1df81f7bb094cfcb97401684fcf6fd92391313",
+      "bytes": 15650,
+      "lines": 279,
+      "title": "Agent cells (`hick:agent`)",
+      "headings": [
+        "## The central constraint: no write primitive",
+        "## Node semantics",
+        "## Provenance and authorship",
+        "## Sessions, privacy, and promote",
+        "## Verification",
+        "## Placement: settled \u2014 **exec**",
+        "## Hazards",
+        "## Deliberately deferred"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/agent-placement-spike.md",
+      "sha256": "b62e3798e53eca03786425f2c65846d37ac31d9614c81442346dd5fe6c898246",
+      "bytes": 14758,
+      "lines": 283,
+      "title": "Agent placement spike: flow vs exec",
+      "headings": [
+        "## The question",
+        "## Recommendation",
+        "## What each arm actually is",
+        "## The structural fact everything else follows from",
+        "## Evidence, criterion by criterion",
+        "## A note on the harness",
+        "## Scorecard",
+        "## What exec placement owed \u2014 **paid** (issue #7, 2026-08-10)",
+        "## Threat to validity \u2014 **closed** (issue #7, 2026-08-10)"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/ai-engineer-review-workflow.md",
+      "sha256": "1eea7fc1531acd40bfbb4acc710f8c7a6660f59e347c3fce6573761a6ca5f4a1",
+      "bytes": 12778,
+      "lines": 211,
+      "title": "From meeting evidence to a reviewed, executable requirement",
+      "headings": [
+        "## The workflow",
+        "## Existing foundations inspected",
+        "## Review on relationships and claims",
+        "## Authorship display",
+        "## Meetings",
+        "## Executable requirements and published runs",
+        "## One tour, two execution environments",
+        "## Delivery order and acceptance",
+        "## Initial implementation verification"
+      ],
+      "supersession_mentions": 5
+    },
+    {
+      "path": "docs/specs/freeform/an-edit-that-knows-what-it-was.md",
+      "sha256": "63a0397ee2a4b96c125686a018a9d96e51647e1cb14467fb990de16044f6111d",
+      "bytes": 20742,
+      "lines": 386,
+      "title": "An edit that knows what it was",
+      "headings": [
+        "## The one sentence",
+        "## Two standalone tools, and why they are two",
+        "## The finding that makes it feasible",
+        "## Trivia is per-grammar, and pretending otherwise is the bug",
+        "## The precision ladder, which already exists",
+        "## What this replaces in pre-commit and CI, stated narrowly",
+        "## Inside a `.md` document, formatting is a reverse edit",
+        "## Format on save is an act, not a keystroke",
+        "## Normalized merge, which the map makes newly possible",
+        "## What a sequence CRDT actually promises",
+        "## What does *not* work, said first",
+        "## The mechanism: replicate the intent, re-execute after merge",
+        "## Symbol identity is the hard part, and it is bought, not invented",
+        "## The model: give it verbs, do not ask it for claims",
+        "## Refusals",
+        "## Sequence",
+        "## What would kill this"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/specs/freeform/an-index-beside-the-language-server.md",
+      "sha256": "f1421246af38000b7f481c0a6362a1dc023fff210f0af97851fa9dcc5625f509",
+      "bytes": 6729,
+      "lines": 123,
+      "title": "An index beside the language server",
+      "headings": [
+        "## Why this product wants an index more than most editors do",
+        "## What has to be true for it to be honest",
+        "## The licence question, stated rather than assumed",
+        "## Refusals"
+      ],
+      "supersession_mentions": 3
+    },
+    {
+      "path": "docs/specs/freeform/api.md",
+      "sha256": "5588519ef03791414fa203e7687b39bc38a6e6b8b5b37b9c5f5bc6b0f0e663a4",
+      "bytes": 29748,
+      "lines": 509,
+      "title": "Server API contract (v0)",
+      "headings": [
+        "## Auth & account",
+        "## Projects & documents",
+        "## Rendering (block model)",
+        "## Elements (`the-minimal-core.md`, 2026-09-05)",
+        "## Execution",
+        "## Realtime \u2014 `WS /api/ws?doc=doc:<id>&token=<JWT>`",
+        "## Billing",
+        "## Agent",
+        "## Ops",
+        "## Generated outputs & lineage (v0.2)",
+        "## Editor model (v0.2)",
+        "## Editor intelligence \u2014 LSP bridge (v0.3)",
+        "## Terminals (v0.4)",
+        "## Workspace state and drafts (v0.5)",
+        "## Find and replace (v0.5)",
+        "## Blame (v0.5)",
+        "## Formulas (v0.5)",
+        "## Completions from the project itself (v0.5)",
+        "## History (v0.5)",
+        "## GitHub workspace objects (v0.6)",
+        "## Notebook datasets and rich outputs",
+        "## Local engine: resolve a held output"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/specs/freeform/architecture.md",
+      "sha256": "e44f7ddbfb71dd9fb27a78eb0d67c3e332ed2399c24035c96ee17904ad7829a9",
+      "bytes": 10244,
+      "lines": 172,
+      "title": "Hickory Docs \u2014 Architecture",
+      "headings": [
+        "## Why this exists",
+        "## Provenance of the code",
+        "## The execution boundary (the core surgery)",
+        "## Native verification (exedocs vision, first-party)",
+        "## Product architecture",
+        "## Delivery"
+      ],
+      "supersession_mentions": 4
+    },
+    {
+      "path": "docs/specs/freeform/bare-documents.md",
+      "sha256": "8dbcb93689fa3d55bad64c29661629e670dfd55d55a619ccb1f982506868b0b6",
+      "bytes": 7729,
+      "lines": 159,
+      "title": "Bare documents: the wrapper is optional, the markdown is not",
+      "headings": [
+        "## The rules",
+        "## The weave default is the one behaviour change",
+        "## YAML frontmatter: yes, narrowly",
+        "## The `---` ambiguity, which is accepted rather than solved",
+        "## What this makes easy downstream",
+        "## Open edges"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/browser-embedding.md",
+      "sha256": "4bd02e9df54a0f5d79850404a200417caedb580615b5ccc6b8b728cd4a18f9f3",
+      "bytes": 28421,
+      "lines": 430,
+      "title": "Browser embedding: a portable document core with optional host services",
+      "headings": [
+        "## Product decisions and constraints",
+        "## What exists today",
+        "## First deliverable",
+        "## Phase 0 \u2014 establish the portable boundary",
+        "## Phase 1 \u2014 make the editor embeddable",
+        "## Phase 1A \u2014 real browser JavaScript/TypeScript debugger and homepage demo",
+        "## Phase 2 \u2014 share deterministic document semantics through WASM",
+        "## Phase 3 \u2014 browser workspace and honest degradation",
+        "## Phase 4 \u2014 S3-compatible storage",
+        "## Phase 5 \u2014 supported remote engine",
+        "## Phase 6 \u2014 iframe integration and independent remote execution",
+        "## Validation and rollout",
+        "## Decisions to settle during the first phase",
+        "## Browser and storage references"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/specs/freeform/canopy-integration.md",
+      "sha256": "40324004ed555b50f67f749b31ac4c909cb4f22fb2491cd3d113e985aace5970",
+      "bytes": 7397,
+      "lines": 134,
+      "title": "Cloud Canopy integration",
+      "headings": [
+        "## What canopy provides (as of 2026-08-05)",
+        "## How the adapter maps the Executor trait onto canopy",
+        "## Known gaps (tracked, not worked around silently)",
+        "## Env contract",
+        "## Live smoke status (2026-08-05)",
+        "## Cell images (what software a cell has)"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/changes-not-commits.md",
+      "sha256": "d9a2e966c174c1993f640a19fd16dada065a4794feb30e591687577d94b7b7c7",
+      "bytes": 11577,
+      "lines": 211,
+      "title": "Moving a change to where it belongs: what jj is right about",
+      "headings": [
+        "## The observation underneath the question is correct",
+        "## Should a `.md` document produce commits?",
+        "## Agent sessions spanning commits",
+        "## Interoperating with jujutsu",
+        "## What I would actually do"
+      ],
+      "supersession_mentions": 5
+    },
+    {
+      "path": "docs/specs/freeform/claude-code-sessions.md",
+      "sha256": "e79e27b8be9cf27337a57e4fbab176cceb941d3143222c22b688e72336eee2b2",
+      "bytes": 5882,
+      "lines": 79,
+      "title": "Claude Code transcripts as session documents",
+      "headings": [
+        "## What a Claude Code transcript holds",
+        "## What our session format holds",
+        "## Where they differ, and what was decided",
+        "## What the import teaches about the format",
+        "## Not done, on purpose"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/coherent-working-surfaces.md",
+      "sha256": "995461a987b939a54e48165ff9c8b0e54bd6dc9210841826f19e4482ae8e8347",
+      "bytes": 4097,
+      "lines": 64,
+      "title": "Coherent working surfaces",
+      "headings": [
+        "## Scope and consequential assumptions",
+        "## Validation"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/specs/freeform/debugging-the-jvm.md",
+      "sha256": "379f2e64032da4766577d96101845198ac0f0d076ac7cb52922df37d7fed837a",
+      "bytes": 6738,
+      "lines": 141,
+      "title": "Debugging The JVM",
+      "headings": [
+        "## What java-debug actually is",
+        "## Half of it is already built",
+        "## The one genuinely new concept",
+        "## The hard part, which is not the protocol",
+        "## The licence question, decided",
+        "## Kotlin, Scala and Groovy are three more investigations, not this one",
+        "## The order, if this is picked up"
+      ],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/specs/freeform/diagrams-that-fail-when-they-lie.md",
+      "sha256": "d2927cff1f4e17b8a9d16036086a5e47f557ee204ffbf5b8790146c6d3ff9e3a",
+      "bytes": 5830,
+      "lines": 117,
+      "title": "Diagrams that fail when they lie",
+      "headings": [
+        "## The problem",
+        "## The shape",
+        "## Why a tag and not a markdown fence",
+        "## Renderers, in order",
+        "## What is not built yet"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/execution-observation-provenance.md",
+      "sha256": "cf72a2e73b5a7717a330f19ac7fc8a24f5ba72cde0c65b090392271a2a99287c",
+      "bytes": 5657,
+      "lines": 98,
+      "title": "Execution observations and source provenance",
+      "headings": [
+        "## One relationship, multiple views",
+        "## Event and invocation identity",
+        "## Run history and document presentation",
+        "## Markdown persistence",
+        "## Context integration",
+        "## Required witnesses",
+        "## Foundation implementation (issue #54, October 18, 2026)"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/expression-and-log.md",
+      "sha256": "f4b68a9249fc7283785c3a4ac14aa305d4dbde7bbed1ac991c85607336e6e870",
+      "bytes": 12238,
+      "lines": 232,
+      "title": "The document is an expression, the repository is the log",
+      "headings": [
+        "## Places and times",
+        "## Git is not replaced, and the reason is a category difference",
+        "## The loop is a spiral",
+        "## Nothing in the document is ever frozen",
+        "## Verification does not reach backwards",
+        "## The frontier",
+        "## Where the change gets explained",
+        "## Repositories: read across, write local",
+        "## Sequence",
+        "## Open edges"
+      ],
+      "supersession_mentions": 6
+    },
+    {
+      "path": "docs/specs/freeform/function-invocation-and-repl.md",
+      "sha256": "26a945afd52e1677ff2112273bf04f489653b374e233b7017b16ab5054b80b33",
+      "bytes": 14100,
+      "lines": 233,
+      "title": "Invoke a function in a live REPL",
+      "headings": [
+        "## The first interaction",
+        "## Controls occupy the margin and overlays",
+        "## A call belongs to a project state and a session",
+        "## Arguments and objects",
+        "## The language runtime seam",
+        "## Keep an exploration when it becomes useful",
+        "## Relationship to the existing designs",
+        "## Acceptance cases for a future implementation",
+        "## Decisions left for the next design discussion"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/specs/freeform/ingest.md",
+      "sha256": "6b88a2eb0a318e76e551bff4782cedd7d12362f5aab0e0dd5740894a484bdc35",
+      "bytes": 12443,
+      "lines": 248,
+      "title": "Ingest: a meeting becomes a note",
+      "headings": [
+        "## Three ways in, no command to run",
+        "## What it writes",
+        "## `hick:transcript`: one element, two views",
+        "## The scratchpad is not an ingest",
+        "## Formats",
+        "## What ingest does not do",
+        "## Open edges"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/landing-discovery.md",
+      "sha256": "4c0c8013b5d12b230fe09e6dff85120e70746aac0e310fe76ce9cfa7c65e4a8a",
+      "bytes": 11482,
+      "lines": 207,
+      "title": "The discovery landing page",
+      "headings": [
+        "## Posture",
+        "## Why sections are titled by job, not audience",
+        "## The one demo, and the section above it",
+        "## Instrumentation",
+        "## What this page structurally cannot see",
+        "## Ready to probe"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/language-tiers.md",
+      "sha256": "0f3d9555f0b1addc6b21ba6362bd3cf99ec3449b7f4644285b557198523a37af",
+      "bytes": 11578,
+      "lines": 218,
+      "title": "Gold, Silver, Bronze: how much Hickory knows about a language",
+      "headings": [
+        "## A tier is measured, never declared",
+        "## The exemption, and why it is not a fudge",
+        "## The code model (Gold's second half)",
+        "## What this does not replace"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/specs/freeform/launching-what-a-document-builds.md",
+      "sha256": "eaa98560e6c40bad03a585a2f9f1f69cf1151e392bddaabb2d6ab4d423f17afe",
+      "bytes": 17009,
+      "lines": 349,
+      "title": "Launching what a document builds",
+      "headings": [
+        "## The assumption, named",
+        "## The precedent this is not inventing",
+        "## Where the analogy breaks, which is where the work is",
+        "## The shape",
+        "## What it looks like",
+        "## The shape underneath, and which to build",
+        "## Refusals",
+        "## What is settled"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/lenses.md",
+      "sha256": "4e1e13fa60e17cb493951157f35082ed3062fb65d2c640a27eac1affd399dc69",
+      "bytes": 18145,
+      "lines": 344,
+      "title": "Lenses: the viewer is a block editor, and a document is one thing it views",
+      "headings": [
+        "## The complaint that started it",
+        "## What a lens is",
+        "## Emacs, and where this leaves it",
+        "## The history lens",
+        "## What this retires",
+        "## What it does not replace",
+        "## Three hard parts",
+        "## Sequence",
+        "## Open edges"
+      ],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/specs/freeform/literate-changesets.md",
+      "sha256": "f6c77f8111e19152267aa3a914e088cab7af8f5d520e44406b79c40421712896",
+      "bytes": 19458,
+      "lines": 311,
+      "title": "Literate changesets and output-preserving incorporation",
+      "headings": [
+        "## The two executable artifacts",
+        "## First successful workflow",
+        "## Verification happens in memory",
+        "## Patch construction and composition",
+        "## Atomic project services and editable sides",
+        "## Shared views without shared storage rules",
+        "## Implementation milestones",
+        "## Acceptance evidence",
+        "## Scope and existing decisions"
+      ],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/specs/freeform/literate-debugging.md",
+      "sha256": "1ada4bfa2168466bb83fefaa6c3e02cfc0b1201806b48c03e3de89c15ead9419",
+      "bytes": 22464,
+      "lines": 437,
+      "title": "Literate debugging",
+      "headings": [
+        "## One engine: DAP",
+        "## 1. In the app: an interactive session",
+        "## 2. In a document: the same expressions, nobody stepping",
+        "## 3. Over MCP: the same session, for an agent",
+        "## Adapters are installed exactly like language servers",
+        "## What the sandbox costs",
+        "## Order of work",
+        "## What this is not"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/live-agent-context.md",
+      "sha256": "86dcef61c8712816d454de37cc6afd758c94e6d9a390c68bc696956f730a65d9",
+      "bytes": 17552,
+      "lines": 292,
+      "title": "Live agent context: observations, changes and refresh policies",
+      "headings": [
+        "## Invariant: delivery schedule is not the data model",
+        "## Existing behavior inspected",
+        "## Separate three records",
+        "## Generic context items and baselines",
+        "## Non-modal review and update",
+        "## Rust\u2013Python API: proposed contract",
+        "## Refresh policies to compare",
+        "## Evaluation",
+        "## Required behavioral witnesses before implementation is called complete"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/local-collaboration.md",
+      "sha256": "44d7821a75f9be44e3918f8e15f003fc3815b0f2624c9c4cef09aafffff8245e",
+      "bytes": 12165,
+      "lines": 231,
+      "title": "Local collaboration: the host is the server",
+      "headings": [
+        "## Why this shape",
+        "## The three roles",
+        "## Trust model",
+        "## Storage: the file is the truth",
+        "## What a guest's browser talks to",
+        "## What hosted still sells",
+        "## What shipped",
+        "## Decided: the session is ephemeral, and that is the product (2026-08-11)",
+        "## Open questions"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/local-first.md",
+      "sha256": "b2ad474de7a45ebdada1d2699779b1f4b5c1fdf5636001c0c35041d30e40a3ab",
+      "bytes": 10476,
+      "lines": 200,
+      "title": "Local-first: the product is the binary, the cloud is a relay",
+      "headings": [
+        "## Why",
+        "## What this supersedes",
+        "## What survives untouched",
+        "## What retires, and when",
+        "## The consequence nobody will like: pricing has nothing left to meter",
+        "## What gets better",
+        "## Prerequisites and open edges",
+        "## Sequence",
+        "## What would reverse this"
+      ],
+      "supersession_mentions": 6
+    },
+    {
+      "path": "docs/specs/freeform/local-history.md",
+      "sha256": "5ae2e91dd026b855299beb65eacc749af2d74c89d4296a1a42c5b08a9d12bc97",
+      "bytes": 13650,
+      "lines": 245,
+      "title": "Local history: the interval below the commit",
+      "headings": [
+        "## The gap",
+        "## The unit is the act, not the file",
+        "## Every act says who made it",
+        "## It is not a provenance family, and nothing may cite it",
+        "## Where it lives",
+        "## What it can do that git cannot",
+        "## Retention",
+        "## Surfaces",
+        "## What this is NOT",
+        "## Open edges"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/specs/freeform/local-only.md",
+      "sha256": "8712e71bbd11def1aacf64f2c2fe43e2c006a176f9bc1eb08a28652131501d75",
+      "bytes": 15863,
+      "lines": 281,
+      "title": "Local-only: a downloadable tool, no cloud, no money",
+      "headings": [
+        "## Two front doors, one engine",
+        "## Why no cloud at all",
+        "## Why the React client stops being shared",
+        "## The CRDT survives, and it is not obvious why",
+        "## What retires",
+        "## What survives",
+        "## What gets better",
+        "## Open edges",
+        "## What would reverse this",
+        "## Sequence"
+      ],
+      "supersession_mentions": 5
+    },
+    {
+      "path": "docs/specs/freeform/machine-scoped-edits.md",
+      "sha256": "5ffc3dafb9cd3074e0346cd1e9cf22b985dde205b51a2bfbcee22abc6b3ddaf1",
+      "bytes": 17384,
+      "lines": 315,
+      "title": "Machine-scoped edits: a feature flag whose owner is a box",
+      "headings": [
+        "## What already exists",
+        "## The one design decision this document makes",
+        "## The implicit facts",
+        "## The invariant that keeps it honest",
+        "## The census, and why these flags can die",
+        "## The backwards half: an edit in a generated file",
+        "## Proving a refactor leaves a machine alone",
+        "## What the editor must show",
+        "## Sequence",
+        "## Open edges"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/specs/freeform/notes-ide.md",
+      "sha256": "2b15e46339706cf38c2bb4a07adfce5e4b7c885a27eed66fa13ffbc062d396f5",
+      "bytes": 12887,
+      "lines": 216,
+      "title": "The notes IDE: notes are documents, meetings are inputs",
+      "headings": [
+        "## Why this is a widening and not a rewrite",
+        "## What a meeting becomes",
+        "## Mobile: what a phone is and is not",
+        "## Sync: the user's own git remote",
+        "## Open edges",
+        "## What retires",
+        "## Sequence"
+      ],
+      "supersession_mentions": 2
+    },
+    {
+      "path": "docs/specs/freeform/one-engineer-many-machines.md",
+      "sha256": "3446f49285422d7568acffcdda89195eb1008f1408d9dec2bedc2a9fe5675177",
+      "bytes": 15699,
+      "lines": 267,
+      "title": "One engineer, many machines: reaching a session from the chair you are in",
+      "headings": [
+        "## What a session is, precisely",
+        "## Three channels, and never confusing them",
+        "## Locking, restated for many machines",
+        "## Identity: keys, not accounts",
+        "## Transport: the user's own, through a seam",
+        "## What the client actually does",
+        "## Sequence",
+        "## Open edges"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/owning-what-a-scaffolder-wrote.md",
+      "sha256": "ccda30e508c2e6770df52b71caec647496bde8b44bbc3068f2ce06ed1fadbcc9",
+      "bytes": 15163,
+      "lines": 276,
+      "title": "Owning what a scaffolder wrote",
+      "headings": [
+        "## The gap, unchanged",
+        "## Why the recorded-transcript answer fails",
+        "## Ingest is the mechanism",
+        "## What it writes, and why it nests",
+        "## Three properties this buys",
+        "## Provenance: present bytes that are not yours",
+        "## The re-run, and the bulk",
+        "## What cannot be ingested, and must be refused by name",
+        "## The hard parts, honestly",
+        "## Sequence",
+        "## Open edges"
+      ],
+      "supersession_mentions": 7
+    },
+    {
+      "path": "docs/specs/freeform/programmable-editor.md",
+      "sha256": "9958016424a3a10f147f420137d73c70b8a91da32ff828cd15d2db7527c98e45",
+      "bytes": 27428,
+      "lines": 469,
+      "title": "A programmable development environment: resources, relationships, views, and commands",
+      "headings": [
+        "## The experience we want",
+        "## What is already there",
+        "## Make provenance a programmable relationship view",
+        "## Let workflow packages augment or replace the development model",
+        "## Write one small program",
+        "## Three parts with separate responsibilities",
+        "## Coordinates and time are part of the contract",
+        "## Make several layers readable together",
+        "## Programmable by humans and agents",
+        "## Local first, shareable when useful",
+        "## A migration that proves the abstraction",
+        "## Relationship to existing designs"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/project-environments.md",
+      "sha256": "c730039d578f335ec08e5bac68cca4d69ef245eec8d8e69753108b3add83f2c5",
+      "bytes": 12971,
+      "lines": 224,
+      "title": "Project environments: detect, explain, offer the project's own command",
+      "headings": [
+        "## What existed before this feature",
+        "## Detect the owner before checking its environment",
+        "## Check without turning project open into installation",
+        "## A small provider contract",
+        "## Offer an action whose effects are visible",
+        "## Keep the message quiet and useful",
+        "## Readiness belongs to the thing that will run",
+        "## Build in this order"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/proof-plan.md",
+      "sha256": "d332f88ae1c04177bb8c7aea035eb6664f69552422cf81fe10d04fef4a5651b3",
+      "bytes": 6611,
+      "lines": 94,
+      "title": "Morning proof plan (2026-08-06)",
+      "headings": [
+        "## Already proven mechanically (re-runnable)",
+        "## Hands-on demo (the stack is still running)",
+        "## The three axes",
+        "## Honest gaps (next moves, in priority order)"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/provenance-across-versions.md",
+      "sha256": "86adf2e046396cec3949a995857ba3173a8563fe78b8a0be3469c7ac2d30f766",
+      "bytes": 18330,
+      "lines": 314,
+      "title": "Continuity: provenance across versions of a document",
+      "headings": [
+        "## Addressing is solved; correlating is the gap",
+        "## Replay, which needs no new data model at all",
+        "## Recorded correspondence: the mechanism",
+        "## When nothing was watching",
+        "## Two artifacts, and neither is a cache",
+        "## The repair, on the same switch as the ribbon",
+        "## Merging is the richest recording site there is",
+        "## The fourth family, off by default",
+        "## Sequence",
+        "## Open edges"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/specs/freeform/provenance-and-standing.md",
+      "sha256": "da1cb7e3c5a4ea9eff92f86b2343b3efc99512dcc50b1080fdd2e98ca72f06a1",
+      "bytes": 10712,
+      "lines": 215,
+      "title": "Provenance and standing: two axes, never one ladder",
+      "headings": [
+        "## Trust is two axes, not a ranking",
+        "## Axis 1 \u2014 provenance: derived, never declared",
+        "## Axis 2 \u2014 standing: declared, and visibly unverified",
+        "## What the reader sees",
+        "## What is built, and what is not",
+        "## Open edges"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/python-agent-runtime.md",
+      "sha256": "e2608e650caa64708221c5177ad57f6a20668401aa69767a8264e157f4f5f113",
+      "bytes": 4778,
+      "lines": 74,
+      "title": "Python owns the built-in agent",
+      "headings": [],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/specs/freeform/receipts-for-a-message.md",
+      "sha256": "b59732653ff9845083f6d1d36c8dec30de73672493d979d94dc67d4cc98cc670",
+      "bytes": 7729,
+      "lines": 132,
+      "title": "Receipts for a message: a Slack sentence, traced to the meeting",
+      "headings": [
+        "## What a check is",
+        "## What the test fixed on the way",
+        "## What is still clunky or painful",
+        "## The two variants"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/relay.md",
+      "sha256": "11de79b65016c59fcc2174ab066774f9a96fcc7c3e597e6c969e86a705121ec6",
+      "bytes": 9550,
+      "lines": 197,
+      "title": "The relay: making a laptop reachable",
+      "headings": [
+        "## Identity: an account, obtained one of two ways",
+        "## The tunnel protocol",
+        "## Addressing",
+        "## Quotas, and what they are for",
+        "## The abuse surface, stated plainly",
+        "## What this needs that does not exist yet",
+        "## Boundaries"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/replacing-the-jetbrains-pack.md",
+      "sha256": "f87dd430fd14e8607794d706eacb495022e89caeb039128b8eef53068613cda3",
+      "bytes": 16413,
+      "lines": 267,
+      "title": "Replacing the JetBrains All Products Pack",
+      "headings": [
+        "## The rule this audit follows",
+        "## Where the languages stand",
+        "## What CI verifies, per language",
+        "## Cross-IDE features",
+        "## What this product has that the pack does not",
+        "## The order to do this in"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/specs/freeform/scaffolded-files-and-derived-edits.md",
+      "sha256": "fe9240cd922fd3bc342b0916fda63a018d332bc688e23d096aa12105da130693",
+      "bytes": 11712,
+      "lines": 222,
+      "title": "Scaffolded Files, And Whether A Block Can Be A Set Of Edits",
+      "headings": [
+        "## The gap, stated exactly",
+        "## What already exists that is closer than it looks",
+        "## Why CRDT edits are the wrong mechanism",
+        "## What the right mechanism looks like",
+        "## The hard parts, honestly",
+        "## What I would actually do, in order",
+        "## The short answer"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/specs/freeform/sessions-you-run-again.md",
+      "sha256": "5f4980ef68bb15b7e29c883daa17450a3f6398751fa5517417aa80e518e44efd",
+      "bytes": 11643,
+      "lines": 209,
+      "title": "Sessions you run again: the carry, the interview, and nothing from nowhere",
+      "headings": [
+        "## Rewind and re-run are two different acts",
+        "## Two kinds of session, and the marking is in the bytes",
+        "## The carry",
+        "## The person is the judge",
+        "## Nothing from nowhere",
+        "## Why the interview form, for a better reason than taste",
+        "## Sequence",
+        "## Open edges"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/specs/freeform/shell-layouts.md",
+      "sha256": "05b10fd47d0c976485aa724b857ea7d1282c7f8838443afef5eb4ccd20baa3b8",
+      "bytes": 7729,
+      "lines": 146,
+      "title": "The shell: panes, tabs, and layouts a document declares",
+      "headings": [
+        "## The decision",
+        "## The three layers, and which one is a document",
+        "## The model",
+        "## Two kinds of tile",
+        "## Tools belong in the editor",
+        "## Zoom, if it happens",
+        "## Order of work",
+        "## Also true now",
+        "## Open questions"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/specs/freeform/shipping-mobile-and-desktop.md",
+      "sha256": "65b621879f8958778cd7d0d534145ec6190d263c9fe01163f47731d057d924a1",
+      "bytes": 28027,
+      "lines": 489,
+      "title": "Shipping mobile and desktop: one frontend, one core, two shells",
+      "headings": [
+        "## Can all the source be shared?",
+        "## What genuinely cannot be shared, and why",
+        "## Git on a phone, which sync depends on",
+        "## The shape",
+        "## What the store decision costs",
+        "## What does not change",
+        "## Settling the Apple-only claims",
+        "## Open edges"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/specs/freeform/source-backed-readings.md",
+      "sha256": "252e0e65642419ee670a6075bd8f7a62625fffb8782c11861c5ed190309dfa38",
+      "bytes": 4911,
+      "lines": 83,
+      "title": "A reading is a view over durable code",
+      "headings": [
+        "## Comparison in the main editor",
+        "## Visual bisect",
+        "## Boundaries"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/stages-write-forward.md",
+      "sha256": "1da7b67320c71502436a6f63c7c0981a7a3901fbe8d5164701b65db951f0adb6",
+      "bytes": 3362,
+      "lines": 66,
+      "title": "Stages write forward",
+      "headings": [
+        "## Every stage can do everything",
+        "## Except backwards",
+        "## What this implies for the last stage"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/table-formula-range-drag-handoff.md",
+      "sha256": "416303667d04d36c4044d3086e22fd48172205032a1bcea80a7e95a0e09497cd",
+      "bytes": 3720,
+      "lines": 95,
+      "title": "Formula-range drag: handoff for a browser-level fix",
+      "headings": [
+        "## The unresolved failure",
+        "## What was attempted",
+        "## Reproduce before changing code",
+        "## Constraints that must remain true",
+        "## Related completed work in this commit"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/the-broker-and-the-sealed-machine.md",
+      "sha256": "2677c7ffbe2a34f977f9b0ab462c07de4dfc8585bac4c6f765817860808df663",
+      "bytes": 13344,
+      "lines": 237,
+      "title": "The sealed machine and the broker: an agent with no keys and one road out",
+      "headings": [
+        "## What \"airgapped\" means here, stated precisely",
+        "## What already exists",
+        "## The seal",
+        "## The broker",
+        "## Two things this does not defend against",
+        "## The hardware question",
+        "## Sequence",
+        "## Open edges"
+      ],
+      "supersession_mentions": 1
+    },
+    {
+      "path": "docs/specs/freeform/the-merged-view.md",
+      "sha256": "49d9ca50d5c09c8bc9a6b0d714e38ed21fd96f2a51b5153b544f19a75e3a0773",
+      "bytes": 16818,
+      "lines": 315,
+      "title": "The merged view: one tab, several branches, and the merge already done",
+      "headings": [
+        "## `hick:when` as syntax, not as storage",
+        "## The view is the merge, held live",
+        "## Why this matters more here than it would elsewhere",
+        "## The division of labour with committed conditionals",
+        "## Three hard parts",
+        "## Three things it forces",
+        "## What the view remembers, and where",
+        "## What it does not replace",
+        "## Sequence",
+        "## Open edges"
+      ],
+      "supersession_mentions": 3
+    },
+    {
+      "path": "docs/specs/freeform/the-minimal-core.md",
+      "sha256": "109b2f42ddf5072cf219eb03e6e61a8c60f05652ff309e57416561f25c339023",
+      "bytes": 7571,
+      "lines": 129,
+      "title": "The minimal core: line-numbered documents, React components, Rust backends",
+      "headings": [
+        "## What the codebase was on 2026-09-05",
+        "## The five steps",
+        "## The framework, said plainly (2026-09-05)",
+        "## What changes for a person, and what does not",
+        "## What is refused"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/the-workspace-tree.md",
+      "sha256": "791e32fe49e2ea46eb017feb9d3315c4001031610ee073753a60692f9e1313c2",
+      "bytes": 13936,
+      "lines": 286,
+      "title": "The workspace tree: files, work, and windows in their places",
+      "headings": [
+        "## The first useful reading",
+        "## One node contract",
+        "## Placement is separate from rendering",
+        "## Expansion is a request, not preloading",
+        "## Associations survive; credentials do not travel",
+        "## Other windows are local presence",
+        "## Unread state lives on the event; its badge lives where it can be seen",
+        "## The Files pane is text",
+        "## Work-item adapters",
+        "## Code-review adapters",
+        "## Status and sequence"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/three-axes.md",
+      "sha256": "ec8da2cfd53f09c7a1b635bf43af01243e1ca757a10c4a9a7e327813cfb049f9",
+      "bytes": 14020,
+      "lines": 248,
+      "title": "Three axes, not thirty modes",
+      "headings": [
+        "## Axis 1 \u2014 Evidence: is there a recording, and does it still match?",
+        "## Axis 2 \u2014 Ownership: who owns these bytes?",
+        "## Axis 3 \u2014 Agreement: does the disk hold what the document produces?",
+        "## What survives as a switch",
+        "## What is deleted",
+        "## The grammar",
+        "## Sequence",
+        "## Open edges"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/three-provenances.md",
+      "sha256": "79f87a24a8fa943a2e68d5f33400e2472f0a4c5e3e00bf35d31a240cb579a10b",
+      "bytes": 8167,
+      "lines": 142,
+      "title": "Three provenances, kept apart",
+      "headings": [
+        "## Lineage",
+        "## Context",
+        "## Declared",
+        "## A fourth family, added 2026-08-23, off by default",
+        "## The toggles",
+        "## Open edges"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/token-economics.md",
+      "sha256": "0c1ba7e20b743c747e2fef7ce9dd54d8c367ab2d4f8d3640fc879b7b2c5700ee",
+      "bytes": 9866,
+      "lines": 181,
+      "title": "Token economics: does the hick approach actually cost less?",
+      "headings": [
+        "## Ground rules",
+        "## E1 \u2014 Edit surface: lineage tool vs script-writes (the core claim)",
+        "## E2 \u2014 Read surface: document vs raw repo",
+        "## E3 \u2014 Caching: does the harness actually hit cache?",
+        "## E4 \u2014 Effort sweep",
+        "## E5 \u2014 Batch API for verification fan-out",
+        "## Reporting",
+        "## Implementation"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/tool-receipts-and-service-panes.md",
+      "sha256": "f72ede609e1e0554f7c24b6180b80a7349522488e29a1276f4659597c50ade41",
+      "bytes": 7253,
+      "lines": 119,
+      "title": "Tool receipts and service panes",
+      "headings": [
+        "## Built: file reads",
+        "## Proposed: an API client with a request log",
+        "## Proposed: ribbons and braces into the log",
+        "## Proposed: resolving non-file targets"
+      ],
+      "supersession_mentions": 0
+    },
+    {
+      "path": "docs/specs/freeform/two-branches-in-one-document.md",
+      "sha256": "f3aeb7fc37c029cabeb3b233f9eb1e88ee8ea117b4571a95a13782a7484dcc30",
+      "bytes": 8665,
+      "lines": 167,
+      "title": "Two Branches In One Document",
+      "headings": [
+        "## What already exists, exactly",
+        "## The idea, stated precisely",
+        "## 1. Feature sets that follow the branch \u2014 worth doing",
+        "## 2. Editing both variants at once \u2014 partly here already, and the gap is real",
+        "## 3. Branches as features rather than as commits \u2014 the interesting one, and mostly a trap",
+        "## Taken up, 2026-08-23",
+        "## What I would actually do"
+      ],
+      "supersession_mentions": 0
+    }
+  ],
+  "exact_repeated_paragraphs": [
+    {
+      "text": "Last LLM implementation review (2026-10-18): partially verified. Requirement, choices, limitations and executable witnesses are in [the migration audit](../audits/2026-10-18-python-agent-ownership.md). Evidence: Python `core.py`, `runtime.py`, `hosted.py`; Rust `python_agent.rs`, `serve/python_agent.rs`, existing changeset verifier and confinement profile. Executed checks: see the audit. Human correctness judgment: not recorded.",
+      "files": [
+        "docs/guarantees/agent/a-running-agent-can-be-stopped.md",
+        "docs/guarantees/agent/a-script-cannot-hang-or-flood-a-session.md",
+        "docs/guarantees/agent/an-exhausted-turn-budget-hands-off.md",
+        "docs/guarantees/agent/completion-does-not-certify-verification.md",
+        "docs/guarantees/agent/python-execution-has-two-boundaries.md"
+      ]
+    },
+    {
+      "text": "> 2026-10-18 amendment: the built-in loop is Python, not Rust. Branch data and > evidence persist through the existing session/UI; Python constructs model > context. Hosted completion requires a current accepted changeset and reports > runtime checks unrun. Old Rust-runtime evidence below is historical. See > [the migration audit](../audits/2026-10-18-python-agent-ownership.md).",
+      "files": [
+        "docs/guarantees/agent/a-session-is-the-conversation.md",
+        "docs/guarantees/agent/byo-agent-tool-surface.md",
+        "docs/guarantees/agent/byok-plan-boundary.md",
+        "docs/guarantees/agent/changeset-completion-is-negotiated-and-checked.md",
+        "docs/guarantees/agent/reasoning-is-shown-apart-from-the-answer.md",
+        "docs/guarantees/agent/the-agent-is-told-the-language.md",
+        "docs/guarantees/agent/the-agent-sees-the-open-editors.md"
+      ]
+    },
+    {
+      "text": "The additive shared-controller and captured-owner behavior, focused check results, source fingerprints and remaining gaps are recorded in [the scoped reading-surface contract](../agent/scoped-reading-surfaces-share-native-actions.md). Earlier verification above is historical; it does not establish current universal UI parity or native/provider/release acceptance.",
+      "files": [
+        "docs/guarantees/agent/a-session-is-the-conversation.md",
+        "docs/guarantees/authoring/the-lineage-browser-shows-one-column-per-stage.md",
+        "docs/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project.md",
+        "docs/guarantees/execution/python-profile-keeps-function-semantics.md",
+        "docs/guarantees/lineage/replay-recomputes-lineage-at-a-commit.md",
+        "docs/guarantees/literate-projects/patch-edits-revalidate-downstream-construction.md"
+      ]
+    },
+    {
+      "text": "| | Where it lives | The change of mind is | |---|---|---| | **Rewind** | one session file, one conversation, an abandoned branch in the tree | **kept** \u2014 visible in the file forever | | **Re-run** | a second session file; the first is a draft you may discard | **not kept** \u2014 nothing in session 2 refers to session 1 |",
+      "files": [
+        "docs/guarantees/agent/rewind-and-re-run-are-two-different-acts.md",
+        "docs/specs/freeform/sessions-you-run-again.md"
+      ]
+    },
+    {
+      "text": "The shipped embedding host controls and actual graph/image editors share the parent scoped broker. Recorded-profile import validates bounded schema/source integrity and keeps pin/remove local to the page. It does not execute, authenticate or certify a run. Markdown navigation is supplied by the installed editor extension and binds current source/path; skipped code cannot be navigated. Browser/shell open results report requests, not loaded destinations. Review copy uses the native clipboard handler and returns requires_input on denial. The file-menu clipboard fallback refuses a false browser copy result.",
+      "files": [
+        "docs/guarantees/agent/scoped-reading-surfaces-share-native-actions.md",
+        "docs/guarantees/agent/ui-action-dispatch.md"
+      ]
+    },
+    {
+      "text": "LLM implementation review: partially verified for these paths. Executed checks, failed challenges/corrections, dependency hashes and unresolved acceptance work are retained in the 2026-10-22 static-host section of [the issue-72 handoff](../../developers/handoffs/2026-10-21-issue-72.md). Human judgment is not supplied. These witnesses do not establish universal parity or current native/provider/release acceptance.",
+      "files": [
+        "docs/guarantees/agent/scoped-reading-surfaces-share-native-actions.md",
+        "docs/guarantees/agent/ui-action-dispatch.md"
+      ]
+    },
+    {
+      "text": "Generated markdown image navigation shares its native generating-block callback, bound to the current prose image/path. A path-only transaction refreshes its image widget target. Historical commit-context loads bind the selected commit and refuse late replacement results. A failed context load remains retryable. Generated buffer Retry/Discard shares the current ordinary saver/entry/source/baseline; failed saves retain drafts and stale discards cannot discard newer bytes. Actual save results and possible late effects remain explicit, with no verification claim.",
+      "files": [
+        "docs/guarantees/agent/scoped-reading-surfaces-share-native-actions.md",
+        "docs/guarantees/agent/ui-action-dispatch.md"
+      ]
+    },
+    {
+      "text": "LLM implementation review: partially verified for these paths. Focused checks, failed assertions/corrections and exact hashes are in the corresponding image / context / recovery section of the issue-72 handoff. Human judgment is not supplied. Universal parity and current provider/package/release acceptance remain incomplete.",
+      "files": [
+        "docs/guarantees/agent/scoped-reading-surfaces-share-native-actions.md",
+        "docs/guarantees/agent/ui-action-dispatch.md"
+      ]
+    },
+    {
+      "text": "The actual prompt draft is read/editable through shared actions. Dired owns that draft and its operation identity; parent submission displays its actual destination while pending. Native typing invalidates old parent handles. Agent confirmation requires explicit true. Synchronous owner/admission checks refuse stale callbacks, duplicate submissions and prompt replacement/cancellation while the operation is pending, including before React paints. A refused operation is not a success. Partial multi-path failure retains the completed paths, refreshes the tree and never guesses rollback; the failed prompt remains available for inspection.",
+      "files": [
+        "docs/guarantees/agent/ui-action-dispatch.md",
+        "docs/guarantees/authoring/the-tree-is-a-dired.md"
+      ]
+    },
+    {
+      "text": "LLM implementation review: partially verified for these paths. Eight focused prompt/dired cases and the existing native delete-confirmation case passed; targeted TypeScript passed. Host filesystem operations are injected, so this is not a current native-platform witness. Dependencies, assumptions and remaining issue-72 work are in the active handoff. Human judgment is not supplied.",
+      "files": [
+        "docs/guarantees/agent/ui-action-dispatch.md",
+        "docs/guarantees/authoring/the-tree-is-a-dired.md"
+      ]
+    },
+    {
+      "text": "Host-supplied DocumentEmbed previews and PicturePanel share bounded explicit capture of actual browser-loaded pixels. Capture binds the current image owner, source/path and load epoch; retirement/abort cannot deliver the old raster as a replacement view. Browser CORS/secure-context refusal is requires_input, with no security bypass. Host image failures do not claim a missing cell recording. Pixel capture is not original-file equality or program execution evidence.",
+      "files": [
+        "docs/guarantees/agent/ui-action-dispatch.md",
+        "docs/guarantees/authoring/a-generated-picture-shows-as-a-picture.md"
+      ]
+    },
+    {
+      "text": "LLM implementation review: partial. Two focused owner/CORS component cases and two actual Chrome parent-bridge PNG/digest flows passed, with no engine requests. Targeted strict TypeScript passed. Exact hashes, failed fixture corrections and remaining package/provider/publication acceptance are in the issue-72 handoff. Human judgment is not supplied. The separately building native checkpoint does not include this later slice and cannot witness it.",
+      "files": [
+        "docs/guarantees/agent/ui-action-dispatch.md",
+        "docs/guarantees/authoring/a-generated-picture-shows-as-a-picture.md"
+      ]
+    },
+    {
+      "text": "Requirement: issue 72/#74 requires actual shared OS controls or an explicit tracked OS limitation, and #77 retains a human-owned End/quarantine boundary. The native Window menu and UI registry now invoke the same current-window minimize/restore controller. Explicit status reads return host-observed platform and minimized state only. No caller selects another window, file or arbitrary IPC. Browser/missing callbacks return a required-input result; uncertain host failures are not successful closure/minimization claims. Predefined macOS About, Services, Hide, Hide Others and Show All remain a tracked #74 platform limitation, with an addressable operation request and retained pending result. Human conversation reports are not authenticated OS completion. macOS execution is unavailable on this Linux host and must be qualified separately.",
+      "files": [
+        "docs/guarantees/agent/ui-action-dispatch.md",
+        "docs/guarantees/verification/predictions-precede-managed-observation.md"
+      ]
+    },
+    {
+      "text": "Review discovered that the private page bypasses App's close listener. It now shares a close controller between the native event, ended-page button and registry. An agent cannot end/close its own quarantine. Human close before End is refused. After durable End, local host close bypasses the retired project router/receipt lease; it does not reopen project capabilities. The human button/event call the same controller directly because persisting an action receipt through an expired project lease would prevent closing. An agent-visible close request still returns requires_input. Host acknowledgment does not prove window destruction.",
+      "files": [
+        "docs/guarantees/agent/ui-action-dispatch.md",
+        "docs/guarantees/verification/predictions-precede-managed-observation.md"
+      ]
+    },
+    {
+      "text": "LLM implementation review: partial, covering the finite callbacks, origin/body validation, ended-only local close and retired-router independence. Assumption: the current native host owns the one main window; SDK state is a point-in-time report and OS scheduling can change it immediately. Falsifiers include a foreign origin closing a window, active quarantine closing, arbitrary target parameters, a late receipt preventing human close, or a held-out field entering window output. Executed checks: 12 focused frontend cases (window responses, OS requests, private coach), 7 existing bridge cases, one real local proxy/Connection lifecycle test; CLI and native desktop cargo check and targeted strict TypeScript passed. The first frontend invocation used the repository root and lacked jsdom; rerunning from apps/web passed. The first standalone TypeScript command omitted dom.iterable; including that configured DOM library passed. No broad regression was run. Human judgment: not supplied. These checks do not establish paid-provider, reviewed footage/publication, deployed or other-platform acceptance.",
+      "files": [
+        "docs/guarantees/agent/ui-action-dispatch.md",
+        "docs/guarantees/verification/predictions-precede-managed-observation.md"
+      ]
+    },
+    {
+      "text": "Dependencies (SHA-256; edits stale this review): - `apps/web/src/lib/nativeWindowActions.ts`: `8d673546ea02e309bb03bcb68bb6e3c0a62cfe8a16e23e72913c4d156872c9b5`. - `apps/web/src/lib/nativeWindowActions.test.ts`: `d6e41286eb25d2013435967ae489774e769ea68621317c04a00d55de79c6468c`. - `apps/web/src/components/PrivatePredictionCoach.tsx`: `f52c09d0da7e16b44509e166fcb18b54e3bd3fd86950714e0fbf97c14036a71a`. - `apps/web/src/components/PrivatePredictionCoach.test.tsx`: `f49321378846ac4355ec43e1e1f0556b82af284a4966f5d40899858ae240ab37`. - `apps/web/src/lib/uiActionBridge.tsx`: `ad5ddfecc981c32de3f284e466ca34c1bc48645c23519d20311f9bb16873e561`. - `crates/hickory-cli/src/engine/client.rs`: `bc4caa99206d1fc157ddfdbf5a4917007ed3b957bd9488914081bf48afbd2b7b`. - `crates/hickory-cli/src/engine/proxy.rs`: `46cb41135332a9b6cdabedde7d4b60aab39c3730950bd804912c950a45608e23`. - `crates/hickory-cli/src/engine/client_prediction_tests.rs`: `01aaaef8922155f615732939a69e11db40f5468b368d87ea246791997d653158`. - `crates/hickory-cli/src/serve/shell.rs`: `2f3be29957046bc545826b92892ade11077c5e59f924b40dbceebfd8871b9eed`. - `apps/desktop/src-tauri/src/lib.rs`: `d8ce0cd736db0f367e9560e797e46efdb265b954333a694c7425868243e6ad73`. - `apps/desktop/src-tauri/src/server.rs`: `1b82b61fea2c1f12cc417e823881ccfe19fa91fcd1dde9c4f9b78cf41b2abb6b`.",
+      "files": [
+        "docs/guarantees/agent/ui-action-dispatch.md",
+        "docs/guarantees/verification/predictions-precede-managed-observation.md"
+      ]
+    },
+    {
+      "text": "The post-End native-close failure witness initially failed: polling cleanup had set its owner flag false, suppressing the visible close error and busy cleanup. A separate mounted close-controller owner now outlives polling and is withdrawn only at unmount. The focused challenge verifies actual failure visibility, no raw host-error disclosure, no automatic replay, restored button availability and removal of the native listener at unmount. Thirteen focused frontend cases and targeted strict TypeScript passed after the fix. The 49a2a491 package build precedes this final recovery fix and cannot attest it. The scripted ACP witness above also precedes this recovery-only change; its execution/gate paths are unchanged. LLM review remains partial; human judgment remains absent.",
+      "files": [
+        "docs/guarantees/agent/ui-action-dispatch.md",
+        "docs/guarantees/verification/predictions-precede-managed-observation.md"
+      ]
+    },
+    {
+      "text": "Current recovery dependencies (SHA-256): - `apps/web/src/components/PrivatePredictionCoach.tsx`: `3c289c11702eb623a8fc169202f844fd667130995f5eb60401999ca8d527e9d9`. - `apps/web/src/components/PrivatePredictionCoach.test.tsx`: `ecef641a955243bea19b7262cffdc7231390c0143a55384358dfe2abe1e023de`.",
+      "files": [
+        "docs/guarantees/agent/ui-action-dispatch.md",
+        "docs/guarantees/verification/predictions-precede-managed-observation.md"
+      ]
+    },
+    {
+      "text": "The touched Rust files were formatted with rustfmt (edition 2024, skip_children), without changing behavior. The same scoped format check and real local proxy/ Connection lifecycle test passed afterward. Declaration hashes were regenerated. Native package source remains exactly 7416bacf, before this formatting-only follow-up and the stronger tooltip test; that package is never relabelled as bytes from a later source revision. LLM review of the formatter diff found only layout and re-export ordering. Current formatted dependencies: - `crates/hickory-cli/src/engine/proxy.rs`: `aefad888f7841ec1a3cccf2f6538860d8a13aac7ff5a12ddd66f99410360f8d4`. - `crates/hickory-cli/src/engine/client_prediction_tests.rs`: `05ab1091f9a5d7826d3039385ef956bd67c6ec646792b22b7ff2f1796b01b9eb`. - `crates/hickory-cli/src/serve/mod.rs`: `6fa158641145b0fe63cb37c163fafa9a784b9d0142fd6c2070edce3d1ffd47a0`. - `crates/hickory-cli/src/serve/shell.rs`: `8bb748027516fdc23bbfaae230013bbda01bda2735d01a3927fdeb7e77d10797`. - `apps/desktop/src-tauri/src/lib.rs`: `290f7444cf8658dd9e5174d57f8cfa872ed376da00a38fe8d34f9727ca2ee503`. - `apps/desktop/src-tauri/src/server.rs`: `b27cd771f3f723a462a24db6df7321d917498f3a67780c05f9b4f00041c8db39`.",
+      "files": [
+        "docs/guarantees/agent/ui-action-dispatch.md",
+        "docs/guarantees/verification/predictions-precede-managed-observation.md"
+      ]
+    },
+    {
+      "text": "> Retired 2026-10-05. The homepage now contains one short document with a > real browser debugger, paused on first load, and a desktop download section. > Interest disclosures, the identity question, and the recorded-run demo are > no longer on the homepage. The historical rationale below remains a record, > not a guarantee of the current page. See `landing/homepage-opens-paused.md`.",
+      "files": [
+        "docs/guarantees/analytics/landing-declared-vs-revealed.md",
+        "docs/guarantees/analytics/landing-interest-vector.md",
+        "docs/guarantees/landing/discovery-page-is-interest-organized.md",
+        "docs/guarantees/landing/home-demos-run-the-real-mechanism.md",
+        "docs/guarantees/landing/the-page-leads-with-the-claim-not-the-mechanism.md"
+      ]
+    },
+    {
+      "text": "LLM review: partial. Load/error/restoration metadata remains explicitly readable when a document/generated/literate editor cannot mount. Files-pane and changeset rendering failures have bounded readers; source/recovery/project bytes are excluded. Eighty-one focused cases and changed-entrypoint TypeScript passed, with three selected final loading/failure checks. Exact dependencies and limits are in the issue-72 handoff. No human judgment or current native/provider completion witness supplied.",
+      "files": [
+        "docs/guarantees/authoring/the-editor-keeps-its-space.md",
+        "docs/guarantees/lenses/a-view-declares-where-edits-land.md"
+      ]
+    },
+    {
+      "text": "LLM review: partial. Inline eval and breakpoint forms share actual native/agent controllers. Explicit bounded form reading is separate from discovery. Eval binds source/stop/frame, retires late values and reports cancellation uncertainty; all current hosts provide the owner callback. Breakpoint source/config/target replacement withdraws obsolete forms while adapter acknowledgements preserve a new draft. Native Enter/watch/Escape/focus-out and agent requests have focused witnesses. Seventy directly affected checks and changed-entrypoint TypeScript passed. Exact dependencies and boundaries are in the issue-72 handoff. No new private-prediction authority, adapter acceptance, verification, human judgment or native/browser layout witness is claimed.",
+      "files": [
+        "docs/guarantees/debugging/a-breakpoint-can-carry-a-condition.md",
+        "docs/guarantees/debugging/source-anchored-observation-reading.md"
+      ]
+    },
+    {
+      "text": "LLM review: partial. See the 2026-10-22 excerpt/test-launch checkpoint in `docs/developers/handoffs/2026-10-21-issue-72.md` for executed focused evidence, exact dependency hashes and boundaries. No human judgment supplied.",
+      "files": [
+        "docs/guarantees/execution/a-test-runs-from-the-line-it-is-written-on.md",
+        "docs/guarantees/shell/spatial-views-preserve-the-editor.md"
+      ]
+    },
+    {
+      "text": "LLM review: partial. Displayed attribution has explicit bounded line and byte readers through the installed editor-language facet. Both layers clear on source change; provider source text is excluded. Twenty-three focused attribution/gutter cases and changed-entrypoint TypeScript passed. Exact dependencies, evidence and limitations are in the issue-72 handoff. No human judgment supplied.",
+      "files": [
+        "docs/guarantees/lineage/authorship-display-accepts-non-git-providers.md",
+        "docs/guarantees/lineage/the-blame-column-is-optional-and-honest.md"
+      ]
+    }
+  ]
+}

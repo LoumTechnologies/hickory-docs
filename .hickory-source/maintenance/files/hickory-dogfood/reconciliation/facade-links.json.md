@@ -1,0 +1,102 @@
+<maint:doc xmlns:maint="http://www.hickorydocs.com/1.0">
+# Maintain hickory-dogfood/reconciliation/facade-links.json
+
+For: maintainers changing the literate workflow and reviewers checking migration evidence.
+
+Edit this entry, regenerate, and commit its output with the Markdown. Historical evidence retains its original scope.
+
+<maint:entry path="hickory-dogfood/reconciliation/facade-links.json">
+[
+  {
+    "guarantee": "authoring/a-new-project-is-a-recipe-commit.md",
+    "facade": "crates/hickory-cli/src/scaffold.rs",
+    "implementation": "crates/hick-plugins/src/scaffold.rs",
+    "basis": "explicit Rust re-export; not a coverage claim"
+  },
+  {
+    "guarantee": "authoring/a-new-project-reads-the-scaffolder-s-own-options.md",
+    "facade": "crates/hickory-cli/src/scaffold.rs",
+    "implementation": "crates/hick-plugins/src/scaffold.rs",
+    "basis": "explicit Rust re-export; not a coverage claim"
+  },
+  {
+    "guarantee": "debugging/a-compiled-language-launches-what-a-build-produced.md",
+    "facade": "crates/hick-dap/src/build.rs",
+    "implementation": "crates/hick-plugins/src/build.rs",
+    "basis": "explicit Rust re-export; not a coverage claim"
+  },
+  {
+    "guarantee": "debugging/a-compiled-language-launches-what-a-build-produced.md",
+    "facade": "crates/hick-dap/src/discovery.rs",
+    "implementation": "crates/hick-plugins/src/dap_discovery.rs",
+    "basis": "explicit Rust re-export; not a coverage claim"
+  },
+  {
+    "guarantee": "debugging/a-compiled-language-launches-what-a-build-produced.md",
+    "facade": "crates/hick-lsp/src/lang_detect.rs",
+    "implementation": "crates/hick-plugins/src/routing.rs",
+    "basis": "explicit Rust re-export; not a coverage claim"
+  },
+  {
+    "guarantee": "debugging/a-debugger-that-lives-in-a-language-server-is-asked-for.md",
+    "facade": "crates/hick-dap/src/discovery.rs",
+    "implementation": "crates/hick-plugins/src/dap_discovery.rs",
+    "basis": "explicit Rust re-export; not a coverage claim"
+  },
+  {
+    "guarantee": "debugging/a-debugger-that-lives-in-a-language-server-is-asked-for.md",
+    "facade": "crates/hick-dap/src/java.rs",
+    "implementation": "crates/hick-plugins/src/java.rs",
+    "basis": "explicit Rust re-export; not a coverage claim"
+  },
+  {
+    "guarantee": "debugging/a-debugger-that-lives-in-a-language-server-is-asked-for.md",
+    "facade": "crates/hickory-cli/src/java_debug.rs",
+    "implementation": "crates/hick-plugins/src/java_debug.rs",
+    "basis": "explicit Rust re-export; not a coverage claim"
+  },
+  {
+    "guarantee": "debugging/an-adapter-that-listens-is-connected-to.md",
+    "facade": "crates/hick-dap/src/build.rs",
+    "implementation": "crates/hick-plugins/src/build.rs",
+    "basis": "explicit Rust re-export; not a coverage claim"
+  },
+  {
+    "guarantee": "debugging/an-adapter-that-runs-on-a-second-connection-is-followed.md",
+    "facade": "crates/hick-dap/src/discovery.rs",
+    "implementation": "crates/hick-plugins/src/dap_discovery.rs",
+    "basis": "explicit Rust re-export; not a coverage claim"
+  },
+  {
+    "guarantee": "debugging/an-adapter-that-ships-as-an-archive-installs-like-any-other.md",
+    "facade": "crates/hick-dap/src/discovery.rs",
+    "implementation": "crates/hick-plugins/src/dap_discovery.rs",
+    "basis": "explicit Rust re-export; not a coverage claim"
+  },
+  {
+    "guarantee": "editor-intelligence/a-language-server-is-found-without-being-configured.md",
+    "facade": "crates/hick-lsp/src/discovery.rs",
+    "implementation": "crates/hick-plugins/src/lsp_discovery.rs",
+    "basis": "explicit Rust re-export; not a coverage claim"
+  },
+  {
+    "guarantee": "editor-intelligence/a-typed-path-opens-that-file.md",
+    "facade": "crates/hick-lsp/src/lang_detect.rs",
+    "implementation": "crates/hick-plugins/src/routing.rs",
+    "basis": "explicit Rust re-export; not a coverage claim"
+  },
+  {
+    "guarantee": "editor-intelligence/installing-a-language-server-is-itself-sandboxed.md",
+    "facade": "crates/hick-lsp/src/discovery.rs",
+    "implementation": "crates/hick-plugins/src/lsp_discovery.rs",
+    "basis": "explicit Rust re-export; not a coverage claim"
+  },
+  {
+    "guarantee": "languages/a-routed-language-is-drawn.md",
+    "facade": "crates/hick-lsp/src/lang_detect.rs",
+    "implementation": "crates/hick-plugins/src/routing.rs",
+    "basis": "explicit Rust re-export; not a coverage claim"
+  }
+]
+</maint:entry>
+</maint:doc>

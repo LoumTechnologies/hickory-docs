@@ -1,0 +1,85 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# docs/guarantees/authoring/an-output-that-cannot-be-carried-back-is-held.md
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+This is preserved output from the original capture. Current requirement dispositions are in the integrated guarantee pages.
+
+
+Captured SHA-256: `91dd41b19a6377c829518f436c3e33f953c9b03958c620c2618fc2c998d3f8a5`.
+
+<book:entry path="docs/guarantees/authoring/an-output-that-cannot-be-carried-back-is-held.md">
+# An Output That Cannot Be Carried Back Is Held, Never Undone
+
+Given a running loop (`hick up`, or the app's own) and a generated file whose
+bytes on disk changed by something other than the loop — a forced edit, a
+`git checkout`, a `git pull`, the Git pane's Discard — when the change cannot
+be carried back into the document (it touches generated text, or the
+document moved under it), then the file is left exactly as it is on disk and
+marked **held**: the loop says so by name and reason, the file tree shows the
+mark, the generated pane shows the reason, and no later weave rewrites the
+file until either the document produces exactly the held bytes or a person
+asks for the file to be regenerated from the document.
+
+It used to be restored: the loop put the file back to match the document, on
+the argument that a silent fork is worse than a refused edit. The argument was
+right about "silent" and wrong about the remedy. Restoring destroyed what a
+person typed, and what git wrote, a second after it was written — a Discard
+in the Git pane "worked" and the file stayed modified; a `git pull` that
+updated a generated file was reverted before anyone saw it. The bytes on disk
+came from somebody; the loop has nothing truer to put in their place. What
+was silent is now loud, and what was undone now stays.
+
+## Boundary
+
+A held file is not an unresolved merge: nothing blocks. Editing the document
+until it produces the held bytes lifts the hold; so does **Regenerate from
+document**, which is the only path that overwrites held bytes and is taken
+only when asked by name.
+
+
+> **Amended 2026-09-03 (three-axes, step 2).** Held is one case of one
+> state, *diverged* — the disk does not hold what the document produces —
+> and the surface is the same everywhere: a produced file the loop is
+> holding, a produced file the document cannot reproduce yet (*kept*, an
+> unrecorded cell), and a plain file that changed on disk under an unsaved
+> buffer all show `DivergedBanner` with the same three ways out — **keep
+> mine**, **take theirs**, **merge**. The tree says *diverged*. The server
+> publishes each diverged file with its `kind`, its reason, the last agreed
+> `base` and the document's current `theirs` (`GET /api/outputs/diverged`);
+> *take theirs* is `POST /api/v1/outputs/regenerate`, and a merge's result goes
+> through `POST /api/v1/outputs/resolve`, after which the loop treats the bytes
+> as an ordinary save. A kept file has no *theirs* yet, and the banner says
+> what would make one.
+
+---
+
+Last LLM verification:
+- Date: 2026-09-02
+- Reviewer: Claude (Fable 5.1)
+- Result: verified
+- Evidence: `crates/hickory-cli/src/up/state.rs` (`WovenState::held`,
+  `hold_output`, the hold check in `write_output`, `restore_output` as the
+  explicit way out); `crates/hickory-cli/src/up/mod.rs` `consume_output_save`
+  holds on both refusal branches; `crates/hickory-cli/src/up/reverse.rs`
+  `refusal_reason`; `crates/hickory-cli/src/serve/watch.rs` publishes the
+  held set to `LocalState.held` and answers regenerate requests;
+  `crates/hickory-cli/src/serve/api.rs` stamps `held` on tree nodes and
+  serves `POST /api/v1/outputs/regenerate`; `apps/web/src/shell/FolderTreePane.tsx`
+  and `apps/web/src/components/OutputEditorPane.tsx` show it.
+- Test coverage: `crates/hickory-cli/tests/up_loop.rs`
+  (`a_fully_generated_file_is_read_only_and_a_forced_edit_is_held_not_undone`,
+  including the hold lifting when the document catches up);
+  `crates/hickory-cli/tests/round_trip.rs` (a `git checkout` of an output
+  under the app's own loop stays on disk and is reported held).
+
+> **Amended 2026-10-08:** the divergence mechanism is unchanged; the historical
+> “keep mine / take theirs” labels are superseded by explicit write consequences.
+> Generated files offer “Leave disk unchanged” and “Regenerate from document”;
+> plain buffers offer “Overwrite disk with this buffer” and “Reload from disk”.
+> Dismissal is not resolution. See `conflict-actions-name-the-write.md`.
+
+Scoped update, October 20, 2026: explicit resolution/regeneration now requires the observed disk and produced sides and awaits the loop's actual application/refusal. `WovenState::resolve_output` and `serve/output_resolution.rs` replace the historical unguarded `restore_output` path named in the September evidence. A refusal preserves the hold; success retires it only after writing, and regeneration restores generated-output permissions. Applied output bytes do not establish later source propagation. Focused state/HTTP checks are `up/state/resolution_tests.rs` and `tests/serve_output_resolution.rs`; they include stale-side, symlink-retarget, permission and protocol acknowledgement behavior. The broader historical up-loop/round-trip checks were not rerun in this continuation. External writers can race comparison/rename; timeout and partial I/O failure are not rollback guarantees.
+</book:entry>
+
+</book:doc>

@@ -1,0 +1,66 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# docs/guarantees/agent/the-agent-is-told-the-language.md
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+This is preserved output from the original capture. Current requirement dispositions are in the integrated guarantee pages.
+
+
+Captured SHA-256: `7368fc1b0ebab71d441611fc661aa777601619e9f7780f3e634ac1f088796e6f`.
+
+<book:entry path="docs/guarantees/agent/the-agent-is-told-the-language.md">
+# The Built-In Agent Is Told The Document Language, And Where Its Scripts Run
+
+> 2026-10-18 amendment: the built-in loop is Python, not Rust. Branch data and
+> evidence persist through the existing session/UI; Python constructs model
+> context. Hosted completion requires a current accepted changeset and reports
+> runtime checks unrun. Old Rust-runtime evidence below is historical. See
+> [the migration audit](../audits/2026-10-18-python-agent-ownership.md).
+
+
+Given a built-in Python run, its Python-owned system instructions include the
+Hickory language crib, source/output editing guidance and upstream references.
+Generated snippets run in Monty, and actual inputs are read through tools, never
+recreated when missing. The prompt separates proposed document commands and
+desired expectations from observed runtime results. Native verify/refresh tools
+are withheld by the hosted boundary; checks remain unrun until performed explicitly.
+
+The reason is a recorded session. Asked to analyse a CSV that sat beside the
+document, the agent with no grammar in its prompt invented attributes
+(`hick:paste from=… from-line=…`, `hick:exec cmd="python"`), put the
+expectation outside the cell, and — finding no CSV in its scratch directory —
+**wrote a fake one and pinned invented numbers** as findings
+(`examples/receipts/hick-agent/sessions/20260822-125634-…`). With the
+reference in the prompt the same task was structured correctly on the next
+run; the remaining failure was the expectation's leading newline, which the
+mismatch message now names
+(`crates/hick-literate/src/expect.rs`, "begins with an empty line").
+
+The prompt also names `hick:check` (a transform with the question built in) and
+`read_file`: the agent's window onto project files
+that are not documents, read-only and recorded
+(`context-provenance-is-derived-from-the-session.md`). The confined interpreter
+still cannot see the project — that is what keeps the document the only write
+path — but the agent no longer has a reason to invent what it cannot find.
+
+## Boundary
+
+The reference is a crib, not the parser: an element it does not list still
+parses.
+
+---
+
+Last LLM verification:
+- Date: 2026-08-22
+- Reviewer: Claude Fable 5
+- Result: verified (implemented and reviewed in the same change)
+- Evidence: `TOOLS_SYSTEM_PROMPT` in `crates/hickory-agent/src/protocol.rs`
+  ("The document language"); `diff_detail` in
+  `crates/hick-literate/src/expect.rs` and its test
+  `a_leading_newline_in_the_expectation_is_named`.
+- Sessions: `examples/receipts/hick-agent/sessions/` — the first two without
+  the crib (30 turns, failed), the third with it (25 turns, verify passed),
+  `fix.md` in 16 turns, `message.md` in 4.
+</book:entry>
+
+</book:doc>

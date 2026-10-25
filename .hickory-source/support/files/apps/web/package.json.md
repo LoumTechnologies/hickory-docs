@@ -1,0 +1,77 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# apps/web/package.json
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+
+Captured SHA-256: `5cc9914d2e8e68b7c95fd5750a496ad677c34def92ea1564a2752caccf239e3d`.
+
+<book:entry path="apps/web/package.json">
+{
+  "name": "hickory-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:site": "vite --open /site.html",
+    "dev:mock": "VITE_MOCK=1 vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "preview": "vite preview",
+    "build:site": "tsc -b && vite build --config vite.site.config.ts"
+  },
+  "dependencies": {
+    "@codemirror/autocomplete": "^6.18.0",
+    "@codemirror/commands": "^6.7.1",
+    "@codemirror/lang-css": "^6.3.1",
+    "@codemirror/lang-html": "^6.4.12",
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/lang-php": "^6.0.2",
+    "@codemirror/lang-python": "^6.2.1",
+    "@codemirror/lang-rust": "^6.0.2",
+    "@codemirror/lang-sql": "^6.10.0",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/legacy-modes": "^6.5.3",
+    "@codemirror/search": "^6.7.1",
+    "@codemirror/state": "^6.5.0",
+    "@codemirror/view": "^6.36.1",
+    "@dagrejs/dagre": "^3.1.1",
+    "@jridgewell/trace-mapping": "0.3.31",
+    "@lezer/common": "^1.5.2",
+    "@lezer/highlight": "^1.2.3",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "@xyflow/react": "^12.11.3",
+    "js-interpreter": "6.0.2",
+    "katex": "^0.16.47",
+    "lib0": "^0.2.98",
+    "mermaid": "^11.16.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.7.2",
+    "y-codemirror.next": "^0.3.5",
+    "y-protocols": "^1.0.6",
+    "yjs": "^13.6.20"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@testing-library/react": "^16.1.0",
+    "@types/react": "^18.3.14",
+    "@types/react-dom": "^18.3.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^25.0.1",
+    "openapi-typescript": "^7.13.0",
+    "vite": "^6.0.7",
+    "vitest": "^3.2.7"
+  }
+}
+</book:entry>
+
+</book:doc>

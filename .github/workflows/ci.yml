@@ -625,3 +625,19 @@ jobs:
       # signature authorizes the FSKit entitlement or mounts a volume.
       - run: just build-fskit
       - run: just test-workspace-fs
+
+  literate-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: hickory-dogfood/tools/behavior-engine -> ../../../target/dogfood
+      - name: Build the native literate adapter
+        run: CARGO_TARGET_DIR="$PWD/target/dogfood" cargo build --locked --release --manifest-path hickory-dogfood/tools/behavior-engine/Cargo.toml
+      - name: Check maintained source and focused reconstruction safety
+        run: |
+          python3 hickory-dogfood/tools/behavior.py check
+          python3 hickory-dogfood/tools/behavior.py audit
+          python3 hickory-dogfood/tools/promotion-check.py

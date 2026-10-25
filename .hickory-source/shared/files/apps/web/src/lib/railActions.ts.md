@@ -1,0 +1,113 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# apps/web/src/lib/railActions.ts
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+- [A Generated Picture Shows As A Picture](../../../../../../guarantees/authoring/a-generated-picture-shows-as-a-picture/contract.md)
+- [A Table Is A Dataset And A Paragraph](../../../../../../guarantees/authoring/a-table-is-a-dataset-and-a-paragraph/contract.md)
+- [An Equation Renders And Shows Its Source](../../../../../../guarantees/authoring/an-equation-renders-and-shows-its-source/contract.md)
+- [The Gutters Never Skip A Number](../../../../../../guarantees/authoring/the-gutters-never-skip-a-number/contract.md)
+- [Actions belong to their subject](../../../../../../guarantees/editor-intelligence/actions-belong-to-their-subject/contract.md)
+
+Captured SHA-256: `dee4a73474fd969d4f5a96c3dfd2c8f8d78617448fa01b2780f7ba49e3223185`.
+
+<book:entry path="apps/web/src/lib/railActions.ts">
+// What each card offers on the action rail.
+//
+// The rail used to carry one icon per card, and that icon did the only thing
+// a card could do: swap the block between its result and its source. Every
+// other control — Run, Replay, "source" — lived INSIDE the rendered card, as
+// a button floating over the thing it acted on.
+//
+// They are all on the rail now. A rendered card is something to read; the
+// things you can click belong in the one column that exists to be clicked.
+// So a card contributes a short COLUMN of icons rather than a single one,
+// stacked downward from its own line by the same `stackIcons` that keeps two
+// crowded cards apart — an action never rises above the line it belongs to.
+//
+// Pure — kind and a couple of flags in, action list out — because "which
+// icons does a failed cell with a transcript show?" is a question worth
+// answering in a test rather than by clicking through a browser.
+
+import type { CardKind } from "../editor/cards";
+
+/** One thing a rail icon does. */
+export type RailAction = "run" | "source" | "replay" | "convert";
+
+/** What a cell must look like for the replay icon to be worth offering. */
+export interface ReplayInput {
+  /** Server-side status of the block, when the server knows it. */
+  status?: string;
+  /** Whether the cell pins its output with an expect block. */
+  hasExpect: boolean;
+  /** How many transcript events the last run produced. */
+  transcriptLength: number;
+  /** Whether the cell is running right now. */
+  running: boolean;
+}
+
+/**
+ * Whether a cell's transcript is hidden behind a replay toggle.
+ *
+ * A cell whose output is PINNED by an expect block does not show its
+ * transcript by default — the expect block above it is the output, already on
+ * numbered lines, and repeating it underneath is a second copy of the same
+ * bytes. Replay reveals what actually ran. A cell with no expect block has
+ * nothing standing in for its transcript, so the transcript is simply shown
+ * and there is nothing to toggle.
+ *
+ * Shared with CellPanel so the icon and the panel cannot disagree about
+ * whether there is anything to replay.
+ */
+export function hasReplay({
+  status,
+  hasExpect,
+  transcriptLength,
+  running,
+}: ReplayInput): boolean {
+  if (running || transcriptLength === 0 || !hasExpect) return false;
+  return status === "ok" || status === "failed";
+}
+
+/**
+ * The icons a card contributes, top to bottom.
+ *
+ * Order is deliberate and stable: the action you reach for most is nearest
+ * the line. Run comes first because a cell exists to be run; source second
+ * because it is the way back; replay last because it is the rare one, and
+ * because an icon that comes and goes must not push the others around.
+ */
+export function actionsFor(
+  kind: CardKind,
+  options: { replay?: boolean; source?: boolean } = {},
+): RailAction[] {
+  switch (kind) {
+    case "exec": {
+      // A cell that draws a picture has no source toggle of its own: the
+      // picture block above it owns that verb, and offering it twice is how
+      // a two-state thing grows a third state.
+      const own: RailAction[] = options.source === false ? ["run"] : ["run", "source"];
+      return options.replay ? [...own, "replay"] : own;
+    }
+    case "dataset":
+    case "diagram":
+    // An equation is a picture too: the only verb it has is "show me what I
+    // actually typed".
+    case "math":
+    // A table's grid IS the edited thing, so its one verb is the way back to
+    // the CSV — which is what a reviewer reads in the diff.
+    case "table":
+    // A generated picture has the same one verb: show me the code that drew
+    // this. Running it belongs to the cell INSIDE the file block, which keeps
+    // its own Run icon — the picture card never grows a second one.
+    case "picture":
+      return ["source"];
+    case "fence":
+      return ["convert"];
+  }
+}
+</book:entry>
+
+</book:doc>

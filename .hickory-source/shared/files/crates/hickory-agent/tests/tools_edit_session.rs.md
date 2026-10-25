@@ -1,0 +1,619 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# crates/hickory-agent/tests/tools_edit_session.rs
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+- [An Upstream Refusal Names The Declaring Document](../../../../../guarantees/agent/an-upstream-refusal-names-the-declaring-document/contract.md)
+- [Context Provenance Is Derived From The Session, Never From The Model](../../../../../guarantees/agent/context-provenance-is-derived-from-the-session/contract.md)
+- [An Agent Edit Session Never Applies A Stale Edit](../../../../../guarantees/agent/edit-session-staleness-impossible/contract.md)
+
+Captured SHA-256: `c5c9911efd199b1a362f3bd51e11a44f3fce260eb5bb84d81821b6383106409b`.
+
+<book:entry path="crates/hickory-agent/tests/tools_edit_session.rs">
+//! EditSession behavior: edit_output through lineage, refusal routing,
+//! edit_doc escalation, verify, and the staleness-impossible property.
+
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use hickory_agent::hashline::line_hash;
+use hickory_agent::{EditSession, ToolInvocation, execute_tool};
+use hickory_executor::{Executor, LocalExecutor};
+
+/// Copy blocks pasted once (editable through the output) and twice (the
+/// refusal-routing case), plus a real exec + expectation for verify.
+const DOC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:copy id="greet">fn greet() {
+    println!("hello");
+}
+</hick:copy>
+<hick:copy id="dup">const SHARED: u8 = 1;
+</hick:copy>
+<hick:file path="gen.rs">// header
+<hick:paste select="#greet" />// mid
+<hick:paste select="#dup" />// tail
+<hick:paste select="#dup" /></hick:file>
+<hick:container name="c" image="alpine" />
+<hick:exec container="c">
+echo hi
+<hick:expect match="exact">hi
+</hick:expect>
+</hick:exec>
+</hick:doc>
+"##;
+
+fn write_doc(dir: &Path, source: &str) -> PathBuf {
+    let path = dir.join("doc.md");
+    std::fs::write(&path, source).unwrap();
+    path
+}
+
+fn executor() -> Arc<dyn Executor> {
+    Arc::new(LocalExecutor::new().unwrap())
+}
+
+fn inv(name: &str, args: &[(&str, &str)], input: Option<&str>) -> ToolInvocation {
+    ToolInvocation {
+        name: name.to_string(),
+        args: args
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+        input: input.map(str::to_string),
+        raw_xml: format!("<hick:tool name=\"{name}\"></hick:tool>"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn read_output_with_lineage_marks_editability() {
+    let dir = tempfile::tempdir().unwrap();
+    let doc_path = write_doc(dir.path(), DOC);
+    let mut session = EditSession::open(&doc_path, &[]).await.unwrap();
+
+    let out = execute_tool(
+        &mut session,
+        executor(),
+        &inv(
+            "read_output",
+            &[("path", "gen.rs"), ("with_lineage", "true")],
+            None,
+        ),
+    )
+    .await;
+    assert!(out.ok, "{}", out.text);
+    // Hashline prefix on every content line.
+    assert!(
+        out.text
+            .contains(&format!("{}|// header", line_hash("// header")))
+    );
+    // Lineage annotations name both editable and doc-routed ranges.
+    assert!(
+        out.text.contains("editable via edit_output"),
+        "{}",
+        out.text
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn edit_output_maps_through_lineage_and_reweaves() {
+    let dir = tempfile::tempdir().unwrap();
+    let doc_path = write_doc(dir.path(), DOC);
+    let mut session = EditSession::open(&doc_path, &[]).await.unwrap();
+
+    let target = line_hash("    println!(\"hello\");");
+    let out = execute_tool(
+        &mut session,
+        executor(),
+        &inv(
+            "edit_output",
+            &[("path", "gen.rs"), ("run", &target)],
+            Some("    println!(\"hi there\");"),
+        ),
+    )
+    .await;
+    assert!(out.ok, "{}", out.text);
+    // The DOCUMENT was updated byte-exactly and written to disk.
+    let doc_source = std::fs::read_to_string(&doc_path).unwrap();
+    assert!(doc_source.contains("println!(\"hi there\");"));
+    assert!(!doc_source.contains("println!(\"hello\");"));
+    // The result carries the re-hashed edited region.
+    assert!(
+        out.text
+            .contains(&format!("{}|", line_hash("    println!(\"hi there\");"))),
+        "{}",
+        out.text
+    );
+    // The fresh weave reflects the edit.
+    let read = execute_tool(
+        &mut session,
+        executor(),
+        &inv("read_output", &[("path", "gen.rs")], None),
+    )
+    .await;
+    assert!(read.text.contains("hi there"), "{}", read.text);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn duplicated_paste_refusal_routes_to_edit_doc() {
+    let dir = tempfile::tempdir().unwrap();
+    let doc_path = write_doc(dir.path(), DOC);
+    let mut session = EditSession::open(&doc_path, &[]).await.unwrap();
+
+    let dup = line_hash("const SHARED: u8 = 1;");
+
+    // Two occurrences of the pasted line: without an occurrence index the
+    // anchor is ambiguous, and the error lists the candidates.
+    let ambiguous = execute_tool(
+        &mut session,
+        executor(),
+        &inv(
+            "edit_output",
+            &[("path", "gen.rs"), ("run", &dup)],
+            Some("const SHARED: u8 = 2;"),
+        ),
+    )
+    .await;
+    assert!(!ambiguous.ok);
+    assert!(ambiguous.text.contains("ambiguous"), "{}", ambiguous.text);
+    assert!(
+        ambiguous.text.contains("occurrence 2"),
+        "{}",
+        ambiguous.text
+    );
+
+    // With the occurrence index, lineage refuses (shared source bytes) and
+    // the refusal names the source location and routes to edit_doc.
+    let refused = execute_tool(
+        &mut session,
+        executor(),
+        &inv(
+            "edit_output",
+            &[("path", "gen.rs"), ("run", &dup), ("occurrence", "2")],
+            Some("const SHARED: u8 = 2;"),
+        ),
+    )
+    .await;
+    assert!(!refused.ok);
+    assert!(
+        refused.text.contains("routing, not failure"),
+        "{}",
+        refused.text
+    );
+    assert!(refused.text.contains("edit_doc"), "{}", refused.text);
+    assert!(
+        refused.text.contains("doc.md"),
+        "refusal must name the source document: {}",
+        refused.text
+    );
+    // Nothing changed.
+    assert_eq!(std::fs::read_to_string(&doc_path).unwrap(), DOC);
+
+    // Follow the pointer: edit_doc on the shared source block fixes BOTH
+    // occurrences on re-weave.
+    // (In the document the copy tag and its content share a line, so the
+    // anchor comes from read_doc's hashes, not the output's.)
+    let doc_line = r#"<hick:copy id="dup">const SHARED: u8 = 1;"#;
+    let fixed = execute_tool(
+        &mut session,
+        executor(),
+        &inv(
+            "edit_doc",
+            &[("run", &line_hash(doc_line))],
+            Some(r#"<hick:copy id="dup">const SHARED: u8 = 2;"#),
+        ),
+    )
+    .await;
+    assert!(fixed.ok, "{}", fixed.text);
+    let read = execute_tool(
+        &mut session,
+        executor(),
+        &inv("read_output", &[("path", "gen.rs")], None),
+    )
+    .await;
+    assert_eq!(
+        read.text.matches("const SHARED: u8 = 2;").count(),
+        2,
+        "{}",
+        read.text
+    );
+}
+
+/// A refusal must send you to the document that DECLARES the fragment, which
+/// across a `hick:upstream` edge is a different file from the paste site.
+///
+/// Protects docs/guarantees/agent/an-upstream-refusal-names-the-declaring-document.md
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refusal_across_an_upstream_edge_names_the_upstream_document() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("up.md"),
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="up.md">
+<hick:copy id="greet">def greet(name):
+    return f"Hello, {name}!"
+</hick:copy>
+</hick:doc>
+"##,
+    )
+    .unwrap();
+    let doc_path = write_doc(
+        dir.path(),
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="down.md">
+<hick:upstream file="up.md" />
+<hick:file path="gen.rs">
+<hick:paste select="#greet" />
+</hick:file>
+</hick:doc>
+"##,
+    );
+    let mut session = EditSession::open(&doc_path, &[]).await.unwrap();
+
+    let refused = execute_tool(
+        &mut session,
+        executor(),
+        &inv(
+            "edit_output",
+            // The WHOLE pasted block, which is what triggers the shared-source
+            // refusal: a single line inside it takes a different path (the
+            // mapped edit would break the document, and is refused there).
+            &[
+                ("path", "gen.rs"),
+                (
+                    "run",
+                    &format!(
+                        "{}..{}",
+                        line_hash("def greet(name):"),
+                        line_hash("    return f\"Hello, {name}!\"")
+                    ),
+                ),
+            ],
+            Some("def greet(name):\n    return f\"Howdy, {name}!\""),
+        ),
+    )
+    .await;
+
+    assert!(!refused.ok, "{}", refused.text);
+    assert!(
+        refused.text.contains("up.md"),
+        "the refusal must name the document that DECLARES the fragment, not the \
+         paste site — an agent that obeys the old message edited the <hick:paste> \
+         tag in the wrong file: {}",
+        refused.text
+    );
+    assert!(
+        refused.text.contains("hick:copy id=\"greet\""),
+        "and it should show the fragment, so the next call needs no search: {}",
+        refused.text
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn synthetic_range_refusal_routes_to_edit_doc() {
+    // A paste with a separator: the separator bytes are synthetic.
+    let doc = r##"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:copy id="a" class="f">alpha</hick:copy>
+<hick:copy id="b" class="f">beta</hick:copy>
+<hick:file path="out.txt"><hick:paste select=".f" separator=" | " /></hick:file>
+</hick:doc>
+"##;
+    let dir = tempfile::tempdir().unwrap();
+    let doc_path = write_doc(dir.path(), doc);
+    let mut session = EditSession::open(&doc_path, &[]).await.unwrap();
+
+    // The whole line "alpha | beta" crosses the synthetic separator.
+    let out = execute_tool(
+        &mut session,
+        executor(),
+        &inv(
+            "edit_output",
+            &[("path", "out.txt"), ("run", &line_hash("alpha | beta"))],
+            Some("gamma | delta"),
+        ),
+    )
+    .await;
+    assert!(!out.ok);
+    assert!(out.text.contains("synthetic"), "{}", out.text);
+    assert!(out.text.contains("edit_doc"), "{}", out.text);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn external_mutation_is_absorbed_or_reported_never_misapplied() {
+    let dir = tempfile::tempdir().unwrap();
+    let doc_path = write_doc(dir.path(), DOC);
+    let mut session = EditSession::open(&doc_path, &[]).await.unwrap();
+
+    // Mutate the document externally (as another writer would).
+    let mutated = DOC.replace("// header", "// HEADER");
+    std::fs::write(&doc_path, &mutated).unwrap();
+
+    // 1. Read the changed surface before constructing the next edit.
+    let refreshed = execute_tool(
+        &mut session,
+        executor(),
+        &inv("read_output", &[("path", "gen.rs")], None),
+    )
+    .await;
+    assert!(refreshed.ok);
+    let out = execute_tool(
+        &mut session,
+        executor(),
+        &inv(
+            "edit_output",
+            &[("path", "gen.rs"), ("run", &line_hash("// HEADER"))],
+            Some("// header v2"),
+        ),
+    )
+    .await;
+    assert!(out.ok, "{}", out.text);
+    assert!(
+        std::fs::read_to_string(&doc_path)
+            .unwrap()
+            .contains("// header v2")
+    );
+
+    // 2. Mutate again; an edit anchored on content that no longer exists is
+    //    a structured error naming the external change — never a misapplied
+    //    edit.
+    let mutated2 = std::fs::read_to_string(&doc_path)
+        .unwrap()
+        .replace("// header v2", "// header v3");
+    std::fs::write(&doc_path, &mutated2).unwrap();
+    let stale = execute_tool(
+        &mut session,
+        executor(),
+        &inv(
+            "edit_output",
+            &[("path", "gen.rs"), ("run", &line_hash("// header v2"))],
+            Some("// nope"),
+        ),
+    )
+    .await;
+    assert!(!stale.ok);
+    assert!(stale.text.contains("changed since"), "{}", stale.text);
+    assert!(stale.text.contains("Read it again"), "{}", stale.text);
+    // The document still carries the external edit, untouched.
+    assert_eq!(std::fs::read_to_string(&doc_path).unwrap(), mutated2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn insertion_through_doc_and_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let doc_path = write_doc(dir.path(), DOC);
+    let mut session = EditSession::open(&doc_path, &[]).await.unwrap();
+
+    // Doc-side pure insert below the greet println.
+    let out = execute_tool(
+        &mut session,
+        executor(),
+        &inv(
+            "edit_doc",
+            &[("after", &line_hash("    println!(\"hello\");"))],
+            Some("    println!(\"world\");"),
+        ),
+    )
+    .await;
+    assert!(out.ok, "{}", out.text);
+    let doc_source = std::fs::read_to_string(&doc_path).unwrap();
+    assert!(doc_source.contains("println!(\"hello\");\n    println!(\"world\");"));
+
+    // Output-side insert follows lineage's neighbor attachment.
+    let out2 = execute_tool(
+        &mut session,
+        executor(),
+        &inv(
+            "edit_output",
+            &[
+                ("path", "gen.rs"),
+                ("after", &line_hash("    println!(\"world\");")),
+            ],
+            Some("    // inserted via output"),
+        ),
+    )
+    .await;
+    assert!(out2.ok, "{}", out2.text);
+    assert!(
+        std::fs::read_to_string(&doc_path)
+            .unwrap()
+            .contains("// inserted via output")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn verify_executes_and_reports_expectations() {
+    let dir = tempfile::tempdir().unwrap();
+    let doc_path = write_doc(dir.path(), DOC);
+    let mut session = EditSession::open(&doc_path, &[]).await.unwrap();
+
+    let pass = execute_tool(&mut session, executor(), &inv("verify", &[], None)).await;
+    assert!(pass.ok, "{}", pass.text);
+    assert!(pass.text.starts_with("PASS"), "{}", pass.text);
+    // Outputs were written next to the document.
+    assert!(dir.path().join("gen.rs").is_file());
+
+    // Break the expectation via edit_doc, verify must FAIL.
+    let broke = execute_tool(
+        &mut session,
+        executor(),
+        &inv(
+            "edit_doc",
+            &[("run", &line_hash("echo hi"))],
+            Some("echo bye"),
+        ),
+    )
+    .await;
+    assert!(broke.ok, "{}", broke.text);
+    let fail = execute_tool(&mut session, executor(), &inv("verify", &[], None)).await;
+    assert!(!fail.ok);
+    assert!(fail.text.starts_with("FAIL"), "{}", fail.text);
+    assert!(fail.text.contains("expectation"), "{}", fail.text);
+}
+
+// ---------------------------------------------------------------------------
+// Context provenance: what the tools showed, and what the edits wrote
+// ---------------------------------------------------------------------------
+
+/// `read_file` shows a project file and records the read; it refuses to look
+/// outside the project, and an edit records the lines it wrote.
+/// Guarantee: docs/guarantees/agent/context-provenance-is-derived-from-the-session.md
+#[tokio::test(flavor = "multi_thread")]
+async fn read_file_shows_a_project_file_and_records_the_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let doc_path = write_doc(dir.path(), DOC);
+    std::fs::create_dir_all(dir.path().join("data")).unwrap();
+    std::fs::write(dir.path().join("data/export.csv"), "a,b\n1,2\n3,4\n").unwrap();
+    let mut session = EditSession::open(&doc_path, &[]).await.unwrap();
+
+    let out = execute_tool(
+        &mut session,
+        executor(),
+        &inv("read_file", &[("path", "data/export.csv")], None),
+    )
+    .await;
+    assert!(out.ok, "{}", out.text);
+    assert!(out.text.contains("|1,2"), "hashline-rendered: {}", out.text);
+    assert_eq!(out.reads.len(), 1);
+    let read = &out.reads[0];
+    assert_eq!(read.path, "data/export.csv");
+    assert_eq!((read.first_line, read.last_line), (1, 3));
+    assert_eq!(read.sha256.len(), 64);
+
+    // A range is a range, and is recorded as one.
+    let out = execute_tool(
+        &mut session,
+        executor(),
+        &inv(
+            "read_file",
+            &[("path", "data/export.csv"), ("from", "2"), ("to", "2")],
+            None,
+        ),
+    )
+    .await;
+    assert!(out.ok, "{}", out.text);
+    assert!(
+        out.text.contains("|1,2") && !out.text.contains("|3,4"),
+        "{}",
+        out.text
+    );
+    assert_eq!((out.reads[0].first_line, out.reads[0].last_line), (2, 2));
+
+    // Nothing above the project.
+    let out = execute_tool(
+        &mut session,
+        executor(),
+        &inv("read_file", &[("path", "../../../../etc/hostname")], None),
+    )
+    .await;
+    assert!(!out.ok);
+    assert!(
+        out.text.contains("outside the project") || out.text.contains("cannot read"),
+        "{}",
+        out.text
+    );
+    assert!(out.reads.is_empty());
+
+    // read_doc records the document itself as shown.
+    let out = execute_tool(&mut session, executor(), &inv("read_doc", &[], None)).await;
+    assert!(out.ok);
+    assert_eq!(out.reads.len(), 1);
+    assert!(
+        out.reads[0].path.ends_with("doc.md"),
+        "{}",
+        out.reads[0].path
+    );
+
+    // An edit records the lines it wrote, as they stand afterwards.
+    let doc_out = execute_tool(&mut session, executor(), &inv("read_doc", &[], None)).await;
+    let last_hash = doc_out
+        .text
+        .lines()
+        .filter_map(|l| l.split_once('|'))
+        .map(|(h, _)| h.to_string())
+        .rfind(|h| h.len() == 64)
+        .unwrap();
+    let out = execute_tool(
+        &mut session,
+        executor(),
+        &inv(
+            "edit_doc",
+            &[("after", &last_hash)],
+            Some("A new closing line.\n"),
+        ),
+    )
+    .await;
+    assert!(out.ok, "{}", out.text);
+    let wrote = out.wrote.expect("an edit records what it wrote");
+    assert!(wrote.file.ends_with("doc.md"));
+    assert!(wrote.first_line <= wrote.last_line, "{wrote:?}");
+    assert!(
+        wrote
+            .hashes
+            .contains(&hickory_agent::hashline::line_hash("A new closing line.")),
+        "{wrote:?}"
+    );
+}
+
+/// The session file carries the record: `<hick:read>` per read, `<hick:wrote>`
+/// per edit, and an id on every input element so context can point at it.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_session_records_reads_and_writes_as_elements() {
+    use hickory_agent::{HickSessionLog, SessionEvent, SessionLog as _, record_outcome};
+    let dir = tempfile::tempdir().unwrap();
+    let doc_path = write_doc(dir.path(), DOC);
+    std::fs::write(dir.path().join("notes.txt"), "one\ntwo\n").unwrap();
+    let mut session = EditSession::open(&doc_path, &[]).await.unwrap();
+    let log = HickSessionLog::create(dir.path().join("s.md")).unwrap();
+    log.record(SessionEvent::User {
+        text: "look and write",
+    });
+
+    let out = execute_tool(
+        &mut session,
+        executor(),
+        &inv("read_file", &[("path", "notes.txt")], None),
+    )
+    .await;
+    record_outcome(&log, &out);
+    let doc_out = execute_tool(&mut session, executor(), &inv("read_doc", &[], None)).await;
+    record_outcome(&log, &doc_out);
+    let first_hash = doc_out
+        .text
+        .lines()
+        .find_map(|l| l.split_once('|'))
+        .map(|(h, _)| h.to_string())
+        .unwrap();
+    let out = execute_tool(
+        &mut session,
+        executor(),
+        &inv(
+            "edit_doc",
+            &[("after", &first_hash)],
+            Some("Inserted by the test.\n"),
+        ),
+    )
+    .await;
+    record_outcome(&log, &out);
+    log.record(SessionEvent::End);
+
+    let source = std::fs::read_to_string(dir.path().join("s.md")).unwrap();
+    assert!(source.contains(r#"<hick:user id="in0">"#), "{source}");
+    assert!(
+        source.contains(r#"<hick:read file="notes.txt""#),
+        "{source}"
+    );
+    assert!(source.contains(r#" lines="1-2"/>"#), "{source}");
+    assert!(source.contains(r#"<hick:wrote file="#), "{source}");
+    assert!(
+        source.contains(r#"<hick:tool-result id="in1" name="read_file""#),
+        "{source}"
+    );
+    // It is still a parseable session.
+    hick_lang::parse(&source).expect("session parses");
+}
+</book:entry>
+
+</book:doc>

@@ -1,0 +1,985 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# crates/hickory-cli/src/serve/agent.rs
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+- [A Missing Key Degrades to a Note, Never a Crash](../../../../../../guarantees/agent/a-missing-key-degrades-to-a-note/contract.md)
+- [A running agent can be stopped](../../../../../../guarantees/agent/a-running-agent-can-be-stopped/contract.md)
+- [A Session File Is The Conversation, And Opens As One](../../../../../../guarantees/agent/a-session-is-the-conversation/contract.md)
+- [ACP Agents Work In The Agent Pane And Leave A Hickory Record](../../../../../../guarantees/agent/acp-agents-are-first-class/contract.md)
+- [Python agent code crosses two explicit boundaries](../../../../../../guarantees/agent/python-execution-has-two-boundaries/contract.md)
+- [Recording failure is visible](../../../../../../guarantees/agent/recording-failure-is-visible/contract.md)
+- [The Dock Reports Spend and Runs the Chosen Model](../../../../../../guarantees/agent/the-dock-reports-spend-and-runs-the-chosen-model/contract.md)
+- [Keep a prediction separate from the answer it is tested against](../../../../../../guarantees/verification/predictions-precede-managed-observation/contract.md)
+
+Captured SHA-256: `c9a544994aff718f9d9cc2da17a2d4a120bf0dee8501aa67e7952618130b2786`.
+
+<book:entry path="crates/hickory-cli/src/serve/agent.rs">
+//! The in-app agent: the same confined Python process `hick agent` runs, behind the
+//! document view's chat dock.
+//!
+//! One `POST /api/docs/:id/agent` is one agent run — up to `max_turns`
+//! internal LLM turns, scripts through this session's executor, the document
+//! edit tool set on the posted document. Nothing is reduced relative to the
+//! CLI: the decision on record is that the dock gets the full tool surface.
+//!
+//! The conversation is a TREE. Each POST names the turn it continues from
+//! (`parent_id`); replaying the ancestor chain into
+//! Python-owned branch history is what makes a reply a reply, and what makes
+//! rewinding cheap — a branch is just a different ancestor chain fed to a
+//! fresh loop. The tree lives in server state for the session's lifetime;
+//! the durable record is the `hick:session` file each run writes under
+//! `<served folder>/sessions/`, exactly as the CLI does.
+//!
+//! Events stream on the WS run channel (`0x01`) as
+//! `{run_id: <turn id>, exec_id: "agent", event: <AgentEvent>}` with a
+//! terminal `{run_id, status}`, per `docs/specs/freeform/api.md` — the same
+//! frames, socket, and discipline as cell transcripts, so the dock needs no
+//! second transport.
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use axum::Json;
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use hickory_agent::{
+    DEFAULT_ANTHROPIC_MODEL, LlmClient, PriorTurn, ProviderSelection, Usage, client_for_with_store,
+    cost_usd, resolve_selector_with_store,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+
+use super::api::{ApiError, ApiResult};
+use super::{LocalState, now_rfc3339, rand_id, store};
+
+/// One exchange in a document's conversation, in the wire shape the dock
+/// renders (`apps/web/src/api/types.ts::AgentTurn`).
+#[derive(Clone, Serialize)]
+pub struct TurnRecord {
+    pub backend: String,
+    pub id: String,
+    pub parent_id: Option<String>,
+    pub prompt: String,
+    pub answer: Option<String>,
+    /// `"running"`, `"ok"`, or `"error"`.
+    pub status: String,
+    pub error: Option<String>,
+    pub created_at: String,
+    /// Provider selector this turn ran on (`"anthropic"`, `"openai"`, …;
+    /// `"scripted"` under the test seam with no explicit choice).
+    pub provider: String,
+    /// Model id this turn ran on. A turn records what it actually ran on,
+    /// so changing the model mid-conversation stays visible per turn.
+    pub model: String,
+    /// The turn's final four-way token usage. `None` while running or when
+    /// the run failed before reporting usage.
+    pub usage: Option<Usage>,
+    /// The session file this turn is recorded in, relative to the served
+    /// folder. One file per conversation: a child turn appends to its
+    /// parent's file, so the tree is on disk and survives a restart.
+    pub session: String,
+}
+
+/// The per-document model choice the dock last posted. `None` fields mean
+/// "the resolved default".
+#[derive(Default, Clone)]
+pub struct DocSelection {
+    pub provider: Option<String>,
+    pub model: Option<String>,
+}
+
+/// The conversation state one local session holds.
+#[derive(Default)]
+pub struct AgentHub {
+    pub(super) annotations_gate: tokio::sync::RwLock<()>,
+    pub(super) reviews: Mutex<HashMap<String, Arc<super::agent_review::ReviewQueue>>>,
+    pub(super) acp: super::acp::Hub,
+    /// Turn tree per document id, in creation order (the dock treats the
+    /// last element as the default tip).
+    pub(super) turns: Mutex<HashMap<String, Vec<TurnRecord>>>,
+    /// The model choice each document's dock last posted, applied to
+    /// subsequent turns until changed (see [`AgentRequest`]).
+    selection: Mutex<HashMap<String, DocSelection>>,
+    pub(super) projects: Mutex<HashMap<String, super::agent_projects::CapturedTurn>>,
+    pub(super) incorporations: Mutex<HashMap<String, serde_json::Value>>,
+    /// Test seam: a canned client instead of a provider from the
+    /// environment. Set through [`AgentHub::set_llm_override`] by the serve
+    /// integration tests so a full turn runs without any API key.
+    llm_override: Mutex<Option<Arc<dyn LlmClient>>>,
+    /// The cancel flag of each turn still running, by turn id. Setting one
+    /// stops its run at the next seam (mid-stream included); the entry is
+    /// removed when the run finishes, however it finishes.
+    pub(super) cancels: Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>,
+}
+
+impl AgentHub {
+    pub(super) fn incorporation_client(
+        &self,
+        state: &LocalState,
+        doc: &str,
+    ) -> anyhow::Result<Arc<dyn LlmClient>> {
+        if let Some(llm) = self.llm_override.lock().unwrap().clone() {
+            return Ok(llm);
+        }
+        let choice = self.selection_of(doc);
+        let keys = state.keys.store.read().unwrap().clone();
+        let provider = resolve_selector_with_store(choice.provider.as_deref(), &keys)?;
+        client_for_with_store(&provider, choice.model.as_deref(), &keys)
+    }
+
+    /// Replace provider resolution with a fixed client (tests, offline dev).
+    pub fn set_llm_override(&self, llm: Arc<dyn LlmClient>) {
+        *self.llm_override.lock().unwrap() = Some(llm);
+    }
+
+    /// Rebuild a document's turns from its session files when the hub holds
+    /// none for it — the app was restarted, or this is the first look. The
+    /// files are the durable record; memory is a cache of them.
+    pub(super) fn hydrate(&self, root: &std::path::Path, doc_id: &str, doc_path: &std::path::Path) {
+        let mut map = self.turns.lock().unwrap();
+        if map.contains_key(doc_id) {
+            return;
+        }
+        let mut turns: Vec<TurnRecord> = Vec::new();
+        for (path, view) in
+            hickory_agent::session_view::conversations_for(&root.join("sessions"), doc_path)
+        {
+            let rel = path
+                .strip_prefix(root)
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| path.display().to_string());
+            let rel = if doc_id.starts_with("lens:") {
+                path.display().to_string()
+            } else {
+                rel
+            };
+            for t in view.turns {
+                turns.push(TurnRecord {
+                    backend: super::python_agent::session_backend(
+                        &path,
+                        t.provider.as_deref().unwrap_or_default(),
+                    ),
+                    id: t.id.clone(),
+                    parent_id: t.parent,
+                    prompt: t.prompt,
+                    answer: t
+                        .answer
+                        .or_else(|| super::acp::partial_answer(&path, &t.id)),
+                    status: super::acp::recovered_status(&path, &t.id).0,
+                    error: super::acp::recovered_status(&path, &t.id).1,
+                    created_at: view.start.clone().unwrap_or_default(),
+                    provider: t.provider.unwrap_or_default(),
+                    model: t.model.unwrap_or_default(),
+                    usage: t.usage.map(|u| Usage {
+                        input_tokens: u.input,
+                        cache_creation_input_tokens: u.cache_write,
+                        cache_read_input_tokens: u.cache_read,
+                        output_tokens: u.output,
+                    }),
+                    session: rel.clone(),
+                });
+            }
+        }
+        map.insert(doc_id.to_string(), turns);
+    }
+
+    fn snapshot(&self, doc_id: &str) -> Vec<TurnRecord> {
+        self.turns
+            .lock()
+            .unwrap()
+            .get(doc_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn finish(&self, doc_id: &str, turn_id: &str, outcome: Result<(String, Usage), String>) {
+        self.cancels.lock().unwrap().remove(turn_id);
+        let mut map = self.turns.lock().unwrap();
+        let Some(turn) = map
+            .get_mut(doc_id)
+            .and_then(|turns| turns.iter_mut().find(|t| t.id == turn_id))
+        else {
+            return;
+        };
+        match outcome {
+            Ok((answer, usage)) => {
+                turn.answer = Some(answer);
+                turn.usage = Some(usage);
+                turn.status = "ok".into();
+            }
+            // The user pulled the cord: a stop is a stop, never a red error.
+            // The turn keeps no answer, so a reply replays the branch as if
+            // it never ran — which is what abandoning a runaway means.
+            Err(message) if message == hickory_agent::STOPPED_BY_USER => {
+                turn.error = Some(message);
+                turn.status = "stopped".into();
+            }
+            Err(message) => {
+                turn.error = Some(message);
+                turn.status = "error".into();
+            }
+        }
+    }
+
+    /// Stop the turn running on `doc_id`, if one is. Returns the stopped
+    /// turn's id.
+    pub fn stop(&self, doc_id: &str) -> Option<String> {
+        let running = {
+            let map = self.turns.lock().unwrap();
+            map.get(doc_id)?
+                .iter()
+                .find(|t| t.status == "running")
+                .map(|t| t.id.clone())?
+        };
+        let cancels = self.cancels.lock().unwrap();
+        let flag = cancels.get(&running)?;
+        flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        Some(running)
+    }
+
+    /// Fold the fields of one POST into the document's stored selection and
+    /// return the result. A field absent from the body keeps what is stored;
+    /// a present-but-empty field clears back to the default — so the dock's
+    /// controls are always exactly what the next turn runs on.
+    fn update_selection(
+        &self,
+        doc_id: &str,
+        provider: Option<String>,
+        model: Option<String>,
+    ) -> DocSelection {
+        let mut map = self.selection.lock().unwrap();
+        let sel = map.entry(doc_id.to_string()).or_default();
+        if let Some(p) = provider {
+            sel.provider = Some(p.trim().to_string()).filter(|s| !s.is_empty());
+        }
+        if let Some(m) = model {
+            sel.model = Some(m.trim().to_string()).filter(|s| !s.is_empty());
+        }
+        sel.clone()
+    }
+
+    fn selection_of(&self, doc_id: &str) -> DocSelection {
+        self.selection
+            .lock()
+            .unwrap()
+            .get(doc_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+}
+
+/// The model a provider selector runs by default, for the turns listing —
+/// what a turn would use when nothing is chosen. Mirrors the client
+/// constructors: Anthropic's alias constant, and each OpenAI-compatible
+/// vendor's `MODEL` environment override then its built-in default.
+fn default_model_for(selector: &str) -> String {
+    match ProviderSelection::parse(selector) {
+        Some(ProviderSelection::Compatible(p)) => std::env::var(p.model_env())
+            .ok()
+            .filter(|m| !m.trim().is_empty())
+            .unwrap_or_else(|| p.default_model().to_string()),
+        Some(ProviderSelection::Anthropic) | None => DEFAULT_ANTHROPIC_MODEL.to_string(),
+    }
+}
+
+/// Session totals across a document's turns: the summed four-way usage and
+/// the summed USD cost. The cost is `None` when any usage-bearing turn ran
+/// on a model with no known price — an unknown price makes the *total*
+/// unknown, never silently understated.
+pub fn totals_of(turns: &[TurnRecord]) -> (Usage, Option<f64>) {
+    let mut total = Usage::default();
+    let mut usd = 0.0;
+    let mut known = !turns.iter().any(|t| t.provider.starts_with("acp:"));
+    for turn in turns {
+        let Some(usage) = &turn.usage else { continue };
+        total.add(usage);
+        match cost_usd(&turn.model, usage) {
+            Some(cost) => usd += cost,
+            None if usage.is_zero() => {}
+            None => known = false,
+        }
+    }
+    (total, known.then_some(usd))
+}
+
+/// The ancestor chain of `tip`, oldest first, as replayable history.
+///
+/// Only completed exchanges replay: a turn that errored produced no answer
+/// to stand in the assistant seat, and replaying a half-exchange would feed
+/// the model a conversation that never happened. A cycle (impossible through
+/// the API, cheap to guard) terminates instead of hanging the request.
+pub fn prior_turns_of(turns: &[TurnRecord], tip: Option<&str>) -> Vec<PriorTurn> {
+    let by_id: HashMap<&str, &TurnRecord> = turns.iter().map(|t| (t.id.as_str(), t)).collect();
+    let mut chain = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut cursor = tip;
+    while let Some(id) = cursor {
+        if !seen.insert(id.to_string()) {
+            break;
+        }
+        let Some(turn) = by_id.get(id) else { break };
+        if let Some(answer) = &turn.answer {
+            chain.push(PriorTurn {
+                prompt: turn.prompt.clone(),
+                answer: answer.clone(),
+            });
+        }
+        cursor = turn.parent_id.as_deref();
+    }
+    chain.reverse();
+    chain
+}
+
+/// Body of `POST /api/docs/:id/agent`.
+#[derive(Deserialize)]
+pub struct AgentRequest {
+    #[serde(default)]
+    pub backend: Option<String>,
+    pub prompt: String,
+    #[serde(default)]
+    pub context: super::agent_context::EditorContext,
+    /// The turn this one continues from. Naming an older turn forks a
+    /// branch; `null` starts a new thread.
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    /// Provider selector for this and subsequent turns (`"anthropic"`,
+    /// `"openai"`, `"deepseek"`, `"grok"`, `"openrouter"`). Absent keeps
+    /// the document's current choice; empty clears back to the resolved
+    /// default. Persists in the hub for the session.
+    #[serde(default)]
+    pub provider: Option<String>,
+    /// Model id override, same absent/empty semantics as `provider`.
+    /// Free text: providers accept ids we cannot enumerate.
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
+/// `POST /api/docs/:id/agent` — start one agent run on the document.
+///
+/// Returns `{session_id}` immediately; the run proceeds in the background,
+/// streaming on the run channel. The session id doubles as the turn id and
+/// the `run_id` of its stream.
+pub async fn start_turn(
+    State(state): State<LocalState>,
+    Path(id): Path<String>,
+    Json(body): Json<AgentRequest>,
+) -> ApiResult<(StatusCode, Json<Value>)> {
+    let backend = body.backend.clone().unwrap_or_else(|| {
+        state
+            .agent
+            .acp
+            .selected
+            .lock()
+            .unwrap()
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| "python".into())
+    });
+    if backend == "builtin" {
+        return Err(ApiError::bad_request(
+            "The Rust agent was removed. Select Hickory Python or an ACP agent.",
+        ));
+    }
+    if backend != "python" {
+        return super::acp::start_turn(state, id, body, backend).await;
+    }
+    if let Some(lens) = id.strip_prefix("lens:") {
+        super::agent_context::subject(&state, &id)?;
+        super::representation_store::load(&state).await?;
+        if !state.representations.lock().await.contains_key(lens) {
+            return Err(ApiError::not_found("literate view no longer exists"));
+        }
+    }
+    state
+        .agent
+        .acp
+        .selected
+        .lock()
+        .unwrap()
+        .insert(id.clone(), backend.clone());
+    let python = super::python_agent::runtime(&state)
+        .map_err(|e| ApiError::unavailable(format!("agent not available — {e:#}")))?;
+    let doc_path = super::agent_context::subject(&state, &id)?;
+    let context = json!({"folder_open":state.folder_open,"editors":body.context}).to_string();
+    let primary = super::agent_context::primary(&state, &body.context);
+    let prompt = body.prompt.trim().to_string();
+    if prompt.is_empty() {
+        return Err(ApiError::bad_request(
+            "the agent needs a prompt — say what to do to this document",
+        ));
+    }
+
+    // Reject an unknown provider before anything is recorded or stored: a
+    // typo must not silently run (or persist) as some other vendor.
+    if let Some(p) = body.provider.as_deref().map(str::trim)
+        && !p.is_empty()
+        && ProviderSelection::parse(p).is_none()
+    {
+        return Err(ApiError::bad_request(format!(
+            "unknown provider {p:?} — choose one of: {}",
+            ProviderSelection::ALL.join(", ")
+        )));
+    }
+    let selection = state
+        .agent
+        .update_selection(&id, body.provider.clone(), body.model.clone());
+
+    // Provider next, before anything is recorded: a machine with no key
+    // gets a configuration note, never a half-started turn. The leading
+    // phrase is a contract with the desktop client: ChatDock matches
+    // "agent not available" to render a quiet note instead of a red error
+    // (apps/web/src/components/ChatDock.tsx). Change both together.
+    let (llm, provider_name, model_name) = selected_client(&state, &selection)?;
+
+    let turn_id = format!("{:016x}", rand_id());
+    let session_root = super::agent_context::session_root(&state, &id)?;
+    state.agent.hydrate(&session_root, &id, &doc_path);
+    let parent_for_run = body.parent_id.clone();
+    let (prior_turns, session_rel) = {
+        let mut map = state.agent.turns.lock().unwrap();
+        let turns = map.entry(id.clone()).or_default();
+        if turns.iter().any(|t| t.status == "running") {
+            // The edit session is single-writer; a second concurrent turn
+            // would race it on the same file.
+            return Err(ApiError::conflict(
+                "an agent turn is already running on this document — wait for it to \
+                 finish, then send again",
+            ));
+        }
+        if let Some(parent) = &body.parent_id
+            && !turns.iter().any(|t| &t.id == parent)
+        {
+            return Err(ApiError::bad_request(format!(
+                "parent turn {parent} does not exist on this document — refresh the \
+                 conversation and pick a turn that does"
+            )));
+        }
+        if body
+            .parent_id
+            .as_deref()
+            .and_then(|p| turns.iter().find(|t| t.id == p))
+            .is_some_and(|t| t.backend != backend)
+        {
+            return Err(ApiError::conflict("Start a new thread to switch agents."));
+        }
+        let prior = prior_turns_of(turns, body.parent_id.as_deref());
+        // The conversation's file: the parent's when continuing, a fresh one
+        // at the root of a new thread.
+        let session_rel = body
+            .parent_id
+            .as_deref()
+            .and_then(|p| turns.iter().find(|t| t.id == p))
+            .map(|t| t.session.clone())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| {
+                let abs = hickory_agent::session_file_path(&session_root, &prompt);
+                abs.strip_prefix(state.index.root())
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| abs.display().to_string())
+            });
+        turns.push(TurnRecord {
+            backend: backend.clone(),
+            id: turn_id.clone(),
+            parent_id: body.parent_id.clone(),
+            prompt: prompt.clone(),
+            answer: None,
+            status: "running".into(),
+            error: None,
+            created_at: now_rfc3339(),
+            provider: provider_name,
+            model: model_name,
+            usage: None,
+            session: session_rel.clone(),
+        });
+        (prior, session_rel)
+    };
+
+    // The stop button's handle on this run, registered before the spawn so a
+    // stop can never race the start and find nothing to pull.
+    let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    state
+        .agent
+        .cancels
+        .lock()
+        .unwrap()
+        .insert(turn_id.clone(), cancel.clone());
+    let capture_edits = super::agent_projects::editors(&state, &id, true, &body.context);
+    let task_state = state.clone();
+    let doc_id = id.clone();
+    let run_key = turn_id.clone();
+    tokio::spawn(async move {
+        let _annotation_gate = task_state.agent.annotations_gate.read().await;
+        let project_capture = super::agent_projects::begin_editors(
+            &task_state,
+            &doc_id,
+            task_state.index.root().join(&session_rel),
+            capture_edits,
+        )
+        .await;
+        if let Ok(Some(capture)) = &project_capture {
+            task_state
+                .agent
+                .projects
+                .lock()
+                .unwrap()
+                .insert(run_key.clone(), capture.clone());
+        }
+        let contract = project_capture
+            .as_ref()
+            .ok()
+            .and_then(|capture| capture.as_ref())
+            .map(|capture| {
+                let mut contract = crate::changeset::Contract::new(
+                    capture.root.clone(),
+                    capture.inventory.clone(),
+                    capture.starting.restore().expect("Frozen project tree"),
+                    run_key.clone(),
+                );
+                contract.workspace = capture.workspace.clone().zip(capture.live_editors.clone());
+                contract
+            });
+        let mut outcome = if let Err(error) = &project_capture {
+            Err(format!("Cannot freeze changeset boundary: {error:#}"))
+        } else {
+            run_turn(
+                &task_state,
+                &doc_id,
+                llm,
+                doc_path,
+                prompt,
+                prior_turns,
+                TurnIdentity {
+                    changeset: contract,
+                    python,
+                    session: task_state.index.root().join(&session_rel),
+                    turn: run_key.clone(),
+                    parent: parent_for_run.clone(),
+                    cancel,
+                    context,
+                    primary,
+                },
+            )
+            .await
+        };
+        match project_capture {
+            Ok(Some(mut capture)) => {
+                if outcome.is_ok()
+                    && let Some(artifact) = task_state
+                        .agent
+                        .projects
+                        .lock()
+                        .unwrap()
+                        .get(&run_key)
+                        .and_then(|c| c.artifact.clone())
+                {
+                    capture.response = artifact.sources.get(&artifact.entry).cloned();
+                    capture.artifact = Some(artifact);
+                }
+                super::agent_projects::finish(
+                    &task_state,
+                    &run_key,
+                    capture,
+                    outcome.as_ref().ok().map(|(answer, _)| answer.as_str()),
+                )
+                .await
+            }
+            Ok(None) => (),
+            Err(e) => {
+                let _ = super::acp::record::Record::existing(
+                    task_state.index.root().join(&session_rel),
+                )
+                .context(
+                    "literate-project-capture-error",
+                    &json!({"turn":run_key,"error":format!("{e:#}")}),
+                );
+            }
+        }
+        if outcome.is_ok()
+            && !task_state
+                .agent
+                .projects
+                .lock()
+                .unwrap()
+                .get(&run_key)
+                .is_some_and(|capture| capture.artifact.is_some() && capture.error.is_none())
+        {
+            outcome = Err("The accepted changeset became stale or could not be recorded at turn completion. Actual writes remain captured.".into());
+        }
+        if super::agent_projects::cancelled(&task_state, &run_key) {
+            outcome = Err(hickory_agent::STOPPED_BY_USER.into());
+        }
+        let status = match &outcome {
+            Ok(_) => "ok",
+            Err(m) if m == hickory_agent::STOPPED_BY_USER => "stopped",
+            Err(_) => "failed",
+        };
+        let record =
+            super::acp::record::Record::existing(task_state.index.root().join(&session_rel));
+        if record.path.exists()
+            && let Err(error) = record.context(
+                "acp-turn-status",
+                &json!({"turn":run_key,"status":status,"error":outcome.as_ref().err()}),
+            )
+        {
+            outcome = Err(format!(
+                "Work may have happened, but recording the turn status failed: {error:#}"
+            ));
+        }
+        let status = if outcome.is_err() && status == "ok" {
+            "failed"
+        } else {
+            status
+        };
+        task_state.agent.finish(&doc_id, &run_key, outcome);
+
+        task_state
+            .rooms
+            .publish_run_event(&doc_id, &json!({ "run_id": run_key, "status": status }))
+            .await;
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(json!({ "session_id": turn_id }))))
+}
+
+/// Run one agent turn to completion, streaming its events on the run
+/// channel. Returns the final answer plus the turn's total token usage, or
+/// the error message to record.
+/// Where a turn is recorded and how it is named in the file.
+pub(super) struct TurnIdentity {
+    pub(super) changeset: Option<crate::changeset::Contract>,
+    pub(super) python: std::path::PathBuf,
+    pub(super) context: String,
+    pub(super) primary: Option<std::path::PathBuf>,
+    pub(super) session: std::path::PathBuf,
+    pub(super) turn: String,
+    pub(super) parent: Option<String>,
+    /// The stop button's flag for this run — travels with the identity
+    /// because a run without its cord is the bug this exists to fix.
+    pub(super) cancel: Arc<std::sync::atomic::AtomicBool>,
+}
+
+async fn run_turn(
+    state: &LocalState,
+    doc_id: &str,
+    llm: Arc<dyn LlmClient>,
+    doc_path: std::path::PathBuf,
+    prompt: String,
+    prior_turns: Vec<PriorTurn>,
+    identity: TurnIdentity,
+) -> Result<(String, Usage), String> {
+    // Flush the live room to disk first: the agent's edit session reads the
+    // file, and running against text missing the newest keystrokes would
+    // edit a document the user is no longer looking at.
+    if doc_id != super::agent_context::WORKSPACE_AGENT
+        && !doc_id.starts_with("lens:")
+        && let Some(room) = state.rooms.get(doc_id).await
+    {
+        let live = room.text().await;
+        if live != std::fs::read_to_string(&doc_path).unwrap_or_default()
+            && let Err(e) = store::write_atomic(&doc_path, live.as_bytes())
+        {
+            return Err(format!(
+                "could not flush unsaved edits to {}: {e:#}",
+                doc_path.display()
+            ));
+        }
+    }
+
+    super::python_agent::run_turn(state, doc_id, llm, doc_path, prompt, prior_turns, identity).await
+}
+
+/// `POST /api/docs/:id/agent/stop` — stop the turn running on this document.
+///
+/// Sets the run's cancel flag; the loop stops at its next seam — between
+/// streamed chunks (dropping the provider stream, which is what stops the
+/// token spend), between turns, after a script or tool. The turn then
+/// finishes with status `"stopped"` and a terminal `{run_id, status:
+/// "stopped"}` frame on the run channel, so the dock needs no second wait.
+pub async fn stop_turn(
+    State(state): State<LocalState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    match state.agent.stop(&id) {
+        Some(turn_id) => Ok(Json(json!({ "stopping": turn_id }))),
+        None => Err(ApiError::conflict(
+            "no agent turn is running on this document — it may have just \
+             finished; refresh the conversation",
+        )),
+    }
+}
+
+/// `GET /api/docs/:id/agent/turns` — the document's turn tree, in creation
+/// order, plus what the next turn would run on and the session's spend:
+///
+/// - `provider` / `model` — the current choice with defaults resolved
+///   (e.g. `"anthropic"` / `"claude-sonnet-5"` on a machine with only an
+///   Anthropic key and nothing chosen).
+/// - `totals` — `{usd, input, output, cache_read, cache_write}` summed
+///   across the document's finished turns, each turn priced on the model it
+///   ran on. `usd` is `null` when any turn's model has no known price.
+///
+/// Empty turns for a document nothing has asked about yet, which the dock
+/// renders as an empty conversation rather than an error.
+pub async fn list_turns(State(state): State<LocalState>, Path(id): Path<String>) -> Json<Value> {
+    if let Ok(doc_path) = super::agent_context::subject(&state, &id)
+        && let Ok(root) = super::agent_context::session_root(&state, &id)
+    {
+        state.agent.hydrate(&root, &id, &doc_path);
+    }
+    let turns = state.agent.snapshot(&id);
+    let selection = state.agent.selection_of(&id);
+    let provider = selection.provider.clone().unwrap_or_else(|| {
+        // Under the test seam provider resolution is bypassed (and reading
+        // key variables here would race the serve tests' env scrub), so the
+        // listing reports the stock default.
+        if state.agent.llm_override.lock().unwrap().is_some() {
+            return "anthropic".to_string();
+        }
+        let store = state
+            .keys
+            .store
+            .read()
+            .expect("key store lock poisoned")
+            .clone();
+        // With no keys anywhere this GET must still answer (the dock shows
+        // the note only when a POST fails), so fall back to the default
+        // vendor name rather than erroring the listing.
+        resolve_selector_with_store(None, &store).unwrap_or_else(|_| "anthropic".to_string())
+    });
+    let model = selection
+        .model
+        .clone()
+        .unwrap_or_else(|| default_model_for(&provider));
+    let (total, usd) = totals_of(&turns);
+    Json(json!({
+        "backend": state.agent.acp.selected.lock().unwrap().get(&id).cloned().or_else(|| turns.last().map(|t| t.backend.clone())).unwrap_or_else(|| "python".into()),
+        "turns": turns,
+        "provider": provider,
+        "model": model,
+        "totals": {
+            "usd": usd,
+            "input": total.input_tokens,
+            "output": total.output_tokens,
+            "cache_read": total.cache_read_input_tokens,
+            "cache_write": total.cache_creation_input_tokens,
+        },
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn turn(id: &str, parent: Option<&str>, answer: Option<&str>) -> TurnRecord {
+        TurnRecord {
+            backend: "python".into(),
+            id: id.into(),
+            parent_id: parent.map(Into::into),
+            prompt: format!("p:{id}"),
+            answer: answer.map(Into::into),
+            status: if answer.is_some() { "ok" } else { "error" }.into(),
+            error: None,
+            created_at: "2026-01-01T00:00:00Z".into(),
+            provider: "anthropic".into(),
+            model: "claude-sonnet-5".into(),
+            usage: None,
+            session: String::new(),
+        }
+    }
+
+    //        root
+    //       /    \
+    //      a      b        <- a rewind at `root` forked `b`
+    //      |
+    //      a2
+    fn tree() -> Vec<TurnRecord> {
+        vec![
+            turn("root", None, Some("a:root")),
+            turn("a", Some("root"), Some("a:a")),
+            turn("a2", Some("a"), Some("a:a2")),
+            turn("b", Some("root"), Some("a:b")),
+        ]
+    }
+
+    #[test]
+    fn a_reply_replays_exactly_its_own_branch_oldest_first() {
+        let prior = prior_turns_of(&tree(), Some("a2"));
+        let prompts: Vec<&str> = prior.iter().map(|t| t.prompt.as_str()).collect();
+        assert_eq!(prompts, ["p:root", "p:a", "p:a2"]);
+
+        // The fork sees the shared ancestor, never its sibling branch.
+        let prior = prior_turns_of(&tree(), Some("b"));
+        let prompts: Vec<&str> = prior.iter().map(|t| t.prompt.as_str()).collect();
+        assert_eq!(prompts, ["p:root", "p:b"]);
+    }
+
+    #[test]
+    fn a_new_thread_replays_nothing() {
+        assert!(prior_turns_of(&tree(), None).is_empty());
+    }
+
+    #[test]
+    fn an_errored_ancestor_is_skipped_not_replayed_half_finished() {
+        let turns = vec![
+            turn("root", None, Some("a:root")),
+            turn("broken", Some("root"), None),
+            turn("next", Some("broken"), Some("a:next")),
+        ];
+        let prior = prior_turns_of(&turns, Some("next"));
+        let prompts: Vec<&str> = prior.iter().map(|t| t.prompt.as_str()).collect();
+        assert_eq!(prompts, ["p:root", "p:next"]);
+    }
+
+    fn priced_turn(id: &str, model: &str, usage: Option<Usage>) -> TurnRecord {
+        TurnRecord {
+            model: model.into(),
+            usage,
+            ..turn(id, None, Some("a"))
+        }
+    }
+
+    #[test]
+    fn totals_sum_usage_and_price_each_turn_on_its_own_model() {
+        let usage = Usage {
+            input_tokens: 1_000_000,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+            output_tokens: 1_000_000,
+        };
+        let turns = vec![
+            priced_turn("a", "claude-sonnet-5", Some(usage)), // $3 + $15
+            priced_turn("b", "claude-haiku-4-5", Some(usage)), // $1 + $5
+            priced_turn("running", "claude-sonnet-5", None),  // no usage yet
+        ];
+        let (total, usd) = totals_of(&turns);
+        assert_eq!(total.input_tokens, 2_000_000);
+        assert_eq!(total.output_tokens, 2_000_000);
+        let usd = usd.expect("both models are priced");
+        assert!((usd - 24.0).abs() < 1e-9, "got {usd}");
+    }
+
+    #[test]
+    fn an_unpriced_model_with_real_usage_makes_the_total_unknown_not_understated() {
+        let usage = Usage {
+            input_tokens: 10,
+            ..Default::default()
+        };
+        let turns = vec![
+            priced_turn("a", "claude-sonnet-5", Some(usage)),
+            priced_turn("b", "mystery-model", Some(usage)),
+        ];
+        let (total, usd) = totals_of(&turns);
+        assert_eq!(total.input_tokens, 20, "tokens still sum");
+        assert!(usd.is_none(), "an unknown price is unknown, never a guess");
+
+        // But a zero-usage turn on an unpriced model (the scripted seam)
+        // costs nothing and must not poison the total.
+        let turns = vec![
+            priced_turn("a", "claude-sonnet-5", Some(usage)),
+            priced_turn("b", "scripted", Some(Usage::default())),
+        ];
+        let (_, usd) = totals_of(&turns);
+        assert!(usd.is_some());
+    }
+
+    #[test]
+    fn no_turns_total_to_zero_usage_and_zero_cost() {
+        let (total, usd) = totals_of(&[]);
+        assert!(total.is_zero());
+        assert_eq!(usd, Some(0.0));
+    }
+
+    #[test]
+    fn a_cycle_terminates_instead_of_hanging_the_request() {
+        let turns = vec![
+            turn("x", Some("y"), Some("a")),
+            turn("y", Some("x"), Some("a")),
+        ];
+        assert!(prior_turns_of(&turns, Some("x")).len() <= 2);
+    }
+}
+
+/// Resolve the same configured provider for ordinary and private conversations.
+pub(super) fn selected_client(
+    state: &LocalState,
+    selection: &DocSelection,
+) -> ApiResult<(Arc<dyn LlmClient>, String, String)> {
+    selected_client_with_limit(state, selection, None, false)
+}
+pub(super) fn selected_client_with_limit(
+    state: &LocalState,
+    selection: &DocSelection,
+    max_output_tokens: Option<u32>,
+    json_action: bool,
+) -> ApiResult<(Arc<dyn LlmClient>, String, String)> {
+    let mut provider_name = selection.provider.clone();
+    let llm: Arc<dyn LlmClient> = {
+        let overridden = state.agent.llm_override.lock().unwrap().clone();
+        match overridden {
+            Some(llm) => llm,
+            None => {
+                // Keys saved in Settings come first, the environment second
+                // — the desktop app has no shell profile to export from, so
+                // the store is its keys' home. A clone, not the lock, is
+                // held across the resolution: nothing here may block a
+                // concurrent PUT /api/settings/keys.
+                let store = state
+                    .keys
+                    .store
+                    .read()
+                    .expect("key store lock poisoned")
+                    .clone();
+                let provider = resolve_selector_with_store(selection.provider.as_deref(), &store)
+                    .map_err(|e| {
+                    ApiError::unavailable(format!("agent not available — {e:#}"))
+                })?;
+                let factory = if json_action {
+                    hickory_agent::client_for_action_with_limit
+                } else {
+                    hickory_agent::client_for_with_limit
+                };
+                let llm = factory(
+                    &provider,
+                    selection.model.as_deref(),
+                    store.key_for(&provider).as_deref(),
+                    max_output_tokens,
+                )
+                .map_err(|e| ApiError::unavailable(format!("agent not available — {e:#}")))?;
+                provider_name = Some(provider);
+                llm
+            }
+        }
+    };
+    // What this turn runs on, recorded up front so the listing tells the
+    // truth even while the turn is still streaming. Under the test seam with
+    // no explicit choice the provider is the seam's name, "scripted".
+    let provider_name = provider_name.unwrap_or_else(|| "scripted".to_string());
+    let model_name = selection
+        .model
+        .clone()
+        .unwrap_or_else(|| llm.model_name().to_string());
+
+    Ok((llm, provider_name, model_name))
+}
+
+impl AgentHub {
+    pub(crate) async fn ordinary_activity(&self) -> bool {
+        if self
+            .turns
+            .lock()
+            .unwrap()
+            .values()
+            .flatten()
+            .any(|turn| turn.status == "running")
+        {
+            return true;
+        }
+        self.acp.connected().await
+    }
+}
+</book:entry>
+
+</book:doc>

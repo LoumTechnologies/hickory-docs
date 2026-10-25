@@ -1,0 +1,46 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# docs/guarantees/integrations/a-github-issue-belongs-to-its-associated-folder.md
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+This is preserved output from the original capture. Current requirement dispositions are in the integrated guarantee pages.
+
+
+Captured SHA-256: `28eab1fc5958d7dc51ed148e28d14f50921e4e59523f1e7bc367c6bdfa568293`.
+
+<book:entry path="docs/guarantees/integrations/a-github-issue-belongs-to-its-associated-folder.md">
+# A GitHub Issue Belongs To Its Associated Folder
+
+Given a person associates `owner/repository#number` (or its GitHub URL) from a
+folder's context menu, when the workspace tree is read here or from another
+clone, then the issue is a child of that folder. The committed-capable
+`.hick-workspace.json` record contains only provider identity, issue number,
+and root-relative folder—never a token or copied provider response.
+
+Expanding the issue asks GitHub for its body, labels, assignees, and comments.
+Its title and body can be edited and a comment can be appended. Each mutation
+is one semantic GitHub operation and a refusal keeps GitHub's useful words.
+Authentication remains in the person's `gh` credential store. A missing or
+signed-out CLI leaves files usable and marks GitHub or the issue unavailable.
+
+On macOS, the desktop discovers the person's shell PATH before launching the
+engine; see [The Desktop Finds Tools From The Shell PATH](the-desktop-finds-tools-from-the-shell-path.md).
+A command launch failure reports the underlying error rather than claiming
+the executable is uninstalled.
+
+---
+
+Last LLM verification:
+
+- Date: 2026-09-14
+- Reviewer: Codex
+- Result: verified
+- Evidence: `crates/hickory-cli/src/serve/github.rs`,
+  `apps/web/src/shell/GithubTreeNodes.tsx`, `FolderTreePane.tsx`, and
+  `treeMenu.ts`
+- Test coverage: Rust fixtures cover credentialless persistence and safe folder
+  placement; `GithubTreeNodes.test.tsx` covers lazy read/title/body/comment
+  mutations; `FolderTreePane.test.tsx` covers association and placement.
+</book:entry>
+
+</book:doc>

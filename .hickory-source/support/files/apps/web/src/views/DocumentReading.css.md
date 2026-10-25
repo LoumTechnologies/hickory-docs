@@ -1,0 +1,50 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# apps/web/src/views/DocumentReading.css
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+
+Captured SHA-256: `96d8ee796600a53ac55e2b4a78ca5f7bdc19b85cc0d2d9f03d158ed298603b48`.
+
+<book:entry path="apps/web/src/views/DocumentReading.css">
+.document-reading { height: 100%; overflow: auto; }
+.document-reading > .doc-tab-toolbar { position: sticky; top: 0; z-index: 4; background: var(--bg); }
+.commit-reading__file { margin: 1rem 0; }
+.commit-reading__file > h2 { font-size: 1rem; padding: 0.5rem 1rem; }
+.conversation-document { min-height: 100%; }
+.conversation-document .cm-editor { min-height: 12rem; }
+.conversation-document .cm-content { padding-bottom: 3rem; }
+.document-reading .document-editor .cm-content,
+.conversation-document .document-editor .cm-content { --cm-pad-x: 1rem; padding-top: 0.75rem; }
+.chat-dock--pane > :not(.chat-log) { flex-shrink: 0; }
+.chat-dock--pane > .chat-log { flex: 1; min-height: 0; max-height: none; }
+.chat-composer > .muted { flex: 1; min-width: 0; font-size: 0.72rem; }
+.chat-composer > .btn { flex-shrink: 0; }
+.document-reading .editor-cm-host { display: block; min-width: 0; }
+.document-reading .document-editor .cm-editor { height: auto; min-height: 0; max-height: none; }
+.document-reading .document-editor .cm-scroller { overflow: visible; height: auto; }
+.document-reading .document-editor .cm-content { padding-bottom: 1rem; min-height: 0; }
+.document-editor .comparison-removed .cm-editor { flex: none; height: auto; min-height: 0; max-height: none; }
+.document-editor .comparison-removed .cm-scroller { overflow: visible; height: auto; }
+.document-editor .comparison-removed .cm-content { padding: 0.5rem; min-height: 0; }
+
+/* One scrollbar owns the conversation and its editable response. */
+.conversation-document .document-editor .cm-editor { height: auto; max-height: none; }
+.conversation-document .document-editor .cm-scroller { overflow: visible; height: auto; }
+.conversation-send { display: block; margin: 0.6rem 0; }
+
+/* A shell pane shares the workspace's ribbon layer; only a floating dock is raised. */
+.chat-dock.chat-dock--pane { z-index: auto; }
+
+.comparison-panes { display: grid; min-width: 0; }
+.comparison-panes--side-by-side { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.comparison-side { min-width: 0; border: 1px solid var(--border); }
+.comparison-side h3 { font-size: 0.8rem; padding: 0.5rem; margin: 0; }
+.comparison-side .cm-editor { min-height: 4rem; height: auto; }
+.comparison-side .cm-scroller { overflow: auto; }
+@media (max-width: 600px) { .comparison-panes--side-by-side { grid-template-columns: 1fr; } }
+</book:entry>
+
+</book:doc>

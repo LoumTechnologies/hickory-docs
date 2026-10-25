@@ -1,0 +1,195 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# .github/workflows/vm-tests.yml
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+
+Captured SHA-256: `0c5c4a48e9ac0d875f8ec61806272a76408bfb55c587f647b6e779f57230fb2a`.
+
+<book:entry path=".github/workflows/vm-tests.yml">
+# Pristine-machine tests, on real VMs.
+#
+# `.instructions/continuous-delivery-downloadable.md` makes two promises about
+# every release: the artifact is the deliverable, so the artifact is what CI
+# verifies; and **a download must work with no toolchain**. A GitHub-hosted
+# runner can only prove the first. It arrives with Rust, Node, Python, a C
+# compiler and a package manager already installed, so "it worked in CI" and
+# "it works on the machine somebody downloaded it onto" are different claims,
+# and only one of them was ever being tested.
+#
+# These jobs run the published archive on Parallels guests reverted to a golden
+# snapshot, driven by vmkit (https://github.com/PortZeroNetwork/vmkit) on a
+# self-hosted macOS host. "No toolchain" is then a property of the machine
+# rather than of a step that uninstalled one.
+#
+# Guarantee: docs/guarantees/release/a-download-runs-without-a-rust-toolchain.md
+name: VM Tests
+
+on:
+  # Manual verification of CLI assets; desktop Unstable publication uses SSH.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to test (default: unstable)"
+        required: false
+        default: unstable
+
+concurrency:
+  # QUEUE, never cancel. There is one Parallels host and one VM may run at a
+  # time; a cancelled run leaves a guest mid-revert, and the next run then
+  # reverts a guest somebody is using. vmkit's own FAILURES.md #4 is this exact
+  # bug, seen for real.
+  group: vm-tests
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  vm:
+    # One leg per platform rather than a single `vmkit series` run, and the
+    # reason is not tidiness: a self-hosted job that goes quiet long enough
+    # misses its job-lock renewals and GitHub reclaims it mid-test
+    # ("the self-hosted runner lost communication", vmkit FAILURES.md #14),
+    # which then leaves a wedged guest for the next leg to trip over. Job
+    # LENGTH is the only part of that under our control. There is one runner,
+    # so these serialize anyway — the matrix buys short legs, not parallelism.
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux, windows, macos]
+    runs-on: [self-hosted, macOS, X64]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Which release is under test
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.tag || 'unstable' }}"
+          version=$(gh release view "$tag" --json tagName,assets \
+            --jq '[.assets[].name | capture("^hick-(?<v>.+)-x86_64-apple-darwin\\.tar\\.gz$").v][0]')
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "::error::release '$tag' has no x86_64 assets to test"
+            exit 1
+          fi
+          echo "tag=$tag"         >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "testing $tag ($version)"
+
+      # x86_64 everywhere on purpose: the guests are x86_64 because the Mac
+      # hosting them is, and an artifact built for the other architecture fails
+      # as a wall of unexplained assertion failures rather than as "wrong
+      # architecture" (vmkit FAILURES.md #17).
+      - name: Stage the published archive for ${{ matrix.platform }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          case "${{ matrix.platform }}" in
+            linux)   triple=x86_64-unknown-linux-gnu; ext=tar.gz ;;
+            macos)   triple=x86_64-apple-darwin;      ext=tar.gz ;;
+            windows) triple=x86_64-pc-windows-msvc;   ext=zip    ;;
+          esac
+          asset="hick-${VERSION}-${triple}.${ext}"
+          dir="vmtest/.artifacts/${{ matrix.platform }}"
+          mkdir -p "$dir"
+          gh release download "$TAG" --pattern "$asset" --dir "$dir" --clobber
+          # vmkit.conf names a fixed path, so staging is a rename rather than a
+          # pattern the config has to know about.
+          mv "$dir/$asset" "$dir/hick-${triple}.${ext}"
+          ls -l "$dir"
+
+      # Claim the whole VM host for this leg.
+      #
+      # GitHub's `concurrency` group above serializes runs of THIS workflow, and
+      # the single runner serializes the legs within one run. Neither knows
+      # about anything else sharing the Mac — a second self-hosted runner for
+      # another repository, an agent session, or a person using a guest — and
+      # vmkit's `ensure_only` resolves contention by STOPPING every other
+      # running VM, so a job landing mid-session powers off somebody's work
+      # instead of waiting for it.
+      #
+      # A hold inverts that: while it is held, every other vmkit invocation
+      # REFUSES (exit 1) rather than starting a second VM or stopping this one.
+      # That is what makes "one VM at a time" true across everything on the
+      # host, not just across this workflow.
+      #
+      # Failing to acquire is a hard failure on purpose. Continuing unheld would
+      # mean `ensure_only` stomping whoever is holding.
+      - name: Claim the VM host
+        run: |
+          set -euo pipefail
+          # TTL just past `timeout-minutes`, so a leg killed without reaching
+          # the release step below frees the host by itself a few minutes later
+          # rather than blocking every leg after it until someone notices.
+          if ! token=$(vmkit hold --print-token --ttl 2100                 -- "hickory-docs VM Tests ${{ matrix.platform }} (run ${{ github.run_id }})" 2>err.log | tail -1); then
+            echo "::error::could not claim the VM host — something else is using it"
+            cat err.log
+            vmkit hold --status || true
+            echo "Release it with 'vmkit unhold' on the host if it is stale."
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          echo "VMKIT_HOLD_TOKEN=$token" >> "$GITHUB_ENV"
+
+      # Defence in depth, because the hold is COOPERATIVE: it guards vmkit's own
+      # paths, not `prlctl start` typed by hand or a guest resumed from the
+      # Parallels UI. If two are already up, the invariant is broken before this
+      # job touched anything and the run should say so rather than adding a
+      # third.
+      - name: Assert the host is running at most one VM
+        run: |
+          set -euo pipefail
+          running=$(prlctl list -o name --no-header | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' ')
+          echo "VMs running: $running"
+          prlctl list -o name,status --no-header || true
+          if [ "$running" -gt 1 ]; then
+            echo "::error::$running VMs are running; vmkit's one-VM-at-a-time invariant is already broken"
+            exit 1
+          fi
+
+      - name: Test the download on a pristine ${{ matrix.platform }} guest
+        env:
+          HICKORY_EXPECT_VERSION: ${{ steps.release.outputs.version }}
+        run: vmkit test ${{ matrix.platform }} download
+
+      # The confinement, on the one platform whose implementation nothing has
+      # ever executed. Windows only: Linux and macOS confinement is covered for
+      # real by `confinement.rs` in CI, and a second copy here would assert the
+      # same things twice. This drives the SHIPPED binary, which is also the
+      # only context where the AppContainer launcher resolves the way it does
+      # for a user — `hick.exe` re-invoking itself.
+      - name: Test the Windows sandbox on a real guest
+        if: matrix.platform == 'windows'
+        run: vmkit test windows sandbox
+
+      - name: Assert the host is still running at most one VM
+        if: always()
+        run: |
+          running=$(prlctl list -o name --no-header | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' ')
+          echo "VMs running: $running"
+          if [ "$running" -gt 1 ]; then
+            echo "::error::this leg left $running VMs running"
+            exit 1
+          fi
+
+      # Always, including cancellation: a hold that outlives its job blocks
+      # every later leg until its TTL expires.
+      - name: Release the VM host
+        if: always()
+        run: vmkit unhold || true
+
+      - name: What the host thinks of itself afterwards
+        if: always()
+        run: vmkit doctor || true
+</book:entry>
+
+</book:doc>

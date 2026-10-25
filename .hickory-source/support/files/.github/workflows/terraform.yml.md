@@ -1,0 +1,264 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# .github/workflows/terraform.yml
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+
+Captured SHA-256: `9c36f405f062ad913cf5b7a3530e48317144e49e64c6171e16e8f6fc146653b9`.
+
+<book:entry path=".github/workflows/terraform.yml">
+name: Terraform
+
+# Infrastructure this repo owns as code, one stack per directory under
+# terraform/:
+#
+#   dns      — the hickorydocs.com Cloudflare zone
+#   posthog  — the product's analytics project(s)
+#
+# Plans are posted on pull requests so an infrastructure change is reviewable
+# before it lands — that reviewable diff is the whole reason Terraform is here
+# rather than a vendor dashboard.
+#
+# There is no auto-apply, and this is NOT inconsistent with the app deploying
+# continuously from master. The app is a container that rolls forward and back
+# in minutes; these stacks own a domain and an analytics project whose history
+# cannot be recreated once destroyed. Applying stays a deliberate,
+# reviewer-gated act.
+
+on:
+  pull_request:
+    paths: ["terraform/**", ".github/workflows/terraform.yml"]
+  push:
+    branches: [master]
+    paths: ["terraform/**", ".github/workflows/terraform.yml"]
+  workflow_dispatch:
+    inputs:
+      stack:
+        description: "Which stack to act on"
+        type: choice
+        options: [dns, posthog]
+        required: true
+      apply:
+        description: "Apply the plan (otherwise plan only)"
+        type: boolean
+        default: false
+      reconcile_site_dns:
+        description: "Reimport apex/www records recreated outside Terraform (DNS apply only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  TF_IN_AUTOMATION: "1"
+  TF_VERSION: 1.9.8
+
+# Every secret lives in a GitHub Environment, never on the repository. That
+# means each job must declare which environment it draws from — a
+# workflow-level `env:` block cannot resolve environment secrets.
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    strategy:
+      # One stack's failure must not cancel the other's plan; each is
+      # independently reviewable.
+      fail-fast: false
+      matrix:
+        stack: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.stack)) || fromJSON('["dns","posthog"]') }}
+    # Read-only plans use production-plan. An explicit apply invocation uses
+    # production and its protection rules before planning or mutating anything.
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.apply && 'production' || 'production-plan' }}
+    concurrency:
+      # Per stack: two applies against one zone is how a DNS record ends up
+      # half-written, but dns and posthog never touch each other.
+      group: terraform-${{ matrix.stack }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: terraform/${{ matrix.stack }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Select this stack's credentials
+        # Each stack gets only the credentials it needs, rather than every
+        # stack seeing every secret. Secrets arrive as step env and are
+        # referenced as shell variables, never interpolated into the script
+        # text, so a value containing shell metacharacters cannot execute.
+        env:
+          STACK: ${{ matrix.stack }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
+        run: |
+          case "$STACK" in
+            dns)
+              {
+                echo "CLOUDFLARE_API_TOKEN=$CLOUDFLARE_API_TOKEN"
+                echo "TF_VAR_zone_id=$CLOUDFLARE_ZONE_ID"
+              } >> "$GITHUB_ENV"
+              ;;
+            posthog)
+              # Deliberately NOT the provider's own POSTHOG_API_KEY env var —
+              # that name means the server's project write key elsewhere in
+              # this repo. See terraform/posthog/versions.tf.
+              echo "TF_VAR_posthog_personal_api_key=$POSTHOG_PERSONAL_API_KEY" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "::error::Unknown stack '$STACK' — add its credentials here."
+              exit 1
+              ;;
+          esac
+
+      - name: Check the state-backend account id
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        # A malformed account id produces "dial tcp: lookup
+        # ***.r2.cloudflarestorage.com: no such host" three steps later, which
+        # reads like a network outage. It is not: Cloudflare wildcard-resolves
+        # every valid *.r2.cloudflarestorage.com name, so a lookup failure
+        # means the value is not a bare account id — most often it was pasted
+        # as a full endpoint URL, or with a trailing newline.
+        run: |
+          if ! printf '%s' "$R2_ACCOUNT_ID" | grep -qE '^[0-9a-f]{32}$'; then
+            echo "::error::R2_ACCOUNT_ID is not a bare 32-character hex account id."
+            echo "It must be JUST the id (Cloudflare dashboard → R2 → Account ID),"
+            echo "not https://<id>.r2.cloudflarestorage.com and with no trailing"
+            echo "whitespace or newline. Fix it in BOTH GitHub Environments:"
+            echo "  printf '%s' <account-id> | gh secret set R2_ACCOUNT_ID --env production-plan"
+            echo "  printf '%s' <account-id> | gh secret set R2_ACCOUNT_ID --env production"
+            exit 1
+          fi
+
+      - name: Check the state-backend credentials
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        # Same reasoning as the account id above: a malformed key surfaces from
+        # the S3 API as `InvalidArgument: Credential access key has length 1,
+        # should be 32` during `init`, which reads like a Terraform or backend
+        # fault rather than a secret that was never set properly. R2 access key
+        # ids are 32 hex characters; the secret is longer and not fixed-width,
+        # so it is only checked for being plausibly present.
+        run: |
+          if ! printf '%s' "$R2_ACCESS_KEY_ID" | grep -qE '^[0-9a-f]{32}$'; then
+            echo "::error::R2_ACCESS_KEY_ID is not a 32-character hex R2 access key id."
+            echo "Mint a pair in the Cloudflare dashboard → R2 → API →"
+            echo "Manage API Tokens → Create API Token, with Object Read & Write"
+            echo "on the hickorydocs-terraform-state bucket. Then, in BOTH"
+            echo "environments, and with printf so no newline is appended:"
+            echo "  printf '%s' <access-key-id> | gh secret set R2_ACCESS_KEY_ID --env production-plan"
+            echo "  printf '%s' <access-key-id> | gh secret set R2_ACCESS_KEY_ID --env production"
+            exit 1
+          fi
+          if [ "$(printf '%s' "$R2_SECRET_ACCESS_KEY" | wc -c)" -lt 32 ]; then
+            echo "::error::R2_SECRET_ACCESS_KEY looks too short to be an R2 secret."
+            echo "It is issued alongside the access key id; set both together."
+            exit 1
+          fi
+
+      - name: Init
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          # Referenced as a shell variable rather than interpolated into the
+          # script text, so the value cannot be parsed as shell.
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        run: |
+          terraform init \
+            -backend-config="endpoints={s3=\"https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com\"}"
+
+      - name: Format check
+        run: terraform fmt -check -recursive
+
+      - name: Validate
+        run: terraform validate
+
+      - name: Inspect the two site DNS records
+        if: matrix.stack == 'dns'
+        run: |
+          for host in hickorydocs.com www.hickorydocs.com; do
+            curl -fsS --get "https://api.cloudflare.com/client/v4/zones/$TF_VAR_zone_id/dns_records" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" --data-urlencode "name=$host" \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("success"), d.get("errors"); print(json.dumps([{k:r.get(k) for k in ("id","name","type","content","proxied")} for r in d["result"]]))'
+          done
+
+      # Import only the two website records, without deleting live DNS. This
+      # explicit recovery option repairs state after dashboard recreation.
+      - name: Reconcile existing site DNS ownership
+        if: github.event_name == 'workflow_dispatch' && inputs.apply && inputs.reconcile_site_dns && matrix.stack == 'dns'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          for label in apex www; do
+            host=hickorydocs.com
+            if [ "$label" = www ]; then host=www.hickorydocs.com; fi
+            address="cloudflare_dns_record.$label"
+            record_id=$(curl -fsS --get "https://api.cloudflare.com/client/v4/zones/$TF_VAR_zone_id/dns_records" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" --data-urlencode "name=$host" \
+              | python3 -c 'import json,re,sys; d=json.load(sys.stdin); assert d.get("success"), d.get("errors"); rows=d["result"]; assert len(rows)==1, "Expected exactly one site record"; r=rows[0]; assert r["name"]==sys.argv[1] and r["type"] in ("A","AAAA","CNAME"); assert re.fullmatch("[0-9a-f]{32}",r["id"]); print(r["id"])' "$host")
+            held=$(terraform show -json | jq -r --arg address "$address" '.values.root_module.resources[]? | select(.address == $address) | .values.id')
+            if [ "$held" = "$record_id" ]; then continue; fi
+            if [ -n "$held" ]; then terraform state rm "$address"; fi
+            terraform import "$address" "$TF_VAR_zone_id/$record_id"
+          done
+
+      - name: Plan
+        id: plan
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        # Exit code 2 means "changes present", which is information rather than
+        # failure; only a real error should fail the job.
+        run: |
+          set +e
+          terraform plan -detailed-exitcode -no-color -out=tfplan > plan.txt 2>&1
+          code=$?
+          set -e
+          echo "exitcode=$code" >> "$GITHUB_OUTPUT"
+          tail -c 60000 plan.txt
+          [ "$code" = "1" ] && exit 1
+          exit 0
+
+      - name: Comment the plan on the pull request
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          STACK: ${{ matrix.stack }}
+        with:
+          script: |
+            const fs = require('fs');
+            const stack = process.env.STACK;
+            const plan = fs.readFileSync(`terraform/${stack}/plan.txt`, 'utf8');
+            // GitHub caps a comment at 65536 characters.
+            const body = plan.length > 60000
+              ? plan.slice(0, 60000) + '\n\n…truncated; see the job log for the full plan.'
+              : plan;
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `### Terraform plan — ${stack}\n\n\`\`\`terraform\n` + body + '\n```',
+            });
+
+      # Keep plan and apply in one runner: GitHub artifact quota must not
+      # prevent repairing DNS. The environment still gates the explicit apply
+      # invocation, and this uses the exact saved plan printed above.
+      - name: Apply the saved plan
+        if: github.event_name == 'workflow_dispatch' && inputs.apply
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: terraform apply -no-color tfplan
+</book:entry>
+
+</book:doc>

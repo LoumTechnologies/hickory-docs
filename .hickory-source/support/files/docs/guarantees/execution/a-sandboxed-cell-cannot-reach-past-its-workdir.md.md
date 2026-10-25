@@ -1,0 +1,255 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# docs/guarantees/execution/a-sandboxed-cell-cannot-reach-past-its-workdir.md
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+This is preserved output from the original capture. Current requirement dispositions are in the integrated guarantee pages.
+
+
+Captured SHA-256: `bb9750ce18bbcd249c275ecdd77bb1a7d1c9104a7f33b894bdcd1b93345f7ae7`.
+
+<book:entry path="docs/guarantees/execution/a-sandboxed-cell-cannot-reach-past-its-workdir.md">
+# A Sandboxed Cell Cannot Reach Past Its Workdir
+
+Given `HICKORY_EXECUTOR=sandbox`, when a document's cells run, then each cell
+may write only its own container workdir and a private `/tmp`; it sees an
+empty home directory rather than yours; it cannot read another container's
+workdir; and it has no network unless the document declared one with
+`<hick:allow>`.
+
+This is the executor for a document you did not write. The default
+`LocalExecutor` runs a cell as you, with your files and your network — it says
+so in its own documentation and compares itself to `make` — which is a fair
+deal for your own work and a bad one for a document somebody sent you or an
+agent produced. "Read every cell before running it" is advice nobody follows
+twice.
+
+## What it does not claim
+
+**It is not reproducibility.** The interpreter a cell runs is still whichever
+one your machine has, so two machines can still disagree. Isolation and
+determinism are different problems: a sandbox restricts what already exists,
+while a VM image brings a toolchain with it. The second is what
+`HICKORY_EXECUTOR=canopy` is for, pointed at a node you run.
+
+**It is not equal on every platform.** Enforcement is bubblewrap on Linux and
+Seatbelt on macOS, and they are not the same strength — Seatbelt cannot give a
+cell its own process namespace, and hides your home by denying reads rather
+than by mounting an empty one. `Sandbox::describe` states which is in force.
+
+**The private `/tmp` is a Linux-only part of this promise, and that is a
+boundary rather than a bug.** Bubblewrap bind-mounts each container's own
+directory at `/tmp`, so the path is private per container. Seatbelt has no
+mount namespaces: the literal path `/tmp` is one directory for every process on
+the machine and there is nowhere to redirect it to. Denying `/tmp` outright was
+considered and rejected — it would break every document that writes a scratch
+file there, trading a real capability for an isolation property macOS will not
+grant either way. So on macOS, **two containers share `/tmp`**. Everything else
+holds: each container's workdir and its own tmp directory are private, which is
+what `a_cell_cannot_read_another_containers_workdir` covers. A run that needs
+`/tmp` isolation wants the Docker executor.
+
+**Windows confines through AppContainer, and that is the newest and least
+proven of the three.** `appcontainer.rs` runs a cell at Low integrity under its
+own package SID, grants that SID an ACE on the workdir and nowhere else, gives
+it no capability SIDs unless the document declared a network, and puts it in a
+job object with `KILL_ON_JOB_CLOSE`. Because AppContainer is applied by the
+*parent* at process creation, `hick` re-invokes itself as the hidden
+`__sandbox-run` subcommand rather than exec'ing a wrapper the way bubblewrap and
+Seatbelt do.
+
+**It had never been run, and running it found three defects that no amount of
+reading would have.** Measured on a Windows 11 guest and in CI, 2026-08-19:
+
+1. **Every confined cell failed before it started.** The confined line quoted
+   the launcher, the workdir, and the command — six quote characters — and
+   `cmd /?` documents that `cmd /C` preserves quoting only when there are
+   *exactly two*; otherwise it strips the leading quote and the **last** one.
+   The program name reached `CreateProcess` as `C:\...\hick.exe"`, which
+   Windows rejects.
+2. **A cell's own shell syntax was executed by the outer shell.** `cmd` applies
+   `> < & | ^ ( )` before argv splitting, inside double quotes as well. A cell
+   running `echo hello > note.txt && cat note.txt` had its argument taken by
+   the outer redirect and **ran its second half unconfined** — the sandbox
+   silently not applying to half a command is the worst failure available here.
+3. **The launcher was `current_exe()`**, which is the CLI only when the CLI is
+   running. The desktop app (`Hickory Docs.exe`) and every test binary have no
+   `__sandbox-run`, so both re-invoked something that cannot confine.
+
+The first two are gone by construction rather than by better quoting. A
+confined command is now an **argv** from `policy::wrap` all the way to
+`CreateProcess` — `LocalExecutor::execute_argv_as` spawns the program directly,
+with no shell in front of it. Every wrapper already carries the shell it wants
+inside its own arguments (`bwrap … sh -c …`, `hick __sandbox-run … -- …`), so
+the outer one only ever created a string for something else to take apart
+again. The guard is `a_cells_command_is_one_argv_element_on_every_sandbox`:
+the cell appears exactly once in the argv, byte for byte. Removing that layer
+also removed the `%VAR%` gap on Windows and the asymmetric caret-escaping that
+gap had required.
+
+The third is fixed by `policy::launcher`, which resolves a real `hick` —
+explicitly via `HICKORY_SANDBOX_LAUNCHER`, else itself, else one beside or one
+directory above — and **refuses** when it finds none rather than re-invoking
+the wrong binary.
+
+**The Windows sandbox has now been run on Windows.** `vmkit test windows
+sandbox` drives the *published* archive on a Parallels guest reverted to a
+golden snapshot — the binary a user downloads, on a machine with no toolchain,
+which is the only place the AppContainer launcher resolves the way it does for
+them. It passes: a confined cell runs, it cannot write outside its workdir
+(checked on the host filesystem afterwards, not on the cell's exit code), and
+the executor did not quietly fall back to running unconfined.
+
+Two things had to be fixed before that run tested anything. The flavor script
+reported `ok=true` for two assertions in a run where the tool had failed at
+startup and no cell had executed — nothing had escaped the workdir because
+nothing had run. And a UTF-8 BOM, which PowerShell writes by default, made the
+document parse as a bare one so no cell ran at all; that was a product bug, and
+is recorded in `docs/guarantees/authoring/a-document-may-begin-with-markdown.md`.
+
+**What confinement costs on Windows: msys2 tooling cannot run inside it.**
+Measured three independent ways in CI — `cat.exe`, `sleep.exe` and their
+siblings from Git for Windows all die with
+
+```
+fatal error - NtCreateDirectoryObject(\BaseNamedObjects\msys-2.0S5-…): 0xC0000022
+```
+
+`0xC0000022` is `STATUS_ACCESS_DENIED`. msys2 needs a section object in the
+**global** `\BaseNamedObjects` namespace; an AppContainer is given a private
+one (`\Sessions\N\AppContainerNamedObjects\<SID>`), by design. So a Windows
+user whose cells call `bash`, `grep`, `sed` or `awk` from Git for Windows gets
+commands that work unsandboxed and fail confined. This is a property of
+AppContainer, not something to fix here — but it is the single most likely way
+a Windows user meets this sandbox, and it must be said plainly rather than
+discovered.
+
+Where a machine has no sandbox at all, the executor still **refuses to run**
+rather than silently running unconfined, and names the alternatives (WSL2, the
+Docker executor, or the local executor's stated lack of isolation) — the user
+asked for isolation, and believing they have it when they do not is the worst
+outcome available.
+
+## Deliberate details
+
+- **The empty home.** Read-only was not enough. A cell that can *list*
+  `~/.ssh` has already told its author which keys exist, and "it cannot
+  exfiltrate because the network is off" is one mistake away from false. The
+  cell gets an empty writable home instead, which also makes it more
+  reproducible: a cell that behaves differently because of somebody's dotfiles
+  is a cell nobody can re-run.
+- **The transcript records the cell, not the sandbox.** Transcripts are woven
+  into the document, so they show the command as written. A page of
+  `bwrap --ro-bind …` in the middle of somebody's documentation would be
+  noise about our implementation.
+- **Mount order is load-bearing.** The workdir lives under `/tmp`, and
+  bubblewrap applies mounts in sequence — a private `/tmp` mounted after the
+  workdir bind hides the one directory the cell needs, failing with
+  "Can't chdir", which reads like a bug in the executor.
+- **A fork inherits and attenuates.** A forked container starts from its
+  parent's grants intersected with its own, so a branch can never reach
+  further than what it came from.
+
+---
+
+Last LLM verification:
+- Date: 2026-08-18
+- Reviewer: Claude (Opus 5)
+- Result: verified on Linux/bubblewrap and on macOS/Seatbelt (two defects found
+  and fixed there, below); **Windows/AppContainer is implemented and entirely
+  unrun**
+- Evidence:
+  - `crates/hickory-executor-sandbox/` — `policy.rs` builds the argv and the
+    Seatbelt profile; `lib.rs` wraps `LocalExecutor` so transcripts, volumes,
+    forks and mounts have exactly one implementation.
+  - `tests/confinement.rs` runs the real sandbox: a cell writes its own
+    workdir; a write to `/etc` fails and the file does not appear; a write to
+    `$HOME` succeeds into the private tmpfs and the real home never sees it;
+    `~/.ssh` is not listable; one container cannot read another's workdir; a
+    Python `socket.create_connection` to a public address is BLOCKED; and the
+    transcript contains `echo hello` rather than `--ro-bind`.
+  - Driven end to end with a deliberately hostile document. Under
+    `HICKORY_EXECUTOR=local` it wrote `~/hickory-pwned` and listed real key
+    filenames. Under `HICKORY_EXECUTOR=sandbox` the same document reports
+    `ls: cannot access '/home/…/.ssh': No such file or directory`, the write
+    lands nowhere, and the host's home is untouched.
+- **Measured on macOS 2026-08-18, which found two real defects.** Nothing in CI
+  had ever run this crate on a Mac (`ci.yml` was Ubuntu only), and the release
+  job's macOS smoke test passed because a GitHub runner sets `TMPDIR` under the
+  workspace rather than to `/var/folders/…`.
+  - **A cell could not write its own workdir.** `seatbelt_profile` put the
+    workdir into the policy as given, and Seatbelt matches the path the kernel
+    resolves to — on macOS `/var` is a symlink to `/private/var`, so the grant
+    named a path the kernel never sees. Every cell that wrote a file failed with
+    `Operation not permitted`, and `hick test examples/text-tools-tour.md`
+    failed on its first cell. The profile now resolves the path (`resolve`), and
+    `the_seatbelt_profile_grants_the_resolved_workdir_not_the_symlinked_one`
+    pins it.
+  - **A cell could read every other container's workdir.** The profile's
+    `(allow file-read*)` is global, and bubblewrap's isolation here comes from
+    namespaces Seatbelt does not have. It now denies each **named peer** —
+    `LocalExecutor::peer_dirs` lists the other containers' workdirs and tmp
+    directories at the moment the command runs. Pinned by
+    `the_seatbelt_profile_hides_sibling_containers` and by
+    `a_cell_cannot_read_another_containers_workdir`, which now passes on both
+    platforms.
+
+    Denying the *directory the containers share* was tried first and is wrong,
+    which is worth recording because it looks tidier: that directory is also
+    what a `<hick:volume>` mounted into the cell's own workdir resolves through,
+    so denying it made `cd project` fail with `Not a directory` in a document
+    that had done nothing wrong. `the_seatbelt_profile_does_not_deny_the_directory_containers_share`
+    keeps it from coming back. A container started *after* the command began is
+    not in the list, since it did not exist when the policy was written.
+  - A macOS job was added to `ci.yml`, and it forces
+    `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"` so the runner cannot go on hiding
+    the symlink hazard the way it did. With these fixes the full workspace suite
+    passes on macOS — 1418 tests, 0 failures — which it had never done.
+- Caveats — what LLM review could NOT establish:
+  - **Windows has never executed a single confined cell.** `appcontainer.rs`
+    is 400 lines of Win32 that nothing has run: not CI (Linux and macOS only),
+    not the release smoke test (`--version` on Windows, by matrix flag), and not
+    a developer — the crate's own `confinement.rs` would exercise it, since
+    `available()` skips only when `Sandbox::detect()` is `None` and it returns
+    `AppContainer` on any Windows box, but no job runs those tests there.
+    Everything this file says about Windows is therefore read off the source.
+    Closing it needs a Windows machine running `cargo test -p
+    hickory-executor-sandbox`, and a flavor that exercises the shipped binary on
+    a guest — neither exists yet.
+  - **macOS is now run, on one machine and one version.** Everything above was
+    exercised on macOS 15.7.7 (Intel), and `ci.yml`'s macOS job runs on
+    `macos-14` (arm64). Neither is every Mac. `sandbox-exec` also remains
+    deprecated by Apple; if it is removed this degrades to a refusal on macOS,
+    the way Windows already does.
+  - **Reads of the system are permitted by design**, so a cell can still read
+    world-readable files outside your home — `/etc/passwd`, any repository on
+    a shared path. The threat model is "cannot write your machine, cannot
+    exfiltrate", not "cannot see anything".
+  - `--unshare-all` gives a network namespace, but `/sys` is bind-mounted from
+    the host, so `ls /sys/class/net` still lists the host's interfaces. That
+    is cosmetic — a connection attempt fails — but it looks alarming, and the
+    test asserts reachability rather than the listing for exactly that reason.
+  - Nothing bounds CPU, memory, or wall time yet. A cell can still spin
+    forever; it just cannot touch your files while doing it.
+- Test coverage: `crates/hickory-executor-sandbox/tests/confinement.rs`
+  (10 tests against the real sandbox, skipped loudly where none exists — and
+  where a property belongs to one sandbox rather than the guarantee, the test
+  now says which and why instead of asserting the mechanism) plus 21 policy
+  unit tests, three of them added for the defects above.
+  - The two whole-document tests in
+    `crates/hickory-cli/tests/lsp_languages.rs` —
+    `a_document_runs_confined_through_the_real_binary` and
+    `a_cell_is_confined_unless_someone_says_otherwise` — run the shipped
+    binary rather than the crate, and are the only place the *default*
+    (`HICKORY_EXECUTOR` unset) is observed. Both were POSIX-only until
+    2026-08-20 and now write their cells per shell. The escape is asserted on
+    the host filesystem — did the file arrive outside the workdir — rather
+    than on a word in the woven page. The word used to be assembled by
+    `echo EscAPED | tr a-z A-Z` so a transcript could not be read back as its
+    own evidence; `tr` does not exist on Windows, which would have made that
+    assertion vacuous on the newest sandbox of the three. A file a cell either
+    created or did not is the guarantee itself and cannot be faked by a cell
+    that never ran.
+</book:entry>
+
+</book:doc>

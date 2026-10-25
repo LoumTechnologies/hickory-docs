@@ -1,0 +1,39 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# Selected reading scope remains separate from complete edit state
+
+For: Authors using an agent to change documents while retaining review control.
+
+Given a workspace conversation, when the user selects documents in **Next context
+projection**, the next capture includes their expanded source text or explicitly
+pinned full text, independently of scrolling, focus and visibility. Unselected
+open files contribute identities and edit snapshots, not model-visible text.
+Fold state is retained across editor unmount/remount for the same source bytes.
+An unavailable or changed fold state omits text until the editor is reopened or pinned.
+Collapsing changes future captures; it never erases historical model exposure.
+
+The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
+
+## Read the detailed requirements
+
+- [Requirements 1](requirements/01.md)
+<book:include file="requirements/01.md" />
+
+## Inspect implementation and tests
+
+[Follow the actual construction, named witnesses and evidence gaps](review.md).
+
+<book:include file="review.md" />
+
+Earlier wording and all later notes remain in [the preserved original](../../../support/files/docs/guarantees/agent/expanded-reading-projection.md.md). The paragraph ledger records their exact ranges and dispositions.
+
+Requirement decision: Retain the existing requirement without inferring new intent. Separate evidence history and retain follow-up paragraphs for review; no new implementation verification is claimed.
+
+Implementation review: not verified. Executed checks and human judgment are recorded separately. Source and test changes stale earlier evidence.
+
+## Source constructed here
+
+[Open this behavior’s construction inputs](construction.md).
+
+<book:include file="construction.md" />
+
+</book:doc>

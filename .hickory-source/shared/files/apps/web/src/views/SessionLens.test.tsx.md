@@ -1,0 +1,155 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# apps/web/src/views/SessionLens.test.tsx
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+- [An Answer In The Agent Pane Has Ribbons](../../../../../../guarantees/agent/an-answer-in-the-agent-pane-has-ribbons/contract.md)
+- [Captured reading surfaces share owned native actions](../../../../../../guarantees/agent/scoped-reading-surfaces-share-native-actions/contract.md)
+
+Captured SHA-256: `3a2df50047631af3ab3376a92525eea247af7baea463941c3aa2d362e530b6e5`.
+
+<book:entry path="apps/web/src/views/SessionLens.test.tsx">
+// Guarantee: docs/guarantees/agent/scoped-reading-surfaces-share-native-actions.md
+// docs/guarantees/agent/an-answer-in-the-agent-pane-has-ribbons.md: the
+// agent pane's history is the session document, drawn as cards with line
+// numbers, and its links reach the overlay through the lens store.
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+
+import { installMockHandler } from "../api/client";
+import { lensSources } from "../lib/lensSources";
+import { SessionLens } from "./SessionLens";
+
+const SOURCE = `<?xml version="1.0" encoding="UTF-8"?>
+<hick:session xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:user turn="t1">Why is checkout slow?</hick:user>
+<hick:usage turn="0" input="10" cache-write="0" cache-read="0" output="2"/>
+<hick:read file="data/latency.csv" sha256="ff" lines="1-8"/>
+<hick:assistant>
+<hick:reasoning>
+Let me think about the pool.
+</hick:reasoning>
+It slowed after the pool change; see data/latency.csv:3.
+</hick:assistant>
+<hick:wrote file="notes/today.md" lines="72-75" hashes="a b c d"/>
+</hick:session>
+`;
+
+afterEach(cleanup);
+
+/** Byte span of the element that opens with `open` and ends with `close`
+ * (the source is ASCII, so bytes are characters). */
+function span(open: string, close: string): [number, number] {
+  const from = SOURCE.indexOf(open);
+  const to = SOURCE.indexOf(close, from) + close.length;
+  return [from, to];
+}
+
+describe("the session lens", () => {
+  it("draws the conversation's cards over the file, and registers its links", async () => {
+    installMockHandler(async (method, path) => {
+      if (method === "GET" && path.startsWith("/api/sessions/view")) {
+        return {
+          path: "sessions/s.md",
+          source: SOURCE,
+          view: { start: null, doc: null, turns: [] },
+          blocks: [
+            { kind: "session-user", turn: "t1", body: "Why is checkout slow?", span: span('<hick:user', "</hick:user>") },
+            { kind: "session-meta", element: "usage", span: span("<hick:usage", "/>") },
+            { kind: "session-read", file: "data/latency.csv", lines: "1-8", sha256: "ff", span: span("<hick:read", "/>") },
+            { kind: "session-assistant", body: "It slowed after the pool change; see data/latency.csv:3.", span: span("<hick:assistant>", "</hick:assistant>") },
+            { kind: "session-reasoning", body: "Let me think about the pool.", span: span("<hick:reasoning>", "</hick:reasoning>") },
+            { kind: "session-wrote", file: "notes/today.md", lines: "72-75", span: span("<hick:wrote", "hashes=\"a b c d\"/>") },
+          ],
+          links: [
+            { family: "context", span: span("<hick:read", "/>"), to: { path: "data/latency.csv", lines: [1, 8] }, title: "ctx", lines: [5, 5] },
+            { family: "declared", span: span("<hick:assistant>", "</hick:assistant>"), to: { path: "data/latency.csv", lines: [3, 3] }, title: "dec", lines: [6, 11] },
+            { family: "lineage", span: span("<hick:wrote", "hashes=\"a b c d\"/>"), to: { path: "notes/today.md", lines: [72, 75] }, title: "lin", lines: [12, 12] },
+          ],
+        };
+      }
+      throw new Error(`unexpected ${method} ${path}`);
+    });
+    render(<SessionLens path="sessions/s.md" />);
+    await waitFor(() => expect(screen.getByText("Why is checkout slow?")).toBeTruthy());
+    expect(screen.getByText(/It slowed after the pool change/)).toBeTruthy();
+    expect(screen.getByText("data/latency.csv")).toBeTruthy();
+    expect(screen.getByText("notes/today.md")).toBeTruthy();
+    // Line numbers are the file's.
+    expect(document.querySelector(".cm-lineNumbers")).toBeTruthy();
+    // The file's own chrome and the record's bookkeeping are not shown as
+    // source; the reasoning is there, folded and labelled as such.
+    const shown = document.querySelector(".session-lens")!.textContent ?? "";
+    expect(shown).not.toContain("<?xml");
+    expect(shown).not.toContain("hick:usage");
+    expect(shown).not.toContain("</hick:session>");
+    const reasoning = document.querySelector("details.chat-reasoning") as HTMLDetailsElement;
+    expect(reasoning).toBeTruthy();
+    expect(reasoning.open).toBe(false);
+    expect(reasoning.querySelector("summary")?.textContent).toBe("reasoning");
+    // And the overlay can find the lens: its links, from the session's lines.
+    const lens = await waitFor(() => {
+      const registered = lensSources().find((l) => l.path === "sessions/s.md");
+      expect(registered).toBeTruthy();
+      return registered!;
+    });
+    expect(lens?.links.map((l) => [l.family, l.from.lines, l.to.path])).toEqual([
+      ["context", [5, 5], "data/latency.csv"],
+      ["declared", [6, 11], "data/latency.csv"],
+      ["lineage", [12, 12], "notes/today.md"],
+    ]);
+  });
+  it("removes a tool ribbon while collapsed and restores it when expanded or opted in", async () => {
+    const source = '<hick:session>\n<hick:user>Read it</hick:user>\n<hick:context kind="acp-activity">{"kind":"read","title":"Read source","sessionUpdate":"tool_call"}</hick:context>\n<hick:assistant>Done</hick:assistant>\n</hick:session>';
+    const tool: [number, number] = [source.indexOf('<hick:context'), source.indexOf('</hick:context>') + '</hick:context>'.length];
+    const answer: [number, number] = [source.indexOf('<hick:assistant>'), source.indexOf('</hick:assistant>') + '</hick:assistant>'.length];
+    installMockHandler(async () => ({ path: "sessions/fold.md", source, view: { turns: [] },
+      blocks: [{ kind: "session-context", context_kind: "acp-activity", body: '{"kind":"read","title":"Read source","sessionUpdate":"tool_call"}', span: tool },
+        { kind: "session-assistant", body: "Done", span: answer }],
+      links: [{ family: "context", span: tool, lines: [3, 3], to: { path: "source.md" }, title: "read" }],
+    }));
+    const result = render(<SessionLens path="sessions/fold.md" />);
+    await screen.findByText(/Adapter report · Read source/);
+    await waitFor(() => expect(lensSources().find(lens => lens.path === "sessions/fold.md")?.links).toEqual([]));
+    const fold = screen.getByText(/Adapter report · Read source/).closest("details")!;
+    fold.open = true; fireEvent(fold, new Event("toggle"));
+    await waitFor(() => expect(lensSources().find(lens => lens.path === "sessions/fold.md")?.links).toHaveLength(1));
+    fold.open = false; fireEvent(fold, new Event("toggle"));
+    await waitFor(() => expect(lensSources().find(lens => lens.path === "sessions/fold.md")?.links).toEqual([]));
+    result.rerender(<SessionLens path="sessions/fold.md" showCollapsedLineage />);
+    await waitFor(() => expect(lensSources().find(lens => lens.path === "sessions/fold.md")?.links).toHaveLength(1));
+  });
+
+});
+
+it("retires a previous session's pending response on path replacement", async () => {
+  let resolve!: (value: unknown) => void;
+  const answer = (path: string, text: string) => ({ path, source: `<hick:session>\n<hick:user>${text}</hick:user>\n</hick:session>`, blocks: [], links: [], view: { turns: [] } });
+  installMockHandler(async (_method, path) => path.includes("first.md") ? new Promise(done => { resolve = done; }) : answer("second.md", "second session"));
+  const view = render(<SessionLens path="first.md" />);
+  await waitFor(() => expect(resolve).toBeTruthy());
+  view.rerender(<SessionLens path="second.md" />);
+  await screen.findByText("second session");
+  await act(async () => { resolve(answer("first.md", "retired session")); });
+  expect(screen.queryByText("retired session")).toBeNull();
+  expect(document.querySelector('[data-session-lens="first.md"]')).toBeNull();
+});
+it("shares recovery after a session read failure", async () => {
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  let reads = 0;
+  installMockHandler(async () => { if (++reads === 1) throw Error("read denied"); return { path: "s.md", source: "<hick:session>\n<hick:user>recovered</hick:user>\n</hick:session>", blocks: [], links: [], view: { turns: [] } }; });
+  render(<UiActionContext.Provider value={registry}><SessionLens path="s.md" /></UiActionContext.Provider>);
+  await screen.findByText("read denied");
+  const retry = registry.groups().groups.flatMap(group => registry.observe(group, 64).actions).find(action => action.label === "Retry reading conversation history")!;
+  await act(async () => { expect(await registry.act(registry.scope, { id: "python:fixture", kind: "agent" }, { handle: retry.handle, arguments: {}, request_id: "retry" })).toMatchObject({ status: "result", outcome: { value: { read_requested: true, read_completed: false } } }); });
+  await screen.findByText("recovered");
+  expect(screen.queryByText("read denied")).toBeNull();
+  expect(reads).toBe(2);
+});
+</book:entry>
+
+</book:doc>

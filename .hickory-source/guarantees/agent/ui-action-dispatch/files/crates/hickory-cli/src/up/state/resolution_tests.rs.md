@@ -1,0 +1,128 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# crates/hickory-cli/src/up/state/resolution_tests.rs
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+- [Explicit UI action dispatch checks scope, state, policy and retries](../../../../../../contract.md)
+- [An Output That Cannot Be Carried Back Is Held, Never Undone](../../../../../../../../authoring/an-output-that-cannot-be-carried-back-is-held/contract.md)
+
+Captured SHA-256: `326a81cc0d968de4afbe8fb27f86dc03b8112a23be1d27f5622d7b88e6f4f57d`.
+
+<book:entry path="crates/hickory-cli/src/up/state/resolution_tests.rs">
+use super::*;
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+fn held(root: &Path) -> (WovenState, OutputResolution) {
+    let path = root.join("out.txt");
+    std::fs::write(&path, "disk side").unwrap();
+    let mut state = WovenState::default();
+    state.outputs.insert(
+        path.clone(),
+        OutputState {
+            doc: root.join("doc.md"),
+            rel_path: "out.txt".into(),
+            content: "produced side".into(),
+            provenance: vec![],
+        },
+    );
+    state.hold_output(&path, "Cannot carry back".into());
+    let request = OutputResolution {
+        root: root.to_path_buf(),
+        path,
+        content: "merged".into(),
+        expected_current: "disk side".into(),
+        expected_produced: "produced side".into(),
+        mode: ResolutionMode::Merge,
+    };
+    (state, request)
+}
+
+#[test]
+fn output_resolution_checks_both_observed_sides_and_preserves_holds_on_refusal() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let (mut state, mut request) = held(&root);
+    std::fs::write(&request.path, "new disk").unwrap();
+    assert!(
+        state
+            .resolve_output(&request)
+            .unwrap_err()
+            .to_string()
+            .contains("changed on disk")
+    );
+    assert!(state.held.contains_key(&request.path));
+    assert_eq!(std::fs::read_to_string(&request.path).unwrap(), "new disk");
+    request.expected_current = "new disk".into();
+    state.held.get_mut(&request.path).unwrap().theirs = "new produced".into();
+    assert!(
+        state
+            .resolve_output(&request)
+            .unwrap_err()
+            .to_string()
+            .contains("Produced output changed")
+    );
+    assert!(state.held.contains_key(&request.path));
+    request.expected_produced = "new produced".into();
+    state.outputs.get_mut(&request.path).unwrap().content = "new produced".into();
+    state.resolve_output(&request).unwrap();
+    assert_eq!(std::fs::read_to_string(&request.path).unwrap(), "merged");
+    assert!(!state.held.contains_key(&request.path));
+    assert!(state.resolve_output(&request).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn output_resolution_refuses_a_symlink_retarget_outside_the_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let target = outside.path().join("out.txt");
+    std::fs::write(&target, "disk side").unwrap();
+    let (mut state, request) = held(&root);
+    std::fs::remove_file(&request.path).unwrap();
+    std::os::unix::fs::symlink(&target, &request.path).unwrap();
+    assert!(
+        state
+            .resolve_output(&request)
+            .unwrap_err()
+            .to_string()
+            .contains("leaves the open folder")
+    );
+    assert_eq!(std::fs::read_to_string(target).unwrap(), "disk side");
+    assert!(state.held.contains_key(&request.path));
+}
+
+#[test]
+fn output_regeneration_checks_observed_bytes_and_restores_read_only_generated_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let (mut state, mut request) = held(&root);
+    request.mode = ResolutionMode::Regenerate;
+    assert!(
+        state
+            .resolve_output(&request)
+            .unwrap_err()
+            .to_string()
+            .contains("must use the observed")
+    );
+    assert_eq!(std::fs::read_to_string(&request.path).unwrap(), "disk side");
+    request.content = request.expected_produced.clone();
+    state.resolve_output(&request).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&request.path).unwrap(),
+        "produced side"
+    );
+    assert!(!state.held.contains_key(&request.path));
+    assert!(
+        std::fs::metadata(&request.path)
+            .unwrap()
+            .permissions()
+            .readonly()
+    );
+    set_read_only(&request.path, false).unwrap();
+}
+</book:entry>
+
+</book:doc>

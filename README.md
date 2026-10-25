@@ -1,5 +1,12 @@
 # Hickory Docs
 
+Maintain this repository through [project.md](project.md): choose a guarantee,
+then edit the Markdown entries containing its implementation and tests.
+[The literate workflow](docs/developers/literate-workflow.md) explains generation,
+focused checks, and recovery. The ordinary Rust and TypeScript files are generated
+and committed so existing build and release commands continue to work.
+
+
 Executable documents that refuse to lie. A `.md` file is prose, a program,
 and a test suite in one artifact: every example in it actually runs, every
 output shown is the output produced, and drift between the document and

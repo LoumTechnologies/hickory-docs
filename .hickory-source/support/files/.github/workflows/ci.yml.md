@@ -1,0 +1,653 @@
+<maint:doc xmlns:maint="http://www.hickorydocs.com/1.0">
+# Maintain .github/workflows/ci.yml
+
+For: maintainers changing the literate workflow and reviewers checking migration evidence.
+
+Edit this entry, regenerate, and commit its output with the Markdown. Historical evidence retains its original scope.
+
+<maint:entry path=".github/workflows/ci.yml">
+name: CI
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  # Selective scoping applies to PRs only — a push to master always runs
+  # everything unconditionally (see .instructions/pre-commit-ci-parity.md).
+  # Uses the exact same scripts/affected-checks.sh the pre-commit hook calls,
+  # so the two can never disagree about what a diff requires.
+  changes:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      run_rust: ${{ steps.filter.outputs.run_rust }}
+      run_web: ${{ steps.filter.outputs.run_web }}
+      run_desktop: ${{ steps.filter.outputs.run_desktop }}
+      run_dev: ${{ steps.filter.outputs.run_dev }}
+      run_python_agent: ${{ steps.filter.outputs.run_python_agent }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        run: |
+          checks=$(scripts/affected-checks.sh "origin/${{ github.base_ref }}")
+          echo "run_rust=$(grep -qx rust <<<"$checks" && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "run_web=$(grep -qx web <<<"$checks" && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "run_desktop=$(grep -qx desktop <<<"$checks" && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "run_dev=$(grep -qx dev <<<"$checks" && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "run_python_agent=$(grep -qx python-agent <<<"$checks" && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+  python-agent:
+    needs: [changes]
+    if: always() && (github.event_name == 'push' || needs.changes.outputs.run_python_agent == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm --prefix apps/web ci
+      - run: cd apps/web && npx playwright install --with-deps chromium
+      - name: Enable the real process sandbox
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - run: scripts/check-python-agent.sh
+
+  rust:
+    needs: [changes]
+    if: always() && (github.event_name == 'push' || needs.changes.outputs.run_rust == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # A GitHub runner ships ~10 GB of toolchains this build never touches
+      # (.NET, Android, GHC, CodeQL) and leaves ~14 GB free. This workspace's
+      # debug artifacts plus a full `cargo test --workspace` now exceed that:
+      # the first symptom was every Postgres-backed test failing at once with
+      # `No space left on device`, which reads like a database problem and is
+      # not one. Reclaiming what we will never use is cheaper than trimming
+      # the test suite.
+      - name: Reclaim runner disk
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" \
+                      /opt/hostedtoolcache/CodeQL
+          sudo apt-get clean
+          df -h / | tail -1
+      - uses: dtolnay/rust-toolchain@1.96.1
+        with:
+          # The editor's parser is `hick-lang` compiled to WebAssembly and
+          # committed; check-codegen rebuilds it to prove it is current.
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install wasm-pack --version 0.15.0 --locked
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      # The web app's language table is EMITTED from the server's routing
+      # table, and the editor's parser is BUILT from the server's parser;
+      # this is what stops either drifting from its source again. It was in
+      # `just ci` and not here, which is precisely the gap
+      # .instructions/pre-commit-ci-parity.md exists to forbid.
+      - run: scripts/check-codegen.sh
+      # No source file over a thousand lines; the ones already over only
+      # shrink (scripts/check-file-length.sh). Also in the web job, so a
+      # web-only PR is held to it too.
+      - run: scripts/check-file-length.sh
+      - run: cargo build --workspace
+      - name: Publish explicitly selected executable-spec results
+        id: published-specs
+        continue-on-error: true
+        run: python3 scripts/publish-spec-results.py --hick target/debug/hick --output /tmp/executable-spec-results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: executable-spec-results-${{ github.sha }}
+          path: /tmp/executable-spec-results
+          if-no-files-found: warn
+      - name: Check selected publication outcome
+        if: steps.published-specs.outcome == 'failure'
+        run: exit 1
+      - run: cargo build -p hickory-cli --example acp_fixture
+      # The language-server system tests cover whichever languages this
+      # machine can serve, and skip the rest LOUDLY. Without this step CI
+      # would cover none of them and still pass, which is the failure mode
+      # those tests exist to prevent — so the servers are installed here,
+      # and the runner already has bubblewrap for the sandbox that confines
+      # a cell.
+      - name: Install language servers and the sandbox the tests need
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          # Ubuntu 24.04 restricts unprivileged user namespaces through
+          # AppArmor, and the profile it ships for bwrap lets the namespace
+          # be created but denies the netlink call that brings up loopback
+          # inside it — `RTM_NEWADDR: Operation not permitted`, which is how
+          # this first surfaced. Cells run confined by DEFAULT now, so a
+          # runner that cannot confine anything tests the wrong product.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          npm install -g typescript@5 typescript-language-server  # 7.x ships no tsserver.js, which the wrapper needs
+          npm install -g intelephense                             # PhpStorm's language, and a node server: no PHP runtime needed
+          sudo apt-get install -y clangd                          # CLion's two, and clangd serves C and C++ from one install
+          pipx install basedpyright || pip install --user basedpyright
+          rustup component add rust-analyzer
+          go install golang.org/x/tools/gopls@latest || true
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+      # Prove the runner can actually confine a cell before testing as if it
+      # can. Without this the suite still runs — every document simply fails
+      # with a refusal — and the failure looks like a product bug rather than
+      # a runner that changed under us.
+      # jdt.ls, which `hick lsp install` writes into the project's own cache
+      # rather than onto PATH. The sweep could not see a server installed that
+      # way at all until it learned to borrow this repository's cache, so Java
+      # was installed, working, and reported as absent.
+      - name: Install the Java language server, which lives in the project cache
+        run: cargo run -p hickory-cli --bin hick -- lsp install java
+      - name: Verify the sandbox works on this runner
+        run: |
+          bwrap --unshare-all --ro-bind / / --tmpfs /tmp --proc /proc --dev /dev \
+                --die-with-parent -- /bin/sh -c 'echo confined'
+      # uv is needed BEFORE the tests, not after: `clap_help_live.rs` and the
+      # `uv` half of `serve_scaffold.rs` read what `uv init --help` actually
+      # prints. Installed below the tests, they skipped every run.
+      - name: Install uv (the pinned Python for the grand tour, and a scaffolder the tests read)
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      # The debug adapters are NOT installed here. They live in the
+      # `debuggers` job below, which has the disk this one spends on a full
+      # workspace build and reports a broken debugger as a broken debugger
+      # rather than as one red line inside a twenty-minute run. The live
+      # debug suites skip here, on purpose.
+      - run: cargo test --workspace -- --test-threads=1
+      - name: Install DuckDB CLI (pinned to the version the examples expect)
+        run: |
+          curl -fsSL -o /tmp/duckdb.zip \
+            https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-linux-amd64.zip
+          sudo unzip -o /tmp/duckdb.zip -d /usr/local/bin
+          duckdb --version
+      - name: Install R + ggplot2 (for the grand tour's with-r feature)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends r-base r-cran-ggplot2
+      # `architecture-that-draws-itself.md` runs `hick diagram` from inside a
+      # cell — the tool describing its own repository. Cells run CONFINED, and
+      # the sandbox replaces $HOME with a tmpfs and binds back only a short
+      # list of tool directories (`HOME_TOOL_DIRS`), so a binary sitting in
+      # `target/debug` is invisible no matter what PATH says. Installing it
+      # where a person installs one is what makes the cell able to run it, and
+      # it is the same path the uv step above already put on PATH.
+      #
+      # Without this the document fails with `exit 127: hick: command not
+      # found`, which reads like a broken example and is a missing install.
+      - name: Put `hick` where a confined cell can find it
+        run: |
+          cargo build -p hickory-cli --bin hick
+          mkdir -p "$HOME/.local/bin"
+          install -m 0755 target/debug/hick "$HOME/.local/bin/hick"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Verify the shipped example documents (docs drift is a build failure)
+        run: cargo run -p hickory-cli -- test examples/
+      - name: Verify the documentation chain (meeting -> domain -> requirements -> code)
+        run: cargo run -p hickory-cli -- test docs/
+      - name: Grand tour with the R section enabled (run, then verify reproducibility)
+        run: |
+          cargo run -p hickory-cli -- run examples/grand-tour.md --features with-r --out /tmp/grand-tour-with-r
+          cargo run -p hickory-cli -- test examples/grand-tour.md --features with-r --out /tmp/grand-tour-with-r
+
+  # The debuggers, in a job of their own.
+  #
+  # Eight languages debug through this product, each with a live suite that
+  # drives a real adapter to a real stop. Every one of them skips loudly when
+  # its adapter is missing — right, because a machine without delve cannot
+  # debug Go — and until 2026-09-04 CI installed none of them, so all eight
+  # skipped and the job went green.
+  #
+  # Installing them in the `rust` job fixed the coverage and put ~120 MB on a
+  # runner that already deletes 10 GB to fit, and buried a debugger failure
+  # inside a full workspace run. Here instead: this job builds one crate,
+  # installs the adapters, and runs only the suites that use them — so when it
+  # is red, the debugger is what broke.
+  #
+  # C# is not here. It needs the .NET SDK, and has its own job below for the
+  # same reason this one exists.
+  debuggers:
+    needs: [changes]
+    if: always() && (github.event_name == 'push' || needs.changes.outputs.run_rust == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: debuggers
+      # debugpy is installed into a real virtualenv by uv, which is how
+      # discovery recognises it — so uv has to exist first.
+      - name: Install uv, which the Python adapter is installed with
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: cargo build -p hickory-cli --bin hick
+      - name: Install the adapters the live suites drive
+        run: |
+          go install github.com/go-delve/delve/cmd/dlv@latest
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+          cargo run -p hickory-cli --bin hick -- dap install python
+          cargo run -p hickory-cli --bin hick -- dap install rust        # codelldb, which also serves C and C++
+          cargo run -p hickory-cli --bin hick -- dap install typescript  # js-debug, for JavaScript and TypeScript
+          cargo run -p hickory-cli --bin hick -- lsp install java        # the Java debugger runs INSIDE the language server,
+          cargo run -p hickory-cli --bin hick -- dap install java        # so Java needs both halves or neither works
+          df -h / | tail -1
+      # Named one by one, BEFORE the tests. Every suite takes its skip path
+      # when its adapter is missing, so a failed install would otherwise show
+      # up as a green job that tested nothing — which is the exact failure
+      # this job was created to end.
+      - name: Prove this runner can actually cover each of them
+        run: |
+          test -x .hick-cache/adapters/codelldb/extension/adapter/codelldb || { echo "no codelldb: Rust, C and C++ would skip" >&2; exit 1; }
+          test -f .hick-cache/adapters/js-debug/src/dapDebugServer.js      || { echo "no js-debug: JavaScript and TypeScript would skip" >&2; exit 1; }
+          test -x .hick-cache/adapters/python/bin/python                   || { echo "no debugpy venv: Python would skip" >&2; exit 1; }
+          ls .hick-cache/adapters/java-debug/extension/server/*.jar > /dev/null || { echo "no java-debug bundle: Java would skip" >&2; exit 1; }
+          command -v dlv > /dev/null || { echo "no delve: Go would skip" >&2; exit 1; }
+          node --version
+          java -version
+      # `HICKORY_REQUIRE_DEBUG_ADAPTERS` turns `debug_coverage.rs` from a
+      # report into a gate. It is deliberately not on everywhere: nobody has
+      # these adapters by default, and a guard that always failed would break
+      # `cargo test` on a clean clone for every contributor.
+      - name: Every live debug suite, with an empty run counted as a failure
+        env:
+          HICKORY_REQUIRE_DEBUG_ADAPTERS: "1"
+        run: cargo test -p hick-dap --tests -- --test-threads=1 --nocapture
+      # Java's suite lives in `hickory-cli`, because its adapter is not
+      # spawned but ASKED FOR — over LSP, which `hick-dap` must not know
+      # about.
+      - run: cargo test -p hickory-cli --test live_session_java -- --test-threads=1 --nocapture
+
+  # C#, which the `rust` job above cannot cover.
+  #
+  # That job deletes /usr/share/dotnet to reclaim ~10 GB, because a full
+  # `cargo test --workspace` plus this workspace's debug artifacts do not fit
+  # on a runner otherwise. netcoredbg needs the SDK, so C# debugging was the
+  # one language verified on a developer's machine and nowhere else — and the
+  # cost was wider than the debugger: `serve_scaffold.rs` skipped five tests
+  # covering File -> New Project end to end, which is the scaffold-as-a-recipe-
+  # commit feature in its entirety.
+  #
+  # A separate job has the disk the `rust` job does not: it builds two crates
+  # and runs four suites rather than building and testing everything.
+  csharp:
+    needs: [changes]
+    if: always() && (github.event_name == 'push' || needs.changes.outputs.run_rust == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: csharp
+      # Pinned rather than trusting whatever the runner ships: the test
+      # fixtures declare `net10.0`, and an SDK that cannot build that target
+      # would skip or fail for a reason that has nothing to do with hick.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: The sandbox a cell is confined by, as the rust job installs it
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - run: cargo build -p hickory-cli --bin hick
+      - run: cargo run -p hickory-cli --bin hick -- dap install csharp
+      # csharp-ls is a `dotnet tool`, so this is the only job it can exist in.
+      # It covers C# in the PLAIN-FILE sweep; the document sweep reports it as
+      # not covered, because csharp-ls resolves a compilation from the
+      # projects under `rootUri` and a document's code is staged elsewhere.
+      - run: cargo run -p hickory-cli --bin hick -- lsp install csharp
+      # Assert the two things these suites skip on, BEFORE running them. Every
+      # C# test here takes its skip path when either is missing, so without
+      # this the job could go green having tested nothing — which is exactly
+      # what the `rust` job was doing.
+      - name: Prove this runner can actually cover C#
+        run: |
+          dotnet --version
+          test -x .hick-cache/adapters/netcoredbg/netcoredbg \
+            || { echo "netcoredbg did not install; every C# suite would skip" >&2; exit 1; }
+      # Debugging: a breakpoint on a document line stopping inside the
+      # assembly `dotnet build` produced — not in the .cs source.
+      - run: >-
+          cargo test -p hick-dap --test live_session_csharp --test csharp_document
+          -- --test-threads=1 --nocapture
+      # New Project, end to end: `dotnet new` in a terminal, committed as one
+      # recipe commit through a temporary index, with the history lens
+      # checking the tree against its own trailer.
+      #
+      # `serve_scaffold.rs` runs in the `rust` job too, and the two halves
+      # cover different tests on purpose: uv is installed there and not here,
+      # dotnet here and not there. Adding uv to this job would duplicate
+      # coverage rather than add any; removing it from the other would lose
+      # the uv half entirely.
+      - run: >-
+          cargo test -p hickory-cli --test serve_scaffold --test debug_desktop
+          -- --test-threads=1 --nocapture
+      # The language-server sweep, for the one language only this job can
+      # serve. Every other language skips loudly here and is covered in the
+      # `rust` job.
+      - run: cargo test -p hickory-cli --test lsp_languages -- --test-threads=1 --nocapture
+
+  # The guest test scripts parse on a VM, minutes into a run, on a machine
+  # nobody is watching. Both halves of this check were real failures the first
+  # time `vmkit test` ran: a `.ps1` containing one em dash died with
+  # `Missing closing '}'` on a line whose braces balanced, because PowerShell
+  # 5.1 reads UTF-8 without a BOM as CP1252 and an em dash decodes to a smart
+  # quote it honours as a string delimiter. Two seconds here beats a booted
+  # guest there.
+  guest-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/check-guest-scripts.sh
+
+  # Windows, because `cfg(windows)` code is invisible to every other job.
+  #
+  # `appcontainer.rs` is 400 lines of Win32 that only compile on Windows. The
+  # Linux and macOS jobs cannot see it, `cargo clippy --workspace` on either one
+  # type-checks none of it, and the release job builds Windows LAST — so the
+  # first thing that ever compiled that file was a release build, which then
+  # failed and published nothing. It stayed broken for five days without a
+  # single red mark on a pull request, because the only job that could go red
+  # runs after CI is already green.
+  #
+  # This job compiles it in minutes on a hosted runner, and runs the sandbox's
+  # own confinement tests there — which is the first time AppContainer has been
+  # executed anywhere. `confinement.rs` needs no special setup: `available()`
+  # skips only when `Sandbox::detect()` is `None`, and on Windows it returns
+  # `AppContainer`.
+  windows:
+    needs: [changes]
+    if: always() && (github.event_name == 'push' || needs.changes.outputs.run_rust == 'true')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      # Confinement re-invokes the `hick` CLI as its AppContainer launcher, so
+      # the CLI has to exist before these tests run. `-p
+      # hickory-executor-sandbox` alone does not build it, and without it the
+      # tests do not fail — they report that no sandbox could be had, which is
+      # the same shape as a machine that genuinely has none.
+      - run: cargo build -p hickory-cli
+      # The confinement tests specifically, ahead of the rest: they are the ones
+      # that have never run on this platform, and a failure in them says
+      # something about the product rather than about the runner.
+      - run: cargo test -p hickory-executor-sandbox -- --test-threads=1
+      # The execution and capability suites, ported to write their cell
+      # commands in the shell a cell actually gets here (issue #17). Named
+      # individually rather than `-p`, because the rest of these crates'
+      # tests are still POSIX-shaped and would fail for that reason.
+      - run: >-
+          cargo test -p hick-literate --test capability_enforcement_tests
+          --test cell_timeout_tests --test freeze_tests -- --test-threads=1
+      - run: cargo test -p hickory-cli --test cell_timeout_env -- --test-threads=1
+      # Expectations, which could not pass here at all until captured output
+      # was recorded with LF endings on every platform (#18). This line is what
+      # turns that guarantee's Windows half from reasoning into evidence.
+      - run: cargo test -p hickory-cli --test test_command_tests -- --test-threads=1
+      # The rest of what actually executes on Windows (#17). Named suite by
+      # suite rather than `-p`, so that what is NOT here stays a decision
+      # rather than an accident.
+      - run: >-
+          cargo test -p hickory-agent --lib --test harness_offline
+          -- --test-threads=1
+      - run: >-
+          cargo test -p hickory-cli --test agent_shares_the_document_room
+          -- --test-threads=1
+      - run: >-
+          cargo test -p hick-literate --test agent_cells --test pipeline_tests
+          -- --test-threads=1
+      - run: >-
+          cargo test -p hickory-cli --test cache_flags --test init_tests
+          --test lineage_sweep --test up_stress --test volatile_outputs
+          --test serve_terminals --test ingest --test needs_preflight
+          -- --test-threads=1
+      # `hick-lsp` has to exist before discovery can find it.
+      - run: cargo build -p hick-lsp
+      # A language server for the suite to actually answer with. Without one
+      # `every_installed_language_answers_in_document_coordinates` fails
+      # loudly ("this suite tested nothing") rather than passing empty — that
+      # guard is deliberate, so the runner has to be given a server rather
+      # than the test given a `--skip`. This is what proves #20: before it,
+      # virtual files were written to a hardcoded `file:///tmp` that Windows
+      # rejects, so every request came back empty and the suite could not have
+      # answered anything here.
+      - run: python -m pip install --disable-pip-version-check basedpyright
+      - run: cargo test -p hickory-cli --test lsp_languages -- --test-threads=1
+      - run: >-
+          cargo test -p hick-term --test a_real_shell_reports_its_directory
+          --test full_screen_apps -- --test-threads=1
+      - run: cargo test -p hickory-executor-canopy --test isolation -- --test-threads=1
+      # `cargo test --workspace` is still NOT run here, and the reason is worth
+      # stating rather than leaving as an absence: the remaining suites write
+      # their cell commands in POSIX shell, and cells run through `cmd.exe /C`
+      # on Windows. Those tests do not test what they claim on this platform —
+      # several passed while confining nothing, because an msys `touch` fails
+      # whatever the sandbox does. Re-adding this line is issue #17's close
+      # condition. Running it today would only keep the release channel red,
+      # since Unstable Release chains off a green CI.
+      - run: cargo build --workspace --all-targets
+
+  # macOS, because the product runs there and nothing in CI did.
+  #
+  # Everything above this job runs on Linux, and four separate platform bugs
+  # reached `master` behind that gap — a Seatbelt profile that denied a cell its
+  # own workdir, containers able to read each other's, an agent script timeout
+  # that shelled out to a `timeout(1)` macOS does not ship, and two tests
+  # asserting bubblewrap's mechanism rather than the guarantee. None of them was
+  # findable on Ubuntu.
+  #
+  # Deliberately NOT a copy of the `rust` job: the example documents, DuckDB, R
+  # and the grand tour are verified on Linux and prove the same things twice.
+  # What is unique here is the confinement, which is a different implementation
+  # on this platform.
+  macos:
+    needs: [changes]
+    if: always() && (github.event_name == 'push' || needs.changes.outputs.run_rust == 'true')
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: Swatinem/rust-cache@v2
+      # Same reasoning as the Linux job: a suite that skips every language
+      # server and passes covers nothing. rust-analyzer is a toolchain
+      # component here, which makes it the cheap one to guarantee.
+      - run: rustup component add rust-analyzer
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo build --workspace
+      - run: cargo build -p hickory-cli --example acp_fixture
+      # One adapter, for the same reason as rust-analyzer above: without it
+      # every live debug suite skips here and `debug_coverage.rs` fails
+      # saying so. codelldb is the cheap one — it bundles its own lldb and
+      # serves Rust, C and C++ — and running it here is the only place this
+      # product's debugger is exercised on macOS at all.
+      - run: cargo run -p hickory-cli --bin hick -- dap install rust
+      # Prove confinement works BEFORE testing as though it does — and prove it
+      # where it actually broke.
+      #
+      # A GitHub macOS runner sets TMPDIR under the workspace
+      # (/Users/runner/work/_temp), which is a real directory. A user's Mac
+      # hands out /var/folders/…, and `/var` is a symlink to `/private/var`.
+      # Seatbelt matches the resolved path, so a policy naming the unresolved
+      # one grants nothing and the cell is denied its own workdir. That is why
+      # the release job's macOS smoke test passed for months while `hick test`
+      # failed on every real Mac. Forcing the platform's own temp directory here
+      # is what keeps this runner honest.
+      - name: Verify the sandbox confines a cell in a symlinked temp directory
+        run: |
+          TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"
+          export TMPDIR
+          echo "TMPDIR=$TMPDIR"
+          readlink /var || echo "/var is not a symlink on this runner"
+          work="$(mktemp -d)"
+          printf '(version 1)(deny default)(allow process-exec)(allow process-fork)(allow file-read*)(allow file-write* (subpath "%s"))\n' \
+            "$(cd "$work" && pwd -P)" > /tmp/hickory-probe.sb
+          sandbox-exec -f /tmp/hickory-probe.sb /bin/sh -c "cd $work && echo confined > it.txt && cat it.txt"
+      - name: Test with the platform's own temp directory, not the runner's
+        run: |
+          TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"
+          export TMPDIR
+          cargo test --workspace -- --test-threads=1
+      # One shipped document, executed by the real binary under the default
+      # (confined) executor. This is the check that would have caught the
+      # Seatbelt bug on day one: it fails with `Operation not permitted` the
+      # moment a cell writes a file.
+      - name: Verify a shipped example runs confined on macOS
+        run: |
+          TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"
+          export TMPDIR
+          cargo run -p hickory-cli -- test examples/text-tools-tour.md
+
+  web:
+    needs: [changes]
+    if: always() && (github.event_name == 'push' || needs.changes.outputs.run_web == 'true')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - uses: extractions/setup-just@v4
+      - run: npm ci
+      - run: npm test
+      # The file-length ratchet, from the repository root (this job's
+      # working directory is the web package).
+      - run: scripts/check-file-length.sh
+        working-directory: .
+      - run: npm run build
+      - run: just install-test-browsers --with-deps
+        working-directory: .
+      - run: just test-browser-embedding
+        working-directory: .
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-embedding-results
+          path: apps/web/test-results/
+
+  # `just dev` is what every developer here sees the product through, and its
+  # scripts had no job at all: `scripts/dev*.sh` mapped to rust+web, which
+  # build what the dev environment starts without ever running the scripts
+  # that start it. Same command as the pre-commit hook's `dev` check (parity
+  # per .instructions/pre-commit-ci-parity.md), and the reason it matters is
+  # in scripts/check-dev-seed.sh's header: a seed that shows a stale fixture
+  # is invisible until it has already confused somebody.
+  dev:
+    needs: [changes]
+    if: always() && (github.event_name == 'push' || needs.changes.outputs.run_dev == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the hick the seed weaves with
+        run: cargo build --bin hick
+      - name: Seed into a throwaway directory and check what it keeps, replaces, and reports
+        run: scripts/check-dev-seed.sh
+
+  # The desktop crate is deliberately outside the cargo workspace, so the
+  # `rust` job never compiles it; without this job the first compile of a
+  # desktop change happens inside a release build. Same commands as the
+  # pre-commit hook's `desktop` check (parity per
+  # .instructions/pre-commit-ci-parity.md).
+  desktop:
+    needs: [changes]
+    if: always() && (github.event_name == 'push' || needs.changes.outputs.run_desktop == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop-check
+          workspaces: apps/desktop/src-tauri
+      # The UI has to EXIST before the Rust is checked, which is not obvious
+      # from the crate: `server.rs` embeds `apps/web/dist/` with
+      # `#[derive(rust_embed::Embed)]`, and that derive silently generates
+      # nothing when the folder is missing. The failure it produces says
+      # `no associated function named `get` found for struct `Ui``, which reads
+      # like the code is wrong rather than like a build step is missing — this
+      # job had been failing that way since before anyone noticed.
+      #
+      # Built the same way `scripts/dist-desktop.sh` builds it, so what CI
+      # checks and what a release packages cannot come apart.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Build the UI the desktop crate embeds
+        run: |
+          npm --prefix apps/web ci
+          npm --prefix apps/web run build
+
+      - name: Install the Linux webview headers the crate links against
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: fmt, clippy
+        working-directory: apps/desktop/src-tauri
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --all-targets -- -D warnings
+      - name: Syntax-check the release scripts (macOS runs bash 3.2)
+        run: |
+          for script in scripts/dist.sh scripts/dist-desktop.sh scripts/install.sh; do
+            bash -n "$script"
+          done
+
+
+  fskit:
+    needs: [changes]
+    if: always() && (github.event_name == 'push' || needs.changes.outputs.run_desktop == 'true' || needs.changes.outputs.run_rust == 'true')
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: Swatinem/rust-cache@v2
+      - run: brew list just >/dev/null 2>&1 || brew install just
+      # Actual SDK compilation and engine checks, without pretending an ad-hoc
+      # signature authorizes the FSKit entitlement or mounts a volume.
+      - run: just build-fskit
+      - run: just test-workspace-fs
+
+  literate-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: hickory-dogfood/tools/behavior-engine -> ../../../target/dogfood
+      - name: Build the native literate adapter
+        run: CARGO_TARGET_DIR="$PWD/target/dogfood" cargo build --locked --release --manifest-path hickory-dogfood/tools/behavior-engine/Cargo.toml
+      - name: Check maintained source and focused reconstruction safety
+        run: |
+          python3 hickory-dogfood/tools/behavior.py check
+          python3 hickory-dogfood/tools/behavior.py audit
+          python3 hickory-dogfood/tools/promotion-check.py
+</maint:entry>
+</maint:doc>

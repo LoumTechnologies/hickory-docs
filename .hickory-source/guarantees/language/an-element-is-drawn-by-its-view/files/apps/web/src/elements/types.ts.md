@@ -1,0 +1,95 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# apps/web/src/elements/types.ts
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+- [An Element Is Drawn By Its View](../../../../../contract.md)
+
+Captured SHA-256: `d88c215b56e4dc9a3e23ca8a309f0fddd019dd1034fcbdc374588fc643b8c0fe`.
+
+<book:entry path="apps/web/src/elements/types.ts">
+// The frontend half of the element registry.
+//
+// The server declares each element once (`crates/hick-blocks`): its tag,
+// its attributes, how it renders to a block and which actions it answers.
+// This is the mirror: one view per block `kind`, keyed by the same string
+// that comes over the wire, so adding an element is one Rust file and one
+// folder here — never a new branch in the editor.
+//
+// A view draws a RENDERED block: the editor has folded the block's source
+// lines away (see editor/rendered.ts) and mounted an element in their
+// place; the view fills it. It gets the slot (where and what) and a context
+// (what the document around it knows), and returns what to draw.
+
+import type { ReactNode } from "react";
+import type { EditorView } from "@codemirror/view";
+
+import type { Block, DiagramBlock, ExecBlock, ExecutorInfo, SessionLink } from "../api/types";
+import type { HickBlock } from "../editor/hickDoc";
+import type { RenderedSlot } from "../editor/rendered";
+import type { TableLayout } from "../components/TablePanel";
+
+/** The kinds of block the editor renders in place of their source. */
+export type SlotKind =
+  | "dataset"
+  | "patch"
+  | "exec"
+  | "output"
+  | "diagram"
+  | "math"
+  | "table"
+  | "picture"
+  | "session-user"
+  | "session-assistant"
+  | "session-tool"
+  | "session-tool-result"
+  | "session-read"
+  | "session-wrote"
+  | "session-context"
+  | "session-observation"
+  | "session-action"
+  | "session-reasoning"
+  | "session-input"
+  | "session-meta";
+
+/** What the document around a rendered block knows, handed to every view. */
+export interface SlotContext {
+  docId?: string;
+  /** Frozen final-artifact closure and A. Never borrowed from the working tree. */
+  capturedProject?: { activePatch?: string | null; draftPending?: (id: string, pending: boolean) => void; editPatch?: (sources: Record<string, string>) => void; filesystemOnly?: boolean; tools?: boolean; entry: string; document?: string; sources: Record<string, string>; input: import("../editor/hickLang").ProjectEntry[] };
+  /** The live editor, when mounted. */
+  view: EditorView | null;
+  /** This document's path (for assets and per-table state), or null. */
+  path: string | null;
+  /** The server's rendered exec blocks — statuses and transcripts. */
+  execBlocks: ExecBlock[];
+  /** The server's rendered diagram blocks, pastes resolved. */
+  diagramBlocks: DiagramBlock[];
+  /** A session's blocks from the server, for the conversation's cards. */
+  sessionBlocks?: Block[];
+  /** The provenance each answer rests on, keyed by the answer's block
+   * start: what the turn read, wrote and pointed at, as chips under it. */
+  sessionLinksAt?: ReadonlyMap<number, readonly SessionLink[]>;
+  runningCells: Set<string>;
+  /** Block starts whose transcript is revealed (the rail's Replay). */
+  replaying: readonly number[];
+  executor?: ExecutorInfo;
+  tableLayouts?: Record<string, TableLayout>;
+  onTableLayout?: (key: string, layout: TableLayout) => void;
+  /** Replace the slot's block content in the document; `origin` names the
+   * user event for the undo history. */
+  replaceBlockContent: (slot: RenderedSlot, text: string, origin?: string) => boolean | void;
+}
+
+export interface ElementView {
+  kind: SlotKind;
+  /** Whether this view draws the given structure block. */
+  draws: (block: HickBlock) => boolean;
+  /** Draw the rendered block. */
+  render: (slot: RenderedSlot, cx: SlotContext) => ReactNode;
+}
+</book:entry>
+
+</book:doc>

@@ -1,0 +1,37 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# crates/hick-search/Cargo.toml
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+
+Captured SHA-256: `63796e124b1e2748c55c0a9df4566c81365ea29b9d5ce35ba1f66dfd75339f42`.
+
+<book:entry path="crates/hick-search/Cargo.toml">
+[package]
+name = "hick-search"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license.workspace = true
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Gitignore-aware walking (ripgrep's walker): the index should see what a
+# contributor sees, not target/ and node_modules/.
+ignore = "0.4"
+# Static embeddings (Model2Vec, the engine behind semble). `local-only` +
+# `fancy-regex` keeps it pure Rust with NO network path: the model is loaded
+# from a folder on disk, and downloading one is the CLI's explicit,
+# never-automatic job (`hick search --install-model`), same doctrine as
+# `hick lsp install`.
+model2vec-rs = { version = "0.2", default-features = false, features = ["local-only", "fancy-regex"] }
+
+[dev-dependencies]
+tempfile = "3"
+</book:entry>
+
+</book:doc>

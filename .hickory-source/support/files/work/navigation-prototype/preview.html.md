@@ -1,0 +1,2331 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# work/navigation-prototype/preview.html
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+
+Captured SHA-256: `14868b4c6d90631939a5d05ac2ae0e4d65a4504da9949a82e0b944606bbe9453`.
+
+<book:entry path="work/navigation-prototype/preview.html">
+<!doctype html>
+<html lang="en" data-visualize-standalone>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src 'unsafe-inline' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Spatial Navigation</title>
+<style>:root{color-scheme:light dark;background:light-dark(rgb(255 255 255), rgb(24 24 24))}html,body{margin:0}body{box-sizing:border-box;padding:1rem;background:inherit}iframe{display:block;width:100%;height:calc(100vh - 2rem);margin:0 auto;border:0}</style>
+</head>
+<body>
+<iframe id="codex-visualization" sandbox="allow-scripts" referrerpolicy="no-referrer" title="Spatial Navigation" data-srcdoc="&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot; data-visualize-standalone&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot;&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;
+&lt;meta name=&quot;referrer&quot; content=&quot;no-referrer&quot;&gt;
+&lt;meta http-equiv=&quot;Content-Security-Policy&quot; content=&quot;default-src &#x27;none&#x27;; script-src &#x27;unsafe-inline&#x27; &#x27;unsafe-eval&#x27; &#x27;wasm-unsafe-eval&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src &#x27;unsafe-inline&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src &#x27;none&#x27;; object-src &#x27;none&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;&quot;&gt;
+&lt;title&gt;Spatial Navigation&lt;/title&gt;
+&lt;style&gt;:root {
+  color-scheme: light dark;
+  background-color: var(
+    --background,
+    var(--color-background-primary, light-dark(rgb(255 255 255), rgb(24 24 24)))
+  ) !important;
+
+  /* Agent-facing contract; keep in sync with SKILL.md. */
+  --background: var(
+    --color-background-primary,
+    light-dark(rgb(255 255 255), rgb(24 24 24))
+  );
+  --foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --card: color-mix(in oklab, var(--foreground) 5%, var(--background));
+  --card-foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --popover: var(
+    --color-background-secondary,
+    light-dark(rgb(255 255 255), rgb(45 45 45))
+  );
+  --popover-foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --primary: var(
+    --color-text-info,
+    light-dark(rgb(51 156 255), rgb(131 195 255))
+  );
+  --primary-foreground: var(
+    --color-text-inverse,
+    light-dark(rgb(255 255 255), rgb(13 13 13))
+  );
+  --secondary: var(
+    --color-background-secondary,
+    light-dark(rgb(255 255 255 / 96%), rgb(54 54 54 / 96%))
+  );
+  --secondary-foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --muted: color-mix(in srgb, var(--foreground) 10%, transparent);
+  --muted-foreground: var(
+    --color-text-secondary,
+    light-dark(rgb(26 28 31 / 49.4%), rgb(255 255 255 / 49.8%))
+  );
+  --accent: var(
+    --color-background-info,
+    light-dark(rgb(229 242 255), rgb(13 39 63))
+  );
+  --accent-foreground: var(
+    --color-text-info,
+    light-dark(rgb(51 156 255), rgb(131 195 255))
+  );
+  --destructive: var(
+    --color-text-warning,
+    light-dark(rgb(226 85 7), rgb(255 133 73))
+  );
+  --border: var(
+    --color-border-secondary,
+    light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8.2%))
+  );
+  --input: var(
+    --color-border-primary,
+    light-dark(
+      rgb(26 28 31 / 11.8%),
+      color-mix(in oklab, rgb(0 0 0) 10%, transparent)
+    )
+  );
+  --ring: var(
+    --color-ring-primary,
+    light-dark(rgb(51 156 255), rgb(131 195 255 / 76%))
+  );
+  --font-size-base: var(--font-text-md-size, 14px);
+  --blue: light-dark(rgb(51 156 255), rgb(51 156 255));
+  --orange: light-dark(rgb(226 85 7), rgb(251 106 34));
+  --green: light-dark(rgb(0 162 64), rgb(64 201 119));
+  --red: light-dark(rgb(224 46 42), rgb(255 103 100));
+  --purple: light-dark(rgb(146 79 247), rgb(173 123 249));
+  --yellow: light-dark(rgb(255 195 0), rgb(255 210 64));
+  --viz-series-1: var(--primary);
+  --viz-series-2: light-dark(rgb(243 136 59), rgb(245 154 86));
+  --viz-series-3: light-dark(rgb(93 201 119), rgb(116 213 139));
+  --viz-series-4: light-dark(rgb(235 119 177), rgb(240 143 192));
+  --viz-series-5: light-dark(rgb(155 121 236), rgb(170 145 239));
+  --viz-series-6: light-dark(rgb(58 185 177), rgb(90 203 194));
+
+  /* Internal implementation variables; not part of the agent contract. */
+  --font-sans: -apple-system, system-ui, &quot;Segoe UI&quot;, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, &quot;SF Mono&quot;, Menlo, Consolas, &quot;Liberation Mono&quot;,
+    monospace;
+  --font-size-normal: max(11px, var(--font-size-base));
+  --font-size-tooltip: calc(var(--font-size-base) - 1px);
+  --font-size-small: max(11px, calc(var(--font-size-base) - 2px));
+  --font-size-h1: calc(var(--font-size-normal) * 1.7142857143);
+  --font-size-h2: calc(var(--font-size-normal) * 1.4285714286);
+  --font-size-h3: calc(var(--font-size-normal) * 1.2857142857);
+  --font-weight-normal: 430;
+  --font-weight-medium: 500;
+  --icon-size: 16px;
+  --line-height-normal: calc(var(--font-size-normal) * 1.5);
+  --line-height-tooltip: calc(var(--font-size-tooltip) * 1.4285714286);
+  --line-height-small: calc(var(--font-size-small) + 4px);
+  --corner-shape: round;
+  --radius: var(--border-radius-lg, 10px);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-2xl: calc(var(--radius) * 1.6);
+  --radius-full: 9999px;
+  --shadow-sm: 0 1px 2px -1px rgb(0 0 0 / 8%);
+  --checkmark-image: url(&quot;data:image/svg+xml,%3Csvg xmlns=&#x27;http://www.w3.org/2000/svg&#x27; viewBox=&#x27;0 0 17 17&#x27;%3E%3Cpath d=&#x27;M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z&#x27;/%3E%3C/svg%3E&quot;);
+
+  /* Legacy aliases; not part of the current agent contract. */
+  --viz-bg: transparent;
+  --viz-panel: var(--card);
+  --viz-border: var(--border);
+  --viz-text: var(--foreground);
+  --viz-muted: var(--muted-foreground);
+  --viz-accent: var(--primary);
+  --viz-accent-text: var(--primary-foreground);
+  --viz-accent-bg: var(--accent);
+  --viz-font-size: var(--font-size-base);
+  --viz-warning: var(--destructive);
+}
+
+:root[data-theme=&quot;light&quot;] {
+  color-scheme: light;
+}
+
+:root[data-theme=&quot;dark&quot;] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html &gt; body {
+  /* Preserve MCP aliases for older inline renderers without creating :root cycles. */
+  --color-background-primary: var(
+    --background,
+    light-dark(rgb(255 255 255), rgb(24 24 24))
+  );
+  --color-text-primary: var(
+    --foreground,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --color-border-secondary: var(
+    --border,
+    light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8.2%))
+  );
+
+  margin: 0;
+  padding: var(--visualize-paint-gutter, 0px);
+  color: var(--foreground);
+  background: transparent !important;
+  font-family: var(--font-sans) !important;
+  font-size: var(--font-size-normal);
+  font-weight: var(--font-weight-normal);
+  line-height: var(--line-height-normal);
+}
+
+.cursor-interaction {
+  cursor: var(--cursor-interaction, pointer);
+}
+
+a {
+  color: color-mix(in srgb, var(--viz-accent) 80%, var(--viz-text) 20%);
+  cursor: var(--cursor-interaction, pointer);
+  font-weight: var(--font-weight-medium, 500);
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+
+a:is(:hover, :focus-visible) {
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 0.5px;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  margin-block: 0;
+}
+
+h1 {
+  font-size: var(--font-size-h1);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h2 {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h3,
+h4,
+h5,
+h6 {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.3;
+}
+
+b,
+strong,
+th {
+  font-weight: var(--font-weight-medium);
+}
+
+code:not(pre code) {
+  display: inline;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  corner-shape: var(--corner-shape);
+  background: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  word-break: break-word;
+}
+
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--foreground);
+  font: inherit;
+  text-align: start;
+}
+
+.table :is(th, td) {
+  padding-block: 10px;
+  padding-inline: 0 24px;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--border);
+  text-align: start;
+  vertical-align: top;
+}
+
+.table-responsive &gt; .table :is(th, td) {
+  overflow-wrap: break-word;
+}
+
+.table :is(th, td):last-child {
+  padding-inline-end: 0;
+}
+
+.table :is(caption, thead th) {
+  font-weight: 600;
+}
+
+.table thead th {
+  padding-block: 8px;
+  border-bottom-color: color-mix(in srgb, var(--foreground) 16%, transparent);
+}
+
+.table tbody tr:last-child :is(th, td) {
+  border-bottom: 0;
+}
+
+.table.table-sm :is(th, td) {
+  padding-block: 6px;
+}
+
+.table.table-sm :is(th, td):not(:last-child) {
+  padding-inline-end: 16px;
+}
+
+.table :is(.text-end, [align=&quot;right&quot;]) {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.table :is(.text-center, [align=&quot;center&quot;]) {
+  text-align: center;
+}
+
+.table .text-nowrap {
+  white-space: nowrap;
+}
+
+#widget {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  background: transparent !important;
+}
+
+.card {
+  min-width: 0;
+  padding: 12px;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  border-radius: var(--radius-2xl);
+  corner-shape: var(--corner-shape);
+  color: var(--card-foreground);
+  background: var(--card);
+}
+
+#widget &gt; :not(.card, .progress) {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 50;
+  top: 0;
+  left: 0;
+  width: max-content;
+  max-width: min(
+    20rem,
+    var(--tooltip-available-width, calc(100vw - 10px)),
+    calc(100vw - 10px)
+  );
+  max-height: min(
+    var(--tooltip-available-height, calc(100vh - 10px)),
+    calc(100vh - 10px)
+  );
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  corner-shape: var(--corner-shape);
+  color: var(--popover-foreground);
+  background: var(--popover);
+  box-shadow: none;
+  font-size: var(--font-size-tooltip);
+  line-height: var(--line-height-tooltip);
+  overflow-wrap: break-word;
+  white-space: normal;
+  pointer-events: none;
+  user-select: none;
+}
+
+.viz-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(max(180px, 24%), 1fr));
+  gap: 10px;
+}
+
+.viz-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.viz-stat-value {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+.viz-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+hr {
+  width: 100%;
+  height: 1px;
+  margin-block: 6px;
+  border: 0;
+  background: var(--border);
+}
+
+.nav {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.progress {
+  display: flex;
+  height: 8px;
+  margin-block: calc((var(--line-height-normal, 1.5em) - 8px) / 2);
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+}
+
+.progress-bar:only-child {
+  border-radius: var(--radius-full);
+}
+
+.progress-bar {
+  height: 100%;
+  flex-shrink: 0;
+  border: 0;
+  background: var(--viz-series-1);
+}
+
+.viz-badge {
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  color: var(--accent-foreground);
+  background: var(--accent);
+  font-weight: var(--font-weight-medium);
+}
+
+small,
+.text-small,
+.viz-badge {
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
+.text-muted {
+  color: var(--muted-foreground);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.viz-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.viz-controls &gt; .form-label {
+  display: grid;
+  min-width: min(100%, 260px);
+  flex: 1 1 280px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px 12px;
+  margin-bottom: 0;
+}
+
+.viz-controls &gt; .form-label &gt; :is(.form-control, .form-range, .form-select) {
+  grid-column: 1 / -1;
+}
+
+.btn,
+.nav-link,
+.form-check-input,
+.form-control,
+.form-range,
+.form-select {
+  font: inherit;
+}
+
+.btn,
+.nav-link {
+  appearance: button;
+  display: inline-flex;
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0 8px;
+  -webkit-app-region: no-drag;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: var(--corner-shape);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: var(--cursor-interaction, pointer);
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.btn:is(.btn-block, .viz-tile) {
+  inline-size: 100%;
+}
+
+.btn.viz-tile {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+a.btn {
+  cursor: var(--cursor-interaction, pointer);
+  text-decoration: none;
+}
+
+.btn:not(:disabled):hover,
+.nav-link:not(:disabled):not([aria-disabled=&quot;true&quot;]):hover {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.btn-primary {
+  border-color: transparent;
+  color: var(--primary-foreground);
+  background: var(--foreground);
+  background-clip: padding-box;
+}
+
+.btn-primary .text-muted {
+  color: color-mix(in srgb, var(--primary-foreground) 50%, transparent);
+}
+
+.btn-primary:not(:disabled):hover {
+  background: color-mix(in srgb, var(--foreground) 80%, transparent);
+  background-clip: padding-box;
+}
+
+.btn-ghost {
+  border-color: transparent;
+  color: var(--muted-foreground);
+  background: transparent;
+}
+
+.btn-ghost:not(:disabled):hover {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.nav-pills .nav-link {
+  min-width: 0;
+  border-color: transparent;
+  color: var(--muted-foreground);
+  background: transparent;
+}
+
+.nav-justified .nav-link {
+  flex: 1 1 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.nav-pills .nav-link.active {
+  color: var(--foreground);
+  background: var(--muted);
+}
+
+.btn:disabled,
+.nav-link:disabled,
+.nav-link[aria-disabled=&quot;true&quot;] {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+[data-lucide] {
+  stroke-width: 1.6;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--foreground);
+}
+
+.form-control {
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: var(--corner-shape);
+  color: var(--foreground);
+  background: var(--secondary);
+}
+
+.form-control::placeholder {
+  color: var(--muted-foreground);
+}
+
+.form-control[type=&quot;file&quot;] {
+  padding: 0;
+  overflow: hidden;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control[type=&quot;file&quot;]::file-selector-button {
+  min-height: 26px;
+  margin-right: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-right: 1px solid var(--input);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: inherit;
+  font: inherit;
+}
+
+.form-control[type=&quot;file&quot;]:not(:disabled):hover::file-selector-button {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-control-color[type=&quot;color&quot;] {
+  width: 40px;
+  height: 28px;
+  padding: 3px;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch {
+  border: 0;
+  border-radius: calc(var(--radius-lg) - 4px);
+  corner-shape: var(--corner-shape);
+}
+
+textarea.form-control {
+  height: auto;
+  min-height: 72px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.form-control:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-control:disabled,
+.form-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.form-select {
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  padding: 0 32px 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: var(--corner-shape);
+  color: var(--foreground);
+  background-color: var(--secondary);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted-foreground) 50%),
+    linear-gradient(135deg, var(--muted-foreground) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 10px) 50%;
+  background-repeat: no-repeat;
+  background-size: 4px 4px;
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-select:not(:disabled):hover {
+  background-color: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-select:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-check {
+  display: flex;
+  min-height: 20px;
+  align-items: center;
+  gap: 6px;
+}
+
+.form-check-input {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin: 0;
+  border: 1px solid var(--input);
+  color: var(--primary-foreground);
+  background-color: transparent;
+  cursor: var(--cursor-interaction, default);
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    box-shadow 150ms;
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;] {
+  border-color: var(--input);
+  border-radius: var(--radius-sm);
+  corner-shape: var(--corner-shape);
+  background-color: var(--secondary);
+  box-shadow: var(--shadow-sm);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input:not(:disabled):not(:checked):hover {
+  background-color: var(--card);
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;]:checked {
+  border-color: var(--primary);
+  background-color: var(--primary);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input[type=&quot;checkbox&quot;]:checked::before {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--primary-foreground);
+  content: &quot;&quot;;
+  mask: var(--checkmark-image) center / 12px 12px no-repeat;
+}
+
+.form-check-input[type=&quot;radio&quot;] {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+}
+
+.form-check-input[type=&quot;radio&quot;]:checked {
+  border: 2px solid var(--primary);
+  background:
+    radial-gradient(circle, var(--primary-foreground) 0 2.5px, transparent 3px),
+    var(--primary);
+}
+
+.form-check:not(.form-switch) .form-check-input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled {
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+}
+
+.form-switch .form-check-input:disabled,
+.form-switch .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.form-check-label {
+  color: var(--foreground);
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-switch .form-check-input {
+  position: relative;
+  width: 32px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+  box-shadow: none;
+  transition: background-color 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 1px solid light-dark(var(--primary-foreground), var(--foreground));
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+  box-shadow: var(--shadow-sm);
+  content: &quot;&quot;;
+  transform: translate(2px, -50%);
+  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input:checked {
+  background: var(--primary);
+}
+
+.form-switch .form-check-input:checked::before {
+  transform: translate(14px, -50%);
+}
+
+.form-switch .form-check-input:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+.form-range {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 28px;
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  outline: none;
+  border: 0;
+  accent-color: var(--primary);
+  background: linear-gradient(
+      color-mix(in srgb, var(--foreground) 7%, transparent),
+      color-mix(in srgb, var(--foreground) 7%, transparent)
+    )
+    center / 100% 2px no-repeat;
+}
+
+.form-range::-webkit-slider-runnable-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-webkit-slider-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range::-moz-range-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-moz-range-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.btn:not(.btn-primary, .viz-tile):is(
+  [aria-pressed=&quot;true&quot;],
+  [aria-selected=&quot;true&quot;],
+  .is-selected
+) {
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
+.btn.viz-tile:is([aria-pressed=&quot;true&quot;], [aria-selected=&quot;true&quot;], .is-selected) {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.btn:focus-visible,
+.nav-link:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  .btn,
+  .nav-link,
+  .form-control,
+  .form-select {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Keep small-screen WebKit from zooming when a text field receives focus. */
+  .form-control,
+  .form-select {
+    font-size: max(16px, var(--font-size-normal));
+  }
+
+  .form-control[type=&quot;file&quot;]::file-selector-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .form-control-color[type=&quot;color&quot;] {
+    width: 44px;
+    height: 44px;
+  }
+
+  .form-control:is(
+    [type=&quot;date&quot;],
+    [type=&quot;datetime-local&quot;],
+    [type=&quot;month&quot;],
+    [type=&quot;time&quot;],
+    [type=&quot;week&quot;]
+  ) {
+    min-width: 0;
+    max-width: 100%;
+    padding-block: 8px;
+  }
+
+  .form-check {
+    min-height: 44px;
+    padding-inline: 15px;
+  }
+
+  .form-check-input {
+    position: relative;
+  }
+
+  .form-check-input::after {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    content: &quot;&quot;;
+    transform: translate(-50%, -50%);
+  }
+
+  .form-check-label {
+    display: inline-flex;
+    min-width: 44px;
+    min-height: 44px;
+    align-items: center;
+  }
+
+  .form-range {
+    height: 44px;
+    touch-action: pan-y;
+  }
+
+  .form-range::-webkit-slider-runnable-track {
+    height: 44px;
+  }
+
+  .form-range::-moz-range-track {
+    height: 44px;
+  }
+
+  .form-range::-webkit-slider-thumb {
+    margin-top: 12px;
+  }
+}
+
+svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+#widget &gt; svg {
+  width: 100%;
+}
+
+/* Model-authored chart rules can otherwise stretch icons after these styles load. */
+svg.lucide {
+  display: block;
+  width: var(--icon-size) !important;
+  height: var(--icon-size) !important;
+  flex: none;
+  margin: 0 !important;
+  stroke-width: 1.6;
+}
+
+.text-warning,
+.text-destructive {
+  color: var(--destructive);
+}
+
+html&gt;body{padding:0}&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;script type=&quot;application/json&quot; id=&quot;codex-visualization-widget-state&quot;&gt;__CODEX_VISUALIZATION_WIDGET_STATE__&lt;/script&gt;
+&lt;script&gt;(() =&gt; {
+  const root = document.documentElement;
+  const mediaQuery = globalThis.matchMedia(&quot;(prefers-color-scheme: dark)&quot;);
+  const apply = Reflect.apply;
+  const isArray = Array.isArray;
+  const hasOwn = Object.hasOwn;
+  const parentWindow = globalThis.parent;
+  const stringify = JSON.stringify;
+  const parse = JSON.parse;
+  const encode = TextEncoder.prototype.encode.bind(new TextEncoder());
+  const initialStateElement = document.getElementById(
+    &quot;codex-visualization-widget-state&quot;,
+  );
+  const initialGlobals = parse(initialStateElement?.textContent ?? &quot;{}&quot;);
+  initialStateElement?.remove();
+  /** @type {Record&lt;string, unknown&gt; | null} */
+  let state = initialGlobals.widgetState ?? null;
+  const statePersistence = initialGlobals.statePersistence ?? &quot;none&quot;;
+  let nextStateRequestId = 0;
+  /** @type {Map&lt;number, { resolve: () =&gt; void; reject: (error: Error) =&gt; void; timeout: ReturnType&lt;typeof globalThis.setTimeout&gt;; serializedState: string }&gt;} */
+  const pendingStateWrites = new Map();
+  const persistenceError = () =&gt;
+    Object.assign(
+      new Error(&quot;The host could not persist the widget state update&quot;),
+      {
+        code: -32000,
+        data: { code: &quot;widget_state_persistence_failed&quot;, retryable: false },
+      },
+    );
+  /**
+   * @param {object} prototype
+   * @param {string} property
+   */
+  const getPrototypeGetter = (prototype, property) =&gt; {
+    // oxlint-disable-next-line typescript/unbound-method -- invoked through captured Reflect.apply
+    const getter = Object.getOwnPropertyDescriptor(prototype, property)?.get;
+    if (getter == null) {
+      throw new Error(`Missing ${property} getter`);
+    }
+    return getter;
+  };
+  const getMessageData = getPrototypeGetter(MessageEvent.prototype, &quot;data&quot;);
+  const getMessagePorts = getPrototypeGetter(MessageEvent.prototype, &quot;ports&quot;);
+  const getMessageSource = getPrototypeGetter(MessageEvent.prototype, &quot;source&quot;);
+  // oxlint-disable-next-line typescript/unbound-method -- captured before the untrusted fragment runs
+  const addHostMessageListener = MessagePort.prototype.addEventListener;
+  // oxlint-disable-next-line typescript/unbound-method -- captured before the untrusted fragment runs
+  const postHostMessage = MessagePort.prototype.postMessage;
+  // oxlint-disable-next-line typescript/unbound-method -- captured before the untrusted fragment runs
+  const startHostPort = MessagePort.prototype.start;
+  // oxlint-disable-next-line typescript/unbound-method -- captured before the untrusted fragment runs
+  const stopMessagePropagation = Event.prototype.stopImmediatePropagation;
+  /** @type {MessagePort | null} */
+  let hostPort = null;
+  const postToHost = (type, payload) =&gt; {
+    if (hostPort != null) {
+      apply(postHostMessage, hostPort, [{ type, ...payload }]);
+    }
+  };
+  const openExternal = ({ href }) =&gt; {
+    if (globalThis.navigator.userActivation?.isActive === true) {
+      postToHost(&quot;open-external&quot;, { href });
+    }
+  };
+  const sendFollowUpMessage = ({ context, prompt, title }) =&gt; {
+    if (globalThis.navigator.userActivation?.isActive === true) {
+      postToHost(&quot;follow-up&quot;, { context, prompt, title });
+    }
+    return Promise.resolve();
+  };
+  /**
+   * @param {Record&lt;string, unknown&gt; | ((previous: Record&lt;string, unknown&gt; | null) =&gt; Record&lt;string, unknown&gt;)} next
+   * @returns {Promise&lt;void&gt;}
+   */
+  const setWidgetState = async (next) =&gt; {
+    const nextState = typeof next === &quot;function&quot; ? next(state) : next;
+    if (
+      nextState == null ||
+      typeof nextState !== &quot;object&quot; ||
+      isArray(nextState)
+    ) {
+      throw new TypeError(&quot;Widget state must be a JSON object&quot;);
+    }
+    const inputState = stringify(
+      nextState,
+      (_key, /** @type {unknown} */ value) =&gt; {
+        if (
+          typeof value === &quot;undefined&quot; ||
+          typeof value === &quot;function&quot; ||
+          typeof value === &quot;symbol&quot; ||
+          (typeof value === &quot;number&quot; &amp;&amp; !Number.isFinite(value))
+        ) {
+          throw new TypeError(&quot;Widget state must be a JSON object&quot;);
+        }
+        return value;
+      },
+    );
+    const parsedState = parse(inputState);
+    if (
+      parsedState == null ||
+      typeof parsedState !== &quot;object&quot; ||
+      isArray(parsedState)
+    ) {
+      throw new TypeError(&quot;Widget state must be a JSON object&quot;);
+    }
+    const storedState = {
+      modelContent: null,
+      privateContent: null,
+      ...parsedState,
+    };
+    const serializedState = stringify(storedState);
+    if (encode(serializedState).length &gt; 16 * 1024) {
+      throw new TypeError(
+        &quot;Widget state must be a JSON object of at most 16 KiB&quot;,
+      );
+    }
+    if (
+      hasOwn(storedState, &quot;imageIds&quot;) &amp;&amp;
+      (!isArray(storedState.imageIds) ||
+        storedState.imageIds.some(
+          (/** @type {unknown} */ id) =&gt; typeof id !== &quot;string&quot;,
+        ))
+    ) {
+      throw new TypeError(&quot;Widget state imageIds must be an array of strings&quot;);
+    }
+    if (storedState.imageIds?.length &gt; 0) {
+      throw Object.assign(
+        new TypeError(&quot;Visualization state does not support image attachments&quot;),
+        { code: -32602, data: { code: &quot;images_unsupported&quot; } },
+      );
+    }
+    state = storedState;
+    globalThis.openai.widgetState = state;
+    globalThis.dispatchEvent(
+      new CustomEvent(&quot;openai:set_globals&quot;, {
+        detail: { globals: { widgetState: state } },
+      }),
+    );
+    if (statePersistence === &quot;none&quot;) {
+      throw persistenceError();
+    }
+    const id = ++nextStateRequestId;
+    return new Promise((resolve, reject) =&gt; {
+      const timeout = globalThis.setTimeout(() =&gt; {
+        pendingStateWrites.delete(id);
+        reject(persistenceError());
+      }, 30_000);
+      pendingStateWrites.set(id, { resolve, reject, timeout, serializedState });
+      postToHost(&quot;widget-state-write&quot;, { id, state: serializedState });
+    });
+  };
+  const syncTheme = () =&gt; {
+    const theme = mediaQuery.matches ? &quot;dark&quot; : &quot;light&quot;;
+    root.dataset.theme = theme;
+    globalThis.openai = {
+      ...globalThis.openai,
+      openExternal,
+      sendFollowUpMessage,
+      setWidgetState,
+      theme,
+      visualizationStyleVariables: {},
+      visualizationTheme: theme,
+      widgetState: state,
+      statePersistence,
+      stateModelContext: &quot;none&quot;,
+    };
+    globalThis.dispatchEvent(
+      new CustomEvent(&quot;openai:set_globals&quot;, {
+        detail: { globals: globalThis.openai },
+      }),
+    );
+  };
+  const sendHeight = () =&gt; {
+    postToHost(&quot;height&quot;, {
+      height: Math.ceil(
+        Math.max(
+          document.body.scrollHeight,
+          document.body.getBoundingClientRect().height,
+        ),
+      ),
+    });
+  };
+
+  globalThis.addEventListener(
+    &quot;message&quot;,
+    (event) =&gt; {
+      const data = apply(getMessageData, event, []);
+      const ports = apply(getMessagePorts, event, []);
+      const source = apply(getMessageSource, event, []);
+      if (
+        hostPort != null ||
+        source !== parentWindow ||
+        typeof data !== &quot;object&quot; ||
+        data?.type !== &quot;codex-visualization-initialize&quot; ||
+        !isArray(ports) ||
+        ports.length !== 1
+      ) {
+        return;
+      }
+      apply(stopMessagePropagation, event, []);
+      const nextHostPort = ports[0];
+      try {
+        apply(addHostMessageListener, nextHostPort, [
+          &quot;message&quot;,
+          (event) =&gt; {
+            const data = apply(getMessageData, event, []);
+            if (typeof data === &quot;object&quot; &amp;&amp; data?.type === &quot;measure&quot;) {
+              sendHeight();
+            } else if (
+              typeof data === &quot;object&quot; &amp;&amp;
+              data?.type === &quot;widget-state-result&quot;
+            ) {
+              /** @type {unknown} */
+              const id = data.id;
+              if (typeof id !== &quot;number&quot;) {
+                return;
+              }
+              const pending = pendingStateWrites.get(id);
+              if (pending != null) {
+                pendingStateWrites.delete(id);
+                globalThis.clearTimeout(pending.timeout);
+                if (data.ok === true) {
+                  pending.resolve();
+                } else {
+                  pending.reject(persistenceError());
+                }
+              }
+            }
+          },
+        ]);
+        apply(startHostPort, nextHostPort, []);
+      } catch {
+        return;
+      }
+      hostPort = nextHostPort;
+      for (const [id, { serializedState }] of pendingStateWrites) {
+        postToHost(&quot;widget-state-write&quot;, { id, state: serializedState });
+      }
+      sendHeight();
+    },
+    { capture: true },
+  );
+  document.currentScript?.remove();
+  mediaQuery.addEventListener(&quot;change&quot;, syncTheme);
+  globalThis.addEventListener(&quot;click&quot;, (event) =&gt; {
+    if (event.defaultPrevented) {
+      return;
+    }
+    let element = null;
+    if (event.target instanceof globalThis.Element) {
+      element = event.target;
+    } else if (event.target instanceof globalThis.Node) {
+      element = event.target.parentElement;
+    }
+    const link = element?.closest(&quot;a[href]&quot;);
+    const href = link?.getAttribute(&quot;href&quot;);
+    if (href == null) {
+      return;
+    }
+    if (href.startsWith(&quot;#&quot;)) {
+      let id;
+      try {
+        id = decodeURIComponent(href.slice(1));
+      } catch {
+        return;
+      }
+      const target = id.length === 0 ? root : document.getElementById(id);
+      if (
+        target == null ||
+        globalThis.navigator.userActivation?.isActive !== true
+      ) {
+        return;
+      }
+      event.preventDefault();
+      postToHost(&quot;scroll-to&quot;, {
+        top: target.getBoundingClientRect().top + globalThis.scrollY,
+      });
+      return;
+    }
+    event.preventDefault();
+    openExternal({ href });
+  });
+  new ResizeObserver(sendHeight).observe(document.body);
+  syncTheme();
+})();
+&lt;/script&gt;
+&lt;div id=&quot;hickory-spatial-lab&quot; aria-label=&quot;Hickory contextual tiling prototype&quot;&gt;
+  &lt;style&gt;
+    #hickory-spatial-lab { --paper:light-dark(#f5f7fa,#1c2229);--panel:light-dark(#fff,#242c35);--ink:light-dark(#223041,#e1e8f0);--quiet:light-dark(#576779,#aab8c8);--edge:light-dark(#ccd5df,#485462);--amber:light-dark(#946000,#eec15a);--ai:light-dark(#007873,#55cbbd);--personal:light-dark(#3d64aa,#9abaf4);--rail-row:36px;color:var(--ink);background:var(--paper);font:14px/1.5 system-ui,sans-serif;border-radius:9px;overflow:hidden; }
+    #hickory-spatial-lab * { box-sizing:border-box; }
+    #hickory-spatial-lab [hidden] { display:none!important; }
+    #hickory-spatial-lab button,#hickory-spatial-lab input,#hickory-spatial-lab select { font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--edge);border-radius:5px;padding:5px 8px; }
+    #hickory-spatial-lab button[aria-pressed=true] { border-color:var(--personal);background:color-mix(in srgb,var(--personal) 12%,var(--panel)); }
+    #hickory-spatial-lab .chrome { display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:11px 14px;border-bottom:1px solid var(--edge); }
+    #hickory-spatial-lab .brand { font-weight:600;margin-right:auto; }
+    #hickory-spatial-lab .tag { font-size:11px;color:var(--quiet); }
+    #hickory-spatial-lab label { display:flex;align-items:center;gap:7px; }
+    #hickory-spatial-lab .workspace { position:relative;display:grid;grid-template-columns:var(--rail-left,164px) minmax(0,1fr) var(--rail-right,164px);overflow:hidden;--header:color-mix(in srgb,var(--quiet) 7%,var(--panel)); }
+    #hickory-spatial-lab .rail { position:relative;background:var(--panel);min-width:0;border-right:1px solid var(--edge);overflow:hidden;grid-row:1; }
+    #hickory-spatial-lab .rail.left { grid-column:1; }
+    #hickory-spatial-lab .rail.right { border-right:0;border-left:1px solid var(--edge);grid-column:3; }
+    #hickory-spatial-lab .rail-label { position:absolute;inset:0 0 auto;padding:7px 5px;font-size:11px;color:var(--quiet);background:var(--panel);z-index:20; }
+    #hickory-spatial-lab .rail-scroll { position:absolute;inset:62px 0 32px;overflow-y:auto;overflow-x:hidden; }
+    #hickory-spatial-lab .rail-edge { position:absolute;left:0;right:0;height:30px;z-index:20;font-size:11px;border:0;border-radius:0;background:var(--panel);padding:4px 5px;text-align:left; }
+    #hickory-spatial-lab .rail-edge.above { top:30px;border-bottom:1px dotted var(--edge); }
+    #hickory-spatial-lab .rail-edge.below { bottom:0;border-top:1px dotted var(--edge); }
+    #hickory-spatial-lab .buffer-line,#hickory-spatial-lab .pin-label { display:block;width:100%;height:var(--rail-row);min-height:var(--rail-row);font-size:11px;text-align:left;padding:6px 5px;overflow-wrap:anywhere;border:0;border-bottom:1px solid var(--edge);border-radius:0;touch-action:none; }
+    #hickory-spatial-lab .buffer-line { display:flex;align-items:center;gap:6px;padding:0 5px;font:11px/1 ui-monospace,monospace;white-space:pre;overflow:hidden;cursor:default; }
+    #hickory-spatial-lab .rail .tag { display:none; }
+    #hickory-spatial-lab .pin-label { display:flex;align-items:center;gap:4px; }
+    #hickory-spatial-lab .pin-label .tag { display:inline-flex;align-items:center;justify-content:center;flex:0 0 16px;color:var(--quiet);cursor:pointer; }
+    #hickory-spatial-lab .pin-label .rail-filename { flex:1;min-width:0; }
+    #hickory-spatial-lab .rail-filename { display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:text;outline:none; }
+    #hickory-spatial-lab .buffer-number { flex:0 0 22px;text-align:right;color:var(--quiet);opacity:.7;cursor:pointer; }
+    #hickory-spatial-lab .buffer-fold { flex:0 0 10px;color:var(--quiet);cursor:pointer; }
+    #hickory-spatial-lab .buffer-text { flex:1;min-width:0;white-space:pre;overflow:hidden;text-overflow:ellipsis;cursor:text;outline:none; }
+    #hickory-spatial-lab .buffer-dim { color:var(--quiet); }
+    #hickory-spatial-lab .buffer-text:focus,#hickory-spatial-lab .rail-filename:focus { background:color-mix(in srgb,var(--personal) 14%,transparent);box-shadow:inset 0 0 0 1px var(--personal); }
+    #hickory-spatial-lab .rail-pins { position:absolute;inset:0;pointer-events:none; }
+    #hickory-spatial-lab .pin-label { position:absolute;left:0;pointer-events:auto;background:var(--header);z-index:21;border-bottom:0; }
+    #hickory-spatial-lab .pin-label.pinned { color:var(--ai);box-shadow:inset 2px 0 var(--ai);z-index:21; }
+    #hickory-spatial-lab .rail .pin-label[aria-pressed=true] { border-color:var(--edge);background:var(--header); }
+    #hickory-spatial-lab .header-extension { position:absolute;height:36px;pointer-events:none;background:var(--header);border:1px solid var(--edge);z-index:10; }
+    #hickory-spatial-lab .header-extension.left { border-radius:0 6px 0 0; }
+    #hickory-spatial-lab .header-extension.right { border-radius:6px 0 0 0; }
+    #hickory-spatial-lab .header-extension.pinned { border-color:var(--ai); }
+    #hickory-spatial-lab .header-extension.selected { box-shadow:inset 0 0 0 1px var(--personal); }
+    #hickory-spatial-lab .header-extension.tentative { opacity:.8;border:1px dashed var(--personal); }
+    #hickory-spatial-lab .stage { position:relative;height:720px;min-width:0;overflow:hidden;grid-column:2;grid-row:1; }
+    #hickory-spatial-lab .center { position:absolute;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--edge);border-radius:7px;overflow:hidden; }
+    #hickory-spatial-lab .heading { min-height:42px;padding:8px 10px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--edge);font-size:12px; }
+    #hickory-spatial-lab .heading .title { font-weight:500;flex:1;min-width:0;overflow-wrap:anywhere; }
+    #hickory-spatial-lab .source-body { display:flex;flex:1;min-height:0; }
+    #hickory-spatial-lab .source-scroll { flex:1;min-width:0;overflow-y:auto;padding:6px 19px 35px;scroll-behavior:smooth; }
+    #hickory-spatial-lab .section { padding:16px 0 24px;border-bottom:1px solid var(--edge);min-height:195px; }
+    #hickory-spatial-lab .speaker { font-size:11px;color:var(--quiet);letter-spacing:.06em; }
+    #hickory-spatial-lab p { margin:10px 0 18px; }
+    #hickory-spatial-lab .protected { background:color-mix(in srgb,var(--personal) 8%,var(--panel));border-left:2px solid var(--personal);padding:7px 9px; }
+    #hickory-spatial-lab .ai-touched { background:color-mix(in srgb,var(--ai) 8%,var(--panel));border-left:2px solid var(--ai);padding:7px 9px; }
+    #hickory-spatial-lab .origin { display:block;font-size:11px;color:var(--quiet);margin-bottom:5px; }
+    #hickory-spatial-lab .ref { border:0;background:transparent;color:var(--amber);padding:0;text-decoration:underline;text-underline-offset:3px; }
+    #hickory-spatial-lab .log { display:block;width:100%;text-align:left;color:var(--ai);font:12px/1.6 ui-monospace,monospace;margin:4px 0; }
+    #hickory-spatial-lab .search { padding:7px 10px;display:flex;gap:6px;border-bottom:1px solid var(--edge); }
+    #hickory-spatial-lab .search input { min-width:0;width:100%;font-size:12px; }
+    #hickory-spatial-lab mark { color:inherit;background:color-mix(in srgb,var(--amber) 22%,var(--panel)); }
+    #hickory-spatial-lab .line-number { color:var(--quiet);display:inline-block;min-width:23px;font-size:11px; }
+    #hickory-spatial-lab .minimap { position:relative;flex:0 0 30px;border-left:1px solid var(--edge);background:var(--paper); }
+    #hickory-spatial-lab .mini-track { position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:0;padding:0;background:transparent;touch-action:none; }
+    #hickory-spatial-lab .mini-picture { position:absolute;inset:6px 3px;width:calc(100% - 6px);height:calc(100% - 12px);pointer-events:none; }
+    #hickory-spatial-lab .mini-picture rect { fill:var(--quiet);opacity:.3; }
+    #hickory-spatial-lab .mini-picture .ai { fill:var(--ai);opacity:.7; }
+    #hickory-spatial-lab .mini-picture .hit { fill:var(--amber);opacity:1; }
+    #hickory-spatial-lab .mini-picture .pin { fill:var(--personal);opacity:1; }
+    #hickory-spatial-lab .mini-thumb { position:absolute;left:0;right:0;border:1px solid var(--personal);background:color-mix(in srgb,var(--personal) 10%,transparent);pointer-events:none; }
+    #hickory-spatial-lab .view { position:absolute;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--edge);border-radius:6px;overflow:hidden;transition:none; }
+    #hickory-spatial-lab .view.pinned { border-color:var(--ai);transition:none; }
+    #hickory-spatial-lab .view.pinned .view-name { color:var(--ai); }
+    #hickory-spatial-lab .view.selected { box-shadow:inset 0 0 0 1px var(--personal); }
+    #hickory-spatial-lab .view-head { position:relative;z-index:11;background:var(--header);display:flex;align-items:flex-start;gap:4px;padding:5px 7px;min-height:34px;flex-shrink:0;border-bottom:1px solid var(--edge); }
+    #hickory-spatial-lab .view-head button { font-size:11px;padding:3px 5px; }
+    #hickory-spatial-lab .view-name { flex:1;height:22px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;border:0;background:transparent;cursor:grab;touch-action:none; }
+    #hickory-spatial-lab .view.compact .view-head { border-bottom:0; }
+    #hickory-spatial-lab .view .window-controls { grid-row:1;justify-self:end; }
+    #hickory-spatial-lab .window-controls { display:flex;gap:2px;margin-left:auto;flex-shrink:0; }
+    #hickory-spatial-lab .window-controls button { display:grid;place-items:center;width:22px;height:23px;padding:2px;font-size:15px; }
+    #hickory-spatial-lab .window-controls i { display:block;font-style:normal;font-size:16px;line-height:16px; }
+    #hickory-spatial-lab .window-controls svg { width:14px;height:14px; }
+    #hickory-spatial-lab [data-center-view] { color:var(--personal); }
+    #hickory-spatial-lab [data-restore-center] { color:var(--amber); }
+    #hickory-spatial-lab [data-minimize] { color:var(--quiet); }
+    #hickory-spatial-lab [data-pin] { color:var(--ai); }
+    #hickory-spatial-lab button:disabled { opacity:.35; }
+    #hickory-spatial-lab .view.tentative { z-index:12;opacity:.8;border:1px dashed var(--personal);box-shadow:none;transition:none; }
+    #hickory-spatial-lab .view.tentative:after { content:&#x27;Tentative · drop to tile&#x27;;position:absolute;bottom:0;left:0;right:0;text-align:center;background:var(--personal);color:var(--panel);font-size:11px;padding:2px;pointer-events:none; }
+    #hickory-spatial-lab .view-content { flex:1;min-height:0;overflow:auto;padding:7px 10px;font-size:12px; }
+    #hickory-spatial-lab .view.compact .view-content,#hickory-spatial-lab .view.compact .view-footer { display:none; }
+    #hickory-spatial-lab .view.passing .view-head,#hickory-spatial-lab .view.crossing .view-head { display:flex;writing-mode:vertical-rl;flex-wrap:nowrap;align-items:center;padding:5px 2px;height:100%;border:0; }
+    #hickory-spatial-lab .view.passing .view-name { font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+    #hickory-spatial-lab .view.passing .view-name,#hickory-spatial-lab .view.crossing .view-name { width:auto;height:auto;flex:1;min-height:0; }
+    #hickory-spatial-lab .view.passing .window-controls { display:none; }
+    #hickory-spatial-lab .view.crossing { transition:none; }
+    #hickory-spatial-lab .view.crossing .view-content,#hickory-spatial-lab .view.crossing .view-footer,#hickory-spatial-lab .view.crossing .window-controls { visibility:hidden; }
+    #hickory-spatial-lab .workspace.edge-crossing .view.pinned:not(.tentative):before { content:&#x27;&#x27;;position:absolute;top:0;left:0;right:0;border-top:2px dashed var(--amber);pointer-events:none;z-index:2; }
+    #hickory-spatial-lab .view-footer { padding:4px 8px 8px;color:var(--quiet);font-size:11px;border-top:1px solid var(--edge);flex-shrink:0; }
+    #hickory-spatial-lab pre { font:11px/1.8 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;margin:0; }
+    #hickory-spatial-lab .excerpt-line { display:block;margin:4px 0 7px; }
+    #hickory-spatial-lab .excerpt-line.linked { border-left:2px solid var(--amber);padding-left:5px; }
+    #hickory-spatial-lab .excerpt-line.selected { background:color-mix(in srgb,var(--ai) 16%,var(--panel)); }
+    #hickory-spatial-lab .excerpt-edge { display:flex;gap:3px;flex-wrap:wrap;margin:4px 0 7px; }
+    #hickory-spatial-lab .excerpt-edge button { display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 4px;color:var(--quiet); }
+    #hickory-spatial-lab .ellipsis { border-style:dashed;flex:1;text-align:left; }
+    #hickory-spatial-lab .split-handle { position:absolute;border:0;border-radius:0;background:transparent;padding:0;z-index:7;touch-action:none;cursor:col-resize; }
+    #hickory-spatial-lab .split-handle:after { content:&#x27;&#x27;;position:absolute;left:50%;top:30%;bottom:30%;border-left:1px dotted var(--quiet); }
+    #hickory-spatial-lab .tile-resize { position:absolute;height:8px;border:0;border-radius:0;background:transparent;padding:0;cursor:row-resize;touch-action:none;z-index:7; }
+    #hickory-spatial-lab .tile-resize:after { content:&#x27;&#x27;;position:absolute;left:4px;right:4px;top:3px;border-top:1px dotted var(--quiet); }
+    #hickory-spatial-lab .tile-resize:hover:after,#hickory-spatial-lab .tile-resize:focus-visible:after { border-color:var(--personal);border-top-width:2px; }
+    #hickory-spatial-lab .links { position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:6; }
+    #hickory-spatial-lab .links path { fill:none;stroke:var(--amber);stroke-width:1.6;stroke-dasharray:3 4; }
+    #hickory-spatial-lab .links .bracket { stroke-width:2.6;stroke-dasharray:none; }
+    #hickory-spatial-lab .links .runtime { stroke:var(--ai);stroke-dasharray:none; }
+    #hickory-spatial-lab .links .hit { stroke:transparent;stroke-width:14;pointer-events:stroke; }
+    #hickory-spatial-lab .drop-zone { position:absolute;display:none;pointer-events:none;background:color-mix(in srgb,var(--personal) 12%,transparent);border:1px dashed var(--personal);z-index:8; }
+    #hickory-spatial-lab .drop-zone.active { display:block; }
+    #hickory-spatial-lab .bottom { display:flex;gap:9px;align-items:center;flex-wrap:wrap;padding:9px 13px;border-top:1px solid var(--edge);font-size:11px;color:var(--quiet); }
+    #hickory-spatial-lab .bottom button { font-size:12px; }
+    #hickory-spatial-lab .status { flex:1;min-width:160px; }
+    #hickory-spatial-lab .legend { display:flex;align-items:center;gap:5px; }
+    #hickory-spatial-lab .dot { width:9px;height:9px;background:var(--personal); }
+    #hickory-spatial-lab .dot.ai { background:var(--ai); }
+    #hickory-spatial-lab .permission { position:absolute;inset:35px 12%;z-index:20;background:var(--panel);border:1px solid var(--personal);border-radius:8px;padding:18px;box-shadow:0 10px 40px color-mix(in srgb,var(--ink) 18%,transparent);height:max-content;max-height:90%;overflow:auto; }
+    #hickory-spatial-lab .permission h3 { font-size:17px;margin:0 0 12px; }
+    #hickory-spatial-lab .permission .actions { display:flex;gap:8px;flex-wrap:wrap;margin-top:15px; }
+    @media(max-width:650px) { #hickory-spatial-lab .rail-edge { text-align:center;padding:4px 1px; } #hickory-spatial-lab .rail-edge .edge-word { display:none; } #hickory-spatial-lab .workspace { grid-template-columns:32px minmax(0,1fr) 32px; } #hickory-spatial-lab .buffer-line,#hickory-spatial-lab .pin-label { writing-mode:vertical-rl;height:36px;white-space:nowrap;overflow:hidden; } #hickory-spatial-lab .buffer-line { display:block; } #hickory-spatial-lab .buffer-number,#hickory-spatial-lab .buffer-fold { display:none; } #hickory-spatial-lab .rail-label { writing-mode:vertical-rl;height:29px;overflow:hidden; } #hickory-spatial-lab .stage { height:1080px; } #hickory-spatial-lab .source-scroll { padding:5px 12px 25px; } #hickory-spatial-lab .permission { inset:30px 8px; } #hickory-spatial-lab .view-head { flex-wrap:wrap; } #hickory-spatial-lab .window-controls { gap:1px; } #hickory-spatial-lab .window-controls button { width:21px; } #hickory-spatial-lab .view.compact .view-head { flex-wrap:nowrap; } #hickory-spatial-lab .view.compact .window-controls { display:none; } }
+    @media(prefers-reduced-motion:reduce) { #hickory-spatial-lab .view { transition:none; } #hickory-spatial-lab .source-scroll { scroll-behavior:auto; } }
+    html[data-visualize-standalone]:has(#hickory-spatial-lab),html[data-visualize-standalone]:has(#hickory-spatial-lab) body { height:100%;overflow:hidden; }
+    html[data-visualize-standalone] #hickory-spatial-lab { height:100dvh;display:flex;flex-direction:column; }
+    html[data-visualize-standalone] #hickory-spatial-lab .chrome,html[data-visualize-standalone] #hickory-spatial-lab .bottom { flex-shrink:0; }
+    html[data-visualize-standalone] #hickory-spatial-lab .workspace { flex:1;min-height:0; }
+    html[data-visualize-standalone] #hickory-spatial-lab .stage { height:100%;min-height:0; }
+  &lt;/style&gt;
+  &lt;div class=&quot;chrome&quot;&gt;&lt;div class=&quot;brand&quot;&gt;Hickory Docs &lt;span class=&quot;tag&quot;&gt;/ Parallax + tiles · sample&lt;/span&gt;&lt;/div&gt;&lt;label&gt;Center &lt;select id=&quot;hsl-center&quot;&gt;&lt;option value=&quot;agent&quot;&gt;Agent conversation&lt;/option&gt;&lt;option value=&quot;search&quot;&gt;Document search&lt;/option&gt;&lt;option value=&quot;document&quot; hidden&gt;Centered file&lt;/option&gt;&lt;/select&gt;&lt;/label&gt;&lt;label&gt;Edges &lt;select id=&quot;hsl-edges&quot;&gt;&lt;option value=&quot;auto&quot;&gt;Auto accordion&lt;/option&gt;&lt;option value=&quot;manual&quot;&gt;Collapsed by default&lt;/option&gt;&lt;/select&gt;&lt;/label&gt;&lt;label&gt;Passing &lt;select id=&quot;hsl-passing&quot;&gt;&lt;option value=&quot;edge&quot;&gt;Edge crossing&lt;/option&gt;&lt;option value=&quot;continuous&quot;&gt;Continuous parallax&lt;/option&gt;&lt;/select&gt;&lt;/label&gt;&lt;label&gt;&lt;input type=&quot;checkbox&quot; id=&quot;hsl-left-files&quot; checked&gt; Left files&lt;/label&gt;&lt;label&gt;&lt;input type=&quot;checkbox&quot; id=&quot;hsl-right-files&quot;&gt; Right files&lt;/label&gt;&lt;/div&gt;
+  &lt;div class=&quot;workspace&quot;&gt;
+    &lt;button type=&quot;button&quot; class=&quot;split-handle rail-handle&quot; data-rail-split=&quot;left&quot; aria-label=&quot;Resize the left file list&quot;&gt;&lt;/button&gt;&lt;button type=&quot;button&quot; class=&quot;split-handle rail-handle&quot; data-rail-split=&quot;right&quot; aria-label=&quot;Resize the right file list&quot;&gt;&lt;/button&gt;
+    &lt;nav class=&quot;rail left&quot; aria-label=&quot;Pinned views on the left&quot;&gt;&lt;/nav&gt;
+    &lt;div class=&quot;stage&quot;&gt;
+      &lt;section class=&quot;center&quot; aria-label=&quot;Central source&quot;&gt;&lt;div class=&quot;heading&quot;&gt;&lt;span class=&quot;title&quot;&gt;Agent&lt;/span&gt;&lt;span class=&quot;tag&quot; id=&quot;source-count&quot;&gt;&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;search&quot; hidden&gt;&lt;input id=&quot;hsl-search&quot; aria-label=&quot;Find in retry-review.md&quot; value=&quot;retry&quot;&gt;&lt;span class=&quot;tag&quot; id=&quot;search-count&quot;&gt;&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;source-body&quot;&gt;&lt;div class=&quot;source-scroll&quot;&gt;&lt;/div&gt;&lt;div class=&quot;minimap&quot;&gt;&lt;button type=&quot;button&quot; class=&quot;mini-track&quot; aria-label=&quot;Scroll minimap; click or drag to navigate&quot;&gt;&lt;svg class=&quot;mini-picture&quot; role=&quot;img&quot; aria-label=&quot;Source overview with matches and pinned passages&quot;&gt;&lt;/svg&gt;&lt;span class=&quot;mini-thumb&quot;&gt;&lt;/span&gt;&lt;/button&gt;&lt;/div&gt;&lt;/div&gt;&lt;/section&gt;
+      &lt;button type=&quot;button&quot; class=&quot;split-handle&quot; data-split=&quot;left&quot; aria-label=&quot;Resize left tiles and center together&quot;&gt;&lt;/button&gt;&lt;button type=&quot;button&quot; class=&quot;split-handle&quot; data-split=&quot;right&quot; aria-label=&quot;Resize right tiles and center together&quot;&gt;&lt;/button&gt;
+      &lt;div class=&quot;drop-zone&quot; data-drop=&quot;left&quot;&gt;&lt;/div&gt;&lt;div class=&quot;drop-zone&quot; data-drop=&quot;right&quot;&gt;&lt;/div&gt;&lt;svg class=&quot;links&quot; role=&quot;img&quot; aria-label=&quot;Provenance brackets connecting source passages to excerpt views&quot;&gt;&lt;/svg&gt;
+      &lt;section class=&quot;permission&quot; role=&quot;dialog&quot; aria-modal=&quot;true&quot; aria-label=&quot;Permission for one agent edit&quot; hidden&gt;&lt;h3&gt;Protected text&lt;/h3&gt;&lt;p class=&quot;permission-address&quot;&gt;&lt;/p&gt;&lt;div class=&quot;protected&quot;&gt;&lt;span class=&quot;origin&quot;&gt;Current text · protected&lt;/span&gt;&lt;span class=&quot;permission-before&quot;&gt;&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;ai-touched&quot;&gt;&lt;span class=&quot;origin&quot;&gt;Agent proposal · not applied&lt;/span&gt;&lt;span class=&quot;permission-after&quot;&gt;&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;actions&quot;&gt;&lt;button type=&quot;button&quot; data-permission=&quot;deny&quot;&gt;Keep my text&lt;/button&gt;&lt;button type=&quot;button&quot; data-permission=&quot;allow&quot;&gt;Allow this edit only&lt;/button&gt;&lt;/div&gt;&lt;/section&gt;
+    &lt;/div&gt;&lt;nav class=&quot;rail right&quot; aria-label=&quot;Pinned views on the right&quot;&gt;&lt;/nav&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;bottom&quot;&gt;&lt;button type=&quot;button&quot; data-step=&quot;-1&quot;&gt;↑ Earlier&lt;/button&gt;&lt;button type=&quot;button&quot; data-step=&quot;1&quot;&gt;↓ Later&lt;/button&gt;&lt;span class=&quot;status&quot; aria-live=&quot;polite&quot;&gt;Scroll to follow linked passages&lt;/span&gt;&lt;span class=&quot;legend&quot;&gt;&lt;span class=&quot;dot&quot;&gt;&lt;/span&gt;Protected text&lt;/span&gt;&lt;span class=&quot;legend&quot;&gt;&lt;span class=&quot;dot ai&quot;&gt;&lt;/span&gt;AI-touched&lt;/span&gt;&lt;/div&gt;
+  &lt;script&gt;
+  (()=&gt;{
+    const root=document.getElementById(&#x27;hickory-spatial-lab&#x27;),stage=root.querySelector(&#x27;.stage&#x27;),source=root.querySelector(&#x27;.source-scroll&#x27;),center=root.querySelector(&#x27;.center&#x27;),svg=root.querySelector(&#x27;.links&#x27;),mini=root.querySelector(&#x27;.mini-track&#x27;),miniSvg=root.querySelector(&#x27;.mini-picture&#x27;);
+    root.querySelector(&#x27;.workspace&#x27;).append(svg);
+    const docs={
+      meeting:{name:&#x27;notes/meetings/meeting.md&#x27;,kind:&#x27;prose&#x27;,protected:true,ai:false,focal:6,lines:[&#x27;# Retry review&#x27;,&#x27;October 7 · engineering&#x27;,&#x27;Attendees: Maya, Sam, Jo&#x27;,&#x27;## Background&#x27;,&#x27;The downstream service sometimes rejects requests.&#x27;,&#x27;We need a bounded retry policy.&#x27;,&#x27;Maya: Three attempts should cover transient failures. Add exponential backoff.&#x27;,&#x27;Sam: Agreed. Log each attempt so we can inspect a failed run.&#x27;,&#x27;Jo: Keep permanent failures separate.&#x27;,&#x27;## Follow-up&#x27;,&#x27;Implement the worker in a literate document.&#x27;,&#x27;Review the policy after observing the next batch.&#x27;,&#x27;Revisit the maximum delay next week.&#x27;]},
+      summary:{name:&#x27;notes/policies/retry-policy.md&#x27;,kind:&#x27;prose&#x27;,protected:false,ai:true,focal:4,lines:[&#x27;# Retry policy&#x27;,&#x27;Status: accepted&#x27;,&#x27;## Decision&#x27;,&#x27;Transient failures may recover without intervention.&#x27;,&#x27;Retry transient failures up to three times, with exponential backoff.&#x27;,&#x27;Log the attempt number and delay before each attempt.&#x27;,&#x27;Permanent failures stop immediately.&#x27;,&#x27;## Evidence&#x27;,&#x27;cites=&quot;meeting.md&quot;&#x27;,&#x27;## Review&#x27;,&#x27;Inspect the next batch before changing the limit.&#x27;]},
+      pipeline:{name:&#x27;src/pipeline.md&#x27;,kind:&#x27;code&#x27;,protected:true,ai:false,focal:9,lines:[&#x27;# Retry worker&#x27;,&#x27;This document emits and runs a worker.&#x27;,&#x27;&#x27;,&#x27;&lt;hick:container name=&quot;python&quot; image=&quot;python:3.12&quot; /&gt;&#x27;,&#x27;&#x27;,&#x27;The retry loop records each attempt.&#x27;,&#x27;&lt;hick:file path=&quot;worker.py&quot;&gt;&#x27;,&#x27;for attempt in range(1, 4):&#x27;,&#x27;    delay = 0.5 * 2 ** (attempt - 1)&#x27;,&#x27;    print(f&quot;attempt={attempt} delay={delay}s&quot;)&#x27;,&#x27;    retry(delay)&#x27;,&#x27;&lt;/hick:file&gt;&#x27;,&#x27;&#x27;,&#x27;&lt;hick:exec command=&quot;python worker.py&quot; /&gt;&#x27;,&#x27;&#x27;,&#x27;The output belongs to this execution.&#x27;,&#x27;Sample stdout:&#x27;,&#x27;attempt=1 delay=0.5s&#x27;,&#x27;attempt=2 delay=1.0s&#x27;,&#x27;attempt=3 delay=2.0s&#x27;,&#x27;Exit: 0&#x27;]},
+      worker:{name:&#x27;src/generated/worker.py&#x27;,kind:&#x27;code&#x27;,protected:false,ai:true,focal:2,lines:[&#x27;for attempt in range(1, 4):&#x27;,&#x27;    delay = 0.5 * 2 ** (attempt - 1)&#x27;,&#x27;    print(f&quot;attempt={attempt} delay={delay}s&quot;)&#x27;,&#x27;    retry(delay)&#x27;,&#x27;&#x27;,&#x27;# Generated from pipeline.md&#x27;,&#x27;&#x27;,&#x27;# Edit the source document to change this file.&#x27;]},
+      review:{name:&#x27;notes/reviews/retry-review.md&#x27;,kind:&#x27;prose&#x27;,protected:true,ai:false,focal:5,lines:[&#x27;# Retry design review&#x27;,&#x27;The worker calls a downstream service.&#x27;,&#x27;The service occasionally rejects a valid request.&#x27;,&#x27;## Policy&#x27;,&#x27;A retry is appropriate for a transient failure.&#x27;,&#x27;Three attempts are the agreed limit.&#x27;,&#x27;The delay grows between attempts.&#x27;,&#x27;## Implementation&#x27;,&#x27;The retry loop is defined in pipeline.md.&#x27;,&#x27;The worker is woven from that document.&#x27;,&#x27;The log records each attempt and its delay.&#x27;,&#x27;## Failure handling&#x27;,&#x27;A permanent failure should never retry.&#x27;,&#x27;An invalid request stops immediately.&#x27;,&#x27;A timeout can be retried within the limit.&#x27;,&#x27;## Observability&#x27;,&#x27;Every retry emits a structured log event.&#x27;,&#x27;Each event should point to its print statement.&#x27;,&#x27;The run transcript is the reproducible record.&#x27;,&#x27;## Review evidence&#x27;,&#x27;The retry decision comes from the meeting notes.&#x27;,&#x27;The agent summarized that decision separately.&#x27;,&#x27;The summary does not grant permission to edit the notes.&#x27;,&#x27;## Operations&#x27;,&#x27;Production retry logs could use the same navigation later.&#x27;,&#x27;This sample has no connection to a deployed service.&#x27;,&#x27;## Ownership&#x27;,&#x27;The original text remains protected.&#x27;,&#x27;An agent edit needs permission for that exact passage.&#x27;,&#x27;The rest of the document stays protected.&#x27;,&#x27;## Next steps&#x27;,&#x27;Revisit retry behavior after observing the next batch.&#x27;]}
+    };
+    const agentViews=[[&#x27;a0&#x27;,&#x27;meeting&#x27;,6,&#x27;left&#x27;],[&#x27;a1&#x27;,&#x27;summary&#x27;,4,&#x27;right&#x27;],[&#x27;a2&#x27;,&#x27;pipeline&#x27;,9,&#x27;left&#x27;],[&#x27;a3&#x27;,&#x27;worker&#x27;,2,&#x27;right&#x27;],[&#x27;a4&#x27;,&#x27;pipeline&#x27;,9,&#x27;left&#x27;],[&#x27;a5&#x27;,&#x27;worker&#x27;,2,&#x27;right&#x27;],[&#x27;a6&#x27;,&#x27;summary&#x27;,4,&#x27;left&#x27;],[&#x27;a7&#x27;,&#x27;meeting&#x27;,7,&#x27;right&#x27;]];
+    const views=new Map(),elements=new Map(),lastRects=new Map();
+    const settings={speed:.75,duration:320,auto:false,edgeBand:105,passing:&#x27;edge&#x27;};
+    const state={mode:&#x27;agent&#x27;,query:&#x27;retry&#x27;,left:.31,right:.31,split:.76,sides:{left:true,right:false},railWidth:{left:164,right:164},pins:{},released:{},manual:{},ranges:{},selected:null,event:null,changes:{},pending:null,centered:null,centerStack:[],minimized:{},restoreHeights:{},folderClosed:{left:{},right:{}},railScroll:{left:0,right:0},railOffset:{left:0,right:0}};
+    const relations={meeting:[[6,&#x27;summary&#x27;,4],[7,&#x27;pipeline&#x27;,9],[10,&#x27;worker&#x27;,2]],summary:[[4,&#x27;meeting&#x27;,6],[5,&#x27;pipeline&#x27;,9],[8,&#x27;review&#x27;,20]],pipeline:[[5,&#x27;meeting&#x27;,6],[9,&#x27;worker&#x27;,2],[13,&#x27;summary&#x27;,4],[18,&#x27;worker&#x27;,2]],worker:[[2,&#x27;pipeline&#x27;,9],[3,&#x27;summary&#x27;,4]],review:[[4,&#x27;summary&#x27;,4],[8,&#x27;pipeline&#x27;,9],[17,&#x27;worker&#x27;,2],[20,&#x27;meeting&#x27;,6]]};
+    let geometry={},activeViews=[],anchors=[],frame=0,until=0,revision=0,gesture=null,suppressClick=false,scrollTimer;
+    const snapRuns=new Map(),crossingStates=new Map(),crossingRuns=new Map(),crossingPending=new Set();let stationaryLayout=null;
+    const sender=Math.random().toString(36).slice(2);
+    function node(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
+    function button(text,data){const b=node(&#x27;button&#x27;,&#x27;cursor-interaction&#x27;,text);b.type=&#x27;button&#x27;;Object.assign(b.dataset,data);return b;}
+    function iconButton(label,icon,fallback,data){const b=button(&#x27;&#x27;,data),i=node(&#x27;i&#x27;,&#x27;&#x27;,fallback);i.dataset.lucide=icon;i.setAttribute(&#x27;aria-hidden&#x27;,&#x27;true&#x27;);b.append(i);b.setAttribute(&#x27;aria-label&#x27;,label);b.dataset.tooltip=label;return b;}
+    function windowControls(id){const controls=node(&#x27;div&#x27;,&#x27;window-controls&#x27;);controls.append(iconButton(&#x27;Center this file&#x27;,&#x27;square&#x27;,&#x27;□&#x27;,{centerView:id}),iconButton(&#x27;Restore previous center&#x27;,&#x27;copy&#x27;,&#x27;▱&#x27;,{restoreCenter:id}),iconButton(&#x27;Minimize to filename&#x27;,&#x27;minus&#x27;,&#x27;▁&#x27;,{minimize:id}),iconButton(&#x27;Pin this view&#x27;,&#x27;pin&#x27;,&#x27;⌖&#x27;,{pin:id}));return controls;}
+    function updateControls(el,id){const minimized=!!state.minimized[id],pinned=!!state.pins[id];el.querySelector(&#x27;[data-pin]&#x27;).setAttribute(&#x27;aria-pressed&#x27;,pinned);el.querySelector(&#x27;[data-pin]&#x27;).setAttribute(&#x27;aria-label&#x27;,pinned?&#x27;Unpin this view&#x27;:&#x27;Pin this view&#x27;);el.querySelector(&#x27;[data-pin]&#x27;).dataset.tooltip=pinned?&#x27;Unpin this view&#x27;:&#x27;Pin this view&#x27;;el.querySelector(&#x27;[data-minimize]&#x27;).setAttribute(&#x27;aria-label&#x27;,minimized?&#x27;Expand this view&#x27;:&#x27;Minimize to filename&#x27;);el.querySelector(&#x27;[data-minimize]&#x27;).dataset.tooltip=minimized?&#x27;Expand this view&#x27;:&#x27;Minimize to filename&#x27;;el.querySelector(&#x27;[data-minimize]&#x27;).setAttribute(&#x27;aria-pressed&#x27;,minimized);el.querySelector(&#x27;[data-restore-center]&#x27;).disabled=!state.centerStack.length;}
+    function define(id,doc,focal,side){if(!views.has(id))views.set(id,{id,doc,focal,side});return views.get(id);}
+    agentViews.forEach(([id,doc,focal,side])=&gt;define(id,doc,focal,side));Object.keys(docs).forEach(doc=&gt;define(&#x27;file-&#x27;+doc,doc,docs[doc].focal,&#x27;left&#x27;));docs.review.lines.forEach((_,i)=&gt;define(&#x27;s&#x27;+i,&#x27;review&#x27;,i,i%2?&#x27;right&#x27;:&#x27;left&#x27;));
+    for(const side of [&#x27;left&#x27;,&#x27;right&#x27;])for(const doc of Object.keys(docs))define(&#x27;rail-&#x27;+side+&#x27;-&#x27;+doc,doc,docs[doc].focal,side);
+    for(const [doc,links] of Object.entries(relations))links.forEach(([line,target,focal],i)=&gt;define(&#x27;related-&#x27;+doc+&#x27;-&#x27;+i,target,focal,i%2?&#x27;right&#x27;:&#x27;left&#x27;));
+    function view(id){return views.get(id);}
+    function changedText(doc,line){return state.changes[doc+&#x27;:&#x27;+line]?.text??docs[doc].lines[line];}
+    function touched(doc,line){return !!state.changes[doc+&#x27;:&#x27;+line]||docs[doc].ai;}
+    function save(){if(window.openai?.setWidgetState)window.openai.setWidgetState({modelContent:{center:state.mode,query:state.query,pinned:Object.keys(state.pins).map(id=&gt;({file:docs[view(id).doc].name,line:view(id).focal+1,side:state.pins[id].side})),autoAccordion:settings.auto,protectedEdits:Object.keys(state.changes)},privateContent:{version:6,sender,revision:++revision,settings,state,scroll:source.scrollTop}}).catch(()=&gt;{});}
+    function restore(saved){const s=saved?.privateContent;if(!s||s.version!==6||(s.sender===sender&amp;&amp;s.revision&lt;=revision))return;Object.assign(settings,s.settings);Object.assign(state,s.state);buildSource();source.style.scrollBehavior=&#x27;auto&#x27;;source.scrollTop=s.scroll||0;source.style.scrollBehavior=&#x27;&#x27;;render();}
+    function buildSource(){
+      stationaryLayout=null;resetCrossings();source.replaceChildren();activeViews=[];anchors=[];state.pending=null;root.querySelector(&#x27;.permission&#x27;).hidden=true;root.querySelector(&#x27;#hsl-center&#x27;).value=state.mode;root.querySelector(&#x27;.search&#x27;).hidden=state.mode!==&#x27;search&#x27;;root.querySelector(&#x27;#hsl-search&#x27;).value=state.query;
+      const addAnchor=(id,el)=&gt;{el.dataset.anchor=id;activeViews.push(id);anchors.push({id,el});};
+      const focused=state.mode===&#x27;document&#x27;&amp;&amp;view(state.centered);root.querySelector(&#x27;option[value=&quot;document&quot;]&#x27;).hidden=!focused;
+      const heading=center.querySelector(&#x27;.heading&#x27;);heading.querySelector(&#x27;.window-controls&#x27;)?.remove();const centralControls=node(&#x27;div&#x27;,&#x27;window-controls&#x27;),restoreButton=iconButton(&#x27;Restore previous center&#x27;,&#x27;copy&#x27;,&#x27;▱&#x27;,{restoreCenter:&#x27;central&#x27;});restoreButton.disabled=!state.centerStack.length;centralControls.append(restoreButton);heading.append(centralControls);
+      if(focused){
+        const doc=focused.doc,d=docs[doc];center.querySelector(&#x27;.title&#x27;).textContent=d.name;root.querySelector(&#x27;#source-count&#x27;).textContent=&#x27;Centered&#x27;;root.querySelector(&#x27;option[value=&quot;document&quot;]&#x27;).textContent=d.name;
+        for(let group=0;group&lt;Math.ceil(d.lines.length/4);group++){const section=node(&#x27;article&#x27;,&#x27;section&#x27;);section.dataset.section=group;for(let line=group*4;line&lt;Math.min(d.lines.length,group*4+4);line++){const p=node(&#x27;p&#x27;,touched(doc,line)?&#x27;ai-touched&#x27;:&#x27;protected&#x27;);p.dataset.centralLine=line;p.append(node(&#x27;span&#x27;,&#x27;line-number&#x27;,line+1),document.createTextNode(changedText(doc,line)));for(const [i,relation] of (relations[doc]||[]).entries()){if(relation[0]!==line)continue;const id=&#x27;related-&#x27;+doc+&#x27;-&#x27;+i,link=button(&#x27; &#x27;+docs[relation[1]].name,{reveal:id});link.className=&#x27;ref cursor-interaction&#x27;;p.append(link);addAnchor(id,p);}section.append(p);}source.append(section);}
+      }else if(state.mode===&#x27;agent&#x27;){
+        center.querySelector(&#x27;.title&#x27;).textContent=&#x27;Agent&#x27;;root.querySelector(&#x27;#source-count&#x27;).textContent=&#x27;4 turns&#x27;;
+        const questions=[&#x27;What did we decide about retries?&#x27;,&#x27;Show me how that becomes code.&#x27;,&#x27;Run it. Where did this output come from?&#x27;,&#x27;Keep the implementation beside the decision.&#x27;];
+        const responses=[[&#x27;The meeting records three attempts and exponential backoff.&#x27;,&#x27;I recorded the decision in a separate policy note.&#x27;],[&#x27;The source document defines the retry loop and its print statement.&#x27;,&#x27;The woven worker keeps a connection back to its source.&#x27;],[&#x27;The sample stdout event points to pipeline.md:10.&#x27;,&#x27;The executed print statement also appears in worker.py:3.&#x27;],[&#x27;Compare the policy with the implementation.&#x27;,&#x27;The original meeting notes remain protected.&#x27;]];
+        for(let i=0;i&lt;4;i++){const section=node(&#x27;article&#x27;,&#x27;section&#x27;);section.dataset.section=i;section.append(node(&#x27;div&#x27;,&#x27;speaker&#x27;,&#x27;YOU · &#x27;+(i+1)),node(&#x27;p&#x27;,&#x27;protected&#x27;,questions[i]),node(&#x27;div&#x27;,&#x27;speaker&#x27;,&#x27;AGENT&#x27;));
+          for(let j=0;j&lt;2;j++){const id=&#x27;a&#x27;+(i*2+j),p=node(&#x27;p&#x27;,&#x27;ai-touched&#x27;,responses[i][j]+&#x27; &#x27;),link=button(docs[view(id).doc].name,{reveal:id});link.className=&#x27;ref cursor-interaction&#x27;;p.append(link);addAnchor(id,p);section.append(p);}
+          if(i===2){section.append(node(&#x27;span&#x27;,&#x27;origin&#x27;,&#x27;Sample stdout · hick:exec&#x27;));for(let k=1;k&lt;=3;k++){const b=button(&#x27;attempt=&#x27;+k+&#x27; delay=&#x27;+(.5*2**(k-1))+&#x27;s ↗&#x27;,{log:k});b.className=&#x27;log cursor-interaction&#x27;;section.append(b);}}source.append(section);
+        }
+      }else{
+        center.querySelector(&#x27;.title&#x27;).textContent=docs.review.name;root.querySelector(&#x27;#source-count&#x27;).textContent=&#x27;Document&#x27;;const query=state.query.trim().toLowerCase();let matches=0;
+        for(let group=0;group&lt;8;group++){const section=node(&#x27;article&#x27;,&#x27;section&#x27;);section.dataset.section=group;
+          for(let line=group*4;line&lt;Math.min(group*4+4,docs.review.lines.length);line++){const text=changedText(&#x27;review&#x27;,line),p=node(&#x27;p&#x27;,touched(&#x27;review&#x27;,line)?&#x27;ai-touched&#x27;:&#x27;protected&#x27;);p.append(node(&#x27;span&#x27;,&#x27;line-number&#x27;,line+1));const pos=query?text.toLowerCase().indexOf(query):-1;if(pos&gt;=0){p.append(document.createTextNode(text.slice(0,pos)),node(&#x27;mark&#x27;,&#x27;&#x27;,text.slice(pos,pos+query.length)),document.createTextNode(text.slice(pos+query.length)));const id=&#x27;s&#x27;+line;view(id).side=matches%2?&#x27;right&#x27;:&#x27;left&#x27;;addAnchor(id,p);matches++;}else p.append(document.createTextNode(text));section.append(p);}source.append(section);
+        }root.querySelector(&#x27;#search-count&#x27;).textContent=matches+&#x27; matches&#x27;;
+      }
+      render();
+    }
+    function regions(){const W=stage.clientWidth,H=Math.max(100,stage.clientHeight),small=W&lt;480,showLeft=state.sides.left!==false,showRight=state.sides.right!==false;if(small){const ch=H*.53,sy=ch+28,laneW=(W-12)/Math.max(1,(showLeft?1:0)+(showRight?1:0));return {small,W,H,left:{x:4,y:sy,w:showLeft?laneW:0,h:H-sy-8},right:{x:4+(showLeft?laneW:0),y:sy,w:showRight?laneW:0,h:H-sy-8},center:{x:5,y:8,w:W-10,h:ch}};}const lw=showLeft?W*state.left:0,rw=showRight?W*state.right:0,cw=W-lw-rw;return {small,W,H,left:{x:0,y:8,w:lw-7,h:H-16},right:{x:W-rw+7,y:8,w:rw-7,h:H-16},center:{x:lw+6,y:8,w:cw-12,h:H-16}};}
+
+    function rectStyle(el,r){el.style.left=r.x+&#x27;px&#x27;;el.style.top=r.y+&#x27;px&#x27;;el.style.width=Math.max(20,r.w)+&#x27;px&#x27;;el.style.height=Math.max(20,r.h)+&#x27;px&#x27;;}
+    function contentRect(side){const lane=geometry[side],corridor=geometry.small?12:29;return {x:side===&#x27;left&#x27;?lane.x+corridor:lane.x+2,w:lane.w-corridor-4};}
+    function railRow(side){const scroller=root.querySelector(&#x27;.rail.&#x27;+side+&#x27; .rail-scroll&#x27;);return scroller?(parseFloat(getComputedStyle(scroller).getPropertyValue(&#x27;--rail-row&#x27;))||36):36;}
+    // The Files list is a text buffer: its entries sit on regular rows. A
+    // pinned filename is drawn on the header of its window, so the window&#x27;s
+    // vertical position decides which buffer line the filename occupies. Snap
+    // the requested position to that grid for both dragging and source scroll.
+    // Timed motion completes independently of the pointer or scroll events.
+    function snapToRailLine(id,y,side){const scroller=root.querySelector(&#x27;.rail.&#x27;+side+&#x27; .rail-scroll&#x27;);if(!scroller)return y;const row=railRow(side),origin=scroller.getBoundingClientRect().top-stage.getBoundingClientRect().top;return origin+Math.round((y-origin)/row)*row;}
+    function naturalCenter(id){const a=anchors.find(a=&gt;a.id===id),lane=geometry[view(id).side],r=a?.el.getBoundingClientRect(),sr=source.getBoundingClientRect(),base=stage.getBoundingClientRect(),pivot=sr.top+sr.height/2,delta=r?(r.top+r.bottom)/2-pivot:lane.h+300,band=sr.height*.22;return pivot-base.top+delta-(1-settings.speed)*Math.sign(delta)*Math.max(0,Math.abs(delta)-band)+(state.railOffset?.[view(id).side]||0);}
+    function endpointOffset(id,h,w){
+      const el=createView(id);el.style.width=w+&#x27;px&#x27;;el.style.height=h+&#x27;px&#x27;;el.classList.toggle(&#x27;compact&#x27;,h&lt;95);if(h&gt;=95)excerpt(id);
+      const head=el.querySelector(&#x27;.view-head&#x27;),body=el.querySelector(&#x27;.view-content&#x27;),focal=el.querySelector(&#x27;[data-dest]&#x27;),r=el.getBoundingClientRect();if(h&gt;=95&amp;&amp;focal){let line=focal.getBoundingClientRect(),clip=body.getBoundingClientRect();if(line.bottom&lt;=clip.top||line.top&gt;=clip.bottom){body.scrollTop+=line.top-clip.top-body.clientHeight*.25;line=focal.getBoundingClientRect();clip=body.getBoundingClientRect();}const top=Math.max(line.top,clip.top),bottom=Math.min(line.bottom,clip.bottom);if(bottom&gt;top)return (top+bottom)/2-r.top;}const hr=head.getBoundingClientRect();return (hr.top+hr.bottom)/2-r.top;
+    }
+    function createView(id){if(elements.has(id))return elements.get(id);const el=node(&#x27;section&#x27;,&#x27;view&#x27;);el.dataset.view=id;el.setAttribute(&#x27;aria-label&#x27;,docs[view(id).doc].name+&#x27; passage at line &#x27;+(view(id).focal+1));const head=node(&#x27;div&#x27;,&#x27;view-head&#x27;),name=button(docs[view(id).doc].name,{toggle:id,drag:id});name.className=&#x27;view-name&#x27;;name.dataset.tooltip=docs[view(id).doc].name;head.append(name,windowControls(id));el.append(head,node(&#x27;div&#x27;,&#x27;view-content&#x27;),node(&#x27;div&#x27;,&#x27;view-footer&#x27;));for(const edge of [&#x27;top&#x27;,&#x27;bottom&#x27;]){const resize=button(&#x27;&#x27;,{resize:id,resizeEdge:edge});resize.className=&#x27;tile-resize edge-&#x27;+edge;resize.setAttribute(&#x27;aria-label&#x27;,&#x27;Resize &#x27;+edge+&#x27; edge and the area &#x27;+(edge===&#x27;top&#x27;?&#x27;above&#x27;:&#x27;below&#x27;)+&#x27; it&#x27;);stage.append(resize);}stage.append(el);elements.set(id,el);return el;}
+    function range(id){const v=view(id),d=docs[v.doc];return state.ranges[id]||(state.ranges[id]={start:Math.max(0,v.focal-1),end:Math.min(d.lines.length,v.focal+3)});}
+    function excerpt(id){const v=view(id),d=docs[v.doc],el=createView(id),body=el.querySelector(&#x27;.view-content&#x27;),r=range(id),key=JSON.stringify([r,state.event,Object.entries(state.changes).filter(([key])=&gt;key.startsWith(v.doc+&#x27;:&#x27;))]);el.querySelector(&#x27;.view-footer&#x27;).textContent=&#x27;L&#x27;+(r.start+1)+&#x27;–&#x27;+r.end+&#x27; · &#x27;+(d.protected?&#x27;Protected&#x27;:&#x27;AI-touched&#x27;);if(body.dataset.key===key)return;body.dataset.key=key;body.replaceChildren();
+      const edge=above=&gt;{const bar=node(&#x27;div&#x27;,&#x27;excerpt-edge&#x27;),count=above?r.start:d.lines.length-r.end;if(count){const b=iconButton(&#x27;Show 3 more lines &#x27;+(above?&#x27;above&#x27;:&#x27;below&#x27;),above?&#x27;arrow-up&#x27;:&#x27;arrow-down&#x27;,above?&#x27;↑&#x27;:&#x27;↓&#x27;,{expand:id,edge:above?&#x27;above&#x27;:&#x27;below&#x27;});b.className=&#x27;ellipsis cursor-interaction&#x27;;b.append(document.createTextNode(&#x27; &#x27;+count+&#x27; hidden&#x27;));bar.append(b);}const initial=above?Math.max(0,v.focal-1):Math.min(d.lines.length,v.focal+3);if(above?r.start&lt;initial:r.end&gt;initial)bar.append(iconButton(&#x27;Hide 3 lines &#x27;+(above?&#x27;above&#x27;:&#x27;below&#x27;),above?&#x27;arrow-down&#x27;:&#x27;arrow-up&#x27;,above?&#x27;↓&#x27;:&#x27;↑&#x27;,{shrink:id,edge:above?&#x27;above&#x27;:&#x27;below&#x27;}));body.append(bar);};edge(true);
+      const lines=node(d.kind===&#x27;code&#x27;?&#x27;pre&#x27;:&#x27;div&#x27;);for(let i=r.start;i&lt;r.end;i++){const line=node(d.kind===&#x27;code&#x27;?&#x27;span&#x27;:&#x27;p&#x27;,&#x27;excerpt-line &#x27;+(touched(v.doc,i)?&#x27;ai-touched&#x27;:&#x27;protected&#x27;));line.dataset.line=i+1;line.append(node(&#x27;span&#x27;,&#x27;line-number&#x27;,i+1),document.createTextNode(changedText(v.doc,i)));if(i===v.focal){line.dataset.dest=id;line.classList.add(&#x27;linked&#x27;);if(state.event)line.classList.add(&#x27;selected&#x27;);}lines.append(line);}body.append(lines);edge(false);body.append(node(&#x27;span&#x27;,&#x27;origin&#x27;,touched(v.doc,v.focal)?&#x27;AI-touched · &#x27;+(d.protected?&#x27;protected&#x27;:&#x27;agent content&#x27;):d.protected?&#x27;No evidence of AI · protected&#x27;:&#x27;No evidence of AI&#x27;));
+      if(d.protected)body.append(button(&#x27;Propose agent edit…&#x27;,{propose:id}));if(v.doc===&#x27;worker&#x27;){const b=button(&#x27;Trace print → pipeline.md:10&#x27;,{trace:id});b.className=&#x27;ref cursor-interaction&#x27;;body.append(b);}
+    }
+    function renderDividers(){
+      const windows=[...elements].filter(([,el])=&gt;!el.hidden&amp;&amp;el.style.visibility!==&#x27;hidden&#x27;).map(([id,el])=&gt;({id,el,r:localRect(el)})).sort((a,b)=&gt;a.r.y-b.r.y),slots=[];
+      const handles=windows.flatMap(item=&gt;[&#x27;top&#x27;,&#x27;bottom&#x27;].map(edge=&gt;stage.querySelector(&#x27;[data-resize=&quot;&#x27;+item.id+&#x27;&quot;][data-resize-edge=&quot;&#x27;+edge+&#x27;&quot;]&#x27;)));for(const handle of stage.querySelectorAll(&#x27;.tile-resize&#x27;)){if(!handles.includes(handle))handle.hidden=true;delete handle.dataset.resizeNeighbor;}for(const handle of handles){const item=windows.find(v=&gt;v.id===handle.dataset.resize);handle.hidden=!item||[&#x27;passing&#x27;,&#x27;crossing&#x27;,&#x27;tentative&#x27;].some(cls=&gt;item.el.classList.contains(cls));if(handle.hidden)continue;const r=item.r,lane=geometry[item.el.dataset.side],top=handle.dataset.resizeEdge===&#x27;top&#x27;,slot={x:r.x,y:top?r.y-8:r.y+r.h,w:r.w,h:8};handle.hidden=slot.y&lt;lane.y-8||slot.y+8&gt;lane.y+lane.h+8||windows.some(other=&gt;other.id!==item.id&amp;&amp;overlaps(slot,other.r));const shared=slots.find(other=&gt;Math.abs(other.y-slot.y)&lt;.5&amp;&amp;Math.abs(other.x-slot.x)&lt;.5&amp;&amp;Math.abs(other.w-slot.w)&lt;.5);if(!handle.hidden&amp;&amp;shared){handle.hidden=true;shared.handle.dataset.resizeNeighbor=item.id;shared.handle.setAttribute(&#x27;aria-label&#x27;,&#x27;Resize boundary between &#x27;+docs[view(shared.handle.dataset.resize).doc].name+&#x27; and &#x27;+docs[view(item.id).doc].name);}if(!handle.hidden)slots.push({...slot,handle});rectStyle(handle,slot);handle.style.height=&#x27;8px&#x27;;}
+    }
+    function collapsedFolder(id,side=view(id).side){const parts=docs[view(id).doc].name.split(&#x27;/&#x27;);parts.pop();for(let i=1;i&lt;=parts.length;i++){const folder=parts.slice(0,i).join(&#x27;/&#x27;);if(state.folderClosed?.[side]?.[folder])return folder;}return null;}
+    function folderTarget(id){const side=state.pins[id]?.side||view(id).side,path=collapsedFolder(id,side);return path?[...root.querySelectorAll(&#x27;.rail.&#x27;+side+&#x27; [data-folder]&#x27;)].find(b=&gt;b.dataset.folder===path):null;}
+    function pathSpans(text,seen){const span=node(&#x27;span&#x27;,&#x27;buffer-text&#x27;),folder=text.endsWith(&#x27;/&#x27;),clean=folder?text.slice(0,-1):text,parts=clean.split(&#x27;/&#x27;),last=parts[parts.length-1];let prefix=&#x27;&#x27;;for(const name of parts.slice(0,-1)){prefix+=name+&#x27;/&#x27;;if(seen.has(prefix))span.append(node(&#x27;span&#x27;,&#x27;buffer-dim&#x27;,name+&#x27;/&#x27;));else span.append(document.createTextNode(name+&#x27;/&#x27;));}span.append(document.createTextNode(last+(folder?&#x27;/&#x27;:&#x27;&#x27;)));return span;}
+    function renderTree(scroller,side){
+      scroller.setAttribute(&#x27;role&#x27;,&#x27;textbox&#x27;);scroller.setAttribute(&#x27;aria-multiline&#x27;,&#x27;true&#x27;);scroller.setAttribute(&#x27;aria-label&#x27;,side+&#x27; files relative to Retry workspace&#x27;);scroller.setAttribute(&#x27;contenteditable&#x27;,&#x27;true&#x27;);scroller.spellcheck=false;
+      if(scroller.dataset.editing===&#x27;true&#x27;)return;
+      const signature=Object.keys(docs).sort((a,b)=&gt;docs[a].name.localeCompare(docs[b].name)).map(id=&gt;docs[id].name).join(&#x27;\n&#x27;)+&#x27;|&#x27;+JSON.stringify(state.folderClosed?.[side]??{});
+      if(scroller.dataset.signature===signature&amp;&amp;scroller.querySelector(&#x27;.buffer-line&#x27;))return;
+      scroller.dataset.signature=signature;
+      // Build the ordered lines first. The directory part of a path is dimmed
+      // only when that folder already has a line above it, so an out-of-order
+      // line keeps its full path in the normal colour.
+      const entries=[],folders=new Set();
+      for(const doc of Object.keys(docs).sort((a,b)=&gt;docs[a].name.localeCompare(docs[b].name))){const path=docs[doc].name,parts=path.split(&#x27;/&#x27;);let hidden=false;
+        for(let i=1;i&lt;parts.length;i++){const folder=parts.slice(0,i).join(&#x27;/&#x27;);if(!folders.has(folder)){folders.add(folder);entries.push({folder,closed:!!state.folderClosed?.[side]?.[folder],text:folder+&#x27;/&#x27;,level:i});}if(state.folderClosed?.[side]?.[folder]){hidden=true;break;}}
+        if(hidden)continue;entries.push({railFile:&#x27;rail-&#x27;+side+&#x27;-&#x27;+doc,doc,text:path,level:parts.length});
+      }
+      scroller.replaceChildren();const seen=new Set();let row=0;
+      for(const entry of entries){row+=1;const b=node(&#x27;div&#x27;,&#x27;buffer-line&#x27;);Object.assign(b.dataset,entry.folder!==undefined?{folder:entry.folder,side}:{railFile:entry.railFile,side,doc:entry.doc});b.setAttribute(&#x27;aria-level&#x27;,String(entry.level));b.dataset.tooltip=entry.text;b.dataset.original=entry.text;if(entry.folder!==undefined)b.setAttribute(&#x27;aria-expanded&#x27;,String(!entry.closed));const number=node(&#x27;span&#x27;,&#x27;buffer-number&#x27;,String(row));number.setAttribute(&#x27;contenteditable&#x27;,&#x27;false&#x27;);const marker=node(&#x27;span&#x27;,&#x27;buffer-fold&#x27;,entry.folder!==undefined?(entry.closed?&#x27;▸&#x27;:&#x27;▾&#x27;):&#x27; &#x27;);marker.setAttribute(&#x27;contenteditable&#x27;,&#x27;false&#x27;);b.append(number,marker,pathSpans(entry.text,seen));scroller.append(b);if(entry.folder!==undefined)seen.add(entry.text);}
+    }
+    function renderRails(){
+      const filenameNodes=new Map([...root.querySelectorAll(&#x27;[data-passage]&#x27;)].map(b=&gt;[b.dataset.passage,b]));
+      for(const side of [&#x27;left&#x27;,&#x27;right&#x27;]){
+        const rail=root.querySelector(&#x27;.rail.&#x27;+side);if(!rail.querySelector(&#x27;.rail-scroll&#x27;)){rail.append(node(&#x27;span&#x27;,&#x27;rail-label&#x27;,side===&#x27;left&#x27;?&#x27;Left Files&#x27;:&#x27;Right Files&#x27;),node(&#x27;div&#x27;,&#x27;rail-scroll buffer-surface&#x27;),node(&#x27;div&#x27;,&#x27;rail-pins&#x27;));for(const edge of [&#x27;above&#x27;,&#x27;below&#x27;]){const b=button(&#x27;&#x27;,{railStep:edge,side});b.className=&#x27;rail-edge &#x27;+edge+&#x27; cursor-interaction&#x27;;rail.append(b);}rail.querySelector(&#x27;.rail-scroll&#x27;).addEventListener(&#x27;scroll&#x27;,e=&gt;{state.railScroll[side]=e.target.scrollTop;maskFileRows(side);updateRailEdges(side);animateLinks();});}
+        const scroller=rail.querySelector(&#x27;.rail-scroll&#x27;),overlay=rail.querySelector(&#x27;.rail-pins&#x27;),scrollTop=scroller.scrollTop;
+        // One persistent filename node follows each passage, regardless of its pin state.
+        const ids=[...new Set([...activeViews,...Object.keys(state.pins),...Object.keys(state.released),...(gesture?.dragEl?[gesture.id]:[])])].filter(id=&gt;id!==state.centered&amp;&amp;(id===gesture?.id&amp;&amp;gesture.moved?gesture.side:state.pins[id]?.side||view(id).side)===side&amp;&amp;elements.has(id)&amp;&amp;!elements.get(id).hidden);
+        renderTree(scroller,side);scroller.scrollTop=scrollTop;
+        for(const b of [...overlay.children])if(!ids.includes(b.dataset.passage))b.remove();
+        for(const id of ids){let b=filenameNodes.get(id);if(b&amp;&amp;b.parentElement!==overlay){overlay.append(b);b.dataset.side=side;if(gesture?.handle===b&amp;&amp;gesture.moved)b.setPointerCapture(gesture.pointer);}if(!b){b=node(&#x27;div&#x27;,&#x27;pin-label cursor-interaction&#x27;);Object.assign(b.dataset,{passage:id,drag:id,side});b.tabIndex=0;const filename=node(&#x27;span&#x27;,&#x27;rail-filename&#x27;,docs[view(id).doc].name);filename.setAttribute(&#x27;contenteditable&#x27;,&#x27;true&#x27;);filename.spellcheck=false;b.append(filename,node(&#x27;span&#x27;,&#x27;tag&#x27;,&#x27;⌖&#x27;));overlay.append(b);}const filename=b.querySelector(&#x27;.rail-filename&#x27;);if(filename&amp;&amp;filename!==document.activeElement)filename.textContent=docs[view(id).doc].name;b.dataset.tooltip=docs[view(id).doc].name;const pinned=!!state.pins[id];delete b.dataset.tab;delete b.dataset.railFile;if(pinned)b.dataset.tab=id;else b.dataset.railFile=id;b.classList.toggle(&#x27;pinned&#x27;,pinned);b.setAttribute(&#x27;aria-label&#x27;,(pinned?&#x27;Unpin &#x27;:&#x27;Pin &#x27;)+docs[view(id).doc].name+&#x27; at line &#x27;+(view(id).focal+1));b.setAttribute(&#x27;aria-pressed&#x27;,String(pinned));const name=elements.get(id).querySelector(&#x27;.view-name&#x27;),nr=name.getBoundingClientRect(),sr=stage.getBoundingClientRect();b.style.top=(nr.top-sr.top-6)+&#x27;px&#x27;;b.style.width=scroller.clientWidth+&#x27;px&#x27;;}maskFileRows(side);
+      }positionRailLabels();globalThis.lucide?.createIcons({attrs:{width:14,height:14}});
+    }
+    function maskFileRows(side){
+      if(state.sides[side]===false)return;
+      const rail=root.querySelector(&#x27;.rail.&#x27;+side),scroller=rail.querySelector(&#x27;.rail-scroll&#x27;),clip=scroller.getBoundingClientRect(),rr=rail.getBoundingClientRect(),labels=[...rail.querySelectorAll(&#x27;.pin-label&#x27;)].filter(el=&gt;getComputedStyle(el).visibility!==&#x27;hidden&#x27;).map(el=&gt;el.getBoundingClientRect()).sort((a,b)=&gt;a.top-b.top),topCandidates=labels.filter(p=&gt;p.top&lt;clip.top+36&amp;&amp;p.bottom&gt;rr.top).sort((a,b)=&gt;Math.abs((a.top+a.bottom)/2-clip.top)-Math.abs((b.top+b.bottom)/2-clip.top)),bottomCandidates=labels.filter(p=&gt;p.bottom&gt;clip.bottom-36&amp;&amp;p.top&lt;rr.bottom).sort((a,b)=&gt;Math.abs((a.top+a.bottom)/2-clip.bottom)-Math.abs((b.top+b.bottom)/2-clip.bottom)),top=topCandidates[0],bottom=bottomCandidates[0],topEdge=top&amp;&amp;(!bottom||Math.abs((top.top+top.bottom)/2-clip.top)&lt;=Math.abs((bottom.top+bottom.bottom)/2-clip.bottom))?top:null;
+      const phase=topEdge?.bottom??bottom?.top;let previous=-Infinity;
+      for(const b of scroller.querySelectorAll(&#x27;.buffer-line&#x27;)){b.style.transform=&#x27;&#x27;;b.style.visibility=&#x27;&#x27;;const r=b.getBoundingClientRect();let y=r.top;if(phase!==undefined)y=phase+(topEdge?Math.ceil((y-phase)/36):Math.floor((y-phase)/36))*36;if(r.top&gt;=clip.top-.1&amp;&amp;y&lt;clip.top)y+=36;y=Math.max(y,previous);for(const p of labels)if(y&lt;p.bottom&amp;&amp;y+r.height&gt;p.top)y=p.bottom;b.style.transform=&#x27;translateY(&#x27;+(y-r.top)+&#x27;px)&#x27;;previous=y+r.height;b.style.visibility=y&lt;clip.top-.1||y+r.height&gt;clip.bottom+.1?&#x27;hidden&#x27;:&#x27;&#x27;;}
+    }
+
+    function hiddenRailNames(side){
+      const rail=root.querySelector(&#x27;.rail.&#x27;+side),rr=rail.getBoundingClientRect(),top=rr.top+62,bottom=rr.bottom-32,result={above:[],below:[]},sr=stage.getBoundingClientRect();
+      const record=(item,y,first=top)=&gt;{if(y&lt;first)result.above.push({...item,y,distance:first-y});if(y+36&gt;bottom)result.below.push({...item,y,distance:y+36-bottom});};
+      const ids=new Set([...activeViews,...Object.keys(state.released)]);for(const id of ids){if(state.pins[id]||id===state.centered||collapsedFolder(id,side)||view(id).side!==side)continue;const el=elements.get(id),y=el&amp;&amp;!el.hidden?el.getBoundingClientRect().top:sr.top+naturalCenter(id)-18;record({id,kind:&#x27;passage&#x27;},y,geometry.small?Math.max(top,sr.top+geometry[side].y):top);}
+      for(const el of rail.querySelectorAll(&#x27;.rail-scroll [data-rail-file]&#x27;))record({id:el.dataset.railFile,kind:&#x27;catalogue&#x27;},el.getBoundingClientRect().top);
+      for(const edge of [&#x27;above&#x27;,&#x27;below&#x27;])result[edge].sort((a,b)=&gt;a.distance-b.distance);return {top,bottom,...result};
+    }
+    function updateRailEdges(side){const names=hiddenRailNames(side),rail=root.querySelector(&#x27;.rail.&#x27;+side);for(const edge of [&#x27;above&#x27;,&#x27;below&#x27;]){const b=rail.querySelector(&#x27;[data-rail-step=&quot;&#x27;+edge+&#x27;&quot;]&#x27;);if(!b)continue;b.textContent=(edge===&#x27;above&#x27;?&#x27;↑ &#x27;:&#x27;↓ &#x27;)+names[edge].length;b.append(node(&#x27;span&#x27;,&#x27;edge-word&#x27;,&#x27; hidden&#x27;));b.disabled=!names[edge].length;b.setAttribute(&#x27;aria-label&#x27;,&#x27;Show next hidden filename &#x27;+edge+&#x27; on the &#x27;+side+&#x27; (&#x27;+names[edge].length+&#x27; hidden)&#x27;);}}
+    function shiftRail(side,edge){
+      const names=hiddenRailNames(side),item=names[edge][0];if(!item)return;const target=edge===&#x27;above&#x27;?(item.kind===&#x27;passage&#x27;&amp;&amp;geometry.small?Math.max(names.top,stage.getBoundingClientRect().top+geometry[side].y):names.top)+2:names.bottom-38;
+      if(item.kind===&#x27;catalogue&#x27;){const scroller=root.querySelector(&#x27;.rail.&#x27;+side+&#x27; .rail-scroll&#x27;);scroller.scrollTop-=target-item.y;state.railScroll[side]=scroller.scrollTop;}
+      else{stationaryLayout=null;state.railOffset||={left:0,right:0};const release=state.released[item.id],el=elements.get(item.id),h=el&amp;&amp;!el.hidden?el.getBoundingClientRect().height:36,c=release?release.center-(source.scrollTop-release.scroll)*settings.speed+state.railOffset[side]-(release.railOffset||0):naturalCenter(item.id),naturalTop=stage.getBoundingClientRect().top+c-h/2;state.railOffset[side]+=target-naturalTop;state.selected=item.id;render();}
+      updateRailEdges(side);save();
+    }
+    function stopCrossing(id){const run=crossingRuns.get(id);if(run){crossingRuns.delete(id);run.animation.cancel();}crossingPending.delete(id);elements.get(id)?.classList.remove(&#x27;crossing&#x27;);}
+    function resetCrossings(){for(const id of [...snapRuns.keys()])stopSnap(id);for(const id of [...crossingRuns.keys()])stopCrossing(id);crossingStates.clear();crossingPending.clear();}
+    function seedCrossings(){for(const id of activeViews){const c=naturalCenter(id),map=crossingStates.get(id)||new Map();for(const [key,p] of Object.entries(state.pins))if(key!==id&amp;&amp;p.side===view(id).side)map.set(key,c&lt;p.y?&#x27;above&#x27;:&#x27;below&#x27;);crossingStates.set(id,map);}}
+    function edgeRoute(id,r,c,obstacles){
+      const map=crossingStates.get(id)||new Map(),lane=geometry[view(id).side];crossingStates.set(id,map);let lower=lane.y,upper=lane.y+lane.h;
+      for(const pin of obstacles){const side=c&lt;pin.y?&#x27;above&#x27;:&#x27;below&#x27;,old=map.get(pin.key);if(old&amp;&amp;old!==side)crossingPending.add(id);map.set(pin.key,side);if(side===&#x27;above&#x27;)upper=Math.min(upper,pin.y-12);else lower=Math.max(lower,pin.y+pin.h+12);}
+      if(obstacles.length){r.h=Math.min(r.h,Math.max(36,upper-lower));r.y=Math.max(lower,Math.min(upper-r.h,r.y));}return r;
+    }
+    function overlaps(a,b,gap=0){return a.x&lt;b.x+b.w+gap&amp;&amp;a.x+a.w+gap&gt;b.x&amp;&amp;a.y&lt;b.y+b.h+gap&amp;&amp;a.y+a.h+gap&gt;b.y;}
+    // Allocate actual rectangles, including both ends of every in-flight crossing.
+    function clearSlot(r,occupied,low=-5000,high=5000,shrink=true,snapId=null){
+      const blocks=occupied.filter(b=&gt;r.x&lt;b.x+b.w+6&amp;&amp;r.x+r.w+6&gt;b.x).sort((a,b)=&gt;a.y-b.y),gaps=[];let start=low;
+      for(const b of blocks){if(b.y-8&gt;start)gaps.push({start,end:Math.min(high,b.y-8)});start=Math.max(start,b.y+b.h+8);}if(start&lt;high)gaps.push({start,end:high});
+      const choices=gaps.filter(g=&gt;g.end-g.start&gt;=(shrink?36:r.h)).map(g=&gt;{const h=Math.min(r.h,g.end-g.start);let y=Math.max(g.start,Math.min(g.end-h,r.y));if(snapId){const side=gesture?.id===snapId?gesture.side:view(snapId).side,row=railRow(side),first=snapToRailLine(snapId,g.start,side)+(snapToRailLine(snapId,g.start,side)&lt;g.start-.1?row:0),last=snapToRailLine(snapId,g.end-h,side)-(snapToRailLine(snapId,g.end-h,side)&gt;g.end-h+.1?row:0);if(first&gt;last)return null;y=Math.max(first,Math.min(last,snapToRailLine(snapId,y,side)));}return {...r,h,y,d:Math.abs(y+h/2-r.y-r.h/2)};}).filter(Boolean).sort((a,b)=&gt;a.d-b.d);return choices[0]||null;
+    }
+    function stopSnap(id){const run=snapRuns.get(id);if(!run)return;const el=elements.get(id),r=localRect(el);snapRuns.delete(id);run.animation.cancel();rectStyle(el,r);}
+    // Own the movement clock, rather than deriving animation progress from input.
+    // Reserve the full vertical sweep so subsequent layouts cannot enter it.
+    function animateSnap(id,r,occupied=[]){
+      const el=createView(id),from=localRect(el);stopSnap(id);rectStyle(el,r);
+      const sweep={x:Math.min(from.x,r.x),y:Math.min(from.y,r.y),w:Math.max(from.x+from.w,r.x+r.w)-Math.min(from.x,r.x),h:Math.max(from.y+from.h,r.y+r.h)-Math.min(from.y,r.y)};
+      if(!settings.duration||matchMedia(&#x27;(prefers-reduced-motion: reduce)&#x27;).matches||Math.abs(from.y-r.y)&lt;.3||Math.abs(from.x-r.x)&gt;.3||occupied.some(b=&gt;overlaps(sweep,b,6)))return;
+      const animation=el.animate([{top:from.y+&#x27;px&#x27;},{top:r.y+&#x27;px&#x27;}],{duration:settings.duration,easing:&#x27;cubic-bezier(.22,.61,.36,1)&#x27;});
+      snapRuns.set(id,{animation,target:{...r},sweep});animation.onfinish=()=&gt;{if(snapRuns.get(id)?.animation!==animation)return;snapRuns.delete(id);render();};animateLinks();
+    }
+    function setViewRect(id,r,passing,from){
+      const el=createView(id);if(crossingRuns.has(id)||snapRuns.has(id))return;
+      if(from&amp;&amp;settings.duration&amp;&amp;!matchMedia(&#x27;(prefers-reduced-motion: reduce)&#x27;).matches){
+        const side=view(id).side,lane=geometry[side],x=side===&#x27;left&#x27;?lane.x+1:lane.x+lane.w-27,h=Math.min(88,from.h,r.h);el.classList.add(&#x27;crossing&#x27;);rectStyle(el,r);
+        const animation=el.animate([{left:from.x+&#x27;px&#x27;,top:from.y+&#x27;px&#x27;,width:from.w+&#x27;px&#x27;,height:from.h+&#x27;px&#x27;},{left:x+&#x27;px&#x27;,top:from.y+&#x27;px&#x27;,width:&#x27;26px&#x27;,height:h+&#x27;px&#x27;,offset:.25},{left:x+&#x27;px&#x27;,top:r.y+&#x27;px&#x27;,width:&#x27;26px&#x27;,height:h+&#x27;px&#x27;,offset:.75},{left:r.x+&#x27;px&#x27;,top:r.y+&#x27;px&#x27;,width:r.w+&#x27;px&#x27;,height:r.h+&#x27;px&#x27;}],{duration:settings.duration*1.5,easing:&#x27;ease-in-out&#x27;});
+        crossingRuns.set(id,{animation,side,from:{...from},target:{...r}});lastRects.set(id,{...r,passing:false});animation.onfinish=()=&gt;{if(crossingRuns.get(id)?.animation!==animation)return;crossingRuns.delete(id);el.classList.remove(&#x27;crossing&#x27;);rectStyle(el,r);render();};return;
+      }if(!state.pins[id]&amp;&amp;!stationaryLayout&amp;&amp;!passing&amp;&amp;lastRects.has(id))animateSnap(id,r,snapObstacles(id));else rectStyle(el,r);lastRects.set(id,{...r,passing});
+    }
+    let layoutTargets=new Map();
+    function snapObstacles(id){return [...elements].filter(([key,el])=&gt;key!==id&amp;&amp;!el.hidden).flatMap(([key,el])=&gt;[localRect(el),layoutTargets.get(key)?.r,snapRuns.get(key)?.sweep].filter(Boolean));}
+    function layoutViews(){
+      const visible=new Set([...activeViews,...Object.keys(state.pins),...Object.keys(state.released)].filter(id=&gt;(state.sides[view(id).side]!==false||id===gesture?.id)&amp;&amp;(state.pins[id]||id===gesture?.id||!collapsedFolder(id))));if(state.centered&amp;&amp;state.mode===&#x27;document&#x27;)visible.delete(state.centered);elements.forEach((el,id)=&gt;el.hidden=id===gesture?.dragEl?.dataset.view?false:!visible.has(id));
+      const occupied=[],planned=new Map(),busy=new Set();
+      for(const [id,p] of Object.entries(state.pins)){if(!visible.has(id))continue;if(gesture?.kind===&#x27;drag&#x27;&amp;&amp;gesture.moved&amp;&amp;gesture.id===id)continue;const c=contentRect(p.side),r={x:c.x+(p.offsetX||0),y:p.y,w:c.w*(p.widthRatio||1),h:p.h};planned.set(id,{r,passing:false});occupied.push(r);}
+      for(const [id,run] of crossingRuns){occupied.push(run.from,run.target);busy.add(run.side);planned.set(id,{r:run.target,passing:false});}
+      for(const [id,run] of snapRuns){if(!visible.has(id)||id===gesture?.id)continue;occupied.push(run.sweep);planned.set(id,{r:run.target,passing:false});}
+      if(gesture?.preview)occupied.push(gesture.preview,snapRuns.get(gesture.id)?.sweep||gesture.preview);
+      const sorted=[...visible].filter(id=&gt;!planned.has(id)&amp;&amp;id!==gesture?.dragEl?.dataset.view).sort((a,b)=&gt;(a===state.selected?-1:b===state.selected?1:0)||Math.abs(naturalCenter(a)-geometry[view(a).side].y-geometry[view(a).side].h/2)-Math.abs(naturalCenter(b)-geometry[view(b).side].y-geometry[view(b).side].h/2));
+      for(const id of sorted){const v=view(id),side=v.side,lane=geometry[side],content=contentRect(side),held=stationaryLayout?.scroll===source.scrollTop?stationaryLayout.rects.get(id):null;let r,passing=false,from=null;
+        if(held){r={...held};passing=held.passing;}else{
+          let c=naturalCenter(id),released=state.released[id];if(released)c=released.center-(source.scrollTop-released.scroll)*settings.speed+(state.railOffset?.[side]||0)-(released.railOffset||0);const distance=Math.min(c-lane.y,lane.y+lane.h-c),amount=Math.max(0,Math.min(1,(distance-38)/settings.edgeBand));let h=36+amount*217;if(!settings.auto)h=state.manual[id]?253:36;if(state.manual[id]===false)h=36;if(state.manual[id]===true)h=Math.max(190,h);if(state.minimized[id])h=36;if(released){const blend=Math.min(1,Math.abs(source.scrollTop-released.scroll)/150);h=released.h*(1-blend)+h*blend;}const offset=released?h/2:endpointOffset(id,h,content.w);r={x:content.x,y:c-offset,w:content.w,h};
+          const obstacles=Object.entries(state.pins).filter(([key,p])=&gt;key!==id&amp;&amp;p.side===side).map(([key,p])=&gt;({...p,key})).sort((a,b)=&gt;a.y-b.y);let low=-5000,high=5000;
+          if(settings.passing===&#x27;edge&#x27;){
+            edgeRoute(id,r,c,obstacles);for(const pin of obstacles){if(c&lt;pin.y)high=Math.min(high,pin.y-12);else low=Math.max(low,pin.y+pin.h+12);}
+            if(crossingPending.has(id)&amp;&amp;!busy.has(side)&amp;&amp;!geometry.small){const old=lastRects.get(id);if(old&amp;&amp;!occupied.some(b=&gt;overlaps(old,b,6))){from={...old};occupied.push(from);busy.add(side);}}
+          }else if(state.selected!==id&amp;&amp;!busy.has(side)&amp;&amp;obstacles.some(p=&gt;c&gt;p.y-50&amp;&amp;c&lt;p.y+p.h+50)&amp;&amp;!geometry.small){passing=true;r={x:side===&#x27;left&#x27;?lane.x+1:lane.x+lane.w-27,y:c-44,w:26,h:88};}
+          r=(state.selected===id?(clearSlot(r,occupied,Math.max(low,lane.y+8),Math.min(high,lane.y+lane.h-8),false,id)||clearSlot(r,occupied,Math.max(low,lane.y+8),Math.min(high,lane.y+lane.h-8),true,id)):null)||clearSlot(r,occupied,low,high,true,passing?null:id);if(!r){createView(id).hidden=true;if(from)occupied.splice(occupied.indexOf(from),1);continue;}
+          if(from){const corridor={x:side===&#x27;left&#x27;?lane.x+1:lane.x+lane.w-27,y:Math.min(from.y,r.y),w:26,h:Math.max(from.y+from.h,r.y+r.h)-Math.min(from.y,r.y)};if(occupied.some(b=&gt;b!==from&amp;&amp;overlaps(corridor,b))){occupied.splice(occupied.indexOf(from),1);from=null;}crossingPending.delete(id);}else if(crossingPending.has(id)&amp;&amp;!busy.has(side))crossingPending.delete(id);
+        }
+        occupied.push(r);planned.set(id,{r,passing,from});
+      }
+      layoutTargets=planned;
+      for(const [id,{r,passing,from}] of planned){const p=state.pins[id],side=p?.side||view(id).side,lane=geometry[side],el=createView(id);el.hidden=false;el.classList.toggle(&#x27;pinned&#x27;,!!p);el.classList.toggle(&#x27;passing&#x27;,passing);el.classList.toggle(&#x27;compact&#x27;,passing||r.h&lt;95);el.classList.toggle(&#x27;selected&#x27;,state.selected===id);el.dataset.autoExpanded=String(!passing&amp;&amp;r.h&gt;=95);el.dataset.side=side;const nameEl=el.querySelector(&#x27;.view-name&#x27;);if(nameEl)nameEl.textContent=docs[view(id).doc].name;el.setAttribute(&#x27;aria-label&#x27;,docs[view(id).doc].name+&#x27; passage at line &#x27;+(view(id).focal+1));updateControls(el,id);el.querySelectorAll(&#x27;[data-toggle]&#x27;).forEach(b=&gt;b.setAttribute(&#x27;aria-expanded&#x27;,r.h&gt;=95));setViewRect(id,r,passing,from);el.style.clipPath=geometry.small?&#x27;inset(&#x27;+Math.max(0,lane.y-r.y)+&#x27;px 0 &#x27;+Math.max(0,r.y+r.h-lane.y-lane.h)+&#x27;px 0)&#x27;:&#x27;&#x27;;if(r.h&gt;=95&amp;&amp;!passing)excerpt(id);}
+    }
+    function render(){const next=regions();if(geometry.W!==undefined&amp;&amp;(geometry.W!==next.W||geometry.H!==next.H||geometry.center.x!==next.center.x||geometry.center.w!==next.center.w||geometry.center.h!==next.center.h))resetCrossings();if(stationaryLayout&amp;&amp;(stationaryLayout.scroll!==source.scrollTop||geometry.W!==next.W||geometry.H!==next.H))stationaryLayout=null;root.querySelector(&#x27;.workspace&#x27;).classList.toggle(&#x27;edge-crossing&#x27;,settings.passing===&#x27;edge&#x27;);root.querySelector(&#x27;#hsl-passing&#x27;).value=settings.passing;if(geometry.left&amp;&amp;(geometry.small!==next.small||geometry.H!==next.H)){for(const p of Object.values(state.pins)){const oldLane=geometry[p.side],newLane=next[p.side],scale=oldLane.h&gt;0&amp;&amp;newLane.h&gt;0?newLane.h/oldLane.h:1;p.y=newLane.y+(p.y-oldLane.y)*scale;p.h*=scale;}}geometry=next;root.style.setProperty(&#x27;--motion&#x27;,settings.duration+&#x27;ms&#x27;);root.querySelector(&#x27;#hsl-edges&#x27;).value=settings.auto?&#x27;auto&#x27;:&#x27;manual&#x27;;root.querySelector(&#x27;#hsl-left-files&#x27;).checked=state.sides.left!==false;root.querySelector(&#x27;#hsl-right-files&#x27;).checked=state.sides.right!==false;const workspace=root.querySelector(&#x27;.workspace&#x27;),railLeft=state.sides.left!==false?state.railWidth.left:0,railRight=state.sides.right!==false?state.railWidth.right:0;workspace.style.setProperty(&#x27;--rail-left&#x27;,railLeft+&#x27;px&#x27;);workspace.style.setProperty(&#x27;--rail-right&#x27;,railRight+&#x27;px&#x27;);for(const side of [&#x27;left&#x27;,&#x27;right&#x27;])root.querySelector(&#x27;.rail.&#x27;+side).hidden=state.sides[side]===false;rectStyle(center,geometry.center);const workspaceRect=workspace.getBoundingClientRect();for(const side of [&#x27;left&#x27;,&#x27;right&#x27;]){const h=root.querySelector(&#x27;[data-split=&quot;&#x27;+side+&#x27;&quot;]&#x27;);h.hidden=geometry.small||state.sides[side]===false;rectStyle(h,{x:side===&#x27;left&#x27;?geometry.center.x-11:geometry.center.x+geometry.center.w+1,y:8,w:10,h:geometry.H-16});rectStyle(root.querySelector(&#x27;[data-drop=&quot;&#x27;+side+&#x27;&quot;]&#x27;),geometry[side]);const railHandle=root.querySelector(&#x27;[data-rail-split=&quot;&#x27;+side+&#x27;&quot;]&#x27;);railHandle.hidden=geometry.small||state.sides[side]===false;if(!railHandle.hidden)rectStyle(railHandle,{x:side===&#x27;left&#x27;?railLeft:workspaceRect.width-railRight-20,y:0,w:10,h:workspaceRect.height});}layoutViews();renderDividers();renderRails();drawMini();animateLinks();
+      if(!state.pending){let closest=0,distance=Infinity;anchors.forEach((a,i)=&gt;{const d=Math.abs(a.el.getBoundingClientRect().top-source.getBoundingClientRect().top-source.clientHeight/3);if(d&lt;distance){distance=d;closest=i;}});root.querySelector(&#x27;.status&#x27;).textContent=state.event?&#x27;Sample stdout → print statement · pipeline.md:10&#x27;:state.mode===&#x27;document&#x27;?&#x27;Centered · &#x27;+docs[view(state.centered).doc].name:state.mode===&#x27;search&#x27;?activeViews.length+&#x27; matches · occurrence &#x27;+(closest+1):&#x27;Conversation · passage &#x27;+(closest+1)+&#x27; of &#x27;+anchors.length;}
+    }
+    function localRect(el){const r=el.getBoundingClientRect(),s=stage.getBoundingClientRect();return {x:r.left-s.left,y:r.top-s.top,w:r.width,h:r.height};}
+    function freeze(id,toggle=false){
+      const el=createView(id),r=localRect(el),rects=new Map();for(const [key,item] of elements)if(!item.hidden){rects.set(key,{...localRect(item),passing:item.classList.contains(&#x27;passing&#x27;)});stopSnap(key);stopCrossing(key);item.getAnimations().forEach(a=&gt;a.cancel());item.style.transition=&#x27;none&#x27;;}stationaryLayout={scroll:source.scrollTop,rects};
+      if(toggle&amp;&amp;state.pins[id]){const p=state.pins[id];delete state.pins[id];views.get(id).side=p.side;state.released[id]={center:r.y+r.h/2,h:r.h,scroll:source.scrollTop,railOffset:state.railOffset?.[p.side]||0};}else if(!state.pins[id]){const content=contentRect(view(id).side);state.pins[id]={side:view(id).side,y:r.y,h:r.h,offsetX:r.x-content.x,widthRatio:r.w/content.w};delete state.released[id];}seedCrossings();render();for(const item of elements.values()){item.getBoundingClientRect();item.style.transition=&#x27;&#x27;;}save();
+    }
+    function resizeTile(id,delta,edge=&#x27;bottom&#x27;){
+      if(!state.pins[id])freeze(id);resetCrossings();stationaryLayout=null;const p=state.pins[id];if(!p)return;
+      const lane=geometry[p.side],top=edge===&#x27;top&#x27;,growth=top?-delta:delta,minimum=Math.min(36,p.h);
+      if(growth&lt;=0){const shrink=Math.min(-growth,p.h-minimum);p.h-=shrink;if(top)p.y+=shrink;}
+      else{
+        const neighbors=Object.entries(state.pins).filter(([key,v])=&gt;key!==id&amp;&amp;v.side===p.side&amp;&amp;(top?v.y&lt;p.y:v.y&gt;p.y)).map(([,v])=&gt;v).sort((a,b)=&gt;top?b.y-a.y:a.y-b.y),neighbor=neighbors[0],blocker=neighbors[1];
+        const ownSpace=Math.max(0,top?p.y-(neighbor?neighbor.y+neighbor.h+8:lane.y+8):(neighbor?neighbor.y-8:lane.y+lane.h-8)-p.y-p.h),needed=Math.max(0,growth-ownSpace);
+        // Unpinned passages reflow; only another pin or the lane edge limits a shift.
+        const free=neighbor?Math.max(0,top?neighbor.y-(blocker?blocker.y+blocker.h+8:lane.y+8):(blocker?blocker.y-8:lane.y+lane.h-8)-neighbor.y-neighbor.h):0;
+        const shift=Math.min(needed,free),shrink=neighbor?Math.min(needed-shift,neighbor.h-Math.min(36,neighbor.h)):0,change=Math.min(growth,ownSpace+shift+shrink);
+        p.h+=change;if(top)p.y-=change;if(neighbor){neighbor.y+=top?-shift:shift+shrink;neighbor.h-=shrink;}
+      }render();save();
+    }
+    function tileDrop(id,side,y,preview){
+      const rects=new Map([...elements].filter(([,el])=&gt;!el.hidden).map(([key,el])=&gt;[key,localRect(el)]));const snap=snapRuns.get(id);if(snap)snapRuns.delete(id);resetCrossings();if(snap)snapRuns.set(id,snap);view(id).side=side;const lane=geometry[side],content=contentRect(side),occupied=Object.entries(state.pins).filter(([key,p])=&gt;key!==id&amp;&amp;p.side===side).map(([,p])=&gt;({x:content.x,y:p.y,w:content.w,h:p.h}));
+      const r=preview||clearSlot({x:content.x,y:y-18,w:content.w,h:36},occupied,lane.y,lane.y+lane.h);if(!r)return;
+      state.pins[id]={side,y:r.y,h:r.h,offsetX:r.x-content.x,widthRatio:r.w/content.w};rects.set(id,r);stationaryLayout={scroll:source.scrollTop,rects};delete state.released[id];state.selected=id;render();save();
+    }
+    function reveal(id){state.selected=id;const p=state.pins[id];if(p&amp;&amp;p.h&lt;95)resizeTile(id,150);else if(!p){state.manual[id]=true;const a=anchors.find(a=&gt;a.id===id);if(a)source.scrollTo({top:a.el.offsetTop-source.offsetTop-source.clientHeight*.35,behavior:&#x27;smooth&#x27;});}render();save();}
+    function minimizeView(id){const p=state.pins[id];if(state.minimized[id]){delete state.minimized[id];state.manual[id]=true;if(p)resizeTile(id,(state.restoreHeights[id]||230)-p.h);}else{state.minimized[id]=true;state.manual[id]=false;delete state.released[id];if(p){state.restoreHeights[id]=p.h;resizeTile(id,36-p.h);}}render();save();}
+    function centerView(id){if(state.centered===id&amp;&amp;state.mode===&#x27;document&#x27;)return;if(state.centerStack.length&gt;=24)state.centerStack.shift();state.centerStack.push({mode:state.mode,query:state.query,centered:state.centered,scroll:source.scrollTop});state.centered=id;state.mode=&#x27;document&#x27;;state.event=null;buildSource();const line=source.querySelector(&#x27;[data-central-line=&quot;&#x27;+view(id).focal+&#x27;&quot;]&#x27;);source.style.scrollBehavior=&#x27;auto&#x27;;if(line)source.scrollTop=Math.max(0,line.offsetTop-source.offsetTop-70);source.style.scrollBehavior=&#x27;&#x27;;render();save();}
+    function restoreCenter(){const previous=state.centerStack.pop();if(!previous)return;Object.assign(state,{mode:previous.mode,query:previous.query,centered:previous.centered,event:null});buildSource();source.style.scrollBehavior=&#x27;auto&#x27;;source.scrollTop=previous.scroll;source.style.scrollBehavior=&#x27;&#x27;;render();save();}
+    function toggleRail(id,side){
+      if(state.pins[id]){freeze(id,true);return;}view(id).side=side;const el=createView(id),r=!el.hidden&amp;&amp;lastRects.has(id)?localRect(el):null,lane=geometry[side];if(r&amp;&amp;r.y&gt;=lane.y&amp;&amp;r.y+r.h&lt;=lane.y+lane.h&amp;&amp;el.dataset.side===side){freeze(id);return;}
+      const content=contentRect(side),occupied=[...elements].filter(([key,item])=&gt;key!==id&amp;&amp;!item.hidden).map(([,item])=&gt;localRect(item));const clear=clearSlot({x:content.x,y:lane.y,w:content.w,h:230},occupied,lane.y,lane.y+lane.h)||clearSlot({x:content.x,y:lane.y+lane.h,w:content.w,h:36},occupied,lane.y+lane.h,5000,false);el.hidden=false;el.dataset.side=side;el.classList.remove(&#x27;passing&#x27;);excerpt(id);rectStyle(el,clear);freeze(id);
+    }
+    function visibleRect(el){if(!el||getComputedStyle(el).visibility===&#x27;hidden&#x27;)return null;const original=el.getBoundingClientRect();let left=original.left,right=original.right,top=original.top,bottom=original.bottom;const owner=el.closest(&#x27;.view&#x27;);if(owner&amp;&amp;geometry.small&amp;&amp;!owner.classList.contains(&#x27;tentative&#x27;)){const lane=geometry[owner.dataset.side],base=stage.getBoundingClientRect().top;top=Math.max(top,base+lane.y);bottom=Math.min(bottom,base+lane.y+lane.h);}for(let p=el.parentElement;p;p=p.parentElement){const css=getComputedStyle(p),r=p.getBoundingClientRect();if(/auto|scroll|hidden|clip/.test(css.overflowY)){top=Math.max(top,r.top+p.clientTop);bottom=Math.min(bottom,r.top+p.clientTop+p.clientHeight);}if(/auto|scroll|hidden|clip/.test(css.overflowX)){left=Math.max(left,r.left+p.clientLeft);right=Math.min(right,r.left+p.clientLeft+p.clientWidth);}}return bottom&gt;top&amp;&amp;right&gt;left?{left,right,top,bottom,width:right-left,height:bottom-top}:null;}
+    function destination(id){const folder=folderTarget(id);if(folder)return folder;const el=elements.get(id);if(!el||el.hidden||el.style.visibility===&#x27;hidden&#x27;)return null;const focal=el.querySelector(&#x27;[data-dest]&#x27;);return !el.classList.contains(&#x27;compact&#x27;)&amp;&amp;visibleRect(focal)?focal:el.querySelector(&#x27;.view-head&#x27;);}
+    function drawLink(a,b,kind,dest){if(!a||!b)return;const ar=visibleRect(a),br=visibleRect(b),sr=root.querySelector(&#x27;.workspace&#x27;).getBoundingClientRect();if(!ar||!br)return;if(ar.bottom&lt;sr.top||ar.top&gt;sr.bottom||br.bottom&lt;sr.top||br.top&gt;sr.bottom)return;const left=br.left+br.width/2&lt;ar.left+ar.width/2,sign=left?-1:1,point=(r,first)=&gt;{const top=Math.max(2,r.top-sr.top),bottom=Math.min(sr.height-2,r.bottom-sr.top);return {x:(first?(left?r.left:r.right):(left?r.right:r.left))-sr.left,y:(top+bottom)/2,top,bottom};},p=point(ar,true),q=point(br,false),x=p.x+sign*5,end=q.x-sign*5,bend=Math.abs(end-x)*.55,d=&#x27;M &#x27;+x+&#x27; &#x27;+p.y+&#x27; C &#x27;+(x+sign*bend)+&#x27; &#x27;+p.y+&#x27;, &#x27;+(end-sign*bend)+&#x27; &#x27;+q.y+&#x27;, &#x27;+end+&#x27; &#x27;+q.y,bracket=&#x27;M &#x27;+(x-sign*5)+&#x27; &#x27;+p.top+&#x27; H &#x27;+x+&#x27; V &#x27;+p.bottom+&#x27; H &#x27;+(x-sign*5)+&#x27; M &#x27;+(end+sign*5)+&#x27; &#x27;+q.top+&#x27; H &#x27;+end+&#x27; V &#x27;+q.bottom+&#x27; H &#x27;+(end+sign*5);for(const [path,cls] of [[d,kind],[bracket,&#x27;bracket &#x27;+kind],[d,&#x27;hit&#x27;]]){const e=document.createElementNS(&#x27;http://www.w3.org/2000/svg&#x27;,&#x27;path&#x27;);e.setAttribute(&#x27;d&#x27;,path);e.setAttribute(&#x27;class&#x27;,cls);e.dataset.destination=dest;if(b.dataset.folder)e.dataset.targetFolder=b.dataset.folder;if(cls===&#x27;hit&#x27;){e.classList.add(&#x27;cursor-interaction&#x27;);e.addEventListener(&#x27;click&#x27;,()=&gt;{if(b.dataset.folder){delete state.folderClosed[b.dataset.side][b.dataset.folder];render();}reveal(dest);});}svg.append(e);}}
+    function drawLinks(){svg.replaceChildren();const wr=root.querySelector(&#x27;.workspace&#x27;).getBoundingClientRect();svg.setAttribute(&#x27;viewBox&#x27;,&#x27;0 0 &#x27;+wr.width+&#x27; &#x27;+wr.height);const sr=source.getBoundingClientRect();anchors.filter(a=&gt;{const r=a.el.getBoundingClientRect();return r.bottom&gt;sr.top&amp;&amp;r.top&lt;sr.bottom;}).forEach(a=&gt;drawLink(a.el,destination(a.id),&#x27;context&#x27;,a.id));if(state.event){drawLink(root.querySelector(&#x27;[data-log=&quot;&#x27;+state.event+&#x27;&quot;]&#x27;),destination(&#x27;a4&#x27;),&#x27;runtime&#x27;,&#x27;a4&#x27;);drawLink(destination(&#x27;a5&#x27;),destination(&#x27;a4&#x27;),&#x27;runtime&#x27;,&#x27;a4&#x27;);}}
+    function positionRailLabels(){
+      const workspace=root.querySelector(&#x27;.workspace&#x27;),wr=workspace.getBoundingClientRect(),sr=stage.getBoundingClientRect(),present=new Set();for(const el of elements.values())el.style.visibility=&#x27;&#x27;;
+      for(const side of [&#x27;left&#x27;,&#x27;right&#x27;]){
+        const rail=root.querySelector(&#x27;.rail.&#x27;+side),rr=rail.getBoundingClientRect();
+        if(state.sides[side]===false)continue;
+        for(const b of rail.querySelectorAll(&#x27;[data-passage]&#x27;)){
+          const id=b.dataset.passage,el=elements.get(id);if(!el||el.hidden)continue;const r=el.getBoundingClientRect();b.style.top=(r.top-sr.top)+&#x27;px&#x27;;b.style.height=Math.min(36,r.height)+&#x27;px&#x27;;b.style.minHeight=&#x27;0&#x27;;present.add(id);
+          let extension=workspace.querySelector(&#x27;[data-header-extension=&quot;&#x27;+id+&#x27;&quot;]&#x27;);if(!extension){extension=node(&#x27;div&#x27;,&#x27;header-extension&#x27;);extension.dataset.headerExtension=id;extension.setAttribute(&#x27;aria-hidden&#x27;,&#x27;true&#x27;);workspace.append(extension);}
+          extension.className=&#x27;header-extension &#x27;+side;for(const cls of [&#x27;pinned&#x27;,&#x27;selected&#x27;,&#x27;tentative&#x27;])extension.classList.toggle(cls,el.classList.contains(cls));
+          const x=side===&#x27;left&#x27;?rr.left:r.left,right=side===&#x27;left&#x27;?r.right:rr.right;rectStyle(extension,{x:x-wr.left,y:r.top-wr.top,w:right-x,h:Math.min(36,r.height)});const lane=geometry[side],clipped=geometry.small&amp;&amp;(r.top&lt;sr.top+lane.y||r.top&gt;=sr.top+lane.y+lane.h);extension.hidden=clipped;b.style.visibility=clipped?&#x27;hidden&#x27;:&#x27;&#x27;;
+        }
+        const pins=[...rail.querySelectorAll(&#x27;.pin-label.pinned&#x27;)].map(b=&gt;b.getBoundingClientRect());
+        for(const b of rail.querySelectorAll(&#x27;.pin-label:not(.pinned)&#x27;)){const r=b.getBoundingClientRect(),strip=workspace.querySelector(&#x27;[data-header-extension=&quot;&#x27;+b.dataset.passage+&#x27;&quot;]&#x27;),obscured=strip?.hidden||pins.some(p=&gt;r.top&lt;p.bottom&amp;&amp;r.bottom&gt;p.top);b.style.visibility=obscured?&#x27;hidden&#x27;:&#x27;&#x27;;const extension=workspace.querySelector(&#x27;[data-header-extension=&quot;&#x27;+b.dataset.passage+&#x27;&quot;]&#x27;);if(extension)extension.hidden=obscured;}
+        maskFileRows(side);updateRailEdges(side);
+      }
+      for(const extension of workspace.querySelectorAll(&#x27;.header-extension&#x27;))if(!present.has(extension.dataset.headerExtension))extension.remove();
+      // A narrow passing view is occluded while traversing another header&#x27;s occupied strip.
+      const extensions=[...workspace.querySelectorAll(&#x27;.header-extension&#x27;)];for(const extension of extensions){const id=extension.dataset.headerExtension,el=elements.get(id);if(!el||!el.matches(&#x27;.passing,.crossing&#x27;))continue;if(extension.hidden){el.style.visibility=&#x27;hidden&#x27;;continue;}const r=el.getBoundingClientRect(),er=extension.getBoundingClientRect();const blocked=extensions.some(other=&gt;{if(other===extension||other.hidden)return false;const o=other.getBoundingClientRect();return (r.left&lt;o.right&amp;&amp;r.right&gt;o.left&amp;&amp;r.top&lt;o.bottom&amp;&amp;r.bottom&gt;o.top)||(er.left&lt;o.right&amp;&amp;er.right&gt;o.left&amp;&amp;er.top&lt;o.bottom&amp;&amp;er.bottom&gt;o.top);});if(blocked){el.style.visibility=&#x27;hidden&#x27;;extension.hidden=true;root.querySelector(&#x27;[data-passage=&quot;&#x27;+id+&#x27;&quot;]&#x27;).style.visibility=&#x27;hidden&#x27;;}}
+    }
+    function animateLinks(){until=performance.now()+settings.duration*1.6+60;if(frame)return;const tick=()=&gt;{renderDividers();positionRailLabels();drawLinks();if(performance.now()&lt;until)frame=requestAnimationFrame(tick);else frame=0;};frame=requestAnimationFrame(tick);}
+    function drawMini(){miniSvg.replaceChildren();const total=Math.max(1,source.scrollHeight);miniSvg.setAttribute(&#x27;viewBox&#x27;,&#x27;0 0 24 1000&#x27;);const add=(x,y,w,h,cls)=&gt;{const r=document.createElementNS(&#x27;http://www.w3.org/2000/svg&#x27;,&#x27;rect&#x27;);for(const [k,v] of Object.entries({x,y,width:w,height:h}))r.setAttribute(k,v);if(cls)r.setAttribute(&#x27;class&#x27;,cls);miniSvg.append(r);};for(const p of source.querySelectorAll(&#x27;p,.log&#x27;)){const y=(p.offsetTop-source.offsetTop)/total*1000,h=Math.max(3,p.offsetHeight/total*1000-3),w=Math.min(19,5+p.textContent.length/14);add(4,y,w,h,p.classList.contains(&#x27;ai-touched&#x27;)?&#x27;ai&#x27;:&#x27;&#x27;);}for(const a of anchors)add(1,(a.el.offsetTop-source.offsetTop)/total*1000,22,5,state.pins[a.id]?&#x27;pin&#x27;:&#x27;hit&#x27;);const thumb=root.querySelector(&#x27;.mini-thumb&#x27;);thumb.style.top=source.scrollTop/total*100+&#x27;%&#x27;;thumb.style.height=source.clientHeight/total*100+&#x27;%&#x27;;mini.setAttribute(&#x27;aria-label&#x27;,&#x27;Scroll minimap · &#x27;+Math.round(source.scrollTop/Math.max(1,total-source.clientHeight)*100)+&#x27; percent&#x27;);}
+    function seekMini(e){const r=mini.getBoundingClientRect();source.style.scrollBehavior=&#x27;auto&#x27;;source.scrollTop=Math.max(0,Math.min(source.scrollHeight-source.clientHeight,(e.clientY-r.top)/r.height*source.scrollHeight-source.clientHeight/2));source.style.scrollBehavior=&#x27;&#x27;;}
+    function focusPassage(id){const el=elements.get(id),body=el?.querySelector(&#x27;.view-content&#x27;),line=el?.querySelector(&#x27;[data-dest]&#x27;);if(body&amp;&amp;line){const r=line.getBoundingClientRect(),b=body.getBoundingClientRect();body.scrollTop+=r.top-b.top-body.clientHeight*.25;animateLinks();}}
+    function proposal(id){const v=view(id),before=changedText(v.doc,v.focal),after=v.doc===&#x27;pipeline&#x27;?&#x27;    print(f&quot;retry_attempt={attempt} delay={delay}s&quot;)&#x27;:before+&#x27; Record the reason for each attempt.&#x27;;state.pending={id,doc:v.doc,line:v.focal,before,after};const p=root.querySelector(&#x27;.permission&#x27;);p.hidden=false;p.querySelector(&#x27;.permission-address&#x27;).textContent=docs[v.doc].name+&#x27;:&#x27;+(v.focal+1)+&#x27; · permission applies only to this edit&#x27;;p.querySelector(&#x27;.permission-before&#x27;).textContent=before;p.querySelector(&#x27;.permission-after&#x27;).textContent=after;p.querySelector(&#x27;[data-permission=&quot;deny&quot;]&#x27;).focus();root.querySelector(&#x27;.status&#x27;).textContent=&#x27;Agent proposal blocked · original text unchanged&#x27;;}
+    function validNewPath(value,folder){const trimmed=value.trim().replace(/^\/+/,&#x27;&#x27;);if(!trimmed||trimmed.includes(&#x27;//&#x27;))return null;const body=trimmed.replace(/\/+$/,&#x27;&#x27;);if(!body||body.split(&#x27;/&#x27;).some(part=&gt;!part||part===&#x27;.&#x27;||part===&#x27;..&#x27;))return null;if(!folder&amp;&amp;trimmed.endsWith(&#x27;/&#x27;))return null;return body;}
+    function applyDocPath(docId,value){const next=validNewPath(value,false);if(!next||docs[docId].name===next)return false;if(Object.entries(docs).some(([id,d])=&gt;id!==docId&amp;&amp;d.name===next))return false;docs[docId].name=next;return true;}
+    function applyFolderPath(side,oldFolder,value){const next=validNewPath(value,true);if(!next||next===oldFolder)return false;const prefix=oldFolder+&#x27;/&#x27;,affected=Object.keys(docs).filter(id=&gt;docs[id].name.startsWith(prefix));if(!affected.length)return false;const proposed=affected.map(id=&gt;[id,next+docs[id].name.slice(oldFolder.length)]);if(proposed.some(([id,to])=&gt;Object.entries(docs).some(([other,d])=&gt;other!==id&amp;&amp;!affected.includes(other)&amp;&amp;d.name===to)))return false;for(const [id,to] of proposed)docs[id].name=to;for(const s of [&#x27;left&#x27;,&#x27;right&#x27;]){const closed=state.folderClosed?.[s];if(!closed)continue;const remapped={};for(const [path,val] of Object.entries(closed))remapped[path===oldFolder||path.startsWith(prefix)?next+path.slice(oldFolder.length):path]=val;state.folderClosed[s]=remapped;}return true;}
+    function commitDocPath(docId,value){const changed=applyDocPath(docId,value);if(changed)afterRename();return changed;}
+    function commitFolderPath(side,oldFolder,value){const changed=applyFolderPath(side,oldFolder,value);if(changed)afterRename();return changed;}
+    function afterRename(){if(state.mode===&#x27;document&#x27;&amp;&amp;state.centered){const v=view(state.centered);if(v){center.querySelector(&#x27;.title&#x27;).textContent=docs[v.doc].name;const opt=root.querySelector(&#x27;option[value=&quot;document&quot;]&#x27;);if(opt)opt.textContent=docs[v.doc].name;}}render();save();}
+    // Every changed line of one rail commits at once, then the buffer rebuilds
+    // once, so a pasted set of paths is not applied one render at a time.
+    function commitRail(scroller){const changes=[];for(const line of scroller.querySelectorAll(&#x27;.buffer-line&#x27;)){const text=line.querySelector(&#x27;.buffer-text&#x27;);if(!text)continue;const value=(text.textContent||&#x27;&#x27;).trim(),original=(line.dataset.original||&#x27;&#x27;).trim();if(value===original)continue;if(line.dataset.folder)changes.push({kind:&#x27;folder&#x27;,side:line.dataset.side,path:line.dataset.folder,value});else if(line.dataset.doc)changes.push({kind:&#x27;doc&#x27;,doc:line.dataset.doc,value});}let applied=false;for(const change of changes){if(change.kind===&#x27;folder&#x27;){if(applyFolderPath(change.side,change.path,change.value))applied=true;}else if(applyDocPath(change.doc,change.value))applied=true;}delete scroller.dataset.editing;if(applied)afterRename();else if(scroller.isConnected){delete scroller.dataset.signature;render();}}
+    root.addEventListener(&#x27;input&#x27;,e=&gt;{const s=e.target.closest?.(&#x27;.buffer-surface&#x27;);if(s)s.dataset.editing=&#x27;true&#x27;;});
+    root.addEventListener(&#x27;focusin&#x27;,e=&gt;{const t=e.target;if(t.matches?.(&#x27;.rail-filename&#x27;))t.dataset.original=t.textContent;});
+    root.addEventListener(&#x27;focusout&#x27;,e=&gt;{const t=e.target;if(t.matches?.(&#x27;.rail-filename&#x27;)){const label=t.closest(&#x27;[data-passage]&#x27;),applied=label?commitDocPath(view(label.dataset.passage).doc,(t.textContent||&#x27;&#x27;).trim()):false;if(!applied&amp;&amp;t.isConnected)t.textContent=t.dataset.original??t.textContent;}else if(t.matches?.(&#x27;.buffer-surface&#x27;))commitRail(t);});
+    function bufferTextOf(node){const el=node?.nodeType===3?node.parentElement:node;return el?.closest?.(&#x27;.buffer-text&#x27;)||null;}
+    // Chromium sends Home/End to the ends of the whole editing host, not the
+    // block line the caret is on, so a line edit would otherwise select every
+    // later file name. Keep them on the current line.
+    function moveBufferEdge(edge,extend){const selection=getSelection();if(!selection||!selection.rangeCount)return;const textEl=bufferTextOf(selection.focusNode);if(!textEl)return;const walker=document.createTreeWalker(textEl,globalThis.NodeFilter?.SHOW_TEXT??4),textNode=(()=&gt;{let first=null,last=null,node;while((node=walker.nextNode())){if(!first)first=node;last=node;}return edge===&#x27;start&#x27;?first:last;})();if(!textNode)return;const position=edge===&#x27;start&#x27;?0:textNode.length;if(extend)selection.setBaseAndExtent(selection.anchorNode,selection.anchorOffset,textNode,position);else selection.collapse(textNode,position);}
+    root.addEventListener(&#x27;keydown&#x27;,e=&gt;{const t=e.target;if(t.matches?.(&#x27;.rail-filename&#x27;)){if(e.key===&#x27;Enter&#x27;){e.preventDefault();t.blur();}else if(e.key===&#x27;Escape&#x27;){e.preventDefault();t.textContent=t.dataset.original??t.textContent;t.blur();}else e.stopPropagation();return;}if(t.matches?.(&#x27;.buffer-surface&#x27;)){if(e.key===&#x27;Home&#x27;){e.preventDefault();moveBufferEdge(&#x27;start&#x27;,e.shiftKey);}else if(e.key===&#x27;End&#x27;){e.preventDefault();moveBufferEdge(&#x27;end&#x27;,e.shiftKey);}else if(e.key===&#x27;Enter&#x27;){e.preventDefault();t.blur();}else if(e.key===&#x27;Escape&#x27;){e.preventDefault();for(const line of t.querySelectorAll(&#x27;.buffer-line&#x27;)){const text=line.querySelector(&#x27;.buffer-text&#x27;);if(text)text.textContent=line.dataset.original??text.textContent;}delete t.dataset.editing;t.blur();}}});
+    root.addEventListener(&#x27;click&#x27;,e=&gt;{if(suppressClick)return;const gutterLine=e.target.closest?.(&#x27;.buffer-line&#x27;);if(!(gutterLine&amp;&amp;e.clientX-gutterLine.getBoundingClientRect().left&lt;26)&amp;&amp;e.target.closest(&#x27;.buffer-text,.rail-filename&#x27;))return;const b=e.target.closest(&#x27;button,.buffer-line,.pin-label&#x27;);if(!b)return;if(b.dataset.folder){state.folderClosed??={left:{},right:{}};const side=b.dataset.side,path=b.dataset.folder;state.folderClosed[side]??={};state.folderClosed[side][path]=!state.folderClosed[side][path];stationaryLayout=null;resetCrossings();render();save();}else if(b.dataset.railStep)shiftRail(b.dataset.side,b.dataset.railStep);else if(b.dataset.centerView)centerView(b.dataset.centerView);else if(b.dataset.restoreCenter)restoreCenter();else if(b.dataset.minimize)minimizeView(b.dataset.minimize);else if(b.dataset.railFile)toggleRail(b.dataset.railFile,b.dataset.side);else if(b.dataset.pin)freeze(b.dataset.pin,true);else if(b.dataset.toggle){if(state.minimized[b.dataset.toggle])minimizeView(b.dataset.toggle);else if(elements.get(b.dataset.toggle)?.classList.contains(&#x27;compact&#x27;))reveal(b.dataset.toggle);else minimizeView(b.dataset.toggle);}else if(b.dataset.tab)freeze(b.dataset.tab,true);else if(b.dataset.reveal)reveal(b.dataset.reveal);else if(b.dataset.log){state.event=b.dataset.log;state.manual.a4=true;state.manual.a5=true;state.selected=&#x27;a4&#x27;;render();setTimeout(()=&gt;focusPassage(&#x27;a4&#x27;),settings.duration+30);save();}else if(b.dataset.trace){state.manual.a4=true;reveal(&#x27;a4&#x27;);}else if(b.dataset.file){const id=&#x27;file-&#x27;+b.dataset.file;if(!state.pins[id])tileDrop(id,&#x27;left&#x27;,geometry.left.y+geometry.left.h/2);else reveal(id);}else if(b.dataset.expand||b.dataset.shrink){const id=b.dataset.expand||b.dataset.shrink,v=view(id),d=docs[v.doc],r=range(id),above=b.dataset.edge===&#x27;above&#x27;;if(b.dataset.expand){if(above)r.start=Math.max(0,r.start-3);else r.end=Math.min(d.lines.length,r.end+3);}else{if(above)r.start=Math.min(Math.max(0,v.focal-1),r.start+3);else r.end=Math.max(Math.min(d.lines.length,v.focal+3),r.end-3);}excerpt(id);animateLinks();save();}else if(b.dataset.propose)proposal(b.dataset.propose);else if(b.dataset.permission){const p=state.pending;if(p&amp;&amp;b.dataset.permission===&#x27;allow&#x27;)state.changes[p.doc+&#x27;:&#x27;+p.line]={text:p.after,permission:&#x27;this-edit-only&#x27;};state.pending=null;root.querySelector(&#x27;.permission&#x27;).hidden=true;if(state.mode!==&#x27;agent&#x27;){const position=source.scrollTop;buildSource();source.style.scrollBehavior=&#x27;auto&#x27;;source.scrollTop=position;source.style.scrollBehavior=&#x27;&#x27;;}render();save();}else if(b.dataset.step){const sections=[...source.querySelectorAll(&#x27;[data-section]&#x27;)];let current=0,distance=Infinity;sections.forEach((s,i)=&gt;{const d=Math.abs(s.offsetTop-source.offsetTop-source.scrollTop);if(d&lt;distance){distance=d;current=i;}});const next=Math.max(0,Math.min(sections.length-1,current+Number(b.dataset.step)));source.scrollTo({top:sections[next].offsetTop-source.offsetTop,behavior:&#x27;smooth&#x27;});}});
+    root.addEventListener(&#x27;pointerdown&#x27;,e=&gt;{if(e.button!==0)return;suppressClick=false;if(e.target.closest(&#x27;.mini-track&#x27;)){gesture={kind:&#x27;mini&#x27;,pointer:e.pointerId};mini.setPointerCapture(e.pointerId);seekMini(e);return;}if(e.target.closest(&#x27;.buffer-text,.rail-filename&#x27;))return;const handle=e.target.closest(&#x27;[data-drag],[data-resize],[data-split],[data-rail-split],[data-file]&#x27;);if(!handle)return;gesture={kind:handle.dataset.railSplit?&#x27;rail&#x27;:handle.dataset.split?&#x27;split&#x27;:handle.dataset.resize?&#x27;resize&#x27;:&#x27;drag&#x27;,id:handle.dataset.drag||handle.dataset.resize||(handle.dataset.file?&#x27;file-&#x27;+handle.dataset.file:null),startRect:handle.dataset.drag?localRect(createView(handle.dataset.drag)):null,startWidth:handle.dataset.railSplit?state.railWidth[handle.dataset.railSplit]:undefined,split:handle.dataset.split,edge:handle.dataset.resizeEdge,pointer:e.pointerId,startX:e.clientX,startY:e.clientY,lastY:e.clientY,moved:false,handle};handle.setPointerCapture(e.pointerId);});
+    root.addEventListener(&#x27;pointermove&#x27;,e=&gt;{const g=gesture;if(!g||g.pointer!==e.pointerId)return;if(g.kind===&#x27;mini&#x27;){seekMini(e);return;}const dx=e.clientX-g.startX,dy=e.clientY-g.startY;if(!g.moved&amp;&amp;Math.hypot(dx,dy)&lt;5)return;g.moved=true;if(g.kind===&#x27;split&#x27;||g.kind===&#x27;rail&#x27;){stationaryLayout=null;}if(g.kind===&#x27;split&#x27;){const r=stage.getBoundingClientRect();if(g.split===&#x27;left&#x27;)state.left=Math.max(.22,Math.min(.40,1-state.right-.30,(e.clientX-r.left)/geometry.W));else if(g.split===&#x27;right&#x27;)state.right=Math.max(.22,Math.min(.40,1-state.left-.30,1-(e.clientX-r.left)/geometry.W));else state.split=Math.max(.52,Math.min(.88,(e.clientY-r.top-8)/(geometry.H-32)));render();}else if(g.kind===&#x27;resize&#x27;){const delta=e.clientY-g.lastY,neighbor=g.handle.dataset.resizeNeighbor;resizeTile(neighbor&amp;&amp;delta&lt;0?neighbor:g.id,delta,neighbor&amp;&amp;delta&lt;0?&#x27;top&#x27;:g.edge);g.lastY=e.clientY;}else if(g.kind===&#x27;rail&#x27;){const wr=root.querySelector(&#x27;.workspace&#x27;).getBoundingClientRect(),railSide=g.handle.dataset.railSplit,min=120,max=Math.max(min,wr.width*.45);state.railWidth[railSide]=Math.max(min,Math.min(max,g.startWidth+(e.clientX-g.startX)*(railSide===&#x27;left&#x27;?1:-1)));stationaryLayout=null;render();}else{const r=stage.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;g.side=x&lt;geometry.center.x+geometry.center.w/2?&#x27;left&#x27;:&#x27;right&#x27;;g.y=y;root.querySelectorAll(&#x27;.drop-zone&#x27;).forEach(el=&gt;el.classList.toggle(&#x27;active&#x27;,el.dataset.drop===g.side));const el=createView(g.id);if(!g.dragEl){g.dragEl=el;el.hidden=false;el.classList.remove(&#x27;passing&#x27;,&#x27;compact&#x27;);el.classList.add(&#x27;tentative&#x27;);el.style.clipPath=&#x27;&#x27;;stopSnap(g.id);stopCrossing(g.id);el.getAnimations().forEach(a=&gt;a.cancel());excerpt(g.id);const visible=!!state.pins[g.id]||activeViews.includes(g.id)||state.released[g.id];if(!visible){g.startRect={x:g.startX-r.left-60,y:g.startY-r.top-20,w:contentRect(g.side).w,h:230};}g.startRect.w=Math.max(180,g.startRect.w);g.startRect.h=Math.max(36,g.startRect.h);}el.dataset.side=g.side;const lane=geometry[g.side],content=contentRect(g.side);for(const id of [...crossingRuns.keys()])stopCrossing(id);const occupied=Object.entries(state.pins).filter(([id])=&gt;id!==g.id).map(([,p])=&gt;{const c=contentRect(p.side);return {x:c.x+(p.offsetX||0),y:p.y,w:c.w*(p.widthRatio||1),h:p.h};});const requested={x:content.x,y:snapToRailLine(g.id,g.startRect.y+dy,g.side),w:content.w,h:Math.min(g.startRect.h,lane.h)};g.preview=clearSlot(requested,occupied,lane.y,lane.y+lane.h,true,g.id)||clearSlot({x:g.side===&#x27;left&#x27;?lane.x+1:lane.x+lane.w-27,y:y-36,w:26,h:36},occupied,lane.y,lane.y+lane.h,false)||clearSlot({...requested,h:36,y:lane.y+lane.h},occupied,lane.y+lane.h,5000,false);el.classList.toggle(&#x27;passing&#x27;,g.preview.w===26);animateSnap(g.id,g.preview,occupied);stationaryLayout=null;render();}});
+    function finish(e){const g=gesture;if(!g||e.pointerId!==g.pointer)return;gesture=null;const cancel=e.type===&#x27;pointercancel&#x27;||e.cancelled;g.dragEl?.classList.remove(&#x27;tentative&#x27;);if(g.kind===&#x27;drag&#x27;&amp;&amp;g.moved&amp;&amp;!cancel)tileDrop(g.id,g.side,g.y,g.preview);else if(g.kind===&#x27;drag&#x27;&amp;&amp;g.moved){stopSnap(g.id);render();}if(g.moved||g.kind===&#x27;mini&#x27;){suppressClick=true;if(!cancel)save();setTimeout(()=&gt;suppressClick=false,0);}root.querySelectorAll(&#x27;.drop-zone&#x27;).forEach(el=&gt;el.classList.remove(&#x27;active&#x27;));}
+    root.addEventListener(&#x27;pointerup&#x27;,finish);root.addEventListener(&#x27;pointercancel&#x27;,finish);
+    root.addEventListener(&#x27;keydown&#x27;,e=&gt;{if(e.key===&#x27;Escape&#x27;&amp;&amp;gesture){finish({pointerId:gesture.pointer,cancelled:true});return;}if(e.key===&#x27;Escape&#x27;&amp;&amp;state.pending){state.pending=null;root.querySelector(&#x27;.permission&#x27;).hidden=true;render();return;}const b=e.target.closest(&#x27;button&#x27;);if(!b)return;if(![&#x27;ArrowUp&#x27;,&#x27;ArrowDown&#x27;,&#x27;ArrowLeft&#x27;,&#x27;ArrowRight&#x27;].includes(e.key))return;const delta=(e.shiftKey?30:10)*(e.key===&#x27;ArrowUp&#x27;||e.key===&#x27;ArrowLeft&#x27;?-1:1);if(b.classList.contains(&#x27;mini-track&#x27;)){e.preventDefault();source.scrollTop+=delta*8;}else if(b.dataset.resize){e.preventDefault();resizeTile(b.dataset.resizeNeighbor&amp;&amp;delta&lt;0?b.dataset.resizeNeighbor:b.dataset.resize,delta,b.dataset.resizeNeighbor&amp;&amp;delta&lt;0?&#x27;top&#x27;:b.dataset.resizeEdge);}else if(b.dataset.railSplit){e.preventDefault();const side=b.dataset.railSplit,step=(e.shiftKey?30:10)*(side===&#x27;left&#x27;?(e.key===&#x27;ArrowRight&#x27;?1:-1):(e.key===&#x27;ArrowLeft&#x27;?1:-1));state.railWidth[side]=Math.max(120,Math.min(400,state.railWidth[side]+step));render();save();}else if(b.dataset.split){e.preventDefault();if(b.dataset.split===&#x27;files&#x27;)state.split=Math.max(.52,Math.min(.88,state.split+delta/geometry.H));else state[b.dataset.split]=Math.max(.22,Math.min(.40,1-state[b.dataset.split===&#x27;left&#x27;?&#x27;right&#x27;:&#x27;left&#x27;]-.30,state[b.dataset.split]+delta/geometry.W));render();save();}});
+    root.querySelector(&#x27;#hsl-center&#x27;).addEventListener(&#x27;change&#x27;,e=&gt;{state.mode=e.target.value;state.centered=null;state.centerStack=[];state.event=null;state.released={};source.scrollTop=0;buildSource();save();});root.querySelector(&#x27;#hsl-search&#x27;).addEventListener(&#x27;input&#x27;,e=&gt;{state.query=e.target.value;buildSource();save();});root.querySelector(&#x27;#hsl-passing&#x27;).addEventListener(&#x27;change&#x27;,e=&gt;{settings.passing=e.target.value;stationaryLayout=null;resetCrossings();render();save();});root.querySelector(&#x27;#hsl-edges&#x27;).addEventListener(&#x27;change&#x27;,e=&gt;{settings.auto=e.target.value===&#x27;auto&#x27;;state.manual={};render();save();});root.querySelector(&#x27;#hsl-left-files&#x27;).addEventListener(&#x27;change&#x27;,e=&gt;{state.sides.left=e.target.checked;stationaryLayout=null;resetCrossings();render();save();});root.querySelector(&#x27;#hsl-right-files&#x27;).addEventListener(&#x27;change&#x27;,e=&gt;{state.sides.right=e.target.checked;stationaryLayout=null;resetCrossings();render();save();});source.addEventListener(&#x27;scroll&#x27;,()=&gt;{render();clearTimeout(scrollTimer);scrollTimer=setTimeout(save,200);});root.addEventListener(&#x27;scroll&#x27;,e=&gt;{if(e.target.classList?.contains(&#x27;view-content&#x27;))animateLinks();},true);
+    new ResizeObserver(()=&gt;render()).observe(stage);buildSource();restore(window.openai?.widgetState);save();window.addEventListener(&#x27;openai:set_globals&#x27;,e=&gt;restore(e.detail?.globals?.widgetState));
+    if(globalThis.Tweak){const tweak=new Tweak({container:root,onChange:()=&gt;{render();save();}});tweak.addSlider(settings,&#x27;speed&#x27;,{label:&#x27;Parallax speed&#x27;,min:.25,max:1.25,step:.05});tweak.addSlider(settings,&#x27;edgeBand&#x27;,{label:&#x27;Accordion edge distance&#x27;,min:50,max:180,unit:&#x27;px&#x27;});tweak.addSlider(settings,&#x27;duration&#x27;,{label:&#x27;Movement duration&#x27;,min:0,max:700,step:50,unit:&#x27;ms&#x27;});tweak.addToggle(settings,&#x27;auto&#x27;,{label:&#x27;Expand away from edges&#x27;});}
+  })();
+  &lt;/script&gt;
+&lt;/div&gt;
+
+&lt;script src=&quot;https://unpkg.com/@floating-ui/core@1.7.3/dist/floating-ui.core.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script src=&quot;https://unpkg.com/@floating-ui/dom@1.7.4/dist/floating-ui.dom.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  if (window.FloatingUIDOM == null) {
+    return;
+  }
+  const { autoUpdate, computePosition, flip, offset, shift, size } =
+    window.FloatingUIDOM;
+  const tooltipPlacements = new Set([&quot;top&quot;, &quot;right&quot;, &quot;bottom&quot;, &quot;left&quot;]);
+  const tooltipId = `codex-visualization-tooltip-${
+    window.crypto?.randomUUID?.() ?? Date.now().toString(36)
+  }`;
+  const tooltipGap = 5;
+  const hoverDelay = 700;
+  const skipDelay = 300;
+  let activeTrigger = null;
+  let pendingTrigger = null;
+  let tooltip = null;
+  let openTimeout = null;
+  let autoUpdateCleanup = null;
+  let positionRequest = 0;
+  let skipDelayUntil = 0;
+  let lastPointerWasTouch = false;
+  let pinnedByTouch = false;
+
+  const getTrigger = (target) =&gt;
+    target?.nodeType === Node.ELEMENT_NODE
+      ? target.closest(&quot;[data-tooltip]&quot;)
+      : null;
+  const containsTarget = (trigger, target) =&gt;
+    target?.nodeType != null &amp;&amp; trigger.contains(target);
+  const getContent = (trigger) =&gt;
+    trigger.getAttribute(&quot;data-tooltip&quot;)?.trim() ?? &quot;&quot;;
+  const getPlacement = (trigger) =&gt; {
+    const placement = trigger.getAttribute(&quot;data-tooltip-placement&quot;);
+    return tooltipPlacements.has(placement) ? placement : &quot;top&quot;;
+  };
+  const getTooltip = () =&gt; {
+    if (tooltip == null) {
+      tooltip = document.createElement(&quot;div&quot;);
+      tooltip.id = tooltipId;
+      tooltip.className = &quot;tooltip&quot;;
+      tooltip.setAttribute(&quot;role&quot;, &quot;tooltip&quot;);
+    }
+    return tooltip;
+  };
+  const setDescribedBy = (trigger, described) =&gt; {
+    const ids = new Set(
+      (trigger.getAttribute(&quot;aria-describedby&quot;) ?? &quot;&quot;)
+        .split(/\s+/)
+        .filter(Boolean),
+    );
+    if (described) {
+      ids.add(tooltipId);
+    } else {
+      ids.delete(tooltipId);
+    }
+    if (ids.size === 0) {
+      trigger.removeAttribute(&quot;aria-describedby&quot;);
+    } else {
+      trigger.setAttribute(&quot;aria-describedby&quot;, [...ids].join(&quot; &quot;));
+    }
+  };
+  const clearOpenTimeout = () =&gt; {
+    if (openTimeout != null) {
+      window.clearTimeout(openTimeout);
+      openTimeout = null;
+    }
+    pendingTrigger = null;
+  };
+  const closeTooltip = (activateSkipDelay = true) =&gt; {
+    clearOpenTimeout();
+    pinnedByTouch = false;
+    positionRequest += 1;
+    autoUpdateCleanup?.();
+    autoUpdateCleanup = null;
+    if (activeTrigger == null) {
+      return;
+    }
+    setDescribedBy(activeTrigger, false);
+    activeTrigger = null;
+    tooltip?.remove();
+    if (activateSkipDelay) {
+      skipDelayUntil = Date.now() + skipDelay;
+    }
+  };
+  const updatePosition = (trigger, floating) =&gt; {
+    const request = ++positionRequest;
+    void computePosition(trigger, floating, {
+      middleware: [
+        offset(tooltipGap),
+        flip({ padding: tooltipGap }),
+        shift({ padding: tooltipGap }),
+        size({
+          padding: tooltipGap,
+          apply({ availableHeight, availableWidth, elements }) {
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-width&quot;,
+              `${Math.max(0, availableWidth)}px`,
+            );
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-height&quot;,
+              `${Math.max(0, availableHeight)}px`,
+            );
+          },
+        }),
+      ],
+      placement: getPlacement(trigger),
+      strategy: &quot;fixed&quot;,
+    })
+      .then(({ x, y }) =&gt; {
+        if (activeTrigger !== trigger || request !== positionRequest) {
+          return;
+        }
+        const scale = window.devicePixelRatio || 1;
+        floating.style.transform = `translate(${Math.round(x * scale) / scale}px, ${Math.round(y * scale) / scale}px)`;
+        floating.style.visibility = &quot;visible&quot;;
+      })
+      .catch(() =&gt; {
+        if (activeTrigger === trigger &amp;&amp; request === positionRequest) {
+          closeTooltip(false);
+        }
+      });
+  };
+  const openTooltip = (trigger) =&gt; {
+    const content = getContent(trigger);
+    if (!trigger.isConnected || content.length === 0) {
+      return;
+    }
+    clearOpenTimeout();
+    if (activeTrigger === trigger) {
+      return;
+    }
+    closeTooltip();
+    const floating = getTooltip();
+    floating.textContent = content;
+    floating.style.visibility = &quot;hidden&quot;;
+    floating.style.transform = &quot;translate(0, 0)&quot;;
+    document.body.appendChild(floating);
+    activeTrigger = trigger;
+    setDescribedBy(trigger, true);
+    autoUpdateCleanup = autoUpdate(trigger, floating, () =&gt; {
+      updatePosition(trigger, floating);
+    });
+  };
+  const requestOpen = (trigger, immediate = false) =&gt; {
+    if (
+      getContent(trigger).length === 0 ||
+      activeTrigger === trigger ||
+      pendingTrigger === trigger
+    ) {
+      return;
+    }
+    clearOpenTimeout();
+    pendingTrigger = trigger;
+    const delay =
+      immediate || activeTrigger != null || Date.now() &lt; skipDelayUntil
+        ? 0
+        : hoverDelay;
+    if (delay === 0) {
+      openTooltip(trigger);
+      return;
+    }
+    openTimeout = window.setTimeout(() =&gt; {
+      openTimeout = null;
+      pendingTrigger = null;
+      openTooltip(trigger);
+    }, delay);
+  };
+  const handlePointerOpen = (event) =&gt; {
+    if (event.pointerType === &quot;touch&quot;) {
+      return;
+    }
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    requestOpen(trigger);
+  };
+  const handlePointer = (event) =&gt; {
+    lastPointerWasTouch =
+      event.type === &quot;pointerdown&quot; &amp;&amp; event.pointerType === &quot;touch&quot;;
+  };
+  const handleTouchClick = (event) =&gt; {
+    const isTouch = event.pointerType === &quot;touch&quot; || lastPointerWasTouch;
+    lastPointerWasTouch = false;
+    if (!isTouch || event.detail === 0) {
+      return;
+    }
+    const trigger = getTrigger(event.target);
+    if (
+      trigger == null ||
+      !trigger.isConnected ||
+      getContent(trigger).length === 0 ||
+      (pinnedByTouch &amp;&amp; activeTrigger === trigger)
+    ) {
+      if (pinnedByTouch) {
+        closeTooltip();
+      }
+      return;
+    }
+    openTooltip(trigger);
+    pinnedByTouch = activeTrigger === trigger;
+    window.setTimeout(() =&gt; {
+      if (activeTrigger === trigger &amp;&amp; !trigger.isConnected) {
+        closeTooltip(false);
+      }
+    }, 0);
+  };
+  const handleLeave = (event) =&gt; {
+    if (pinnedByTouch) {
+      return;
+    }
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const handleFocusIn = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (trigger?.matches(&quot;:focus-visible&quot;)) {
+      requestOpen(trigger, true);
+    }
+  };
+  const handleKeyDown = (event) =&gt; {
+    if (event.key === &quot;Escape&quot;) {
+      closeTooltip();
+    }
+  };
+  const handleContextMenu = (event) =&gt; {
+    lastPointerWasTouch = false;
+    const trigger = getTrigger(event.target);
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const destroy = () =&gt; {
+    closeTooltip(false);
+    lastPointerWasTouch = false;
+    document.removeEventListener(&quot;pointerover&quot;, handlePointerOpen);
+    document.removeEventListener(&quot;pointerdown&quot;, handlePointer);
+    document.removeEventListener(&quot;pointercancel&quot;, handlePointer);
+    document.removeEventListener(&quot;click&quot;, handleTouchClick);
+    document.removeEventListener(&quot;pointerout&quot;, handleLeave);
+    document.removeEventListener(&quot;focusin&quot;, handleFocusIn);
+    document.removeEventListener(&quot;focusout&quot;, handleLeave);
+    document.removeEventListener(&quot;keydown&quot;, handleKeyDown);
+    document.removeEventListener(&quot;contextmenu&quot;, handleContextMenu);
+    tooltip = null;
+  };
+
+  document.addEventListener(&quot;pointerover&quot;, handlePointerOpen);
+  document.addEventListener(&quot;pointerdown&quot;, handlePointer);
+  document.addEventListener(&quot;pointercancel&quot;, handlePointer);
+  document.addEventListener(&quot;click&quot;, handleTouchClick);
+  document.addEventListener(&quot;pointerout&quot;, handleLeave);
+  document.addEventListener(&quot;focusin&quot;, handleFocusIn);
+  document.addEventListener(&quot;focusout&quot;, handleLeave);
+  document.addEventListener(&quot;keydown&quot;, handleKeyDown);
+  document.addEventListener(&quot;contextmenu&quot;, handleContextMenu);
+  window.addEventListener(&quot;pagehide&quot;, destroy, { once: true });
+})();
+&lt;/script&gt;
+&lt;script id=&quot;codex-visualization-tabs&quot;&gt;
+(() =&gt; {
+  const selector = &#x27;.nav[role=&quot;tablist&quot;] [role=&quot;tab&quot;]&#x27;;
+  const disabled = &#x27;:disabled,[aria-disabled=&quot;true&quot;]&#x27;;
+  const selectTab = (selected) =&gt; {
+    const panelId = selected.getAttribute(&quot;aria-controls&quot;);
+    for (const tab of selected.closest(&#x27;[role=&quot;tablist&quot;]&#x27;).querySelectorAll(&#x27;[role=&quot;tab&quot;]&#x27;)) {
+      const active = tab === selected;
+      tab.classList.toggle(&quot;active&quot;, active);
+      tab.setAttribute(&quot;aria-selected&quot;, String(active));
+      const id = tab.getAttribute(&quot;aria-controls&quot;);
+      const panel = id &amp;&amp; document.getElementById(id);
+      if (panel != null) {
+        panel.hidden = id !== panelId;
+        if (!panel.hidden &amp;&amp; selected.id) {
+          panel.setAttribute(&quot;aria-labelledby&quot;, selected.id);
+        }
+      }
+    }
+  };
+  const interact = (event) =&gt; {
+    const tab = event.target?.closest?.(selector);
+    if (event.defaultPrevented || tab == null || tab.matches(disabled)) {
+      return;
+    }
+    if (event.type === &quot;click&quot;) {
+      selectTab(tab);
+      return;
+    }
+    const tabs = Array.from(
+      tab.closest(&#x27;[role=&quot;tablist&quot;]&#x27;).querySelectorAll(&#x27;[role=&quot;tab&quot;]&#x27;),
+    ).filter((candidate) =&gt; !candidate.matches(disabled));
+    const current = tabs.indexOf(tab);
+    let next;
+    if (event.key === &quot;ArrowRight&quot; || event.key === &quot;ArrowDown&quot;) {
+      next = (current + 1) % tabs.length;
+    } else if (event.key === &quot;ArrowLeft&quot; || event.key === &quot;ArrowUp&quot;) {
+      next = (current + tabs.length - 1) % tabs.length;
+    } else if (event.key === &quot;Home&quot;) {
+      next = 0;
+    } else if (event.key === &quot;End&quot;) {
+      next = tabs.length - 1;
+    } else {
+      return;
+    }
+    event.preventDefault();
+    tabs[next].focus();
+    selectTab(tabs[next]);
+  };
+
+  for (const list of document.querySelectorAll(&#x27;.nav[role=&quot;tablist&quot;]&#x27;)) {
+    const selected =
+      list.querySelector(&#x27;[role=&quot;tab&quot;][aria-selected=&quot;true&quot;]&#x27;) ??
+      list.querySelector(&#x27;[role=&quot;tab&quot;].active&#x27;) ??
+      list.querySelector(&#x27;[role=&quot;tab&quot;]&#x27;);
+    if (selected != null) {
+      selectTab(selected);
+    }
+  }
+  document.addEventListener(&quot;click&quot;, interact);
+  document.addEventListener(&quot;keydown&quot;, interact);
+  window.addEventListener(&quot;pagehide&quot;, () =&gt; {
+    document.removeEventListener(&quot;click&quot;, interact);
+    document.removeEventListener(&quot;keydown&quot;, interact);
+  }, { once: true });
+})();
+&lt;/script&gt;
+&lt;script id=&quot;codex-visualization-lucide&quot; async src=&quot;https://unpkg.com/lucide@1.17.0/dist/umd/lucide.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  const initialize = () =&gt; {
+    globalThis.lucide?.createIcons({ attrs: { width: 16, height: 16 } });
+  };
+  if (globalThis.lucide != null) {
+    initialize();
+    return;
+  }
+  document
+    .getElementById(&quot;codex-visualization-lucide&quot;)
+    ?.addEventListener(&quot;load&quot;, initialize, { once: true });
+})();
+&lt;/script&gt;
+
+&lt;/body&gt;
+&lt;/html&gt;
+"></iframe>
+<script>(() => {
+  const frame = document.getElementById("codex-visualization");
+  if (!(frame instanceof HTMLIFrameElement)) {
+    return;
+  }
+  let viewportHeight = globalThis.innerHeight;
+  const storageKey = `codex:visualization-widget-state-v2:${JSON.stringify([
+    globalThis.location.pathname,
+    globalThis.location.search,
+  ])}`;
+  const parseState = (serializedState) => {
+    if (
+      typeof serializedState !== "string" ||
+      new TextEncoder().encode(serializedState).length > 16 * 1024
+    ) {
+      throw new TypeError(
+        "Widget state must be a JSON object of at most 16 KiB",
+      );
+    }
+    /** @type {unknown} */
+    const state = JSON.parse(serializedState);
+    if (
+      state == null ||
+      typeof state !== "object" ||
+      Array.isArray(state) ||
+      ("imageIds" in state &&
+        (!Array.isArray(state.imageIds) || state.imageIds.length > 0))
+    ) {
+      throw new TypeError("Widget state must be a JSON object");
+    }
+    const storedState = { modelContent: null, privateContent: null, ...state };
+    const canonicalState = JSON.stringify(
+      storedState,
+      (_key, /** @type {unknown} */ value) => {
+        if (typeof value === "number" && !Number.isFinite(value)) {
+          throw new TypeError("Widget state must contain finite numbers");
+        }
+        return value;
+      },
+    );
+    if (new TextEncoder().encode(canonicalState).length > 16 * 1024) {
+      throw new TypeError(
+        "Widget state must be a JSON object of at most 16 KiB",
+      );
+    }
+    return storedState;
+  };
+  let storage = null;
+  let state = null;
+  try {
+    const localStorage = globalThis.localStorage;
+    const probeKey = `${storageKey}:probe`;
+    localStorage.setItem(probeKey, "1");
+    localStorage.removeItem(probeKey);
+    storage = localStorage;
+    const savedState = storage.getItem(storageKey);
+    if (savedState != null) {
+      try {
+        state = parseState(savedState);
+      } catch {
+        // Invalid saved state does not disable future writes.
+      }
+    }
+  } catch {
+    storage = null;
+  }
+  const initialGlobals = {
+    widgetState: state,
+    statePersistence: storage == null ? "none" : "local",
+  };
+
+  const channel = new MessageChannel();
+  channel.port1.addEventListener("message", (event) => {
+    const data = event.data;
+    if (typeof data !== "object" || data == null) {
+      return;
+    }
+    if (data.type === "widget-state-write") {
+      if (!Number.isSafeInteger(data.id) || data.id <= 0) {
+        return;
+      }
+      let ok = false;
+      try {
+        if (storage != null) {
+          const state = parseState(data.state);
+          storage.setItem(storageKey, JSON.stringify(state));
+          ok = true;
+        }
+      } catch {
+        // Storage denial, quota limits, and invalid state return a failed receipt.
+      }
+      channel.port1.postMessage({
+        type: "widget-state-result",
+        id: data.id,
+        ok,
+      });
+      return;
+    }
+    if (data.type === "height") {
+      const height = data.height;
+      if (
+        typeof height === "number" &&
+        Number.isFinite(height) &&
+        height >= 0 &&
+        height <= 10_000
+      ) {
+        frame.style.height = Math.ceil(height) + "px";
+      }
+      return;
+    }
+    if (data.type === "scroll-to") {
+      const top = data.top;
+      if (
+        typeof top === "number" &&
+        Number.isFinite(top) &&
+        top >= 0 &&
+        globalThis.navigator.userActivation?.isActive === true
+      ) {
+        globalThis.scrollTo({
+          top: Math.ceil(
+            globalThis.scrollY + frame.getBoundingClientRect().top + top,
+          ),
+        });
+      }
+      return;
+    }
+    if (data.type === "open-external") {
+      const rawHref = data.href;
+      if (typeof rawHref !== "string") {
+        return;
+      }
+      let href;
+      try {
+        const url = new URL(rawHref, document.baseURI);
+        if (url.protocol !== "https:") {
+          return;
+        }
+        href = url.href;
+      } catch {
+        return;
+      }
+      if (globalThis.navigator.userActivation?.isActive === true) {
+        const anchor = document.createElement("a");
+        anchor.href = href;
+        anchor.rel = "noopener noreferrer";
+        anchor.target = "_blank";
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+      }
+      return;
+    }
+    if (data.type === "follow-up") {
+      const prompt = data.prompt;
+      if (
+        typeof prompt !== "string" ||
+        globalThis.navigator.userActivation?.isActive !== true
+      ) {
+        return;
+      }
+      const title = data.title;
+      globalThis.prompt(typeof title === "string" ? title : prompt, prompt);
+    }
+  });
+  channel.port1.start();
+  const srcdoc = frame.dataset.srcdoc;
+  if (srcdoc == null) {
+    return;
+  }
+  globalThis.addEventListener("resize", () => {
+    const height = Number.parseFloat(frame.style.height);
+    if (!Number.isFinite(height) || height <= viewportHeight) {
+      frame.style.removeProperty("height");
+    }
+    viewportHeight = globalThis.innerHeight;
+    channel.port1.postMessage({ type: "measure" });
+  });
+  frame.addEventListener(
+    "load",
+    () => {
+      frame.contentWindow?.postMessage(
+        { type: "codex-visualization-initialize" },
+        "*",
+        [channel.port2],
+      );
+    },
+    { once: true },
+  );
+  // Match the trusted bootstrap element, not the same text in an authored title.
+  frame.srcdoc = srcdoc.replace(
+    '<script type="application/json" id="codex-visualization-widget-state">__CODEX_VISUALIZATION_WIDGET_STATE__<\/script>',
+    () =>
+      '<script type="application/json" id="codex-visualization-widget-state">' +
+      JSON.stringify(initialGlobals).replaceAll("<", "\\u003c") +
+      "<\/script>",
+  );
+  delete frame.dataset.srcdoc;
+})();
+</script>
+</body>
+</html>
+</book:entry>
+
+</book:doc>

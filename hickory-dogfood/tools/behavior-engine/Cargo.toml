@@ -1,0 +1,11 @@
+[package]
+name = "hickory-behavior-engine"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+hick-lang = { path = "../../../crates/hick-lang" }
+hick-project-env = { path = "../../../crates/hick-project-env" }

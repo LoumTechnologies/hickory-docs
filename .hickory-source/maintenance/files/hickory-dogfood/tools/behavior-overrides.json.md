@@ -1,0 +1,115 @@
+<maint:doc xmlns:maint="http://www.hickorydocs.com/1.0">
+# Maintain hickory-dogfood/tools/behavior-overrides.json
+
+For: maintainers changing the literate workflow and reviewers checking migration evidence.
+
+Edit this entry, regenerate, and commit its output with the Markdown. Historical evidence retains its original scope.
+
+<maint:entry path="hickory-dogfood/tools/behavior-overrides.json">
+{
+  "literate-projects/markdown-constructs-the-complete-project.md": {
+    "title": "Rebuild the program from its Markdown source",
+    "audience": "Maintainers moving this project to a fresh checkout or reviewing a source reorganization.",
+    "example": "Copy project.md and its declared Markdown inputs into an empty folder. Generating them must recover the same application files without borrowing the old checkout.",
+    "contract": "Given an entry document and its explicitly declared Markdown closure, pure generation starts from an empty tree and constructs the current project using only those inputs. Missing sources, missing or cyclic predecessors, conflicting unordered writes, and unresolved runtime inputs fail explicitly. Declared fragments and valid retained recordings may supply bytes; ambient caches and earlier Git revisions may not. Completed New combines the independent contributions; a patch sees only its declared predecessors.",
+    "mechanism": "Discovery reads the declared closure. The evaluator orders construction acts, builds predecessor states, and combines their outputs. The native writer receives the completed tree only after evaluation. This separation lets a reviewer check equality before any file is written.",
+    "implementation": ["crates/hick-lang/src/project/discovery.rs", "crates/hick-lang/src/project/evaluate.rs", "crates/hick-lang/src/project/recorded.rs", "crates/hick-project-env/src/tree.rs"],
+    "tests": [{"file":"crates/hick-lang/tests/project.rs","name":"closure_constructs_atomic_endpoints_and_can_be_reorganized"}, {"file":"crates/hick-lang/tests/project.rs","name":"refuses_unordered_transforms_hidden_inputs_and_processes"}],
+    "limit": "This promises reconstruction, not that the reconstructed application is correct. The full CLI lineage-conversion path has a known scale problem; the successful whole-repository witness uses the existing evaluator and native writer directly.",
+    "decision": "Fold the later explicit-fragment and recording amendment into the current statement; retain the earlier exclusions as history."
+  },
+  "literate-projects/complete-inventory-is-byte-exact.md": {
+    "title":"Check every source file, including assets and permissions",
+    "audience":"Reviewers deciding whether a reorganized source still constructs the same program.",
+    "example":"Changing one byte of an image, removing a migration, or adding an unexplained lockfile must fail equality even when every Rust file matches.",
+    "contract":"Given generated and expected trees under the declared inventory policy, equality compares the complete path inventory, exact content bytes, entry kinds, executable status, and symlink targets. Missing, extra, or differing entries fail. Only the source closure, declared reading targets, fixed metadata directories, and explicit exclusions are omitted. Unknown kinds and ambiguous portable paths fail; Git ignore rules and filename extensions do not decide source membership.",
+    "mechanism":"ProjectEntry retains portable metadata beside its bytes. ProjectTree compares entries in both directions. Revision and directory adapters apply the same inventory policy before comparison.",
+    "implementation":["crates/hick-lang/src/project/tree.rs","crates/hick-lang/src/project/evaluate.rs","crates/hickory-cli/src/project_revision.rs"],
+    "tests":[{"file":"crates/hick-lang/tests/project.rs","name":"inventory_checks_binary_modes_symlinks_and_portable_paths"}],
+    "limit":"Executable versus ordinary is the portable permission model. Ownership, timestamps, empty directories and all POSIX permission bits are outside it. The captured repository has no symlink entries; the focused inventory test exercises virtual symlink metadata.",
+    "decision":"Keep complete source equality separate from test success and source-edit reversibility."
+  },
+  "literate-projects/replay-is-exact-and-atomic.md": {
+    "title":"Reject a patch that does not fit its exact input",
+    "audience":"Reviewers applying an agent explanation or maintaining a patch-based construction.",
+    "example":"A patch expecting old text must fail if that text has changed. It must leave the input tree intact, including when a later hunk fails.",
+    "contract":"Given a virtual input tree and an explicitly declared UTF-8 unified patch, every hunk applies at its stated offsets with exact context. Invalid counts, overlaps, incorrect context, path collisions, unsupported headers, and incomplete deletions reject the whole act. The input tree is unchanged. BOM, CRLF, Unicode and final-newline differences remain data. Untouched bytes retain their origins; inserted bytes refer to the patch payload. Ordinary diff fences are display text.",
+    "mechanism":"The patch evaluator constructs a candidate tree in memory. It publishes that candidate only after the complete act succeeds. It never searches fuzzily for a similar place to apply a hunk.",
+    "implementation":["crates/hick-lang/src/project/patch.rs","crates/hick-lang/src/project/tree.rs"],
+    "tests":[{"file":"crates/hick-lang/tests/project.rs","name":"patch_preserves_bom_crlf_unicode_and_untouched_origins"},{"file":"crates/hick-lang/tests/project.rs","name":"newline_markers_add_delete_rename_and_failure_are_atomic"}],
+    "limit":"Binary, Git extended-header and mode-only patch operations are unsupported. Explicit entries can construct binary content and metadata.",
+    "decision":"State atomicity for the in-memory patch act; do not imply a filesystem transaction across all generated files."
+  },
+  "execution/output-lineage-round-trips-byte-for-byte.md": {
+    "title":"Carry a generated-text edit back to its local source",
+    "audience":"Document authors editing a generated text file and maintainers reviewing where that edit lands.",
+    "example":"Edit a literal range of generated app.py. Hickory maps the change back to its document; editing transcript output must be refused instead of inventing source.",
+    "contract":"Given a generated text output with byte-precise literal provenance, the local output-edit route maps supported edits back to their contributing source documents. Synthetic or ambiguous mappings are refused. The route reweaves current source, maps the requested output edits, and parses the proposed documents before applying them. The mapping promise covers byte-precise ranges; it does not make encoded binary entries reverse-editable.",
+    "mechanism":"The local route weaves the current documents, obtains provenance, and calls map_edits. It constructs and parses all updated documents before writing through the local document store. Postgres and a mandatory Git commit are absent from this local path.",
+    "implementation":["crates/hickory-cli/src/serve/outputs.rs","crates/hickory-lineage/src/lib.rs"],
+    "tests":[{"file":"crates/hickory-lineage/src/lib.rs","name":"maps_edit_within_one_span"},{"file":"crates/hickory-lineage/src/lib.rs","name":"rejects_synthetic_overlap_with_offending_range"}],
+    "limit":"The mapping unit tests do not certify HTTP concurrency or multi-document crash atomicity. HTTP and UI witnesses remain separate. The more general round-trip contract remains under lineage/ok-mapping-round-trips-byte-exact.md.",
+    "decision":"Replace the obsolete Postgres/hosted-last-run wording with the inspected local route. Preserve the hosted paragraph in its original evidence file."
+  },
+  "collaboration/local-session-writes-your-files.md": {
+    "title":"Persist local document edits in ordinary files",
+    "audience":"Authors switching between the desktop editor, their other editor, and Git.",
+    "example":"After a desktop edit is persisted, reading the Markdown file from another editor or git diff must show that edit without an export step.",
+    "contract":"Given a local document room, persisted source edits land in the Markdown file on that machine. The room uses the shared hickory-collab machinery and file-backed store. Document writes use a sibling temporary file and rename; closing the last socket requests a final persist. The CRDT sidecar supports room reconstruction and is not a replacement for the source file. The local service boundary and optional authenticated peer transport have separate contracts.",
+    "mechanism":"The shared room coalesces changes and asks FileDocStore to persist them. The socket-close path flushes before dropping the room. The directory lock prevents hick up and the desktop process from independently owning the same directory.",
+    "implementation":["crates/hickory-collab/src/lib.rs","crates/hickory-cli/src/serve/store.rs","crates/hickory-cli/src/serve/socket.rs"],
+    "tests":[{"file":"crates/hickory-cli/tests/serve_local.rs","name":"an_edit_in_one_editor_reaches_the_other_and_the_file_on_disk"}],
+    "limit":"A local document store does not imply that optional fleet transport is absent. Socket-close ordering, crash behavior and frontend acceptance require their own witnesses; this rewrite does not rerun the HTTP suite.",
+    "decision":"Remove the global no-sharing/no-relay claim from the local-persistence contract. Optional peer transport remains governed by its existing grant and disclosure guarantees."
+  },
+  "agent/byok-key-at-rest.md": {
+    "title":"Historical hosted-account key encryption",
+    "disposition":"historical",
+    "reason":"This contract requires apps/server/src/keyvault.rs, account rows, Postgres and a deployment encryption key. Those implementations are absent from the captured source. The local key-store contract is agent/keys-are-stored-locally-and-never-leave.md; it explicitly describes plaintext protected by local file permissions. Do not advertise hosted encryption for that store."
+  },
+  "agent/byok-key-selection.md": {
+    "title":"Historical account-key selection",
+    "disposition":"historical",
+    "reason":"The account-row and stale stored-preference contract refers to the removed apps/server backend. Provider selection in the current local runtime is a separate behavior, covered by agent/a-session-names-the-provider-it-actually-ran-on.md and the local key-store contract. Retain the old account rule as history rather than importing an account system into the new product boundary."
+  },
+  "agent/byok-plan-boundary.md": {
+    "title":"Historical hosted plan billing",
+    "disposition":"historical",
+    "reason":"The promised Open/Pro/Team/Business entitlements depend on plans.json and apps/server source that are absent from the capture. The Python-runtime amendment does not restore that billing system. Preserve this as a historical contract; current local provider selection must not inherit metered-account promises."
+  },
+  "collaboration/a-machine-is-a-keypair.md": {
+    "title":"Pair identity without silently granting execution",
+    "audience":"An engineer pairing their own machines and reviewing a lost machine's access.",
+    "example":"Pairing the same key twice must not restore an execute grant that was revoked. Registering identity alone must not be presented as an established connection.",
+    "contract":"Each machine retains its private identity locally and pairs by exchanging public identity. Fleet membership is mutual. Grants are per machine; execution is initially off, pairing is idempotent, conflicting identities under one name are refused, and damaged invitations fail. Registering a key does not by itself establish a network connection. Optional peer connectivity is governed by the peer-channel contract.",
+    "mechanism":"Fleet state stores identity, enrolled public keys and verb grants. The peer channel uses that identity when admitting a connection and checks the grants for each request.",
+    "implementation":["crates/hickory-fleet/src/lib.rs","crates/hickory-peer/src/grants.rs"],
+    "tests":[],
+    "limit":"The original contract also describes platform and invitation cases. Those clauses remain in historical evidence and require a full fleet review before the replacement can be accepted as exhaustive. This page is partially reviewed, not a certification of every pairing path.",
+    "decision":"Scope nothing-is-reachable to identity registration; remove the obsolete implication that the product has no optional connectivity."
+  },
+  "verification/predictions-precede-managed-observation.md": {
+    "title":"Keep a prediction separate from the answer it is tested against",
+    "audience":"Reviewers deciding whether an agent demonstrated an independent prediction rather than copying an observed answer.",
+    "example":"Predicting 160 and observing 160 still fails a requirement of at most 100. Changing the prediction after observing the result cannot earn first-attempt credit.",
+    "contract":"A managed attempt is admitted against a sealed prediction with exact source, input, dependency, environment and target identities. Matching a prediction and satisfying the original requirement are separate checks. Observed, stale, failed, replayed or unknown attempts cannot receive current certification. Exposure history remains attached to the scenario; changing source, names or sessions does not silently erase it. Human inspection records exposure before returning private answers. Interrupted attempts remain Unknown; corrupt history is refused.",
+    "mechanism":"The shared prediction ledger records sealing, admission, execution outcome, exposure and promotion as distinct operations. Host adapters determine identities and keep private answers outside model-facing context. Native and browser adapters therefore need their own boundary witnesses in addition to ledger tests.",
+    "implementation":["crates/hick-observe/src/prediction.rs"],
+    "tests":[],
+    "limit":"This is a concise review contract. Adapter-specific clauses from the 990-line original remain in historical evidence and the coverage-debt ledger until individually reconciled. Ledger success does not certify host isolation, browser freshness, publication or authenticated evidence against a same-user attacker.",
+    "decision":"Extract the core observable promise; separate historical checkpoints from current contract and explicitly retain adapter review debt."
+  },
+  "language/prefix-only-parsing-no-escaping.md": {
+    "title":"Bind the document language before quoting code",
+    "audience":"Authors embedding source code or Hickory examples in a literate document.",
+    "example":"A chapter using the book prefix can quote hick-prefixed examples without treating those examples as construction acts. Its explicit root selects the prefix before any quoted namespace declaration.",
+    "contract":"Given an explicit root binding a prefix to the Hickory namespace, tags in that prefix are parsed as Hickory structure. Other tag prefixes are ordinary text. No XML entity-escaping mechanism is required for ordinary raw text. Raw payload elements still terminate at their own literal closing delimiter, and Markdown fences and comments follow the parser's explicit rules.",
+    "mechanism":"Prefix resolution chooses the bound marker before parsing children. Raw entry payloads preserve their bytes until the matching closer. The construction generator uses an explicit book root and hex encoding when a payload cannot be represented by its raw delimiter.",
+    "implementation":["crates/hick-lang/src/lib.rs","crates/hick-lang/src/parser.rs"],
+    "tests":[{"file":"crates/hick-lang/src/lib/tests/tests.rs","name":"parse_text_content_with_special_chars"}],
+    "limit":"Namespace discovery scans text before normal child parsing. Bare documents quoting another namespace can select an unintended prefix; the rewrite avoids this by always binding its prefix explicitly. Parser tests do not establish all editor rendering behavior.",
+    "decision":"Retain the no-escaping model while naming the actual delimiter, comment and fence boundaries instead of promising every byte is raw everywhere."
+  }
+}
+</maint:entry>
+</maint:doc>

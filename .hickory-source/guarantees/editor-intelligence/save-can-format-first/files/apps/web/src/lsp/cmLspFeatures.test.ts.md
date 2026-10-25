@@ -1,0 +1,293 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# apps/web/src/lsp/cmLspFeatures.test.ts
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+- [A comparison keeps current code editable](../../../../../../../editing/a-comparison-keeps-current-code-editable/contract.md)
+- [Save Can Format First, With The File's Own Formatter](../../../../../contract.md)
+
+Captured SHA-256: `34f081f9fab7442b193f82636ebdc200a0885f7cadca294498f898f9942239be`.
+
+<book:entry path="apps/web/src/lsp/cmLspFeatures.test.ts">
+import { EditorState } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
+import { describe, expect, it } from "vitest";
+import {
+  diagnosticRanges,
+  diagnosticsAt,
+  lspDiagnosticField,
+  offsetToPosition,
+  positionToOffset,
+  setLspDiagnostics,
+} from "./cmLsp";
+import {
+  editsForUri,
+  formatView,
+  inlayHintField,
+  lspFeatures,
+  inlayText,
+  semanticTokenField,
+  setInlayHints,
+  setSemanticTokens,
+  signatureLabel,
+  urisInEdit,
+} from "./cmLspFeatures";
+
+function viewWith(doc: string, extensions = [semanticTokenField, inlayHintField]) {
+  return new EditorView({ state: EditorState.create({ doc, extensions }) });
+}
+
+function decorationCount(view: EditorView, field: typeof semanticTokenField) {
+  let count = 0;
+  view.state.field(field).between(0, view.state.doc.length, () => {
+    count++;
+  });
+  return count;
+}
+
+describe("semantic token decorations", () => {
+  it("paints the spans it is given", () => {
+    const view = viewWith("def load(path):\n    return path\n");
+    view.dispatch({
+      effects: setSemanticTokens.of([
+        { from: 0, to: 3, class: "cm-st-keyword" },
+        { from: 4, to: 8, class: "cm-st-function" },
+      ]),
+    });
+    expect(decorationCount(view, semanticTokenField)).toBe(2);
+  });
+
+  it("accepts spans in any order, because a server does not sort for us", () => {
+    // RangeSetBuilder throws on descending ranges, so an unsorted reply used
+    // to take the whole editor down rather than losing a colour.
+    const view = viewWith("abcdefghij");
+    expect(() =>
+      view.dispatch({
+        effects: setSemanticTokens.of([
+          { from: 6, to: 8, class: "cm-st-variable" },
+          { from: 0, to: 3, class: "cm-st-keyword" },
+        ]),
+      }),
+    ).not.toThrow();
+    expect(decorationCount(view, semanticTokenField)).toBe(2);
+  });
+
+  it("clamps a span that outlived the text it described", () => {
+    // Tokens arrive after a debounce, so the document may have shrunk in the
+    // meantime. Painting past the end would throw.
+    const view = viewWith("short");
+    view.dispatch({ effects: setSemanticTokens.of([{ from: 2, to: 900, class: "cm-st-type" }]) });
+    expect(decorationCount(view, semanticTokenField)).toBe(1);
+  });
+
+  it("drops an empty span rather than painting a zero-width mark", () => {
+    const view = viewWith("hello");
+    view.dispatch({ effects: setSemanticTokens.of([{ from: 3, to: 3, class: "cm-st-type" }]) });
+    expect(decorationCount(view, semanticTokenField)).toBe(0);
+  });
+});
+
+describe("inlay hints", () => {
+  it("places a widget at each hint position", () => {
+    const view = viewWith("x = load()\n");
+    view.dispatch({ effects: setInlayHints.of([{ at: 1, text: ": str" }]) });
+    expect(decorationCount(view, inlayHintField)).toBe(1);
+  });
+
+  it("joins a label given as parts", () => {
+    expect(inlayText({ position: { line: 0, character: 0 }, label: [{ value: ": " }, { value: "int" }] })).toBe(
+      ": int",
+    );
+    expect(inlayText({ position: { line: 0, character: 0 }, label: "-> bool" })).toBe("-> bool");
+  });
+});
+
+describe("diagnostics", () => {
+  it("carries the server's message through to the decoration", () => {
+    // An underline tells you WHERE the problem is and nothing about what it
+    // is. The message rides on the decoration so the hover can read it back
+    // without a second structure to keep in step.
+    const view = viewWith("const x: number = 'oops';", [lspDiagnosticField]);
+    view.dispatch({
+      effects: setLspDiagnostics.of([
+        { from: 18, to: 24, severity: 1, message: "Type 'string' is not assignable", source: "typescript" },
+      ]),
+    });
+    const found = diagnosticsAt(view.state, 20);
+    expect(found).toHaveLength(1);
+    expect(found[0].message).toContain("not assignable");
+    expect(found[0].source).toBe("typescript");
+    expect(found[0].severity).toBe(1);
+  });
+
+  it("finds nothing where there is nothing wrong", () => {
+    const view = viewWith("fine", [lspDiagnosticField]);
+    view.dispatch({ effects: setLspDiagnostics.of([]) });
+    expect(diagnosticsAt(view.state, 2)).toEqual([]);
+  });
+
+  it("keeps a zero-width diagnostic hoverable", () => {
+    // An insertion-point diagnostic has start == end; left alone it would be
+    // an underline with no width, which is a squiggle nobody can point at.
+    const spans = diagnosticRanges(
+      [{ range: r(0, 3, 0, 3), severity: 1, message: "expected `;`" }],
+      (position) => position.character,
+    );
+    expect(spans[0].to).toBeGreaterThan(spans[0].from);
+    expect(spans[0].message).toBe("expected `;`");
+  });
+});
+
+describe("workspace edits", () => {
+  const edit = {
+    changes: { "hick:///a.md": [{ range: r(0, 0, 0, 4), newText: "next" }] },
+    documentChanges: [
+      {
+        textDocument: { uri: "hick:///a.md", version: 1 },
+        edits: [{ range: r(2, 0, 2, 4), newText: "next" }],
+      },
+      {
+        textDocument: { uri: "hick:///b.md", version: 1 },
+        edits: [{ range: r(0, 0, 0, 4), newText: "next" }],
+      },
+    ],
+  };
+
+  it("takes this document's edits from both shapes a server may use", () => {
+    expect(editsForUri(edit, "hick:///a.md")).toHaveLength(2);
+  });
+
+  it("ignores edits addressed to another document", () => {
+    // Applying another file's ranges to this buffer would corrupt it at
+    // coordinates that happen to exist here.
+    expect(editsForUri(edit, "hick:///a.md").every((e) => e.newText === "next")).toBe(true);
+    expect(editsForUri(edit, "hick:///c.md")).toEqual([]);
+  });
+
+  it("accepts an encoded provider edit for the same spaced URI without applying a literal-percent filename", () => {
+    const rename = { changes: { "hick:///Application%20Support/main.cpp": [{ range: r(0, 4, 0, 10), newText: "squared" }] } };
+    expect(editsForUri(rename, "hick:///Application Support/main.cpp")).toHaveLength(1);
+    expect(editsForUri(rename, "hick:///Application%2520Support/main.cpp")).toEqual([]);
+    expect(editsForUri({ documentChanges: [{ textDocument: { uri: "hick:///Application%20Support/main.cpp", version: 1 }, edits: rename.changes["hick:///Application%20Support/main.cpp"] }] }, "hick:///Application Support/main.cpp")).toHaveLength(1);
+  });
+
+  it("names every document a rename touches, so the rest can be reported", () => {
+    expect(urisInEdit(edit).sort()).toEqual(["hick:///a.md", "hick:///b.md"]);
+  });
+
+  it("treats a refused rename as no edits rather than an error", () => {
+    expect(editsForUri(null, "hick:///a.md")).toEqual([]);
+    expect(urisInEdit(null)).toEqual([]);
+  });
+});
+
+describe("signature help", () => {
+  it("shows the active signature, not the first", () => {
+    expect(
+      signatureLabel({
+        signatures: [{ label: "(a: int)" }, { label: "(a: str, b: int)" }],
+        activeSignature: 1,
+      }),
+    ).toBe("(a: str, b: int)");
+  });
+
+  it("is empty when a server answers with no signatures", () => {
+    expect(signatureLabel({ signatures: [] })).toBe("");
+  });
+});
+
+function r(sl: number, sc: number, el: number, ec: number) {
+  return { start: { line: sl, character: sc }, end: { line: el, character: ec } };
+}
+
+// Protects docs/guarantees/editor-intelligence/save-can-format-first.md
+describe("formatting", () => {
+  /** A client that answers formatting and nothing else, with the rest of the
+   * bundle's requests quietly empty. */
+  function clientWith(edits: { range: { start: { line: number; character: number }; end: { line: number; character: number } }; newText: string }[]) {
+    return {
+      serverCapabilities: null,
+      formatting: async () => edits,
+      semanticTokens: async () => null,
+      inlayHints: async () => [],
+      documentHighlight: async () => [],
+      foldingRanges: async () => [],
+      signatureHelp: async () => null,
+    } as unknown as import("./client").LspClient;
+  }
+
+  function editorWith(doc: string, client: import("./client").LspClient) {
+    return new EditorView({
+      state: EditorState.create({
+        doc,
+        extensions: lspFeatures({
+          client,
+          uri: "hick:///a.rs",
+          positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
+          offsetAt: (position, view) => positionToOffset(view.state.doc, position),
+        }),
+      }),
+    });
+  }
+
+  it("applies the server's edits back to front, as one user edit", async () => {
+    // Two edits in server order. Applied forwards, the first would shift
+    // the second onto the wrong bytes.
+    const view = editorWith("a  b  c", clientWith([
+      { range: { start: { line: 0, character: 1 }, end: { line: 0, character: 3 } }, newText: " " },
+      { range: { start: { line: 0, character: 4 }, end: { line: 0, character: 6 } }, newText: " " },
+    ]));
+    expect(await formatView(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe("a b c");
+  });
+
+  it("says so, and changes nothing, when the server has no edits", async () => {
+    const view = editorWith("fine", clientWith([]));
+    expect(await formatView(view)).toBe(false);
+    expect(view.state.doc.toString()).toBe("fine");
+  });
+
+  it("is not offered by an editor without a language client", async () => {
+    const view = new EditorView({ state: EditorState.create({ doc: "x" }) });
+    expect(await formatView(view)).toBe(false);
+  });
+});
+
+// Guarantee: editing/a-comparison-keeps-current-code-editable.md.
+describe("language edits in a source projection",()=>{
+  const quietRequests = {
+    serverCapabilities: null,
+    semanticTokens: async () => null,
+    inlayHints: async () => [],
+    documentHighlight: async () => [],
+    foldingRanges: async () => [],
+    signatureHelp: async () => null,
+  };
+  it("refuses the entire formatting batch when an edit would cross reading fragments",async()=>{
+    const client={...quietRequests,formatting:async()=>[
+      {range:{start:{line:0,character:0},end:{line:0,character:1}},newText:"safe"},
+      {range:{start:{line:0,character:0},end:{line:1,character:1}},newText:"would eat prose"},
+    ]} as unknown as import("./client").LspClient;
+    const view=new EditorView({state:EditorState.create({doc:"a\n# Explanation\nb",extensions:lspFeatures({
+      client,uri:"hick:///a.py",positionAt:()=>({line:0,character:0}),offsetAt:()=>0,
+      rangeAt:range=>range.end.line===0?{from:0,to:1}:null,
+    })})});
+    expect(await formatView(view)).toBe(false);
+    expect(view.state.doc.toString()).toBe("a\n# Explanation\nb");
+    view.destroy();
+  });
+  it("discards formatting answers that arrive after the current buffer changed",async()=>{
+    let resolve!:(v:{range:{start:{line:number;character:number};end:{line:number;character:number}};newText:string}[])=>void;
+    const client={...quietRequests,formatting:()=>new Promise(r=>{resolve=r;})} as unknown as import("./client").LspClient;
+    const view=new EditorView({state:EditorState.create({doc:"old",extensions:lspFeatures({client,uri:"hick:///a.py",positionAt:()=>({line:0,character:0}),offsetAt:p=>p.character})})});
+    const pending=formatView(view);
+    view.dispatch({changes:{from:0,to:3,insert:"new"}});
+    resolve([{range:{start:{line:0,character:0},end:{line:0,character:3}},newText:"stale"}]);
+    expect(await pending).toBe(false); expect(view.state.doc.toString()).toBe("new"); view.destroy();
+  });
+});
+</book:entry>
+
+</book:doc>

@@ -1,0 +1,74 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# vmkit.conf
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+
+Captured SHA-256: `4f89b3ed341f55129db422e176e3d950a6fe3e703b671d441d72af3f1de3031d`.
+
+<book:entry path="vmkit.conf">
+# vmkit repo config — what THIS repo tests on pristine guest VMs.
+# The machine's VM inventory lives in ~/.config/vmkit/host.conf.
+#
+# Why this exists: `.instructions/continuous-delivery-downloadable.md` says the
+# artifact is the deliverable, so the artifact is what CI verifies — and that a
+# download must work with **no toolchain**. A GitHub-hosted runner cannot prove
+# the second half: it arrives with Rust, Node, Python and a package manager
+# already on it, so "it worked in CI" and "it works on a machine someone
+# downloaded it onto" are different claims. A reverted-to-golden VM is the only
+# place the second one can be tested.
+#
+# Guarantee: docs/guarantees/release/a-download-runs-without-a-rust-toolchain.md
+
+VMKIT_PROJECT="hickory"
+
+# Every run starts from the provisioned snapshot, so one test cannot leave
+# state that makes the next one pass.
+VMKIT_TEST_SNAP="built"
+
+# --- flavors -----------------------------------------------------------------
+# `download` — unpack the published archive on a machine that has never had a
+# toolchain, and use it. One script per platform family.
+#
+#   vmkit test linux download
+#   vmkit series download
+VMKIT_FLAVOR_DOWNLOAD_LINUX="vmtest/scripts/download.sh"
+VMKIT_FLAVOR_DOWNLOAD_MACOS="vmtest/scripts/download.sh"
+VMKIT_FLAVOR_DOWNLOAD_WINDOWS="vmtest/scripts/download.ps1"
+# Generous: the guest unpacks an archive and then EXECUTES a document, which
+# spawns real processes. Short enough that a wedged guest is still noticed.
+VMKIT_FLAVOR_DOWNLOAD_TIMEOUT=900
+
+# `sandbox` -- does the confinement actually confine? Windows only for now,
+# because AppContainer is the one implementation nothing has ever run: CI is
+# Linux and macOS, and the release job smoke-tests the Windows binary with
+# `--version`. Linux and macOS confinement is covered for real by
+# `crates/hickory-executor-sandbox/tests/confinement.rs`, which those CI jobs do
+# run; adding them here would be a third copy of the same assertions.
+VMKIT_FLAVOR_SANDBOX_WINDOWS="vmtest/scripts/sandbox.ps1"
+VMKIT_FLAVOR_SANDBOX_TIMEOUT=600
+
+# --- artifact plumbing -------------------------------------------------------
+# The archive under test, staged by CI (or by hand) before the run. Every path
+# is x86_64 on purpose: these guests are x86_64 because the host is, and an
+# artifact built for the wrong architecture fails as a wall of unexplained
+# assertion failures rather than as "wrong architecture" (vmkit FAILURES #17).
+VMKIT_ARTIFACT_ENV="HICKORY_ARCHIVE"
+VMKIT_ARTIFACT_LINUX="vmtest/.artifacts/linux/hick-x86_64-unknown-linux-gnu.tar.gz"
+VMKIT_ARTIFACT_MACOS="vmtest/.artifacts/macos/hick-x86_64-apple-darwin.tar.gz"
+VMKIT_ARTIFACT_WINDOWS="vmtest/.artifacts/windows/hick-x86_64-pc-windows-msvc.zip"
+
+# The version the archive claims to be, so the guest can check the binary
+# agrees with the name it was published under — the installer/asset-name
+# contract in `continuous-delivery-downloadable.md`.
+VMKIT_ENV_FORWARD="HICKORY_EXPECT_VERSION"
+
+# Nothing here should outlive a run, but a document's cell can spawn a process
+# that does. Named so a wedged guest does not poison the next test.
+VMKIT_KILL_WINDOWS="hick.exe hick-lsp.exe"
+VMKIT_KILL_UNIX="hick hick-lsp"
+</book:entry>
+
+</book:doc>

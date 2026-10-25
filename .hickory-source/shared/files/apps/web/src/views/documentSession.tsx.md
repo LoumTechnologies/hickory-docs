@@ -1,0 +1,962 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# apps/web/src/views/documentSession.tsx
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+- [A Keystroke Redraws Only The Editor](../../../../../../guarantees/authoring/a-keystroke-redraws-only-the-editor/contract.md)
+- [Saved means the displayed bytes reached the file](../../../../../../guarantees/authoring/saved-means-the-displayed-bytes-reached-the-file/contract.md)
+- [Debug uses the latest project containing the displayed code](../../../../../../guarantees/debugging/debug-uses-the-latest-project-containing-the-displayed-code/contract.md)
+- [A failed action keeps its editor](../../../../../../guarantees/execution/a-failed-action-keeps-its-editor/contract.md)
+- [An Element Is Drawn By Its View](../../../../../../guarantees/language/an-element-is-drawn-by-its-view/contract.md)
+
+Captured SHA-256: `36a5e257628fcf4d05568ae520b687aaca45ad6534136b82f923ded96ffd9b1f`.
+
+<book:entry path="apps/web/src/views/documentSession.tsx">
+import { useDocumentRender } from "./useDocumentRender";
+import { runCellFresh } from "./runCellFresh";
+import { completedRunBlocks, failedRunBanner, settleDocumentRun } from "./documentRunResults";
+export { completedRunBlocks, failedRunBanner, settleDocumentRun } from "./documentRunResults";
+import { inlineEvaluationOwner } from "../debug/inlineEval";
+import { useDocumentRunActions } from "./uiDocumentRunActions";
+import { rememberReadingState, restoreReadingState } from "../lib/contextProjection";
+import { launchWithProfiles } from "../debug/launchProfiles";
+import { documentDebugContext } from "../debug/documentDebugContext";
+import { bindProjectDebugView } from "../debug/projectDebugSurface";
+import { completionSource, completionSources } from "../lsp/completion";
+import { usePublishDebugSession } from "../debug/plainDebugHosts";
+import { useDocumentPersistence, type SyncState } from "./useDocumentPersistence";
+// One document's machinery, alive for as long as the workspace holds any of
+// its tabs.
+//
+// This is the per-document half of what views/DocumentView.tsx used to be.
+// The workspace (views/WorkspaceView.tsx) owns the layout and outlives
+// navigation; each open document gets one of these sessions — its CRDT room,
+// runs, outputs, LSP, and debugger — keyed by doc id. Rooms are keyed by doc
+// id server-side too, so N live rooms is the natural shape, not a special
+// case.
+//
+// Sessions are published through a small external store (SessionRegistry)
+// because their consumers live in different panes of one layout: the
+// document's own tab, each generated-file tab it owns, the toolbar, and the
+// ribbon overlay all read the same session. A React context would work for
+// the tabs but not for the workspace chrome above them.
+
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import type { Extension } from "@codemirror/state";
+import type { EditorView } from "@codemirror/view";
+
+import { api, MOCK } from "../api/client";
+import { WsRealtime, getSharedRealtime, type Realtime } from "../api/realtime";
+import type { Block, DiagramBlock, Doc, ExecBlock, OutputFile, RunWsMessage, SourceEdit } from "../api/types";
+import { flashSpans } from "../editor/changeFlash";
+import { usePrompt } from "../components/PromptPanel";
+import { byteToChar } from "../lib/offsets";
+import { useDraftKeeper } from "../lib/drafts";
+import { useLsp } from "../lsp/useLsp";
+import {
+  lspSupport,
+  offsetToPosition,
+  positionToOffset,
+  type LspNavigationTarget,
+} from "../lsp/cmLsp";
+import { lspFeatures } from "../lsp/cmLspFeatures";
+import { useDebugger } from "../debug/useDebugger";
+import { debugEditor, debugStateEffects, revealLine } from "../debug/cmDebug";
+import { positionToUtf16 } from "../lsp/positions";
+import { sourcePositionAt, type OutputProvenance } from "../lsp/outputMapping";
+import type { LspLocation } from "../lsp/client";
+import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
+import { openLocation, pathOfDocUri } from "../lib/revealLine";
+import { publishPausedElsewhere } from "../lib/pausedElsewhere";
+import { navigate } from "../router";
+
+export type Banner = { kind: "pending" | "pass" | "fail"; text: string; retry?: { label: string; run: () => void } } | null;
+
+/** The up-loop's "this document's generated files changed on disk" event
+ * (watch.rs::notify_files_changed). It rides the run channel but is neither
+ * a transcript event nor a terminal status — without this guard it would
+ * fall into the terminal-status branch and clear running cells for a run
+ * that never was. */
+export function isFilesChanged(msg: RunWsMessage): msg is { files_changed: true; doc: string } {
+  return "files_changed" in msg && msg.files_changed === true;
+}
+
+/**
+ * Scroll a generated pane to a range and flash it.
+ *
+ * The same idea as the debugger's frame reveal: moving somewhere silently
+ * leaves a person hunting for what changed.
+ */
+export function revealRange(view: EditorView, range: [number, number]) {
+  const to = Math.min(range[1], view.state.doc.length);
+  const from = Math.min(range[0], to);
+  view.dispatch({
+    selection: { anchor: from, head: to },
+    scrollIntoView: true,
+  });
+  view.focus();
+}
+
+/** Everything one open document is: state for its tabs, chrome for the
+ * workspace, actions for both. Published anew on every change. */
+export interface DocSession {
+  docId: string;
+  doc: Doc | null;
+  blocks: Block[] | null;
+  /** A failure to LOAD the document (missing, forbidden) — fatal to its tab,
+   * never to the workspace. */
+  fatalError: string | null;
+  /** A failed weave, reported inline; the editor stays reachable. */
+  renderError: string | null;
+  banner: Banner;
+  syncState: SyncState;
+  /** Live text differs from the last confirmed disk bytes. */
+  dirty: boolean;
+  liveSource: string;
+  startDebugFile: (path: string, at?: number, choose?: boolean) => void;
+  savedSource: string | null;
+  runningCells: Set<string>;
+  execBlocks: ExecBlock[];
+  /** Diagram bodies with pastes resolved server-side — a derived diagram is
+   * unreadable from its raw source alone. */
+  diagramBlocks: DiagramBlock[];
+  /** Every file this document generates, with provenance — open or not. */
+  outputs: Map<string, OutputFile>;
+  /** The editors currently showing one, keyed by path. */
+  openOutputs: Map<string, EditorView>;
+  docEditor: EditorView | null;
+  realtime: Realtime;
+  debug: ReturnType<typeof useDebugger>;
+  selectSpan: [number, number] | null;
+  references: { locations: LspLocation[]; query: string } | null;
+  prompt: ReturnType<typeof usePrompt>["prompt"];
+  settle: ReturnType<typeof usePrompt>["settle"];
+  askText: ReturnType<typeof usePrompt>["askText"];
+  lspDiagnostics: ReturnType<typeof useLsp>["diagnostics"];
+  lspExtensions: Extension[];
+  /** The session's client and URI, for the editor's completion source. */
+  lspCompletion: { client: import("../lsp/client").LspClient; uri: string } | null;
+
+  refresh: () => void;
+  runCell: (execId: string) => void;
+  runAll: () => void;
+  verify: () => void;
+  setDirtySource: (source: string) => void;
+  /** A byte span from provenance or LSP: select it in the document editor. */
+  onSelectSpan: (span: [number, number]) => void;
+  /** An output edit resolved into the document: flash where it landed. */
+  flashSourceEdits: (edits: SourceEdit[]) => void;
+  makeOutputLsp: (provenance: OutputProvenance[]) => Extension[];
+  registerOutputView: (path: string, view: EditorView | null) => void;
+  onDocViewReady: (view: EditorView | null) => void;
+  selectFrameAndReveal: (id: number) => void;
+  openTarget: (target: LspNavigationTarget | LspLocation) => void;
+  clearReferences: () => void;
+  revealDocLine: (line: number) => void;
+  /** Reveal a range in a generated file's editor — now, or as soon as the
+   * pane the caller just opened has one. */
+  revealOutput: (path: string, range: [number, number]) => void;
+  menuSave: () => Promise<boolean>;
+  menuSaveAs: () => void;
+  discardUnsaved: () => Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// The registry: sessions as an external store
+// ---------------------------------------------------------------------------
+
+export class SessionRegistry {
+  private sessions = new Map<string, DocSession>();
+  private listeners = new Set<() => void>();
+  /** Bumped on every publish/drop — a cheap snapshot for subscribers that
+   * read several sessions at once (the workspace chrome). */
+  version = 0;
+
+  publish(session: DocSession): void {
+    // A session hook re-runs on every keystroke (the dirty buffer is its
+    // state), and each run hands over a fresh object. Re-publishing one whose
+    // every field is the same would re-render the workspace chrome — every
+    // pane, rail and ruler in the window — for a change nothing can see.
+    // Shallow equality is exactly the test, because the hook keeps every
+    // field referentially stable unless it changed.
+    const current = this.sessions.get(session.docId);
+    if (current && sameSession(current, session)) return;
+    this.sessions.set(session.docId, session);
+    this.emit();
+  }
+
+  drop(docId: string): void {
+    if (this.sessions.delete(docId)) this.emit();
+  }
+
+  get(docId: string | null | undefined): DocSession | undefined {
+    return docId ? this.sessions.get(docId) : undefined;
+  }
+
+  all(): DocSession[] {
+    return [...this.sessions.values()];
+  }
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+
+  private emit(): void {
+    this.version += 1;
+    for (const listener of [...this.listeners]) listener();
+  }
+}
+
+/** Shallow equality over a session's fields — the registry's "did anything
+ * a consumer reads change" test. */
+function sameSession(a: DocSession, b: DocSession): boolean {
+  const keys = Object.keys(b) as (keyof DocSession)[];
+  if (keys.length !== Object.keys(a).length) return false;
+  return keys.every((key) => Object.is(a[key], b[key]));
+}
+
+/** Re-render whenever ANY session publishes; read sessions off the registry
+ * during render. For the workspace, which draws chrome for several. */
+export function useSessionVersion(registry: SessionRegistry): number {
+  return useSyncExternalStore(registry.subscribe, () => registry.version);
+}
+
+/** Read one document's live session, re-rendering as it changes. */
+export function useDocSession(
+  registry: SessionRegistry,
+  docId: string | null | undefined,
+): DocSession | undefined {
+  return useSyncExternalStore(registry.subscribe, () => registry.get(docId));
+}
+
+// ---------------------------------------------------------------------------
+// The host: one mounted component per open document
+// ---------------------------------------------------------------------------
+
+/**
+ * Runs a document's session and publishes it. Renders nothing — the tabs
+ * that SHOW the document subscribe through the registry, which is what lets
+ * the session outlive any particular tab (a generated file can stay open
+ * after its document's tab closes, and the ribbons still know the way back).
+ *
+ * Memoized so the workspace re-rendering on a publish does not re-render
+ * every host, which would publish again, forever.
+ */
+export const DocSessionHost = memo(function DocSessionHost({
+  registry,
+  docId,
+  openGenerated,
+  retainUnsaved = false,
+}: {
+  registry: SessionRegistry;
+  docId: string;
+  /** Open one of THIS document's generated files in the layout. */
+  openGenerated: (docId: string, path: string) => void;
+  retainUnsaved?: boolean;
+}) {
+  const session = useDocumentSession(docId, openGenerated, retainUnsaved);
+  useEffect(() => {
+    registry.publish(session);
+  });
+  useEffect(() => () => registry.drop(docId), [registry, docId]);
+  return null;
+});
+
+// ---------------------------------------------------------------------------
+// The session itself (moved, near-verbatim, from views/DocumentView.tsx)
+// ---------------------------------------------------------------------------
+
+function useDocumentSession(
+  docId: string,
+  openGeneratedFor: (docId: string, path: string) => void,
+  retainUnsaved: boolean,
+): DocSession {
+  const openGenerated = useCallback(
+    (path: string) => openGeneratedFor(docId, path),
+    [openGeneratedFor, docId],
+  );
+  const [doc, setDoc] = useState<Doc | null>(null);
+  const [blocks, setBlocks] = useState<Block[] | null>(null);
+  const [fatalError, setFatalError] = useState<string | null>(null);
+  const [renderError, setRenderError] = useState<string | null>(null);
+  const [runningCells, setRunningCells] = useState<Set<string>>(new Set());
+  const [banner, setBanner] = useState<Banner>(null);
+  const [selectSpan, setSelectSpan] = useState<[number, number] | null>(null);
+  const [dirtySource, setDirtySource] = useState<string | null>(null);
+  const { savedSource, setSavedSource, syncState, setSyncState } = useDocumentPersistence(docId, doc, dirtySource, stored => { setDoc(stored); void refreshRender(stored.source); });
+  const [references, setReferences] = useState<{ locations: LspLocation[]; query: string } | null>(
+    null,
+  );
+
+  // Rename and code-action need an answer from the user before the edit can
+  // be applied; this is that answer, in-app rather than in a modal.
+  const { prompt, askText, askChoice, settle } = usePrompt();
+
+  const checkRunRef = useRef<string | null>(null);
+  const [lastRunId, setLastRunId] = useState<string | null>(null);
+  // Fast local runs can finish (and emit their terminal WS message) before
+  // the POST /check response delivers the run_id — remember terminals so
+  // verify() can resolve the banner after the fact.
+  const terminalStatusesRef = useRef<Map<string, string>>(new Map());
+  const startedCellsRef = useRef<Set<string>>(new Set());
+  const requestedCellsRef = useRef<Set<string>>(new Set());
+  const knownDocumentRunsRef = useRef<Set<string>>(new Set());
+
+  const realtime: Realtime = useMemo(() => {
+    // In mock mode a shared local bus is registered at startup so fake run
+    // events reach this session without a network socket.
+    const shared = getSharedRealtime();
+    if (MOCK && shared) return shared;
+    return new WsRealtime(`doc:${docId}`);
+  }, [docId]);
+
+  useEffect(() => {
+    // `reopen` before `close`, and both on the same object, because the memo
+    // above is not re-run when this effect mounts a second time. Under
+    // StrictMode — a dev build only — React mounts, cleans up, and mounts
+    // again; without the reopen the second mount would hold the socket the
+    // first cleanup shut, and the document would never sync. A production
+    // bundle never double-mounts, which is why running this app from Vite for
+    // the first time is what surfaced it.
+    realtime.reopen();
+    return () => {
+      if (realtime !== getSharedRealtime()) realtime.close();
+    };
+  }, [realtime]);
+
+  // The debugger. It is a READER: nothing it does can change the document,
+  // its generated files, or a recorded transcript — the channel carries no
+  // edit operation and the debuggee runs in a scratch copy.
+  const debug = useDebugger(realtime, doc?.path ?? "");
+  usePublishDebugSession(doc?.path ?? "", debug);
+  const debugRef = useRef(debug);
+  debugRef.current = debug;
+  const editorRef = useRef<EditorView | null>(null);
+  // Selecting a frame — from the strip's combo box or a gutter stack mark —
+  // is asking to go there, and a jump with no sign of having moved leaves
+  // you hunting for what changed.
+  const selectFrameAndReveal = useCallback((id: number) => {
+    const session = debugRef.current;
+    session.selectFrame(id);
+    const frame = session.frames.find((candidate) => candidate.id === id);
+    const view = editorRef.current;
+    if (view && frame?.line !== null && frame?.line !== undefined) {
+      revealLine(view, frame.line);
+    }
+  }, []);
+  // Every file this document generates, with its provenance — not only the
+  // ones on screen. A relationship you cannot see is one you will not look
+  // for, so a file that is closed still gets a stub reaching off the edge of
+  // the document's pane with its name on it.
+  const [outputs, setOutputs] = useState<Map<string, OutputFile>>(new Map());
+  // The editors currently showing one, keyed by path.
+  const [openOutputs, setOpenOutputs] = useState<Map<string, EditorView>>(new Map());
+  const [docEditor, setDocEditor] = useState<EditorView | null>(null);
+  useEffect(() => { if(docEditor && doc?.path) bindProjectDebugView(doc.path,docEditor); }, [docEditor,doc?.path]);
+  // Bumped by the up-loop's files_changed event: outputs changed on disk
+  // without a run or a render in this window.
+  const [outputsRefresh, setOutputsRefresh] = useState(0);
+
+  // Push the debugger's state into the editor: the gutter dots, the paused
+  // line, and the values shown at the end of each line.
+  useEffect(() => {
+    const view = editorRef.current;
+    if (!view) return;
+    view.dispatch({ effects: debugStateEffects(debug) });
+  }, [debug.breakpoints, debug.pausedLine, debug.variables, debug.frames, debug.watches, docEditor]);
+
+  // A document's debuggee stopped in a plain file of the folder: that file's
+  // pane draws the paused line, and the workspace opens it. Same store the
+  // plain-file pane publishes to (lib/pausedElsewhere.ts).
+  useEffect(() => {
+    const owner = docPathRef.current ?? "";
+    const top = debug.frames[0];
+    const source = top?.source ?? null;
+    const inFolder = !!source && !/^([A-Za-z]:)?[\\/]/.test(source);
+    if (debug.status === "paused" && top && !top.in_document && inFolder && typeof top.source_line === "number") {
+      publishPausedElsewhere(owner, { path: source, line: top.source_line });
+      openLocation(source, top.source_line + 1);
+    } else {
+      publishPausedElsewhere(owner, null);
+    }
+  }, [debug.status, debug.frames]);
+
+  const { refreshRender, scheduleRender } = useDocumentRender(docId,
+    () => dirtySource ?? doc?.source ?? null, setBlocks,
+    error => { setRenderError(error); if (error) setBlocks(previous => previous ?? []); });
+
+  const loadedDoc = useRef(doc); loadedDoc.current = doc;
+  const refresh = useCallback(() => {
+    api.doc(docId).then(d => { setDoc(d); setFatalError(null); }, e => {
+      if (loadedDoc.current) setBanner({ kind: "fail", text: `Could not reload ${loadedDoc.current.path}: ${String(e.message ?? e)}`, retry: { label: "Retry reload", run: refresh } });
+      else setFatalError(String(e.message ?? e));
+    });
+    void refreshRender();
+  }, [docId, refreshRender]);
+
+  useEffect(refresh, [refresh]);
+
+  // Recovery drafts are separate from acknowledged file persistence.
+  // Previously named files opt into recovery; Untitled has its own policy.
+  useDraftKeeper({
+    path: doc?.path ?? null,
+    enabled: retainUnsaved && doc !== null && savedSource !== null,
+    read: () => ({
+      contents: dirtySource ?? doc?.source ?? "",
+      base: savedSource ?? doc?.source ?? "",
+    }),
+  });
+  const restoredDraft = useRef(false);
+  useEffect(() => {
+    if (!retainUnsaved || !doc || !docEditor || restoredDraft.current) return;
+    restoredDraft.current = true;
+    void api.drafts().then(({ drafts }) => {
+      const draft = drafts.find((candidate) => candidate.path === doc.path);
+      if (!draft || draft.contents === draft.base) return;
+      const current = docEditor.state.doc.toString();
+      if (current !== draft.contents) {
+        docEditor.dispatch({
+          changes: { from: 0, to: docEditor.state.doc.length, insert: draft.contents },
+        });
+      }
+      setSavedSource(draft.base);
+      setDirtySource(draft.contents);
+    });
+  }, [retainUnsaved, doc, docEditor]);
+
+  // Live run events: append to the matching cell's transcript.
+  useEffect(() => {
+    return realtime.onRunEvent((msg) => {
+      if (isFilesChanged(msg)) {
+        // The server's up-loop re-wove this document and something on disk
+        // actually changed: refetch the outputs (the effect below), which
+        // flows fresh content into every open generated pane, where the
+        // changed text gets its flash.
+        setOutputsRefresh((n) => n + 1);
+        return;
+      }
+      if (!("event" in msg)) {
+        // Terminal run status.
+        const started = new Set(startedCellsRef.current);
+        const requested = new Set(requestedCellsRef.current);
+        terminalStatusesRef.current.set(msg.run_id, msg.status);
+        if (msg.run_id === checkRunRef.current) {
+          checkRunRef.current = null;
+          setBanner(
+            msg.status === "ok"
+              ? { kind: "pass", text: "Test passed — expectations match and outputs have no drift." }
+              : { kind: "fail", text: "Test failed — inspect expectation differences and output drift." },
+          );
+        }
+        const clearProgress = () => {
+          setRunningCells(new Set());
+          startedCellsRef.current = new Set();
+          requestedCellsRef.current = new Set();
+        };
+        // The RUN's blocks, not a fresh render.
+        //
+        // `/render` re-weaves the document without executing, and a document
+        // with no recorded transcript reports every cell as "never run" —
+        // which is what it says a second after a successful run, because a
+        // run does not record unless it was asked to. The run's own block
+        // model has the transcripts in it, so that is what the cells show.
+        void settleDocumentRun(msg.run_id, knownDocumentRunsRef.current,
+          (run) => {
+            clearProgress();
+            setBlocks(prev => completedRunBlocks(run, prev, started, requested));
+            const failure = failedRunBanner(run);
+            if (failure) setBanner(failure);
+            if (!run.blocks?.length && run.status !== "failed") scheduleRender();
+          },
+          (error) => {
+            clearProgress();
+            setBanner({ kind: "fail", text: `Could not load run results: ${error instanceof Error ? error.message : String(error)}` });
+          },
+        );
+        return;
+      }
+      const { exec_id, event } = msg;
+      if (exec_id === "agent") return; // agent panel handles its own stream
+      // Agent-shaped events carry no `t`; only transcript entries belong in
+      // a cell's transcript (the exec_id guard above should already have
+      // filtered them, but the type does not promise that correlation).
+      if (!("t" in event)) return;
+      setRunningCells((prev) => (prev.has(exec_id) ? prev : new Set(prev).add(exec_id)));
+      setBlocks((prev) => {
+        if (!prev) return prev;
+        return prev.map((b) => {
+          if (b.kind !== "exec" || b.id !== exec_id) return b;
+          const fresh = !startedCellsRef.current.has(exec_id);
+          if (fresh) startedCellsRef.current.add(exec_id);
+          const transcript = fresh ? [event] : [...(b.transcript ?? []), event];
+          const status =
+            event.kind === "exit" ? (event.code === 0 ? ("ok" as const) : ("failed" as const)) : b.status;
+          return { ...b, transcript, status, runError: undefined };
+        });
+      });
+      if (event.kind === "exit") {
+        setRunningCells((prev) => {
+          const next = new Set(prev);
+          next.delete(exec_id);
+          return next;
+        });
+      }
+    });
+  }, [realtime, docId, scheduleRender]);
+
+  const runCell = useCallback(
+    (execId: string) => {
+      void (async () => {
+        setBanner(null);
+        startedCellsRef.current.delete(execId);
+        requestedCellsRef.current.add(execId);
+        setBlocks(prev => prev?.map(block => block.kind === "exec" && block.id === execId ? { ...block, runError: undefined } : block) ?? prev);
+        setRunningCells((prev) => new Set(prev).add(execId));
+        try {
+          const outcome = await runCellFresh(docId, execId, () => liveSourceRef.current);
+          if (outcome.outcome === "run") knownDocumentRunsRef.current.add(outcome.run_id);
+        } catch (e) {
+          setRunningCells((prev) => {
+            const next = new Set(prev);
+            next.delete(execId);
+            return next;
+          });
+          setBanner({ kind: "fail", text: `Could not run this cell: ${e instanceof Error ? e.message : String(e)}`, retry: { label: "Retry cell", run: () => runCell(execId) } });
+        }
+      })();
+    },
+    [docId],
+  );
+
+  const blocksRef = useRef(blocks);
+  blocksRef.current = blocks;
+
+  const runAll = useCallback((expectedSourceHash?: string): Promise<string | null> => {
+    return (async () => {
+      setBanner(null);
+      startedCellsRef.current = new Set();
+      const ids = (blocksRef.current ?? []).filter((b) => b.kind === "exec").map((b) => b.id);
+      requestedCellsRef.current = new Set(ids);
+      setBlocks(prev => prev?.map(block => block.kind === "exec" ? { ...block, runError: undefined } : block) ?? prev);
+      // A document with no cells has nothing to run, and a button that
+      // appears to do nothing is worse than one that says so: the run
+      // happens either way (it re-weaves), but the only visible sign of it
+      // is in cells that do not exist here.
+      if (ids.length === 0) {
+        setBanner({ kind: "pending", text: "Nothing to run — this document has no exec cells. Re-weaving it." });
+      }
+      setRunningCells(new Set(ids));
+      try {
+        const { run_id } = await api.run(docId, undefined, expectedSourceHash);
+        knownDocumentRunsRef.current.add(run_id);
+        setLastRunId(run_id);
+        if (ids.length === 0) {
+          setBanner({ kind: "pass", text: "Re-woven. This document has no exec cells to run." });
+          scheduleRender();
+        }
+        return run_id;
+      } catch (e) {
+        setRunningCells(new Set());
+        setBanner({ kind: "fail", text: `Could not run this document: ${e instanceof Error ? e.message : String(e)}`, retry: { label: "Retry Run", run: runAll } });
+        return null;
+      }
+    })();
+  }, [docId, scheduleRender]);
+
+  const verify = useCallback((expectedSourceHash?: string): Promise<string | null> => {
+    return (async () => {
+      setBanner({ kind: "pending", text: "Testing — re-running cells and checking expectations and output drift…" });
+      startedCellsRef.current = new Set();
+      const requested = new Set((blocksRef.current ?? []).filter(block => block.kind === "exec").map(block => block.id));
+      requestedCellsRef.current = requested;
+      setBlocks(prev => prev?.map(block => block.kind === "exec" ? { ...block, runError: undefined } : block) ?? prev);
+      try {
+        const { run_id } = await api.check(docId, expectedSourceHash);
+        knownDocumentRunsRef.current.add(run_id);
+        setLastRunId(run_id);
+        const already = terminalStatusesRef.current.get(run_id);
+        if (already !== undefined) {
+          setBanner(
+            already === "ok"
+              ? { kind: "pass", text: "Test passed — expectations match and outputs have no drift." }
+              : { kind: "fail", text: "Test failed — inspect expectation differences and output drift." },
+          );
+          // A short run may finish before the check request returns. Read
+          // its receipt here too: a fresh render would erase its failure
+          // transcript and the generic banner would hide its diagnostic.
+          void api.runStatus(run_id).then(run => {
+            setBlocks(prev => completedRunBlocks(run, prev, new Set(), requested));
+            const failure = failedRunBanner(run);
+            if (failure) setBanner(failure);
+          }, () => undefined);
+        } else {
+          checkRunRef.current = run_id;
+        }
+        return run_id;
+      } catch (e) {
+        setBanner({ kind: "fail", text: `Could not test this document: ${e instanceof Error ? e.message : String(e)}`, retry: { label: "Retry Test", run: verify } });
+        return null;
+      }
+    })();
+  }, [docId, scheduleRender]);
+
+  useDocumentRunActions(docId, () => editorRef.current?.state.doc.toString() ?? dirtySource ?? savedSource ?? doc?.source ?? null, lastRunId, runAll, verify);
+
+  // Load every output's provenance, so a closed file still gets its stub.
+  // Refreshed after a run, because a run is when they change.
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      const listed = await api.outputs(docId).catch(() => ({ files: [] }));
+      const loaded = await Promise.all(
+        listed.files.map((meta) => api.outputFile(docId, meta.path).catch(() => null)),
+      );
+      if (!live) return;
+      setOutputs(new Map(loaded.filter(Boolean).map((file) => [file!.path, file!])));
+      // A run is when files on disk change; every mounted folder tree
+      // listens for this and refetches.
+      window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
+    })();
+    return () => {
+      live = false;
+    };
+  }, [docId, blocks, outputsRefresh]);
+
+  // A click on a stub opens the file; the reveal has to wait for its editor.
+  const pendingReveal = useRef<{ path: string; range: [number, number] } | null>(null);
+  useEffect(() => {
+    const waiting = pendingReveal.current;
+    if (!waiting) return;
+    const view = openOutputs.get(waiting.path);
+    if (!view) return;
+    pendingReveal.current = null;
+    revealRange(view, waiting.range);
+  }, [openOutputs]);
+
+  const openOutputsRef = useRef(openOutputs);
+  openOutputsRef.current = openOutputs;
+  const revealOutput = useCallback((path: string, range: [number, number]) => {
+    const view = openOutputsRef.current.get(path);
+    if (view) revealRange(view, range);
+    else pendingReveal.current = { path, range };
+  }, []);
+
+  const revealDocLine = useCallback((line: number) => {
+    const view = editorRef.current;
+    if (view) revealLine(view, line);
+  }, []);
+
+  // ---- native menu: Save / Save As ---------------------------------------
+  //
+  // The desktop menu's Save and Save As arrive from App as one window event
+  // (the accelerators live in the native menu, so nothing here binds Cmd+S);
+  // the workspace routes them to the FOCUSED document's session. Save is
+  // explicit persistence of the live buffer; Save As creates a copy at a new
+  // relative path via the same createDoc the untitled buffer uses.
+  const menuStateRef = useRef({ doc, dirtySource });
+  menuStateRef.current = { doc, dirtySource };
+  const menuSave = useCallback(async () => {
+    const { doc, dirtySource } = menuStateRef.current;
+    if (!doc) return false;
+    const source = dirtySource ?? doc.source;
+    try {
+      const saved = await api.saveDoc(doc.id, source);
+      setDoc(saved);
+      setSavedSource(source);
+      void refreshRender(source);
+      const latest = menuStateRef.current;
+      const unchanged = (latest.dirtySource ?? latest.doc?.source) === source;
+      setSyncState(unchanged ? "saved" : "editing");
+      setBanner(current => current?.retry?.label === "Retry Save" ? null : current);
+      if (unchanged) void api.discardDraft(doc.path).catch(() => {});
+      return unchanged;
+    } catch (e) {
+      setSyncState("failed");
+      setBanner({ kind: "fail", text: e instanceof Error ? e.message : String(e), retry: { label: "Retry Save", run: () => { void menuSave(); } } });
+      return false;
+    }
+  }, [refreshRender]);
+  const discardUnsaved = useCallback(async () => {
+    const current = menuStateRef.current.doc;
+    if (!current || savedSource === null) return;
+    const restored = await api.saveDoc(current.id, savedSource);
+    setDoc(restored);
+    setDirtySource(savedSource);
+    setSyncState("saved");
+    void api.discardDraft(current.path).catch(() => {});
+  }, [savedSource]);
+  const menuSaveAs = useCallback(() => {
+    const { doc, dirtySource } = menuStateRef.current;
+    if (!doc) return;
+    const source = dirtySource ?? doc.source;
+    void (async () => {
+      const path = await askText("Save a copy as (relative path):", doc.path, { agent: true, currentRevision: () => `${menuStateRef.current.doc?.id}:${menuStateRef.current.dirtySource ?? menuStateRef.current.doc?.source}` });
+      if (!path) return;
+      try {
+        const project = (await api.projects())[0];
+        if (!project) throw new Error("no folder is open");
+        const created = await api.createDoc(project.id, path.trim(), source);
+        navigate(`/docs/${created.id}`);
+      } catch (e) {
+        // createDoc refuses paths outside the folder; its message says so.
+        setBanner({ kind: "fail", text: e instanceof Error ? e.message : String(e) });
+      }
+    })();
+  }, [askText]);
+
+  // A span arriving from provenance or an LSP hit indexes the document's
+  // BYTES; the editor selects by character.
+  const onSelectSpan = useCallback(
+    (span: [number, number]) => {
+      setSelectSpan(doc ? [byteToChar(doc.source, span[0]), byteToChar(doc.source, span[1])] : span);
+    },
+    [doc],
+  );
+
+  // An output edit resolved into the document (POST /outputs/edit answered
+  // with the doc byte spans it rewrote): flash them in the document editor,
+  // so the resolution is something you SEE rather than trust. Spans index
+  // the pre-edit document; the flash covers at least the new text's width,
+  // and the marks map through the room reconcile when it lands a beat later.
+  // No open document pane means no editor, and silently no flash.
+  const docPathRef = useRef(doc?.path);
+  docPathRef.current = doc?.path;
+  const flashSourceEdits = useCallback((edits: SourceEdit[]) => {
+    const view = editorRef.current;
+    if (!view || edits.length === 0) return;
+    const docPath = docPathRef.current;
+    const mine = docPath
+      ? edits.filter((e) => e.doc_path === docPath || e.doc_path.endsWith(`/${docPath}`))
+      : edits;
+    const text = view.state.doc.toString();
+    flashSpans(
+      view,
+      mine.map((e) => {
+        const from = byteToChar(text, e.span[0]);
+        return { from, to: Math.max(byteToChar(text, e.span[1]), from + e.text.length) };
+      }),
+    );
+  }, []);
+
+  // ---- editor intelligence ------------------------------------------------
+  //
+  // One LSP session per document, shared by both editors. It is fed the LIVE
+  // text (unsaved edits included) so positions always match the screen.
+  const liveSource = dirtySource ?? doc?.source ?? "";
+  const startDebugFile = useCallback((path: string, at?: number, choose = false) => {
+    if (!doc) return;
+    const source = editorRef.current?.state.doc.toString() ?? liveSource;
+    let context: string;
+    try { context = documentDebugContext(doc.path, source, at); }
+    catch (e) { setBanner({kind: "fail", text: e instanceof Error ? e.message : String(e)}); return; }
+    // Save the exact reading first. The native resolver also checks those bytes
+    // so an external write cannot silently change the launch under this view.
+    void menuSave().then(saved => {
+      if (saved && (!editorRef.current || editorRef.current.state.doc.toString() === source))
+        void launchWithProfiles({uri:`hick:///${doc.path.replace(/^\/+/, "")}`,program:path,project:context,expected_document:source},
+          profile=>debug.start(path, {}, context,profile), {choose,isCurrent:()=>!editorRef.current || editorRef.current.state.doc.toString()===source});
+    });
+  }, [doc, liveSource, menuSave, debug.start]);
+  const lsp = useLsp(realtime, doc?.path ?? "", liveSource);
+  // The callbacks below read the live text at the moment they are CALLED,
+  // through a ref, rather than closing over it: closing over it would give
+  // them a new identity on every keystroke, and the session they belong to
+  // is published by identity (see SessionRegistry.publish).
+  const liveSourceRef = useRef(liveSource);
+  liveSourceRef.current = liveSource;
+
+  const openTarget = useCallback(
+    (target: LspNavigationTarget | LspLocation) => {
+      setReferences(null);
+      if (target.uri.startsWith("hick-output:///")) {
+        // The bridge could not map this position back to prose — open the
+        // generated file itself, positioned on the hit.
+        const path = target.uri.slice("hick-output:///".length);
+        openGenerated(path);
+        return;
+      }
+      // Another file altogether — a definition in the repository's own
+      // `src/lib.rs`, or in another document. This session cannot open a
+      // tab; the workspace can, and its pane takes the line from there.
+      const targetPath = pathOfDocUri(target.uri);
+      const ownPath = (docPathRef.current ?? "").replace(/^\/+/, "");
+      if (targetPath !== null && targetPath.replace(/^\/+/, "") !== ownPath) {
+        openLocation(targetPath, target.range.start.line + 1);
+        return;
+      }
+      const text = liveSourceRef.current;
+      const from = positionToUtf16(text, target.range.start);
+      const to = positionToUtf16(text, target.range.end);
+      setSelectSpan([from, Math.max(to, from)]);
+    },
+    [openGenerated],
+  );
+
+  const wordAt = (offset: number) => {
+    const text = liveSourceRef.current;
+    const m = /[A-Za-z_][A-Za-z0-9_]*/y;
+    let start = offset;
+    while (start > 0 && /[A-Za-z0-9_]/.test(text[start - 1] ?? "")) start--;
+    m.lastIndex = start;
+    return m.exec(text)?.[0] ?? "";
+  };
+
+  const lspExtensions = useMemo(
+    () => [
+      ...lspSupport({
+        client: lsp.client,
+        uri: lsp.uri,
+        positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
+        onNavigate: openTarget,
+        onReferences: (locations, from) =>
+          setReferences({
+            locations,
+            query: wordAt(positionToUtf16(liveSourceRef.current, from.range.start)),
+          }),
+        // While paused, a hover answers two questions at once: what this
+        // symbol IS, and what it currently HOLDS. The type is what it should
+        // be and the value is what it is, and a debugger exists for the
+        // moments those disagree.
+        runtimeValue: (word) => debugRef.current.valueAt(word),
+      }),
+      // The gutter, the paused line and the inline values. Its own layer
+      // rather than part of the LSP one: they answer different questions and
+      // a document with no debugger running still has diagnostics.
+      ...debugEditor({
+        onToggleBreakpoint: (line) => debugRef.current.toggleBreakpoint(line),
+        onSetBreakpointCondition: (line, patch) =>
+          debugRef.current.setBreakpointCondition(line, patch),
+        // A gutter stack mark is a caller; clicking it shows that frame.
+        onSelectFrame: selectFrameAndReveal,
+        // The inline eval at the paused line, answered in the selected frame.
+        evaluationOwner: () => inlineEvaluationOwner(debugRef.current),
+        onEvaluate: (expression) => debugRef.current.query(expression),
+        onAddWatch: (expression) => debugRef.current.addWatch(expression),
+      }),
+      ...lspFeatures({
+        client: lsp.client,
+        uri: lsp.uri,
+        positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
+        offsetAt: (position, view) => positionToOffset(view.state.doc, position),
+        inlayHints: true,
+        onRename: (current) => askText(`Rename "${current}" to:`, current, { agent: true, currentRevision: () => editorRef.current?.state.doc }),
+        onCodeActions: (actions) =>
+          askChoice(
+            "Code actions",
+            actions.map((action) => ({ label: action.title, value: action })),
+            { agent: true, currentRevision: () => editorRef.current?.state.doc },
+          ),
+        onMessage: (message) => setBanner({ kind: "pending", text: message }),
+      }),
+    ],
+    // Rebuilding these would recreate the editor, so they intentionally track
+    // only the session identity; the callbacks read live state through refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lsp.client, lsp.uri],
+  );
+
+  // The output panes build their own bindings: the same session, but their
+  // positions must travel back through provenance first.
+  const makeOutputLsp = useCallback(
+    (provenance: OutputProvenance[]) => [
+      ...lspSupport({
+        client: lsp.client,
+        uri: lsp.uri,
+        positionAt: (offset) =>
+          sourcePositionAt(offset, provenance, docPathRef.current ?? "", liveSourceRef.current),
+        onNavigate: openTarget,
+        onReferences: (locations) => setReferences({ locations, query: "" }),
+      }),
+      completionSources.of(completionSource({lsp:lsp.client?{client:lsp.client,uri:lsp.uri,positionAt:offset=>sourcePositionAt(offset,provenance,docPathRef.current ?? "",liveSourceRef.current)}:undefined})),
+    ],
+    [lsp.client, lsp.uri, openTarget],
+  );
+
+  const readingOutputViews = useRef(new Map<string, EditorView>());
+  const registerOutputView = useCallback((path: string, view: EditorView | null) => {
+    rememberReadingState(`output:${docId}:${path}`, readingOutputViews.current.get(path));
+    if (view) restoreReadingState(`output:${docId}:${path}`, view);
+    if (view) readingOutputViews.current.set(path, view); else readingOutputViews.current.delete(path);
+    setOpenOutputs((current) => {
+      const next = new Map(current);
+      if (view) next.set(path, view);
+      else next.delete(path);
+      return next;
+    });
+  }, [docId]);
+
+  const onDocViewReady = useCallback((view: EditorView | null) => {
+    rememberReadingState(`doc:${docId}`, editorRef.current);
+    if (view) restoreReadingState(`doc:${docId}`, view);
+    editorRef.current = view;
+    setDocEditor(view);
+  }, [docId]);
+
+  const clearReferences = useCallback(() => setReferences(null), []);
+
+  const execBlocks = useMemo(
+    () => (blocks ?? []).filter((b): b is ExecBlock => b.kind === "exec"),
+    [blocks],
+  );
+  const diagramBlocks = useMemo(
+    () => (blocks ?? []).filter((b): b is DiagramBlock => b.kind === "diagram"),
+    [blocks],
+  );
+
+  return {
+    docId,
+    doc,
+    blocks,
+    fatalError,
+    renderError,
+    banner,
+    syncState,
+    dirty:
+      dirtySource !== null &&
+      savedSource !== null &&
+      dirtySource !== savedSource,
+    liveSource: dirtySource ?? doc?.source ?? "",
+    savedSource,
+    runningCells,
+    execBlocks,
+    diagramBlocks,
+    outputs,
+    openOutputs,
+    docEditor,
+    startDebugFile,
+    realtime,
+    debug,
+    selectSpan,
+    references,
+    prompt,
+    settle,
+    askText,
+    lspDiagnostics: lsp.diagnostics,
+    lspExtensions,
+    lspCompletion: lsp.client ? { client: lsp.client, uri: lsp.uri } : null,
+    refresh,
+    runCell,
+    runAll,
+    verify,
+    setDirtySource,
+    onSelectSpan,
+    flashSourceEdits,
+    makeOutputLsp,
+    registerOutputView,
+    onDocViewReady,
+    selectFrameAndReveal,
+    openTarget,
+    clearReferences,
+    revealDocLine,
+    revealOutput,
+    menuSave,
+    menuSaveAs,
+    discardUnsaved,
+  };
+}
+</book:entry>
+
+</book:doc>

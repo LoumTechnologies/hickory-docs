@@ -1,0 +1,102 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# crates/hickory-cli/tests/fixtures/dotnet/help-blazor.txt
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+
+Captured SHA-256: `482c1cb3b1db17629ffc6d2995a614f260d2e8ef7dd1cc83c8630dc1a27a339d`.
+
+<book:entry path="crates/hickory-cli/tests/fixtures/dotnet/help-blazor.txt">
+Blazor Web App (C#)
+Author: Microsoft
+Description: A project template for creating a Blazor web app that supports both server-side rendering and client interactivity. This template can be used for web apps with rich dynamic user interfaces (UIs).
+This template contains technologies from parties other than Microsoft, see https://aka.ms/aspnetcore/10.0-third-party-notices for details.
+
+Usage:
+  dotnet new blazor [options] [template options]
+
+Options:
+  -n, --name <name>       The name for the output being created. If no name is 
+                          specified, the name of the output directory is used.
+  -o, --output <output>   Location to place the generated output.
+  --dry-run               Displays a summary of what would happen if the given 
+                          command line were run if it would result in a 
+                          template creation. [default: False]
+  --force                 Forces content to be generated even if it would 
+                          change existing files. [default: False]
+  --no-update-check       Disables checking for the template package updates 
+                          when instantiating a template. [default: False]
+  --project <project>     The project that should be used for context 
+                          evaluation.
+  -lang, --language <C#>  Specifies the template language to instantiate.
+  --type <project>        Specifies the template type to instantiate.
+
+Template options:
+  -f, --framework <net10.0>       The target framework for the project.
+                                  Type: choice
+                                    net10.0  Target net10.0
+                                  Default: net10.0
+  --no-restore                    If specified, skips the automatic restore of 
+                                  the project on create.
+                                  Type: bool
+                                  Default: false
+  --exclude-launch-settings       Whether to exclude launchSettings.json from 
+                                  the generated template.
+                                  Type: bool
+                                  Default: false
+  -int, --interactivity <choice>  Chooses which interactive render mode to use 
+                                  for interactive components
+                                  Type: choice
+                                    None         No interactivity (static 
+                                  server rendering only)
+                                    Server       Runs on the server
+                                    WebAssembly  Runs in the browser using 
+                                  WebAssembly
+                                    Auto         Uses Server while downloading 
+                                  WebAssembly assets, then uses WebAssembly
+                                  Default: Server
+  -e, --empty                     Configures whether to omit sample pages and 
+                                  styling that demonstrate basic usage 
+                                  patterns.
+                                  Type: bool
+                                  Default: false
+  -au, --auth <choice>            The type of authentication to use
+                                  Type: choice
+                                    None        No authentication
+                                    Individual  Individual authentication
+                                  Default: None
+  -uld, --use-local-db            Whether to use LocalDB instead of SQLite. 
+                                  This option only applies if --auth Individual 
+                                  is specified.
+                                  Type: bool
+                                  Default: false
+  -ai, --all-interactive          Configures whether to make every page 
+                                  interactive by applying an interactive render 
+                                  mode at the top level. If false, pages will 
+                                  use static server rendering by default, and 
+                                  can be marked interactive on a per-page or 
+                                  per-component basis.
+                                  Enabled if: (InteractivityPlatform != "None")
+                                  Type: bool
+                                  Default: false
+  --no-https                      Whether to turn off HTTPS. This option only 
+                                  applies if Individual isn't used for --auth.
+                                  Type: bool
+                                  Default: false
+  --use-program-main              Whether to generate an explicit Program class 
+                                  and Main method instead of top-level 
+                                  statements.
+                                  Type: bool
+                                  Default: false
+  --localhost-tld                 Whether to combine the project name with the 
+                                  .dev.localhost TLD in the application URL for 
+                                  local development, e.g. 
+                                  https://myapp.dev.localhost:12345.
+                                  Type: bool
+                                  Default: false
+
+</book:entry>
+
+</book:doc>

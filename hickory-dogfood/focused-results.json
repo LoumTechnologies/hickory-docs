@@ -1,0 +1,583 @@
+[
+  {
+    "guarantee": "literate-projects/markdown-constructs-the-complete-project.md",
+    "witness": {
+      "file": "crates/hick-lang/tests/project.rs",
+      "name": "closure_constructs_atomic_endpoints_and_can_be_reorganized"
+    },
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--release",
+      "--manifest-path",
+      "/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/integrated/Cargo.toml",
+      "-p",
+      "hick-lang",
+      "--test",
+      "project",
+      "closure_constructs_atomic_endpoints_and_can_be_reorganized",
+      "--",
+      "--exact"
+    ],
+    "result": "passed",
+    "elapsed_seconds": 10.923,
+    "dependency_hashes": {
+      "crates/hick-lang-wasm/src/lib.rs": "969265ce60c611813a0302aee809e07d52beaea305c8501331b96fc3fe396326",
+      "crates/hick-lang/src/lib.rs": "784806e116880c4217378ea83430e8c7198ec9c186c5f42dd4a779a94176d9d6",
+      "crates/hick-lang/src/project/discovery.rs": "a7ae3e5861f37e07020af4cdd1adc5d1e2e6bf233c7b9a2433e1591d0ab08385",
+      "crates/hick-lang/src/project/evaluate.rs": "fe1405af85265ce60e65bc3300e52620af6635879d040d2b3c56b11701bd01a4",
+      "crates/hick-lang/src/project/recorded.rs": "342f97c7c031960609fae555f3e8440b876255d23c97ec5bbd6969e125e67aed",
+      "crates/hick-lang/tests/project.rs": "864aacfb83c273c5b824466e5b422fcc84acd65712eed1b35e67051b99d5fc3b",
+      "crates/hick-literate/src/project.rs": "fae313292476050db6b2d208bb18375402118f8900eefeaab1aa6661a1d8c858",
+      "crates/hick-literate/tests/project.rs": "abe580647cf9b25993b1658174557aa2aa5bb2a75c0670410213db90f0690252",
+      "crates/hick-project-env/src/tree.rs": "520ada4ee73433f6b0834807481c481c91e7f82fc90e8ec169a57a923e4d295a",
+      "crates/hickory-cli/src/project_documents.rs": "ff1547650790d50ec5b9ad8750b801ff7500fe5a8b4f7f68094ab5cbfaca2c0b",
+      "crates/hickory-cli/tests/project_revision.rs": "140187542d40dfe474305507355b68ab5d8b891d5aee95fd7ded479fb190f7d8",
+      "docs/specs/freeform/literate-changesets.md": "f6c77f8111e19152267aa3a914e088cab7af8f5d520e44406b79c40421712896"
+    },
+    "output": "\nrunning 1 test\ntest closure_constructs_atomic_endpoints_and_can_be_reorganized ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.00s\n\n",
+    "scope": "One named existing witness; not full behavior or application certification."
+  },
+  {
+    "guarantee": "literate-projects/markdown-constructs-the-complete-project.md",
+    "witness": {
+      "file": "crates/hick-lang/tests/project.rs",
+      "name": "refuses_unordered_transforms_hidden_inputs_and_processes"
+    },
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--release",
+      "--manifest-path",
+      "/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/integrated/Cargo.toml",
+      "-p",
+      "hick-lang",
+      "--test",
+      "project",
+      "refuses_unordered_transforms_hidden_inputs_and_processes",
+      "--",
+      "--exact"
+    ],
+    "result": "passed",
+    "elapsed_seconds": 0.217,
+    "dependency_hashes": {
+      "crates/hick-lang-wasm/src/lib.rs": "969265ce60c611813a0302aee809e07d52beaea305c8501331b96fc3fe396326",
+      "crates/hick-lang/src/lib.rs": "784806e116880c4217378ea83430e8c7198ec9c186c5f42dd4a779a94176d9d6",
+      "crates/hick-lang/src/project/discovery.rs": "a7ae3e5861f37e07020af4cdd1adc5d1e2e6bf233c7b9a2433e1591d0ab08385",
+      "crates/hick-lang/src/project/evaluate.rs": "fe1405af85265ce60e65bc3300e52620af6635879d040d2b3c56b11701bd01a4",
+      "crates/hick-lang/src/project/recorded.rs": "342f97c7c031960609fae555f3e8440b876255d23c97ec5bbd6969e125e67aed",
+      "crates/hick-lang/tests/project.rs": "864aacfb83c273c5b824466e5b422fcc84acd65712eed1b35e67051b99d5fc3b",
+      "crates/hick-literate/src/project.rs": "fae313292476050db6b2d208bb18375402118f8900eefeaab1aa6661a1d8c858",
+      "crates/hick-literate/tests/project.rs": "abe580647cf9b25993b1658174557aa2aa5bb2a75c0670410213db90f0690252",
+      "crates/hick-project-env/src/tree.rs": "520ada4ee73433f6b0834807481c481c91e7f82fc90e8ec169a57a923e4d295a",
+      "crates/hickory-cli/src/project_documents.rs": "ff1547650790d50ec5b9ad8750b801ff7500fe5a8b4f7f68094ab5cbfaca2c0b",
+      "crates/hickory-cli/tests/project_revision.rs": "140187542d40dfe474305507355b68ab5d8b891d5aee95fd7ded479fb190f7d8",
+      "docs/specs/freeform/literate-changesets.md": "f6c77f8111e19152267aa3a914e088cab7af8f5d520e44406b79c40421712896"
+    },
+    "output": "\nrunning 1 test\ntest refuses_unordered_transforms_hidden_inputs_and_processes ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.00s\n\n",
+    "scope": "One named existing witness; not full behavior or application certification."
+  },
+  {
+    "guarantee": "literate-projects/complete-inventory-is-byte-exact.md",
+    "witness": {
+      "file": "crates/hick-lang/tests/project.rs",
+      "name": "inventory_checks_binary_modes_symlinks_and_portable_paths"
+    },
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--release",
+      "--manifest-path",
+      "/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/integrated/Cargo.toml",
+      "-p",
+      "hick-lang",
+      "--test",
+      "project",
+      "inventory_checks_binary_modes_symlinks_and_portable_paths",
+      "--",
+      "--exact"
+    ],
+    "result": "passed",
+    "elapsed_seconds": 8.334,
+    "dependency_hashes": {
+      "crates/hick-lang/src/project/evaluate.rs": "fe1405af85265ce60e65bc3300e52620af6635879d040d2b3c56b11701bd01a4",
+      "crates/hick-lang/src/project/tree.rs": "9bfaaaeda9f25823f653166f6d5b57c0345a1435614526d4fdb560569268d76d",
+      "crates/hick-lang/tests/project.rs": "864aacfb83c273c5b824466e5b422fcc84acd65712eed1b35e67051b99d5fc3b",
+      "crates/hick-literate/tests/project.rs": "abe580647cf9b25993b1658174557aa2aa5bb2a75c0670410213db90f0690252",
+      "crates/hickory-cli/src/project_revision.rs": "a35e66b60f607544f15c903ee667074c8c3f67b8dc3a331535c5b811669e257a",
+      "docs/specs/freeform/literate-changesets.md": "f6c77f8111e19152267aa3a914e088cab7af8f5d520e44406b79c40421712896"
+    },
+    "output": "\nrunning 1 test\ntest inventory_checks_binary_modes_symlinks_and_portable_paths ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.00s\n\n",
+    "scope": "One named existing witness; not full behavior or application certification."
+  },
+  {
+    "guarantee": "literate-projects/replay-is-exact-and-atomic.md",
+    "witness": {
+      "file": "crates/hick-lang/tests/project.rs",
+      "name": "patch_preserves_bom_crlf_unicode_and_untouched_origins"
+    },
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--release",
+      "--manifest-path",
+      "/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/integrated/Cargo.toml",
+      "-p",
+      "hick-lang",
+      "--test",
+      "project",
+      "patch_preserves_bom_crlf_unicode_and_untouched_origins",
+      "--",
+      "--exact"
+    ],
+    "result": "passed",
+    "elapsed_seconds": 0.216,
+    "dependency_hashes": {
+      "apps/web/src/elements/patch/view.test.tsx": "d9f0a5e4b7c7200dc8dcc9efa566af187c3a34795821414f7047a5674443eea6",
+      "crates/hick-lang/src/project/patch.rs": "445024f328e6da9a340fde8b513f9bb54e782279a4551fd340d3e05c6bf70101",
+      "crates/hick-lang/src/project/tree.rs": "9bfaaaeda9f25823f653166f6d5b57c0345a1435614526d4fdb560569268d76d",
+      "crates/hick-lang/tests/project.rs": "864aacfb83c273c5b824466e5b422fcc84acd65712eed1b35e67051b99d5fc3b",
+      "docs/specs/freeform/literate-changesets.md": "f6c77f8111e19152267aa3a914e088cab7af8f5d520e44406b79c40421712896"
+    },
+    "output": "\nrunning 1 test\ntest patch_preserves_bom_crlf_unicode_and_untouched_origins ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.00s\n\n",
+    "scope": "One named existing witness; not full behavior or application certification."
+  },
+  {
+    "guarantee": "literate-projects/replay-is-exact-and-atomic.md",
+    "witness": {
+      "file": "crates/hick-lang/tests/project.rs",
+      "name": "newline_markers_add_delete_rename_and_failure_are_atomic"
+    },
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--release",
+      "--manifest-path",
+      "/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/integrated/Cargo.toml",
+      "-p",
+      "hick-lang",
+      "--test",
+      "project",
+      "newline_markers_add_delete_rename_and_failure_are_atomic",
+      "--",
+      "--exact"
+    ],
+    "result": "passed",
+    "elapsed_seconds": 0.216,
+    "dependency_hashes": {
+      "apps/web/src/elements/patch/view.test.tsx": "d9f0a5e4b7c7200dc8dcc9efa566af187c3a34795821414f7047a5674443eea6",
+      "crates/hick-lang/src/project/patch.rs": "445024f328e6da9a340fde8b513f9bb54e782279a4551fd340d3e05c6bf70101",
+      "crates/hick-lang/src/project/tree.rs": "9bfaaaeda9f25823f653166f6d5b57c0345a1435614526d4fdb560569268d76d",
+      "crates/hick-lang/tests/project.rs": "864aacfb83c273c5b824466e5b422fcc84acd65712eed1b35e67051b99d5fc3b",
+      "docs/specs/freeform/literate-changesets.md": "f6c77f8111e19152267aa3a914e088cab7af8f5d520e44406b79c40421712896"
+    },
+    "output": "\nrunning 1 test\ntest newline_markers_add_delete_rename_and_failure_are_atomic ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.00s\n\n",
+    "scope": "One named existing witness; not full behavior or application certification."
+  },
+  {
+    "guarantee": "execution/output-lineage-round-trips-byte-for-byte.md",
+    "witness": {
+      "file": "crates/hickory-lineage/src/lib.rs",
+      "name": "maps_edit_within_one_span"
+    },
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--release",
+      "--manifest-path",
+      "/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/integrated/Cargo.toml",
+      "-p",
+      "hickory-lineage",
+      "--lib",
+      "tests::maps_edit_within_one_span",
+      "--",
+      "--exact"
+    ],
+    "result": "passed",
+    "elapsed_seconds": 25.544,
+    "dependency_hashes": {
+      "crates/hick-literate/tests/pipeline_tests.rs": "2ab3616019d2f049bc841c48d99cba5b52e6fe93bbf72e093c3d5a5e3c725558",
+      "crates/hickory-cli/src/serve/api.rs": "4f1a9f881c67744fd4c50240c2c2fff0571f254d237aa2a713ac76e74adc28cf",
+      "crates/hickory-cli/src/serve/outputs.rs": "115a21f1ad4a92c12a97d6983d5436cec0941b4036c148a90ac81c60d5cf3175",
+      "crates/hickory-cli/tests/serve_local.rs": "68f83978812c696240fd18218ace1ee16beef75e5e0ced36b2733b3daf1b18ff",
+      "crates/hickory-lineage/src/lib.rs": "e5e3e54056756592343a44ecb2a0676a709225caf44d5928a216b1382dbe6ba3"
+    },
+    "output": "\nrunning 1 test\ntest tests::maps_edit_within_one_span ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.00s\n\n",
+    "scope": "One named existing witness; not full behavior or application certification."
+  },
+  {
+    "guarantee": "execution/output-lineage-round-trips-byte-for-byte.md",
+    "witness": {
+      "file": "crates/hickory-lineage/src/lib.rs",
+      "name": "rejects_synthetic_overlap_with_offending_range"
+    },
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--release",
+      "--manifest-path",
+      "/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/integrated/Cargo.toml",
+      "-p",
+      "hickory-lineage",
+      "--lib",
+      "tests::rejects_synthetic_overlap_with_offending_range",
+      "--",
+      "--exact"
+    ],
+    "result": "passed",
+    "elapsed_seconds": 0.24,
+    "dependency_hashes": {
+      "crates/hick-literate/tests/pipeline_tests.rs": "2ab3616019d2f049bc841c48d99cba5b52e6fe93bbf72e093c3d5a5e3c725558",
+      "crates/hickory-cli/src/serve/api.rs": "4f1a9f881c67744fd4c50240c2c2fff0571f254d237aa2a713ac76e74adc28cf",
+      "crates/hickory-cli/src/serve/outputs.rs": "115a21f1ad4a92c12a97d6983d5436cec0941b4036c148a90ac81c60d5cf3175",
+      "crates/hickory-cli/tests/serve_local.rs": "68f83978812c696240fd18218ace1ee16beef75e5e0ced36b2733b3daf1b18ff",
+      "crates/hickory-lineage/src/lib.rs": "e5e3e54056756592343a44ecb2a0676a709225caf44d5928a216b1382dbe6ba3"
+    },
+    "output": "\nrunning 1 test\ntest tests::rejects_synthetic_overlap_with_offending_range ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.00s\n\n",
+    "scope": "One named existing witness; not full behavior or application certification."
+  },
+  {
+    "guarantee": "language/prefix-only-parsing-no-escaping.md",
+    "witness": {
+      "file": "crates/hick-lang/src/lib/tests/tests.rs",
+      "name": "parse_text_content_with_special_chars"
+    },
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--release",
+      "--manifest-path",
+      "/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/integrated/Cargo.toml",
+      "-p",
+      "hick-lang",
+      "--lib",
+      "tests::parse_text_content_with_special_chars",
+      "--",
+      "--exact"
+    ],
+    "result": "passed",
+    "elapsed_seconds": 5.208,
+    "dependency_hashes": {
+      "apps/web/src/editor/hickDoc.test.ts": "988036e8ac4a0e80c44a720b47c517049e0e22a7c53ddf65069ed8b9b40dcea0",
+      "crates/hick-lang/src/lib.rs": "784806e116880c4217378ea83430e8c7198ec9c186c5f42dd4a779a94176d9d6",
+      "crates/hick-lang/src/lib/tests/tests.rs": "6699599fdcc839775820b5cd00a0b91b6950004242bff0e046c63bcf085e6da7",
+      "crates/hick-lang/src/parser.rs": "c0f3154582752546f85dea30d8a8d6934d3ce87c5f8681e12ed562095735c53a"
+    },
+    "output": "\nrunning 1 test\ntest tests::parse_text_content_with_special_chars ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 94 filtered out; finished in 0.00s\n\n",
+    "scope": "One named existing witness; not full behavior or application certification."
+  },
+  {
+    "guarantee": "authoring/unsaved-work-survives-closing-the-app.md",
+    "witness": {
+      "runner": "vitest",
+      "file": "apps/web/src/lib/drafts.lifecycle.test.tsx",
+      "name": "waits for an unfinished recovery write and never rewrites explicitly discarded work"
+    },
+    "command": [
+      "/usr/bin/python3",
+      "/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/tools/frontend-witness.py",
+      "apps/web/src/lib/drafts.lifecycle.test.tsx",
+      "waits for an unfinished recovery write and never rewrites explicitly discarded work"
+    ],
+    "result": "passed",
+    "elapsed_seconds": 1.1,
+    "dependency_hashes": {
+      "apps/web/src/App.test.tsx": "79ff5a746cffde0b4449780299dfb53cc45d224ec814eecfcaa3f3ba97c0ddd5",
+      "apps/web/src/App.tsx": "6374dbb4e42aeb0637474ead03f5637443117e6e8aa905b2b2fd748b48514f40",
+      "apps/web/src/components/PlainFilePane.test.tsx": "5593acb2b7d0b4c4b040fbdde6ea9e72960dac5d926ca0cd533079ede5939b2a",
+      "apps/web/src/components/PlainFilePane.tsx": "ee26462b988fbd6303905ddf6b9ac0a0ac3651c24a2b32ea3f0a07a911bcf131",
+      "apps/web/src/components/PromptPanel.test.tsx": "74f8f59117bacaf81ea1d27259addaf41b0a9606b3b6c45dfd915c174cbea0c5",
+      "apps/web/src/components/PromptPanel.tsx": "317c2924c369f672d0f77fa9c447fd183a88ec305ce43e7b0fdca146e4a918de",
+      "apps/web/src/lib/drafts.lifecycle.test.tsx": "2830aaea6f15ffaa816d97e47886d0f51d5a4c94af3d3503b20b283b9c12fa84",
+      "apps/web/src/lib/drafts.ts": "0b7b8f235b2ab1d6598053e38e4c08003102d9986f71919d683d504d648226ff",
+      "apps/web/src/lib/outputSave.test.ts": "7a5a7856743e11b71b1088c2251e3c9be4eb9b8105a3a12d923f5022a259928b",
+      "apps/web/src/lib/outputSave.ts": "8f758f5833ecb52926857dfd701e3b3be9488916b256c3c127f422be91196604",
+      "apps/web/src/lib/viewBuffers.ts": "5c9aa309e8d994f51ee0ba6b84fa7fa92eaed310a3f96b532457473fdfc75c39",
+      "apps/web/src/lib/windowClose.test.ts": "0c12f2092525754b58a110f0c2660aa6f652583e35c2353dee7c065697c49e9d",
+      "apps/web/src/lib/windowClose.ts": "9e992ac7c0b354ab922a3ada79af9e445a8edb30d6a7927a27c0c91803102f4a",
+      "apps/web/src/shell/FolderTreePane.test.tsx": "e4974718623f8b7105f33e008699245fe46329ae0e2471a516d055e2c9f46791",
+      "apps/web/src/shell/ShellView.test.tsx": "55450b384352b414e1d4ad966284432884f0eb22b58cbf7da23618d468c6e357",
+      "apps/web/src/shell/SpatialShellView.test.tsx": "8dc82f881d6a94304aeaf424b8785b9e790a21638afd01b2d7b205ea631d5f4f",
+      "apps/web/src/shell/SpatialShellView.tsx": "cf8ba7f420ef3fe9a9e8043375bc03f49c0a6121c32c27ec5eb53ba42de4c740",
+      "apps/web/src/shell/views.tsx": "84f23763d9a3490365263b1a18badc1fd57193b5a1bc663b5591c4329e89b2f1",
+      "apps/web/src/views/RepresentationPane.tsx": "3b874242d47a9c5d45dbd687637a21508026ab0e507d4ea41ae3879d32acda42",
+      "apps/web/src/views/SettingsView.test.tsx": "82241ff45aa7ad175ecfce2ab2b5d9e055b53f5cf0f878d1f0bb15f1cbcd7428",
+      "apps/web/src/views/WorkspaceView.tsx": "5a8419dded62eda79aa0f20d325c4b19d893e4e4c7500733bed137fdfe0e2395",
+      "apps/web/src/views/useUnsavedLifecycle.test.tsx": "518608027b16d7d4254c8c7f3abbc843bf0130e16c3ebb7bc0fa1fd263c95cdb",
+      "apps/web/src/views/useUnsavedLifecycle.ts": "0b26ebb5dcc34cf213f36704912adc8ba28a8758558135fc2059ca68805c33e1",
+      "apps/web/src/views/useUntitledRecovery.test.tsx": "1f5858178b549517d1458c99a131c0ad916d85880f19b877fcb7e206bd97827b",
+      "apps/web/src/views/useUntitledRecovery.ts": "c5aaf657a3c801a6c52c7fc238936330d7512425224ab29f955a1db9b9b13641",
+      "crates/hickory-cli/src/serve/shell.rs": "817e0a056e7a01d07487be78cf08aaa168b10cce0594965e5ad1befdeb5ef1c9",
+      "crates/hickory-cli/tests/serve_ui_settings.rs": "5ca84318281e788829f59b8558392b5913f6bd3668d468412ebfc16bb50796b6",
+      "crates/hickory-cli/tests/serve_workspace.rs": "36d06c77fc9cee53052e53467b4150601ea949489c22562b3fcf527d8e25896e"
+    },
+    "output": "WITNESS_RESULT {\"runner\": \"vitest\", \"passed\": 1, \"failed\": 0, \"file\": \"apps/web/src/lib/drafts.lifecycle.test.tsx\", \"name\": \"waits for an unfinished recovery write and never rewrites explicitly discarded work\", \"skipped\": 3, \"source_root\": \"/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/integrated/apps/web\", \"dependency_root\": \"/home/loumtech/Documents/src/hickory-docs/apps/web/node_modules\"}\n",
+    "scope": "One named existing witness; not full behavior or application certification."
+  },
+  {
+    "guarantee": "authoring/unsaved-work-survives-closing-the-app.md",
+    "witness": {
+      "runner": "vitest",
+      "file": "apps/web/src/views/useUnsavedLifecycle.test.tsx",
+      "name": "keeps an inactive view open when its attempted Save fails"
+    },
+    "command": [
+      "/usr/bin/python3",
+      "/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/tools/frontend-witness.py",
+      "apps/web/src/views/useUnsavedLifecycle.test.tsx",
+      "keeps an inactive view open when its attempted Save fails"
+    ],
+    "result": "passed",
+    "elapsed_seconds": 3.322,
+    "dependency_hashes": {
+      "apps/web/src/App.test.tsx": "79ff5a746cffde0b4449780299dfb53cc45d224ec814eecfcaa3f3ba97c0ddd5",
+      "apps/web/src/App.tsx": "6374dbb4e42aeb0637474ead03f5637443117e6e8aa905b2b2fd748b48514f40",
+      "apps/web/src/components/PlainFilePane.test.tsx": "5593acb2b7d0b4c4b040fbdde6ea9e72960dac5d926ca0cd533079ede5939b2a",
+      "apps/web/src/components/PlainFilePane.tsx": "ee26462b988fbd6303905ddf6b9ac0a0ac3651c24a2b32ea3f0a07a911bcf131",
+      "apps/web/src/components/PromptPanel.test.tsx": "74f8f59117bacaf81ea1d27259addaf41b0a9606b3b6c45dfd915c174cbea0c5",
+      "apps/web/src/components/PromptPanel.tsx": "317c2924c369f672d0f77fa9c447fd183a88ec305ce43e7b0fdca146e4a918de",
+      "apps/web/src/lib/drafts.lifecycle.test.tsx": "2830aaea6f15ffaa816d97e47886d0f51d5a4c94af3d3503b20b283b9c12fa84",
+      "apps/web/src/lib/drafts.ts": "0b7b8f235b2ab1d6598053e38e4c08003102d9986f71919d683d504d648226ff",
+      "apps/web/src/lib/outputSave.test.ts": "7a5a7856743e11b71b1088c2251e3c9be4eb9b8105a3a12d923f5022a259928b",
+      "apps/web/src/lib/outputSave.ts": "8f758f5833ecb52926857dfd701e3b3be9488916b256c3c127f422be91196604",
+      "apps/web/src/lib/viewBuffers.ts": "5c9aa309e8d994f51ee0ba6b84fa7fa92eaed310a3f96b532457473fdfc75c39",
+      "apps/web/src/lib/windowClose.test.ts": "0c12f2092525754b58a110f0c2660aa6f652583e35c2353dee7c065697c49e9d",
+      "apps/web/src/lib/windowClose.ts": "9e992ac7c0b354ab922a3ada79af9e445a8edb30d6a7927a27c0c91803102f4a",
+      "apps/web/src/shell/FolderTreePane.test.tsx": "e4974718623f8b7105f33e008699245fe46329ae0e2471a516d055e2c9f46791",
+      "apps/web/src/shell/ShellView.test.tsx": "55450b384352b414e1d4ad966284432884f0eb22b58cbf7da23618d468c6e357",
+      "apps/web/src/shell/SpatialShellView.test.tsx": "8dc82f881d6a94304aeaf424b8785b9e790a21638afd01b2d7b205ea631d5f4f",
+      "apps/web/src/shell/SpatialShellView.tsx": "cf8ba7f420ef3fe9a9e8043375bc03f49c0a6121c32c27ec5eb53ba42de4c740",
+      "apps/web/src/shell/views.tsx": "84f23763d9a3490365263b1a18badc1fd57193b5a1bc663b5591c4329e89b2f1",
+      "apps/web/src/views/RepresentationPane.tsx": "3b874242d47a9c5d45dbd687637a21508026ab0e507d4ea41ae3879d32acda42",
+      "apps/web/src/views/SettingsView.test.tsx": "82241ff45aa7ad175ecfce2ab2b5d9e055b53f5cf0f878d1f0bb15f1cbcd7428",
+      "apps/web/src/views/WorkspaceView.tsx": "5a8419dded62eda79aa0f20d325c4b19d893e4e4c7500733bed137fdfe0e2395",
+      "apps/web/src/views/useUnsavedLifecycle.test.tsx": "518608027b16d7d4254c8c7f3abbc843bf0130e16c3ebb7bc0fa1fd263c95cdb",
+      "apps/web/src/views/useUnsavedLifecycle.ts": "0b26ebb5dcc34cf213f36704912adc8ba28a8758558135fc2059ca68805c33e1",
+      "apps/web/src/views/useUntitledRecovery.test.tsx": "1f5858178b549517d1458c99a131c0ad916d85880f19b877fcb7e206bd97827b",
+      "apps/web/src/views/useUntitledRecovery.ts": "c5aaf657a3c801a6c52c7fc238936330d7512425224ab29f955a1db9b9b13641",
+      "crates/hickory-cli/src/serve/shell.rs": "817e0a056e7a01d07487be78cf08aaa168b10cce0594965e5ad1befdeb5ef1c9",
+      "crates/hickory-cli/tests/serve_ui_settings.rs": "5ca84318281e788829f59b8558392b5913f6bd3668d468412ebfc16bb50796b6",
+      "crates/hickory-cli/tests/serve_workspace.rs": "36d06c77fc9cee53052e53467b4150601ea949489c22562b3fcf527d8e25896e"
+    },
+    "output": "WITNESS_RESULT {\"runner\": \"vitest\", \"passed\": 1, \"failed\": 0, \"file\": \"apps/web/src/views/useUnsavedLifecycle.test.tsx\", \"name\": \"keeps an inactive view open when its attempted Save fails\", \"skipped\": 18, \"source_root\": \"/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/integrated/apps/web\", \"dependency_root\": \"/home/loumtech/Documents/src/hickory-docs/apps/web/node_modules\"}\n",
+    "scope": "One named existing witness; not full behavior or application certification."
+  },
+  {
+    "guarantee": "authoring/an-output-edit-lands-in-its-document.md",
+    "witness": {
+      "runner": "vitest",
+      "file": "apps/web/src/lib/outputSave.test.ts",
+      "name": "serializes overlapping saves so each diff sees the previous result"
+    },
+    "command": [
+      "/usr/bin/python3",
+      "/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/tools/frontend-witness.py",
+      "apps/web/src/lib/outputSave.test.ts",
+      "serializes overlapping saves so each diff sees the previous result"
+    ],
+    "result": "passed",
+    "elapsed_seconds": 0.975,
+    "dependency_hashes": {
+      "apps/web/src/lib/outputSave.test.ts": "7a5a7856743e11b71b1088c2251e3c9be4eb9b8105a3a12d923f5022a259928b",
+      "apps/web/src/lib/outputSave.ts": "8f758f5833ecb52926857dfd701e3b3be9488916b256c3c127f422be91196604",
+      "apps/web/src/shell/GeneratedBufferRecovery.test.tsx": "ba1fbd1e7f0373436f03ca9b0d2f4e3a7d83f1a9034b7805be78e24ab77e4ef9",
+      "crates/hickory-cli/src/up/mod.rs": "b0295221a828927d088328e9bf75f945dd1cbdddfda8d6e6aa6b969f23b31f20",
+      "crates/hickory-cli/src/up/reverse.rs": "fee1e2bdee21c5f1189d3bca34d78cfb4247bc6d71aa9afb566c07b81c28cc5c",
+      "crates/hickory-cli/src/up/state.rs": "53b86760112bd3bc8bf2d7d574cc347dbe260ddc7c33cb9dd90589e0faaca3cf",
+      "crates/hickory-cli/tests/serve_local.rs": "68f83978812c696240fd18218ace1ee16beef75e5e0ced36b2733b3daf1b18ff",
+      "crates/hickory-cli/tests/up_loop.rs": "36f147d8111f23317bf17c9ac26ca29d92672e4ab62c634e1975490f37fddab7",
+      "crates/hickory-cli/tests/up_stress.rs": "5ed69d9f0864d54c064704b984098d5b43b750e995a2faa26c62d4d5eeb5d27e",
+      "crates/hickory-lineage/src/lib.rs": "e5e3e54056756592343a44ecb2a0676a709225caf44d5928a216b1382dbe6ba3"
+    },
+    "output": "WITNESS_RESULT {\"runner\": \"vitest\", \"passed\": 1, \"failed\": 0, \"file\": \"apps/web/src/lib/outputSave.test.ts\", \"name\": \"serializes overlapping saves so each diff sees the previous result\", \"skipped\": 8, \"source_root\": \"/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/integrated/apps/web\", \"dependency_root\": \"/home/loumtech/Documents/src/hickory-docs/apps/web/node_modules\"}\n",
+    "scope": "One named existing witness; not full behavior or application certification."
+  },
+  {
+    "guarantee": "authoring/an-output-edit-lands-in-its-document.md",
+    "witness": {
+      "runner": "vitest",
+      "file": "apps/web/src/lib/outputSave.test.ts",
+      "name": "does not discard generated edits typed while an earlier save is settling"
+    },
+    "command": [
+      "/usr/bin/python3",
+      "/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/tools/frontend-witness.py",
+      "apps/web/src/lib/outputSave.test.ts",
+      "does not discard generated edits typed while an earlier save is settling"
+    ],
+    "result": "passed",
+    "elapsed_seconds": 0.957,
+    "dependency_hashes": {
+      "apps/web/src/lib/outputSave.test.ts": "7a5a7856743e11b71b1088c2251e3c9be4eb9b8105a3a12d923f5022a259928b",
+      "apps/web/src/lib/outputSave.ts": "8f758f5833ecb52926857dfd701e3b3be9488916b256c3c127f422be91196604",
+      "apps/web/src/shell/GeneratedBufferRecovery.test.tsx": "ba1fbd1e7f0373436f03ca9b0d2f4e3a7d83f1a9034b7805be78e24ab77e4ef9",
+      "crates/hickory-cli/src/up/mod.rs": "b0295221a828927d088328e9bf75f945dd1cbdddfda8d6e6aa6b969f23b31f20",
+      "crates/hickory-cli/src/up/reverse.rs": "fee1e2bdee21c5f1189d3bca34d78cfb4247bc6d71aa9afb566c07b81c28cc5c",
+      "crates/hickory-cli/src/up/state.rs": "53b86760112bd3bc8bf2d7d574cc347dbe260ddc7c33cb9dd90589e0faaca3cf",
+      "crates/hickory-cli/tests/serve_local.rs": "68f83978812c696240fd18218ace1ee16beef75e5e0ced36b2733b3daf1b18ff",
+      "crates/hickory-cli/tests/up_loop.rs": "36f147d8111f23317bf17c9ac26ca29d92672e4ab62c634e1975490f37fddab7",
+      "crates/hickory-cli/tests/up_stress.rs": "5ed69d9f0864d54c064704b984098d5b43b750e995a2faa26c62d4d5eeb5d27e",
+      "crates/hickory-lineage/src/lib.rs": "e5e3e54056756592343a44ecb2a0676a709225caf44d5928a216b1382dbe6ba3"
+    },
+    "output": "WITNESS_RESULT {\"runner\": \"vitest\", \"passed\": 1, \"failed\": 0, \"file\": \"apps/web/src/lib/outputSave.test.ts\", \"name\": \"does not discard generated edits typed while an earlier save is settling\", \"skipped\": 8, \"source_root\": \"/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/integrated/apps/web\", \"dependency_root\": \"/home/loumtech/Documents/src/hickory-docs/apps/web/node_modules\"}\n",
+    "scope": "One named existing witness; not full behavior or application certification."
+  },
+  {
+    "guarantee": "debugging/a-missing-debugger-is-a-button.md",
+    "witness": {
+      "runner": "vitest",
+      "file": "apps/web/src/debug/DebugStrip.test.tsx",
+      "name": "installs a missing debugger and resumes without another click"
+    },
+    "command": [
+      "/usr/bin/python3",
+      "/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/tools/frontend-witness.py",
+      "apps/web/src/debug/DebugStrip.test.tsx",
+      "installs a missing debugger and resumes without another click"
+    ],
+    "result": "passed",
+    "elapsed_seconds": 1.798,
+    "dependency_hashes": {
+      "apps/web/src/components/NewProjectDialog.tsx": "38d09147b37a83c3bee9815fc104f6fe715a8bb93d3f05da6764b8a1f771e599",
+      "apps/web/src/debug/DebugStrip.test.tsx": "80ebeece59b82bf0741193b234b10fa0ee8dc8f0d026443efd9706254574d118",
+      "apps/web/src/debug/DebugStrip.tsx": "1b416315fa8dc29ea6118730afe1ac96a804062cc60d0f5dae63e0d5121c2ac2",
+      "apps/web/src/debug/useDebugger.test.ts": "b39bd01199504d95186d68da4ba6b2454022d94267f521f86b91901064088dc3",
+      "apps/web/src/views/workspaceTabs.tsx": "c2489af2342f43cc3cfa0ec60b74f8f3332d4c07d92b58b65c39f0b19abf74a7",
+      "crates/hick-dap/src/program.rs": "4caf7a783e262abdf387a6ae52d63c0909773ee19b10022601edde8fe6ef5d56",
+      "crates/hickory-cli/src/serve/debug_bridge.rs": "b23486065ec5cdfcb541b49caddade040a47ee20281af3719ecf2d3e151cee54",
+      "crates/hickory-cli/src/serve/install.rs": "4c66f4a87a85afad4f5f2036a33a3294599334956fa0c0ea66ef79a88dbe5198",
+      "crates/hickory-cli/src/tool_install.rs": "3c5bb9b8a0873ca5fa5dbcf584f4a5a877915e725f532718ce70420c88367d74"
+    },
+    "output": "WITNESS_RESULT {\"runner\": \"vitest\", \"passed\": 1, \"failed\": 0, \"file\": \"apps/web/src/debug/DebugStrip.test.tsx\", \"name\": \"installs a missing debugger and resumes without another click\", \"skipped\": 26, \"source_root\": \"/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/integrated/apps/web\", \"dependency_root\": \"/home/loumtech/Documents/src/hickory-docs/apps/web/node_modules\"}\n",
+    "scope": "One named existing witness; not full behavior or application certification."
+  },
+  {
+    "guarantee": "debugging/a-missing-debugger-is-a-button.md",
+    "witness": {
+      "runner": "vitest",
+      "file": "apps/web/src/debug/DebugStrip.test.tsx",
+      "name": "does not start a session after setup is dismissed"
+    },
+    "command": [
+      "/usr/bin/python3",
+      "/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/tools/frontend-witness.py",
+      "apps/web/src/debug/DebugStrip.test.tsx",
+      "does not start a session after setup is dismissed"
+    ],
+    "result": "passed",
+    "elapsed_seconds": 1.773,
+    "dependency_hashes": {
+      "apps/web/src/components/NewProjectDialog.tsx": "38d09147b37a83c3bee9815fc104f6fe715a8bb93d3f05da6764b8a1f771e599",
+      "apps/web/src/debug/DebugStrip.test.tsx": "80ebeece59b82bf0741193b234b10fa0ee8dc8f0d026443efd9706254574d118",
+      "apps/web/src/debug/DebugStrip.tsx": "1b416315fa8dc29ea6118730afe1ac96a804062cc60d0f5dae63e0d5121c2ac2",
+      "apps/web/src/debug/useDebugger.test.ts": "b39bd01199504d95186d68da4ba6b2454022d94267f521f86b91901064088dc3",
+      "apps/web/src/views/workspaceTabs.tsx": "c2489af2342f43cc3cfa0ec60b74f8f3332d4c07d92b58b65c39f0b19abf74a7",
+      "crates/hick-dap/src/program.rs": "4caf7a783e262abdf387a6ae52d63c0909773ee19b10022601edde8fe6ef5d56",
+      "crates/hickory-cli/src/serve/debug_bridge.rs": "b23486065ec5cdfcb541b49caddade040a47ee20281af3719ecf2d3e151cee54",
+      "crates/hickory-cli/src/serve/install.rs": "4c66f4a87a85afad4f5f2036a33a3294599334956fa0c0ea66ef79a88dbe5198",
+      "crates/hickory-cli/src/tool_install.rs": "3c5bb9b8a0873ca5fa5dbcf584f4a5a877915e725f532718ce70420c88367d74"
+    },
+    "output": "WITNESS_RESULT {\"runner\": \"vitest\", \"passed\": 1, \"failed\": 0, \"file\": \"apps/web/src/debug/DebugStrip.test.tsx\", \"name\": \"does not start a session after setup is dismissed\", \"skipped\": 26, \"source_root\": \"/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/integrated/apps/web\", \"dependency_root\": \"/home/loumtech/Documents/src/hickory-docs/apps/web/node_modules\"}\n",
+    "scope": "One named existing witness; not full behavior or application certification."
+  },
+  {
+    "guarantee": "agent/expanded-reading-projection.md",
+    "witness": {
+      "runner": "vitest",
+      "file": "apps/web/src/lib/contextProjection.test.ts",
+      "name": "preserves Unicode source coordinates, duplicate passages and omitted ranges while pins bypass folds"
+    },
+    "command": [
+      "/usr/bin/python3",
+      "/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/tools/frontend-witness.py",
+      "apps/web/src/lib/contextProjection.test.ts",
+      "preserves Unicode source coordinates, duplicate passages and omitted ranges while pins bypass folds"
+    ],
+    "result": "passed",
+    "elapsed_seconds": 0.962,
+    "dependency_hashes": {
+      "apps/agent/tests/test_reading_projection.py": "ca5f1a1b34b98a0a3fb9ac24525269f044df040e6bda2acaf7d5489de6bfa760",
+      "apps/web/src/debug/ObservationReading.test.tsx": "a82295623931da5526e0c37e8fe9464510da82f745d32b223ca0da211c677077",
+      "apps/web/src/debug/cmRuntime.controls.test.tsx": "172d1daff1f8e3952f7363dcf986772f3d60e6f2de07126d99cb1de05e4f4bb0",
+      "apps/web/src/debug/cmRuntime.ts": "aafdb49000976794cfecb2566419986d16065d102c8f5c0f2d061567afff82ba",
+      "apps/web/src/lib/contextProjection.test.ts": "7ccb3d0abd278d969befc212d6fc560a029501d71e77e21afd573040f7d8e18c",
+      "apps/web/src/lib/contextProjection.ts": "26e89a60b0bedede7dde5de50757dbe9c3f76a9341a47bb0ba5f218b3443b44f",
+      "apps/web/src/views/WorkspaceChat.test.tsx": "c90fde870ccb86068e200071b29668c66d95a8866b82f3234ea146dcc1d5857c",
+      "crates/hick-literate/src/session_receipts.rs": "154a8cfe4ecb3d6b43027911b85f3403abd041bc511be55ae1bee53bab97a83e",
+      "crates/hickory-cli/src/serve/agent_context.rs": "201ba08650e415a8a07de6cf072be766f22213f10b2c6b53c27c7ffcf9cd8424"
+    },
+    "output": "WITNESS_RESULT {\"runner\": \"vitest\", \"passed\": 1, \"failed\": 0, \"file\": \"apps/web/src/lib/contextProjection.test.ts\", \"name\": \"preserves Unicode source coordinates, duplicate passages and omitted ranges while pins bypass folds\", \"skipped\": 1, \"source_root\": \"/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/integrated/apps/web\", \"dependency_root\": \"/home/loumtech/Documents/src/hickory-docs/apps/web/node_modules\"}\n",
+    "scope": "One named existing witness; not full behavior or application certification."
+  },
+  {
+    "guarantee": "agent/expanded-reading-projection.md",
+    "witness": {
+      "runner": "vitest",
+      "file": "apps/web/src/lib/contextProjection.test.ts",
+      "name": "retains fold intent across editor unmounts and refuses stale source coordinates"
+    },
+    "command": [
+      "/usr/bin/python3",
+      "/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/tools/frontend-witness.py",
+      "apps/web/src/lib/contextProjection.test.ts",
+      "retains fold intent across editor unmounts and refuses stale source coordinates"
+    ],
+    "result": "passed",
+    "elapsed_seconds": 1.007,
+    "dependency_hashes": {
+      "apps/agent/tests/test_reading_projection.py": "ca5f1a1b34b98a0a3fb9ac24525269f044df040e6bda2acaf7d5489de6bfa760",
+      "apps/web/src/debug/ObservationReading.test.tsx": "a82295623931da5526e0c37e8fe9464510da82f745d32b223ca0da211c677077",
+      "apps/web/src/debug/cmRuntime.controls.test.tsx": "172d1daff1f8e3952f7363dcf986772f3d60e6f2de07126d99cb1de05e4f4bb0",
+      "apps/web/src/debug/cmRuntime.ts": "aafdb49000976794cfecb2566419986d16065d102c8f5c0f2d061567afff82ba",
+      "apps/web/src/lib/contextProjection.test.ts": "7ccb3d0abd278d969befc212d6fc560a029501d71e77e21afd573040f7d8e18c",
+      "apps/web/src/lib/contextProjection.ts": "26e89a60b0bedede7dde5de50757dbe9c3f76a9341a47bb0ba5f218b3443b44f",
+      "apps/web/src/views/WorkspaceChat.test.tsx": "c90fde870ccb86068e200071b29668c66d95a8866b82f3234ea146dcc1d5857c",
+      "crates/hick-literate/src/session_receipts.rs": "154a8cfe4ecb3d6b43027911b85f3403abd041bc511be55ae1bee53bab97a83e",
+      "crates/hickory-cli/src/serve/agent_context.rs": "201ba08650e415a8a07de6cf072be766f22213f10b2c6b53c27c7ffcf9cd8424"
+    },
+    "output": "WITNESS_RESULT {\"runner\": \"vitest\", \"passed\": 1, \"failed\": 0, \"file\": \"apps/web/src/lib/contextProjection.test.ts\", \"name\": \"retains fold intent across editor unmounts and refuses stale source coordinates\", \"skipped\": 1, \"source_root\": \"/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/integrated/apps/web\", \"dependency_root\": \"/home/loumtech/Documents/src/hickory-docs/apps/web/node_modules\"}\n",
+    "scope": "One named existing witness; not full behavior or application certification."
+  },
+  {
+    "guarantee": "editor-intelligence/the-toolbar-uses-words-an-ide-user-knows.md",
+    "witness": {
+      "runner": "vitest",
+      "file": "apps/web/src/views/workspaceTabs.test.tsx",
+      "name": "disables both buttons while the document's run is in flight"
+    },
+    "command": [
+      "/usr/bin/python3",
+      "/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/tools/frontend-witness.py",
+      "apps/web/src/views/workspaceTabs.test.tsx",
+      "disables both buttons while the document's run is in flight"
+    ],
+    "result": "passed",
+    "elapsed_seconds": 3.261,
+    "dependency_hashes": {
+      "apps/web/src/components/ProblemsPanel.test.tsx": "e14c7d05288a0dda179484eae06c7ae291ead8101aa054c46c1a0dd7dff27b60",
+      "apps/web/src/components/ProblemsPanel.tsx": "485dd34ec3dcda2ab3eb2982a4ae48fe07c1cf8738b5605e2260c091c361e114",
+      "apps/web/src/components/RefactorBadge.tsx": "102b08aba2f8f50f496b8f9b738257206e631e3b952bbb2a4704e6a8193ec8ba",
+      "apps/web/src/views/WorkspaceView.tsx": "5a8419dded62eda79aa0f20d325c4b19d893e4e4c7500733bed137fdfe0e2395",
+      "apps/web/src/views/workspaceTabs.test.tsx": "4efaea4eb5ab95624caf2b125e628b133fce4a7f06f7e6fe993094edb04444c4",
+      "apps/web/src/views/workspaceTabs.tsx": "c2489af2342f43cc3cfa0ec60b74f8f3332d4c07d92b58b65c39f0b19abf74a7"
+    },
+    "output": "WITNESS_RESULT {\"runner\": \"vitest\", \"passed\": 1, \"failed\": 0, \"file\": \"apps/web/src/views/workspaceTabs.test.tsx\", \"name\": \"disables both buttons while the document's run is in flight\", \"skipped\": 10, \"source_root\": \"/home/loumtech/Documents/src/hickory-docs/hickory-dogfood/integrated/apps/web\", \"dependency_root\": \"/home/loumtech/Documents/src/hickory-docs/apps/web/node_modules\"}\n",
+    "scope": "One named existing witness; not full behavior or application certification."
+  }
+]

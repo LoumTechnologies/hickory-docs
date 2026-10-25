@@ -1,0 +1,1030 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# docs/guarantees/agent/ui-action-dispatch.md
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+This is preserved output from the original capture. Current requirement dispositions are in the integrated guarantee pages.
+
+
+Captured SHA-256: `46c72e4344eb8c6355706af3848cb0d9da48ccf3c2e31494c30f2835f0472b18`.
+
+<book:entry path="docs/guarantees/agent/ui-action-dispatch.md">
+# Explicit UI action dispatch checks scope, state, policy and retries
+
+Given a command explicitly registered with `UiActions`, observing its parent
+returns a bounded descriptor with subject, schema, current state and an opaque
+action handle. A structured invocation through that registry checks workspace,
+window, current actor policy, current revision, enabled state and exact typed
+arguments before calling its registered semantic handler. Quoted text, source
+location handles and forged handles do not execute commands. Observation identity
+is distinct from executable identity and does not grant an edit baseline.
+
+Within one registry lifetime, identical request retries share the same result.
+Conflicting key reuse and concurrent execution on a subject are rejected.
+Intent is retained before side effects; state and policy are checked again after
+that asynchronous boundary. Actual outcomes are recorded separately. The dispatcher
+does not infer completed execution from intent or a model declaration.
+
+Cancellation propagates an owned request's AbortSignal. The executor determines
+the actual outcome; cancellation does not assert rollback. Failed result retention
+reports uncertain side effects instead of retrying execution.
+
+The application registers cell rail actions, More actions menu toggles,
+environment disclosure, dependency setup and manager selection, debugger control,
+runtime/profile reads, terminal supervision, editor reading/selection/folds,
+source-guarded document runs, review disclosure and anchored coach controls.
+Human and agent
+adapters use those controllers. The Python supervisor and ACP private MCP bridge
+forward structured UI tools to the window captured at Send. They supply the actor
+from the host session/turn, and accept replies only for that window's outstanding
+request. Caller abandonment requests cancellation in the same window. A closed
+environment group unregisters its children until explicitly opened.
+
+The host retains immutable intent/result files in WorkspaceStore. A result must
+match its intent's action, arguments, actor, scope and request ID. Python captures
+UI tool output into the existing context store and records host-observed tool
+results; request delivery remains governed by the existing lineage protocol.
+An environment setup action returns its real terminal job identity; a cell rail
+dispatch does not claim runtime completion or verification.
+
+**Universal UI parity is incomplete.** Native operations, most remaining controls,
+full job inspection/cancellation and the coach/launch witnesses remain outstanding.
+
+---
+
+Last LLM verification:
+
+- Date: 2026-10-19
+- Reviewer: Codex
+- Origin: #72, #73, #74 and #75.
+- Implementation: `apps/web/src/lib/{uiActions.ts,uiActionBridge.tsx}`,
+  `editor/CardRail.tsx`, `components/MoreActions.tsx`,
+  `environments/{EnvironmentPanel.tsx,useEnvironments.ts}`,
+  `crates/hickory-cli/src/serve/ui_actions.rs`, Python Review and ACP MCP adapters.
+- Focused coverage: `apps/web/src/lib/uiActions.test.ts`; disclosure/invocation,
+  duplicate labels, Unicode, stale source/stop, disabled actions, policy denial,
+  forged/quoted/cross-window/unregistered handles, typed parameters, retries,
+  cancellation ownership, concurrent actions, argument capture, changed state
+  during intent persistence and failed intent persistence.
+- Evidence limits: dispatcher fixtures, real React controls with injected
+  callbacks, real host state/receipt storage, and a real confined Python worker
+  over HTTP with scripted provider/UI responses. No paid-provider, real dependency
+  installation, native, release or deployment witness is claimed.
+- Assumptions: trusted code registers commands and host adapters supply
+  actor/scope. Host commands must independently validate current authoritative
+  revisions and policy atomically. Parameter schemas here are intentionally
+  primitive required fields; resource/upload/selection schemas need adapters.
+- Exclusions: exactly-once execution across crashes, cross-window coordination, atomic host writes,
+  job cancellation after the dispatch result, general UI/source correspondence,
+  opaque ACP provider delivery, token
+  accounting beyond observation payload bytes, general read-surface integration and exhaustive UI registration remain
+  integration work. Retired references require observing the parent again.
+- Human judgment: no human correctness or launch-readiness approval recorded.
+- Broad regressions and post-commit monitoring are left to the user.
+
+Executed focused checks (2026-10-19):
+
+- Dispatcher, real control/transport and environment adapter tests: results below.
+- Strict TypeScript checking of only `uiActions.ts` and `uiActions.test.ts`:
+  passed with ES2022/DOM, bundler resolution and unused-code checks.
+- `node scripts/inventory-ui-actions.mjs --check`: passed. The declaration index
+  is reproducible for 434 source files, 907 controls and 457 imperative call sites.
+- Real confined-Python integration:
+  `python_agent_uses_originating_window_ui_tools_with_retained_context`: passed
+  with `HICKORY_AGENT_TEST_PYTHON=apps/agent/.venv/bin/python`. The loopback server
+  and confinement required execution outside the outer filesystem sandbox.
+- Initial four focused Rust host-broker tests passed, including immutable
+  receipt persistence. Follow-up cancellation and disclosure checks are below.
+- No real provider, native or deployed flow was executed.
+
+Follow-up focused checks (2026-10-19):
+
+- Dispatcher/React bridge/environment action tests: 24 passed across
+  `uiActions.test.ts`, `uiActionBridge.test.tsx` and `environmentActions.test.tsx`.
+  Includes actual menu disclosure, shared rail callbacks, returned setup job IDs,
+  disabled/stale setup, closed-group child retirement and window disposal.
+- Existing affected environment controller/panel checks: 5 passed.
+- `cargo test -p hickory-cli --lib serve::ui_actions::tests --quiet`:
+  5 passed. Includes window reply isolation, immutable receipts, caller cleanup,
+  bounded arguments, closed windows and cancellation notification attribution.
+- The confined-Python HTTP test above passed with the broker and context-reference
+  integration. Its scripted endpoint is explicitly separate from component tests;
+  no claim of a witnessed full native/provider customer workflow is made.
+- Focused strict TypeScript checking of the dispatcher, bridge, environment
+  adapters/tests and WorkspaceChat entry passed with ES2022, DOM/DOM.Iterable,
+  bundler resolution and unused-code checks.
+
+Current adapter verification (2026-10-19):
+
+- Dispatcher: 18 focused tests, including bounded arrays and integer inputs.
+- Terminal adapter: two tests for real controller job identity and prompt/turbo
+  human-input boundaries; injected controller, not a native terminal witness.
+- Debug/runtime/editor adapters: five focused tests use actual controllers or
+  connected CodeMirror with injected runtime data; no provider assertion.
+- Saved execution compares the expected root SHA-256 before parsing/execution
+  and retains captured source identity separately from requested identity.
+  The focused Rust source guard test passed.
+- Changed application entry points passed strict TypeScript checking with the
+  repository's interpreter declaration included.
+- Review agent comments/investigations now carry agent-declared origin.
+  Agent resolution is refused by both the adapter and backend; local declarations
+  remain unauthenticated. This supersedes the earlier user-only write limitation.
+
+Disclosure and controller follow-up (2026-10-19):
+
+- UiActionsVisibility retires hidden workspace/spatial-pane registrations without
+  destroying editor state. The focused bridge test requires fresh handles after
+  reopening. All five bridge tests passed.
+- Debugger discovery carries compact state only; explicit detail reads are bounded
+  to 8 KiB. Runtime run/source indexes are paged; unknown run/invocation identities
+  are refused. Three debug tests and one runtime test passed after these changes.
+- FeatureSettings shares its actual open/close controller with the registry;
+  LineageOptions only mounts inside the open portal. The real persistence/disclosure
+  test and affected feature-settings test passed. App navigation shares its
+  native-menu handler; focused strict TypeScript checking passed.
+- The combined focused App navigation run initially reported an unhandled async
+  teardown rejection after both assertions passed. Each selected test then passed
+  separately with no reported unhandled error. The combined-run timing cause was
+  not established; these results do not certify broad regression behavior.
+
+Private revision and prompt correction (2026-10-19):
+
+- Retrospective finding: initial debug/runtime/terminal/review/context/config/tree
+  adapters serialized private state into revision strings. This could disclose
+  hidden patch text through metadata despite bounded explicit reads. Those adapters
+  now use useUiRevision's opaque tokens. Earlier tests did not challenge this leak.
+  The new context test asserts hidden original/candidate text is absent from
+  discovery. No actual paid-provider exposure was performed in this session.
+- The terminal host now rechecks its current recognized prompt before agent input,
+  bounds agent input bytes and preserves refusal as requires_input. A real PTY
+  test passed: stale-UI-style agent input was refused, then actual human input
+  answered the waiting program. Prompt recognition remains best effort, not a
+  general external-process authorization protocol. Enabling turbo always requires
+  human input through the registered adapter, independent of cached UI state.
+- Current focused follow-up: two context tests, three terminal adapter tests, three
+  existing agent-settings tests plus one new shared-handler test passed. Three
+  selected setting/title tests passed. Command-search callback/policy and selected
+  existing behavior tests passed (three); source-guarded folder replacement and
+  spatial navigation tests passed. Broader regressions remain unrun.
+
+### Meeting import adapter — 2026-10-19
+
+The disclosed importer accepts transcript name/text through the same ingest
+controller used by the selected local file. No chooser impersonation is needed.
+Both routes enforce extension, UTF-8 decoding and a 1 MiB byte limit before host
+submission. A synchronous in-flight guard prevents overlapping imports. Abort
+before submission prevents upload; later cancellation does not roll back retained
+evidence. Discovery contains opaque revisions, not transcript text. Evidence is
+read explicitly in JSON UTF-8 byte pages of at most 8192 bytes; navigation uses
+current retained utterance identities. This does not grant microphone consent or
+remote transcription authorization.
+
+Executed focused checks: MeetingImport.test.tsx (2 passed), including Unicode
+retained evidence/navigation and invalid/multibyte oversized input with no host
+write. These component checks mock the host parser and microphone component;
+they are not a native capture or real-provider witness.
+
+### Context projection controls — 2026-10-19
+
+The disclosed projection panel provides current document identities in pages of
+at most 64, off/expanded/pinned selection, capture, and preview reads in JSON UTF-8
+byte pages of at most 8192. Hidden choices unregister. Preview text stays out of
+opaque discovery revisions. Human checkboxes use the same selection command;
+selection changes clear the previous preview and invalidate in-flight captures.
+Closed document identities are rejected. The UI window is captured at context
+assembly entry, before awaiting file reads. Neither selection nor preview is a
+provider delivery attestation, and neither initiates a model call.
+
+Executed focused checks: uiContextProjectionActions.test.tsx (1 passed) and the
+WorkspaceChat explicitly-selected/pinned preview case (1 passed). The first full
+WorkspaceChat file run exposed a stale context-status mock and the disclosure
+click/toggle timing gap; the mock and immediate shared disclosure handler were
+corrected before rerunning that focused case. Targeted strict TypeScript checks
+for WorkspaceChat and the adapter test passed. Native/provider flow remains
+unwitnessed.
+
+### Search, references and Problems — 2026-10-19
+
+Mounted lists expose explicit JSON UTF-8 evidence reads (8192 byte maximum),
+current result indices, shared navigation and close. Private query/diagnostic/
+location bytes remain outside discovery revisions. Changed rows or query state
+invalidate prior handles, so an old index cannot silently select a new row.
+Ranked search exposes the same query and selection handlers as keyboard/pointer
+controls, limits its response to the existing 20 hits, and reports lexical/semantic
+scope. Query input clears the old response immediately; the existing cancellation
+of stale debounce responses remains active. Source freshness beyond the displayed
+LSP/search response is not certified by list navigation.
+
+Executed focused checks: uiResultLists (2), SearchPanel (2), ProblemsPanel (4),
+all passed. Targeted strict TypeScript checking of these panels and the new test
+passed. Tests cover exact human/agent row routing, explicit Unicode evidence,
+changed-result refusal and unregistration; they do not witness native LSP startup.
+
+### Snapshot export — 2026-10-19
+
+Human and agent export capture the existing host snapshot, hash the exact JSON
+UTF-8 bytes used for the browser download and expose bounded explicit reads of
+that capture. Download requests do not attest that the browser wrote a file.
+No publication or new verification is implied. Changed document identity retires
+the prior artifact read command. Abort observed after capture suppresses the
+browser download; an already requested download cannot be rolled back.
+
+Executed focused checks: SnapshotExport.test.tsx (1 passed), including exact
+Unicode/failed-result bytes, actor routing, truthful download/publication scope
+and document-change retirement; targeted strict TypeScript checking passed.
+The browser download and host snapshot are mocked; actual filesystem save and
+reviewed publication remain separate witnesses.
+
+### Conversation submission and supervision — 2026-10-19
+
+Registered conversation controls read current history, draft, output and UI status
+only through explicit JSON UTF-8 pages of at most 8192 bytes. Opaque revisions
+cover branch, draft, running turn, readiness and current evidence. Draft input
+uses the same recovery edit handler as typing; it does not submit. Send invokes
+the existing conversation handler, preserving its selected context/provider and
+recovery semantics, and reports the actual returned turn ID as queued. A local
+slash command or failed/no submission returns no invented job. Stop awaits the
+existing host request and reports whether it was requested; only the actual turn
+state can establish stopped. Branch selection rejects unknown identities and is
+disabled while sending/running. Request cancellation is not a rollback of a
+submitted provider turn; its actual job must be stopped separately. UI receipts
+retain the initiating agent actor; agent invocation is not human attestation.
+
+Executed focused checks: uiConversationActions (1), selected ChatDock provider/
+Python/ACP/Stop/registered-Send cases (5), selected WorkspaceChat startup/preview
+cases (2), all passed after correcting stale context-status fixtures. The new
+ChatDock case drives registry draft/Send into the actual Python conversation
+handler and checks its queued host ID. Strict targeted TypeScript checks passed.
+Provider responses and host APIs are mocked; these are not real provider/native
+witnesses. The initial focused ChatDock runs exposed missing items/updates in
+test mocks; those failures are not counted as passing checks.
+
+### Conversation settings disclosure — 2026-10-19
+
+Agent selection, catalogue refresh/read, provider/model input and collapsed-lineage
+preferences mount only with the actual settings panel. Selection accepts current
+catalogue IDs and uses the same backend/preference/new-thread handler as the human
+select. Availability is not a configured login; current connection status remains
+a separate host result. Catalogue evidence reads are bounded JSON UTF-8 pages.
+Provider/model controls use their existing local setters and describe next-turn
+configuration only. Running/starting conversations disable agent/model selection.
+
+Executed focused checks: selected ChatDock provider/Python/ACP/registered-Send/
+settings-disclosure cases (5 passed); strict targeted ChatDock checking passed.
+The new case drives registered settings opening, model and ACP selection, observes
+the existing connection handler, closes settings and checks commands retire,
+without any model call. Actual login/provider behavior is mocked.
+
+### Conversation proposal review — 2026-10-19
+
+Proposal state, original/proposed bytes and actual returned statuses have explicit
+bounded JSON UTF-8 reads. Review navigation validates current proposal identity.
+An agent decision returns a retained requires_input request keyed by document,
+backend and proposal, with no edit or host decision call. Enabling auto-accept is
+also human-only; selecting review mode can reduce that authority. Human decisions
+share the actual apply-before-acknowledge controller; failure after local apply
+reports that effects may already have occurred. Changed proposal state invalidates
+old handles. A host accepted/applied status is not a verification result. This
+registry policy does not sandbox an external ACP process or replace host approval
+checks; independent local HTTP clients retain the existing trust model.
+
+Executed focused checks: AgentChanges.test.tsx (9 passed), covering existing
+accept/reject, stale-buffer feedback, revised bytes, authorized ACP auto-apply,
+Python human review and the new structured read/request/actor guard/stale handle
+path. Targeted strict AgentChanges checking passed. Host APIs and editor actions
+are mocked in the new request-path case; actual native/provider approval remains
+a separate witness.
+
+### UI handshake before context capture — 2026-10-19
+
+Context capture snapshots the current connection and awaits its host-minted window
+identity before buffer reads. Pending startup is bounded to three seconds; timeout
+or failed attached connection prevents this submission, preserving response
+recovery. A closed origin rejects capture rather than adopting a new connection.
+No provider/host call to start a turn occurs during this wait. Hostless embedding
+without a UI provider retains the prior no-window context behavior. Successful
+capture does not guarantee the window remains connected through a later provider
+call; the host broker still rejects stale/deleted windows.
+
+Executed focused checks: uiActionConnection (4 passed), selected WorkspaceChat
+startup/preview cases (2 passed), strict targeted bridge/context checking passed.
+The connection tests exercise pending, timeout, closed/replacement and failed
+handshakes with mocked host endpoints; native startup remains a separate witness.
+
+### ACP permission and tool evidence — 2026-10-19
+
+An agent can explicitly read the actual permission request/options and request a
+human decision keyed by document/backend/request identity. It cannot answer any
+option on its own behalf. Human buttons use the same current-choice handler and
+actual host acknowledgement. `answered: false` keeps the request visible and
+reports an error; acknowledgement does not certify tool completion. Tool details
+use explicit JSON UTF-8 byte reads capped at 8192, with opaque revisions. Closed
+adapter tool details retire their reading commands while preserving the mounted
+view; reopening requires current handles. This local registry actor policy does
+not authenticate independent HTTP callers or sandbox ACP processes.
+
+Executed focused checks: four selected AcpControls permission/disclosure cases
+passed, including human exact-choice routing, agent self-answer refusal, actual
+host refusal staying visible, and hidden tool-reading retirement. The host-false
+case first exposed missing inline error feedback in the hostless adapter; that
+feedback was fixed before rerun. Strict targeted AcpControls checking passed.
+Endpoints are mocked; real adapter permission/provider behavior remains unwitnessed.
+
+### Adapter setup and configuration — 2026-10-19
+
+Connection controllers now return actual host state/error, including whether an
+async result was superseded, rather than only swallowing errors into UI state.
+Registered runtime check, reconnect, install and typed configuration use these
+controllers. Connection reads are bounded and exclude undisclosed command help
+and separate tool/permission payloads. Configuration revisions include document,
+backend and adapter session. Sign-in/session-mode changes require human input;
+known permission/sandbox/approval/mode fields are also guarded. Opaque external
+configuration names are not an authentication or sandbox boundary: the external
+adapter retains its independent authority and may have unknown semantics.
+
+Executed focused checks: AcpControls (11 passed), then four selected configuration,
+failed-operation, sign-in and superseded-result cases passed after adding the
+scope guard. Strict targeted AcpControls, its test and ChatDock checking passed.
+Actual APIs are mocked; no adapter package was installed and no login/provider
+call was made by these tests.
+
+Conversation backend/model selector revisions also bind document, selected branch
+and session. A focused ChatDock follow-up (2 selected cases passed) verifies that
+same-looking controls cannot reuse old handles after a document change, alongside
+existing settings disclosure. Strict targeted checking passed. This guards local
+UI retargeting; concurrent independent host configuration remains outside this
+client-only check.
+
+### Recorded ACP evidence — 2026-10-19
+
+Recorded message/reasoning/plan/tool/status/filesystem evidence has actual details
+disclosure and explicit JSON UTF-8 reads capped at 8192 bytes. Closed items retain
+mounted view state while retiring their reading and nested tool-reading commands.
+Opaque revision tokens include the retained value without disclosing it. Invalid
+or non-object JSON remains inspectable as text. A recorded stop is labelled
+neutrally; an adapter report is not an independent execution/byte check.
+
+Executed focused checks: AcpRecord (2 passed), including nested reader retirement,
+explicit Unicode evidence, malformed payload and neutral stopped attribution;
+strict targeted checking passed. These retained-record component checks do not
+witness live provider output or certify an adapter's claims.
+
+### Desktop command installer — 2026-10-19
+
+Install/remove/refresh use the existing desktop endpoint and report returned
+availability, installation, removal, conflict and message fields. Bounded explicit
+reads expose the full status/error; revision tokens keep private source paths
+opaque. A synchronous pending guard prevents overlapping local operations, and
+status generations reject superseded initial reads. Client enabled predicates
+preserve existing conflict/platform constraints; the native host remains the
+filesystem authority. No CLI execution or supported packaging witness is implied.
+
+Executed focused checks: CommandPathSettings (5 passed), including human install/
+remove, conflict, failure/retry, headless UI and registered install/read with actual
+mocked host status; targeted strict checking passed. These tests did not modify
+PATH or shell profiles on a real platform.
+
+### Dataset previews and read-only tables — 2026-10-19
+
+Dataset refresh/remote load/paging use their existing fetch/state handlers and
+report requested transitions rather than claiming a completed read. S3 remains
+explicit; no remote read occurs before its Load action. Responses are bound to
+source, format, document, page, refresh and remote-selection identity. A changed
+request cannot display old rows under the new source/page. Current read-only
+tables expose bounded JSON UTF-8 schema/visible-row reads and shared filter/sort
+setters. Scope includes loaded count, source offset, total/has-more and column
+truncation; sorting/filtering is page-local and never writes the dataset.
+
+Executed focused checks: uiDatasetActions (2 passed), covering exact Unicode
+read/sort/filter, invalid column, explicit S3 load, actual next-page response,
+old-page handle retirement and truncation scope; targeted strict checking passed.
+Fetch responses are mocked; real S3 credentials/storage were not exercised.
+
+### Recording and transcription supervision — 2026-10-19
+
+The actual recording panel now registers typed configuration/draft/save,
+retention/recovery/delete/download, current-state reads, capture supervision and
+local transcription. Microphone start, remote consent/upload and human-reviewed
+transcript import return addressable human requests to an agent. Remote upload
+is never authorized solely by a cached checked consent value. Original audio and
+transcription remain separate from correction drafts and linked note import.
+
+Capture returns a real recording job ID after MediaRecorder starts. Stop reports
+its request while final chunks/hash remain pending. Transcription returns actual
+audio/transcript identity and byte count after the host response. Explicit cancel
+and owned AbortSignal cancellation use the existing host cancellation route; a
+request is not rollback or proof a remote provider avoided processing/charges.
+Status, visibility and cancel subjects stay usable during a pending local
+transcription. Read output is bounded JSON UTF-8 bytes. Active capture must stop
+before its retained audio can be recovered/deleted. Download is a browser request,
+not an observed saved file. Independent host/device/platform policy still applies.
+
+Executed focused checks: MeetingRecording (4 passed), plus its pending-job
+supervision case rerun after adding close/reopen coverage (passed); strict targeted
+component/test checking passed. Cases cover actual human remote-consent failure,
+OS capture refusal, agent self-consent/remote-upload refusal, and local request
+status/cancel while pending. Devices, provider and retention APIs are mocked;
+no real microphone, remote upload or provider billing was exercised.
+
+### Cell, diagram and math readings — 2026-10-19
+
+A shared code-owned reader explicitly pages JSON UTF-8 data in at most 8192 bytes,
+with opaque revision/snapshot identity and no edit-baseline claim. Cell readings
+reflect visible status, diffs and output; collapsed transcript is omitted until
+the real replay state changes. Private full block state guards revisions even
+when visible values happen to match. Diagram readings separate authored input
+from captured renderer input, mark stale SVG previews, and treat assertion state
+as reported rather than independently proven. Math reports renderer/fallback
+state and stages output before promotion; obsolete async renders cannot overwrite
+a newer equation. Source/SVG representations do not certify visual image delivery
+or mathematical/requirement correctness.
+
+Executed focused checks: DiagramPanel (6), CellPanel (7), MathPanel (1), all passed;
+strict targeted checking passed. New cases verify transcript disclosure and stale
+handles, exact Unicode reading, real fallback state, and out-of-order math
+completion. The renderer engines are mocked in the renderer-specific tests; these
+are not real native layout, model vision, provider or screenshot witnesses.
+
+Rendered-reading evidence fingerprints for that check (historical after later source/inventory changes; SHA-256 binds listed bytes, not semantic parity):
+
+- `docs/developers/ui-control-inventory.json`: `35e65d1f10642d2fde37f42f327eb1aef637697d411b9f48d3f7728f42656054`
+- `scripts/inventory-ui-actions.mjs`: `fd2cf4881b5c22659ccb67e06c8f61e1b5be77d5bd6b7e4f7a9c59df38c369d8`
+- `apps/web/src/lib/uiReading.ts`: `cc37d833882855bcaf17e8fecbc04830f8304a048efbaebbd7e949b43af0acc0`
+- `apps/web/src/components/MathPanel.test.tsx`: `966bf2b6d29c52c98308815d7af30abd2b4e0910969cda83d59ba71d41652fb5`
+- `apps/web/src/components/CellPanel.test.tsx`: `51bec8f7426917ef4b6e287195a3beab45450428c2bb9961143d79d9bd894b9e`
+
+### Shared in-app prompt controller — 2026-10-19
+
+Each code-owned prompt has a unique ID, typed draft/option-index input, bounded
+JSON UTF-8 reads and cancellation. Prompt settlement uses that expected identity;
+identical titles cannot retarget old actions. Caller policy defaults to a human
+request. Ordinary rename/code-action/Save a copy/watch callers explicitly enable
+agent input; source-sensitive callers provide a captured live revision getter.
+Changed source disables input/settlement until a new action is requested. Choice
+labels are data; invocation selects only an existing code-owned option value.
+Replacing or unmounting a prompt resolves its old promise as cancelled rather
+than leaving an operation awaiting forever. Prompt settlement is not an operation
+success or human attestation.
+
+Executed focused checks: PromptPanel (4 passed), including draft/resolver routing,
+human-only choice, changed-source refusal and identical-title replacement/unmount.
+The first run had an ambiguous test label query (dialog and input); the query was
+corrected and all cases rerun. Strict targeted WorkspaceView/prompt checking passed
+with the repository's existing js-interpreter declaration explicitly included;
+the initial ad-hoc command omitted that declaration and failed on library types.
+These tests do not execute an actual LSP refactor, native chooser or file copy.
+
+### Scoped workspace menu controller — 2026-10-19
+
+Native menu and agent controls now share Save/Save a copy/Save all/Print/Insert/
+Edit element handlers. Live private source/focus/selection/open-buffer guards
+reject stale handles even without a React render. The controller copies target
+identity before async formatting; subsequent focus changes cannot retarget an
+unnamed save. Source-changing/closed-buffer formatting failure prevents save
+submission. Native destination/print dialogs require real human input; in-app
+copy prompts use the separately scoped prompt interface. Known empty unnamed
+buffers with formatting off create no file and need no chooser.
+
+Outcomes preserve returned document save booleans, copy/insert/editor requests,
+and unconfirmed self-saving-pane flush intent. Prompt/print requests do not
+certify copied files, physical output or verification. Current command reads
+include actual document banner/sync state and the last adapter outcome. This
+client guard does not coordinate independent external writers or strengthen the
+existing document-save endpoint into a filesystem transaction.
+
+Executed focused checks: workspaceMenuActions (5), uiWorkspaceMenuActions (1),
+existing useUntitledSave (2), all passed; strict targeted WorkspaceView/menu
+checking passed with the existing interpreter declaration included. Cases cover
+focus changes during formatting, real acknowledgement false, chooser/print
+policy, empty saves, source changes without rerender and shared human/agent
+routing. Native dialogs, printing, full app menus and external filesystem races
+remain unwitnessed.
+
+### Core editable table controls — 2026-10-19
+
+Tables now register current controller reads and explicitly requested cell regions
+(maximum 64 by 64 cells, then JSON UTF-8 pages capped at 8192 bytes), shared cell
+commit, selection/ranges/rows/columns, structural/menu/fill and layout/disclosure
+commands. Reads distinguish raw/displayed values, calculation pending/current/
+failed and owning writable-scope currency. Discovery revisions keep cell/source
+bytes opaque. Structural commands require pending edit commit/cancel first.
+
+Authored CSV and Markdown adapters bind block bytes and their actual immutable
+CodeMirror document. Writes reject a changed/closed/readonly owner even before
+React rerenders. Source identity is disclosed explicitly. Agent actor travels
+through the source callback and its UI transaction name; these are recorded
+agent operations, not human approval or verified correctness. Independent host
+operations retain local UI permissions; no model code receives direct filesystem
+access. Layout dispatch/measurement is not an acknowledged persistence result.
+Nested formula/format/resize and remaining gestures are not certified by this slice.
+
+Executed focused checks: 13 selected TablePanel/MarkdownTable/new adapter cases
+passed; new adapter cases rerun after metadata correction (2 passed), then a third
+real-CodeMirror CSV write case passed with the two earlier cases. Strict targeted
+checking passed after removing an unused test import. Coverage includes real
+CSV write-through, Markdown callback/actor routing, stale owner before rerender,
+cell write/fill/menu, existing CSV normalization and formula result/failure cases.
+These checks do not witness native pointer geometry, a real formula interpreter,
+provider behavior or whole-table UI parity.
+
+### Nested table controls and trace replay — 2026-10-19
+
+Size drafts, validation/destructive-loss state, apply/cancel, numeric formats and
+formula-trace navigation/read now share the actual nested controllers. Owner IDs
+associate duplicate labels with their table. Resize/format source writes retain
+the owning source guard and actor. Human callback arity remains compatible with
+existing CSV/Markdown writers. Prose-wrap input mounts only through its real
+settings disclosure. Known source changes invalidate old nested action handles.
+
+Formula traces are keyed to their supplied language/table revision before any
+read/navigation: a prior trace cannot be displayed as the new one while awaiting
+its host response. Bounded current-step reads retain expressions, bindings,
+errors, index/total and the captured-order-only scope. Navigation is replay and
+never claims DAP reverse execution, inner-expression stepping or verification.
+
+Executed focused checks: 8 selected table/format/trace/new-adapter cases passed;
+strict targeted checking passed. The preceding selected run caught extra actor
+arguments on an ordinary human resize callback; normal human arity was restored
+and the affected cases rerun. Trace source-key/type checking also caught adapter
+hooks placed in the effect cleanup scope; they were moved to component scope
+before any passing execution was claimed. The tests mock the formula host and do
+not establish native pointer geometry, interpreter execution or provider evidence.
+
+Git history uses the same human navigation handlers for expanding/collapsing commits, opening an actual commit reading or current working file, loading older history, and opening story/literate views. Bounded JSON byte reads include only loaded summaries plus explicitly expanded bodies/files. The opaque revision includes loaded history and disclosure state; changed revisions refuse old handles and removed controls become unavailable. File navigation opens the current file, not its historical contents or an edit baseline. A successful history refresh clears a previous displayed fetch error. Focused evidence: strict TypeScript and the history disclosure/navigation/changed-and-removed-handle test. Working-tree mutations remain separately outstanding.
+
+The Git working-tree controller registers bounded current-state/diff reads, current-file navigation, stage/unstage (one/all), stash/pop, fast-forward pull, branch disclosure/create/checkout, message/amend drafts, commit and editable-review navigation. Human buttons share those handlers; command results retain actual host replies (including the commit identity), host refusals are unavailable rather than success, and failed commits preserve the draft. A synchronous in-flight guard prevents overlapping Git host mutations even before React renders busy state. The selected diff clears before a new selection/request. Push publication, rewriting the previous commit, and the existing human two-click discard decision return requires_input to agents; they do not impersonate the human decision. These are addressable operation results, not an OS limitation or a claim that the agent published/discarded. UI revisions cover the fetched status, selection, drafts, branches, notice and busy state; fetched porcelain status is not an atomic file-content snapshot, and external Git/file changes can race the existing host APIs. Focused checks: seven selected GitPane staging/diff/commit/discard/branch/failure/agent-boundary cases passed (the branch case was rerun after preserving the existing one-argument checkout callback); strict controller and test TypeScript passed. No real checkout or remote publication was performed for these checks.
+
+Visual bisect registers only its visibility launcher while closed. Once disclosed, bounded session/graph/host-output readings and boundary drafts, refresh/start, candidate-window open, skip, experiment-preserve/restore and finish use the actual host controller. Remaining commit text requires a separate evidence disclosure. Closing retires the inner controls. Good/bad are explicit human classifications and agent requests return requires_input; a host reply is not independent test evidence. Modified candidates retain the existing refusal of verdict/end until preservation/restoration. A synchronous operation lock covers the pre-render interval, and generation-ordered polling refuses older responses. Restore replies retain the actual patch path and finish replies retain inspection-worktree information. Focused checks: two real-component mocked-host disclosure/authority/preserve checks and strict TypeScript passed. Native candidate-window opening and real worktree execution remain unwitnessed in this environment; no outcome is presented as a completed native workflow.
+
+Comparison controls share actual layout/source/fork handlers and bounded source-choice metadata; hidden compact options retire their child controls through the margin disclosure. Visible CodeMirror sides expose scoped editor line/selection/fold reading and a current-source guarded draft-range edit. The live guard includes connection/read-only state, draft text and selection, editable permission, source identity, target, kind and captured URI. Immutable sides remain disabled; changed draft state refuses a prior handle before a second edit. Draft writes invoke the existing model update, which resets equality evidence to unverified and drops now-incompatible captured project tooling. Agent transaction tags distinguish the UI event but do not authenticate source authorship or approve a named edit proposal. Replies explicitly establish no save, approval or verification. Rendered diffs expose bounded text reads; binary placeholders expose no binary data. Focused checks: four comparison component cases and three rendered-diff cases passed (the added case rerun after correcting its expected disabled status), plus strict affected TypeScript and file-length/whitespace checks. Patch gutter breakpoint actions, captured-code tool navigation and other comparison-adjacent flows still require separate coverage.
+
+Captured comparison references expose bounded current-list reads and exact-index navigation through the same human handler. Navigation awaits the captured-source host request, records the actual target URI/line, keeps a failed list available and reports failure rather than success. A live source/connection guard expires prior handles even without React rendering. Reference callbacks are adopted only for the owning captured context and unchanged visible source; replaced-source results do not become a new view's references. Captured-code setup state has bounded reads and a retry action only while its actual error is displayed; retry reports registration requested, not runnable/verified success. Five focused checks passed: real captured navigation, setup retry, late context cleanup, exact navigation failure/live-source guard, and delayed-reference rejection after source replacement. Strict affected TypeScript passed. Patch-gutter controls and native debugger/provider witnesses remain separate.
+
+Merge views expose bounded current regions/answers/preview reading and shared conflict choice, cancel and accept handlers. Replacing path/base/ours/theirs mounts a new controller and drops old answers and handles. Acceptance awaits the owning callback, reports actual failure and establishes neither a save nor proposal approval nor verification. A live owner predicate refuses stale acceptance; synchronous pending ownership prevents duplicate accepts and disables concurrent choices. Plain-file acceptance captures the owning buffer and merge, refetches the disk side, refuses a changed/closed buffer or owner, and reopens a new unanswered merge if the disk text changed again. Only a matching observed disk side becomes the save baseline before the merged draft enters the buffer. The normal hash-guarded saver handles subsequent writes; this is not an atomic read/write filesystem transaction. Plain-file editor controls retire while the merge replaces that editor. At merge-only commit `e479ec8`, generated-output acceptance awaited its existing queued host reply and retained failed merges; the following held-output resolution integration supersedes that queued acknowledgement. Six selected merge/restore checks passed, including live-owner refusal, changed-input answer retirement, current-disk acceptance and changed-disk re-review; strict affected TypeScript passed. The plain-file checks wait for the asynchronously mounted owning editor before clicking.
+
+Held-output merge requests now carry both exact observed UTF-8 sides and retain the actual owning callback reply in the UI result. The loop checks current held/tracked ownership, unchanged produced bytes, canonical in-folder target and disk bytes before writing. It removes the hold only after a successful write. The HTTP endpoint waits for the loop's applied/refused result; success establishes the output-file write and explicitly leaves source propagation unconfirmed. Closed waiting receivers are skipped before starting queued work. A stale side, missing hold or symlink retarget is refused without replacing the output; after success a replay is refused because the hold retired. Engine-owned writes retain their serialization, but unrelated external processes can still race the check/rename interval; there is no filesystem compare-and-swap, exactly-once crash guarantee or timeout rollback. The timeout result instructs inspection before retry. Focused evidence: two real-filesystem state checks (both-side staleness/hold preservation/success/replay and out-of-folder symlink refusal), one actual HTTP test proving no enqueue-only success and applied/refused replies, three merge/restore UI checks, strict affected TypeScript, file-length and whitespace checks passed. The HTTP listener was rerun outside the sandbox after its initial bind was refused.
+
+The visible merge-driver notice exposes bounded current configuration/failure/repair-state reading and shared initialize/dismiss handlers. Initialization awaits the existing host reply and retains its changed-files/status fields; a host refusal is unavailable, not a successful repair. A synchronous lock prevents pre-render duplicate initialization. The initialization command retires when the actual result replaces the warning, and all notice controls retire after dismissal. Dismissal reports no repair. Four selected behavior/authority checks passed (human repair/failure/dismissal and agent awaited-repair/pending-stale-handle/retirement), plus strict affected TypeScript. No actual repository initialization or merge execution was performed by the mocked-host UI checks.
+
+Divergence banners expose bounded current cause/effect/failure/pending reads and only their actual available keep/take/merge handlers. Opaque live revisions include owning file/buffer/source state, so typing invalidates an observed decision without requiring React to render first. Shared handlers serialize pending choices, await promise-returning callbacks, preserve their actual replies and report asynchronous failure. Void callbacks explicitly establish only request dispatch, not a completed overwrite/save. Plain-file merge opening and disk reload now recheck the owning buffer across the fetch; reload retains newer edits instead of adopting a late disk response. At divergence-only commit `0bb59df`, regeneration retained a queued host reply; the following regeneration integration supersedes that contract. Six focused divergence/merge/reload cases and strict affected TypeScript passed, including a real CodeMirror typing/save-conflict/deferred-reload flow. The test's edits use the actual input transaction event, matching the saver boundary.
+
+Held-output regeneration now requires loaded disk bytes and observed produced bytes, checks both current hold and tracked output content, and shares the actual applied/refused resolution acknowledgement. The engine-controlled regenerate mode accepts only the observed produced bytes and restores generated/read-only permissions before retiring the hold. The old unguarded queued regeneration command was removed from both watch adapters. UI receipts retain the actual application reply; they do not infer source propagation or verification. Focused validation passed: both earlier resolution state tests, a regeneration bytes/permission check, actual HTTP merge/refusal/regeneration acknowledgement, strict affected TypeScript and file-length/whitespace checks. Compilation caught and corrected the now-explicit result type in the command adapter before these checks passed. External-writer comparison/rename races and partial I/O failures remain subject to the prior inspection/no-rollback caveats.
+
+Plain-file menus disclose only their actual available literate-view/review/adoption handlers, with explicit owning path/save/pending metadata and live private buffer/hash revision checks. Actions await their host/navigation handler and retain actual replies; ownership is updated only from actual adoption success. A later navigation exception is a separate field/notice, not a fabricated adoption failure. The owner's bounded status reading remains outside the menu and distinguishes a last-loaded hash from current source/save state. Menu children retire when closed. Human button auto-dismissal snapshots requests started by that click and waits for their retained results, preserving the controller across asynchronous intent persistence. It ignores older completions after a new menu epoch; this changes no actor authorization or request deduplication. Focused evidence: delayed intent/native execution/retirement, scoped file menu navigation/adoption/live-buffer refusal, three existing ownership-display cases, and adopted-success/navigation-failure handling passed; strict affected TypeScript and file-length/whitespace checks passed. These mocked-host UI checks establish no real file adoption, source verification or packaged native witness.
+
+Explicit editor owners now opt into current-revision range replacement and actual CodeMirror undo/redo commands for document, plain-file, output and comparison editors. Opaque revisions bind the immutable EditorState plus owner identity and current writable policy, so a changed owner or source/selection/history state refuses an old handle. The executor uses actual editor filters and listeners; it reports whether the requested text actually landed and whether source changed, including filter rejection/transformation. Input carries an agent UI transaction tag; undo/redo retain the library's history events and the host receipt retains the initiating actor. These are normal host UI edits, not named edit_doc/edit_output proposal approval, a human attestation or authenticated source authorship. Persistence and focused verification remain separate; comparison edits remain drafts and invalidate equality evidence through the existing callback. Plain-file input enters the existing hash-guarded saver. Output panes without an edit callback are now actually read-only for both human input and agent commands, while source-driven refreshes remain allowed. Output panes with a callback still depend on their existing provenance/save host boundary; a changed buffer alone proves no successful write-back. Six focused cases passed: real input/history and changed-owner/revision refusal, real filter/read-only refusal, guarded plain-file autosave, comparison draft/evidence behavior, output callback/read-only/refresh behavior, and live-room document callback/later-read-only behavior. Strict affected TypeScript and file-length/whitespace checks passed. An earlier history assertion was corrected to recognize retirement of an already re-observed handle as unavailable, distinct from a still-known stale handle.
+
+Editor readers explicitly distinguish UTF-8 byte offsets from UTF-16 source/selection coordinates and one-based line numbers. Source byte pages contain at most 8192 raw bytes; line pages over that content budget fail with the byte-reader recovery path instead of silently truncating. Fold and selection pages contain at most 64 entries and retain actual editor revisions. The legacy whole-fold read refuses larger sets and names the paged alternative. Selection metadata discloses actual multiple-selection support and primary index. Typed matching anchor/head arrays normalize through actual CodeMirror selection creation; choosing the primary range does not edit source. Current-selection replacement uses the real native replacement transaction, enforces a 1 MiB total inserted UTF-8 budget before mutation, and retains existing owner/read-only/filter/save boundaries. Fold-all/unfold-all use the actual library command and establish no source edit. Focused validation: Unicode byte-page reconstruction and oversized-line refusal; 70-fold pagination and actual unfold-all without source change; multiple-range/primary selection, insertion-budget refusal and actual selection replacement; the existing bounded Unicode-line/selection guard case also passed. Strict affected TypeScript and file-length/whitespace checks passed. Raw source-content limits exclude JSON encoding and transport overhead and do not establish provider token cost.
+
+The shared transport is versioned at `/api/v1/ui/windows` and its originating-window child routes. Unsupported versions and malformed/non-path-safe scope responses fail before attachment or attached Send, with update-app-and-engine recovery; there is no legacy fallback, silent omission of attached tools or replacement-window adoption. The output client uses `/api/v1/outputs/resolve` and `/api/v1/outputs/regenerate`, so an older engine cannot silently ignore observed-side fields on a legacy unguarded endpoint. Current legacy output aliases retain the new mandatory guarded handler. API version indicates protocol compatibility, not actor authorization, source authorship or release certification. Focused evidence passed: six frontend handshake/lifetime checks; actor/matching-reply broker check; actual HTTP refusal of legacy UI registration plus versioned scope/close and guarded resolution/regeneration; and real confined Python UI transport/retained-context check with scripted provider/UI endpoint. The latter explicitly configured its real worker rather than accepting a skipped test. Loopback/worker execution used the existing allowed focused-test permission. File-length, whitespace and strict affected TypeScript checks passed. Real native/provider/deployed witnesses remain separate.
+
+Disclosed descriptors and executed result values are immutable JSON snapshots, not aliases into mutable controller state. The snapshot precedes result retention; cached retries cannot be altered by later controller mutations or caller writes. Captured invocation arguments and actor are frozen after capture. A changed disclosed value invalidates the previous known descriptor even when a controller did not manually change its revision. If result JSON capture fails after execution, the retained error explicitly warns of possible side effects, requires inspection and is still deduplicated. The UI transport reports actual serialized immutable-result `result_bytes`; the counter excludes its own accounting fields and transport envelope, and provider token cost remains unmeasured. The known Unicode payload check establishes UTF-8 bytes rather than JavaScript string length. Focused checks cover mutable result aliasing/caller tamper, metadata-only staleness, non-serializable uncertain-result retry, existing dedupe/state recheck, real menu dispatch and UTF-8 result accounting, plus invocation capture and delayed-menu ownership. Strict affected TypeScript, file-length and whitespace checks passed. Immutable JSON snapshots establish local retention fidelity, not actor authentication, source authorship, complete edit baselines or a crash-wide exactly-once guarantee.
+
+Range and current-selection input share preparation that refuses ordered-range violations, splitting a UTF-16 surrogate pair, malformed inserted/resulting Unicode and inserted UTF-8 content over 1 MiB before dispatching an editor transaction. This closes the raw-coordinate path that could create an unpaired surrogate in otherwise valid source. Whole Unicode characters, including supplementary-plane characters, remain replaceable; no source normalization or approval is inferred. Actual editor filters/listeners still determine the applied result after preparation. Focused evidence passed: split-start/split-end/interior-cursor and malformed-input refusals without a source-change callback; whole-character replacement through the actual editor; existing history and multi-selection/budget behavior; strict affected TypeScript and file-length/whitespace checks.
+
+Literate-view conversations use the same Python UI transport as document conversations. Host-selected session storage is contained independently from the selected project; changing storage does not extend worker filesystem access. Lens subjects remain identities, never implicit disk saves. Fresh editor capture includes a stable lens buffer identity and current bytes. Focused evidence: `python_literate_view_uses_ui_without_creating_a_synthetic_document` uses the real confined worker and HTTP broker with a scripted provider/UI endpoint, checks retained UI results and workspace session placement, and refuses a synthetic project document. This is transport evidence, not a real-provider/native or full representation-control witness.
+
+Representation refresh and comparison requests capture their owning view and source before awaiting the host. A later edit or comparison change prevents the late reply from replacing the buffer. Save snapshots preserve later typing, including synchronous editor callbacks, and inactive-tab workspace saves remain supported. Historical editing follows the host comparison editable flag. Focused evidence: `RepresentationPane.test.tsx` save, inactive-tab, disclosure, late-refresh and late-comparison cases; strict TypeScript check.
+
+`RepresentationActions` shares human and model toolbar/menu handlers. Hidden menu commands are absent; live source changes stale observed commands. The focused menu test checks disclosure, stale-buffer refusal, actual keep failure and actual returned keep path; five representation owner tests exercise source-save and request races. Save completion carries the host revision/file hashes, a separate clean flag, and no verification claim. Keep replies concern local arrangement storage only.
+
+`RepresentationVersions` retires revision controls when its disclosure closes, exposes bounded comparison metadata separately from source, and binds commands to the current source and comparison. Focused tests exercise disclosure/retirement, typed base selection, stale-source refusal, actual comparison/return receipts, real CodeMirror folding without source changes, and host read-only permission followed by return to current code.
+
+`RepresentationLibrary.test.tsx` drives the actual library controller through agent handles: typed relative-path input, a failed then successful creation with the real navigation event, catalogue reading without source content, failed discard retaining the row, and successful discard retiring its handles. Requests serialize at the library owner as well as the shared dispatcher. Local arrangement discard does not delete backing source files. No native/provider/release witness is implied.
+
+`useEditorLanguageActions.test.tsx` witnesses late provider attachment/removal, exact mapped definition requests and the shared navigation/reference callbacks, a multi-page hover capture with exactly one language/debugger read, refusal of delayed navigation after source edits, and stale hover handles. Hover runtime values are captured evidence, not current execution claims. The source revision and installed provider bind every command; arbitrary DOM inspection or synthetic input is not used. Strict TypeScript and the focused existing bounded Unicode reader case were checked.
+
+`languageEdits.test.tsx` drives actual shared formatter/rename commands against a CodeMirror editor, verifies exact typed rename transport and resulting source, reports other document edits without applying them, and refuses read-only formatting, an entire split-surrogate batch, and stale rename preparation before asking for a name. Five focused existing formatting/projection tests, the existing Unicode input-safety case, the language provider lifecycle test and strict TypeScript were checked. Installed-provider removal and hook teardown abort in-flight provider commands; this cannot undo work already dispatched.
+
+`codeActionChoices.test.tsx` checks real retained choices, byte-paged title reading, forged-choice refusal, unsupported-command refusal, defensive provider payload snapshots, actual source mutation through the model choice, selection-stale refusal, and the actual human key binding/popup callback applying the same controller. Choices expire on application or source/selection change. Unsupported server command/resource operations do not apply a partial edit first; they remain explicitly unfinished capabilities.
+
+Focused completion evidence: `completionActions.test.tsx` opens the real CodeMirror popup through a model handle, reads its actual ranked choices and origin explanation, selects and accepts through native commands, checks actual source and unsaved/unverified receipts, refuses source-stale acceptance, closes the native query, and refuses malformed provider insertion through the human/native transaction filter. Two focused completion-source deduplication/origin cases and strict TypeScript for both consuming editor entry points were checked. Popup jobs are local native query identities; closing them does not undo an accepted source edit.
+
+Focused annotation evidence: `languageAnnotations.test.tsx` reads real provider-produced inlay and signature values through the shared handle, compares the signature to its actual human DOM renderer, verifies signature removal after editing, and refuses late hint/signature replies for changed source. Eight selected existing semantic-mark/inlay/signature cases and strict TypeScript passed. The reader pages rendered state without re-querying providers or scraping the DOM. It explicitly distinguishes mapped annotation positions from fresh provider verification.
+
+`AgentProject.test.tsx` covers real human attribution versus agent refusal, shared actual finalization, partial disk/editor publication plus failed receipt recording, explicit recovery disclosure, and conversation replacement during asynchronous context capture refusing application while leaving the new owner usable. The existing accepted-artifact/ambiguous-attribution rendering case and strict TypeScript were also checked. A discarded draft does not undo landed writes. Disk/editor publication remains guarded per destination and is not globally atomic.
+
+`ProviderReading.test.tsx` witnesses real context pin/unpin, progressive outer and nested evidence reads, exclusion of hidden raw lineage from selected context, shared human/model link opening, and retirement on collapse. The visible-review context payload has its own projection schema and retains the original payload schema identity; raw provider payloads are not relabelled as visible text. Nested raw evidence remains explicitly readable. Pinning is a future context selection, never a delivery receipt or permission grant.
+
+`GithubReviewThreads.test.tsx` uses the real shared form/controller and an injected read-only backend to check typed positive PR selection, exact GET query, returned partial/unavailable source metadata, truthful no-focused-editor status and refusal of a capture after selection changes. Strict TypeScript passed. This is a request-adapter witness, not a live GitHub credentials/network witness.
+
+Focused history evidence: new `HistoryLens.test.tsx` cases drive model disclosure, await actual detail registration, retain the replay reply, refuse a competing actor rewrite while repository work is pending, retire closed details and preserve/retry a rejected commit message. Four selected existing reword/replay/tail/folding cases and strict TypeScript passed. Actual mutation starts inside the shared executor after the repository pending check; snapshot reads distinguish declared messages/recipes from derived diffs and replay evidence.
+
+Picture reading now captures actual browser pixels, not a filename description. The explicit reader produces a source-bound, digest-checked bounded PNG. The host validates MCP image content; prose containing an image-shaped object never creates an image block. Python retains bytes outside its snippet process, selects artifact descriptors in its own request assembly and receives native provider images only for those retained descriptors. ACP uses the same capture as an MCP image result.
+
+Focused evidence: `uiPicture.spec.ts` uses real Chrome to compare actual decoded captured pixels and SHA-256, with no engine/API request; the artifact store reopens exact bytes and refuses forged/tampered data and worker-minted artifacts; one Python artifact assembly test; one real confined worker/UI-broker image delivery test; two native provider wire-format tests; one MCP validation/quoted-prose test; and one existing text-only worker transport check. Strict consuming-entry-point TypeScript passed. All model/provider interactions in these checks are scripted, so paid-model interpretation and real native/released/deployed workflow witnesses remain absent.
+
+### Recovery notices and previews (2026-10-20)
+
+Shared action notices expose their actual literal message and retry/dismiss
+callbacks. Callback identity participates in the revision: an old handle cannot
+invoke a replacement callback merely because its label is unchanged. The receipt
+reports a recovery callback request, not save success or verification. Promise
+rejections remain actual failures. Child React components are not evaluated for
+reading; unresolved components are counted and require their own readers.
+
+Change previews expose owned literal text and their effect explanation through
+paged reading. Collapsible previews share evidence disclosure and keep child
+components unmounted until opening, preserving lazy work and retiring child
+readers on close. Two focused controller tests passed for mixed actor recovery,
+callback replacement and real disclosure/teardown, alongside strict focused
+TypeScript, declaration inventory, file-length and diff checks. This does not
+certify every preview child or establish a native/provider witness.
+
+### Context-menu controller checkpoint (issue #72)
+
+The shared context menu registers only the items its owner actually supplies
+while mounted. Native picks and model actions call the same guarded callback;
+disabled/ambiguous items and duplicate pending picks are refused. Subject,
+labels, enabled state and callback identity bind the opaque revision, so a new
+target with an identical label does not inherit an old handle. Menu metadata is
+read in bounded pages; closed/undisclosed menus retire their controls. Closing a
+menu reports dismissal, not cancellation of an already-started operation.
+Callback replies report callback completion only; durable effects/results belong
+to the owning operation. Callback failures remain visible.
+
+Two focused mocked-callback tests cover mixed native/model picks, disabled
+items, same-label callback replacement, unmount retirement, duplicate async
+picks and actual callback failure. They establish this shared menu boundary,
+not all caller-specific operations, real provider behavior or native releases.
+
+### Terminal operation-result checkpoint (issue #72)
+
+The shared terminal controller returns whether the actual host request completed
+instead of swallowing close/interrupt/anchor/resume/answer/turbo failures. Agent
+actions report refusal when that result is false; success describes the host
+request reply, not process termination, recording completion or verification.
+Operation errors survive successful supervision polling until a successful
+operation clears them. Automatic-answer state is adopted from the host rather
+than optimistically enabled. Supervision reads are ordered and bound to their
+mounted controller lifetime; closed controllers refuse new host mutations.
+Existing human prompt/automatic-answer authority policy is preserved. This
+checkpoint does not reclassify that application policy as an OS limitation or
+certify universal prompt-answer parity.
+
+Seven focused fixture-API/controller tests pass across the two terminal test
+files, including actual refused-operation propagation, persistent error reading,
+stale supervision response refusal, closed-controller refusal and no optimistic
+automatic-answer enablement. No real PTY/provider/native release is exercised by
+these new tests; existing real PTY evidence has its separately recorded scope.
+
+### Pending-operation escape controls (issue #72)
+
+Dismissal and pairing cancellation use independent dispatcher subjects from the
+work they control. A pending menu callback therefore cannot lock out its close
+command, and a pairing start waiting for a host identity cannot lock out the
+pending-start cancellation request. Dismissal still asserts no cancellation;
+pairing cancellation remains pending until it can forward the actual job ID.
+The normal operation locks remain in place. Two focused registry-level tests
+pass by holding the original action pending, invoking its escape control through
+the same registry, then observing the original actual result. Earlier direct-hook
+cases did not exercise this dispatcher-lock interaction. No host/network or
+provider/native-release witness is claimed here.
+
+### Conservative entrypoint reachability review aid (issue #72)
+
+The declaration index now records potential HTML entrypoint imports per web
+module, following static/lazy imports, re-exports, type references and local
+worker/raw-query imports. Nonliteral imports, globs, missing entries and
+unresolved local imports remain explicit review items. It includes conditional
+and type-only paths conservatively and does not claim rendered visibility,
+semantic coverage, dead-code proof or OS exceptions. The current generated WASM
+JavaScript wrapper remains outside this TS/TSX graph and is recorded unresolved.
+Native declarations still require their independent manual mapping.
+
+Two focused synthetic-module-graph tests pass via
+`node scripts/ui-reachability.test.mjs`: cycles/shared entrypoints and conservative
+edge forms; and unresolved/nonliteral/glob/missing-entry reporting. These are
+static analyzer fixtures, not runtime UI or launch witnesses. This index helps
+avoid adding adapters to an unused renderer while leaving actual reachable gaps
+visible; it does not close the per-command semantic coverage requirement.
+
+### Owned setting callback continuation — 2026-10-20
+
+UiCheckbox now includes owner, label, input identity and callback identity in its
+private revision, so same-valued replacements cannot reuse a disclosed handle.
+Native and model paths share change invocation, pending-callback exclusion and
+actual failure reporting. An error from a retired callback stays associated with
+that callback. Requested checked state and callback completion do not establish
+backend persistence.
+
+LLM implementation review: partially verified for the generic controller. Two
+focused `UiCheckbox.test.tsx` cases passed with native input and real registry
+invocations: same-valued callback/owner replacement, mixed native/model changes,
+duplicate pending exclusion, actual error and late-error isolation. Targeted
+TypeScript, whitespace and file-length checks passed. Tests use callback fixtures;
+they do not certify every consuming settings form, backend, provider or OS.
+Human judgment remains unrecorded.
+
+- Dependency `apps/web/src/components/UiCheckbox.tsx` SHA-256: `f298bfb97c7bd881a342d73685caa4f1ae1e1e73bfe7f792ae0d7a7365473d73`.
+
+- Dependency `apps/web/src/components/UiCheckbox.test.tsx` SHA-256: `c116afe87c0a7b748a239f03669d39df8a2588d489cfad1ceaa9c2f10b4c20b4`.
+
+### Additional shared surfaces — October 21
+
+Keyboard settings expose current profiles, bindings, conflicts, recording and
+persistence errors. Profile changes, finite binding overrides/unbinds and resets
+reuse the native save path; both adapters disable edits during persistence.
+Unsupported menu chords refuse. Success means the save request completed; native
+menu changes still require the next desktop launch. Welcome actions and the
+visible eight recent documents reuse their callbacks; preference writes reuse
+local storage and request results do not claim a completed downstream operation.
+Surface information has shared disclosure with its existing readable identity.
+
+The standalone document-change pane exposes Accept/Reject as addressable human
+review requests for agent callers. It never grants self-approval. A human uses
+the same decision handler. The actual handler outcome is retained, including a
+failed/stale host decision; returning from the callback is not itself acceptance
+or verification. Comparison drafts bind their reading ID and exact before/after
+bytes, so replacement readings cannot inherit an old draft.
+
+LLM implementation review: partially verified for the named controllers. Focused
+checks: keyboard persistence/native-state/invalid-menu/stale-handle case, two
+welcome/disclosure cases, document-review authority/failure case and nine existing
+AgentChanges cases pass. The scripted real browser review/recovery/stop workflow
+also passes (17 seconds). It is distinct from the earlier actual provider witness
+and does not establish a current packaged/deployed flow. Universal parity remains
+incomplete; source inventory declarations are review aids. Human judgment is not
+supplied. See the active issue-72 handoff for dependency hashes.
+
+
+### Static hosts and markdown navigation — 2026-10-22
+
+The shipped embedding host controls and actual graph/image editors share the
+parent scoped broker. Recorded-profile import validates bounded schema/source
+integrity and keeps pin/remove local to the page. It does not execute, authenticate
+or certify a run. Markdown navigation is supplied by the installed editor
+extension and binds current source/path; skipped code cannot be navigated.
+Browser/shell open results report requests, not loaded destinations. Review copy
+uses the native clipboard handler and returns requires_input on denial. The
+file-menu clipboard fallback refuses a false browser copy result.
+
+LLM implementation review: partially verified for these paths. Executed checks,
+failed challenges/corrections, dependency hashes and unresolved acceptance work
+are retained in the 2026-10-22 static-host section of
+[the issue-72 handoff](../../developers/handoffs/2026-10-21-issue-72.md).
+Human judgment is not supplied. These witnesses do not establish universal parity
+or current native/provider/release acceptance.
+
+
+### Workspace status and measured ribbons — 2026-10-22
+
+Status, environment/graph and provenance controls share their real handlers and
+readable current values. Continuity unavailability remains explicit; callback
+return does not establish persisted settings or a loaded view. File-name scroll
+commands bind the mounted editor and real viewport; scrolling reads no file body.
+Measured ribbon actions require disclosure and current editor states before
+navigation or relationship review. Geometry equality includes target, review,
+family and editor-state identities. Neither a requested review nor navigation
+certifies human resolution or downstream completion.
+
+LLM implementation review: partially verified for the named paths. Focused
+executed checks and exact dependencies are retained in the workspace-status /
+ribbon section of the issue-72 handoff. Human judgment is not supplied. Universal
+parity and current packaged/provider/release acceptance remain incomplete.
+
+
+### Image source, commit contexts and generated-buffer recovery — 2026-10-22
+
+Generated markdown image navigation shares its native generating-block callback,
+bound to the current prose image/path. A path-only transaction refreshes its image
+widget target. Historical commit-context loads bind the selected commit and refuse
+late replacement results. A failed context load remains retryable. Generated
+buffer Retry/Discard shares the current ordinary saver/entry/source/baseline;
+failed saves retain drafts and stale discards cannot discard newer bytes. Actual
+save results and possible late effects remain explicit, with no verification claim.
+
+LLM implementation review: partially verified for these paths. Focused checks,
+failed assertions/corrections and exact hashes are in the corresponding image /
+context / recovery section of the issue-72 handoff. Human judgment is not supplied.
+Universal parity and current provider/package/release acceptance remain incomplete.
+
+
+### Captured debugger and table gestures — 2026-10-22
+
+Captured debugger source/code navigation shares its native controller and binds
+current stop/frame/owner/source. Late captured-code reads release context instead
+of publishing into a replacement stop. Table draft/caret/range pointing and
+viewport actions use existing handlers. Typed clipboard paste shares native
+parsing and guarded writes with agent attribution. Rich copy requires real
+browser write success; denied permission is requires_input. Agent Cut requests
+native browser ClipboardEvent handling and performs no source deletion. No
+subsequent human/OS completion is invented. Draft/viewport changes are not saved
+or verified work. See the handoff's explicit browser limitation and dependency
+hashes. Focused executed checks passed for the named paths; LLM review remains
+partial, human judgment is absent, and issue 72 remains incomplete.
+
+
+### Visible filesystem prompts — 2026-10-22
+
+The actual prompt draft is read/editable through shared actions. Dired owns that
+draft and its operation identity; parent submission displays its actual destination
+while pending. Native typing invalidates old parent handles. Agent confirmation
+requires explicit true. Synchronous owner/admission checks refuse stale callbacks,
+duplicate submissions and prompt replacement/cancellation while the operation is
+pending, including before React paints. A refused operation is not a success.
+Partial multi-path failure retains the completed paths, refreshes the tree and
+never guesses rollback; the failed prompt remains available for inspection.
+
+LLM implementation review: partially verified for these paths. Eight focused
+prompt/dired cases and the existing native delete-confirmation case passed;
+targeted TypeScript passed. Host filesystem operations are injected, so this is
+not a current native-platform witness. Dependencies, assumptions and remaining
+issue-72 work are in the active handoff. Human judgment is not supplied.
+
+
+### Debugger setup retry — 2026-10-22
+
+Missing-debugger installation retry shares the actual installer and progress/error
+reading. It binds the originating source/target and refuses automatic restart after
+replacement, cancellation or dismissal. A completed shared download may retain its
+effects; installation completion does not establish a running debuggee. Six
+focused setup cases and targeted TypeScript pass; installers are injected, not a
+native package witness. LLM implementation review is partial, human judgment is
+not supplied, and exact hashes/caveats are in the issue-72 handoff.
+
+
+### Host preview visual parity — 2026-10-22
+
+Host-supplied DocumentEmbed previews and PicturePanel share bounded explicit
+capture of actual browser-loaded pixels. Capture binds the current image owner,
+source/path and load epoch; retirement/abort cannot deliver the old raster as a
+replacement view. Browser CORS/secure-context refusal is requires_input, with no
+security bypass. Host image failures do not claim a missing cell recording.
+Pixel capture is not original-file equality or program execution evidence.
+
+LLM implementation review: partial. Two focused owner/CORS component cases and
+two actual Chrome parent-bridge PNG/digest flows passed, with no engine requests.
+Targeted strict TypeScript passed. Exact hashes, failed fixture corrections and
+remaining package/provider/publication acceptance are in the issue-72 handoff.
+Human judgment is not supplied. The separately building native checkpoint does
+not include this later slice and cannot witness it.
+
+
+### Imperative editor controls — 2026-10-22
+
+Installed editor-language providers can declare actual visibility. Hidden
+controls withdraw, pending jobs retire, and invisible value callbacks are not
+read. Per-owner/action revision tokens conceal provider revision data. The actual
+UiActor is forwarded to controllers; task checkbox and removed-source restore
+commands retain their model mutation origin. Existing providers without the
+visibility option remain installed under their prior enabled checks.
+
+LLM review: partial. Twenty-one directly focused task/comparison/language checks
+and targeted TypeScript passed; no human/provider/package judgment follows.
+Exact source dependencies and intervening failures are in the issue-72 handoff.
+
+## 2026-10-22: native window controls and post-End close
+
+Requirement: issue 72/#74 requires actual shared OS controls or an explicit
+tracked OS limitation, and #77 retains a human-owned End/quarantine boundary.
+The native Window menu and UI registry now invoke the same current-window
+minimize/restore controller. Explicit status reads return host-observed platform
+and minimized state only. No caller selects another window, file or arbitrary IPC.
+Browser/missing callbacks return a required-input result; uncertain host failures
+are not successful closure/minimization claims. Predefined macOS About, Services,
+Hide, Hide Others and Show All remain a tracked #74 platform limitation, with an
+addressable operation request and retained pending result. Human conversation
+reports are not authenticated OS completion. macOS execution is unavailable on
+this Linux host and must be qualified separately.
+
+Review discovered that the private page bypasses App's close listener. It now
+shares a close controller between the native event, ended-page button and registry.
+An agent cannot end/close its own quarantine. Human close before End is refused.
+After durable End, local host close bypasses the retired project router/receipt
+lease; it does not reopen project capabilities. The human button/event call the
+same controller directly because persisting an action receipt through an expired
+project lease would prevent closing. An agent-visible close request still returns
+requires_input. Host acknowledgment does not prove window destruction.
+
+LLM implementation review: partial, covering the finite callbacks, origin/body
+validation, ended-only local close and retired-router independence. Assumption:
+the current native host owns the one main window; SDK state is a point-in-time
+report and OS scheduling can change it immediately. Falsifiers include a foreign
+origin closing a window, active quarantine closing, arbitrary target parameters,
+a late receipt preventing human close, or a held-out field entering window output.
+Executed checks: 12 focused frontend cases (window responses, OS requests, private
+coach), 7 existing bridge cases, one real local proxy/Connection lifecycle test;
+CLI and native desktop cargo check and targeted strict TypeScript passed.
+The first frontend invocation used the repository root and lacked jsdom; rerunning
+from apps/web passed. The first standalone TypeScript command omitted dom.iterable;
+including that configured DOM library passed. No broad regression was run.
+Human judgment: not supplied. These checks do not establish paid-provider,
+reviewed footage/publication, deployed or other-platform acceptance.
+
+Dependencies (SHA-256; edits stale this review):
+- `apps/web/src/lib/nativeWindowActions.ts`: `8d673546ea02e309bb03bcb68bb6e3c0a62cfe8a16e23e72913c4d156872c9b5`.
+- `apps/web/src/lib/nativeWindowActions.test.ts`: `d6e41286eb25d2013435967ae489774e769ea68621317c04a00d55de79c6468c`.
+- `apps/web/src/components/PrivatePredictionCoach.tsx`: `f52c09d0da7e16b44509e166fcb18b54e3bd3fd86950714e0fbf97c14036a71a`.
+- `apps/web/src/components/PrivatePredictionCoach.test.tsx`: `f49321378846ac4355ec43e1e1f0556b82af284a4966f5d40899858ae240ab37`.
+- `apps/web/src/lib/uiActionBridge.tsx`: `ad5ddfecc981c32de3f284e466ca34c1bc48645c23519d20311f9bb16873e561`.
+- `crates/hickory-cli/src/engine/client.rs`: `bc4caa99206d1fc157ddfdbf5a4917007ed3b957bd9488914081bf48afbd2b7b`.
+- `crates/hickory-cli/src/engine/proxy.rs`: `46cb41135332a9b6cdabedde7d4b60aab39c3730950bd804912c950a45608e23`.
+- `crates/hickory-cli/src/engine/client_prediction_tests.rs`: `01aaaef8922155f615732939a69e11db40f5468b368d87ea246791997d653158`.
+- `crates/hickory-cli/src/serve/shell.rs`: `2f3be29957046bc545826b92892ade11077c5e59f924b40dbceebfd8871b9eed`.
+- `apps/desktop/src-tauri/src/lib.rs`: `d8ce0cd736db0f367e9560e797e46efdb265b954333a694c7425868243e6ad73`.
+- `apps/desktop/src-tauri/src/server.rs`: `1b82b61fea2c1f12cc417e823881ccfe19fa91fcd1dde9c4f9b78cf41b2abb6b`.
+
+### Native-window fixture correction
+
+The first actual ACP-script rerun failed to compile because the engine_client
+example also constructs Shell. Its browser-only callback now explicitly refuses
+native window operations. No model/target flow ran in that failed attempt.
+Dependency: `crates/hickory-cli/examples/engine_client.rs`: `1aefd5ece10978301bb4933d37058309f04ca6b13720c361585b332a3086253d`.
+
+### Close failure recovery correction
+
+The post-End native-close failure witness initially failed: polling cleanup had
+set its owner flag false, suppressing the visible close error and busy cleanup.
+A separate mounted close-controller owner now outlives polling and is withdrawn
+only at unmount. The focused challenge verifies actual failure visibility, no
+raw host-error disclosure, no automatic replay, restored button availability
+and removal of the native listener at unmount. Thirteen focused frontend cases
+and targeted strict TypeScript passed after the fix. The 49a2a491 package build
+precedes this final recovery fix and cannot attest it. The scripted ACP witness
+above also precedes this recovery-only change; its execution/gate paths are
+unchanged. LLM review remains partial; human judgment remains absent.
+
+Current recovery dependencies (SHA-256):
+- `apps/web/src/components/PrivatePredictionCoach.tsx`: `3c289c11702eb623a8fc169202f844fd667130995f5eb60401999ca8d527e9d9`.
+- `apps/web/src/components/PrivatePredictionCoach.test.tsx`: `ecef641a955243bea19b7262cffdc7231390c0143a55384358dfe2abe1e023de`.
+
+## 2026-10-22: shared tooltip disclosure
+
+Requirement: #72/#74 covers information revealed by pointer/focus, not only
+button activation. The shared TooltipLayer had no agent disclosure. It now
+explicitly pages up to 64 visible targets from its own declarative data-tip
+contract, exposing compact accessible labels without tooltip body text. Each
+opaque target invokes the same show controller as pointer/focus; Dismiss uses
+the same hide controller. Only the current displayed text is available through
+the existing bounded UTF-8 reading adapter. No arbitrary selector, synthetic
+DOM event, underlying button activation or complete source baseline is provided.
+
+Assumptions: the layer owns data-tip declarations in its document; viewport
+geometry/computed visibility define eligibility, not proof of unobstructed pointer
+hit-testing. This layer is mounted by ordinary App, not the private predictor
+branch. Hidden/inert/aria-hidden ancestors, absent geometry, disconnected nodes
+and changed tooltip text refuse agent reveal and require redisclosure. Native
+delayed reveal also rejects a removed/replaced tooltip owner. No browser tooltip
+or platform-wide accessibility authority is inferred from this adapter.
+
+LLM implementation review: partial. Executed checks: five focused actual-layer
+cases passed (four existing native pointer/focus lifetime cases and one actual
+registry visibility/disclosure/show/dismiss/stale-owner challenge); targeted strict
+TypeScript passed. The first new fixture incorrectly treated group strings as
+objects; correcting the fixture resolved its failure. Falsifiers include hidden
+body text in index output, revealing a changed owner, activating its button or
+calling a removed layer listener. Human judgment and universal visual/platform
+qualification remain absent. No broad regression or status monitoring ran.
+
+Dependencies (SHA-256):
+- `apps/web/src/components/TooltipLayer.tsx`: `7a2da625148fff6c45d701a7646a14cb3e28a9e3295bbf25e43d33d864061c56`.
+- `apps/web/src/components/TooltipLayer.test.tsx`: `09735618bfe5c0f9f0f252556ce920cd5146d80474de114a18956cc827c51c2f`.
+- `apps/web/src/lib/tooltip.ts`: `e468bdcbccc63c620b6040a9919fa267ee98a9e20f5939885432081ccbd27490`.
+- `apps/web/src/lib/uiReading.ts`: `cc37d833882855bcaf17e8fecbc04830f8304a048efbaebbd7e949b43af0acc0`.
+- `apps/web/src/lib/uiActionBridge.tsx`: `ad5ddfecc981c32de3f284e466ca34c1bc48645c23519d20311f9bb16873e561`.
+
+### Final-package source selection and stronger tooltip challenge
+
+The 49a2a491 and 399f4140 builds were intentionally stopped because later source
+fixes superseded them; neither is final package acceptance. A guarded process
+selection initially matched a wrapper and its child; no stop occurred on that
+failed assertion. Both owned competing builds were then stopped and a single
+clean final build started at 7416bacf. No intermediate or mixed-checkpoint bytes
+are accepted. The unrelated post-commit/regression jobs were not inspected.
+
+The selected tooltip challenge was strengthened with a real button callback spy:
+revealing its tooltip did not invoke the underlying control. That selected case
+passed; production source remains exactly 7416bacf. Current test dependency:
+- `apps/web/src/components/TooltipLayer.test.tsx`: `b53c4ffae20aa7eb0068ae3fc8b3dda6b11b52bb5225f1367771420596e8384a`.
+
+### Focused formatting follow-up
+
+The touched Rust files were formatted with rustfmt (edition 2024, skip_children),
+without changing behavior. The same scoped format check and real local proxy/
+Connection lifecycle test passed afterward. Declaration hashes were regenerated.
+Native package source remains exactly 7416bacf, before this formatting-only
+follow-up and the stronger tooltip test; that package is never relabelled as
+bytes from a later source revision. LLM review of the formatter diff found only
+layout and re-export ordering. Current formatted dependencies:
+- `crates/hickory-cli/src/engine/proxy.rs`: `aefad888f7841ec1a3cccf2f6538860d8a13aac7ff5a12ddd66f99410360f8d4`.
+- `crates/hickory-cli/src/engine/client_prediction_tests.rs`: `05ab1091f9a5d7826d3039385ef956bd67c6ec646792b22b7ff2f1796b01b9eb`.
+- `crates/hickory-cli/src/serve/mod.rs`: `6fa158641145b0fe63cb37c163fafa9a784b9d0142fd6c2070edce3d1ffd47a0`.
+- `crates/hickory-cli/src/serve/shell.rs`: `8bb748027516fdc23bbfaae230013bbda01bda2735d01a3927fdeb7e77d10797`.
+- `apps/desktop/src-tauri/src/lib.rs`: `290f7444cf8658dd9e5174d57f8cfa872ed376da00a38fe8d34f9727ca2ee503`.
+- `apps/desktop/src-tauri/src/server.rs`: `b27cd771f3f723a462a24db6df7321d917498f3a67780c05f9b4f00041c8db39`.
+
+## Monotonic browser confinement — October 22
+
+UiActions.confine is trusted-host-only and cannot be removed for that registry
+lifetime. Groups/descriptors, dispatch before/after intent persistence, cached
+request results and results completing after confinement enforce it. A denied
+result is withheld before result receipt retention. New private readers have an
+explicit disclosure parent; only their source and answer-free metadata are
+permitted. Three adversarial confinement cases are among 24 focused dispatcher
+cases; seven bridge cases and real browser alternate-path checks pass. The browser
+[guarantee](../verification/browser-predictions-use-the-shared-gate.md) records
+exact dependencies, trust boundaries, failures and separate evidence statuses.
+</book:entry>
+
+</book:doc>

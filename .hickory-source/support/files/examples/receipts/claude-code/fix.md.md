@@ -1,0 +1,61 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# examples/receipts/claude-code/fix.md
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+This is preserved output from the original capture. Current requirement dispositions are in the integrated guarantee pages.
+
+
+Captured SHA-256: `45893c35d916d49478092c7b0455bc71bceb392945e1b10c6be02dd6e55a04ac`.
+
+<book:entry path="examples/receipts/claude-code/fix.md">
+---
+date: 2026-08-21
+---
+
+# The pool fix
+
+<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.md" />
+
+What Sam proposed in the meeting, as code: the pool size moves from ten to
+forty with a two-second acquire timeout, and it ships behind a config flag
+so Friday's deploy can be turned back without a rollback.
+
+<hick:paste select="#transcript-u5" />
+
+<hick:file path="fix/pool.py">"""Checkout DB pool settings. Tangled from fix.md — edit the document."""
+import os
+
+DEFAULT_POOL_SIZE = 10
+FIXED_POOL_SIZE = 40
+ACQUIRE_TIMEOUT_SECONDS = 2.0
+
+
+def pool_settings(env=os.environ):
+    """The flag CHECKOUT_POOL_FIX=1 selects the larger pool and the timeout."""
+    if env.get("CHECKOUT_POOL_FIX") == "1":
+        return {"size": FIXED_POOL_SIZE, "acquire_timeout": ACQUIRE_TIMEOUT_SECONDS}
+    return {"size": DEFAULT_POOL_SIZE, "acquire_timeout": None}
+</hick:file>
+
+<hick:container name="py" image="python:3.12" />
+<hick:volume name="src" input="." />
+
+<hick:exec id="pool-test" container="py" mount="src:project" show="output">
+cd project/fix && python3 -c 'import pool; print(pool.pool_settings({}))' && CHECKOUT_POOL_FIX=1 python3 -c 'import pool; print(pool.pool_settings())'
+<hick:expect match="exact">{'size': 10, 'acquire_timeout': None}
+{'size': 40, 'acquire_timeout': 2.0}
+</hick:expect>
+<hick:ingested key="0c631a4dd8000f212bf5aef40bae2ca6a25251857aa9a095e4cad9844aa4f8bf" sha256="cf2706682adde03d90616e2ba42f51c942a3ec825a77fe5ddb0b2dcfa41d8858" at="2026-09-03">
+{'size': 10, 'acquire_timeout': None}
+{'size': 40, 'acquire_timeout': 2.0}
+</hick:ingested></hick:exec>
+
+## Findings
+
+<hick:copy id="fix-summary" class="finding">The fix raises the checkout DB pool from 10 to 40 connections with a 2 s acquire timeout, behind the CHECKOUT_POOL_FIX flag; off, the old settings apply.</hick:copy>
+
+<hick:copy id="forty-is-safe" class="finding">Forty per replica across three replicas is 120 connections against an instance configured for 200, per Sam.</hick:copy>
+</book:entry>
+
+</book:doc>

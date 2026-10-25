@@ -1,0 +1,413 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# .github/workflows/release-build.yml
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+
+Captured SHA-256: `d6420f7bb22ae51a545cb95ecfbdb9ec90cf49b5b0136fced131c0ea0e658c9a`.
+
+<book:entry path=".github/workflows/release-build.yml">
+# Build multi-platform downloadable artifacts for Stable Release. Manual
+# Unstable desktop publication uses scripts/build-unstable-macos.sh instead.
+#
+# This is a `workflow_call` workflow, so it never runs on its own and never
+# publishes anything. It leaves artifacts in the calling run for the caller's
+# publish job to attach to a GitHub Release.
+#
+# Nothing here needs a self-hosted machine, a container registry, a cross-
+# compilation harness, or a paid runner class — only stock GitHub-hosted
+# runners, one per architecture, with no extra packages beyond NASM on
+# Windows.
+name: Release Build
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: The commit to build. Callers must pass an explicit SHA or tag.
+        required: true
+        type: string
+      version:
+        description: Version string baked into the binary and the archive names.
+        required: true
+        type: string
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One broken target should not hide whether the others built. The
+      # publish job requires the whole matrix anyway.
+      fail-fast: false
+      matrix:
+        include:
+          # Every Linux target is built on a runner of its own architecture.
+          # Cross-compiling looked tempting until the dependency tree was
+          # actually read: ring, libsodium-sys (autotools, not the cc crate),
+          # zstd-sys, bzip2-sys, and lzma-sys each compile C, so a cross build
+          # means getting a compiler, an archiver, and an autotools --host
+          # triple right five times over. A native runner needs none of that.
+          #
+          # ubuntu-22.04, not -latest: the binary links against the runner's
+          # glibc, so building on the oldest image still supported is what
+          # decides how old a user's distribution may be (glibc 2.35 —
+          # Ubuntu 22.04, Debian 12, RHEL 9).
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+            smoke: native
+          # If arm64 Linux runners are not available on this account, this is
+          # the one line to delete: the other four artifacts are unaffected,
+          # and docs/users/install.md says to build from source.
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04-arm
+            smoke: native
+          # macos-14 is arm64. It builds the Apple Silicon binary natively and
+          # the Intel one through the same SDK — the one cross-compile kept,
+          # because Apple's toolchain treats its two architectures as a
+          # first-class case and libsodium-sys special-cases them by name.
+          - target: aarch64-apple-darwin
+            os: macos-14
+            smoke: native
+          - target: x86_64-apple-darwin
+            os: macos-14
+            # Asks for the native smoke test like everyone else. The step
+            # itself notices it was cross-compiled from an arm64 runner and
+            # skips, saying so in the log — see its comment. Rosetta is not
+            # guaranteed on the runner image, so running it is not an option
+            # and pretending it ran is worse.
+            smoke: native
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            smoke: version-only
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: dtolnay/rust-toolchain@1.96.1
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Install NASM
+        if: runner.os == 'Windows'
+        # ring assembles its x86_64 primitives with NASM on MSVC targets, and
+        # the runner image does not guarantee it.
+        shell: bash
+        run: |
+          choco install nasm -y --no-progress
+          echo "C:\Program Files\NASM" >> "$GITHUB_PATH"
+
+      - name: Build and package
+        # bash on every OS (Git Bash on Windows) so one script serves all
+        # five targets and a maintainer can reproduce it with `just dist`.
+        shell: bash
+        run: scripts/dist.sh "${{ matrix.target }}" "${{ inputs.version }}"
+
+      - name: Install the sandbox the smoke test needs
+        if: matrix.smoke == 'native' && runner.os == 'Linux'
+        # Cells run confined by DEFAULT, so `hick test` below needs bubblewrap
+        # exactly as a user's machine does. Mirrors ci.yml, including the
+        # Ubuntu 24.04 AppArmor userns workaround, and proves confinement
+        # works before testing as if it does.
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          bwrap --unshare-all --ro-bind / / --tmpfs /tmp --proc /proc --dev /dev \
+                --die-with-parent -- /bin/sh -c 'echo confined'
+
+      - name: Smoke test the binary that was just built
+        if: matrix.smoke == 'native'
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        # Unpacked from the archive rather than run out of target/, so this
+        # tests the thing that gets uploaded, not the thing that got built.
+        run: |
+          set -euo pipefail
+
+          # A cross-compiled artifact cannot be run here, and the failure it
+          # produces ("cannot execute binary file", or on macOS an opaque
+          # Rosetta error) looks exactly like a broken build. Decide from the
+          # target triple and `uname -m` rather than from a hand-maintained
+          # matrix flag, so adding a target cannot silently arrange for a
+          # binary to be executed on the wrong machine.
+          target_arch="${TARGET%%-*}"
+          case "$(uname -m)" in
+            arm64|aarch64) runner_arch=aarch64 ;;
+            amd64|x86_64)  runner_arch=x86_64 ;;
+            *)             runner_arch="$(uname -m)" ;;
+          esac
+          if [ "$target_arch" != "$runner_arch" ]; then
+            echo "::notice title=Smoke test skipped::$TARGET was cross-compiled on a" \
+                 "$runner_arch runner, which cannot execute a $target_arch binary." \
+                 "The archive is still uploaded and published; what it promises is" \
+                 "recorded in docs/guarantees/release/a-download-runs-without-a-rust-toolchain.md."
+            exit 0
+          fi
+
+          cd dist
+          tar -xzf "hick-${{ inputs.version }}-${{ matrix.target }}.tar.gz"
+          cd "hick-${{ inputs.version }}-${{ matrix.target }}"
+          ./hick --version
+          ./hick --help > /dev/null
+          # text-tools-tour needs nothing but a POSIX shell, so it is the one
+          # example that is a fair check on any machine.
+          ./hick test examples/text-tools-tour.md
+          # The language server ships in the same archive, so it is verified
+          # here too. It speaks LSP over stdio and has no --version; closed
+          # stdin is the one input that makes it exit rather than wait, so an
+          # exit code is a real check that the binary loads and runs.
+          printf '' | ./hick-lsp
+
+      - name: Smoke test the binary that was just built (Windows)
+        if: matrix.smoke == 'version-only'
+        shell: bash
+        # Windows gets --version only: executing a document shells out to
+        # `sh`, which Windows has no guarantee of (Git Bash and WSL both
+        # provide one, but the runner's presence of it proves nothing about
+        # a user's machine). Documented in docs/users/install.md.
+        run: |
+          set -euo pipefail
+          cd dist
+          7z x "hick-${{ inputs.version }}-${{ matrix.target }}.zip" > /dev/null
+          "hick-${{ inputs.version }}-${{ matrix.target }}/hick.exe" --version
+          test -f "hick-${{ inputs.version }}-${{ matrix.target }}/hick-lsp.exe"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hick-${{ matrix.target }}
+          # Only the archives and their checksums; the staged directory is
+          # removed by scripts/dist.sh.
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  # The desktop app is a SEPARATE download with its own installer shape per
+  # platform (.deb/.AppImage, .dmg, .msi), because that is what a GUI
+  # application is on each of them. It rides the same release as the CLI so the
+  # two versions can never disagree about the engine they share.
+  desktop:
+    name: desktop ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+          - target: aarch64-apple-darwin
+            os: macos-14
+          # Cross-compiled from the same arm64 runner, exactly as the CLI's
+          # Intel artifact is, and unverifiable here for the same reason.
+          - target: x86_64-apple-darwin
+            os: macos-14
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: dtolnay/rust-toolchain@1.96.1
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop-${{ matrix.target }}
+          workspaces: apps/desktop/src-tauri
+
+      - name: Install the Linux webview and bundler dependencies
+        if: runner.os == 'Linux'
+        # Tauri renders through the system webview rather than shipping a
+        # browser, which is why the app is 30 MB and not 150 — the cost is
+        # these build-time headers. `patchelf` and `librsvg` are what the
+        # AppImage bundler itself needs.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install NASM for the bundled CLI
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          choco install nasm -y --no-progress
+          echo "C:\Program Files\NASM" >> "$GITHUB_PATH"
+
+      - name: Install the task runner
+        run: cargo install just --locked
+
+      - name: Install uv for the bundled Python agent
+        # Only the macOS bundles carry the Python agent, and staging it needs
+        # the locked environment under apps/agent installed with uv.
+        if: runner.os == 'macOS'
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install cargo-tauri
+        # Pinned like every other tool here: a bundler that changes under us
+        # changes the asset names, and those are a contract with the docs.
+        run: cargo install tauri-cli --version '^2' --locked
+
+      - name: Build and bundle
+        shell: bash
+        run: scripts/dist-desktop.sh "${{ inputs.version }}" "${{ matrix.target }}"
+
+      - name: Verify the bundles carry the app
+        # Not a launch test (no display here), but the cheapest check that an
+        # uploaded installer is an installer: it exists, and the Linux .deb
+        # actually contains the application binary rather than being an empty
+        # shell around metadata.
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -l dist/desktop
+          for deb in dist/desktop/*.deb; do
+            [ -e "$deb" ] || continue
+            # Read the listing into a variable first. `dpkg-deb -c | grep -q`
+            # looks right and lies: grep exits at the first match, the closed
+            # pipe kills dpkg-deb's tar with SIGPIPE, and `pipefail` turns a
+            # SUCCESSFUL find into a failed pipeline. This check reported "an
+            # installer with no program" for a 16MB .deb that contained the
+            # program, and blocked a release doing it.
+            contents="$(dpkg-deb -c "$deb")"
+            if ! printf '%s\n' "$contents" | grep -q "usr/bin/"; then
+              echo "::error::$deb contains no usr/bin/ entry — an installer with no program." >&2
+              exit 1
+            fi
+          done
+          for deb in dist/desktop/*.deb; do
+            [ -e "$deb" ] || continue
+            unpacked="$(mktemp -d)"
+            dpkg-deb -x "$deb" "$unpacked"
+            "$unpacked/usr/bin/hick" --version
+            "$unpacked/usr/bin/hick" --help
+            rm -rf "$unpacked"
+          done
+          if [[ "${{ matrix.target }}" == *apple-darwin ]]; then
+            cli="apps/desktop/src-tauri/target/release/bundle/macos/Hickory Docs.app/Contents/MacOS/hick"
+            if [ ! -f "$cli" ]; then
+              cli="apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Hickory Docs.app/Contents/MacOS/hick"
+            fi
+            test -x "$cli"
+            if [ "${{ matrix.target }}" = "$(rustc -vV | sed -n 's/^host: //p')" ]; then
+              "$cli" --version
+              "$cli" --help
+            fi
+          fi
+
+      - name: Verify the Windows MSI includes the CLI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem dist/desktop/*.msi | Select-Object -First 1
+          if (!$msi) { throw "No MSI was produced" }
+          $destination = Join-Path $env:RUNNER_TEMP 'hickory-msi-extracted'
+          $process = Start-Process msiexec.exe -ArgumentList @('/a', "`"$($msi.FullName)`"", '/qn', "TARGETDIR=`"$destination`"") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "MSI extraction failed: $($process.ExitCode)" }
+          $cli = Get-ChildItem $destination -Filter hick.exe -Recurse | Select-Object -First 1
+          if (!$cli) { throw "MSI contains no hick.exe" }
+          & $cli.FullName --version
+          if ($LASTEXITCODE -ne 0) { throw "Bundled CLI version failed" }
+          & $cli.FullName --help
+          if ($LASTEXITCODE -ne 0) { throw "Bundled CLI help failed" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hickory-docs-desktop-${{ matrix.target }}
+          path: |
+            dist/desktop/*
+          if-no-files-found: error
+          retention-days: 7
+
+  # The acceptance test from issue #12, run the way a stranger would: a clean
+  # machine with no Rust toolchain and no checkout, given nothing but the
+  # tarball. `hick test examples/` re-executes every cell in all three
+  # example documents, so it exercises the executor, the parser, the weaver,
+  # and the drift comparison — not just `--version`.
+  clean-machine:
+    name: clean machine (no Rust toolchain)
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: hick-x86_64-unknown-linux-gnu
+          path: dist
+
+      - name: Install what the example documents themselves invoke
+        # Mirrors the same installs in ci.yml. These are the example
+        # documents' dependencies, not hick's. The R chapter of the grand
+        # tour stays behind its feature flag, so R is not installed here.
+        #
+        # Note the runner: the artifact was built on ubuntu-22.04 and is run
+        # here on ubuntu-latest, so this also checks the binary is not tied to
+        # the image it was built on.
+        run: |
+          curl -fsSL -o /tmp/duckdb.zip \
+            https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-linux-amd64.zip
+          sudo unzip -o /tmp/duckdb.zip -d /usr/local/bin
+          duckdb --version
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install the sandbox the examples run under
+        # Cells run confined by default; a clean machine still needs
+        # bubblewrap, which is exactly what docs/users/install.md tells a
+        # Linux user. Mirrors ci.yml's AppArmor userns workaround.
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          bwrap --unshare-all --ro-bind / / --tmpfs /tmp --proc /proc --dev /dev \
+                --die-with-parent -- /bin/sh -c 'echo confined'
+
+      - name: Prove there is no Rust toolchain in play
+        run: |
+          rustup self uninstall -y || true
+          if command -v cargo >/dev/null 2>&1; then
+            echo "::error::cargo is still on PATH; this job is meant to prove the"
+            echo "::error::downloaded binary needs no Rust toolchain."
+            exit 1
+          fi
+
+      - name: Unpack and run the examples
+        run: |
+          set -euo pipefail
+          cd dist
+          tar -xzf "hick-${{ inputs.version }}-x86_64-unknown-linux-gnu.tar.gz"
+          cd "hick-${{ inputs.version }}-x86_64-unknown-linux-gnu"
+          ./hick --version
+          # One shipped document runs `hick` from inside a cell, and cells run
+          # confined: the sandbox gives them a tmpfs $HOME and binds back only
+          # the directories a person installs tools into, so `./hick` in the
+          # unpacked archive is not reachable from inside one however PATH is
+          # set. Installing it is also what this job is really testing — a
+          # stranger who downloads the archive puts the binary somewhere, and
+          # `~/.local/bin` is where `scripts/install.sh` puts it.
+          mkdir -p "$HOME/.local/bin"
+          install -m 0755 ./hick "$HOME/.local/bin/hick"
+          export PATH="$HOME/.local/bin:$PATH"
+          ./hick test examples/
+</book:entry>
+
+</book:doc>

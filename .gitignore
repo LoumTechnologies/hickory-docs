@@ -64,3 +64,10 @@ sessions/
 
 # Local runtime evidence is retained independently of transcript caches.
 .hick/runs/
+
+# Earlier local dogfood snapshots and build artifacts; active source is at root.
+/hickory-dogfood/workspace/
+/hickory-dogfood/integrated/
+/hickory-dogfood/build/
+/hickory-dogfood/*.log
+/hickory-dogfood/reconciliation/*.log

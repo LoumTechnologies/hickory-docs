@@ -1,0 +1,347 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# apps/desktop/src-tauri/tests/serves_one_origin.rs
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+- [The agent sees the open editors](../../../../../../guarantees/agent/the-agent-sees-the-open-editors/contract.md)
+- [A Desktop Build Carries The UI](../../../../../../guarantees/authoring/a-desktop-build-carries-the-ui/contract.md)
+- [A Folder Remembers Its Window](../../../../../../guarantees/authoring/a-folder-remembers-its-window/contract.md)
+- [One loop owns a directory and never reacts to itself](../../../../../../guarantees/authoring/one-loop-owns-a-directory/contract.md)
+- [The Desktop App And The CLI Are One Engine](../../../../../../guarantees/authoring/the-app-and-the-cli-are-one-engine/contract.md)
+- [The App Starts As A Lightweight Editor](../../../../../../guarantees/authoring/the-app-starts-as-a-lightweight-editor/contract.md)
+
+Captured SHA-256: `ccb3f90ef57026a27a2cd60ac162f325dd3698a465086102861e2c6053063ff3`.
+
+<book:entry path="apps/desktop/src-tauri/tests/serves_one_origin.rs">
+//! The desktop app serves its UI and its API from the same origin.
+//!
+//! Guarantee: `docs/guarantees/authoring/the-app-and-the-cli-are-one-engine.md`
+//!
+//! This is the property the whole wiring exists for. The frontend uses
+//! relative `fetch` paths and derives its WebSocket URL from `location.host`,
+//! so if the page and the API were ever on different origins, every request
+//! the editor makes would fail — and it would fail only in the packaged app,
+//! where it is hardest to notice.
+
+use std::path::Path;
+
+const DOC: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="demo.md">
+# Demo
+
+<hick:file path="greet.py">
+print("hello")
+</hick:file>
+</hick:doc>
+"#;
+
+async fn start_in(dir: &Path) -> (hickory_desktop_lib::server::Session, reqwest::Client) {
+    std::fs::write(dir.join("demo.md"), DOC).expect("write doc");
+    let session = hickory_desktop_lib::server::start(dir, None, None)
+        .await
+        .expect("the engine starts");
+    (session, reqwest::Client::new())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_ui_and_the_api_answer_on_one_origin() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (session, http) = start_in(dir.path()).await;
+
+    // The page.
+    let page = http.get(&session.url).send().await.expect("GET /");
+    assert!(page.status().is_success(), "status {}", page.status());
+    let body = page.text().await.expect("body");
+    assert!(
+        body.contains("<div id=\"root\">"),
+        "the root element should be served: {}",
+        &body[..body.len().min(200)]
+    );
+
+    // The API, same origin, no token and no CORS preflight in sight.
+    let health = http
+        .get(format!("{}/api/health", session.url))
+        .send()
+        .await
+        .expect("GET /api/health");
+    assert!(health.status().is_success(), "status {}", health.status());
+
+    // And the document the folder actually contains.
+    let projects = http
+        .get(format!("{}/api/projects", session.url))
+        .send()
+        .await
+        .expect("GET /api/projects");
+    assert!(projects.status().is_success());
+}
+
+/// An unknown path returns the shell, not a 404: client-side routing depends
+/// on it, and a deep link that 404s is a broken app rather than a broken URL.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unknown_path_returns_the_shell() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (session, http) = start_in(dir.path()).await;
+
+    let resp = http
+        .get(format!("{}/docs/anything", session.url))
+        .send()
+        .await
+        .expect("GET a client route");
+    assert!(resp.status().is_success());
+    assert!(
+        resp.text()
+            .await
+            .expect("body")
+            .contains("<div id=\"root\">")
+    );
+}
+
+/// Guarantee: docs/guarantees/agent/the-agent-sees-the-open-editors.md
+/// File → New Window supports editor sessions without selecting a folder.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_blank_window_has_editor_apis_but_no_open_folder() {
+    // Ordinary startup ignores remembered folders, even when they are git repos.
+    // Guarantee: docs/guarantees/authoring/the-app-starts-as-a-lightweight-editor.md
+    let config = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    for args in [
+        vec!["init", "-q"],
+        vec!["config", "merge.hick.driver", "unused-driver"],
+    ] {
+        assert!(
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(project.path())
+                .args(args)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    hickory_desktop_lib::server::remember(config.path(), project.path());
+    let session = hickory_desktop_lib::server::start_blank_with_config(Some(config.path()), None)
+        .await
+        .expect("the blank page starts");
+    let http = reqwest::Client::new();
+
+    let page = http.get(&session.url).send().await.expect("GET /");
+    assert!(page.status().is_success());
+    assert!(
+        page.text()
+            .await
+            .expect("page body")
+            .contains("<div id=\"root\">")
+    );
+
+    let projects = http
+        .get(format!("{}/api/projects", session.url))
+        .send()
+        .await
+        .expect("GET /api/projects");
+    assert!(projects.status().is_success());
+    let files: serde_json::Value = http
+        .get(format!("{}/api/files", session.url))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(files["folder_open"], false);
+    assert_ne!(
+        files["root_path"],
+        project.path().to_string_lossy().as_ref()
+    );
+    let merge: serde_json::Value = http
+        .get(format!("{}/api/git/merge-driver", session.url))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(merge["ok"], true);
+    assert_eq!(merge["status"]["repository"], false);
+    let turns = http
+        .get(format!("{}/api/docs/workspace/agent/turns", session.url))
+        .send()
+        .await
+        .unwrap();
+    assert!(turns.status().is_success());
+}
+
+/// Guarantee: docs/guarantees/authoring/a-desktop-build-carries-the-ui.md
+#[tokio::test(flavor = "multi_thread")]
+async fn the_page_serves_its_built_scripts_and_styles() {
+    let session = hickory_desktop_lib::server::start_blank().await.unwrap();
+    let http = reqwest::Client::new();
+    let page = http
+        .get(&session.url)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let assets: Vec<_> = page
+        .split('"')
+        .filter(|value| value.starts_with("/assets/"))
+        .filter(|value| value.ends_with(".js") || value.ends_with(".css"))
+        .collect();
+    assert!(assets.iter().any(|asset| asset.ends_with(".js")));
+    assert!(assets.iter().any(|asset| asset.ends_with(".css")));
+    for asset in assets {
+        let response = http
+            .get(format!("{}{asset}", session.url))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap();
+        let body = response.text().await.unwrap();
+        assert!(!body.is_empty(), "empty asset: {asset}");
+        assert!(
+            !body.contains("<div id=\"root\">"),
+            "shell fallback: {asset}"
+        );
+    }
+}
+
+/// Guarantee: docs/guarantees/authoring/one-loop-owns-a-directory.md
+#[tokio::test(flavor = "multi_thread")]
+async fn a_second_session_on_the_same_folder_attaches() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (first, http) = start_in(dir.path()).await;
+    let second = hickory_desktop_lib::server::start(dir.path(), None, None)
+        .await
+        .unwrap();
+    for session in [&first, &second] {
+        assert!(
+            http.get(format!("{}/api/health", session.url))
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .is_success()
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Which folder gets opened
+// ---------------------------------------------------------------------------
+
+/// A remembered folder survives a restart, so the app reopens where the user
+/// left off instead of asking every launch.
+#[test]
+fn a_remembered_folder_is_reopened() {
+    let config = tempfile::tempdir().expect("config dir");
+    let project = tempfile::tempdir().expect("project dir");
+
+    assert!(
+        hickory_desktop_lib::server::last_opened(config.path()).is_none(),
+        "a fresh install remembers nothing"
+    );
+
+    hickory_desktop_lib::server::remember(config.path(), project.path());
+    assert_eq!(
+        hickory_desktop_lib::server::last_opened(config.path()).as_deref(),
+        Some(project.path()),
+    );
+}
+
+/// A remembered folder that has since been moved, renamed, or unmounted must
+/// not be reopened. The user gets the picker, not an error about a folder they
+/// have forgotten they ever opened.
+#[test]
+fn a_remembered_folder_that_is_gone_is_forgotten() {
+    let config = tempfile::tempdir().expect("config dir");
+    let project = tempfile::tempdir().expect("project dir");
+    let path = project.path().to_path_buf();
+
+    hickory_desktop_lib::server::remember(config.path(), &path);
+    drop(project);
+
+    assert!(
+        hickory_desktop_lib::server::last_opened(config.path()).is_none(),
+        "a path that no longer exists is not a folder to reopen"
+    );
+}
+
+/// Remembering must never be able to fail a launch: an unwritable config
+/// directory costs one trip through the picker next time, nothing more.
+#[test]
+fn remembering_into_an_unwritable_place_does_not_panic() {
+    let project = tempfile::tempdir().expect("project dir");
+    // A path under a regular file can never be created as a directory.
+    let file = tempfile::NamedTempFile::new().expect("temp file");
+    let impossible = file.path().join("config");
+
+    hickory_desktop_lib::server::remember(&impossible, project.path());
+    assert!(hickory_desktop_lib::server::last_opened(&impossible).is_none());
+}
+
+/// Guarantee: docs/guarantees/authoring/a-folder-remembers-its-window.md
+#[tokio::test(flavor = "multi_thread")]
+async fn folder_layout_follows_the_first_folder_attached_to_a_blank_window() {
+    let config = tempfile::tempdir().unwrap();
+    let folder = tempfile::tempdir().unwrap();
+    let other = tempfile::tempdir().unwrap();
+    let store = hickory_workspace::WorkspaceStore::for_project(folder.path()).unwrap();
+    let remembered = serde_json::json!({"version": 1, "layout": {"open": ["notes.md"]}});
+    store.save_ui(&remembered).unwrap();
+    let session = hickory_desktop_lib::server::start_blank_with_config(Some(config.path()), None)
+        .await
+        .unwrap();
+    let http = reqwest::Client::new();
+    let endpoint = format!("{}/api/workspace/ui", session.url);
+    assert!(
+        http.put(&endpoint)
+            .json(&serde_json::json!({"state": {"blank": true}}))
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .is_success()
+    );
+    assert!(
+        session
+            .attach_folder(folder.path(), Some(config.path()), None, None)
+            .await
+            .unwrap()
+    );
+    let response: serde_json::Value = http
+        .get(&endpoint)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(response["state"], remembered);
+    let changed = serde_json::json!({"version": 1, "layout": {"open": ["notes.md", "todo.md"]}});
+    assert!(
+        http.put(&endpoint)
+            .json(&serde_json::json!({"state": changed}))
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .is_success()
+    );
+    assert_eq!(store.load_ui(), Some(changed));
+    assert!(
+        hickory_workspace::WorkspaceStore::for_project(other.path())
+            .unwrap()
+            .load_ui()
+            .is_none()
+    );
+    store.clear_ui().unwrap();
+}
+</book:entry>
+
+</book:doc>

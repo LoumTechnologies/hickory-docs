@@ -1,0 +1,225 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# .github/workflows/deploy-site.yml
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+
+Captured SHA-256: `8da6b477f248e661ef4bd5b58f7aa8d54131957d7e3d18e5770fa1fa1fdd08e0`.
+
+<book:entry path=".github/workflows/deploy-site.yml">
+# Publish the static marketing site to Cloudflare Pages.
+#
+# The site is files. There is no server to deploy, no migration to run, and
+# nothing to roll back beyond publishing again — so this is a plain
+# push-to-master job with no gate. See
+# `.instructions/continuous-delivery-downloadable.md`.
+#
+# The *product* is not deployed here. It ships through the release workflows
+# as a download; this only publishes the page that links to it.
+name: Deploy Site
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "apps/web/**"
+      - "scripts/install.sh"
+      - "scripts/publish-spec-results.py"
+      - "publications/**"
+      - "examples/ai-engineer-deadline.md"
+      - "Cargo.lock"
+      - "crates/hickory-cli/**"
+      - "crates/hick-literate/**"
+      - "justfile"
+      - "crates/hick-lang/**"
+      - "crates/hick-lang-wasm/**"
+      - ".github/workflows/deploy-site.yml"
+  workflow_dispatch:
+    inputs:
+      domains_only:
+        description: "Retry custom-domain validation after a DNS repair, without publishing"
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-site
+  cancel-in-progress: true
+
+env:
+  # Changing this renames the Pages project, which changes the `*.pages.dev`
+  # hostname the DNS records point at. Keep it in step with
+  # `pages_hostname` in `terraform/dns`.
+  PAGES_PROJECT: hickory-docs
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # No required reviewer: this environment holds the credentials, not a
+    # gate. A manual gate here would mean the site silently stops tracking
+    # `master` until someone notices a pending approval.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        if: ${{ !inputs.domains_only }}
+      - uses: actions/setup-node@v4
+        if: ${{ !inputs.domains_only }}
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - run: npm ci --prefix apps/web
+        if: ${{ !inputs.domains_only }}
+
+      # `just site` copies install.sh into the bundle and refuses a PostHog
+      # *personal* key before building, rather than after a visitor's browser
+      # has already received it. With no key set, the site simply ships
+      # without analytics.
+      - uses: extractions/setup-just@v4
+        if: ${{ !inputs.domains_only }}
+      - name: Verify the homepage in Chromium, Firefox and WebKit
+        if: ${{ !inputs.domains_only }}
+        run: |
+          just install-test-browsers --with-deps
+          just test-browser-embedding --grep homepage
+
+      - uses: dtolnay/rust-toolchain@1.96.1
+        if: ${{ !inputs.domains_only }}
+      - uses: Swatinem/rust-cache@v2
+        if: ${{ !inputs.domains_only }}
+      - name: Build the selected-spec runner
+        if: ${{ !inputs.domains_only }}
+        run: cargo build --locked -p hickory-cli --bin hick
+      - name: Generate selected public verification artifacts
+        id: publications
+        if: ${{ !inputs.domains_only }}
+        continue-on-error: true
+        run: python3 scripts/publish-spec-results.py --hick target/debug/hick --output apps/web/public/publications
+      - name: Retain failed and successful specification evidence
+        if: ${{ always() && !inputs.domains_only }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: executable-spec-results-${{ github.sha }}
+          path: apps/web/public/publications
+          if-no-files-found: error
+
+      - name: Build the site
+        if: ${{ !inputs.domains_only }}
+        env:
+          POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
+        run: |
+          just site
+
+      # Creating the project here rather than in the dashboard keeps the whole
+      # setup to "add one secret and push". `project create` fails when the
+      # project already exists, which is the normal case on every run after the
+      # first, so its failure is ignored — `pages deploy` immediately after is
+      # what actually reports a problem.
+      - name: Ensure the Pages project exists
+        if: ${{ !inputs.domains_only }}
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx --yes wrangler@3 pages project create "$PAGES_PROJECT" \
+            --production-branch master
+
+      # A CNAME to <project>.pages.dev is not enough on its own: until the
+      # project claims the hostname, Cloudflare's proxy has no origin to route
+      # to and every request returns 522. That failure looks like the site is
+      # broken rather than like a missing setting, so attaching the domains is
+      # done here rather than left as a dashboard step someone remembers once.
+      #
+      # The POST is idempotent only in effect — an already-attached domain
+      # returns an error saying so — so its failures are tolerated per-call.
+      # What is NOT tolerated is the end state: after the attempts, the
+      # project's domain list must contain both hostnames, or this step fails
+      # the run. (The old continue-on-error version let the apex sit at 522
+      # for days while Deploy Site reported green.)
+      - name: Attach the custom domains
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$PAGES_PROJECT/domains"
+          for host in hickorydocs.com www.hickorydocs.com; do
+            echo "attaching $host"
+            curl -sS -X POST "$api" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data "{\"name\":\"$host\"}" \
+            | python3 -c 'import sys,json; d=json.load(sys.stdin); print("  ok" if d.get("success") else "  " + "; ".join(e.get("message","") for e in d.get("errors",[])))'
+          done
+          echo "verifying both hostnames are attached"
+          curl -sS "$api" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+          | python3 -c '
+          import sys, json
+          d = json.load(sys.stdin)
+          if not d.get("success"):
+              sys.exit("listing project domains failed: " + json.dumps(d.get("errors")))
+          names = {r["name"] for r in d.get("result", [])}
+          missing = {"hickorydocs.com", "www.hickorydocs.com"} - names
+          if missing:
+              sys.exit(
+                  "not attached to the Pages project: " + ", ".join(sorted(missing))
+                  + " — the proxied CNAME has no origin, so these hosts return 522."
+                  + " Attach them (rerun, or Cloudflare dashboard > Pages > custom domains).")
+          print("  ok: " + ", ".join(sorted(names)))
+          '
+
+      - name: Activate the custom domains
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$PAGES_PROJECT/domains"
+          for host in hickorydocs.com www.hickorydocs.com; do
+            status=$(curl -fsS "$api/$host" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("success"),d.get("errors"); r=d["result"]; print(r["status"])')
+            echo "$host: $status"
+            if [ "$status" != active ]; then
+              curl -fsS -X PATCH "$api/$host" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("success"),d.get("errors"); print("Validation retry requested")'
+            fi
+          done
+          for attempt in $(seq 1 15); do
+            if curl -fsS "$api" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | python3 -c '
+          import json,sys
+          d=json.load(sys.stdin)
+          if not d.get("success"): sys.exit("Cannot read Pages domains")
+          domains={r["name"]:r for r in d["result"]}
+          expected={"hickorydocs.com","www.hickorydocs.com"}
+          for name in sorted(expected):
+              r=domains.get(name,{})
+              print(name + ": " + r.get("status","missing"))
+              for field in ("validation_data","verification_data"):
+                  if r.get(field,{}).get("error_message"): print(r[field]["error_message"])
+          sys.exit(0 if all(domains.get(name,{}).get("status")=="active" for name in expected) else 1)
+          '; then break; fi
+            if [ "$attempt" = 15 ]; then echo "::error::Pages domains are still inactive; inspect the validation errors above."; exit 1; fi
+            sleep 20
+          done
+
+      - name: Publish
+        if: ${{ !inputs.domains_only }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx --yes wrangler@3 pages deploy apps/web/dist-site \
+            --project-name "$PAGES_PROJECT" \
+            --branch master
+
+      - name: Report failed published verification
+        if: ${{ !inputs.domains_only && steps.publications.outcome == 'failure' }}
+        run: |
+          echo "::error::Selected verification failed or was unavailable. Inspect the hosted publication or retained artifact."
+          exit 1
+</book:entry>
+
+</book:doc>

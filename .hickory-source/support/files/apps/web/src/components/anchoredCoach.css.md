@@ -1,0 +1,21 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# apps/web/src/components/anchoredCoach.css
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+
+Captured SHA-256: `429bec5b88c313994d68e7ab75cc3af664fa3e89c8c6c9050052a8431e969477`.
+
+<book:entry path="apps/web/src/components/anchoredCoach.css">
+.anchored-coach { position: fixed; z-index: 120; width: min(400px, calc(100vw - 24px)); max-height: min(65vh, 620px); overflow: auto; padding: 1rem; border: 1px solid var(--border, #888); border-radius: .5rem; background: var(--bg, #fff); color: var(--fg, #222); box-shadow: 0 8px 28px #0003; }
+.anchored-coach > header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.anchored-coach .workflow-tour--app { position: static; inset: auto; z-index: auto; max-width: none; max-height: none; overflow: visible; overflow-wrap: anywhere; background: transparent; box-shadow: none; border: 0; padding: 0; margin: 0; }
+.anchored-coach .workflow-tour--app button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.anchored-coach pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 12rem; overflow: auto; }
+.anchored-coach .workflow-tour-controls { display: flex; flex-wrap: wrap; gap: .4rem; }
+@media (prefers-reduced-motion: reduce) { .anchored-coach { animation: none; transition: none; scroll-behavior: auto; } }
+</book:entry>
+
+</book:doc>

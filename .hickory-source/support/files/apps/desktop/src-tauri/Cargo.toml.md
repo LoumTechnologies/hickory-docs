@@ -1,0 +1,66 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# apps/desktop/src-tauri/Cargo.toml
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+
+Captured SHA-256: `959f65ecc87286b6cc3d6d3d17f0ec16e934183a96410c7df3faf01f0efad3b1`.
+
+<book:entry path="apps/desktop/src-tauri/Cargo.toml">
+# Tauri v2 desktop shell. Deliberately excluded from the root Cargo workspace
+# (empty [workspace] below) so the Tauri build's requirements never break
+# `cargo check --workspace` at the repo root.
+[package]
+name = "hickory-desktop"
+version = "0.1.0"
+description = "Hickory Docs — the desktop app"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[lib]
+name = "hickory_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+# A startup failure has to be visible to someone who double-clicked an icon
+# and has no terminal to read.
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+semver = "1"
+
+# The engine. The desktop app is a window around the same local server `hick
+# up` is built from, not a second implementation of it.
+hickory-cli = { path = "../../../crates/hickory-cli" }
+anyhow = "1"
+axum = "0.8"
+tower = { version = "0.5", features = ["util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
+# The built UI, compiled into the binary. A downloaded app has no checkout to
+# find `apps/web/dist` in, and shipping a loose directory beside the executable
+# is a thing users can break by moving one of them.
+# Debug app bundles must also work away from the source checkout.
+rust-embed = { version = "8", features = ["debug-embed"] }
+mime_guess = "2"
+log = "0.4"
+tempfile = "3"
+
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+tauri-plugin-updater = "2"
+fs2 = "0.4"
+
+[dev-dependencies]
+hickory-workspace = { path = "../../../crates/hickory-workspace" }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time"] }
+</book:entry>
+
+</book:doc>

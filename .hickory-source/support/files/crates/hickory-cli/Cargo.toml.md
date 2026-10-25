@@ -1,0 +1,157 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# crates/hickory-cli/Cargo.toml
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+
+Captured SHA-256: `d4d2b907dce4824ca73b6addab97d186fbd0d09be895d912fb7e2ef79084e02b`.
+
+<book:entry path="crates/hickory-cli/Cargo.toml">
+[package]
+name = "hickory-cli"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+default-run = "hick"
+
+[[bin]]
+name = "hickory-agent"
+path = "src/python_agent_main.rs"
+
+[[bin]]
+name = "hick"
+path = "src/main.rs"
+
+[lib]
+name = "hickory_cli"
+path = "src/lib.rs"
+
+[dependencies]
+hick-coverage = { path = "../hick-coverage" }
+hick-profile = { path = "../hick-profile" }
+sourcemap = "9"
+roxmltree = "0.20"
+hick-plugins = { path = "../hick-plugins" }
+hick-observe = { path = "../hick-observe" }
+anyhow = "1"
+hick-context-store = { path = "../hick-context-store" }
+async-trait = "0.1"
+axum = { version = "0.8", features = ["ws", "macros"] }
+clap = { version = "4", features = ["derive"] }
+futures = "0.3"
+env_logger = "0.11"
+# `hick up` holds an advisory lock for the directory it watches, so two
+# watchers can never fight over the same woven files.
+fs2 = "0.4"
+# Line-level diffing of a saved output file against the bytes we last wrote,
+# so an edit that touches two regions maps back as two edits rather than one
+# span wide enough to swallow the generated text between them.
+similar = "2"
+# Watching for editor saves. Already a hick-literate dependency; pinned to the
+# same major here so both halves of the workspace agree on event shapes.
+notify = "7"
+# Content identity for ingest: the same transcript dropped twice is one note.
+# Images dropped into a note arrive base64 in a JSON body (serve/asset.rs).
+base64 = "0.22"
+sha2 = "0.10"
+hex = "0.4"
+getrandom = "0.3"
+hick-exec.workspace = true
+hick-lang = { workspace = true, features = ["serde"] }
+hick-transcript = { workspace = true }
+# `hick init` writes the child-server overrides that hick-lsp reads, so the
+# file format has exactly one definition (hick_lsp::server_config).
+hick-lsp = { path = "../hick-lsp" }
+hick-project-env = { path = "../hick-project-env" }
+# Breakpoints and stepping, for the app's debugger and the MCP tools.
+hick-dap = { path = "../hick-dap" }
+# A debug session runs the debuggee in a scratch clone that is deleted with
+# it — which is what makes "a session cannot touch the file" true.
+tempfile = "3"
+# Replay materializes the tree at an old commit with `git archive`, which
+# emits a tar. Reading it here is what keeps replay from ever checking
+# anything out into the user's working tree.
+tar = "0.4"
+# Structural navigation that ships in the download: tree-sitter grammars are
+# compiled in, so it needs no language server and no toolchain.
+hick-structure = { path = "../hick-structure" }
+# Terminal sessions: the PTY, the five states, and the attention queue. The
+# decisions are all in the crate; this one only serves them.
+hick-term = { path = "../hick-term" }
+# The notebook's LSP bridge drives hick-lsp in-process, so the desktop app
+# needs no `hick-lsp` on PATH to answer a language question.
+tower-lsp = "0.20"
+hick-literate = { path = "../hick-literate" }
+hick-blocks.workspace = true
+# The merged view's N-way alignment: which regions N worktrees agree on.
+hick-merge = { path = "../hick-merge" }
+# Project-wide search (semble-shaped: lexical always, Model2Vec semantic when
+# a model is installed). The crate is offline by design; downloading a model
+# is this CLI's explicit `hick search --install-model`.
+# Reading a document's DECLARED outputs out of its source for the folder
+# tree, without weaving every document in the folder on every listing.
+regex = "1"
+hick-formula = { version = "0.1", path = "../hick-formula" }
+hickory-workspace = { version = "0.1", path = "../hickory-workspace" }
+# Machine identity and the mutual key list: a machine is a keypair, a fleet is
+# a list of public keys, and there is no account and no server.
+hickory-fleet = { path = "../hickory-fleet" }
+# The seal and the broker: one road out, with a toll booth on it.
+hickory-broker = { path = "../hickory-broker" }
+# The peer channel: QUIC dialled by public key, gated per verb.
+hickory-peer = { path = "../hickory-peer" }
+iroh = { version = "1.0", default-features = false, features = ["tls-ring"] }
+hick-search = { path = "../hick-search" }
+# Gitignore-aware walking for `GET /api/files` — the same walker (and the same
+# filters) hick-search indexes with, so the folder tree and search agree on
+# which files exist.
+ignore = "0.4"
+
+# Parsing a GraphQL query for `hick code-model --client`. A parser is the one
+# part of typed-client generation that is genuinely solved elsewhere, and
+# writing a second one would be the only hard thing in an otherwise small
+# feature. MIT/Apache-2.0.
+graphql-parser = "0.4"
+hick-context-protocol = { path = "../hick-context-protocol" }
+hickory-agent = { path = "../hickory-agent" }
+hickory-collab = { path = "../hickory-collab" }
+hickory-executor = { path = "../hickory-executor" }
+hickory-executor-canopy = { path = "../hickory-executor-canopy" }
+hickory-executor-docker = { path = "../hickory-executor-docker" }
+hickory-executor-sandbox = { path = "../hickory-executor-sandbox" }
+hickory-lineage = { path = "../hickory-lineage" }
+log = "0.4"
+tracing = "0.1"
+rpassword = "7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "process", "io-util", "signal"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+scip = "0.9"
+protobuf = "3.7"
+
+yrs = { version = "0.21", features = ["sync"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio-tungstenite = "0.24"
+# tests/agent_lineage.rs constructs `SourceOrigin::Agent` spans directly, to
+# exercise the lineage read path independently of an agent run.
+hick-flow = { path = "../hick-flow", features = ["serde"] }
+
+# Where a downloaded file came from, read from the operating system's own
+# record of it: `user.xdg.origin.url` on Linux, `kMDItemWhereFroms` on macOS.
+# Windows keeps the same fact in an NTFS alternate data stream, which is a
+# plain file read and needs no crate.
+[target.'cfg(unix)'.dependencies]
+xattr = "1"
+libc = "0.2"
+</book:entry>
+
+</book:doc>

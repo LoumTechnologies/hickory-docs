@@ -1,0 +1,102 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# apps/web/src/components/DiffView.tsx
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+- [The Git Pane Does The Daily Loop](../../../../../contract.md)
+- [Patch layout exposes endpoint breakpoints](../../../../../../../literate-projects/patch-layout-breakpoints/contract.md)
+- [Patch elements use the shared diff renderer](../../../../../../../literate-projects/patch-view-uses-the-shared-diff-renderer/contract.md)
+
+Captured SHA-256: `5f0cfad9f379b4577e93bb1952b5e585d3a11220e0523d166f4e685378d632ad`.
+
+<book:entry path="apps/web/src/components/DiffView.tsx">
+import { useUiReading } from "../lib/uiReading";
+import "./DiffView.css";
+import type { ReactNode } from "react";
+
+// A diff, as git prints it, with the lines told apart.
+//
+// Unified diff and nothing cleverer: side-by-side needs a wide pane and a
+// merge view needs three versions, and neither is what "what did I change in
+// this file" asks for. The hunk headers, the additions and the removals are
+// coloured; the file headers are dimmed rather than hidden, because `---`
+// and `+++` are how a rename or a mode change announces itself.
+
+export type DiffLineKind = "meta" | "hunk" | "add" | "del" | "ctx";
+
+/** Which kind of line this is, by its first character — the way every diff
+ * reader since 1990 has decided it. */
+export function diffLineKind(line: string): DiffLineKind {
+  if (line.startsWith("@@")) return "hunk";
+  if (
+    line.startsWith("diff ") ||
+    line.startsWith("index ") ||
+    line.startsWith("--- ") ||
+    line.startsWith("+++ ") ||
+    line.startsWith("new file") ||
+    line.startsWith("deleted file") ||
+    line.startsWith("similarity") ||
+    line.startsWith("rename ") ||
+    line.startsWith("old mode") ||
+    line.startsWith("new mode") ||
+    line.startsWith("Binary files")
+  ) {
+    return "meta";
+  }
+  if (line.startsWith("+")) return "add";
+  if (line.startsWith("-")) return "del";
+  return "ctx";
+}
+
+export function DiffView({
+  path,
+  diff,
+  binary,
+  staged,
+  label,
+  gutter,
+}: {
+  path: string;
+  diff: string;
+  binary: boolean;
+  staged: boolean;
+  label?: string;
+  gutter?: (side: "old" | "new", line: number) => ReactNode;
+}) {
+  useUiReading("rendered diff", { path, label: label ?? (staged ? "staged" : "unstaged"), binary, diff: binary ? null : diff, scope: "Displayed unified diff; no binary contents or file edit baseline" }, [path, diff, binary, staged, label]);
+  const lines = diff.replace(/\n$/, "").split("\n");
+  let oldLine = 0, newLine = 0;
+  return (
+    <section className="diff-view" aria-label={`Diff of ${path}`}>
+      <header className="diff-view__head">
+        <span className="mono diff-view__path">{path}</span>
+        <span className="muted">{label ?? (staged ? "staged" : "unstaged")}</span>
+      </header>
+      {binary ? (
+        <p className="muted diff-view__binary">A binary file; there are no lines to show.</p>
+      ) : diff.trim() === "" ? (
+        <p className="muted diff-view__binary">No difference.</p>
+      ) : (
+        <pre className="diff-view__body">
+          {lines.map((line, index) => {
+            const kind = diffLineKind(line);
+            const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+            if (hunk) { oldLine = Number(hunk[1]) - 1; newLine = Number(hunk[2]) - 1; }
+            const code = kind === "add" || kind === "del" || (kind === "ctx" && line.startsWith(" "));
+            const oldAt = oldLine, newAt = newLine;
+            if (code) { if (kind !== "add") oldLine++; if (kind !== "del") newLine++; }
+            return <span key={index} className={`diff-line diff-line--${kind}`}>
+              {gutter && <span className="diff-breakpoints"><span>{code && kind !== "add" ? gutter("old", oldAt) : null}</span><span>{code && kind !== "del" ? gutter("new", newAt) : null}</span></span>}
+              {line}{"\n"}
+            </span>;
+          })}
+        </pre>
+      )}
+    </section>
+  );
+}
+</book:entry>
+
+</book:doc>

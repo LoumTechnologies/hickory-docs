@@ -1,0 +1,142 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# apps/web/src/components/graph/SceneNodeView.tsx
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+
+Captured SHA-256: `d3df7d5c3f9c0a8e737c75d5faefb875adf7d1c2960e36352fcfc1cec2c30cc3`.
+
+<book:entry path="apps/web/src/components/graph/SceneNodeView.tsx">
+import type { UiActor } from "../../lib/uiActions";
+// One node on the graph canvas: the shape, the label, and — on double click,
+// when the topology is the author's to edit — the label as an input.
+//
+// A derived node's label is NOT editable: the topology came from a generator
+// through a paste, and an edit here would be silently thrown away by the next
+// re-run. The panel's banner says where to change it instead. Resizing is
+// allowed on BOTH kinds — a size is layout, the person's half.
+
+import { useEffect, useRef } from "react";
+import { Handle, NodeResizer, Position, useConnection } from "@xyflow/react";
+import type { NodeProps, ResizeParams } from "@xyflow/react";
+
+import { useGraphLabelDraft } from "./useGraphLabelDraft";
+import { sideHandles } from "./scene";
+import type { SceneNode, Side } from "./scene";
+
+export interface SceneNodeData extends Record<string, unknown> {
+  node: SceneNode;
+  derived: boolean;
+  onRename: (id: string, label: string, actor?: UiActor) => boolean | void;
+  /** A resize ended: the node's new place and size, to snap and commit. */
+  onResize: (id: string, layout: { x: number; y: number; w: number; h: number }) => void;
+  /** Which slots each side has lines attached to — decides how many bubbles
+   * the side offers (every occupied one, plus one free). */
+  slots: Partial<Record<Side, number[]>>;
+}
+
+export function SceneNodeView({ data, selected }: NodeProps) {
+  const { node, derived, onRename, onResize, slots } = data as SceneNodeData;
+  // Whether ANY connection drag is live on the canvas: the moment the extra
+  // bubbles earn their ink (see below).
+  const connecting = useConnection((c) => c.inProgress);
+  const label = useGraphLabelDraft({ identity: `node:${node.id}`, value: node.label ?? node.id,
+    disabled: derived, nonempty: true, commit: (value, actor) => onRename(node.id, value, actor) });
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (label.editing) inputRef.current?.select(); }, [label.editing]);
+
+  const shape = node.shape ?? "rect";
+  return (
+    <div
+      className={`graph-node graph-node--${shape}${selected ? " graph-node--selected" : ""}${connecting ? " graph-node--connecting" : ""}`}
+      // Colours travel as custom properties rather than direct styles: the
+      // clip-path shapes (diamond, hexagon) cannot use a CSS border — the
+      // clip cuts it off the slanted edges — so their outline is a colour
+      // layer behind an inset fill layer, and both layers need to read the
+      // same two values the bordered shapes read.
+      style={
+        {
+          ...(node.fill ? { "--gn-fill": node.fill } : {}),
+          ...(node.stroke ? { "--gn-stroke": node.stroke } : {}),
+          ...(node.text ? { color: node.text } : {}),
+        } as React.CSSProperties
+      }
+      onDoubleClick={label.open}
+      data-testid={`graph-node-${node.id}`}
+    >
+      {/* Resize is a layout act, so it is never locked — a derived node may
+          be resized like any other. The commit snaps to the grid. */}
+      <NodeResizer
+        isVisible={selected ?? false}
+        minWidth={96}
+        minHeight={48}
+        onResizeEnd={(_event: unknown, params: ResizeParams) =>
+          onResize(node.id, {
+            x: params.x,
+            y: params.y,
+            w: params.width,
+            h: params.height,
+          })
+        }
+      />
+      {/* Connection points live on SIDES, never corners — corners belong to
+          resizing. Each side offers a centred row of bubbles: one per line
+          already attached, plus one free, so a side that holds something
+          still has an open point right beside it. Every bubble is usable in
+          either direction (loose connection mode): choosing where a line
+          meets a box is choosing a place, not a polarity. The target handle
+          under each source handle keeps side-less edges — scenes drawn
+          before sides existed — rendering by default. */}
+      {SIDES.map(([side, position]) =>
+        // The lines in use stay centred; one EXTRA bubble flanks them on
+        // each end, symmetric, so a vacancy never pushes a line off the
+        // side's midline. The extras are drop targets first and ink second:
+        // always there to catch a connector, visible only while one is
+        // being dragged (or the node is hovered, which is how a second
+        // line STARTS from the side). At rest a side with one line shows
+        // one bubble, dead centre.
+        sideHandles(side, slots?.[side] ?? []).map(({ id, offset, extra }) => {
+          const className = extra ? "graph-handle--extra" : undefined;
+          const style =
+            side === "top" || side === "bottom"
+              ? { left: `calc(50% + ${offset}px)` }
+              : { top: `calc(50% + ${offset}px)` };
+          return (
+            <span key={id}>
+              <Handle type="target" position={position} id={id} style={style} className={className} />
+              <Handle type="source" position={position} id={id} style={style} className={className} />
+            </span>
+          );
+        }),
+      )}
+      {label.error && <span role="alert">{label.error}</span>}
+      {label.editing ? (
+        <input
+          ref={inputRef}
+          className="graph-node__rename"
+          value={label.value}
+          onChange={(e) => label.change(e.target.value)}
+          onBlur={() => label.finish(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") label.finish(true);
+            if (e.key === "Escape") label.finish(false);
+          }}
+        />
+      ) : (
+        <span className="graph-node__label">{node.label ?? node.id}</span>
+      )}
+    </div>
+  );
+}
+
+const SIDES = [
+  ["top", Position.Top],
+  ["right", Position.Right],
+  ["bottom", Position.Bottom],
+  ["left", Position.Left],
+] as const;
+</book:entry>
+
+</book:doc>

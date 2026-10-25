@@ -1,0 +1,138 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# apps/web/src/lib/menuBridge.ts
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+- [Inserting An Element Writes Hick You Could Have Typed Yourself](../../../../../contract.md)
+- [The Blame Column Is Optional And Honest](../../../../../../../lineage/the-blame-column-is-optional-and-honest/contract.md)
+
+Captured SHA-256: `2ae0c845e0d136cd9b0c05b456b14d5587b7103bd0116fbaee6c9ccb981acd93`.
+
+<book:entry path="apps/web/src/lib/menuBridge.ts">
+// The native menu's side of the bargain.
+//
+// The desktop shell forwards menu picks into the page as a DOM CustomEvent
+// named `hickory-menu` (see apps/desktop/src-tauri/src/lib.rs) — a plain
+// window event rather than Tauri IPC, so this file has no Tauri dependency
+// and the same build runs unchanged in a browser, where the event simply
+// never fires.
+
+export type MenuAction =
+  | "new"
+  /** File → New Project: scaffold a document from `dotnet new`. Its own
+   * action rather than a mode of "new", because it writes a real file and
+   * runs a generator — an untitled buffer does neither. */
+  | "new-project"
+  | "save"
+  | "save-as"
+  | "save-all"
+  | "print"
+  // Zoom, at two scopes: the whole window, and the focused tab alone.
+  | "zoom-in"
+  | "zoom-out"
+  | "zoom-reset"
+  | "zoom-tab-in"
+  | "zoom-tab-out"
+  | "zoom-tab-reset"
+  /** Show or hide the blame column, in every editor at once. */
+  | "blame"
+  | "settings"
+  | "files"
+  /** View → Agent: the conversation about the focused document. */
+  | "show-agent"
+  // Terminals: open one, and walk the attention queue.
+  | "terminal"
+  | "attention"
+  /** Open the Insert panel; the suffixed form opens it on one element, which
+   * is how every item of the native Insert submenu arrives. */
+  | "insert"
+  | `insert:${string}`
+  /** Edit the catalogue-backed element at the document caret. */
+  | "edit-element";
+
+export const MENU_EVENT = "hickory-menu";
+
+/** Two arrivals of the same action inside this window are one keypress —
+ * the accelerator and a re-dispatched event, not two intents. */
+export const DEDUPE_MS = 100;
+
+const ACTIONS: ReadonlySet<string> = new Set([
+  "new",
+  "new-project",
+  "save",
+  "save-as",
+  "save-all",
+  "print",
+  "zoom-in",
+  "zoom-out",
+  "zoom-reset",
+  "zoom-tab-in",
+  "zoom-tab-out",
+  "zoom-tab-reset",
+  "blame",
+  "settings",
+  "files",
+  "show-agent",
+  "insert",
+  "edit-element",
+  "terminal",
+  "attention",
+]);
+
+/** The element a menu action names, or null when it names none. The id is
+ * checked against the catalogue by whoever opens the panel — a newer shell
+ * naming an element this build does not have opens the panel, which is a
+ * better answer than nothing happening. */
+export function insertTarget(action: MenuAction): string | null {
+  return action.startsWith("insert:") ? action.slice("insert:".length) : null;
+}
+
+/**
+ * Subscribe to native menu actions. Returns the unsubscribe.
+ *
+ * Unknown details are ignored (a newer shell talking to an older page should
+ * do nothing, not crash), and the same action arriving twice within
+ * {@link DEDUPE_MS} is handled once — the guard against an accelerator that
+ * reaches the page by two routes.
+ */
+/**
+ * Ask for a menu action from inside the page.
+ *
+ * The browser build has no native menu, and the welcome pane offers some of
+ * the same verbs. Dispatching the bridge's own event rather than inventing a
+ * second channel means there is one handler per action, not two that can
+ * drift — and the desktop and browser builds take the identical path.
+ */
+export function requestMenuAction(action: MenuAction) {
+  window.dispatchEvent(new CustomEvent(MENU_EVENT, { detail: action }));
+}
+
+export function onMenuAction(
+  handler: (action: MenuAction) => void,
+  now: () => number = Date.now,
+): () => void {
+  let lastAction: string | null = null;
+  let lastAt = -Infinity;
+
+  const listener = (event: Event) => {
+    const detail = (event as CustomEvent).detail;
+    if (typeof detail !== "string") return;
+    // `insert:<element>` is one action per element of the native Insert
+    // submenu; the id is not validated here so a shell that grows an element
+    // before the page does still opens the panel.
+    if (!ACTIONS.has(detail) && !/^insert:[\w.-]+$/.test(detail)) return;
+    const at = now();
+    if (detail === lastAction && at - lastAt < DEDUPE_MS) return;
+    lastAction = detail;
+    lastAt = at;
+    handler(detail as MenuAction);
+  };
+
+  window.addEventListener(MENU_EVENT, listener);
+  return () => window.removeEventListener(MENU_EVENT, listener);
+}
+</book:entry>
+
+</book:doc>

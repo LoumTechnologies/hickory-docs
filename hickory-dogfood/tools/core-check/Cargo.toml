@@ -1,0 +1,13 @@
+[package]
+name = "hickory-dogfood-core-check"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+hick-lang = { path = "../../../crates/hick-lang" }
+serde_json = "1"
+sha2 = "0.10"
+hick-project-env = { path = "../../../crates/hick-project-env" }

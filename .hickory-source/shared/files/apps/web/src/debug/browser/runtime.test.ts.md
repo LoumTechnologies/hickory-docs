@@ -1,0 +1,173 @@
+<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+# apps/web/src/debug/browser/runtime.test.ts
+
+For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+
+Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+
+- [Browser debugging runs edited source](../../../../../../../guarantees/debugging/browser-debugging-runs-edited-source/contract.md)
+- [Observations read beside their captured source](../../../../../../../guarantees/debugging/source-anchored-observation-reading/contract.md)
+- [Literal files use native bytes](../../../../../../../guarantees/embedding/literal-files-use-native-bytes/contract.md)
+- [Browser output carries actual runtime source and occurrence evidence](../../../../../../../guarantees/execution/browser-output-has-runtime-source-evidence/contract.md)
+
+Captured SHA-256: `b0e2f303b3d7d4d4bcf7cdfc692d3a4356b1c4cf0b2de4503ba53b5794966f92`.
+
+<book:entry path="apps/web/src/debug/browser/runtime.test.ts">
+import { describe, expect, it } from "vitest";
+import { BrowserRun } from "./runtime";
+import type { BrowserEvent } from "./runtime";
+import { materializeLiteralFiles } from "../../editor/hickLang";
+import type { DebugBreakpoint } from "../client";
+
+// Guarantees: docs/guarantees/debugging/browser-debugging-runs-edited-source.md
+// docs/guarantees/embedding/literal-files-use-native-bytes.md
+function start(code: string, breakpoints: DebugBreakpoint[] = [], language = "js") {
+  const source = `# 🦀 Live\n<hick:file path="main.${language}">\n${code}\n</hick:file>\n`;
+  const events: BrowserEvent[] = [];
+  const run = new BrowserRun({ source, revision: "1", file: materializeLiteralFiles(source)[0] }, "session", "hick:///note.md", breakpoints, (e) => events.push(e));
+  const drain = () => { let n = 0; while (run.pump() && n++ < 2000) { /* bounded runtime */ } };
+  return { run, events, drain };
+}
+function pause(events: BrowserEvent[]) { const event = [...events].reverse().find((e) => e.event === "stopped"); if (!event || event.event !== "stopped") throw Error("Expected real pause"); return event; }
+
+describe("browser interpreter", () => {
+  it("pauses before the statement, steps into/out of a function and continues to output", () => {
+    const { run, events, drain } = start("function price(n) {\n  var total = n * 3;\n  return total;\n}\nvar input = 4;\nvar result = price(input);\nconsole.log(result);", [{ line: 7 }, { line: 8 }]);
+    drain();
+    expect(pause(events).line).toBe(7);
+    expect(pause(events).variables.find((v) => v.name === "input")?.value).toBe("4");
+    expect(pause(events).variables.find((v) => v.name === "result")?.value).toBe("undefined");
+    run.step("in"); drain();
+    expect(pause(events).line).toBe(3);
+    expect(pause(events).frames.map((f) => f.name)).toEqual(["price", "<program>"]);
+    expect(pause(events).variables.find((v) => v.name === "n")?.value).toBe("4");
+    run.step("out"); drain();
+    expect(pause(events).line).toBe(8);
+    expect(pause(events).variables.find((v) => v.name === "result")?.value).toBe("12");
+    run.step("continue"); drain();
+    expect(events).toContainEqual({ event: "output", session: "session", text: "12\n", category: "stdout" });
+  });
+  it.each(["js", "ts"])("matches native execution for edited %s, Unicode, multiline and closures", (language) => {
+    const annotation = language === "ts" ? ": number" : "";
+    const code = `function outer(n${annotation}) {\n  return function inner(x${annotation}) {\n    var label = 'é🦀';\n    return n +\n      x;\n  };\n}\nvar add = outer(7);\nconsole.log(add(5));`;
+    const { events, drain } = start(code, [], language); drain();
+    expect(events).toContainEqual({ event: "output", session: "session", text: "12\n", category: "stdout" });
+    const native: number[] = [];
+    Function("console", code.replaceAll(": number", ""))({ log: (v: number) => native.push(v) });
+    expect(native).toEqual([12]);
+    const edited = start(code.replace("outer(7)", "outer(9)"), [], language); edited.drain();
+    expect(edited.events).toContainEqual({ event: "output", session: "session", text: "14\n", category: "stdout" });
+  });
+  it("inspects closures and objects without invoking getters or watch calls", () => {
+    const { run, events, drain } = start("var touched = 0;\nvar object = { get value() { touched++; return 8; }, nested: { x: 3 } };\nconsole.log(touched);", [{ line: 4 }]); drain();
+    run.evaluate("object.nested.x + 2");
+    expect(events.at(-1)).toMatchObject({ event: "value", value: "5" });
+    expect(() => run.evaluate("object.value")).toThrow("getter");
+    expect(() => run.evaluate("console.log(5)")).toThrow("Unsupported");
+    const variable = pause(events).variables.find((v) => v.name === "object")!;
+    run.children(variable.variables_reference);
+    expect(events.at(-1)).toMatchObject({ event: "children", variables: expect.arrayContaining([expect.objectContaining({ name: "value", value: "[Getter — not invoked]" })]) });
+    run.evaluate("touched"); expect(events.at(-1)).toMatchObject({ value: "0" });
+  });
+  it("captures exceptions and denies page, network and indirect eval access", () => {
+    for (const code of ["fetch('https://example.com');", "console.log(document.cookie);", "(function(){}).constructor('return 1')();", "throw new Error('broken');"]) {
+      const test = start(code); test.drain();
+      expect(test.events.at(-1)).toMatchObject({ event: "finished", exit_code: 1 });
+    }
+  });
+  it("refuses unsupported syntax, type errors and dependent weave", () => {
+    expect(() => start("var f = () => 1;")).toThrow("Unsupported");
+    expect(() => start("async function f() {}", [], "ts")).toThrow("Unsupported");
+    expect(() => start("var x: number = 'bad';", [], "ts")).toThrow("Compiler diagnostics");
+    expect(() => materializeLiteralFiles('<hick:file path="a.js"><hick:paste select="#x" /></hick:file>')).toThrow("full weave");
+  });
+  it("bounds an infinite loop and permits pause between batches", () => {
+    const { run, events } = start("var n = 0;\nwhile (true) { n++; }");
+    expect(run.pump(100)).toBe(true);
+    run.pause(); run.pump(); expect(pause(events).reason).toBeDefined();
+    run.step("continue");
+    // Accrued interpreter steps are the limit, not elapsed wall time. Place
+    // the fixture at the boundary instead of spending the test's timeout on
+    // two million real steps while other compiler/browser checks run.
+    Reflect.set(run, "steps", 1_999_999);
+    expect(run.pump(1)).toBe(true);
+    expect(run.pump(1)).toBe(false);
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "failed", message: "Browser execution limit exceeded (2 million interpreter steps)",
+    }));
+    expect(events.at(-1)).toMatchObject({ event: "finished", exit_code: 1 });
+  });
+});
+
+// Guarantee: docs/guarantees/debugging/source-anchored-observation-reading.md
+it("captures real recursive frame scopes without turning source markers into annotations", () => {
+  const source = '<hick:file path="main.js">\n// BREAKPOINT HERE\nfunction recurse(n) {\n  if (n > 0) return recurse(n - 1);\n  return n;\n}\nvar result = recurse(2);\n</hick:file>\n';
+  const events: BrowserEvent[] = [];
+  const run = new BrowserRun({ source, revision: "1", observationRevision: "captured-digest", file: materializeLiteralFiles(source)[0] }, "recursive", "demo.md", [{ line: 4 }], e => events.push(e));
+  while (run.pump()) { /* bounded fixture */ }
+  const reading = events.find(e => e.event === "reading");
+  expect(reading?.event).toBe("reading");
+  if (reading?.event !== "reading") throw Error("missing reading");
+  expect(new TextDecoder().decode(new Uint8Array(reading.reading.source.bytes))).toBe(source);
+  const frames = reading.reading.annotations.filter(a => a.payload.kind === "frame");
+  expect(frames.length).toBeGreaterThan(2);
+  expect(new Set(frames.map(a => a.scope.frame)).size).toBe(frames.length);
+  expect(reading.reading.annotations.filter(a => a.payload.kind === "paused")).toHaveLength(1);
+  expect(reading.reading.unsupported).toContain("reverse execution");
+  run.evaluate("n + 1");
+  const next = events.filter(e => e.event === "reading").at(-1);
+  if (next?.event !== "reading") throw Error("missing expression receipt");
+  expect(next.reading.annotations.at(-1)).toMatchObject({ scope: { stop: reading.reading.scope.stop, frame: 1 }, payload: { kind: "expression", expression: "n + 1", value: "1" } });
+  run.report("frame", 2);
+  const callerReading = events.filter(e => e.event === "reading").at(-1);
+  if (callerReading?.event !== "reading") throw Error("missing caller reading");
+  expect(callerReading.reading.scope).toMatchObject({ stop: reading.reading.scope.stop, frame: 2 });
+  expect(callerReading.reading.annotations.find(a => a.payload.kind === "expression")?.scope.frame).toBe(1);
+  expect(callerReading.reading.annotations.find(a => a.payload.kind === "paused")?.scope.frame).toBe(1);
+  expect(() => run.step("back")).toThrow();
+  expect(() => run.evaluate("recurse(3)")).toThrow();
+});
+
+// Guarantee: docs/guarantees/execution/browser-output-has-runtime-source-evidence.md
+it.each(["js", "ts"])("attributes %s output to emitting code and distinct recursive invocations", (language) => {
+  const type = language === "ts" ? ": number" : "";
+  const source = `# 🦀\n<hick:file path="main.${language}">\nfunction logger(n${type}) {\n console.write('é');\n console.write('🦀\\r\\nsecond\\n');\n if (n > 0) logger(n-1);\n}\nlogger(2);\nconsole.error('Error: this is text');\ntry { throw new Error('caught'); } catch (e) { console.log('handled'); }\nthrow new Error('unhandled');\n</hick:file>\n`;
+  const events: BrowserEvent[] = [];
+  const run = new BrowserRun({ source, revision: "editor-1", observationRevision: "a".repeat(64), file: materializeLiteralFiles(source)[0] }, "run-output", "example.md", [], e => events.push(e));
+  while (run.pump()) { /* bounded fixture */ }
+  const record = events.filter(e => e.event === "runtime").at(-1);
+  if (record?.event !== "runtime") throw Error("Missing run evidence");
+  expect(record.run.status).toBe("failed");
+  expect(record.run.sources[0].revision).toBe("a".repeat(64));
+  expect(new TextDecoder().decode(new Uint8Array(record.run.sources[0].bytes))).toBe(source);
+  const output = record.run.events.filter(e => e.observation.kind === "output");
+  const partial = output.filter(e => e.observation.kind === "output" && new TextDecoder().decode(new Uint8Array(e.observation.bytes)) === "é");
+  expect(partial).toHaveLength(3);
+  expect(new Set(partial.map(e => e.invocation)).size).toBe(3);
+  expect(new Set(record.run.events.map(e => e.id)).size).toBe(record.run.events.length);
+  for (const event of partial) {
+    expect(event.emission?.precision).toBe("exact");
+    const start = event.emission!.bytes!.start;
+    expect(new TextDecoder().decode(new Uint8Array(record.run.sources[0].bytes).slice(start))).toMatch(/^console.write/);
+    expect(event.callers.length).toBeGreaterThan(0);
+  }
+  const errors = record.run.events.filter(e => e.observation.kind === "exception");
+  expect(errors.some(e => e.observation.kind === "exception" && e.observation.handling === "unhandled")).toBe(true);
+  expect(output.some(e => e.observation.kind === "output" && e.observation.category === "error")).toBe(true);
+});
+
+// Guarantee: docs/guarantees/execution/browser-output-has-runtime-source-evidence.md
+it("bounds evidence independently of empty output chunks", () => {
+  const source = '<hick:file path="main.js">var i; for(i=0;i<4100;i++) console.write(\'\');</hick:file>';
+  const events: BrowserEvent[] = [];
+  const run = new BrowserRun({ source, revision: "1", observationRevision: "a".repeat(64), file: materializeLiteralFiles(source)[0] }, "bounded", "example.md", [], e => { if (e.event === "runtime") events.push(e); });
+  while (run.pump()) { /* bounded empty writes */ }
+  const evidence = events.at(-1);
+  if (evidence?.event !== "runtime") throw Error("missing evidence");
+  expect(evidence.run.truncated).toBe(true);
+  expect(evidence.run.events).toHaveLength(4096);
+  expect(evidence.run.status).toBe("completed");
+});
+</book:entry>
+
+</book:doc>
