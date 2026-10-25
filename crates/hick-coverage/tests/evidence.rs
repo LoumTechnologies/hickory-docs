@@ -89,3 +89,11 @@ fn malformed_reports_are_not_zero_coverage() {
         assert!(parse(format, raw).is_err(), "{format}: {raw}");
     }
 }
+#[test]
+fn coverlet_source_roots_resolve_relative_class_paths() {
+    let report=parse("cobertura",r#"<coverage><sources><source>/</source></sources><packages><package><classes><class filename="tmp/project/Code.cs"><lines><line number="7" hits="1" branch="true" condition-coverage="50% (1/2)"/></lines></class></classes></package></packages></coverage>"#).unwrap();
+    assert_eq!(
+        report.files["/tmp/project/Code.cs"].branch_totals[&7],
+        (1, 2)
+    );
+}

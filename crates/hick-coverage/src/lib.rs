@@ -20,6 +20,10 @@ pub struct Branch {
 pub struct FileCoverage {
     /// Only executable lines. Missing entries are unknown/non-executable, not zero.
     pub lines: BTreeMap<u32, u64>,
+    /// False means line values are reachability flags (0/1), not execution counts.
+    pub line_counts: bool,
+    /// Provider aggregate fractions, without inferred branch identities.
+    pub branch_totals: BTreeMap<u32, (u64, u64)>,
     /// None is an unsupported metric; Some([]) is a measured empty denominator.
     pub branches: Option<Vec<Branch>>,
     pub excluded: Vec<u32>,

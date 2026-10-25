@@ -1,6 +1,5 @@
 //! Library core of the `hick` CLI.
-//! The binary parses arguments; the local server calls the same library
-//! functions for execution, verification and rendering.
+//! The binary and local server share execution, verification and rendering.
 pub mod adopt;
 pub mod agent_cell_runner;
 pub mod agent_lineage;
@@ -12,6 +11,7 @@ pub mod claude_code;
 pub mod code_model;
 pub mod context_updates;
 pub mod continuity;
+pub mod coverage;
 pub mod dap_install;
 pub mod debug_sessions;
 pub mod diagram;

@@ -100,6 +100,7 @@ pub mod store;
 pub mod story;
 pub mod terminal;
 pub mod test_run;
+pub mod test_coverage;
 pub mod watch;
 pub mod workspace;
 pub mod workspace_fs;
@@ -773,6 +774,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/environments/actions", post(environments::act))
         .route("/environments/manager", put(environments::choose))
         .route("/tests/run", post(test_run::run))
+        .route("/tests/coverage", get(test_coverage::list).post(test_coverage::action).layer(axum::extract::DefaultBodyLimit::max(18 * 1024 * 1024)))
         .route("/terminals/turbo", put(terminal::set_turbo))
         .route("/terminals/anchors", get(terminal::anchors))
         .route("/terminals/ws", get(terminal::ws_handler))

@@ -19,6 +19,8 @@ name = "hickory_cli"
 path = "src/lib.rs"
 
 [dependencies]
+hick-coverage = { path = "../hick-coverage" }
+roxmltree = "0.20"
 hick-observe = { path = "../hick-observe" }
 anyhow = "1"
 hick-context-store = { path = "../hick-context-store" }

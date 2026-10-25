@@ -223,6 +223,7 @@ fn allowed(name: &str) -> bool {
     matches!(
         name,
         "read_doc"
+            | "code_coverage"
             | "ui_observe"
             | "ui_act"
             | "ui_cancel"

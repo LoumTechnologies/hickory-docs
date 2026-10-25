@@ -43,6 +43,7 @@ fn lcov(raw: &str) -> Result<BTreeMap<String, FileCoverage>> {
             current = None;
         } else if let Some(path) = &current {
             let file = files.get_mut(path).unwrap();
+            file.line_counts = true;
             if let Some(data) = row.strip_prefix("DA:") {
                 let parts: Vec<_> = data.split(',').collect();
                 ensure!(parts.len() >= 2, "Invalid LCOV line");
@@ -136,11 +137,26 @@ fn python(raw: &str) -> Result<BTreeMap<String, FileCoverage>> {
 fn cobertura(raw: &str) -> Result<BTreeMap<String, FileCoverage>> {
     let doc = roxmltree::Document::parse(raw)?;
     let mut files = BTreeMap::<String, FileCoverage>::new();
+    let sources: Vec<_> = doc
+        .descendants()
+        .filter(|n| n.has_tag_name("source"))
+        .filter_map(|n| n.text())
+        .filter(|s| !s.is_empty())
+        .collect();
     for class in doc.descendants().filter(|n| n.has_tag_name("class")) {
         let path = class
             .attribute("filename")
             .context("Class has no source filename")?;
-        let file = files.entry(path.into()).or_default();
+        let path = if !std::path::Path::new(path).is_absolute() && sources.len() == 1 {
+            std::path::Path::new(sources[0])
+                .join(path)
+                .to_string_lossy()
+                .into_owned()
+        } else {
+            path.to_string()
+        };
+        let file = files.entry(path).or_default();
+        file.line_counts = true;
         // Method line tables repeat class line tables. Read only the class's direct lines.
         for node in class
             .children()
@@ -161,6 +177,25 @@ fn cobertura(raw: &str) -> Result<BTreeMap<String, FileCoverage>> {
                 .entry(n)
                 .and_modify(|c| *c = (*c).max(count))
                 .or_insert(count);
+            if let Some(fraction) = node
+                .attribute("condition-coverage")
+                .and_then(|s| s.split('(').nth(1))
+                .and_then(|s| s.strip_suffix(')'))
+            {
+                let (covered, total) = fraction
+                    .split_once('/')
+                    .context("Invalid branch fraction")?;
+                let covered: u64 = covered.parse()?;
+                let total: u64 = total.parse()?;
+                ensure!(covered <= total, "Invalid branch denominator");
+                file.branch_totals
+                    .entry(n)
+                    .and_modify(|old| {
+                        old.0 = old.0.max(covered);
+                        old.1 = old.1.max(total);
+                    })
+                    .or_insert((covered, total));
+            }
             // Cobertura gives aggregate branch fractions, not branch identities. Raw data
             // retains those fractions; never manufacture identifiable branches from them.
         }
@@ -175,7 +210,10 @@ fn istanbul(raw: &str) -> Result<BTreeMap<String, FileCoverage>> {
         .as_object()
         .context("Expected Istanbul coverage map")?
     {
-        let mut file = FileCoverage::default();
+        let mut file = FileCoverage {
+            line_counts: true,
+            ..Default::default()
+        };
         let statements = data["statementMap"]
             .as_object()
             .context("Missing statement map")?;
