@@ -6,8 +6,8 @@
 //! `docs/specs/freeform/local-only.md`: there is no second code path for
 //! weaving, lineage, or carrying an output edit back into a document.
 //!
-//! Nothing here reaches the network. There is no account, no telemetry, and no
-//! update check.
+//! Packaged Unstable Apple Silicon builds check GitHub for signed updates.
+//! There is no account or telemetry.
 //!
 //! ## Why the launch sequence looks like this
 //!
@@ -25,6 +25,7 @@ mod exit_gate;
 mod file_open;
 mod folder_session;
 mod recent;
+mod updater;
 pub mod server;
 
 use std::path::{Path, PathBuf};
@@ -77,6 +78,7 @@ pub fn run() {
             // setup runs. Built through `.menu` it panicked before the first
             // window ("state() called before manage()").
             app.set_menu(app_menu(&handle)?)?;
+            updater::start(handle);
             Ok(())
         })
         .build(tauri::generate_context!())

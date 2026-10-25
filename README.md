@@ -183,8 +183,10 @@ curl -fsSL https://raw.githubusercontent.com/LoumTechnologies/hickory-docs/maste
 ```
 
 That puts `hick` in `~/.local/bin` — no Rust toolchain, no clone. Add
-`HICKORY_CHANNEL=unstable` for the build cut from the tip of `master` instead
-of the latest stable release, or `HICKORY_INSTALL_DIR=…` to put it elsewhere.
+`HICKORY_CHANNEL=unstable` for the CLI archive currently attached to the
+Unstable release, or `HICKORY_INSTALL_DIR=…` to put it elsewhere. New Apple
+Silicon desktop builds are published separately with
+[`just release-unstable`](apps/desktop/RELEASING.md).
 
 Prefer to pick the file yourself? Every platform's archive is on the
 [releases page](https://github.com/LoumTechnologies/hickory-docs/releases):

@@ -17,14 +17,7 @@
 name: VM Tests
 
 on:
-  # After the artifact exists and is downloadable, because what is tested is
-  # the published asset — the exact bytes a user gets. The hosted smoke tests
-  # in release-build.yml still gate publication; this is the deeper, slower
-  # check that runs behind them rather than in front.
-  workflow_run:
-    workflows: [Unstable Release]
-    types: [completed]
-    branches: [master]
+  # Manual verification of CLI assets; desktop Unstable publication uses SSH.
   workflow_dispatch:
     inputs:
       tag:
@@ -45,9 +38,6 @@ permissions:
 
 jobs:
   vm:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
     # One leg per platform rather than a single `vmkit series` run, and the
     # reason is not tidiness: a self-hosted job that goes quiet long enough
     # misses its job-lock renewals and GitHub reclaims it mid-test

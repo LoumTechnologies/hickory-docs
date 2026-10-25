@@ -160,6 +160,17 @@ dist TARGET VERSION="":
 dist-desktop VERSION="" TARGET="":
     ./scripts/dist-desktop.sh {{VERSION}} {{TARGET}}
 
+# Publish HEAD to Unstable through an Apple Silicon SSH builder; no Actions.
+# Set HICKORY_MAC_BUILDER; see apps/desktop/RELEASING.md for one-time setup.
+release-unstable:
+    python3 scripts/release-unstable.py
+
+# Focused publication ordering, signature staging, and update-channel safety tests.
+test-unstable-release:
+    python3 -m unittest discover -s scripts/tests -p test_release_unstable.py -v
+    cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib updater::tests --locked
+    bash -n scripts/build-unstable-macos.sh scripts/dist-desktop.sh
+
 # Build and install the native macOS app in Applications (no disk image needed).
 local-install:
     #!/usr/bin/env bash

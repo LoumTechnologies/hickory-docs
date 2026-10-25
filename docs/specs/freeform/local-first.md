@@ -63,7 +63,9 @@ boundary, and native verification. These parts of it are superseded:
   layer within one session.
 - **Delivery** — "continuous deployment to production" describes the hosted
   service. The product's delivery path is the release channels
-  (`unstable-release.yml`, `stable-release.yml`) and the one-line installer.
+  (`just release-unstable` for Apple Silicon desktop builds,
+  `stable-release.yml` for stable multi-platform builds) and the one-line
+  installer. See `apps/desktop/RELEASING.md`.
 - **Sharing state across web/iOS/Android** — still true of the client, but the
   server it talks to is now usually `hick serve` on someone's machine.
 

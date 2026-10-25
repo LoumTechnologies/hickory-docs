@@ -93,8 +93,8 @@ if [ -n "${HICKORY_VERSION:-}" ]; then
   release_url="$API/releases/tags/$HICKORY_VERSION"
   what="$HICKORY_VERSION"
 elif [ "$CHANNEL" = "unstable" ]; then
-  # The unstable channel is a single rolling tag, replaced by every green
-  # build of master — not a growing pile of prereleases.
+  # The unstable channel uses one manually published release tag. The desktop
+  # publisher retains existing CLI assets; see apps/desktop/RELEASING.md.
   release_url="$API/releases/tags/unstable"
   what="the unstable channel"
 elif [ "$CHANNEL" = "stable" ]; then
@@ -115,7 +115,7 @@ if ! fetch "$release_url" "application/vnd.github+json" "$tmp/release.json"; the
     # only release is the rolling `unstable` tag. Fall back to it loudly
     # rather than telling a stranger the product cannot be installed.
     echo "No stable release found; falling back to the unstable channel."
-    echo "(Every unstable build passed the same CI; pin one later with HICKORY_VERSION.)"
+    echo "(Unstable builds are published manually; use HICKORY_VERSION to pin a release tag.)"
     release_url="$API/releases/tags/unstable"
     what="the unstable channel"
     fetch "$release_url" "application/vnd.github+json" "$tmp/release.json" || die \

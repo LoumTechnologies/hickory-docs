@@ -1,7 +1,5 @@
-# Build the downloadable `hick` artifacts. Called by both release
-# channels — Unstable Release and Stable Release — so the two ship binaries
-# produced exactly the same way; the only difference between the channels is
-# which commit they build and how the result is labelled.
+# Build multi-platform downloadable artifacts for Stable Release. Manual
+# Unstable desktop publication uses scripts/build-unstable-macos.sh instead.
 #
 # This is a `workflow_call` workflow, so it never runs on its own and never
 # publishes anything. It leaves artifacts in the calling run for the caller's

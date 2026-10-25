@@ -149,6 +149,7 @@ node scripts/desktop-bundle-inventory.mjs snapshot "$BUNDLE_DIR" "$bundle_manife
   CI=true cargo tauri build \
     --config "{\"version\": \"$BUNDLE_VERSION\"}" \
     --config "$fskit_config" \
+    ${HICKORY_UPDATER_CONFIG:+--config "$HICKORY_UPDATER_CONFIG"} \
     --config ../../../.dev/desktop-cli.json \
     ${python_args[@]+"${python_args[@]}"} \
     ${cross_args[@]+"${cross_args[@]}"} \
@@ -193,6 +194,9 @@ while IFS= read -r -d '' bundle; do
     *) ext="${bundle##*.}" ;;
   esac
   cp "$bundle" "$OUT/hickory-docs-$VERSION-$TARGET.$ext"
+  if [ -f "$bundle.sig" ]; then
+    cp "$bundle.sig" "$OUT/hickory-docs-$VERSION-$TARGET.$ext.sig"
+  fi
   found=$((found + 1))
 done < "$bundle_candidates"
 

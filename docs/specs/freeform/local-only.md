@@ -229,8 +229,9 @@ The whole CLI, minus three commands: `run`, `test`, `up`, `weave`, `lineage`,
   workspace with seats was table stakes for a market this was never going to
   win.
 - **The release channels stop being infrastructure nobody uses.** The download
-  is the product, so `unstable-release.yml` and `stable-release.yml` are on the
-  critical path instead of beside it.
+  is the product, so `just release-unstable` (Apple Silicon desktop) and
+  `stable-release.yml` (stable multi-platform builds) are on the critical path.
+  See `apps/desktop/RELEASING.md`.
 - **One environment, no secrets.** No staging/production split, no GitHub
   Environments, no key rotation, no `SIGNUP_ALLOWLIST`, no Postgres backup to
   test, no analytics project per environment.

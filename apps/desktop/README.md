@@ -74,6 +74,12 @@ by default, with your restored tabs still available. Uncheck “Show this page
 when a folder opens” on the welcome pane to skip it on later launches.
 The app runs independently of this checkout and needs no development server.
 
+## Publish Unstable from Linux
+
+Run `just release-unstable` to build on an Apple Silicon Mac over SSH and
+publish a DMG plus signed automatic updates to GitHub. See
+[the setup and publishing guide](RELEASING.md).
+
 ## Desktop only
 
 iOS and Android are not targets. A tool whose job is editing files in a git

@@ -243,3 +243,13 @@ Last LLM verification:
 - Test coverage: the `clean-machine` job in
   `.github/workflows/release-build.yml` is the executable form of this
   guarantee, and runs on every Unstable and Stable Release.
+
+
+## Delivery change, 2026-10-25
+
+The earlier observations above remain historical evidence. The manual Apple
+Silicon desktop publisher now replaces the automatic Unstable workflow and
+does not execute the reusable workflow's clean-machine tests. Those tests
+continue to apply to Stable Release. A real clean-Mac install and subsequent
+in-app update for the new publisher have not been observed. See
+`apps/desktop/RELEASING.md` and `unstable-updates-require-consent.md`.
