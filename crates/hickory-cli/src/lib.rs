@@ -19,6 +19,7 @@ pub mod doc_tools;
 pub mod editor_lsp;
 pub mod emission;
 pub mod engine;
+mod failed_run;
 pub mod floor;
 pub mod history;
 pub mod index_install;
@@ -1137,7 +1138,9 @@ async fn run_source(
                 .then(|| agent_cell_runner::LlmAgentRunner::from_env(executor.clone()))
                 .flatten()
                 .map(|r| Arc::new(r) as Arc<dyn hick_literate::agent_cell::AgentRunner>);
+            let evidence = failed_run::Evidence::default();
             let config = PipelineConfig {
+                on_exec: Some(evidence.hook()),
                 working_dir: Some(project_dir.to_path_buf()),
                 // Generated Markdown may contribute fragments in later rounds.
                 // Ordinary outputs are bytes: never scan them for markup.
@@ -1191,7 +1194,9 @@ async fn run_source(
                     )
                 })?;
             }
-            run_pipeline_live(&sources, &config, params, Some(&cc), executor).await?
+            run_pipeline_live(&sources, &config, params, Some(&cc), executor)
+                .await
+                .map_err(|error| evidence.failure(&doc, error))?
         }
         RunMode::Weave => {
             // Always with the cache config, whether or not the cache directory

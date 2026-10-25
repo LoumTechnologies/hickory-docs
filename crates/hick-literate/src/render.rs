@@ -494,6 +494,12 @@ fn exec_block(tag: &HickTag, input: &BlockModelInput<'_>) -> Block {
     let cell = crate::CellId::exec(&container, line);
     let status = if input.never_run.contains_key(&cell) || entry.is_none() {
         "unrecorded"
+    } else if entry.is_some_and(|entry| {
+        entry.events.iter().any(|event| {
+            matches!(event, hickory_executor::TranscriptEvent::Exit { code, .. } if *code != 0)
+        })
+    }) {
+        "failed"
     } else if input.stale.contains_key(&cell) {
         "stale"
     } else if let Some(o) = outcome {

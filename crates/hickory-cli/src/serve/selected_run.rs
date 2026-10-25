@@ -132,7 +132,16 @@ impl LocalState {
                 }
                 Err(e) => {
                     log::warn!("run {run_key} failed: {e:#}");
-                    ("failed", json!([]), failed_source)
+                    let blocks = e
+                        .downcast_ref::<crate::CapturedRootError>()
+                        .and_then(|captured| {
+                            captured
+                                .error
+                                .downcast_ref::<crate::failed_run::FailedRun>()
+                        })
+                        .map(|failed| json!(failed.blocks))
+                        .unwrap_or_else(|| json!([]));
+                    ("failed", blocks, failed_source)
                 }
             };
 

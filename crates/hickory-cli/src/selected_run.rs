@@ -101,5 +101,9 @@ pub(crate) fn failure_message(error: &anyhow::Error) -> String {
         .downcast_ref::<CapturedRootError>()
         .map(|captured| &captured.error)
         .unwrap_or(error);
+    let original = original
+        .downcast_ref::<crate::failed_run::FailedRun>()
+        .map(|failed| &failed.error)
+        .unwrap_or(original);
     format!("{original:#}")
 }

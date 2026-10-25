@@ -5,7 +5,7 @@ use hickory_cli::{
 };
 use serde_json::{Value, json};
 
-const SOURCE: &str = "<hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">\n<hick:file path=\"before.txt\"><hick:exec container=\"selected\" show=\"output\">printf 'dependency\\n'</hick:exec></hick:file>\n<hick:exec container=\"other\">printf 'selected-error-stderr\\n' > /dev/stderr; exit 91</hick:exec>\n<hick:file path=\"chosen.txt\"><hick:exec container=\"selected\" show=\"output\">printf 'chosen\\n'</hick:exec></hick:file>\n</hick:doc>\n";
+const SOURCE: &str = "<hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">\n<hick:file path=\"before.txt\"><hick:exec container=\"selected\" show=\"output\">printf 'dependency\\n'</hick:exec></hick:file>\n<hick:exec container=\"other\">printf 'selected-error-stdout\\n'; printf 'selected-error-stderr\\n' > /dev/stderr; exit 91</hick:exec>\n<hick:file path=\"chosen.txt\"><hick:exec container=\"selected\" show=\"output\">printf 'chosen\\n'</hick:exec></hick:file>\n</hick:doc>\n";
 
 async fn finish(client: &reqwest::Client, base: &str, value: Value) -> Value {
     let id = value["run_id"].as_str().unwrap();
@@ -173,6 +173,42 @@ async fn selected_run_and_block_action_execute_dependencies_but_not_unrelated_ce
     assert_eq!(failed["status"], "failed", "{failed}");
     assert_eq!(failed["source_hash"], hash);
     assert_eq!(failed["requested_source_hash"], hash);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), SOURCE);
+    let blocks = failed["blocks"]
+        .as_array()
+        .expect("failed run retains blocks");
+    let cell = blocks
+        .iter()
+        .find(|block| block["id"] == "other:3")
+        .unwrap();
+    assert_eq!(cell["status"], "failed", "{cell}");
+    let events = cell["transcript"].as_array().unwrap();
+    assert!(events.iter().any(|event| {
+        event["kind"] == "out"
+            && event["data"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("selected-error-stdout")
+    }));
+    assert!(
+        events.iter().any(|event| event["kind"] == "err"
+            && event["data"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("selected-error-stderr")),
+        "{cell}"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| event["kind"] == "exit" && event["code"] == 91)
+    );
+    let untouched = blocks
+        .iter()
+        .find(|block| block["id"] == "selected:4")
+        .unwrap();
+    assert_eq!(untouched["status"], "unrecorded");
+    assert!(untouched["transcript"].is_null());
     let error = failed["error"].as_str().unwrap();
     assert_eq!(
         error
@@ -187,7 +223,10 @@ async fn selected_run_and_block_action_execute_dependencies_but_not_unrelated_ce
         "{error}"
     );
 
-    // Negative control: the same source really fails when all cells execute.
+    // Put the failure in the same container to guarantee execution order:
+    // earlier output survives, and the successor must never execute.
+    let whole_source = SOURCE.replace("container=\"other\"", "container=\"selected\"");
+    std::fs::write(&path, whole_source).unwrap();
     let whole = client
         .post(format!("{base}/api/docs/{doc_id}/run"))
         .json(&json!({}))
@@ -195,9 +234,32 @@ async fn selected_run_and_block_action_execute_dependencies_but_not_unrelated_ce
         .await
         .unwrap();
     let run = finish(&client, &base, whole.json().await.unwrap()).await;
+    let blocks = run["blocks"].as_array().unwrap();
+    let earlier = blocks
+        .iter()
+        .find(|block| block["id"] == "selected:2")
+        .unwrap();
+    assert_eq!(earlier["status"], "ok");
+    let later = blocks
+        .iter()
+        .find(|block| block["id"] == "selected:4")
+        .unwrap();
+    assert_eq!(later["status"], "unrecorded");
+    assert!(later["transcript"].is_null());
+    assert!(
+        earlier["transcript"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["kind"] == "out"
+                && event["data"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("dependency"))
+    );
     assert_eq!(
         run["status"], "failed",
-        "unrelated exit91 must fail whole run: {run}"
+        "exit91 must fail whole run: {run}"
     );
     server.abort();
 }
