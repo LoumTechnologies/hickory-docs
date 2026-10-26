@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("literate_ci", Path(__file__).with_name("literate-ci.py"))
 ci = importlib.util.module_from_spec(spec)
@@ -78,6 +79,12 @@ class LiterateCITests(unittest.TestCase):
         self.assertEqual(report["tested_revision"], report["base_revision"])
         with self.assertRaises(FileExistsError):
             ci.execute(self.root, plan, hashes, self.root / "results")
+
+    def test_failed_checks_still_export_without_returning_success(self):
+        with patch.object(ci.sys, "argv", ["literate-ci.py", "--execute", "--site-output", "target/example"]), patch.object(ci, "load_plan", return_value=([], {})), patch.object(ci, "execute", return_value={"status": "failed"}), patch.object(ci.subprocess, "run") as exported:
+            self.assertEqual(ci.main(), 1)
+            self.assertIn("--run", exported.call_args.args[0])
+            self.assertIn("target/example", exported.call_args.args[0])
 
     def test_a_command_that_changes_inputs_cannot_certify_the_commit(self):
         plan, hashes = self.plan([self.check(code="open('owner.md', 'w').write('changed')")])

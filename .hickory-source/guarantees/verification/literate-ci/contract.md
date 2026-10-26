@@ -22,7 +22,12 @@ From the repository root, inspect the plan, then explicitly execute it:
 ```sh
 python3 scripts/literate-ci.py
 python3 scripts/literate-ci.py --execute
+python3 scripts/literate-ci.py --execute --site-output target/ci-site
 ```
+
+The optional `--site-output` runs the static exporter after the checks, including
+failed outcomes; a failing check still makes the command exit nonzero. Export
+requires the existing web Node dependencies and a fresh destination.
 
 Each execution creates a new directory under `target/literate-ci/`, with a JSON
 report and per-check stdout/stderr logs. Results record commands, owner pages,
@@ -251,7 +256,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--policy", default="ci/policy.json")
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--site-output", type=Path, help="Export this run as a standalone static site")
     args = parser.parse_args()
+    if args.site_output and not args.execute:
+        raise ValueError("--site-output requires --execute")
     root = Path(__file__).resolve().parents[1]
     plan, hashes = load_plan(root, args.policy)
     if not args.execute:
@@ -260,6 +268,9 @@ def main():
     destination = root / "target/literate-ci" / uuid.uuid4().hex
     print("Results: " + str(destination), flush=True)
     report = execute(root, plan, hashes, destination)
+    if args.site_output:
+        subprocess.run([sys.executable, str(root / "scripts/export-ci-site.py"),
+                        "--run", str(destination), "--output", str(args.site_output)], cwd=root, check=True)
     return 0 if report["status"] == "passed" else 1
 
 
@@ -281,6 +292,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("literate_ci", Path(__file__).with_name("literate-ci.py"))
 ci = importlib.util.module_from_spec(spec)
@@ -359,6 +371,12 @@ Run real success, failure and timeout commands. A blocked consumer must not crea
         self.assertEqual(report["tested_revision"], report["base_revision"])
         with self.assertRaises(FileExistsError):
             ci.execute(self.root, plan, hashes, self.root / "results")
+
+    def test_failed_checks_still_export_without_returning_success(self):
+        with patch.object(ci.sys, "argv", ["literate-ci.py", "--execute", "--site-output", "target/example"]), patch.object(ci, "load_plan", return_value=([], {})), patch.object(ci, "execute", return_value={"status": "failed"}), patch.object(ci.subprocess, "run") as exported:
+            self.assertEqual(ci.main(), 1)
+            self.assertIn("--run", exported.call_args.args[0])
+            self.assertIn("target/example", exported.call_args.args[0])
 
     def test_a_command_that_changes_inputs_cannot_certify_the_commit(self):
         plan, hashes = self.plan([self.check(code="open('owner.md', 'w').write('changed')")])

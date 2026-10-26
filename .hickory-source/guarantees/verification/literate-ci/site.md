@@ -3,7 +3,10 @@
 
 For: maintainers sharing a selected run as a static website.
 
-Run the policy locally with `python3 scripts/literate-ci.py --execute`. The receipt
+For a new run and export in one command, use
+`python3 scripts/literate-ci.py --execute --site-output target/ci-site`.
+
+You can also run the policy with `python3 scripts/literate-ci.py --execute`. The receipt
 captures each owning document before execution. Then run
 `python3 scripts/export-ci-site.py --run target/literate-ci/RUN-ID --output target/ci-site`.
 The exporter builds the shared editor viewer and writes an independent directory

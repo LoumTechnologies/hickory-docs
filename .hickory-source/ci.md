@@ -37,7 +37,8 @@ code with secrets or privileges you would not give that code directly.
 
 ## Share a local result as static files
 
-After executing, use its printed run directory with
+Run and export with `python3 scripts/literate-ci.py --execute --site-output target/ci-site`.
+To export an existing run instead, use its printed run directory with
 `python3 scripts/export-ci-site.py --run target/literate-ci/RUN-ID --output target/ci-site`.
 The [export contract](guarantees/verification/literate-ci/site.md) explains the
 explicit public selection, captured-source identity and draft-only editing.

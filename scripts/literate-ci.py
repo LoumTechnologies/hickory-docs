@@ -185,7 +185,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--policy", default="ci/policy.json")
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--site-output", type=Path, help="Export this run as a standalone static site")
     args = parser.parse_args()
+    if args.site_output and not args.execute:
+        raise ValueError("--site-output requires --execute")
     root = Path(__file__).resolve().parents[1]
     plan, hashes = load_plan(root, args.policy)
     if not args.execute:
@@ -194,6 +197,9 @@ def main():
     destination = root / "target/literate-ci" / uuid.uuid4().hex
     print("Results: " + str(destination), flush=True)
     report = execute(root, plan, hashes, destination)
+    if args.site_output:
+        subprocess.run([sys.executable, str(root / "scripts/export-ci-site.py"),
+                        "--run", str(destination), "--output", str(args.site_output)], cwd=root, check=True)
     return 0 if report["status"] == "passed" else 1
 
 
