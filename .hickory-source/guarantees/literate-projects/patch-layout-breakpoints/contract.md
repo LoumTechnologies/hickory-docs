@@ -1,4 +1,4 @@
-<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+<storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
 # Patch layout exposes endpoint breakpoints
 
 For: Maintainers reorganizing source while preserving the complete generated program.
@@ -13,11 +13,6 @@ show a selected toggle that removes them when clicked.
 
 The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
 
-## Inspect implementation and tests
-
-[Follow the actual construction, named witnesses and evidence gaps](review.md).
-
-<book:include file="review.md" />
 
 Earlier wording and all later notes remain in [the preserved original](../../../support/files/docs/guarantees/literate-projects/patch-layout-breakpoints.md.md). The paragraph ledger records their exact ranges and dispositions.
 
@@ -25,4 +20,26 @@ Requirement decision: Retain the existing requirement without inferring new inte
 
 Implementation review: not verified. Executed checks and human judgment are recorded separately. Source and test changes stale earlier evidence.
 
-</book:doc>
+## Implementation
+
+## Implementation review
+
+### Implementation
+
+- [apps/web/src/components/ComparisonEditor.tsx](../../agent/scoped-reading-surfaces-share-native-actions/implementation/apps/web/src/components/ComparisonEditor.tsx.md#output-2884182333a4)
+- [apps/web/src/components/ComparisonTools.tsx](../../debugging/debug-uses-the-latest-project-containing-the-displayed-code/contract.md#output-455afcfce7fd)
+- [apps/web/src/components/DiffView.tsx](../../collaboration/the-git-pane-does-the-daily-loop/contract.md#output-2d0324b58c4d)
+
+### Tests and fixtures
+
+- [apps/web/src/components/ComparisonTools.test.tsx](../../../mechanisms/apps/web/src/components/ComparisonTools.test.tsx.md#output-d1cfc2ed25eb)
+
+### Evidence status
+
+- Implementation review: not verified. Retention does not renew an implementation review.
+- Executed checks: [the run record](../../../evidence/focused-checks.md) lists actual executions.
+- Human judgment: stakeholder priorities confirmed; individual requirement acceptance remains unrecorded.
+- Dependencies: exact cited-file hashes are in the capture and source entries. Transitive source and environment changes can also stale evidence.
+- Open evidence gaps: no-existing-code-or-test-reference-resolved.
+
+</storycode:doc>

@@ -1,4 +1,4 @@
-<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+<storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
 # A Derived Diagram Keeps Your Layout
 
 For: Authors editing executable documents and the files those documents produce.
@@ -17,13 +17,7 @@ The existing requirement is retained. Its original detail is below; implementati
 ## Read the detailed requirements
 
 - [Requirements 1](requirements/01.md)
-<book:include file="requirements/01.md" />
 
-## Inspect implementation and tests
-
-[Follow the actual construction, named witnesses and evidence gaps](review.md).
-
-<book:include file="review.md" />
 
 Earlier wording and all later notes remain in [the preserved original](../../../support/files/docs/guarantees/authoring/a-derived-diagram-keeps-your-layout.md.md). The paragraph ledger records their exact ranges and dispositions.
 
@@ -31,4 +25,34 @@ Requirement decision: Retain the existing requirement without inferring new inte
 
 Implementation review: not verified. Executed checks and human judgment are recorded separately. Source and test changes stale earlier evidence.
 
-</book:doc>
+## Read the retained requirement detail
+
+- [Requirement detail](requirements/01.md)
+<storycode:include file="requirements/01.md" />
+
+## Implementation
+
+## Implementation review
+
+### Implementation
+
+- [apps/web/src/components/graph/GraphEditorPanel.tsx](../a-drawn-diagram-is-document-text/contract.md#output-b1b82d77ca55)
+- [apps/web/src/components/graph/scene.ts](../../../mechanisms/apps/web/src/components/graph/scene.ts.md#output-3f46decc2b79)
+- [apps/web/src/editor/DocumentEditor.tsx](../../../mechanisms/apps/web/src/editor/DocumentEditor.tsx.md#output-aab82870e517)
+- [crates/hick-literate/src/render.rs](../../../mechanisms/crates/hick-literate/src/render.rs.md#output-4a7f39f68eb8)
+- [crates/hick-literate/src/scene.rs](../../../mechanisms/crates/hick-literate/src/scene.rs.md#output-34790cc193bc)
+
+### Tests and fixtures
+
+- [apps/web/src/components/graph/GraphEditorPanel.test.tsx](../../../mechanisms/apps/web/src/components/graph/GraphEditorPanel.test.tsx.md#output-b7404652ca7f)
+- [apps/web/src/components/graph/scene.test.ts](../../../mechanisms/apps/web/src/components/graph/scene.ts.md#output-9d6e99c5706d)
+- [crates/hickory-cli/tests/diagrams.rs](../../../mechanisms/crates/hickory-cli/tests/diagrams.rs.md#output-60028fe1d41a)
+
+### Evidence status
+
+- Implementation review: not verified. Retention does not renew an implementation review.
+- Executed checks: [the run record](../../../evidence/focused-checks.md) lists actual executions.
+- Human judgment: stakeholder priorities confirmed; individual requirement acceptance remains unrecorded.
+- Dependencies: exact cited-file hashes are in the capture and source entries. Transitive source and environment changes can also stale evidence.
+
+</storycode:doc>

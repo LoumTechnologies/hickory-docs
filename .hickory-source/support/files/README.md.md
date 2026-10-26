@@ -1,19 +1,12 @@
-<maint:doc xmlns:maint="http://www.hickorydocs.com/1.0">
+<maintain:doc xmlns:maintain="http://www.hickorydocs.com/1.0">
 # Maintain README.md
 
-For: maintainers changing the literate workflow and reviewers checking migration evidence.
+For: maintainers locating this exact input or preserving the migration evidence.
 
-Edit this entry, regenerate, and commit its output with the Markdown. Historical evidence retains its original scope.
+The entry below owns this output. Its metadata is separate from semantic verification.
 
-<maint:entry path="README.md">
+<maintain:entry path="README.md">
 # Hickory Docs
-
-Maintain this repository through [project.md](project.md): choose a guarantee,
-then edit the Markdown entries containing its implementation and tests.
-[The literate workflow](docs/developers/literate-workflow.md) explains generation,
-focused checks, and recovery. The ordinary Rust and TypeScript files are generated
-and committed so existing build and release commands continue to work.
-
 
 Executable documents that refuse to lie. A `.md` file is prose, a program,
 and a test suite in one artifact: every example in it actually runs, every
@@ -22,6 +15,27 @@ reality is a build failure.
 
 *For engineers whose READMEs, quickstarts, and analysis notebooks have
 silently rotted — and who want CI to catch it.*
+
+## Explore the source
+
+For developers reading or changing Hickory, [project.md](project.md) is the source
+index. Start with the behavior you need; its guarantee now contains maintained
+implementation fragments, test fragments and evidence, with named chapters for
+larger behaviors. [Shared mechanisms](.hickory-source/mechanisms/index.md) own
+reused code once.
+
+Try [exact patch replay](.hickory-source/guarantees/literate-projects/replay-is-exact-and-atomic/contract.md):
+the explanation leads directly into the replay code and its failure witnesses.
+For a known generated file, locate every maintained fragment:
+
+```sh
+python3 hickory-dogfood/tools/behavior.py locate apps/web/src/lib/outputSave.ts
+```
+
+Follow [the literate workflow](docs/developers/literate-workflow.md) to edit,
+regenerate and check it. Ordinary Rust and TypeScript files remain committed build
+outputs. [The reorganization record](hickory-dogfood/REORGANIZATION.md) distinguishes
+narrative ownership from the explanation work still needed.
 
 ## The problem
 
@@ -313,5 +327,5 @@ GPL-3.0-or-later. See [LICENSE](LICENSE).
 Hickory is free software: you may run, study, share, and modify it. If you
 distribute a modified version, or run one as the basis of a network service
 you distribute, those changes must be available under the same licence.
-</maint:entry>
-</maint:doc>
+</maintain:entry>
+</maintain:doc>

@@ -1,0 +1,503 @@
+<storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
+# Maintain crates/hick-literate/src/links.rs
+
+For: maintainers changing this mechanism and reviewing the contracts that depend on it.
+
+This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
+
+<a id="output-95b0a93afc31"></a>
+## `crates/hick-literate/src/links.rs`
+
+Related contracts: [A Link Between Documents Lands In The Weave](../../../../guarantees/authoring/a-link-between-documents-lands-in-the-weave/contract.md), [A Rewritten Link Keeps Its Paragraph Attached](../../../../guarantees/lineage/a-rewritten-link-keeps-its-paragraph-attached/contract.md).
+
+<a id="f-95b0a93afc31-SOURCE_EXT"></a>
+### `SOURCE_EXT`
+
+Cross-document links, as they must read in the woven markdown.
+A note that links to another note is written the way anyone would write
+it: `the plan`. That is correct in the SOURCE — `plan.md`
+is the file beside it — and wrong in the WEAVE, because every document
+weaves a `.md` of its own name (`docs/specs/freeform/bare-documents.md`)
+and the reader of `notes.md` has `plan.md`, not `plan.md`. A link that
+points at the source from the weave is a link that resolves to a file the
+reader may not be looking at, or on a static host, to nothing at all.
+So the weaver rewrites exactly that one thing: the destination of a
+markdown link, when it is a relative path inside the folder that ends in
+`.md`. Everything else — the label, the title, a URL, an image, a
+fragment, an absolute path, a link to a `.csv` or a `.png` — is left byte
+for byte as written.
+## Why this is a segmenter and not a string replace
+Because of the ribbons. Prose reaches the weave as one node carrying the
+span it came from, and `hick_flow::ProvenanceTransformNode` splits that
+node into segments, narrowing each passthrough segment's span to the bytes
+it actually covers. Rewriting the text in place would produce one node
+whose length no longer matches its span, and the lineage layer would
+(correctly) call the whole paragraph synthetic — no ribbon, and an edit
+from the woven side that could only be refused.
+Segmenting keeps the label, the brackets, and every word around the link
+attached to the source text they came from. Only the four bytes that
+changed (`hick` → `md`) are marked substituted, which is exactly true:
+those bytes are the weaver's, not the author's.
+The rule this implements is the same one the editor uses to decide where a
+link goes — see `apps/web/src/lib/mdLinks.ts` (`wovenTarget`). Two
+implementations of one rule is a real cost; the alternative is the editor
+asking the server where every link in the buffer points, on every
+keystroke, which is worse. The tests on both sides use the same cases.
+
+<storycode:copy id="f-95b0a93afc31-SOURCE_EXT">
+//! Cross-document links, as they must read in the woven markdown.
+//!
+//! A note that links to another note is written the way anyone would write
+//! it: `[the plan](plan.md)`. That is correct in the SOURCE — `plan.md`
+//! is the file beside it — and wrong in the WEAVE, because every document
+//! weaves a `.md` of its own name (`docs/specs/freeform/bare-documents.md`)
+//! and the reader of `notes.md` has `plan.md`, not `plan.md`. A link that
+//! points at the source from the weave is a link that resolves to a file the
+//! reader may not be looking at, or on a static host, to nothing at all.
+//!
+//! So the weaver rewrites exactly that one thing: the destination of a
+//! markdown link, when it is a relative path inside the folder that ends in
+//! `.md`. Everything else — the label, the title, a URL, an image, a
+//! fragment, an absolute path, a link to a `.csv` or a `.png` — is left byte
+//! for byte as written.
+//!
+//! ## Why this is a segmenter and not a string replace
+//!
+//! Because of the ribbons. Prose reaches the weave as one node carrying the
+//! span it came from, and `hick_flow::ProvenanceTransformNode` splits that
+//! node into segments, narrowing each passthrough segment's span to the bytes
+//! it actually covers. Rewriting the text in place would produce one node
+//! whose length no longer matches its span, and the lineage layer would
+//! (correctly) call the whole paragraph synthetic — no ribbon, and an edit
+//! from the woven side that could only be refused.
+//!
+//! Segmenting keeps the label, the brackets, and every word around the link
+//! attached to the source text they came from. Only the four bytes that
+//! changed (`hick` → `md`) are marked substituted, which is exactly true:
+//! those bytes are the weaver's, not the author's.
+//!
+//! The rule this implements is the same one the editor uses to decide where a
+//! link goes — see `apps/web/src/lib/mdLinks.ts` (`wovenTarget`). Two
+//! implementations of one rule is a real cost; the alternative is the editor
+//! asking the server where every link in the buffer points, on every
+//! keystroke, which is worse. The tests on both sides use the same cases.
+
+use hick_exec::node::{TransformSegment, TransformSegmentOrigin};
+
+/// The extension a document is written with, and the one it weaves.
+const SOURCE_EXT: &str = ".md";
+</storycode:copy>
+<a id="f-95b0a93afc31-WOVEN_EXT"></a>
+### `WOVEN_EXT`
+
+<storycode:copy id="f-95b0a93afc31-WOVEN_EXT">
+const WOVEN_EXT: &str = ".md";
+
+</storycode:copy>
+<a id="f-95b0a93afc31-woven_target"></a>
+### `woven_target`
+
+The destination a link should carry in woven markdown, or `None` when it
+should be left exactly as written.
+`None` for a URL (it has a scheme), for a protocol-relative address, for a
+bare `#fragment` (already correct — it points inside the woven file), and
+for anything that is not a `.md` path.
+
+<storycode:copy id="f-95b0a93afc31-woven_target">
+/// The destination a link should carry in woven markdown, or `None` when it
+/// should be left exactly as written.
+///
+/// `None` for a URL (it has a scheme), for a protocol-relative address, for a
+/// bare `#fragment` (already correct — it points inside the woven file), and
+/// for anything that is not a `.md` path.
+pub(crate) fn woven_target(target: &str) -> Option<String> {
+    if target.is_empty() || target.starts_with('#') || target.starts_with("//") {
+        return None;
+    }
+    if has_scheme(target) {
+        return None;
+    }
+    let (path, fragment) = match target.find('#') {
+        Some(at) => (&target[..at], &target[at..]),
+        None => (target, ""),
+    };
+    if !path.to_ascii_lowercase().ends_with(SOURCE_EXT) {
+        return None;
+    }
+    Some(format!(
+        "{}{WOVEN_EXT}{fragment}",
+        &path[..path.len() - SOURCE_EXT.len()]
+    ))
+}
+
+</storycode:copy>
+<a id="f-95b0a93afc31-has_scheme"></a>
+### `has_scheme`
+
+`scheme:` at the start — `https:`, `mailto:`, and also `C:` on Windows,
+which is deliberate: an absolute Windows path is not a link this weave can
+make portable, so it is left alone rather than half-rewritten.
+
+<storycode:copy id="f-95b0a93afc31-has_scheme">
+/// `scheme:` at the start — `https:`, `mailto:`, and also `C:` on Windows,
+/// which is deliberate: an absolute Windows path is not a link this weave can
+/// make portable, so it is left alone rather than half-rewritten.
+fn has_scheme(target: &str) -> bool {
+    let Some(colon) = target.find(':') else {
+        return false;
+    };
+    if colon == 0 {
+        return false;
+    }
+    let mut chars = target[..colon].chars();
+    let first = chars.next().unwrap_or(' ');
+    first.is_ascii_alphabetic()
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.')
+}
+
+</storycode:copy>
+<a id="f-95b0a93afc31-destination_spans"></a>
+### `destination_spans`
+
+Byte ranges of the DESTINATIONS of markdown links in `text`, in order.
+A deliberately small scanner rather than a markdown parser: it finds a
+`](`, balances the parentheses that close it (Wikipedia URLs contain
+them), stops at a newline because an unclosed one is a typo rather than a
+link running to the end of the document, and excludes a `"title"` after
+the destination.
+
+<storycode:copy id="f-95b0a93afc31-destination_spans">
+/// Byte ranges of the DESTINATIONS of markdown links in `text`, in order.
+///
+/// A deliberately small scanner rather than a markdown parser: it finds a
+/// `](`, balances the parentheses that close it (Wikipedia URLs contain
+/// them), stops at a newline because an unclosed one is a typo rather than a
+/// link running to the end of the document, and excludes a `"title"` after
+/// the destination.
+pub(crate) fn destination_spans(text: &str) -> Vec<(usize, usize)> {
+    let bytes = text.as_bytes();
+    let mut found = Vec::new();
+    let mut i = 0usize;
+    while i + 1 < bytes.len() {
+        if bytes[i] != b']' || bytes[i + 1] != b'(' {
+            i += 1;
+            continue;
+        }
+        // An escaped bracket closes nothing.
+        if i > 0 && bytes[i - 1] == b'\\' {
+            i += 1;
+            continue;
+        }
+        let start = i + 2;
+        let Some(close) = closing_paren(bytes, start) else {
+            i += 1;
+            continue;
+        };
+        let end = title_start(&text[start..close])
+            .map(|at| start + at)
+            .unwrap_or(close);
+        if end > start {
+            found.push((start, end));
+        }
+        i = close + 1;
+    }
+    found
+}
+
+</storycode:copy>
+<a id="f-95b0a93afc31-closing_paren"></a>
+### `closing_paren`
+
+Index of the `)` closing the `(` before `from`, or `None`.
+
+<storycode:copy id="f-95b0a93afc31-closing_paren">
+/// Index of the `)` closing the `(` before `from`, or `None`.
+fn closing_paren(bytes: &[u8], from: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut i = from;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\n' => return None,
+            b'\\' => i += 1,
+            b'(' => depth += 1,
+            b')' => {
+                if depth == 0 {
+                    return Some(i);
+                }
+                depth -= 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+</storycode:copy>
+<a id="f-95b0a93afc31-title_start"></a>
+### `title_start`
+
+Where a `"…"` / `'…'` title begins inside a destination, if one does.
+
+<storycode:copy id="f-95b0a93afc31-title_start">
+/// Where a `"…"` / `'…'` title begins inside a destination, if one does.
+fn title_start(inner: &str) -> Option<usize> {
+    let bytes = inner.as_bytes();
+    for i in 0..bytes.len() {
+        if !bytes[i].is_ascii_whitespace() {
+            continue;
+        }
+        let rest = &bytes[i + 1..];
+        let quoted = rest
+            .iter()
+            .find(|b| !b.is_ascii_whitespace())
+            .is_some_and(|b| *b == b'"' || *b == b'\'');
+        if quoted {
+            return Some(i);
+        }
+    }
+    None
+}
+
+</storycode:copy>
+<a id="f-95b0a93afc31-split_one"></a>
+### `split_one`
+
+Split one run of text so every `.md` destination in it becomes its own
+substituted segment, and everything around it stays passthrough.
+The `pattern` on a substituted segment is the text it REPLACED, not the
+text it produced: `ProvenanceTransformNode` advances its position in the
+input by that length, which is what keeps the spans of the passthrough
+segments after it correct.
+
+<storycode:copy id="f-95b0a93afc31-split_one">
+/// Split one run of text so every `.md` destination in it becomes its own
+/// substituted segment, and everything around it stays passthrough.
+///
+/// The `pattern` on a substituted segment is the text it REPLACED, not the
+/// text it produced: `ProvenanceTransformNode` advances its position in the
+/// input by that length, which is what keeps the spans of the passthrough
+/// segments after it correct.
+fn split_one(text: &str) -> Vec<TransformSegment> {
+    let mut segments = Vec::new();
+    let mut cursor = 0usize;
+    for (start, end) in destination_spans(text) {
+        let target = &text[start..end];
+        let Some(woven) = woven_target(target.trim()) else {
+            continue;
+        };
+        // Documents are authored as `.md`, the same extension they weave, so
+        // the rewrite is usually the identity. Marking those bytes
+        // substituted would strip the author's ribbon from an unchanged link.
+        if woven == target.trim() {
+            continue;
+        }
+        if start > cursor {
+            segments.push(TransformSegment {
+                text: text[cursor..start].to_string(),
+                origin: TransformSegmentOrigin::Passthrough,
+            });
+        }
+        // The trim is preserved around the rewritten path: a destination
+        // written with padding keeps it, because this pass is about the
+        // extension and nothing else.
+        let lead = target.len() - target.trim_start().len();
+        let trail = target.len() - target.trim_end().len();
+        segments.push(TransformSegment {
+            text: format!(
+                "{}{woven}{}",
+                &target[..lead],
+                &target[target.len() - trail..]
+            ),
+            origin: TransformSegmentOrigin::Substituted {
+                pattern: target.to_string(),
+            },
+        });
+        cursor = end;
+    }
+    if segments.is_empty() {
+        return vec![TransformSegment {
+            text: text.to_string(),
+            origin: TransformSegmentOrigin::Passthrough,
+        }];
+    }
+    if cursor < text.len() {
+        segments.push(TransformSegment {
+            text: text[cursor..].to_string(),
+            origin: TransformSegmentOrigin::Passthrough,
+        });
+    }
+    segments
+}
+
+</storycode:copy>
+<a id="f-95b0a93afc31-rewrite_document_links"></a>
+### `rewrite_document_links`
+
+Rewrite document links in a segmented weave.
+Runs over the output of the substitution segmenter, so a link inside a
+substituted value is left alone: those bytes are already the weaver's and
+have no source span to keep intact.
+
+<storycode:copy id="f-95b0a93afc31-rewrite_document_links">
+/// Rewrite document links in a segmented weave.
+///
+/// Runs over the output of the substitution segmenter, so a link inside a
+/// substituted value is left alone: those bytes are already the weaver's and
+/// have no source span to keep intact.
+pub(crate) fn rewrite_document_links(segments: Vec<TransformSegment>) -> Vec<TransformSegment> {
+    let mut out = Vec::with_capacity(segments.len());
+    for segment in segments {
+        match segment.origin {
+            TransformSegmentOrigin::Passthrough => out.extend(split_one(&segment.text)),
+            TransformSegmentOrigin::Substituted { .. } => out.push(segment),
+        }
+    }
+    out
+}
+
+</storycode:copy>
+<a id="f-95b0a93afc31-tests"></a>
+### `tests`
+
+<storycode:copy id="f-95b0a93afc31-tests">
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn text_of(segments: &[TransformSegment]) -> String {
+        segments.iter().map(|s| s.text.as_str()).collect()
+    }
+
+    fn passthrough(text: &str) -> Vec<TransformSegment> {
+        vec![TransformSegment {
+            text: text.to_string(),
+            origin: TransformSegmentOrigin::Passthrough,
+        }]
+    }
+
+    #[test]
+    fn a_document_link_points_at_the_markdown_that_document_weaves() {
+        // A document is authored as `.md` and weaves the same `.md`, so these
+        // already name the file the reader sees; the destination is unchanged.
+        assert_eq!(woven_target("plan.md").as_deref(), Some("plan.md"));
+        assert_eq!(
+            woven_target("notes/weekly/mon.md").as_deref(),
+            Some("notes/weekly/mon.md")
+        );
+        assert_eq!(
+            woven_target("plan.md#risks").as_deref(),
+            Some("plan.md#risks")
+        );
+        // Not a `.md` document, so not a document link at all.
+        assert_eq!(woven_target("../plan.HICK"), None);
+    }
+
+    #[test]
+    fn everything_that_is_not_a_document_link_is_left_exactly_as_written() {
+        for target in [
+            "https://example.com/a.md",
+            "mailto:nate@example.com",
+            "//cdn.example.com/a.md",
+            "#section",
+            "assets/chart.png",
+            "data.csv",
+            "",
+        ] {
+            assert_eq!(woven_target(target), None, "{target}");
+        }
+    }
+
+    #[test]
+    fn the_rewrite_touches_the_destination_and_nothing_around_it() {
+        let out = rewrite_document_links(passthrough(
+            "See [the plan](plan.md) and [a chart](assets/c.png).",
+        ));
+        assert_eq!(
+            text_of(&out),
+            "See [the plan](plan.md) and [a chart](assets/c.png)."
+        );
+    }
+
+    #[test]
+    fn an_unchanged_document_link_keeps_its_ribbon() {
+        // The source and the weave now share the `.md` extension, so a link to
+        // another document is not rewritten at all — those are the author's
+        // bytes, not the weaver's.
+        let out = rewrite_document_links(passthrough("See [the plan](plan.md) today."));
+        assert_eq!(out.len(), 1);
+        assert!(matches!(out[0].origin, TransformSegmentOrigin::Passthrough));
+        assert_eq!(out[0].text, "See [the plan](plan.md) today.");
+    }
+
+    #[test]
+    fn a_run_of_document_links_is_left_byte_for_byte() {
+        let out = rewrite_document_links(passthrough("[a](one.md) [b](two.md)"));
+        let patterns: Vec<String> = out
+            .iter()
+            .filter_map(|s| match &s.origin {
+                TransformSegmentOrigin::Substituted { pattern } => Some(pattern.clone()),
+                TransformSegmentOrigin::Passthrough => None,
+            })
+            .collect();
+        assert!(patterns.is_empty());
+        assert_eq!(text_of(&out), "[a](one.md) [b](two.md)");
+    }
+
+    #[test]
+    fn a_title_after_the_destination_survives() {
+        let out = rewrite_document_links(passthrough("[a](plan.md \"why it matters\")"));
+        assert_eq!(text_of(&out), "[a](plan.md \"why it matters\")");
+    }
+
+    #[test]
+    fn parentheses_inside_a_url_do_not_end_it_early() {
+        let out = rewrite_document_links(passthrough(
+            "[x](https://en.wikipedia.org/wiki/Foo_(bar)) and [y](p.md)",
+        ));
+        assert_eq!(
+            text_of(&out),
+            "[x](https://en.wikipedia.org/wiki/Foo_(bar)) and [y](p.md)"
+        );
+    }
+
+    #[test]
+    fn an_image_of_a_document_is_still_rewritten_and_a_broken_link_is_not_touched() {
+        assert_eq!(
+            text_of(&rewrite_document_links(passthrough("![a](p.md)"))),
+            "![a](p.md)"
+        );
+        // Unclosed, and spanning a newline: a typo, left alone.
+        assert_eq!(
+            text_of(&rewrite_document_links(passthrough("[a](p.md\n)"))),
+            "[a](p.md\n)"
+        );
+    }
+
+    #[test]
+    fn text_with_no_links_comes_back_as_exactly_one_untouched_segment() {
+        let out = rewrite_document_links(passthrough("just prose"));
+        assert_eq!(out.len(), 1);
+        assert!(matches!(out[0].origin, TransformSegmentOrigin::Passthrough));
+    }
+
+    #[test]
+    fn a_link_inside_a_substituted_value_is_left_to_the_substitution() {
+        let out = rewrite_document_links(vec![TransformSegment {
+            text: "[a](p.md)".to_string(),
+            origin: TransformSegmentOrigin::Substituted {
+                pattern: "{{link}}".to_string(),
+            },
+        }]);
+        assert_eq!(text_of(&out), "[a](p.md)");
+    }
+}
+</storycode:copy>
+
+### Assemble `crates/hick-literate/src/links.rs`
+
+The selections below preserve the original byte order. Narrative reading order does not change the output.
+
+<storycode:file path="crates/hick-literate/src/links.rs"><storycode:paste select="#f-95b0a93afc31-SOURCE_EXT"/><storycode:paste select="#f-95b0a93afc31-WOVEN_EXT"/><storycode:paste select="#f-95b0a93afc31-woven_target"/><storycode:paste select="#f-95b0a93afc31-has_scheme"/><storycode:paste select="#f-95b0a93afc31-destination_spans"/><storycode:paste select="#f-95b0a93afc31-closing_paren"/><storycode:paste select="#f-95b0a93afc31-title_start"/><storycode:paste select="#f-95b0a93afc31-split_one"/><storycode:paste select="#f-95b0a93afc31-rewrite_document_links"/><storycode:paste select="#f-95b0a93afc31-tests"/></storycode:file>
+
+</storycode:doc>

@@ -1,4 +1,4 @@
-<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+<storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
 # A Provider Key Entered in Settings Stays on This Machine
 
 For: Authors using an agent to change documents while retaining review control.
@@ -17,13 +17,7 @@ The existing requirement is retained. Its original detail is below; implementati
 ## Read the detailed requirements
 
 - [Requirements 1](requirements/01.md)
-<book:include file="requirements/01.md" />
 
-## Inspect implementation and tests
-
-[Follow the actual construction, named witnesses and evidence gaps](review.md).
-
-<book:include file="review.md" />
 
 Earlier wording and all later notes remain in [the preserved original](../../../support/files/docs/guarantees/agent/keys-are-stored-locally-and-never-leave.md.md). The paragraph ledger records their exact ranges and dispositions.
 
@@ -31,10 +25,867 @@ Requirement decision: Retain the existing requirement without inferring new inte
 
 Implementation review: not verified. Executed checks and human judgment are recorded separately. Source and test changes stale earlier evidence.
 
-## Source constructed here
 
-[Open this behavior’s construction inputs](construction.md).
+## Read the retained requirement detail
 
-<book:include file="construction.md" />
+- [Requirement detail](requirements/01.md)
+<storycode:include file="requirements/01.md" />
 
-</book:doc>
+## Implementation
+
+<a id="output-bb1706ac96eb"></a>
+## `crates/hickory-agent/src/key_store.rs`
+
+Related contracts: [A Provider Key Entered in Settings Stays on This Machine](contract.md).
+
+<a id="f-bb1706ac96eb-KeyStore"></a>
+### `KeyStore`
+
+The on-disk key file behind the desktop app's Settings page.
+The CLI reads provider keys from the environment, and that stays true.
+The desktop app cannot: it is launched from a dock or a Start menu, where
+there is no shell profile to export anything, so its keys are typed into
+a Settings page and kept in one JSON file under the app's config
+directory — `{"anthropic": "sk-…", "openai": null, …}`, keyed by provider
+selector. This module is that file.
+Three properties this type is responsible for:
+- **The file is private.** [`KeyStore::save`] writes atomically with
+`0600` on Unix (owner read/write, nothing for group or world); Windows
+inherits the profile directory's ACLs, which are already per-user.
+- **Key material never leaks through logging.** The `Debug` impl prints a
+masked fragment, never the key, so an enclosing struct's `{:?}` cannot
+betray it.
+- **An unknown provider is refused at `set`,** naming the valid
+selectors — a typo must not silently store a key nothing will read.
+Precedence against the environment lives in `provider.rs`
+([`crate::provider::resolve_selector_with_store`] /
+[`crate::provider::client_for_with_store`]): stored key first, environment
+second.
+
+<storycode:copy id="f-bb1706ac96eb-KeyStore">
+//! The on-disk key file behind the desktop app's Settings page.
+//!
+//! The CLI reads provider keys from the environment, and that stays true.
+//! The desktop app cannot: it is launched from a dock or a Start menu, where
+//! there is no shell profile to export anything, so its keys are typed into
+//! a Settings page and kept in one JSON file under the app's config
+//! directory — `{"anthropic": "sk-…", "openai": null, …}`, keyed by provider
+//! selector. This module is that file.
+//!
+//! Three properties this type is responsible for:
+//!
+//! - **The file is private.** [`KeyStore::save`] writes atomically with
+//!   `0600` on Unix (owner read/write, nothing for group or world); Windows
+//!   inherits the profile directory's ACLs, which are already per-user.
+//! - **Key material never leaks through logging.** The `Debug` impl prints a
+//!   masked fragment, never the key, so an enclosing struct's `{:?}` cannot
+//!   betray it.
+//! - **An unknown provider is refused at `set`,** naming the valid
+//!   selectors — a typo must not silently store a key nothing will read.
+//!
+//! Precedence against the environment lives in `provider.rs`
+//! ([`crate::provider::resolve_selector_with_store`] /
+//! [`crate::provider::client_for_with_store`]): stored key first, environment
+//! second.
+
+use std::collections::BTreeMap;
+use std::fmt;
+use std::path::Path;
+
+use anyhow::Context as _;
+
+use crate::provider::ProviderSelection;
+
+/// Provider API keys, keyed by canonical selector name
+/// (`ProviderSelection::name()`).
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct KeyStore {
+    keys: BTreeMap<String, String>,
+}
+
+</storycode:copy>
+<a id="f-bb1706ac96eb-masked_key"></a>
+### `masked_key`
+
+A displayable fragment of a key: at most the first 4 and last 2
+characters, and nothing at all for a key short enough that showing them
+would show most of it. Never the full key, whatever the length.
+
+<storycode:copy id="f-bb1706ac96eb-masked_key">
+/// A displayable fragment of a key: at most the first 4 and last 2
+/// characters, and nothing at all for a key short enough that showing them
+/// would show most of it. Never the full key, whatever the length.
+pub fn masked_key(key: &str) -> String {
+    let chars: Vec<char> = key.chars().collect();
+    if chars.len() < 12 {
+        return "…".to_string();
+    }
+    let head: String = chars[..4].iter().collect();
+    let tail: String = chars[chars.len() - 2..].iter().collect();
+    format!("{head}…{tail}")
+}
+
+</storycode:copy>
+<a id="f-bb1706ac96eb-impl-fmt-Debug-for-KeyStore"></a>
+### `impl-fmt::Debug for KeyStore`
+
+<storycode:copy id="f-bb1706ac96eb-impl-fmt-Debug-for-KeyStore">
+impl fmt::Debug for KeyStore {
+    /// Redacted: providers and masked fragments only. A `KeyStore` routinely
+    /// sits inside state structs that get `{:?}`-logged on error paths, and
+    /// a derive here would put every key into that log line.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut map = f.debug_map();
+        for (name, key) in &self.keys {
+            map.entry(name, &masked_key(key));
+        }
+        map.finish()
+    }
+}
+
+</storycode:copy>
+<a id="f-bb1706ac96eb-impl-KeyStore"></a>
+### `impl-KeyStore`
+
+<storycode:copy id="f-bb1706ac96eb-impl-KeyStore">
+impl KeyStore {
+    /// The canonical storage name for a selector, or `None` for an unknown
+    /// one. `grok` and `xai` are one provider, so they canonicalize to one
+    /// name — whichever alias set the key, the same lookup finds it.
+    fn canonical(selector: &str) -> Option<&'static str> {
+        ProviderSelection::parse(selector).map(ProviderSelection::name)
+    }
+
+    /// Where the desktop app keeps its keys, so the CLI can read the same
+    /// file: `HICKORY_KEY_STORE` when set, else the platform's per-user config
+    /// directory under the app's identifier. `None` when neither can be
+    /// determined — the environment is then the only source, as before.
+    pub fn desktop_path() -> Option<std::path::PathBuf> {
+        if let Ok(p) = std::env::var("HICKORY_KEY_STORE")
+            && !p.trim().is_empty()
+        {
+            return Some(std::path::PathBuf::from(p));
+        }
+        let base = if cfg!(target_os = "macos") {
+            std::env::var_os("HOME")
+                .map(|h| std::path::PathBuf::from(h).join("Library/Application Support"))
+        } else if cfg!(target_os = "windows") {
+            std::env::var_os("APPDATA").map(std::path::PathBuf::from)
+        } else {
+            std::env::var_os("XDG_CONFIG_HOME")
+                .map(std::path::PathBuf::from)
+                .or_else(|| {
+                    std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config"))
+                })
+        }?;
+        Some(
+            base.join("com.loumtechnologies.hickorydocs")
+                .join("llm-keys.json"),
+        )
+    }
+
+    /// The desktop app's store, or an empty one when there is no file — the
+    /// CLI's view: a key entered in Settings counts in the terminal too.
+    pub fn desktop() -> Self {
+        Self::desktop_path()
+            .and_then(|p| Self::load(&p).ok())
+            .unwrap_or_default()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn desktop_path_for_test() -> Option<std::path::PathBuf> {
+        Self::desktop_path()
+    }
+
+    /// Load the store from `path`. An absent file is an empty store — the
+    /// state of every fresh install — not an error; an unreadable or
+    /// malformed file is an error naming the file and what to do about it.
+    pub fn load(path: &Path) -> anyhow::Result<Self> {
+        let raw = match std::fs::read_to_string(path) {
+            Ok(raw) => raw,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(e) => {
+                return Err(e)
+                    .with_context(|| format!("could not read the key file {}", path.display()));
+            }
+        };
+        let parsed: BTreeMap<String, Option<String>> =
+            serde_json::from_str(&raw).with_context(|| {
+                format!(
+                    "the key file {} is not valid JSON — it should be an object like \
+                     {{\"anthropic\": \"sk-…\"}}. Fix it, or delete it and re-enter the \
+                     keys in Settings.",
+                    path.display()
+                )
+            })?;
+        let mut keys = BTreeMap::new();
+        for (name, value) in parsed {
+            // Unknown names are skipped, not fatal: a file written by a
+            // newer version with one more provider must not brick this one.
+            let Some(canonical) = Self::canonical(&name) else {
+                continue;
+            };
+            if let Some(v) = value.filter(|v| !v.trim().is_empty()) {
+                keys.insert(canonical.to_string(), v);
+            }
+        }
+        Ok(Self { keys })
+    }
+
+    /// The stored key for `selector`, if any.
+    pub fn key_for(&self, selector: &str) -> Option<String> {
+        Self::canonical(selector).and_then(|name| self.keys.get(name).cloned())
+    }
+
+    /// The stored key for the provider whose key environment variable is
+    /// `var` (`OPENAI_API_KEY` → the `openai` entry). This is what lets the
+    /// store slot into the same lookup-by-variable precedence chain
+    /// `resolve_selector` already runs.
+    pub fn key_for_env(&self, var: &str) -> Option<String> {
+        ProviderSelection::all()
+            .into_iter()
+            .find(|sel| sel.key_env() == var)
+            .and_then(|sel| self.keys.get(sel.name()).cloned())
+    }
+
+    /// Store (`Some`) or clear (`None`, or a blank string) the key for
+    /// `selector`. An unknown selector is an error naming the valid ones.
+    pub fn set(&mut self, selector: &str, key: Option<String>) -> anyhow::Result<()> {
+        let canonical = Self::canonical(selector).ok_or_else(|| {
+            anyhow::anyhow!(
+                "unknown provider {selector:?}; expected one of: {}",
+                ProviderSelection::ALL.join(", ")
+            )
+        })?;
+        match key.filter(|k| !k.trim().is_empty()) {
+            Some(k) => self.keys.insert(canonical.to_string(), k),
+            None => self.keys.remove(canonical),
+        };
+        Ok(())
+    }
+
+    /// Write the store to `path`: atomically (write-then-rename, so a crash
+    /// mid-write cannot leave a torn file), and owner-only (`0600`) on Unix.
+    /// Every provider appears in the file, `null` when unset, so a user who
+    /// opens it sees the full form to fill in.
+    pub fn save(&self, path: &Path) -> anyhow::Result<()> {
+        let mut body = serde_json::Map::new();
+        for sel in ProviderSelection::all() {
+            let value = self
+                .keys
+                .get(sel.name())
+                .map(|k| serde_json::Value::String(k.clone()))
+                .unwrap_or(serde_json::Value::Null);
+            body.insert(sel.name().to_string(), value);
+        }
+        let json = serde_json::to_string_pretty(&serde_json::Value::Object(body))
+            .expect("a string map serializes");
+
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("could not create {}", parent.display()))?;
+        }
+
+        // The temp file sits beside the target so the rename stays on one
+        // filesystem (a cross-device rename is a copy, which is not atomic).
+        let tmp = path.with_extension("tmp");
+        {
+            let mut opts = std::fs::OpenOptions::new();
+            opts.write(true).create(true).truncate(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt as _;
+                // 0600 at creation, not after: there must be no instant in
+                // which the file exists world-readable with keys in it.
+                opts.mode(0o600);
+            }
+            let mut file = opts
+                .open(&tmp)
+                .with_context(|| format!("could not write the key file {}", tmp.display()))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                // `mode` only applies on creation; a leftover tmp file from
+                // a previous run keeps its old bits unless reset here.
+                file.set_permissions(std::fs::Permissions::from_mode(0o600))
+                    .with_context(|| format!("could not restrict {}", tmp.display()))?;
+            }
+            use std::io::Write as _;
+            file.write_all(json.as_bytes())
+                .and_then(|()| file.sync_all())
+                .with_context(|| format!("could not write the key file {}", tmp.display()))?;
+        }
+        std::fs::rename(&tmp, path)
+            .with_context(|| format!("could not move the key file into {}", path.display()))
+    }
+}
+
+</storycode:copy>
+<a id="f-bb1706ac96eb-tests"></a>
+### `tests`
+
+<storycode:copy id="f-bb1706ac96eb-tests">
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_absent_file_is_an_empty_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = KeyStore::load(&dir.path().join("does-not-exist.json")).unwrap();
+        assert_eq!(store, KeyStore::default());
+        assert!(store.key_for("anthropic").is_none());
+    }
+
+    #[test]
+    fn keys_round_trip_through_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("llm-keys.json");
+
+        let mut store = KeyStore::default();
+        store
+            .set("anthropic", Some("sk-ant-roundtrip-000042".into()))
+            .unwrap();
+        // The alias stores under the canonical name…
+        store
+            .set("grok", Some("xai-roundtrip-000042".into()))
+            .unwrap();
+        store.save(&path).unwrap();
+
+        let loaded = KeyStore::load(&path).unwrap();
+        assert_eq!(
+            loaded.key_for("anthropic").as_deref(),
+            Some("sk-ant-roundtrip-000042")
+        );
+        // …so either alias finds it again.
+        assert_eq!(
+            loaded.key_for("xai").as_deref(),
+            Some("xai-roundtrip-000042")
+        );
+        assert_eq!(
+            loaded.key_for("grok").as_deref(),
+            Some("xai-roundtrip-000042")
+        );
+
+        // Clearing removes it from the file too.
+        let mut loaded = loaded;
+        loaded.set("anthropic", None).unwrap();
+        loaded.save(&path).unwrap();
+        assert!(
+            KeyStore::load(&path)
+                .unwrap()
+                .key_for("anthropic")
+                .is_none()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_saved_file_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("llm-keys.json");
+        let mut store = KeyStore::default();
+        store
+            .set("openai", Some("sk-perm-check-000042".into()))
+            .unwrap();
+        store.save(&path).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "keys must not be group- or world-readable");
+    }
+
+    #[test]
+    fn an_unknown_selector_is_refused_naming_the_valid_ones() {
+        let mut store = KeyStore::default();
+        let err = store
+            .set("gemini", Some("sk-x".into()))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("gemini"), "{err}");
+        for name in [
+            "anthropic",
+            "openai",
+            "deepseek",
+            "grok",
+            "openrouter",
+            "gab",
+        ] {
+            assert!(err.contains(name), "the error must name {name}: {err}");
+        }
+        assert!(!err.contains("sk-x"), "never echo key material: {err}");
+    }
+
+    #[test]
+    fn debug_masks_every_key() {
+        let mut store = KeyStore::default();
+        store
+            .set("anthropic", Some("sk-ant-very-secret-000042".into()))
+            .unwrap();
+        store.set("openai", Some("short".into())).unwrap();
+        let dump = format!("{store:?}");
+        assert!(!dump.contains("very-secret"), "{dump}");
+        assert!(!dump.contains("short"), "{dump}");
+        assert!(
+            dump.contains("sk-a…42"),
+            "the masked fragment shows: {dump}"
+        );
+    }
+
+    #[test]
+    fn masking_never_reveals_a_short_key() {
+        assert_eq!(masked_key("sk-abcdefgh0042"), "sk-a…42");
+        // Anything under 12 chars would be mostly revealed by 4+2; show
+        // nothing instead.
+        assert_eq!(masked_key("tiny"), "…");
+        assert_eq!(masked_key("elevenchars"), "…");
+        assert_eq!(masked_key(""), "…");
+    }
+
+    #[test]
+    fn a_malformed_file_names_itself_and_the_fix() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("llm-keys.json");
+        std::fs::write(&path, "not json at all").unwrap();
+        let err = format!("{:#}", KeyStore::load(&path).unwrap_err());
+        assert!(err.contains("llm-keys.json"), "{err}");
+        assert!(err.contains("delete"), "{err}");
+    }
+
+    #[test]
+    fn an_unknown_provider_in_the_file_is_skipped_not_fatal() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("llm-keys.json");
+        std::fs::write(
+            &path,
+            r#"{"anthropic": "sk-ant-kept-000042", "future-provider": "sk-f"}"#,
+        )
+        .unwrap();
+        let store = KeyStore::load(&path).unwrap();
+        assert_eq!(
+            store.key_for("anthropic").as_deref(),
+            Some("sk-ant-kept-000042")
+        );
+    }
+}
+
+</storycode:copy>
+<a id="f-bb1706ac96eb-desktop_path_tests"></a>
+### `desktop_path_tests`
+
+<storycode:copy id="f-bb1706ac96eb-desktop_path_tests">
+#[cfg(test)]
+mod desktop_path_tests {
+    use super::KeyStore;
+
+    /// The CLI reads the desktop app's key file; `HICKORY_KEY_STORE` points it
+    /// elsewhere, and the default lives under the app's identifier.
+    #[test]
+    fn the_desktop_path_is_overridable_and_named_for_the_app() {
+        // SAFETY: this test is the only writer of this variable in-process.
+        unsafe { std::env::set_var("HICKORY_KEY_STORE", "/tmp/x/llm-keys.json") };
+        assert_eq!(
+            KeyStore::desktop_path_for_test(),
+            Some(std::path::PathBuf::from("/tmp/x/llm-keys.json"))
+        );
+        unsafe { std::env::remove_var("HICKORY_KEY_STORE") };
+        let p = KeyStore::desktop_path_for_test();
+        assert!(
+            p.as_ref()
+                .is_none_or(|p| p.ends_with("com.loumtechnologies.hickorydocs/llm-keys.json")),
+            "{p:?}"
+        );
+    }
+}
+</storycode:copy>
+
+### Assemble `crates/hickory-agent/src/key_store.rs`
+
+The selections below preserve the original byte order. Narrative reading order does not change the output.
+
+<storycode:file path="crates/hickory-agent/src/key_store.rs"><storycode:paste select="#f-bb1706ac96eb-KeyStore"/><storycode:paste select="#f-bb1706ac96eb-masked_key"/><storycode:paste select="#f-bb1706ac96eb-impl-fmt-Debug-for-KeyStore"/><storycode:paste select="#f-bb1706ac96eb-impl-KeyStore"/><storycode:paste select="#f-bb1706ac96eb-tests"/><storycode:paste select="#f-bb1706ac96eb-desktop_path_tests"/></storycode:file>
+
+<a id="output-9411dd8a1f68"></a>
+## `crates/hickory-cli/tests/serve_settings.rs`
+
+Related contracts: [A Provider Key Entered in Settings Stays on This Machine](contract.md).
+
+<a id="f-9411dd8a1f68-DOC"></a>
+### `DOC`
+
+The Settings key routes, driven the way the desktop app's Settings page
+drives them: `GET /api/settings/keys`, `PUT /api/settings/keys`, and then
+the agent route picking the stored key up with no restart.
+Protects docs/guarantees/agent/keys-are-stored-locally-and-never-leave.md.
+No test here spends a token or leaves the machine: the environment's
+provider variables are scrubbed up front (this binary contains only this
+module, so the scrub races nothing), and `ANTHROPIC_BASE_URL` is pointed
+at a closed loopback port so the one turn that does start fails instantly
+against 127.0.0.1 instead of carrying a fabricated key to a real vendor.
+
+<storycode:copy id="f-9411dd8a1f68-DOC">
+//! The Settings key routes, driven the way the desktop app's Settings page
+//! drives them: `GET /api/settings/keys`, `PUT /api/settings/keys`, and then
+//! the agent route picking the stored key up with no restart.
+//!
+//! Protects docs/guarantees/agent/keys-are-stored-locally-and-never-leave.md.
+//!
+//! No test here spends a token or leaves the machine: the environment's
+//! provider variables are scrubbed up front (this binary contains only this
+//! module, so the scrub races nothing), and `ANTHROPIC_BASE_URL` is pointed
+//! at a closed loopback port so the one turn that does start fails instantly
+//! against 127.0.0.1 instead of carrying a fabricated key to a real vendor.
+
+use std::path::PathBuf;
+
+use hickory_cli::ExecutorChoice;
+use hickory_cli::serve::{ServeOptions, prepare};
+use serde_json::{Value, json};
+
+const DOC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="demo.md">
+# Demo
+
+<hick:copy id="greet">fn greet() { println!("hello"); }
+</hick:copy>
+<hick:file path="greet.rs"><hick:paste select="#greet" /></hick:file>
+</hick:doc>
+"##;
+
+</storycode:copy>
+<a id="f-9411dd8a1f68-KEY"></a>
+### `KEY`
+
+<storycode:copy id="f-9411dd8a1f68-KEY">
+const KEY: &str = "sk-ant-stored-in-settings-000042";
+
+</storycode:copy>
+<a id="f-9411dd8a1f68-Session"></a>
+### `Session`
+
+<storycode:copy id="f-9411dd8a1f68-Session">
+struct Session {
+    base: String,
+    doc_id: String,
+    key_path: PathBuf,
+    state: hickory_cli::serve::LocalState,
+    _dir: tempfile::TempDir,
+}
+
+</storycode:copy>
+<a id="f-9411dd8a1f68-start"></a>
+### `start`
+
+Start a session persisting keys to `<tempdir>/config/llm-keys.json`, the
+same shape the desktop app passes (`<app config dir>/llm-keys.json`).
+
+<storycode:copy id="f-9411dd8a1f68-start">
+/// Start a session persisting keys to `<tempdir>/config/llm-keys.json`, the
+/// same shape the desktop app passes (`<app config dir>/llm-keys.json`).
+async fn start() -> Session {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("demo.md"), DOC).unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let key_path = root.join("config").join("llm-keys.json");
+
+    let prepared = prepare(ServeOptions {
+        target: root.join("demo.md"),
+        port: 0,
+        params: Vec::new(),
+        executor: ExecutorChoice::Local,
+        key_store_path: Some(key_path.clone()),
+        ui_settings_path: None,
+    })
+    .await
+    .expect("session prepares");
+
+    let state = prepared.state.clone();
+    let doc_id = state.index.sole().expect("one document").0;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        axum::serve(listener, prepared.router).await.unwrap();
+    });
+
+    Session {
+        base: format!("http://127.0.0.1:{port}"),
+        doc_id,
+        key_path,
+        state,
+        _dir: dir,
+    }
+}
+
+</storycode:copy>
+<a id="f-9411dd8a1f68-get"></a>
+### `get`
+
+<storycode:copy id="f-9411dd8a1f68-get">
+async fn get(session: &Session, path: &str) -> (u16, String) {
+    let resp = reqwest::Client::new()
+        .get(format!("{}{path}", session.base))
+        .send()
+        .await
+        .unwrap();
+    (
+        resp.status().as_u16(),
+        resp.text().await.unwrap_or_default(),
+    )
+}
+
+</storycode:copy>
+<a id="f-9411dd8a1f68-put"></a>
+### `put`
+
+<storycode:copy id="f-9411dd8a1f68-put">
+async fn put(session: &Session, path: &str, body: Value) -> (u16, String) {
+    let resp = reqwest::Client::new()
+        .put(format!("{}{path}", session.base))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    (
+        resp.status().as_u16(),
+        resp.text().await.unwrap_or_default(),
+    )
+}
+
+</storycode:copy>
+<a id="f-9411dd8a1f68-scrub_provider_env"></a>
+### `scrub_provider_env`
+
+<storycode:copy id="f-9411dd8a1f68-scrub_provider_env">
+fn scrub_provider_env() {
+    for var in [
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "XAI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "HICKORY_LLM_PROVIDER",
+    ] {
+        unsafe { std::env::remove_var(var) };
+    }
+}
+
+</storycode:copy>
+<a id="f-9411dd8a1f68-a_saved_key_is_masked_private_and_live_without_restart"></a>
+### `a_saved_key_is_masked_private_and_live_without_restart`
+
+The full Settings round trip: PUT a key, GET shows it configured and
+masked (never in full), the file lands on disk owner-only, the in-memory
+store serves the very next agent turn without a restart — and none of it
+depends on a single environment variable.
+
+<storycode:copy id="f-9411dd8a1f68-a_saved_key_is_masked_private_and_live_without_restart">
+/// The full Settings round trip: PUT a key, GET shows it configured and
+/// masked (never in full), the file lands on disk owner-only, the in-memory
+/// store serves the very next agent turn without a restart — and none of it
+/// depends on a single environment variable.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_saved_key_is_masked_private_and_live_without_restart() {
+    scrub_provider_env();
+    // The one agent turn this test starts must fail on this machine, not
+    // reach a vendor with a fabricated key. Nothing listens on port 9.
+    unsafe { std::env::set_var("ANTHROPIC_BASE_URL", "http://127.0.0.1:9") };
+
+    let session = start().await;
+
+    // Before anything is saved (and with the environment scrubbed): all
+    // five providers listed, none configured — and the agent degrades to
+    // its configuration note.
+    let (status, body) = get(&session, "/api/settings/keys").await;
+    assert_eq!(status, 200, "{body}");
+    let listing: Value = serde_json::from_str(&body).unwrap();
+    let providers = listing["providers"].as_array().unwrap();
+    let ids: Vec<&str> = providers
+        .iter()
+        .map(|p| p["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        ids,
+        ["anthropic", "openai", "deepseek", "xai", "openrouter"]
+    );
+    assert!(
+        providers.iter().all(|p| p["configured"] == false),
+        "{listing}"
+    );
+    let resp = reqwest::Client::new()
+        .post(format!(
+            "{}/api/docs/{}/agent",
+            session.base, session.doc_id
+        ))
+        .json(&json!({ "prompt": "hello", "parent_id": null }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 503, "no key anywhere yet");
+
+    // PUT the key. The response — like every response — must not carry it.
+    let (status, body) = put(&session, "/api/settings/keys", json!({ "anthropic": KEY })).await;
+    assert_eq!(status, 200, "{body}");
+    assert!(
+        !body.contains(KEY),
+        "the key must never cross the wire: {body}"
+    );
+    let listing: Value = serde_json::from_str(&body).unwrap();
+    let anthropic = listing["providers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"] == "anthropic")
+        .unwrap()
+        .clone();
+    assert_eq!(anthropic["configured"], true);
+    assert_eq!(anthropic["masked"], "sk-a…42");
+
+    // GET agrees, and still never echoes the key.
+    let (status, body) = get(&session, "/api/settings/keys").await;
+    assert_eq!(status, 200);
+    assert!(!body.contains(KEY), "{body}");
+    assert!(body.contains("sk-a…42"), "{body}");
+
+    // The file exists where the desktop app would look, owner-only.
+    let on_disk = std::fs::read_to_string(&session.key_path).expect("the key file persists");
+    assert!(on_disk.contains(KEY), "the file is where the key lives");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = std::fs::metadata(&session.key_path)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600, "keys must not be group- or world-readable");
+    }
+
+    // The in-memory store took the key too…
+    assert_eq!(
+        session
+            .state
+            .keys
+            .store
+            .read()
+            .unwrap()
+            .key_for("anthropic")
+            .as_deref(),
+        Some(KEY)
+    );
+    // …and the store-aware resolution accepts on it with an empty
+    // environment, which is exactly what the agent route now runs.
+    let store = session.state.keys.store.read().unwrap().clone();
+    assert_eq!(
+        hickory_agent::resolve_selector_with_store(None, &store).unwrap(),
+        "anthropic"
+    );
+
+    // The agent route no longer answers "no key": the turn is accepted (202,
+    // not 503) with no restart in between. It then fails against the dead
+    // loopback endpoint, which is the point — the key goes nowhere real.
+    let resp = reqwest::Client::new()
+        .post(format!(
+            "{}/api/docs/{}/agent",
+            session.base, session.doc_id
+        ))
+        .json(&json!({ "prompt": "hello", "parent_id": null }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status().as_u16(),
+        202,
+        "the stored key must satisfy provider resolution: {}",
+        resp.text().await.unwrap_or_default()
+    );
+
+    // Clearing with null removes it from the listing and the file alike.
+    let (status, body) = put(&session, "/api/settings/keys", json!({ "anthropic": null })).await;
+    assert_eq!(status, 200, "{body}");
+    let listing: Value = serde_json::from_str(&body).unwrap();
+    assert!(
+        listing["providers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|p| p["configured"] == false),
+        "{listing}"
+    );
+    let on_disk = std::fs::read_to_string(&session.key_path).unwrap();
+    assert!(!on_disk.contains(KEY), "a cleared key must leave the disk");
+}
+
+</storycode:copy>
+<a id="f-9411dd8a1f68-an_unknown_provider_id_is_refused_and_changes_nothing"></a>
+### `an_unknown_provider_id_is_refused_and_changes_nothing`
+
+An unknown provider id is refused naming the valid ones, and nothing —
+not the store, not the file — changes, even for the valid entries that
+arrived in the same request.
+
+<storycode:copy id="f-9411dd8a1f68-an_unknown_provider_id_is_refused_and_changes_nothing">
+/// An unknown provider id is refused naming the valid ones, and nothing —
+/// not the store, not the file — changes, even for the valid entries that
+/// arrived in the same request.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unknown_provider_id_is_refused_and_changes_nothing() {
+    let session = start().await;
+
+    let (status, body) = put(
+        &session,
+        "/api/settings/keys",
+        json!({ "openai": "sk-would-have-landed", "gemini": "sk-x" }),
+    )
+    .await;
+    assert_eq!(status, 400, "{body}");
+    for name in ["anthropic", "openai", "deepseek", "grok", "openrouter"] {
+        assert!(body.contains(name), "the error must name {name}: {body}");
+    }
+    assert!(!body.contains("sk-x"), "never echo key material: {body}");
+
+    // All-or-nothing: the valid sibling entry did not land either.
+    assert!(
+        session
+            .state
+            .keys
+            .store
+            .read()
+            .unwrap()
+            .key_for("openai")
+            .is_none()
+    );
+    assert!(!session.key_path.exists(), "nothing was persisted");
+}
+</storycode:copy>
+
+### Assemble `crates/hickory-cli/tests/serve_settings.rs`
+
+The selections below preserve the original byte order. Narrative reading order does not change the output.
+
+<storycode:file path="crates/hickory-cli/tests/serve_settings.rs"><storycode:paste select="#f-9411dd8a1f68-DOC"/><storycode:paste select="#f-9411dd8a1f68-KEY"/><storycode:paste select="#f-9411dd8a1f68-Session"/><storycode:paste select="#f-9411dd8a1f68-start"/><storycode:paste select="#f-9411dd8a1f68-get"/><storycode:paste select="#f-9411dd8a1f68-put"/><storycode:paste select="#f-9411dd8a1f68-scrub_provider_env"/><storycode:paste select="#f-9411dd8a1f68-a_saved_key_is_masked_private_and_live_without_restart"/><storycode:paste select="#f-9411dd8a1f68-an_unknown_provider_id_is_refused_and_changes_nothing"/></storycode:file>
+
+## Implementation review
+
+### Implementation
+
+- [apps/desktop/src-tauri/src/lib.rs](../../../mechanisms/apps/desktop/src-tauri/src/lib.rs.md#output-42caba993099)
+- [apps/desktop/src-tauri/src/server.rs](../../../mechanisms/apps/desktop/src-tauri/src/server.rs.md#output-821f8d0a36be)
+- [crates/hickory-agent/src/key_store.rs](contract.md#output-bb1706ac96eb)
+- [crates/hickory-agent/src/provider.rs](../../../mechanisms/crates/hickory-agent/src/provider.rs.md#output-2be2d28e151b)
+- [crates/hickory-cli/src/serve/api.rs](../../../mechanisms/crates/hickory-cli/src/serve/api.rs.md#output-e71b04ae5298)
+- [crates/hickory-cli/src/serve/mod.rs](../../../mechanisms/crates/hickory-cli/src/serve/mod.rs.md#output-09ea558208cd)
+
+### Tests and fixtures
+
+- [crates/hickory-cli/tests/serve_settings.rs](contract.md#output-9411dd8a1f68)
+
+### Evidence status
+
+- Implementation review: not verified. Retention does not renew an implementation review.
+- Executed checks: [the run record](../../../evidence/focused-checks.md) lists actual executions.
+- Human judgment: stakeholder priorities confirmed; individual requirement acceptance remains unrecorded.
+- Dependencies: exact cited-file hashes are in the capture and source entries. Transitive source and environment changes can also stale evidence.
+
+</storycode:doc>

@@ -1,4 +1,4 @@
-<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+<storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
 # Historical account-key selection
 
 For: Authors using an agent to change documents while retaining review control.
@@ -13,4 +13,10 @@ Requirement decision: The account-row and stale stored-preference contract refer
 
 Implementation review: not verified. Executed checks and human judgment are recorded separately. Source and test changes stale earlier evidence.
 
-</book:doc>
+## Implementation
+
+## Implementation review
+
+Historical contract. No separate implementation review was recorded.
+
+</storycode:doc>

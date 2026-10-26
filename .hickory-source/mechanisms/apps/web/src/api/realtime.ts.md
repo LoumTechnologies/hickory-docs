@@ -1,0 +1,534 @@
+<storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
+# Maintain apps/web/src/api/realtime.ts
+
+For: maintainers changing this mechanism and reviewing the contracts that depend on it.
+
+This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
+
+<a id="output-a1d7e0cf41e3"></a>
+## `apps/web/src/api/realtime.ts`
+
+Present and edit the shared engine state. Browser-side revisions, pending requests and local drafts affect which source and UI actions are still valid.
+
+<a id="f-a1d7e0cf41e3-CHANNEL_YJS"></a>
+### `CHANNEL_YJS`
+
+<storycode:copy id="f-a1d7e0cf41e3-CHANNEL_YJS">
+import * as Y from "yjs";
+import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from "y-protocols/awareness";
+import * as syncProtocol from "y-protocols/sync";
+import * as encoding from "lib0/encoding";
+import * as decoding from "lib0/decoding";
+import { createLspChannel, type LspChannel } from "../lsp/channel";
+import type { RunWsMessage } from "./types";
+
+// WS /api/ws — one socket, 1-byte channel prefix per api.md:
+//   0x00 + Yjs sync/awareness bytes (y-websocket protocol, doc name `doc:<id>`)
+//   0x01 + JSON run event
+export const CHANNEL_YJS = 0x00;
+</storycode:copy>
+<a id="f-a1d7e0cf41e3-CHANNEL_RUN"></a>
+### `CHANNEL_RUN`
+
+<storycode:copy id="f-a1d7e0cf41e3-CHANNEL_RUN">
+export const CHANNEL_RUN = 0x01;
+
+</storycode:copy>
+<a id="f-a1d7e0cf41e3-Realtime"></a>
+### `Realtime`
+
+<storycode:copy id="f-a1d7e0cf41e3-Realtime">
+export interface Realtime {
+  /** Subscribe to channel-0x01 run events. Returns an unsubscribe fn. */
+  onRunEvent(cb: (msg: RunWsMessage) => void): () => void;
+  /** Bind a Y.Doc + Awareness to the socket for collaborative editing. */
+  bindDoc(doc: Y.Doc, awareness: Awareness): void;
+  /** Resolves once the server's initial sync state has been applied (or
+   *  immediately when there is no server, e.g. mock mode). */
+  whenSynced(): Promise<void>;
+  /**
+   * True when the server owns the document's initial content. The server
+   * builds each room's Y.Doc from `docs.source`, so a client that also
+   * seeds mints a rival copy that the CRDT merges by CONCATENATION —
+   * the document doubles on every connect. Only a client-only realtime
+   * (mock mode) may seed.
+   */
+  readonly serverAuthoritative: boolean;
+  /**
+   * The LSP bridge channel (0x02), or null when no server backs this realtime.
+   * The server owns the `hick-lsp` lifecycle, so a client starts at `didOpen`.
+   */
+  lsp(): LspChannel | null;
+  /**
+   * The debug channel (0x03), or null when no server backs this realtime.
+   * Raw frames: the debug client does its own encoding, because it speaks the
+   * session API's verbs rather than JSON-RPC.
+   */
+  debug?(): { send(frame: Uint8Array): void } | null;
+  /**
+   * Register the debug client so inbound `0x03` frames reach it.
+   *
+   * Part of the interface rather than a method only `WsRealtime` happens to
+   * have: without the registration the requests still go out and every answer
+   * is dropped, which looks exactly like a debugger that will not start.
+   */
+  onDebugFrame?(handler: (frame: Uint8Array) => boolean): void;
+  close(): void;
+  /**
+   * Undo a `close()`, if this realtime was closed.
+   *
+   * Exists because a React effect's cleanup is not a promise that the
+   * component is going away. Under StrictMode — a DEV build only, which is
+   * why this went years without being needed — every effect is mounted,
+   * cleaned up, and mounted again to prove it can be. The cleanup closes the
+   * room; without a way back the second mount holds a socket that is shut for
+   * good, and the document never syncs. See views/documentSession.tsx.
+   *
+   * A no-op on a realtime that is open, and on one that never had a socket.
+   */
+  reopen(): void;
+}
+
+</storycode:copy>
+<a id="f-a1d7e0cf41e3-REFUSALS_BEFORE_GIVING_UP"></a>
+### `REFUSALS_BEFORE_GIVING_UP`
+
+Real WebSocket implementation. The doc name (`doc:<id>`) is conveyed as a
+query parameter since the framed protocol itself carries no doc name.
+How many refused connections before a room is treated as unavailable.
+
+<storycode:copy id="f-a1d7e0cf41e3-REFUSALS_BEFORE_GIVING_UP">
+/**
+ * Real WebSocket implementation. The doc name (`doc:<id>`) is conveyed as a
+ * query parameter since the framed protocol itself carries no doc name.
+ */
+/** How many refused connections before a room is treated as unavailable. */
+const REFUSALS_BEFORE_GIVING_UP = 3;
+
+</storycode:copy>
+<a id="f-a1d7e0cf41e3-WsRealtime"></a>
+### `WsRealtime`
+
+<storycode:copy id="f-a1d7e0cf41e3-WsRealtime">
+export class WsRealtime implements Realtime {
+  /** The server seeds the room from `docs.source`; never seed from here. */
+  readonly serverAuthoritative = true;
+  private ws: WebSocket | null = null;
+  private runListeners = new Set<(msg: RunWsMessage) => void>();
+  private debugHandler: ((frame: Uint8Array) => boolean) | null = null;
+  private doc: Y.Doc | null = null;
+  private awareness: Awareness | null = null;
+  private closed = false;
+  /** Whether a connection has ever succeeded, which decides whether a close
+      is a refusal or a drop. */
+  private everOpened = false;
+  private refusals = 0;
+  private queue: Uint8Array[] = [];
+  private lspChannel: LspChannel | null = null;
+
+  constructor(private docName: string) {
+    this.connect();
+  }
+
+  private connect() {
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const params = new URLSearchParams({ doc: this.docName });
+    const ws = new WebSocket(`${proto}//${location.host}/api/ws?${params}`);
+    ws.binaryType = "arraybuffer";
+    this.ws = ws;
+    ws.onopen = () => {
+      this.everOpened = true;
+      this.refusals = 0;
+      for (const frame of this.queue.splice(0)) ws.send(frame);
+      if (this.doc && this.awareness) this.sendSyncStep1();
+    };
+    ws.onmessage = (ev) => this.handleFrame(new Uint8Array(ev.data as ArrayBuffer));
+    ws.onclose = () => {
+      if (this.closed) return;
+      // A room the server refuses is refused forever: retrying it every 1.5
+      // seconds fills the console with hundreds of identical failures and
+      // buries whatever went wrong for real. A room that was open and then
+      // dropped is a different thing — that one is worth reconnecting.
+      if (!this.everOpened && ++this.refusals >= REFUSALS_BEFORE_GIVING_UP) {
+        this.closed = true;
+        console.warn(
+          `hickory: the server would not open the room "${this.docName}"; not retrying.`,
+        );
+        return;
+      }
+      setTimeout(() => this.connect(), 1500);
+    };
+  }
+
+  private send(frame: Uint8Array) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(frame);
+    else this.queue.push(frame);
+  }
+
+  private sendYjs(payload: Uint8Array) {
+    const frame = new Uint8Array(payload.length + 1);
+    frame[0] = CHANNEL_YJS;
+    frame.set(payload, 1);
+    this.send(frame);
+  }
+
+  private handleFrame(frame: Uint8Array) {
+    if (frame.length === 0) return;
+    const channel = frame[0];
+    const payload = frame.subarray(1);
+    if (this.lspChannel?.handleFrame(frame)) return;
+    if (this.debugHandler?.(frame)) return;
+    if (channel === CHANNEL_RUN) {
+      const msg = JSON.parse(new TextDecoder().decode(payload)) as RunWsMessage;
+      for (const cb of this.runListeners) cb(msg);
+    } else if (channel === CHANNEL_YJS && this.doc && this.awareness) {
+      const decoder = decoding.createDecoder(payload);
+      const encoder = encoding.createEncoder();
+      const messageType = decoding.readVarUint(decoder);
+      if (messageType === 0) {
+        // sync message
+        encoding.writeVarUint(encoder, 0);
+        const syncType = syncProtocol.readSyncMessage(decoder, encoder, this.doc, this);
+        if (encoding.length(encoder) > 1) this.sendYjs(encoding.toUint8Array(encoder));
+        // Step 2 carries the server's state: only AFTER applying it can a
+        // client decide the shared doc is genuinely empty. Seeding before
+        // this point duplicated the document on every load.
+        if (syncType === syncProtocol.messageYjsSyncStep2) this.markSynced();
+      } else if (messageType === 1) {
+        // awareness message
+        applyAwarenessUpdate(this.awareness, decoding.readVarUint8Array(decoder), this);
+      }
+    }
+  }
+
+  private sendSyncStep1() {
+    if (!this.doc) return;
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, 0);
+    syncProtocol.writeSyncStep1(encoder, this.doc);
+    this.sendYjs(encoding.toUint8Array(encoder));
+  }
+
+  private synced = false;
+  private syncWaiters: (() => void)[] = [];
+
+  private markSynced() {
+    if (this.synced) return;
+    this.synced = true;
+    for (const fn of this.syncWaiters) fn();
+    this.syncWaiters = [];
+  }
+
+  whenSynced(): Promise<void> {
+    if (this.synced) return Promise.resolve();
+    return new Promise((resolve) => this.syncWaiters.push(resolve));
+  }
+
+  bindDoc(doc: Y.Doc, awareness: Awareness) {
+    this.doc = doc;
+    this.awareness = awareness;
+    doc.on("update", (update: Uint8Array, origin: unknown) => {
+      if (origin === this) return;
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, 0);
+      syncProtocol.writeUpdate(encoder, update);
+      this.sendYjs(encoding.toUint8Array(encoder));
+    });
+    awareness.on("update", ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }) => {
+      const changed = added.concat(updated, removed);
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, 1);
+      encoding.writeVarUint8Array(encoder, encodeAwarenessUpdate(awareness, changed));
+      this.sendYjs(encoding.toUint8Array(encoder));
+    });
+    this.sendSyncStep1();
+  }
+
+  onRunEvent(cb: (msg: RunWsMessage) => void): () => void {
+    this.runListeners.add(cb);
+    return () => this.runListeners.delete(cb);
+  }
+
+  lsp(): LspChannel {
+    // Lazily created: the server spawns hick-lsp on the first 0x02 frame, so
+    // no session exists until something actually asks a language question.
+    this.lspChannel ??= createLspChannel({ send: (frame) => this.send(frame) });
+    return this.lspChannel;
+  }
+
+  debug(): { send(frame: Uint8Array): void } {
+    // No lazy object needed: the debug client encodes its own frames, so this
+    // is only the way out. Nothing starts on the server until a frame
+    // arrives, exactly as with the language channel.
+    return { send: (frame: Uint8Array) => this.send(frame) };
+  }
+
+  /** Register the debug client so inbound 0x03 frames reach it. */
+  onDebugFrame(handler: (frame: Uint8Array) => boolean) {
+    this.debugHandler = handler;
+  }
+
+  close() {
+    this.closed = true;
+    if (this.awareness) {
+      removeAwarenessStates(this.awareness, [this.awareness.clientID], "close");
+    }
+    this.ws?.close();
+  }
+
+  reopen() {
+    if (!this.closed) return;
+    this.closed = false;
+    // The refusal count is what stops a room the server rejects from being
+    // retried forever. A deliberate reopen is a fresh judgement about that
+    // room, so it starts the count again rather than inheriting a verdict
+    // reached before anybody asked for this connection.
+    this.refusals = 0;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
+    this.connect();
+  }
+}
+
+</storycode:copy>
+<a id="f-a1d7e0cf41e3-sharedRealtime"></a>
+### `sharedRealtime`
+
+A process-wide realtime instance registered at startup in mock mode so views
+can reach the fake event bus without importing the mock layer.
+
+<storycode:copy id="f-a1d7e0cf41e3-sharedRealtime">
+// A process-wide realtime instance registered at startup in mock mode so views
+// can reach the fake event bus without importing the mock layer.
+let sharedRealtime: Realtime | null = null;
+</storycode:copy>
+<a id="f-a1d7e0cf41e3-setSharedRealtime"></a>
+### `setSharedRealtime`
+
+<storycode:copy id="f-a1d7e0cf41e3-setSharedRealtime">
+export function setSharedRealtime(r: Realtime) {
+  sharedRealtime = r;
+}
+</storycode:copy>
+<a id="f-a1d7e0cf41e3-getSharedRealtime"></a>
+### `getSharedRealtime`
+
+<storycode:copy id="f-a1d7e0cf41e3-getSharedRealtime">
+export function getSharedRealtime(): Realtime | null {
+  return sharedRealtime;
+}
+
+</storycode:copy>
+<a id="f-a1d7e0cf41e3-workspaceRealtime"></a>
+### `workspaceRealtime`
+
+The workspace's own connection: no document room, only the language
+channel. One per window, made on first use, never closed — it is what a
+plain file (which has no room of its own) asks language questions over,
+and the server behind it is the same shared session the documents use.
+
+<storycode:copy id="f-a1d7e0cf41e3-workspaceRealtime">
+// The workspace's own connection: no document room, only the language
+// channel. One per window, made on first use, never closed — it is what a
+// plain file (which has no room of its own) asks language questions over,
+// and the server behind it is the same shared session the documents use.
+let workspaceRealtime: Realtime | null = null;
+</storycode:copy>
+<a id="f-a1d7e0cf41e3-getWorkspaceRealtime"></a>
+### `getWorkspaceRealtime`
+
+<storycode:copy id="f-a1d7e0cf41e3-getWorkspaceRealtime">
+export function getWorkspaceRealtime(): Realtime | null {
+  if (workspaceRealtime) return workspaceRealtime;
+  // Mock mode has no server: the shared local bus answers with no language
+  // channel, and the editor degrades to its project completions.
+  if (sharedRealtime && !sharedRealtime.serverAuthoritative) return sharedRealtime;
+  if (typeof WebSocket === "undefined") return null;
+  workspaceRealtime = new WsRealtime("workspace");
+  return workspaceRealtime;
+}
+
+</storycode:copy>
+<a id="f-a1d7e0cf41e3-resetWorkspaceRealtime"></a>
+### `resetWorkspaceRealtime`
+
+Test seam: forget the workspace connection.
+
+<storycode:copy id="f-a1d7e0cf41e3-resetWorkspaceRealtime">
+/** Test seam: forget the workspace connection. */
+export function resetWorkspaceRealtime(): void {
+  workspaceRealtime?.close();
+  workspaceRealtime = null;
+}
+
+</storycode:copy>
+<a id="f-a1d7e0cf41e3-LocalRealtime"></a>
+### `LocalRealtime`
+
+In-browser realtime for VITE_MOCK=1: no network; run events are pushed locally.
+
+<storycode:copy id="f-a1d7e0cf41e3-LocalRealtime">
+/** In-browser realtime for VITE_MOCK=1: no network; run events are pushed locally. */
+export class LocalRealtime implements Realtime {
+  /** Nothing to reopen: there is no socket, and the local bus outlives every
+   * view that reads it. */
+  reopen() {}
+
+  /** No server in mock mode — the client must seed its own content. */
+  readonly serverAuthoritative = false;
+  private runListeners = new Set<(msg: RunWsMessage) => void>();
+
+  whenSynced(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  emit(msg: RunWsMessage) {
+    for (const cb of this.runListeners) cb(msg);
+  }
+
+  bindDoc(_doc: Y.Doc, _awareness: Awareness) {
+    // Local-only Y.Doc; nothing to sync.
+  }
+
+  lsp(): LspChannel | null {
+    return null; // no server, no language session
+  }
+
+  onRunEvent(cb: (msg: RunWsMessage) => void): () => void {
+    this.runListeners.add(cb);
+    return () => this.runListeners.delete(cb);
+  }
+
+  close() {
+    this.runListeners.clear();
+  }
+}
+</storycode:copy>
+
+### Assemble `apps/web/src/api/realtime.ts`
+
+The selections below preserve the original byte order. Narrative reading order does not change the output.
+
+<storycode:file path="apps/web/src/api/realtime.ts"><storycode:paste select="#f-a1d7e0cf41e3-CHANNEL_YJS"/><storycode:paste select="#f-a1d7e0cf41e3-CHANNEL_RUN"/><storycode:paste select="#f-a1d7e0cf41e3-Realtime"/><storycode:paste select="#f-a1d7e0cf41e3-REFUSALS_BEFORE_GIVING_UP"/><storycode:paste select="#f-a1d7e0cf41e3-WsRealtime"/><storycode:paste select="#f-a1d7e0cf41e3-sharedRealtime"/><storycode:paste select="#f-a1d7e0cf41e3-setSharedRealtime"/><storycode:paste select="#f-a1d7e0cf41e3-getSharedRealtime"/><storycode:paste select="#f-a1d7e0cf41e3-workspaceRealtime"/><storycode:paste select="#f-a1d7e0cf41e3-getWorkspaceRealtime"/><storycode:paste select="#f-a1d7e0cf41e3-resetWorkspaceRealtime"/><storycode:paste select="#f-a1d7e0cf41e3-LocalRealtime"/></storycode:file>
+
+
+## Exercise this mechanism
+
+The test module below imports this implementation directly. Keep the assertions with the mechanism they exercise; passing reconstruction alone does not show those assertions ran.
+
+<a id="output-bb53a5731baf"></a>
+## `apps/web/src/api/realtime.test.ts`
+
+Present and edit the shared engine state. Browser-side revisions, pending requests and local drafts affect which source and UI actions are still valid.
+
+<a id="f-bb53a5731baf-FakeSocket"></a>
+### `FakeSocket`
+
+<storycode:copy id="f-bb53a5731baf-FakeSocket">
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { WsRealtime } from "./realtime";
+
+// A socket that records what was asked of it and never connects on its own,
+// so the lifecycle can be driven a step at a time.
+class FakeSocket {
+  static made: FakeSocket[] = [];
+  readyState = 0; // CONNECTING
+  binaryType = "";
+  onopen: (() => void) | null = null;
+  onmessage: ((ev: MessageEvent) => void) | null = null;
+  onclose: (() => void) | null = null;
+  closed = false;
+
+  constructor(readonly url: string) {
+    FakeSocket.made.push(this);
+  }
+  send() {}
+  close() {
+    this.closed = true;
+    this.readyState = 3; // CLOSED
+    this.onclose?.();
+  }
+}
+
+</storycode:copy>
+<a id="f-bb53a5731baf-expression_statement"></a>
+### `expression_statement`
+
+<storycode:copy id="f-bb53a5731baf-expression_statement">
+beforeEach(() => {
+  FakeSocket.made = [];
+  vi.stubGlobal(
+    "WebSocket",
+    Object.assign(FakeSocket, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 }),
+  );
+  vi.useFakeTimers();
+});
+
+</storycode:copy>
+<a id="f-bb53a5731baf-expression_statement-2"></a>
+### `expression_statement`
+
+<storycode:copy id="f-bb53a5731baf-expression_statement-2">
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+</storycode:copy>
+<a id="f-bb53a5731baf-expression_statement-3"></a>
+### `expression_statement`
+
+<storycode:copy id="f-bb53a5731baf-expression_statement-3">
+describe("a room that is closed and opened again", () => {
+  it("opens a new socket, because the old one is shut for good", () => {
+    // The bug this exists to stop: React StrictMode mounts an effect, cleans
+    // it up, and mounts it again — a DEV build only, which is why an app that
+    // had only ever run as a production bundle never saw it. The cleanup
+    // closes the room; without a way back the second mount holds a dead
+    // socket and the document never syncs.
+    const realtime = new WsRealtime("doc:abc");
+    expect(FakeSocket.made).toHaveLength(1);
+
+    realtime.close();
+    expect(FakeSocket.made[0].closed).toBe(true);
+
+    realtime.reopen();
+    expect(FakeSocket.made).toHaveLength(2);
+    expect(FakeSocket.made[1].url).toContain("doc%3Aabc");
+  });
+
+  it("does nothing to a room that was never closed", () => {
+    const realtime = new WsRealtime("doc:abc");
+    realtime.reopen();
+    expect(FakeSocket.made).toHaveLength(1);
+  });
+
+  it("stops retrying a room the server refuses, and tries again when reopened", () => {
+    // Refusals are what stop a rejected room being retried forever. A
+    // deliberate reopen is a fresh judgement about that room, so it must not
+    // inherit a verdict reached before anybody asked for this connection.
+    const realtime = new WsRealtime("doc:abc");
+    for (let i = 0; i < 3; i++) {
+      FakeSocket.made[FakeSocket.made.length - 1].onclose?.();
+      vi.advanceTimersByTime(1600);
+    }
+    const givenUp = FakeSocket.made.length;
+    // Given up: another close starts no further attempt.
+    FakeSocket.made[givenUp - 1].onclose?.();
+    vi.advanceTimersByTime(1600);
+    expect(FakeSocket.made).toHaveLength(givenUp);
+
+    realtime.reopen();
+    expect(FakeSocket.made).toHaveLength(givenUp + 1);
+  });
+});
+</storycode:copy>
+
+### Assemble `apps/web/src/api/realtime.test.ts`
+
+The selections below preserve the original byte order. Narrative reading order does not change the output.
+
+<storycode:file path="apps/web/src/api/realtime.test.ts"><storycode:paste select="#f-bb53a5731baf-FakeSocket"/><storycode:paste select="#f-bb53a5731baf-expression_statement"/><storycode:paste select="#f-bb53a5731baf-expression_statement-2"/><storycode:paste select="#f-bb53a5731baf-expression_statement-3"/></storycode:file>
+
+
+</storycode:doc>

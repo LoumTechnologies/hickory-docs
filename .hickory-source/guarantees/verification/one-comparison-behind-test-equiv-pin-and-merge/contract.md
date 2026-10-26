@@ -1,4 +1,4 @@
-<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+<storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
 # One Comparison Behind Test, Equiv, The Pin, And The Merge Check
 
 For: Reviewers deciding what an output, recording or prediction actually establishes.
@@ -20,13 +20,7 @@ The existing requirement is retained. Its original detail is below; implementati
 ## Read the detailed requirements
 
 - [Requirements 1](requirements/01.md)
-<book:include file="requirements/01.md" />
 
-## Inspect implementation and tests
-
-[Follow the actual construction, named witnesses and evidence gaps](review.md).
-
-<book:include file="review.md" />
 
 Earlier wording and all later notes remain in [the preserved original](../../../support/files/docs/guarantees/verification/one-comparison-behind-test-equiv-pin-and-merge.md.md). The paragraph ledger records their exact ranges and dispositions.
 
@@ -34,10 +28,768 @@ Requirement decision: Retain the existing requirement without inferring new inte
 
 Implementation review: not verified. Executed checks and human judgment are recorded separately. Source and test changes stale earlier evidence.
 
-## Source constructed here
 
-[Open this behavior’s construction inputs](construction.md).
+## Read the retained requirement detail
 
-<book:include file="construction.md" />
+- [Requirement detail](requirements/01.md)
+<storycode:include file="requirements/01.md" />
 
-</book:doc>
+## Implementation
+
+<a id="output-fdaec980b34c"></a>
+## `crates/hick-literate/src/equiv.rs`
+
+Related contracts: [One Comparison Behind Test, Equiv, The Pin, And The Merge Check](contract.md).
+
+<a id="f-fdaec980b34c-HickConfiguration"></a>
+### `HickConfiguration`
+
+Semantic equivalence checker for hick pipelines.
+Verifies that two hick documents produce identical output for all
+possible parameter/feature combinations, enabling safe refactoring.
+# Algorithm
+1. Extract features and variables from both documents
+2. Generate the power set of feature combinations (up to a limit)
+3. For each combination, run both pipelines
+4. Compare output files (paths and content)
+5. Report any differences with diffs
+# Example
+\```bash
+hick-equiv original.md refactored.md --max-combinations 1000
+\```
+
+<storycode:copy id="f-fdaec980b34c-HickConfiguration">
+//! Semantic equivalence checker for hick pipelines.
+//!
+//! Verifies that two hick documents produce identical output for all
+//! possible parameter/feature combinations, enabling safe refactoring.
+//!
+//! # Algorithm
+//!
+//! 1. Extract features and variables from both documents
+//! 2. Generate the power set of feature combinations (up to a limit)
+//! 3. For each combination, run both pipelines
+//! 4. Compare output files (paths and content)
+//! 5. Report any differences with diffs
+//!
+//! # Example
+//!
+//! ```bash
+//! hick-equiv original.md refactored.md --max-combinations 1000
+//! ```
+
+use std::collections::{BTreeSet, HashMap, HashSet};
+
+use anyhow::Result;
+use hick_lang::HickNode;
+
+// ---------------------------------------------------------------------------
+// Configuration Extraction
+// ---------------------------------------------------------------------------
+
+/// Configuration extracted from a hick document.
+#[derive(Debug, Clone, Default)]
+pub struct HickConfiguration {
+    /// Feature names defined in the document.
+    pub features: Vec<String>,
+    /// Variable names with optional default values.
+    pub variables: Vec<(String, Option<String>)>,
+}
+
+</storycode:copy>
+<a id="f-fdaec980b34c-extract_configuration"></a>
+### `extract_configuration`
+
+Extract configuration (features and variables) from a hick source.
+
+<storycode:copy id="f-fdaec980b34c-extract_configuration">
+/// Extract configuration (features and variables) from a hick source.
+pub fn extract_configuration(source: &str) -> Result<HickConfiguration> {
+    let doc = hick_lang::parse(source).map_err(|e| anyhow::anyhow!("parse error: {e}"))?;
+
+    let mut config = HickConfiguration::default();
+    extract_from_nodes(&doc.nodes, &mut config);
+
+    Ok(config)
+}
+
+</storycode:copy>
+<a id="f-fdaec980b34c-extract_from_nodes"></a>
+### `extract_from_nodes`
+
+<storycode:copy id="f-fdaec980b34c-extract_from_nodes">
+fn extract_from_nodes(nodes: &[HickNode], config: &mut HickConfiguration) {
+    for node in nodes {
+        if let HickNode::Tag(tag) = node {
+            match tag.name.as_str() {
+                "feature" => {
+                    if let Some(name) = tag
+                        .attributes
+                        .iter()
+                        .find(|(k, _)| k == "name")
+                        .map(|(_, v)| v.clone())
+                        && !config.features.contains(&name)
+                    {
+                        config.features.push(name);
+                    }
+                }
+                "var" => {
+                    if let Some(name) = tag
+                        .attributes
+                        .iter()
+                        .find(|(k, _)| k == "name")
+                        .map(|(_, v)| v.clone())
+                    {
+                        // Get default value from text children
+                        let default_value: String = tag
+                            .children
+                            .iter()
+                            .filter_map(|c| match c {
+                                HickNode::Text(t, _) => Some(t.as_str()),
+                                _ => None,
+                            })
+                            .collect();
+                        let default = if default_value.is_empty() {
+                            None
+                        } else {
+                            Some(default_value)
+                        };
+
+                        if !config.variables.iter().any(|(n, _)| n == &name) {
+                            config.variables.push((name, default));
+                        }
+                    }
+                }
+                _ => {}
+            }
+            // Recurse into children
+            extract_from_nodes(&tag.children, config);
+        }
+    }
+}
+
+</storycode:copy>
+<a id="f-fdaec980b34c-RunParams"></a>
+### `RunParams`
+
+Combination Generation
+Parameters for a single pipeline run.
+
+<storycode:copy id="f-fdaec980b34c-RunParams">
+// ---------------------------------------------------------------------------
+// Combination Generation
+// ---------------------------------------------------------------------------
+
+/// Parameters for a single pipeline run.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RunParams {
+    /// Enabled features (comma-separated string).
+    pub features: String,
+    /// Variable values.
+    pub variables: Vec<(String, String)>,
+}
+
+</storycode:copy>
+<a id="f-fdaec980b34c-impl-RunParams"></a>
+### `impl-RunParams`
+
+<storycode:copy id="f-fdaec980b34c-impl-RunParams">
+impl RunParams {
+    /// Convert to the parameter format expected by run_pipeline.
+    pub fn to_params(&self) -> Vec<(String, String)> {
+        let mut params = self.variables.clone();
+        if !self.features.is_empty() {
+            params.push(("features".to_string(), self.features.clone()));
+        }
+        params
+    }
+}
+
+</storycode:copy>
+<a id="f-fdaec980b34c-generate_combinations"></a>
+### `generate_combinations`
+
+Generate all feature combinations up to max_combinations.
+Returns the power set of feature names (all subsets), limited by max_combinations.
+
+<storycode:copy id="f-fdaec980b34c-generate_combinations">
+/// Generate all feature combinations up to max_combinations.
+///
+/// Returns the power set of feature names (all subsets), limited by max_combinations.
+pub fn generate_combinations(
+    config1: &HickConfiguration,
+    config2: &HickConfiguration,
+    max_combinations: usize,
+) -> Vec<RunParams> {
+    // Merge features from both configs
+    let mut all_features: BTreeSet<String> = BTreeSet::new();
+    all_features.extend(config1.features.iter().cloned());
+    all_features.extend(config2.features.iter().cloned());
+
+    let features_vec: Vec<String> = all_features.into_iter().collect();
+    let n = features_vec.len();
+
+    // Generate power set (all subsets of features)
+    let total_combinations = 1usize << n; // 2^n
+
+    let mut combinations = Vec::new();
+    for i in 0..total_combinations.min(max_combinations) {
+        let mut enabled = Vec::new();
+        for (j, feature) in features_vec.iter().enumerate() {
+            if (i >> j) & 1 == 1 {
+                enabled.push(feature.clone());
+            }
+        }
+
+        combinations.push(RunParams {
+            features: enabled.join(","),
+            variables: Vec::new(), // Variables can be added if needed
+        });
+    }
+
+    combinations
+}
+
+</storycode:copy>
+<a id="f-fdaec980b34c-OutputDiff"></a>
+### `OutputDiff`
+
+Output Comparison
+Difference between two outputs.
+
+<storycode:copy id="f-fdaec980b34c-OutputDiff">
+// ---------------------------------------------------------------------------
+// Output Comparison
+// ---------------------------------------------------------------------------
+
+/// Difference between two outputs.
+#[derive(Debug, Clone)]
+pub struct OutputDiff {
+    /// The file path.
+    pub path: String,
+    /// The kind of difference.
+    pub kind: DiffKind,
+}
+
+</storycode:copy>
+<a id="f-fdaec980b34c-DiffKind"></a>
+### `DiffKind`
+
+<storycode:copy id="f-fdaec980b34c-DiffKind">
+/// Kind of difference found.
+#[derive(Debug, Clone)]
+pub enum DiffKind {
+    /// File exists only in the first output.
+    OnlyInFirst,
+    /// File exists only in the second output.
+    OnlyInSecond,
+    /// File content differs.
+    ContentDiffers {
+        first_content: String,
+        second_content: String,
+    },
+}
+
+</storycode:copy>
+<a id="f-fdaec980b34c-describe_difference"></a>
+### `describe_difference`
+
+Where two byte strings first part company, and how their lengths compare:
+the one sentence every comparison in this product ends with. `first` and
+`second` name the two sides in the caller's words ("on disk", "freshly
+produced"; "the first document", "the second").
+Before this, `hick test`'s `DRIFTED` verdict named the file and nothing
+else, which left an author with no way to see what it thought differed
+short of diffing the files by hand outside the tool.
+
+<storycode:copy id="f-fdaec980b34c-describe_difference">
+/// Where two byte strings first part company, and how their lengths compare:
+/// the one sentence every comparison in this product ends with. `first` and
+/// `second` name the two sides in the caller's words ("on disk", "freshly
+/// produced"; "the first document", "the second").
+///
+/// Before this, `hick test`'s `DRIFTED` verdict named the file and nothing
+/// else, which left an author with no way to see what it thought differed
+/// short of diffing the files by hand outside the tool.
+pub fn describe_difference(first: &str, second: &str, existing: &[u8], produced: &[u8]) -> String {
+    let common = existing
+        .iter()
+        .zip(produced.iter())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let len_note = match existing.len().cmp(&produced.len()) {
+        std::cmp::Ordering::Equal => format!("both {} bytes", existing.len()),
+        std::cmp::Ordering::Less => format!(
+            "{first} is {} bytes, {second} is {} bytes ({} more)",
+            existing.len(),
+            produced.len(),
+            produced.len() - existing.len()
+        ),
+        std::cmp::Ordering::Greater => format!(
+            "{first} is {} bytes, {second} is {} bytes ({} fewer)",
+            existing.len(),
+            produced.len(),
+            existing.len() - produced.len()
+        ),
+    };
+    if common == existing.len().min(produced.len()) {
+        // One is an exact byte-for-byte prefix of the other — there is no
+        // "first differing byte" to report, only where they stop agreeing.
+        return format!(
+            "{first} differs from {second} — identical for the first {common} bytes, then \
+             one simply ends ({len_note})"
+        );
+    }
+    // A line number, when both sides are valid UTF-8 — the common,
+    // human-legible case (source, markdown, config) — is more useful than a
+    // byte offset alone, but the offset is kept either way.
+    let line = match (std::str::from_utf8(existing), std::str::from_utf8(produced)) {
+        (Ok(e), Ok(_)) => Some(
+            e.as_bytes()[..common]
+                .iter()
+                .filter(|&&b| b == b'\n')
+                .count()
+                + 1,
+        ),
+        _ => None,
+    };
+    match line {
+        Some(n) => format!(
+            "{first} differs from {second} — first difference at byte {common} (line {n}), \
+             {len_note}"
+        ),
+        None => {
+            format!("{first} differs from {second} — first difference at byte {common}, {len_note}")
+        }
+    }
+}
+
+</storycode:copy>
+<a id="f-fdaec980b34c-compare_outputs"></a>
+### `compare_outputs`
+
+<storycode:copy id="f-fdaec980b34c-compare_outputs">
+/// Compare two sets of output files.
+pub fn compare_outputs(
+    files1: &HashMap<String, hick_exec::node::FileContent>,
+    files2: &HashMap<String, hick_exec::node::FileContent>,
+) -> Vec<OutputDiff> {
+    let mut diffs = Vec::new();
+
+    let paths1: HashSet<_> = files1.keys().collect();
+    let paths2: HashSet<_> = files2.keys().collect();
+
+    // Files only in first
+    for path in paths1.difference(&paths2) {
+        diffs.push(OutputDiff {
+            path: (*path).clone(),
+            kind: DiffKind::OnlyInFirst,
+        });
+    }
+
+    // Files only in second
+    for path in paths2.difference(&paths1) {
+        diffs.push(OutputDiff {
+            path: (*path).clone(),
+            kind: DiffKind::OnlyInSecond,
+        });
+    }
+
+    // Files in both - compare content
+    for path in paths1.intersection(&paths2) {
+        let content1 = files1.get(*path).unwrap();
+        let content2 = files2.get(*path).unwrap();
+
+        let s1 = content1.to_string();
+        let s2 = content2.to_string();
+
+        if !matches!((crate::project::file_content_entry(content1), crate::project::file_content_entry(content2)),
+            (Ok(first), Ok(second)) if first.same_output(&second))
+        {
+            diffs.push(OutputDiff {
+                path: (*path).clone(),
+                kind: DiffKind::ContentDiffers {
+                    first_content: s1,
+                    second_content: s2,
+                },
+            });
+        }
+    }
+
+    diffs
+}
+
+</storycode:copy>
+<a id="f-fdaec980b34c-EquivalenceResult"></a>
+### `EquivalenceResult`
+
+Equivalence Check Result
+Result of an equivalence check.
+
+<storycode:copy id="f-fdaec980b34c-EquivalenceResult">
+// ---------------------------------------------------------------------------
+// Equivalence Check Result
+// ---------------------------------------------------------------------------
+
+/// Result of an equivalence check.
+#[derive(Debug)]
+pub struct EquivalenceResult {
+    /// Whether the documents are equivalent.
+    pub equivalent: bool,
+    /// Total combinations tested.
+    pub combinations_tested: usize,
+    /// Failing combinations (params -> diffs).
+    pub failures: Vec<(RunParams, Vec<OutputDiff>)>,
+}
+
+</storycode:copy>
+<a id="f-fdaec980b34c-check_equivalence"></a>
+### `check_equivalence`
+
+Run equivalence check between two documents.
+
+<storycode:copy id="f-fdaec980b34c-check_equivalence">
+/// Run equivalence check between two documents.
+pub async fn check_equivalence(
+    source1: &str,
+    source2: &str,
+    max_combinations: usize,
+) -> Result<EquivalenceResult> {
+    // Extract configurations
+    let config1 = extract_configuration(source1)?;
+    let config2 = extract_configuration(source2)?;
+
+    // Generate combinations
+    let combinations = generate_combinations(&config1, &config2, max_combinations);
+    let combinations_tested = combinations.len();
+
+    let mut failures = Vec::new();
+
+    // Test each combination
+    for params in combinations {
+        let params_vec = params.to_params();
+
+        // Run both pipelines under the SAME document name.
+        //
+        // Equivalence is the refactor gate: restructure a document freely and
+        // prove no generated byte moved. The two sources are the same file
+        // before and after, so they must stand in the same place — a document
+        // weaves a markdown file of its own name (`bare-documents.md`), and
+        // running them as `source1.md` and `source2.md` would make every
+        // pair inequivalent on the name of that file alone.
+        let result1 = crate::run_pipeline(&[("document.md", source1)], &params_vec).await?;
+        let result2 = crate::run_pipeline(&[("document.md", source2)], &params_vec).await?;
+
+        // Compare outputs
+        let diffs = compare_outputs(&result1.files, &result2.files);
+
+        if !diffs.is_empty() {
+            failures.push((params, diffs));
+        }
+    }
+
+    Ok(EquivalenceResult {
+        equivalent: failures.is_empty(),
+        combinations_tested,
+        failures,
+    })
+}
+
+</storycode:copy>
+<a id="f-fdaec980b34c-format_diff"></a>
+### `format_diff`
+
+Diff Formatting
+Format a diff for display.
+
+<storycode:copy id="f-fdaec980b34c-format_diff">
+// ---------------------------------------------------------------------------
+// Diff Formatting
+// ---------------------------------------------------------------------------
+
+/// Format a diff for display.
+pub fn format_diff(diff: &OutputDiff) -> String {
+    match &diff.kind {
+        DiffKind::OnlyInFirst => {
+            format!("- {} (only in first document)", diff.path)
+        }
+        DiffKind::OnlyInSecond => {
+            format!("+ {} (only in second document)", diff.path)
+        }
+        DiffKind::ContentDiffers {
+            first_content,
+            second_content,
+        } => {
+            let mut output = format!(
+                "~ {} ({})\n",
+                diff.path,
+                describe_difference(
+                    "the first",
+                    "the second",
+                    first_content.as_bytes(),
+                    second_content.as_bytes()
+                )
+            );
+
+            // Simple line-by-line diff
+            let lines1: Vec<&str> = first_content.lines().collect();
+            let lines2: Vec<&str> = second_content.lines().collect();
+
+            let max_lines = lines1.len().max(lines2.len());
+            for i in 0..max_lines {
+                let l1 = lines1.get(i).copied().unwrap_or("");
+                let l2 = lines2.get(i).copied().unwrap_or("");
+
+                if l1 != l2 {
+                    if !l1.is_empty() {
+                        output.push_str(&format!("  - {}\n", l1));
+                    }
+                    if !l2.is_empty() {
+                        output.push_str(&format!("  + {}\n", l2));
+                    }
+                }
+            }
+
+            output
+        }
+    }
+}
+
+</storycode:copy>
+<a id="f-fdaec980b34c-tests"></a>
+### `tests`
+
+<storycode:copy id="f-fdaec980b34c-tests">
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hick_doc(body: &str) -> String {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+{body}
+</hick:doc>"#
+        )
+    }
+
+    #[test]
+    fn extract_features() {
+        let src = hick_doc(
+            r#"<hick:feature name="auth" description="Auth" />
+<hick:feature name="billing" description="Billing" />"#,
+        );
+
+        let config = extract_configuration(&src).unwrap();
+        assert_eq!(config.features, vec!["auth", "billing"]);
+    }
+
+    #[test]
+    fn extract_variables() {
+        let src = hick_doc(
+            r#"<hick:var name="version">1.0.0</hick:var>
+<hick:var name="name">MyApp</hick:var>"#,
+        );
+
+        let config = extract_configuration(&src).unwrap();
+        assert_eq!(config.variables.len(), 2);
+        assert_eq!(
+            config.variables[0],
+            ("version".to_string(), Some("1.0.0".to_string()))
+        );
+        assert_eq!(
+            config.variables[1],
+            ("name".to_string(), Some("MyApp".to_string()))
+        );
+    }
+
+    #[test]
+    fn generate_power_set() {
+        let config = HickConfiguration {
+            features: vec!["a".to_string(), "b".to_string()],
+            variables: vec![],
+        };
+
+        let combinations = generate_combinations(&config, &config, 100);
+
+        // 2^2 = 4 combinations: {}, {a}, {b}, {a,b}
+        assert_eq!(combinations.len(), 4);
+
+        let feature_sets: HashSet<_> = combinations.iter().map(|p| p.features.clone()).collect();
+
+        assert!(feature_sets.contains(""));
+        assert!(feature_sets.contains("a"));
+        assert!(feature_sets.contains("b"));
+        assert!(feature_sets.contains("a,b"));
+    }
+
+    #[test]
+    fn compare_identical_outputs() {
+        use hick_exec::node::FileContent;
+        let mut files1 = HashMap::new();
+        files1.insert(
+            "a.txt".to_string(),
+            FileContent::Text("content".to_string()),
+        );
+
+        let mut files2 = HashMap::new();
+        files2.insert(
+            "a.txt".to_string(),
+            FileContent::Text("content".to_string()),
+        );
+
+        let diffs = compare_outputs(&files1, &files2);
+        assert!(diffs.is_empty());
+    }
+
+    #[test]
+    fn compare_different_outputs() {
+        use hick_exec::node::FileContent;
+        let mut files1 = HashMap::new();
+        files1.insert(
+            "a.txt".to_string(),
+            FileContent::Text("content1".to_string()),
+        );
+        files1.insert(
+            "b.txt".to_string(),
+            FileContent::Text("only in first".to_string()),
+        );
+
+        let mut files2 = HashMap::new();
+        files2.insert(
+            "a.txt".to_string(),
+            FileContent::Text("content2".to_string()),
+        );
+        files2.insert(
+            "c.txt".to_string(),
+            FileContent::Text("only in second".to_string()),
+        );
+
+        let diffs = compare_outputs(&files1, &files2);
+        assert_eq!(diffs.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn check_equivalent_documents() {
+        let src1 = hick_doc(r#"<hick:file path="out.txt">hello</hick:file>"#);
+        let src2 = hick_doc(r#"<hick:file path="out.txt">hello</hick:file>"#);
+
+        let result = check_equivalence(&src1, &src2, 10).await.unwrap();
+        assert!(result.equivalent);
+        assert!(result.failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn check_different_documents() {
+        let src1 = hick_doc(r#"<hick:file path="out.txt">hello1</hick:file>"#);
+        let src2 = hick_doc(r#"<hick:file path="out.txt">hello2</hick:file>"#);
+
+        let result = check_equivalence(&src1, &src2, 10).await.unwrap();
+        assert!(!result.equivalent);
+        assert!(!result.failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn check_feature_based_equivalence() {
+        // These two should be equivalent - they produce the same output
+        // for all feature combinations
+        let src1 = hick_doc(
+            r#"<hick:feature name="auth" description="Auth" />
+<hick:file path="out.txt">
+<hick:when test="auth">auth enabled</hick:when>
+<hick:when test="!auth">auth disabled</hick:when>
+</hick:file>"#,
+        );
+
+        let src2 = hick_doc(
+            r#"<hick:feature name="auth" description="Auth" />
+<hick:file path="out.txt">
+<hick:when test="auth">auth enabled</hick:when>
+<hick:when test="!auth">auth disabled</hick:when>
+</hick:file>"#,
+        );
+
+        let result = check_equivalence(&src1, &src2, 10).await.unwrap();
+        assert!(result.equivalent);
+        // Should test 2 combinations: {} and {auth}
+        assert_eq!(result.combinations_tested, 2);
+    }
+}
+
+</storycode:copy>
+<a id="f-fdaec980b34c-describe_difference_tests"></a>
+### `describe_difference_tests`
+
+<storycode:copy id="f-fdaec980b34c-describe_difference_tests">
+#[cfg(test)]
+mod describe_difference_tests {
+    use super::describe_difference;
+
+    #[test]
+    fn a_middle_byte_difference_names_the_offset_and_line() {
+        let existing = b"line one\nline two\nline three\n";
+        let produced = b"line one\nline TWO\nline three\n";
+        let detail = describe_difference("on disk", "freshly produced", existing, produced);
+        assert!(detail.contains("byte 14"), "{detail}");
+        assert!(detail.contains("line 2"), "{detail}");
+        assert!(detail.contains("both 29 bytes"), "{detail}");
+    }
+
+    #[test]
+    fn one_side_ending_early_is_reported_as_a_prefix_not_a_byte_offset() {
+        let existing = b"line one\nline two\n";
+        let produced = b"line one\nline two\nline three\n";
+        let detail = describe_difference("on disk", "freshly produced", existing, produced);
+        assert!(
+            detail.contains("identical for the first 18 bytes"),
+            "{detail}"
+        );
+        assert!(detail.contains("11 more"), "{detail}");
+        // Not a byte-offset claim: there is no differing byte, only an end.
+        assert!(!detail.contains("first difference at byte"), "{detail}");
+    }
+
+    #[test]
+    fn non_utf8_content_still_reports_a_byte_offset_with_no_line_number() {
+        let existing = [0u8, 1, 2, 255];
+        let produced = [0u8, 1, 9, 255];
+        let detail = describe_difference("on disk", "freshly produced", &existing, &produced);
+        assert!(detail.contains("byte 2"), "{detail}");
+        assert!(!detail.contains("line"), "{detail}");
+    }
+}
+</storycode:copy>
+
+### Assemble `crates/hick-literate/src/equiv.rs`
+
+The selections below preserve the original byte order. Narrative reading order does not change the output.
+
+<storycode:file path="crates/hick-literate/src/equiv.rs"><storycode:paste select="#f-fdaec980b34c-HickConfiguration"/><storycode:paste select="#f-fdaec980b34c-extract_configuration"/><storycode:paste select="#f-fdaec980b34c-extract_from_nodes"/><storycode:paste select="#f-fdaec980b34c-RunParams"/><storycode:paste select="#f-fdaec980b34c-impl-RunParams"/><storycode:paste select="#f-fdaec980b34c-generate_combinations"/><storycode:paste select="#f-fdaec980b34c-OutputDiff"/><storycode:paste select="#f-fdaec980b34c-DiffKind"/><storycode:paste select="#f-fdaec980b34c-describe_difference"/><storycode:paste select="#f-fdaec980b34c-compare_outputs"/><storycode:paste select="#f-fdaec980b34c-EquivalenceResult"/><storycode:paste select="#f-fdaec980b34c-check_equivalence"/><storycode:paste select="#f-fdaec980b34c-format_diff"/><storycode:paste select="#f-fdaec980b34c-tests"/><storycode:paste select="#f-fdaec980b34c-describe_difference_tests"/></storycode:file>
+
+## Implementation review
+
+### Implementation
+
+- [crates/hick-literate/src/equiv.rs](contract.md#output-fdaec980b34c)
+- [crates/hickory-cli/src/ingest_recording.rs](../../../mechanisms/crates/hickory-cli/src/ingest_recording.rs.md#output-bc9bc50518aa)
+- [crates/hickory-cli/src/lib.rs](../../../mechanisms/crates/hickory-cli/src/lib.rs.md#output-056f6a618871)
+- [crates/hickory-cli/src/main.rs](../../../mechanisms/crates/hickory-cli/src/main.rs.md#output-5607f2721a2d)
+- [crates/hickory-cli/src/serve/refactor.rs](../../../mechanisms/crates/hickory-cli/src/serve/refactor.rs.md#output-3a011c557915)
+
+### Tests and fixtures
+
+- [crates/hickory-cli/tests/round_trip.rs](../../../mechanisms/crates/hickory-cli/tests/round_trip.rs.md#output-82b3411e044d)
+- [crates/hickory-cli/tests/test_command_tests.rs](../../../mechanisms/crates/hickory-cli/tests/test_command_tests.rs.md#output-87d6e5478294)
+
+### Evidence status
+
+- Implementation review: not verified. Retention does not renew an implementation review.
+- Executed checks: [the run record](../../../evidence/focused-checks.md) lists actual executions.
+- Human judgment: stakeholder priorities confirmed; individual requirement acceptance remains unrecorded.
+- Dependencies: exact cited-file hashes are in the capture and source entries. Transitive source and environment changes can also stale evidence.
+
+</storycode:doc>

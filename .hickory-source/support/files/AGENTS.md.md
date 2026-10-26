@@ -1,11 +1,11 @@
-<maint:doc xmlns:maint="http://www.hickorydocs.com/1.0">
+<maintain:doc xmlns:maintain="http://www.hickorydocs.com/1.0">
 # Maintain AGENTS.md
 
-For: maintainers changing the literate workflow and reviewers checking migration evidence.
+For: maintainers locating this exact input or preserving the migration evidence.
 
-Edit this entry, regenerate, and commit its output with the Markdown. Historical evidence retains its original scope.
+The entry below owns this output. Its metadata is separate from semantic verification.
 
-<maint:entry path="AGENTS.md">
+<maintain:entry path="AGENTS.md">
 Post-commit checks are very thorough. Do not watch the logs; it uses too many tokens. Tell the user how to monitor / check status on such things.
 
 Only run focused behavior and safety tests; leave broad regression tests and all regression-check status monitoring to the user.
@@ -20,5 +20,13 @@ one-time capture/reconciliation scripts or edit generated files alone.
 Current requirements are the contract pages linked from `project.md`.
 `docs/guarantees/` and `docs/specs/freeform/` retain captured documents as history;
 the canonical contract pages distinguish retained, reconciled and historical text.
-</maint:entry>
-</maint:doc>
+
+Use the audience-first-literate-docs skill for maintained source. Interleave real
+explanations, implementation and tests at reasoning boundaries. Current code uses
+copy fragments and explicit file/paste assembly; raw entries preserve literal
+assets and embedded document syntax. Shared code lives under named mechanisms.
+Use `behavior.py locate <output-path>` to find its construction and every fragment.
+A narrative owner is not proof of adequate explanation: inspect the explicit gaps
+in `hickory-dogfood/narrative-map.json` and do not invent coverage or guarantees.
+</maintain:entry>
+</maintain:doc>

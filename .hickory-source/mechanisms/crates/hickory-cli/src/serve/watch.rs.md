@@ -1,0 +1,419 @@
+<storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
+# Maintain crates/hickory-cli/src/serve/watch.rs
+
+For: maintainers changing this mechanism and reviewing the contracts that depend on it.
+
+This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
+
+<a id="output-c9fa53b5e3bf"></a>
+## `crates/hickory-cli/src/serve/watch.rs`
+
+Related contracts: [Keep divergent output until an explicit decision names the write](../../../../../guarantees/authoring/an-output-that-cannot-be-carried-back-is-held/contract.md), [The App Runs The Up-Loop: External Edits Are Seen, Never Clobbered](../../../../../guarantees/collaboration/the-app-sees-external-edits/contract.md).
+
+<a id="f-c9fa53b5e3bf-DEBOUNCE"></a>
+### `DEBOUNCE`
+
+The up-loop, running inside the app's process.
+`local-only.md` names the design: the desktop app runs the up-loop and the
+rooms together, so the window and the working tree can never disagree for
+long. This module is that loop — the same weave/reverse machinery
+`hick up` runs headless (`crate::up`), driven from the serve state, with
+one addition the headless loop has no use for: after every batch, changed
+documents are reconciled into their live rooms, so an edit made by vim, a
+formatter, or a coding agent appears in the editor buffer instead of being
+clobbered by the room's next debounced persist.
+What is deliberately NOT here:
+- **No directory lock.** The desktop shell already holds
+[`crate::up::DirectoryLock`] for this folder; taking it twice would
+refuse ourselves.
+- **No `--run`.** The in-app loop weaves on change; executing cells is the
+Run button's deliberate act, same as the headless default.
+
+<storycode:copy id="f-c9fa53b5e3bf-DEBOUNCE">
+//! The up-loop, running inside the app's process.
+//!
+//! `local-only.md` names the design: the desktop app runs the up-loop and the
+//! rooms together, so the window and the working tree can never disagree for
+//! long. This module is that loop — the same weave/reverse machinery
+//! `hick up` runs headless (`crate::up`), driven from the serve state, with
+//! one addition the headless loop has no use for: after every batch, changed
+//! documents are reconciled into their live rooms, so an edit made by vim, a
+//! formatter, or a coding agent appears in the editor buffer instead of being
+//! clobbered by the room's next debounced persist.
+//!
+//! What is deliberately NOT here:
+//!
+//! - **No directory lock.** The desktop shell already holds
+//!   [`crate::up::DirectoryLock`] for this folder; taking it twice would
+//!   refuse ourselves.
+//! - **No `--run`.** The in-app loop weaves on change; executing cells is the
+//!   Run button's deliberate act, same as the headless default.
+
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+
+use anyhow::{Context as _, Result};
+use notify::{EventKind, RecursiveMode, Watcher as _};
+
+use super::LocalState;
+use crate::up::state::WovenState;
+use crate::up::{UpCommand, UpConfig, handle_batch, weave_document};
+
+/// How long the directory must stay quiet before a burst of events is one
+/// batch. Matches the headless loop's weave debounce.
+const DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(120);
+
+</storycode:copy>
+<a id="f-c9fa53b5e3bf-WatchGuard"></a>
+### `WatchGuard`
+
+A running in-app up-loop. Ask it to stop (or drop it at exit) and the
+loop clears its read-only marks before finishing — those are a live
+signal from a running loop, not a property of the files.
+
+<storycode:copy id="f-c9fa53b5e3bf-WatchGuard">
+/// A running in-app up-loop. Ask it to stop (or drop it at exit) and the
+/// loop clears its read-only marks before finishing — those are a live
+/// signal from a running loop, not a property of the files.
+pub struct WatchGuard {
+    stop: Option<tokio::sync::oneshot::Sender<()>>,
+    task: Option<tokio::task::JoinHandle<()>>,
+}
+
+</storycode:copy>
+<a id="f-c9fa53b5e3bf-impl-WatchGuard"></a>
+### `impl-WatchGuard`
+
+<storycode:copy id="f-c9fa53b5e3bf-impl-WatchGuard">
+impl WatchGuard {
+    /// Stop the loop and wait for its cleanup to finish.
+    pub async fn shutdown(mut self) {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        if let Some(task) = self.task.take() {
+            let _ = task.await;
+        }
+    }
+}
+
+</storycode:copy>
+<a id="f-c9fa53b5e3bf-impl-Drop-for-WatchGuard"></a>
+### `impl-Drop for WatchGuard`
+
+<storycode:copy id="f-c9fa53b5e3bf-impl-Drop-for-WatchGuard">
+impl Drop for WatchGuard {
+    fn drop(&mut self) {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+    }
+}
+
+</storycode:copy>
+<a id="f-c9fa53b5e3bf-spawn"></a>
+### `spawn`
+
+Start watching the served folder and keep it woven until told to stop.
+The watcher starts BEFORE the first weave, for the same reason the
+headless loop's does: the first pass writes output files early, and an
+edit made to one of them during startup must arrive late, not vanish.
+
+<storycode:copy id="f-c9fa53b5e3bf-spawn">
+/// Start watching the served folder and keep it woven until told to stop.
+///
+/// The watcher starts BEFORE the first weave, for the same reason the
+/// headless loop's does: the first pass writes output files early, and an
+/// edit made to one of them during startup must arrive late, not vanish.
+pub fn spawn(state: LocalState) -> Result<WatchGuard> {
+    let root = state
+        .index
+        .root()
+        .canonicalize()
+        .with_context(|| format!("cannot watch {}", state.index.root().display()))?;
+
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<PathBuf>();
+    let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        let Ok(event) = res else { return };
+        if !matches!(
+            event.kind,
+            EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+        ) {
+            return;
+        }
+        for path in event.paths {
+            let _ = tx.send(path);
+        }
+    })
+    // The same diagnosis `hick up` gives. Without it the app reported the
+    // OS's own words — `Too many open files (os error 24)` — for the
+    // per-user inotify INSTANCE cap, which reads like a descriptor leak in
+    // hick and is actually a machine-wide budget every editor and language
+    // server spends from. Two near-identical blocks, and only the CLI's
+    // explained itself; the app is the copy a downloader meets first.
+    .map_err(crate::up::watch_error)
+    .context("failed to start watching for file changes")?;
+    watcher
+        .watch(&root, RecursiveMode::Recursive)
+        .map_err(crate::up::watch_error)
+        .with_context(|| format!("failed to watch {}", root.display()))?;
+
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
+    let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel::<UpCommand>();
+    *state.up_commands.lock().expect("up command inbox") = Some(command_tx);
+    let task = tokio::spawn(run_loop(state, root, watcher, rx, command_rx, stop_rx));
+    Ok(WatchGuard {
+        stop: Some(stop_tx),
+        task: Some(task),
+    })
+}
+
+</storycode:copy>
+<a id="f-c9fa53b5e3bf-run_loop"></a>
+### `run_loop`
+
+<storycode:copy id="f-c9fa53b5e3bf-run_loop">
+async fn run_loop(
+    state: LocalState,
+    root: PathBuf,
+    // Owned here so the OS watch lives exactly as long as the loop.
+    _watcher: notify::RecommendedWatcher,
+    mut rx: tokio::sync::mpsc::UnboundedReceiver<PathBuf>,
+    mut commands: tokio::sync::mpsc::UnboundedReceiver<UpCommand>,
+    mut stop: tokio::sync::oneshot::Receiver<()>,
+) {
+    let config = UpConfig {
+        root: root.clone(),
+        params: (*state.params).clone(),
+        run: false,
+        executor: state.executor,
+    };
+    let mut woven = WovenState::default();
+    // Per-document fingerprint of the outputs' bytes, so "files changed" is
+    // published only when a batch actually rewrote something — not for every
+    // echo the watcher hears.
+    let mut output_marks: HashMap<PathBuf, u64> = HashMap::new();
+
+    // Initial pass: weave what is already indexed. An empty folder weaves
+    // nothing and simply waits — that is the app's first-run state.
+    for (_, rel) in state.index.entries() {
+        let doc = root.join(rel);
+        if let Err(e) = weave_document(&doc, &config, &mut woven).await {
+            log::warn!("initial weave of {} failed: {e:#}", doc.display());
+        }
+    }
+    reconcile_rooms(&state, &root, &woven).await;
+    publish_held(&state, &root, &woven);
+
+    loop {
+        let first = tokio::select! {
+            received = rx.recv() => match received {
+                Some(path) => path,
+                None => break,
+            },
+            command = commands.recv() => {
+                match command {
+                    Some(UpCommand::Resolve { request, reply }) => {
+                        if !reply.is_closed() {
+                            let result = woven.resolve_output(&request).map_err(|e| format!("{e:#}"));
+                            let _ = reply.send(result);
+                        }
+                    }
+                    Some(UpCommand::Reweave(path)) => {
+                        if let Err(e) = crate::up::weave_document(&path, &config, &mut woven).await {
+                            log::warn!("could not reweave {}: {e:#}", path.display());
+                        }
+                    }
+                    None => {}
+                }
+                publish_held(&state, &root, &woven);
+                notify_files_changed(&state, &root, &woven, &mut output_marks).await;
+                continue;
+            },
+            _ = &mut stop => break,
+        };
+        let mut batch = HashSet::new();
+        batch.insert(first);
+        loop {
+            match tokio::time::timeout(DEBOUNCE, rx.recv()).await {
+                Ok(Some(path)) => {
+                    batch.insert(path);
+                }
+                Ok(None) => break,
+                Err(_) => break,
+            }
+        }
+
+        // A `.md` file the index has never seen is a document created by
+        // something other than the app — `touch notes.md`, a git checkout,
+        // an agent. Register it so the app can list and open it without a
+        // restart; the weave below is `handle_batch`'s job.
+        for path in &batch {
+            if path.extension().is_some_and(|e| e == "md")
+                && path.is_file()
+                && let Ok(rel) = path
+                    .canonicalize()
+                    .unwrap_or_else(|_| path.clone())
+                    .strip_prefix(&root)
+                    .map(|r| r.to_string_lossy().replace('\\', "/"))
+            {
+                let _ = state.index.discover(&rel);
+            }
+        }
+
+        if let Err(e) = handle_batch(batch, &config, &mut woven).await {
+            log::warn!("up-loop batch failed: {e:#}");
+        }
+        reconcile_rooms(&state, &root, &woven).await;
+        publish_held(&state, &root, &woven);
+        notify_files_changed(&state, &root, &woven, &mut output_marks).await;
+    }
+
+    // However the loop ends, the marks come off: `hick run`, git, and every
+    // other tool must find ordinary files afterwards.
+    woven.release_read_only();
+}
+
+</storycode:copy>
+<a id="f-c9fa53b5e3bf-publish_held"></a>
+### `publish_held`
+
+Copy the loop's held set where the routes can read it, as root-relative
+paths.
+
+<storycode:copy id="f-c9fa53b5e3bf-publish_held">
+/// Copy the loop's held set where the routes can read it, as root-relative
+/// paths.
+pub(crate) fn publish_held(state: &LocalState, root: &PathBuf, woven: &WovenState) {
+    let mut held = HashMap::new();
+    for (path, diverged) in woven.held() {
+        if let Ok(rel) = path.strip_prefix(root) {
+            held.insert(
+                rel.to_string_lossy().replace('\\', "/"),
+                super::DivergedOutput {
+                    kind: diverged.kind.as_str(),
+                    reason: diverged.reason.clone(),
+                    base: diverged.base.clone(),
+                    theirs: diverged.theirs.clone(),
+                },
+            );
+        }
+    }
+    *state.held.lock().expect("held outputs") = held;
+}
+
+</storycode:copy>
+<a id="f-c9fa53b5e3bf-notify_files_changed"></a>
+### `notify_files_changed`
+
+Tell every open window that this batch may have rewritten output files.
+The loop weaves server-side; without this, a pane showing a generated
+file learns about the re-weave only on its next focus or run. The event
+rides the run channel the frontend already listens on, per watched
+document, so a pane can refetch (and flash) exactly its own files.
+
+<storycode:copy id="f-c9fa53b5e3bf-notify_files_changed">
+/// Tell every open window that this batch may have rewritten output files.
+///
+/// The loop weaves server-side; without this, a pane showing a generated
+/// file learns about the re-weave only on its next focus or run. The event
+/// rides the run channel the frontend already listens on, per watched
+/// document, so a pane can refetch (and flash) exactly its own files.
+pub(crate) async fn notify_files_changed(
+    state: &LocalState,
+    root: &PathBuf,
+    woven: &WovenState,
+    marks: &mut HashMap<PathBuf, u64>,
+) {
+    for doc in woven.doc_paths() {
+        let mut mark: u64 = 0xcbf2_9ce4_8422_2325;
+        for path in woven.output_paths() {
+            let Some(output) = woven.output(&path) else {
+                continue;
+            };
+            if output.doc != doc {
+                continue;
+            }
+            for byte in path.to_string_lossy().as_bytes() {
+                mark = (mark ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3);
+            }
+            for byte in output.content.as_bytes() {
+                mark = (mark ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        if marks.insert(doc.clone(), mark) == Some(mark) {
+            continue;
+        }
+        let Ok(rel) = doc.strip_prefix(root) else {
+            continue;
+        };
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        let id = state.index.id_for_path(&rel);
+        if state.index.path_of(&id).is_none() {
+            continue;
+        }
+        state
+            .rooms
+            .publish_run_event(
+                &id,
+                &serde_json::json!({ "files_changed": true, "doc": id }),
+            )
+            .await;
+    }
+}
+
+</storycode:copy>
+<a id="f-c9fa53b5e3bf-reconcile_rooms"></a>
+### `reconcile_rooms`
+
+Push every watched document's on-disk text into its live room.
+`apply_external_source` no-ops when the room already holds the text, so
+this is cheap for the common case and exactly right for the two that
+matter: a document rewritten by a reverse edit, and a document changed
+under the app by another program.
+
+<storycode:copy id="f-c9fa53b5e3bf-reconcile_rooms">
+/// Push every watched document's on-disk text into its live room.
+///
+/// `apply_external_source` no-ops when the room already holds the text, so
+/// this is cheap for the common case and exactly right for the two that
+/// matter: a document rewritten by a reverse edit, and a document changed
+/// under the app by another program.
+pub(crate) async fn reconcile_rooms(state: &LocalState, root: &PathBuf, _woven: &WovenState) {
+    for doc in state
+        .index
+        .entries()
+        .iter()
+        .filter_map(|(id, _)| state.index.absolute(id))
+    {
+        let Ok(rel) = doc.strip_prefix(root) else {
+            continue;
+        };
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        // Only documents the index knows are rooms anyone can have open.
+        let id = state.index.id_for_path(&rel);
+        if state.index.path_of(&id).is_none() {
+            continue;
+        }
+        if let Ok(source) = std::fs::read_to_string(&doc) {
+            // The room's own persist comes back through the watcher looking
+            // exactly like an external edit. Reconciling it would set the
+            // room to a text that may already be keystrokes old, reverting
+            // what was typed during the weave — so the store's last persist
+            // is skipped, and only genuinely external bytes go in.
+            if state.store.was_own_write(&id, &source) {
+                continue;
+            }
+            state.rooms.apply_external_source(&id, &source).await;
+        }
+    }
+}
+</storycode:copy>
+
+### Assemble `crates/hickory-cli/src/serve/watch.rs`
+
+The selections below preserve the original byte order. Narrative reading order does not change the output.
+
+<storycode:file path="crates/hickory-cli/src/serve/watch.rs"><storycode:paste select="#f-c9fa53b5e3bf-DEBOUNCE"/><storycode:paste select="#f-c9fa53b5e3bf-WatchGuard"/><storycode:paste select="#f-c9fa53b5e3bf-impl-WatchGuard"/><storycode:paste select="#f-c9fa53b5e3bf-impl-Drop-for-WatchGuard"/><storycode:paste select="#f-c9fa53b5e3bf-spawn"/><storycode:paste select="#f-c9fa53b5e3bf-run_loop"/><storycode:paste select="#f-c9fa53b5e3bf-publish_held"/><storycode:paste select="#f-c9fa53b5e3bf-notify_files_changed"/><storycode:paste select="#f-c9fa53b5e3bf-reconcile_rooms"/></storycode:file>
+
+</storycode:doc>

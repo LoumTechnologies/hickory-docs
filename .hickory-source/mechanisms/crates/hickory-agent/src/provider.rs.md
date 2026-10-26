@@ -1,0 +1,642 @@
+<storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
+# Maintain crates/hickory-agent/src/provider.rs
+
+For: maintainers changing this mechanism and reviewing the contracts that depend on it.
+
+This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
+
+<a id="output-2be2d28e151b"></a>
+## `crates/hickory-agent/src/provider.rs`
+
+Related contracts: [A Missing Key Degrades to a Note, Never a Crash](../../../../guarantees/agent/a-missing-key-degrades-to-a-note/contract.md), [A Session Names the Provider It Actually Ran On](../../../../guarantees/agent/a-session-names-the-provider-it-actually-ran-on/contract.md), [A Provider Key Entered in Settings Stays on This Machine](../../../../guarantees/agent/keys-are-stored-locally-and-never-leave/contract.md), [Keep a prediction separate from the answer it is tested against](../../../../guarantees/verification/predictions-precede-managed-observation/contract.md), [Private edit proposals open review before writing](../../../../guarantees/verification/private-proposals-wait-for-review/contract.md).
+
+<a id="f-2be2d28e151b-ProviderSelection"></a>
+### `ProviderSelection`
+
+One place that turns a provider selector into an [`LlmClient`].
+Every call site that wants a model — the CLI, the server's agent route,
+`hick refresh` — needs the same three decisions: which vendor, which
+model, and is a key present. Duplicating that logic is how a provider
+ends up working in one entry point and silently missing from another, so
+it lives here and each call site passes through what the user asked for.
+The selector is `anthropic` (the default), `openai`, `deepseek`,
+`grok`/`xai`, `openrouter`, or `gab`. Anthropic keeps its own client because it
+is the only one with explicit prompt-cache breakpoints, `count_tokens`,
+and the Batch API; the others share [`OpenAiCompatClient`].
+Keys come from two places, in a fixed order: the [`KeyStore`] the desktop
+app's Settings page writes (see `key_store.rs`), then the provider's
+environment variable. The `_with_store` variants consult the store FIRST
+and fall through to the environment — one precedence rule, implemented
+once, shared by selection and client construction alike.
+
+<storycode:copy id="f-2be2d28e151b-ProviderSelection">
+//! One place that turns a provider selector into an [`LlmClient`].
+//!
+//! Every call site that wants a model — the CLI, the server's agent route,
+//! `hick refresh` — needs the same three decisions: which vendor, which
+//! model, and is a key present. Duplicating that logic is how a provider
+//! ends up working in one entry point and silently missing from another, so
+//! it lives here and each call site passes through what the user asked for.
+//!
+//! The selector is `anthropic` (the default), `openai`, `deepseek`,
+//! `grok`/`xai`, `openrouter`, or `gab`. Anthropic keeps its own client because it
+//! is the only one with explicit prompt-cache breakpoints, `count_tokens`,
+//! and the Batch API; the others share [`OpenAiCompatClient`].
+//!
+//! Keys come from two places, in a fixed order: the [`KeyStore`] the desktop
+//! app's Settings page writes (see `key_store.rs`), then the provider's
+//! environment variable. The `_with_store` variants consult the store FIRST
+//! and fall through to the environment — one precedence rule, implemented
+//! once, shared by selection and client construction alike.
+
+use std::sync::Arc;
+
+use crate::key_store::KeyStore;
+use crate::llm::LlmClient;
+use crate::llm_anthropic::AnthropicClient;
+use crate::llm_openai::{OpenAiCompatClient, Provider};
+
+/// A parsed provider selector.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderSelection {
+    Anthropic,
+    /// An OpenAI-compatible vendor.
+    Compatible(Provider),
+}
+
+</storycode:copy>
+<a id="f-2be2d28e151b-impl-ProviderSelection"></a>
+### `impl-ProviderSelection`
+
+<storycode:copy id="f-2be2d28e151b-impl-ProviderSelection">
+impl ProviderSelection {
+    /// Parse a selector string. `None` for anything unrecognised — callers
+    /// report the valid set rather than silently falling back, because a
+    /// typo that silently ran on the default provider would bill the wrong
+    /// account and produce a session that lies about its model.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "anthropic" | "claude" => Some(Self::Anthropic),
+            other => Provider::parse(other).map(Self::Compatible),
+        }
+    }
+
+    /// Display name.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Anthropic => "anthropic",
+            Self::Compatible(p) => p.name(),
+        }
+    }
+
+    /// The environment variable holding this provider's API key.
+    pub fn key_env(self) -> &'static str {
+        match self {
+            Self::Anthropic => "ANTHROPIC_API_KEY",
+            Self::Compatible(p) => p.key_env(),
+        }
+    }
+
+    /// Human-readable vendor name, for the desktop app's Settings page.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Anthropic => "Anthropic",
+            Self::Compatible(Provider::OpenAi) => "OpenAI",
+            Self::Compatible(Provider::DeepSeek) => "DeepSeek",
+            Self::Compatible(Provider::XAi) => "xAI (Grok)",
+            Self::Compatible(Provider::OpenRouter) => "OpenRouter",
+            Self::Compatible(Provider::Gab) => "Gab AI",
+        }
+    }
+
+    /// Every selector a user may pass, for error messages.
+    pub const ALL: &'static [&'static str] = &[
+        "anthropic",
+        "openai",
+        "deepseek",
+        "grok",
+        "openrouter",
+        "gab",
+    ];
+
+    /// Every provider, in the order `ALL` names them. This is the list the
+    /// key store and the Settings page enumerate — one canonical order so a
+    /// provider added here shows up everywhere at once.
+    pub fn all() -> [ProviderSelection; 5] {
+        [
+            Self::Anthropic,
+            Self::Compatible(Provider::OpenAi),
+            Self::Compatible(Provider::DeepSeek),
+            Self::Compatible(Provider::XAi),
+            Self::Compatible(Provider::OpenRouter),
+        ]
+    }
+}
+
+</storycode:copy>
+<a id="f-2be2d28e151b-resolve_selector"></a>
+### `resolve_selector`
+
+Resolve which provider to use when the user did not name one.
+Precedence:
+1. An explicit selector (`--provider`), verbatim.
+2. `HICKORY_LLM_PROVIDER`, the documented environment override.
+3. The keys actually present in the environment:
+- exactly one provider has a key → that provider, silently. A machine
+with only `OPENAI_API_KEY` set has already said which vendor it uses;
+failing with "anthropic needs a key" would ignore the obvious answer.
+- several have keys, one of them Anthropic → `anthropic`, the
+long-standing default.
+- several have keys, none of them Anthropic → an error asking for
+`--provider`: guessing here would bill an account the user did not
+choose and write a session that names a model they did not pick.
+- none → an error naming every variable that would have worked.
+
+<storycode:copy id="f-2be2d28e151b-resolve_selector">
+/// Resolve which provider to use when the user did not name one.
+///
+/// Precedence:
+/// 1. An explicit selector (`--provider`), verbatim.
+/// 2. `HICKORY_LLM_PROVIDER`, the documented environment override.
+/// 3. The keys actually present in the environment:
+///    - exactly one provider has a key → that provider, silently. A machine
+///      with only `OPENAI_API_KEY` set has already said which vendor it uses;
+///      failing with "anthropic needs a key" would ignore the obvious answer.
+///    - several have keys, one of them Anthropic → `anthropic`, the
+///      long-standing default.
+///    - several have keys, none of them Anthropic → an error asking for
+///      `--provider`: guessing here would bill an account the user did not
+///      choose and write a session that names a model they did not pick.
+///    - none → an error naming every variable that would have worked.
+pub fn resolve_selector(explicit: Option<&str>) -> anyhow::Result<String> {
+    resolve_selector_with(explicit, env_key)
+}
+
+</storycode:copy>
+<a id="f-2be2d28e151b-env_key"></a>
+### `env_key`
+
+A key from the environment, honouring the aliases vendors document:
+Gab names both `GAB_API_KEY` and `GAB_AI_API_KEY`.
+
+<storycode:copy id="f-2be2d28e151b-env_key">
+/// A key from the environment, honouring the aliases vendors document:
+/// Gab names both `GAB_API_KEY` and `GAB_AI_API_KEY`.
+fn env_key(var: &str) -> Option<String> {
+    std::env::var(var).ok().or_else(|| match var {
+        "GAB_API_KEY" => std::env::var("GAB_AI_API_KEY").ok(),
+        _ => None,
+    })
+}
+
+</storycode:copy>
+<a id="f-2be2d28e151b-resolve_selector_with_store"></a>
+### `resolve_selector_with_store`
+
+[`resolve_selector`], with a [`KeyStore`] consulted before the
+environment.
+The precedence chain is otherwise identical — same auto-selection, same
+errors — because the store is just another place a key can be "present":
+a key entered in the desktop app's Settings page counts exactly as its
+environment variable would, and wins over it when both exist.
+
+<storycode:copy id="f-2be2d28e151b-resolve_selector_with_store">
+/// [`resolve_selector`], with a [`KeyStore`] consulted before the
+/// environment.
+///
+/// The precedence chain is otherwise identical — same auto-selection, same
+/// errors — because the store is just another place a key can be "present":
+/// a key entered in the desktop app's Settings page counts exactly as its
+/// environment variable would, and wins over it when both exist.
+pub fn resolve_selector_with_store(
+    explicit: Option<&str>,
+    store: &KeyStore,
+) -> anyhow::Result<String> {
+    resolve_selector_with(explicit, |var| {
+        store.key_for_env(var).or_else(|| env_key(var))
+    })
+}
+
+</storycode:copy>
+<a id="f-2be2d28e151b-resolve_selector_with"></a>
+### `resolve_selector_with`
+
+<storycode:copy id="f-2be2d28e151b-resolve_selector_with">
+fn resolve_selector_with(
+    explicit: Option<&str>,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> anyhow::Result<String> {
+    if let Some(s) = explicit {
+        return Ok(s.to_string());
+    }
+    if let Some(v) = lookup("HICKORY_LLM_PROVIDER").filter(|v| !v.trim().is_empty()) {
+        return Ok(v);
+    }
+    let keyed: Vec<&str> = ProviderSelection::ALL
+        .iter()
+        .copied()
+        .filter(|name| {
+            ProviderSelection::parse(name)
+                .and_then(|sel| lookup(sel.key_env()))
+                .is_some_and(|k| !k.trim().is_empty())
+        })
+        .collect();
+    match keyed.as_slice() {
+        [only] => Ok((*only).to_string()),
+        [] => anyhow::bail!(
+            "no LLM provider key found in the environment.\n  \
+             Set one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, DEEPSEEK_API_KEY, XAI_API_KEY, \
+             OPENROUTER_API_KEY, GAB_API_KEY —\n  \
+             or pass --provider / set HICKORY_LLM_PROVIDER to name the vendor explicitly."
+        ),
+        many if many.contains(&"anthropic") => Ok("anthropic".to_string()),
+        many => anyhow::bail!(
+            "keys for several providers are set ({}) and none of them is the default \
+             (anthropic).\n  \
+             Pass --provider {} (or set HICKORY_LLM_PROVIDER) to choose — guessing would \
+             bill an account you did not pick.",
+            many.join(", "),
+            many[0]
+        ),
+    }
+}
+
+</storycode:copy>
+<a id="f-2be2d28e151b-client_for"></a>
+### `client_for`
+
+Build the client for `selector`, optionally overriding the model and the
+API key.
+`api_key` is for callers that hold the key themselves — the server's
+agent route, and BYO-key plans that construct one client per request.
+Pass `None` to take it from the provider's environment variable.
+Returns an error naming the accepted selectors for an unknown one, and
+an error naming the missing environment variable when no key is
+available — a run that reaches the API with an empty key fails deep
+inside a stream with a vendor-specific 401, which is a much worse place
+to learn it.
+
+<storycode:copy id="f-2be2d28e151b-client_for">
+/// Build the client for `selector`, optionally overriding the model and the
+/// API key.
+///
+/// `api_key` is for callers that hold the key themselves — the server's
+/// agent route, and BYO-key plans that construct one client per request.
+/// Pass `None` to take it from the provider's environment variable.
+///
+/// Returns an error naming the accepted selectors for an unknown one, and
+/// an error naming the missing environment variable when no key is
+/// available — a run that reaches the API with an empty key fails deep
+/// inside a stream with a vendor-specific 401, which is a much worse place
+/// to learn it.
+pub fn client_for(
+    selector: &str,
+    model: Option<&str>,
+    api_key: Option<&str>,
+) -> anyhow::Result<Arc<dyn LlmClient>> {
+    client_for_with_limit(selector, model, api_key, None)
+}
+</storycode:copy>
+<a id="f-2be2d28e151b-client_for_with_limit"></a>
+### `client_for_with_limit`
+
+Host-selected output budget; ordinary callers retain their provider defaults.
+
+<storycode:copy id="f-2be2d28e151b-client_for_with_limit">
+/// Host-selected output budget; ordinary callers retain their provider defaults.
+pub fn client_for_with_limit(
+    selector: &str,
+    model: Option<&str>,
+    api_key: Option<&str>,
+    max_output_tokens: Option<u32>,
+) -> anyhow::Result<Arc<dyn LlmClient>> {
+    configured_client(selector, model, api_key, max_output_tokens, false)
+}
+
+</storycode:copy>
+<a id="f-2be2d28e151b-client_for_action_with_limit"></a>
+### `client_for_action_with_limit`
+
+Private JSON action protocol. DeepSeek supports JSON-object transport;
+other providers retain their established transport and strict host parsing.
+
+<storycode:copy id="f-2be2d28e151b-client_for_action_with_limit">
+/// Private JSON action protocol. DeepSeek supports JSON-object transport;
+/// other providers retain their established transport and strict host parsing.
+pub fn client_for_action_with_limit(
+    selector: &str,
+    model: Option<&str>,
+    api_key: Option<&str>,
+    max_output_tokens: Option<u32>,
+) -> anyhow::Result<Arc<dyn LlmClient>> {
+    configured_client(selector, model, api_key, max_output_tokens, true)
+}
+
+</storycode:copy>
+<a id="f-2be2d28e151b-configured_client"></a>
+### `configured_client`
+
+<storycode:copy id="f-2be2d28e151b-configured_client">
+fn configured_client(
+    selector: &str,
+    model: Option<&str>,
+    api_key: Option<&str>,
+    max_output_tokens: Option<u32>,
+    json_action: bool,
+) -> anyhow::Result<Arc<dyn LlmClient>> {
+    anyhow::ensure!(
+        max_output_tokens.is_none_or(|limit| (1..=16384).contains(&limit)),
+        "Output token limit must be between 1 and 16384"
+    );
+    let selection = ProviderSelection::parse(selector).ok_or_else(|| {
+        anyhow::anyhow!(
+            "unknown provider {selector:?}; expected one of: {}",
+            ProviderSelection::ALL.join(", ")
+        )
+    })?;
+
+    let key = match api_key.map(str::to_string) {
+        Some(k) => Some(k),
+        None => std::env::var(selection.key_env()).ok(),
+    }
+    .filter(|k| !k.trim().is_empty());
+    let Some(key) = key else {
+        anyhow::bail!(
+            "provider {} needs an API key in {}",
+            selection.name(),
+            selection.key_env()
+        );
+    };
+
+    Ok(match selection {
+        ProviderSelection::Anthropic => {
+            let mut c = AnthropicClient::new().with_api_key(key);
+            if let Some(m) = model {
+                c = c.with_model(m);
+            }
+            if let Some(limit) = max_output_tokens {
+                c = c.with_max_tokens(limit);
+            }
+            Arc::new(c)
+        }
+        ProviderSelection::Compatible(p) => {
+            let mut c = OpenAiCompatClient::new(p).with_api_key(key);
+            if json_action && p == crate::llm_openai::Provider::DeepSeek {
+                c = c.with_json_object();
+            }
+            if let Some(m) = model {
+                c = c.with_model(m);
+            }
+            if let Some(limit) = max_output_tokens {
+                c = c.with_max_tokens(limit);
+            }
+            Arc::new(c)
+        }
+    })
+}
+
+</storycode:copy>
+<a id="f-2be2d28e151b-client_for_with_store"></a>
+### `client_for_with_store`
+
+[`client_for`], with a [`KeyStore`] consulted before the environment.
+A stored key for this provider becomes the explicit `api_key`, so it wins
+over the environment variable through the exact precedence [`client_for`]
+already implements; with nothing stored the behavior is byte-for-byte
+`client_for(selector, model, None)`.
+
+<storycode:copy id="f-2be2d28e151b-client_for_with_store">
+/// [`client_for`], with a [`KeyStore`] consulted before the environment.
+///
+/// A stored key for this provider becomes the explicit `api_key`, so it wins
+/// over the environment variable through the exact precedence [`client_for`]
+/// already implements; with nothing stored the behavior is byte-for-byte
+/// `client_for(selector, model, None)`.
+pub fn client_for_with_store(
+    selector: &str,
+    model: Option<&str>,
+    store: &KeyStore,
+) -> anyhow::Result<Arc<dyn LlmClient>> {
+    client_for(selector, model, store.key_for(selector).as_deref())
+}
+
+</storycode:copy>
+<a id="f-2be2d28e151b-tests"></a>
+### `tests`
+
+<storycode:copy id="f-2be2d28e151b-tests">
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `Arc<dyn LlmClient>` is not `Debug`, so `unwrap_err` is unavailable.
+    fn err_of(r: anyhow::Result<Arc<dyn LlmClient>>) -> String {
+        match r {
+            Ok(_) => panic!("expected an error"),
+            Err(e) => e.to_string(),
+        }
+    }
+
+    #[test]
+    fn selectors_parse_including_the_familiar_aliases() {
+        assert_eq!(
+            ProviderSelection::parse("anthropic"),
+            Some(ProviderSelection::Anthropic)
+        );
+        assert_eq!(
+            ProviderSelection::parse("claude"),
+            Some(ProviderSelection::Anthropic)
+        );
+        assert_eq!(
+            ProviderSelection::parse("grok"),
+            Some(ProviderSelection::Compatible(Provider::XAi))
+        );
+        assert_eq!(
+            ProviderSelection::parse("deepseek"),
+            Some(ProviderSelection::Compatible(Provider::DeepSeek))
+        );
+        assert_eq!(
+            ProviderSelection::parse("openrouter"),
+            Some(ProviderSelection::Compatible(Provider::OpenRouter))
+        );
+    }
+
+    #[test]
+    fn an_unknown_selector_never_falls_back_to_the_default() {
+        // Silently running on Anthropic because "opennai" was a typo would
+        // bill the wrong account and write a session that names the wrong
+        // model.
+        assert_eq!(ProviderSelection::parse("opennai"), None);
+        let err = err_of(client_for("opennai", None, None));
+        assert!(err.contains("unknown provider"), "{err}");
+        assert!(
+            err.contains("deepseek"),
+            "the error must list valid ones: {err}"
+        );
+    }
+
+    #[test]
+    fn an_explicit_key_is_used_instead_of_the_environment() {
+        // BYO-key callers hold the key; the environment may have none.
+        unsafe { std::env::remove_var("XAI_API_KEY") };
+        assert!(client_for("grok", None, Some("sk-explicit")).is_ok());
+    }
+
+    fn env_of(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let pairs: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        move |var| pairs.iter().find(|(k, _)| k == var).map(|(_, v)| v.clone())
+    }
+
+    #[test]
+    fn a_single_key_selects_its_provider_without_asking() {
+        // The one key present has already named the vendor; asking (or
+        // failing with "anthropic needs a key") would ignore that.
+        let sel = resolve_selector_with(None, env_of(&[("OPENAI_API_KEY", "sk-x")])).unwrap();
+        assert_eq!(sel, "openai");
+    }
+
+    #[test]
+    fn an_explicit_selector_wins_over_everything() {
+        let sel = resolve_selector_with(
+            Some("deepseek"),
+            env_of(&[
+                ("ANTHROPIC_API_KEY", "sk-a"),
+                ("HICKORY_LLM_PROVIDER", "grok"),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(sel, "deepseek");
+    }
+
+    #[test]
+    fn the_documented_env_override_is_honoured() {
+        let sel = resolve_selector_with(
+            None,
+            env_of(&[
+                ("HICKORY_LLM_PROVIDER", "grok"),
+                ("ANTHROPIC_API_KEY", "sk-a"),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(sel, "grok");
+    }
+
+    #[test]
+    fn several_keys_including_anthropic_keep_the_default() {
+        let sel = resolve_selector_with(
+            None,
+            env_of(&[("ANTHROPIC_API_KEY", "sk-a"), ("OPENAI_API_KEY", "sk-o")]),
+        )
+        .unwrap();
+        assert_eq!(sel, "anthropic");
+    }
+
+    #[test]
+    fn several_non_default_keys_ask_rather_than_guess() {
+        let err = resolve_selector_with(
+            None,
+            env_of(&[("OPENAI_API_KEY", "sk-o"), ("DEEPSEEK_API_KEY", "sk-d")]),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("--provider"), "{err}");
+        assert!(err.contains("openai") && err.contains("deepseek"), "{err}");
+    }
+
+    #[test]
+    fn no_keys_at_all_names_every_variable_that_would_work() {
+        let err = resolve_selector_with(None, env_of(&[]))
+            .unwrap_err()
+            .to_string();
+        for var in [
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "DEEPSEEK_API_KEY",
+            "XAI_API_KEY",
+            "OPENROUTER_API_KEY",
+        ] {
+            assert!(err.contains(var), "{err}");
+        }
+    }
+
+    /// The lookup `resolve_selector_with_store` composes: store first, env
+    /// second. Tested against a fake environment so it cannot race the
+    /// process-global one.
+    fn store_then(
+        store: KeyStore,
+        env: &[(&str, &str)],
+    ) -> impl Fn(&str) -> Option<String> + use<> {
+        let pairs: Vec<(String, String)> = env
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        move |var| {
+            store
+                .key_for_env(var)
+                .or_else(|| pairs.iter().find(|(k, _)| k == var).map(|(_, v)| v.clone()))
+        }
+    }
+
+    #[test]
+    fn a_single_stored_key_auto_selects_its_provider() {
+        // A key entered in Settings counts as "present" exactly as its
+        // environment variable would — with nothing in the environment at
+        // all, the stored key alone picks the vendor.
+        let mut store = KeyStore::default();
+        store
+            .set("openrouter", Some("sk-or-stored".into()))
+            .unwrap();
+        let sel = resolve_selector_with(None, store_then(store, &[])).unwrap();
+        assert_eq!(sel, "openrouter");
+    }
+
+    #[test]
+    fn a_stored_key_wins_over_the_environment_for_the_same_provider() {
+        let mut store = KeyStore::default();
+        store.set("openai", Some("sk-stored".into())).unwrap();
+        let lookup = store_then(store, &[("OPENAI_API_KEY", "sk-env")]);
+        assert_eq!(lookup("OPENAI_API_KEY").as_deref(), Some("sk-stored"));
+        // And selection still lands on that provider.
+        assert_eq!(resolve_selector_with(None, lookup).unwrap(), "openai");
+    }
+
+    #[test]
+    fn a_stored_key_builds_a_client_with_no_environment_at_all() {
+        // The desktop app's promise: keys live in the Settings store, not in
+        // environment variables.
+        unsafe { std::env::remove_var("OPENROUTER_API_KEY") };
+        let mut store = KeyStore::default();
+        store
+            .set("openrouter", Some("sk-or-stored".into()))
+            .unwrap();
+        assert!(client_for_with_store("openrouter", None, &store).is_ok());
+
+        // And an empty store degrades to exactly the env-only behavior.
+        let err = err_of(client_for_with_store(
+            "openrouter",
+            None,
+            &KeyStore::default(),
+        ));
+        assert!(err.contains("OPENROUTER_API_KEY"), "{err}");
+    }
+
+    #[test]
+    fn a_missing_key_is_reported_by_variable_name() {
+        // Guarantee: the failure names what to set, before any request.
+        unsafe { std::env::remove_var("DEEPSEEK_API_KEY") };
+        let err = err_of(client_for("deepseek", None, None));
+        assert!(err.contains("DEEPSEEK_API_KEY"), "{err}");
+    }
+}
+</storycode:copy>
+
+### Assemble `crates/hickory-agent/src/provider.rs`
+
+The selections below preserve the original byte order. Narrative reading order does not change the output.
+
+<storycode:file path="crates/hickory-agent/src/provider.rs"><storycode:paste select="#f-2be2d28e151b-ProviderSelection"/><storycode:paste select="#f-2be2d28e151b-impl-ProviderSelection"/><storycode:paste select="#f-2be2d28e151b-resolve_selector"/><storycode:paste select="#f-2be2d28e151b-env_key"/><storycode:paste select="#f-2be2d28e151b-resolve_selector_with_store"/><storycode:paste select="#f-2be2d28e151b-resolve_selector_with"/><storycode:paste select="#f-2be2d28e151b-client_for"/><storycode:paste select="#f-2be2d28e151b-client_for_with_limit"/><storycode:paste select="#f-2be2d28e151b-client_for_action_with_limit"/><storycode:paste select="#f-2be2d28e151b-configured_client"/><storycode:paste select="#f-2be2d28e151b-client_for_with_store"/><storycode:paste select="#f-2be2d28e151b-tests"/></storycode:file>
+
+</storycode:doc>

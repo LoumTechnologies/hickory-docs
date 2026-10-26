@@ -1,0 +1,277 @@
+<storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
+# Maintain crates/hickory-cli/src/engine/watch.rs
+
+For: maintainers changing this mechanism and reviewing the contracts that depend on it.
+
+This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
+
+<a id="output-dc5bee2ae567"></a>
+## `crates/hickory-cli/src/engine/watch.rs`
+
+Related contracts: [ACP Agents Work In The Agent Pane And Leave A Hickory Record](../../../../../guarantees/agent/acp-agents-are-first-class/contract.md), [The daemon exits with its last client](../../../../../guarantees/authoring/the-daemon-exits-with-its-last-client/contract.md), [The Editor Does Not Wait For Workspace Preparation](../../../../../guarantees/authoring/the-editor-does-not-wait-for-workspace-preparation/contract.md).
+
+<a id="f-dc5bee2ae567-Coordinator"></a>
+### `Coordinator`
+
+A single event queue and write history, including overlapping folder views.
+
+<storycode:copy id="f-dc5bee2ae567-Coordinator">
+//! A single event queue and write history, including overlapping folder views.
+use super::Attach;
+use super::startup::Startup;
+use crate::{
+    serve::{
+        LocalState,
+        watch::{notify_files_changed, publish_held, reconcile_rooms},
+    },
+    up::{UpCommand, UpConfig, state::WovenState},
+};
+use anyhow::{Context, Result};
+use notify::RecursiveMode;
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    sync::Arc,
+};
+use tokio::sync::{Mutex, mpsc};
+
+pub struct Coordinator {
+    task: tokio::task::JoinHandle<()>,
+    add: mpsc::UnboundedSender<Registration>,
+    pub woven: Arc<Mutex<WovenState>>,
+    events: mpsc::UnboundedSender<PathBuf>,
+}
+</storycode:copy>
+<a id="f-dc5bee2ae567-Registration"></a>
+### `Registration`
+
+<storycode:copy id="f-dc5bee2ae567-Registration">
+struct Registration {
+    state: LocalState,
+    attach: Attach,
+    startup: Startup,
+    completed: tokio::sync::watch::Sender<Option<Result<(), String>>>,
+}
+</storycode:copy>
+<a id="f-dc5bee2ae567-View"></a>
+### `View`
+
+<storycode:copy id="f-dc5bee2ae567-View">
+struct View {
+    state: LocalState,
+    config: UpConfig,
+}
+
+</storycode:copy>
+<a id="f-dc5bee2ae567-impl-Coordinator"></a>
+### `impl-Coordinator`
+
+<storycode:copy id="f-dc5bee2ae567-impl-Coordinator">
+impl Coordinator {
+    pub fn start(
+        writes: Arc<Mutex<()>>,
+        subscriptions: Arc<std::sync::RwLock<HashMap<String, Attach>>>,
+    ) -> Result<Self> {
+        let (events, mut rx) = mpsc::unbounded_channel();
+        let notify = events.clone();
+        let queued = events.clone();
+        let mut watcher = crate::up::file_watcher(move |result: notify::Result<notify::Event>| {
+            if let Ok(event) = result {
+                for path in event.paths {
+                    if !crate::up::is_noise(&path) {
+                        let _ = notify.send(path);
+                    }
+                }
+            }
+        })
+        .map_err(crate::up::watch_error)?;
+        let (add, mut registrations) = mpsc::unbounded_channel::<Registration>();
+        let (commands, mut command_rx) = mpsc::unbounded_channel();
+        let woven = Arc::new(Mutex::new(WovenState::default()));
+        let history = woven.clone();
+        let task = tokio::spawn(async move {
+            let mut views: HashMap<PathBuf, View> = HashMap::new();
+            let mut watched: Vec<PathBuf> = Vec::new();
+            let mut marks = HashMap::new();
+            loop {
+                tokio::select! {
+                    Some(reg) = registrations.recv() => {
+                        let _write = writes.lock().await;
+                        let mut woven = history.lock().await;
+                        let root = reg.state.index.root().to_path_buf();
+                        // Watch registration is part of startup readiness, not
+                        // client ownership: a queued attach must remain leasable.
+                        reg.startup.progress("watching", 0, 0, None);
+                        let setup = (|| -> Result<_> {
+                            if !watched.iter().any(|p| root.starts_with(p)) {
+                                watcher.watch(&root, RecursiveMode::Recursive).map_err(crate::up::watch_error)
+                                    .with_context(|| format!("watching {}", root.display()))?;
+                                let descendants: Vec<_> = watched.iter().filter(|p| p.starts_with(&root)).cloned().collect();
+                                for path in descendants { let _ = watcher.unwatch(&path); watched.retain(|p| p != &path); }
+                                watched.push(root.clone());
+                            }
+                            *reg.state.up_commands.lock().unwrap() = Some(commands.clone());
+                            crate::ingest::InboxConfig::from_env()
+                        })();
+                        let inbox = match setup {
+                            Ok(inbox) => inbox,
+                            Err(error) => {
+                                let _ = reg.completed.send(Some(Err(format!("{error:#}"))));
+                                continue;
+                            }
+                        };
+                        let result: Result<()> = async {
+                            crate::up::drain_inbox(&root, &inbox);
+                            let config = UpConfig { root: reg.attach.target.clone(), params: reg.attach.params,
+                                executor: reg.attach.executor, run: reg.attach.run };
+                            let docs: Vec<_> = reg.state.index.entries().iter()
+                                .filter_map(|(id, _)| reg.state.index.absolute(id))
+                                .filter(|path| woven.doc_source(path).is_none()).collect();
+                            reg.startup.progress("baselines", 0, docs.len(), None);
+                            if config.run { crate::up::establish_baselines(&docs, &config, &mut woven).await; }
+                            let total = docs.len();
+                            for (index, doc) in docs.into_iter().enumerate() {
+                                let relative = doc.strip_prefix(&root).ok().map(|path| path.to_string_lossy().into_owned());
+                                reg.startup.progress("weaving", index, total, relative);
+                                if let Err(error) = crate::up::weave_document(&doc, &config, &mut woven).await {
+                                    eprintln!("error: {error:#}");
+                                }
+                            }
+                            // --run is a live client subscription, set separately by daemon leases.
+                            views.entry(root.clone()).or_insert(View { state: reg.state.clone(), config });
+                            reg.startup.progress("reconciling", total, total, None);
+                            reconcile_rooms(&reg.state, &root, &woven).await;
+                            publish_held(&reg.state, &root, &woven);
+                            Ok(())
+                        }.await;
+                        let _ = reg.completed.send(Some(result.map_err(|error| format!("{error:#}"))));
+                    }
+                    Some(command) = command_rx.recv() => {
+                        let _write = writes.lock().await;
+                        let mut woven = history.lock().await;
+                        let result: anyhow::Result<()> = match command {
+                            UpCommand::Resolve { request, reply } => {
+                                if !reply.is_closed() {
+                                    let result = woven.resolve_output(&request).map_err(|e| format!("{e:#}"));
+                                    let _ = reply.send(result);
+                                }
+                                Ok(())
+                            },
+                            UpCommand::Reweave(path) => { let _ = queued.send(path); Ok(()) },
+                        };
+                        if let Err(error) = result { eprintln!("error: {error:#}"); }
+                        publish(&views, &woven, &mut marks).await;
+                    }
+                    Some(first) = rx.recv() => {
+                        let mut batch = HashSet::from([first]);
+                        while let Ok(Some(path)) = tokio::time::timeout(std::time::Duration::from_millis(120), rx.recv()).await { batch.insert(path); }
+                        while !crate::up::settle_batch(&batch).await {
+                            while let Ok(path) = rx.try_recv() { batch.insert(path); }
+                        }
+                        let _write = writes.lock().await;
+                        let mut woven = history.lock().await;
+                        // A physical path is processed once, choosing the narrowest view's config.
+                        let mut groups: HashMap<PathBuf, HashSet<PathBuf>> = HashMap::new();
+                        for path in batch {
+                            if let Some(root) = views.keys().filter(|p| path.starts_with(p)).max_by_key(|p| p.components().count()) {
+                                groups.entry(root.clone()).or_default().insert(path);
+                            }
+                        }
+                        for (root, mut batch) in groups {
+                            let view = &views[&root];
+                            if let Ok(inbox) = crate::ingest::InboxConfig::from_env()
+                                && batch.iter().any(|p| p.starts_with(inbox.inbox(&root)))
+                            {
+                                batch.extend(crate::up::drain_inbox(&root, &inbox));
+                            }
+                            for path in &batch {
+                                if path.is_file() && path.extension().is_some_and(|e| e == "hick" || e == "md") {
+                                    for (root, view) in &views {
+                                        if let Ok(rel) = path.strip_prefix(root) { let _ = view.state.index.discover(&rel.to_string_lossy().replace('\\', "/")); }
+                                        view.state.store.register(&view.state.index);
+                                    }
+                                }
+                            }
+                            let active: Vec<_> = subscriptions.read().unwrap().values().cloned().collect();
+                            let config_for = |doc: &std::path::Path| {
+                                let mut config = UpConfig { root: view.config.root.clone(), params: view.config.params.clone(), executor: view.config.executor, run: false };
+                                if let Some(sub) = active.iter().find(|sub| sub.run && (doc == sub.target || doc.starts_with(&sub.target))) {
+                                    config.run = true; config.params = sub.params.clone(); config.executor = sub.executor;
+                                }
+                                config
+                            };
+                            if let Err(error) = crate::up::handle_batch_with(batch, &view.config, &mut woven, Some(&config_for)).await { eprintln!("error: {error:#}"); }
+                        }
+                        publish(&views, &woven, &mut marks).await;
+                    }
+                    else => break,
+                }
+            }
+            history.lock().await.release_read_only();
+        });
+        Ok(Self {
+            task,
+            add,
+            woven,
+            events,
+        })
+    }
+
+    pub async fn shutdown(&self) {
+        // Preparation or a running cell may hold woven across an await.
+        // Cancel its owner before waiting to release generated-file protection.
+        self.task.abort();
+        self.woven.lock().await.release_read_only();
+    }
+
+    pub fn refresh(&self, docs: Vec<PathBuf>) {
+        for doc in docs {
+            let _ = self.events.send(doc);
+        }
+    }
+
+    pub async fn register(&self, state: LocalState, attach: Attach) -> Result<Startup> {
+        let (completed, startup) = Startup::channel();
+        self.add
+            .send(Registration {
+                state,
+                attach,
+                completed,
+                startup: startup.clone(),
+            })
+            .map_err(|_| anyhow::anyhow!("engine watcher stopped"))?;
+        Ok(startup)
+    }
+}
+
+</storycode:copy>
+<a id="f-dc5bee2ae567-publish"></a>
+### `publish`
+
+<storycode:copy id="f-dc5bee2ae567-publish">
+async fn publish(
+    views: &HashMap<PathBuf, View>,
+    woven: &WovenState,
+    marks: &mut HashMap<PathBuf, u64>,
+) {
+    for (root, view) in views {
+        view.state.store.register(&view.state.index);
+        reconcile_rooms(&view.state, root, woven).await;
+        publish_held(&view.state, root, woven);
+        // Marks are per view: sharing one map would suppress the second view's notification.
+        let mut view_marks = marks.clone();
+        notify_files_changed(&view.state, root, woven, &mut view_marks).await;
+    }
+    if let Some((root, view)) = views.iter().next() {
+        notify_files_changed(&view.state, root, woven, marks).await;
+    }
+}
+</storycode:copy>
+
+### Assemble `crates/hickory-cli/src/engine/watch.rs`
+
+The selections below preserve the original byte order. Narrative reading order does not change the output.
+
+<storycode:file path="crates/hickory-cli/src/engine/watch.rs"><storycode:paste select="#f-dc5bee2ae567-Coordinator"/><storycode:paste select="#f-dc5bee2ae567-Registration"/><storycode:paste select="#f-dc5bee2ae567-View"/><storycode:paste select="#f-dc5bee2ae567-impl-Coordinator"/><storycode:paste select="#f-dc5bee2ae567-publish"/></storycode:file>
+
+</storycode:doc>

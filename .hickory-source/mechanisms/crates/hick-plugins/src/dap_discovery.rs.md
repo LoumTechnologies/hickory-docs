@@ -1,0 +1,735 @@
+<storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
+# Maintain crates/hick-plugins/src/dap_discovery.rs
+
+For: maintainers changing this mechanism and reviewing the contracts that depend on it.
+
+This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
+
+<a id="output-72962e7f25e2"></a>
+## `crates/hick-plugins/src/dap_discovery.rs`
+
+Related contracts: [Launch the artifact built from the selected compiled project](../../../../guarantees/debugging/a-compiled-language-launches-what-a-build-produced/contract.md), [A Debugger That Lives In A Language Server Is Asked For](../../../../guarantees/debugging/a-debugger-that-lives-in-a-language-server-is-asked-for/contract.md), [Use the adapter’s transport and the current measured language support](../../../../guarantees/debugging/an-adapter-that-listens-is-connected-to/contract.md), [An Adapter That Runs On A Second Connection Is Followed](../../../../guarantees/debugging/an-adapter-that-runs-on-a-second-connection-is-followed/contract.md), [Install a supported debugger archive into its declared prefix](../../../../guarantees/debugging/an-adapter-that-ships-as-an-archive-installs-like-any-other/contract.md).
+
+<a id="f-72962e7f25e2-Discovered"></a>
+### `Discovered`
+
+Finding a debug adapter without being told where it is.
+The same play as `hick_lsp::discovery`, and deliberately the same rules,
+because they were argued once already: the project's own copy wins over
+the machine's, nothing is ever installed to satisfy a lookup, no network
+is touched, and an adapter that is present but cannot work is **passed
+over** rather than spawned to fail later.
+Debug adapters are less uniform than language servers, in one way that
+shapes this module: several are not executables at all. `debugpy` is a
+Python module you run with `-m`, and `js-debug` is a JavaScript file you
+run with `node`. So a candidate is a *recipe* — an interpreter plus an
+argument — rather than a binary name to find on `PATH`.
+
+<storycode:copy id="f-72962e7f25e2-Discovered">
+//! Finding a debug adapter without being told where it is.
+//!
+//! The same play as `hick_lsp::discovery`, and deliberately the same rules,
+//! because they were argued once already: the project's own copy wins over
+//! the machine's, nothing is ever installed to satisfy a lookup, no network
+//! is touched, and an adapter that is present but cannot work is **passed
+//! over** rather than spawned to fail later.
+//!
+//! Debug adapters are less uniform than language servers, in one way that
+//! shapes this module: several are not executables at all. `debugpy` is a
+//! Python module you run with `-m`, and `js-debug` is a JavaScript file you
+//! run with `node`. So a candidate is a *recipe* — an interpreter plus an
+//! argument — rather than a binary name to find on `PATH`.
+
+use std::path::{Path, PathBuf};
+
+use crate::Transport;
+
+/// Where an adapter was found, for reporting to a person.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Discovered {
+    /// Command and arguments, ready to spawn. For a socket adapter the
+    /// arguments carry `{port}`, which `Adapter::connect_tcp` fills in.
+    pub command: Vec<String>,
+    /// How this adapter expects to be talked to.
+    pub transport: Transport,
+    /// Whether the program runs on a second connection to the same adapter.
+    pub multi_session: bool,
+    /// Whether this adapter must be asked for rather than spawned.
+    ///
+    /// True only for Java. `command` is then empty and `transport` means
+    /// nothing until a caller that can speak LSP has obtained a port — see
+    /// `hickory_cli::java_debug`.
+    pub hosted: bool,
+    /// Launch keys this adapter requires, merged under the caller's own.
+    ///
+    /// Most adapters need none: `program` and `cwd` are the whole request.
+    /// js-debug refuses a config with no `type` at all — "Unknown config",
+    /// listing back everything it was sent — because it multiplexes several
+    /// debuggers behind one server and the type is how it picks one. That is
+    /// adapter knowledge, so it belongs beside the adapter rather than in
+    /// every caller that starts a session.
+    pub launch_extra: serde_json::Value,
+    /// `project` or `machine`.
+    pub origin: &'static str,
+    /// The adapter's own name, for the report and for `<hick:needs>`.
+    pub adapter: &'static str,
+}
+
+</storycode:copy>
+<a id="f-72962e7f25e2-use_declaration"></a>
+### `use_declaration`
+
+<storycode:copy id="f-72962e7f25e2-use_declaration">
+use crate::{DebugCandidate as Candidate, DebugRecipe as Recipe};
+
+</storycode:copy>
+<a id="f-72962e7f25e2-candidates"></a>
+### `candidates`
+
+<storycode:copy id="f-72962e7f25e2-candidates">
+fn candidates(language: &str) -> &'static [Candidate] {
+    match crate::registry().interface(language, crate::InterfaceKind::Dap) {
+        Some(crate::Interface::Dap { candidates, .. }) => candidates,
+        _ => &[],
+    }
+}
+
+</storycode:copy>
+<a id="f-72962e7f25e2-how_to_get"></a>
+### `how_to_get`
+
+How to get an adapter for `language`, when discovery found none.
+This is adapter knowledge, so it lives beside the candidates rather than
+in the CLI: which ecosystems package an adapter as one installable command
+is the same fact that decides what `hick dap install` can offer. Telling
+someone to run a command that does not exist is worse than telling them
+nothing — it costs them a shell round trip to find out.
+`crates/hickory-cli/src/dap_install.rs` holds the catalogue that actually
+installs, and a test there asserts the two agree.
+
+<storycode:copy id="f-72962e7f25e2-how_to_get">
+/// How to get an adapter for `language`, when discovery found none.
+///
+/// This is adapter knowledge, so it lives beside the candidates rather than
+/// in the CLI: which ecosystems package an adapter as one installable command
+/// is the same fact that decides what `hick dap install` can offer. Telling
+/// someone to run a command that does not exist is worse than telling them
+/// nothing — it costs them a shell round trip to find out.
+///
+/// `crates/hickory-cli/src/dap_install.rs` holds the catalogue that actually
+/// installs, and a test there asserts the two agree.
+pub fn how_to_get(language: &str) -> String {
+    // Only two ecosystems package an adapter as one command hick can run
+    // confined, and those two are what `hick dap install` offers. Every
+    // other row here names the adapter and the ecosystem's own way to get
+    // it — because this message used to say `hick dap install go`, which
+    // prints "no installer for go" and costs a person a shell round trip to
+    // find out.
+    match language {
+        "python"
+        // js-debug is not on npm at all and does not speak stdio; it is
+        // fetched as a tarball and connected to. TypeScript additionally
+        // needs a node new enough to run it (v23.6+, where type stripping is
+        // on by default) unless the document generates JavaScript.
+        | "typescript" | "javascript"
+        // netcoredbg ships as per-platform release archives rather than as
+        // one installable command, which is why the catalogue grew an
+        // archive shape rather than this row staying an exception.
+        | "csharp" => {
+            format!(
+                "Install one with `hick dap install {language}`, or install it the way that \
+                 ecosystem does — hick prefers whatever is already there."
+            )
+        }
+        "go" => "delve is the Go debugger: `go install \
+                 github.com/go-delve/delve/cmd/dlv@latest`, and hick will find `dlv` on PATH."
+            .to_string(),
+        "rust" => "Install one with `hick dap install rust` (codelldb, which bundles its own \
+                   lldb), or install it the way that ecosystem does — `lldb-dap` ships with \
+                   LLVM (`apt install lldb`, `brew install llvm`). hick prefers whatever is \
+                   already there."
+            .to_string(),
+        "c" | "cpp" => "hick uses LLVM's own adapter here. `lldb-dap` ships with LLVM \
+                        (`apt install lldb`, `brew install llvm`); codelldb is the other one \
+                        hick looks for. Either on PATH is enough."
+            .to_string(),
+        "java" => "Java's debugger is a plugin inside its language server, so it needs both: \
+                   `hick lsp install java` and `hick dap install java`. A `java` on PATH is \
+                   also needed to run them — hick installs the server, never a JDK."
+            .to_string(),
+        "ruby" => "hick cannot debug Ruby yet, and would rather say so than offer something \
+                   that fails at launch. `rdbg` from the debug gem does not fit the shape \
+                   every other adapter here has: `rdbg --open target.rb` RUNS the program \
+                   and opens a UNIX domain socket, so the program is chosen when the \
+                   adapter starts rather than by a `launch` request. Supporting it means a \
+                   third adapter shape, not a catalogue row."
+            .to_string(),
+        // A language with no candidates at all cannot get here through
+        // `adapter_for`, but a caller asking directly deserves an answer.
+        // Worth its own sentence rather than the catch-all below: somebody
+        // asking why a `.tsx` file has no Debug button has a reasonable
+        // expectation, and "no adapter" is the wrong answer — there is one,
+        // and node is what cannot run the file.
+        "typescriptreact" | "javascriptreact" => "hick does not debug React component files, \
+             and node is why: it cannot execute either. `node app.tsx` is a syntax error on \
+             the first type annotation — type stripping covers `.ts`, not `.tsx` — and \
+             `node app.jsx` runs only while the file contains no JSX at all. A component is \
+             not a program: debug the entry point that imports it, which is a `.ts` or `.js` \
+             and works."
+            .to_string(),
+        _ => format!(
+            "hick has no debug adapter for {language}. `hick dap list` names the ones it does."
+        ),
+    }
+}
+
+</storycode:copy>
+<a id="f-72962e7f25e2-suggests_hick_install"></a>
+### `suggests_hick_install`
+
+Whether `how_to_get` points at `hick dap install`.
+For the drift check in the CLI's catalogue, and nothing else.
+
+<storycode:copy id="f-72962e7f25e2-suggests_hick_install">
+/// Whether `how_to_get` points at `hick dap install`.
+///
+/// For the drift check in the CLI's catalogue, and nothing else.
+pub fn suggests_hick_install(language: &str) -> bool {
+    how_to_get(language).contains("hick dap install")
+}
+
+</storycode:copy>
+<a id="f-72962e7f25e2-known_languages"></a>
+### `known_languages`
+
+Every language this build can debug, for reporting and for tests.
+
+<storycode:copy id="f-72962e7f25e2-known_languages">
+/// Every language this build can debug, for reporting and for tests.
+pub fn known_languages() -> Vec<&'static str> {
+    crate::registry()
+        .languages(crate::InterfaceKind::Dap)
+        .collect()
+}
+
+</storycode:copy>
+<a id="f-72962e7f25e2-discover"></a>
+### `discover`
+
+Find an adapter for `language`, preferring one the project provides.
+
+<storycode:copy id="f-72962e7f25e2-discover">
+/// Find an adapter for `language`, preferring one the project provides.
+pub fn discover(language: &str, root: &Path) -> Option<Discovered> {
+    for candidate in candidates(language) {
+        if let Some(found) = resolve(candidate, root, true) {
+            return Some(found);
+        }
+    }
+    for candidate in candidates(language) {
+        if let Some(found) = resolve(candidate, root, false) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+</storycode:copy>
+<a id="f-72962e7f25e2-launch_extra"></a>
+### `launch_extra`
+
+An adapter's own launch keys, parsed once at the point of use.
+A malformed literal here is a bug in this file, not in a user's document,
+so it degrades to "no extra keys" rather than panicking a debug session.
+
+<storycode:copy id="f-72962e7f25e2-launch_extra">
+/// An adapter's own launch keys, parsed once at the point of use.
+///
+/// A malformed literal here is a bug in this file, not in a user's document,
+/// so it degrades to "no extra keys" rather than panicking a debug session.
+fn launch_extra(candidate: &Candidate) -> serde_json::Value {
+    serde_json::from_str(candidate.launch).unwrap_or_else(|_| serde_json::json!({}))
+}
+
+</storycode:copy>
+<a id="f-72962e7f25e2-resolve"></a>
+### `resolve`
+
+<storycode:copy id="f-72962e7f25e2-resolve">
+fn resolve(candidate: &Candidate, root: &Path, project_only: bool) -> Option<Discovered> {
+    let origin = if project_only { "project" } else { "machine" };
+    match &candidate.recipe {
+        Recipe::Binary { bin, args } => {
+            let path = if project_only {
+                search(&project_dirs(root), bin)?
+            } else {
+                search(&machine_dirs(), bin)?
+            };
+            Some(Discovered {
+                command: once(path)
+                    .chain(args.iter().map(|a| (*a).to_string()))
+                    .collect(),
+                origin,
+                adapter: candidate.adapter,
+                transport: candidate.transport,
+                multi_session: candidate.multi_session,
+                hosted: candidate.hosted,
+                launch_extra: launch_extra(candidate),
+            })
+        }
+        Recipe::NodeScript { package, entry } => {
+            let script = if project_only {
+                node_script(&project_dirs(root), package, entry)?
+            } else {
+                node_script(&machine_dirs(), package, entry)?
+            };
+            let node = search(&machine_dirs(), "node")?;
+            // `dapDebugServer.js <port> [host]`. Without a port it picks
+            // 8123 and tells only its own stdout, which is how two debug
+            // sessions collide.
+            Some(Discovered {
+                command: vec![
+                    node,
+                    script,
+                    crate::debug::PORT_PLACEHOLDER.to_string(),
+                    "127.0.0.1".to_string(),
+                ],
+                origin,
+                adapter: candidate.adapter,
+                transport: candidate.transport,
+                multi_session: candidate.multi_session,
+                hosted: candidate.hosted,
+                launch_extra: launch_extra(candidate),
+            })
+        }
+        Recipe::LanguageServerHosted => {
+            // Both halves, because the debugger runs inside the server: one
+            // without the other cannot debug anything, and reporting Java as
+            // debuggable then would be the claim this whole area exists to
+            // stop making.
+            crate::java::installed(root)?;
+            Some(Discovered {
+                command: Vec::new(),
+                origin,
+                adapter: candidate.adapter,
+                transport: candidate.transport,
+                multi_session: candidate.multi_session,
+                hosted: candidate.hosted,
+                launch_extra: launch_extra(candidate),
+            })
+        }
+        Recipe::PythonModule { module } => {
+            // The interpreter matters more than the module: a project's
+            // virtualenv has both its own python AND its own debugpy, and
+            // debugging a cell with the machine's python against the venv's
+            // debugpy is a mismatch that fails obscurely.
+            let python = if project_only {
+                search(&project_dirs(root), "python3")
+                    .or_else(|| search(&project_dirs(root), "python"))?
+            } else {
+                search(&machine_dirs(), "python3").or_else(|| search(&machine_dirs(), "python"))?
+            };
+            // Present only if the module is importable BY THAT python.
+            if !python_has_module(&python, module) {
+                return None;
+            }
+            Some(Discovered {
+                command: vec![python, "-m".into(), (*module).into()],
+                origin,
+                adapter: candidate.adapter,
+                transport: candidate.transport,
+                multi_session: candidate.multi_session,
+                hosted: candidate.hosted,
+                launch_extra: launch_extra(candidate),
+            })
+        }
+    }
+}
+
+</storycode:copy>
+<a id="f-72962e7f25e2-once"></a>
+### `once`
+
+<storycode:copy id="f-72962e7f25e2-once">
+fn once(value: String) -> std::iter::Once<String> {
+    std::iter::once(value)
+}
+
+</storycode:copy>
+<a id="f-72962e7f25e2-python_has_module"></a>
+### `python_has_module`
+
+Can this interpreter import the module?
+Asked by running it, because "the file is on disk" and "this python can
+import it" are different questions — the second is the one that decides
+whether the adapter starts, and answering the first taught us that lesson
+already with `tsserver`.
+
+<storycode:copy id="f-72962e7f25e2-python_has_module">
+/// Can this interpreter import the module?
+///
+/// Asked by running it, because "the file is on disk" and "this python can
+/// import it" are different questions — the second is the one that decides
+/// whether the adapter starts, and answering the first taught us that lesson
+/// already with `tsserver`.
+fn python_has_module(python: &str, module: &str) -> bool {
+    let root = module.split('.').next().unwrap_or(module);
+    std::process::Command::new(python)
+        .arg("-c")
+        .arg(format!("import {root}"))
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+</storycode:copy>
+<a id="f-72962e7f25e2-node_script"></a>
+### `node_script`
+
+A JavaScript entry point under one of `dirs`.
+
+<storycode:copy id="f-72962e7f25e2-node_script">
+/// A JavaScript entry point under one of `dirs`.
+fn node_script(dirs: &[PathBuf], package: &str, entry: &str) -> Option<String> {
+    for dir in dirs {
+        // `<…>/node_modules/.bin` -> `<…>/node_modules`
+        let modules = if dir.ends_with(".bin") {
+            dir.parent()?.to_path_buf()
+        } else {
+            dir.join("node_modules")
+        };
+        let candidate = modules.join(package).join(entry);
+        if candidate.is_file() {
+            return Some(candidate.to_string_lossy().to_string());
+        }
+        // Not everything that runs under node is an npm package. js-debug
+        // ships as a plain tarball on its own releases — it is not published
+        // to npm at all — so it unpacks beside the other adapters with no
+        // `node_modules` anywhere above it.
+        let unpacked = dir.join(package).join(entry);
+        if unpacked.is_file() {
+            return Some(unpacked.to_string_lossy().to_string());
+        }
+    }
+    None
+}
+
+</storycode:copy>
+<a id="f-72962e7f25e2-search"></a>
+### `search`
+
+<storycode:copy id="f-72962e7f25e2-search">
+fn search(dirs: &[PathBuf], name: &str) -> Option<String> {
+    for dir in dirs {
+        for spelling in [
+            name.to_string(),
+            format!("{name}.exe"),
+            format!("{name}.cmd"),
+        ] {
+            let candidate = dir.join(spelling);
+            if candidate.is_file() {
+                return Some(candidate.to_string_lossy().to_string());
+            }
+        }
+    }
+    None
+}
+
+</storycode:copy>
+<a id="f-72962e7f25e2-project_dirs"></a>
+### `project_dirs`
+
+Where a project keeps its own tools. Deliberately the same list the
+language-server discovery uses, including the walk to the repository root
+that makes a monorepo work.
+
+<storycode:copy id="f-72962e7f25e2-project_dirs">
+/// Where a project keeps its own tools. Deliberately the same list the
+/// language-server discovery uses, including the walk to the repository root
+/// that makes a monorepo work.
+fn project_dirs(root: &Path) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    for ancestor in ancestors_to_repo_root(root) {
+        // The adapter cache belongs to the repository, not to whichever
+        // directory a document happens to sit in. `hick dap install` run at
+        // the top of a project has to serve a document three folders down,
+        // or the install looks like it did nothing.
+        dirs.push(ancestor.join(".hick-cache/adapters/python/bin"));
+        dirs.push(ancestor.join(".hick-cache/adapters/node/node_modules/.bin"));
+        dirs.extend(
+            crate::registry()
+                .project_dirs(crate::InterfaceKind::Dap)
+                .map(|path| ancestor.join(path)),
+        );
+        // codelldb ships as a VS Code extension archive, unpacked whole so
+        // the lldb it bundles stays beside the adapter that loads it.
+        dirs.push(ancestor.join(".hick-cache/adapters/codelldb/extension/adapter"));
+        // The adapters directory itself, for an archive that unpacks to a
+        // directory of scripts rather than to a binary or an npm package.
+        dirs.push(ancestor.join(".hick-cache/adapters"));
+        for layout in [
+            "node_modules/.bin",
+            ".venv/bin",
+            ".venv/Scripts",
+            "venv/bin",
+            "bin",
+        ] {
+            dirs.push(ancestor.join(layout));
+        }
+        if let Ok(entries) = std::fs::read_dir(&ancestor) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.join("pyvenv.cfg").is_file() {
+                    dirs.push(path.join("bin"));
+                    dirs.push(path.join("Scripts"));
+                }
+            }
+        }
+    }
+    dirs
+}
+
+</storycode:copy>
+<a id="f-72962e7f25e2-machine_dirs"></a>
+### `machine_dirs`
+
+<storycode:copy id="f-72962e7f25e2-machine_dirs">
+fn machine_dirs() -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Some(paths) = std::env::var_os("PATH") {
+        dirs.extend(std::env::split_paths(&paths));
+    }
+    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+        let home = PathBuf::from(home);
+        for suffix in [
+            ".local/bin",
+            ".cargo/bin",
+            "go/bin",
+            ".local/share/uv/tools",
+        ] {
+            dirs.push(home.join(suffix));
+        }
+    }
+    dirs
+}
+
+</storycode:copy>
+<a id="f-72962e7f25e2-ancestors_to_repo_root"></a>
+### `ancestors_to_repo_root`
+
+<storycode:copy id="f-72962e7f25e2-ancestors_to_repo_root">
+fn ancestors_to_repo_root(root: &Path) -> Vec<PathBuf> {
+    // A relative root has no ancestors worth walking — `.` climbs to `""` and
+    // stops — so make it absolute first. Callers pass whatever the run was
+    // given, and "the adapter is not installed" is a bad way to find out that
+    // a path was relative.
+    let absolute = if root.as_os_str().is_empty() {
+        // A document named without a directory gives the run an empty working
+        // directory, and `absolute("")` is an error rather than the cwd.
+        std::env::current_dir().ok()
+    } else {
+        std::path::absolute(root).ok()
+    };
+    let root = &absolute.unwrap_or_else(|| root.to_path_buf());
+    let mut out = vec![root.to_path_buf()];
+    if root.join(".git").exists() {
+        return out;
+    }
+    for ancestor in root.ancestors().skip(1) {
+        out.push(ancestor.to_path_buf());
+        if ancestor.join(".git").exists() {
+            return out;
+        }
+    }
+    vec![root.to_path_buf()]
+}
+
+</storycode:copy>
+<a id="f-72962e7f25e2-tests"></a>
+### `tests`
+
+<storycode:copy id="f-72962e7f25e2-tests">
+#[cfg(test)]
+mod tests {
+
+    /// Everything advertised as debuggable must have an adapter to try.
+    #[test]
+    fn known_languages_and_candidates_agree() {
+        for language in known_languages() {
+            assert!(
+                !candidates(language).is_empty(),
+                "`{language}` is advertised as debuggable and has no adapter candidate"
+            );
+        }
+        // The other direction, which is the one that has bitten: a
+        // language must not be advertised without an adapter that can
+        // actually drive it. JavaScript and TypeScript were, until the
+        // session tree existed; Ruby still is.
+        let language = "ruby";
+        assert!(
+            !known_languages().contains(&language),
+            "`{language}` is advertised as debuggable and nothing here can drive its \
+             adapter yet. See `how_to_get` for what it needs."
+        );
+        assert!(
+            !how_to_get(language).is_empty(),
+            "`{language}` must still say what it would take"
+        );
+    }
+    use super::*;
+    use std::fs;
+
+    fn executable(dir: &Path, name: &str) {
+        executable_exiting(dir, name, 0);
+    }
+
+    /// A stand-in that exits with a chosen status.
+    ///
+    /// The status matters for `python3`: the module check RUNS the
+    /// interpreter, so a fake that exits 0 for everything claims to import
+    /// debugpy and the test proves the opposite of what it says. A real
+    /// python without debugpy exits non-zero on the import.
+    fn executable_exiting(dir: &Path, name: &str, code: i32) {
+        fs::create_dir_all(dir).unwrap();
+        // A `#!/bin/sh` file is not executable on Windows no matter what it
+        // is called, and the python probe RUNS what it finds — so a shebang
+        // stand-in there makes every adapter look absent and the tests pass
+        // or fail for reasons that have nothing to do with discovery.
+        // `search` already looks for a `.cmd` spelling, and cmd can run one.
+        #[cfg(windows)]
+        {
+            let path = dir.join(format!("{name}.cmd"));
+            fs::write(&path, format!("@echo off\r\nexit /b {code}\r\n")).unwrap();
+        }
+        #[cfg(not(windows))]
+        {
+            let path = dir.join(name);
+            fs::write(&path, format!("#!/bin/sh\nexit {code}\n")).unwrap();
+            use std::os::unix::fs::PermissionsExt as _;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+
+    #[test]
+    fn the_csharp_plugins_installed_adapter_is_discovered() {
+        let root = tempfile::tempdir().unwrap();
+        let Some(crate::Interface::Dap { project_dirs, .. }) =
+            crate::registry().interface("csharp", crate::InterfaceKind::Dap)
+        else {
+            panic!("C# plugin declares its debugger")
+        };
+        let relative = project_dirs[0];
+        let dir = root.path().join(relative);
+        std::fs::create_dir_all(&dir).unwrap();
+        executable(&dir, "netcoredbg");
+        let adapter = discover("csharp", root.path()).expect("installed C# adapter is found");
+        assert_eq!(adapter.adapter, "netcoredbg");
+        assert_eq!(adapter.origin, "project");
+        let path = Path::new(&adapter.command[0]);
+        assert_eq!(path.parent(), Some(dir.as_path()));
+        assert_eq!(path.file_stem().unwrap(), "netcoredbg");
+    }
+
+    #[test]
+    fn a_project_pinned_adapter_beats_the_machine() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(".git")).unwrap();
+        executable(&dir.path().join("bin"), "dlv");
+        let found = discover("go", dir.path()).expect("found the project's dlv");
+        assert_eq!(found.origin, "project");
+        assert_eq!(found.adapter, "delve");
+        // `dlv dap` is a TCP server, so the command carries the port
+        // placeholder the adapter fills in.
+        assert_eq!(found.command[1], "dap");
+        assert_eq!(found.transport, Transport::Tcp);
+        assert!(
+            found
+                .command
+                .last()
+                .unwrap()
+                .contains(crate::debug::PORT_PLACEHOLDER),
+            "{:?}",
+            found.command
+        );
+    }
+
+    #[test]
+    fn an_installed_adapter_serves_a_document_further_down_the_tree() {
+        // `hick dap install` writes one cache at the top of the project. A
+        // document three folders down has to find it, or the install looks
+        // like it did nothing.
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(".git")).unwrap();
+        executable(
+            &dir.path().join(".hick-cache/adapters/python/bin"),
+            "python3",
+        );
+        let deep = dir.path().join("docs/reports");
+        fs::create_dir_all(&deep).unwrap();
+        let found = discover("python", &deep).expect("found the project's adapter");
+        assert_eq!(found.origin, "project");
+        assert_eq!(found.adapter, "debugpy");
+    }
+
+    #[test]
+    fn a_relative_root_still_walks_up_to_the_project() {
+        // A run is given whatever working directory it was started with, and
+        // `.` has no ancestors to walk: without absolutising it, the adapter
+        // is reported missing on a machine where it is installed. Asserted on
+        // the walk rather than by changing this process's directory, which
+        // would race every other test in this binary.
+        for relative in [".", ""] {
+            let walked = ancestors_to_repo_root(Path::new(relative));
+            assert!(walked[0].is_absolute(), "{relative:?} -> {walked:?}");
+        }
+        let walked = ancestors_to_repo_root(Path::new("."));
+        assert!(
+            walked.len() > 1 || walked[0].join(".git").exists(),
+            "a relative root did not climb: {walked:?}"
+        );
+        assert!(walked[0].is_absolute(), "{walked:?}");
+    }
+
+    #[test]
+    fn a_language_with_no_adapter_reports_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(discover("cobol", dir.path()).is_none());
+    }
+
+    #[test]
+    fn a_python_without_debugpy_is_not_an_adapter() {
+        // The tsserver lesson, applied before it can bite: a python is only
+        // an adapter if it can actually import the module. A directory with
+        // an executable called `python3` that cannot import debugpy must not
+        // be offered.
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(".git")).unwrap();
+        executable_exiting(&dir.path().join("bin"), "python3", 1);
+        let found = discover("python", dir.path());
+        assert!(
+            found.as_ref().is_none_or(|f| f.origin != "project"),
+            "a python that cannot import debugpy was offered: {found:?}"
+        );
+    }
+
+    #[test]
+    fn every_known_language_has_a_candidate() {
+        for language in known_languages() {
+            assert!(
+                !candidates(language).is_empty(),
+                "{language} is advertised as debuggable and has no adapter"
+            );
+        }
+    }
+}
+</storycode:copy>
+
+### Assemble `crates/hick-plugins/src/dap_discovery.rs`
+
+The selections below preserve the original byte order. Narrative reading order does not change the output.
+
+<storycode:file path="crates/hick-plugins/src/dap_discovery.rs"><storycode:paste select="#f-72962e7f25e2-Discovered"/><storycode:paste select="#f-72962e7f25e2-use_declaration"/><storycode:paste select="#f-72962e7f25e2-candidates"/><storycode:paste select="#f-72962e7f25e2-how_to_get"/><storycode:paste select="#f-72962e7f25e2-suggests_hick_install"/><storycode:paste select="#f-72962e7f25e2-known_languages"/><storycode:paste select="#f-72962e7f25e2-discover"/><storycode:paste select="#f-72962e7f25e2-launch_extra"/><storycode:paste select="#f-72962e7f25e2-resolve"/><storycode:paste select="#f-72962e7f25e2-once"/><storycode:paste select="#f-72962e7f25e2-python_has_module"/><storycode:paste select="#f-72962e7f25e2-node_script"/><storycode:paste select="#f-72962e7f25e2-search"/><storycode:paste select="#f-72962e7f25e2-project_dirs"/><storycode:paste select="#f-72962e7f25e2-machine_dirs"/><storycode:paste select="#f-72962e7f25e2-ancestors_to_repo_root"/><storycode:paste select="#f-72962e7f25e2-tests"/></storycode:file>
+
+</storycode:doc>

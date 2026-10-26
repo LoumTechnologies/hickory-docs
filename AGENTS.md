@@ -12,3 +12,11 @@ one-time capture/reconciliation scripts or edit generated files alone.
 Current requirements are the contract pages linked from `project.md`.
 `docs/guarantees/` and `docs/specs/freeform/` retain captured documents as history;
 the canonical contract pages distinguish retained, reconciled and historical text.
+
+Use the audience-first-literate-docs skill for maintained source. Interleave real
+explanations, implementation and tests at reasoning boundaries. Current code uses
+copy fragments and explicit file/paste assembly; raw entries preserve literal
+assets and embedded document syntax. Shared code lives under named mechanisms.
+Use `behavior.py locate <output-path>` to find its construction and every fragment.
+A narrative owner is not proof of adequate explanation: inspect the explicit gaps
+in `hickory-dogfood/narrative-map.json` and do not invent coverage or guarantees.

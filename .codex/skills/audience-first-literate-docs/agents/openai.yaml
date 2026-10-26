@@ -1,0 +1,4 @@
+interface:
+  display_name: "Audience First Literate Docs"
+  short_description: "Interleave explanations, implementation, and tests"
+  default_prompt: "Use $audience-first-literate-docs to write or maintain Hickory source with explanations beside the implementation and tests they explain."

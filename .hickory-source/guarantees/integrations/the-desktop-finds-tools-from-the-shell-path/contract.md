@@ -1,4 +1,4 @@
-<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+<storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
 # Find installed tools when the desktop starts outside a terminal
 
 For: Engineers connecting repository issues, reviews and locally installed tools.
@@ -13,11 +13,6 @@ Desktop launch resolves an absolute executable search path through the supported
 
 Shell profile side effects remain those of the user's configured shell. Native startup and each platform need their own acceptance evidence.
 
-## Inspect implementation and tests
-
-[Follow the actual construction, named witnesses and evidence gaps](review.md).
-
-<book:include file="review.md" />
 
 Earlier wording and all later notes remain in [the preserved original](../../../support/files/docs/guarantees/integrations/the-desktop-finds-tools-from-the-shell-path.md.md). The paragraph ledger records their exact ranges and dispositions.
 
@@ -25,4 +20,24 @@ Requirement decision: Include the October 17 shell replacement and parent-path r
 
 Implementation review: not verified. Executed checks and human judgment are recorded separately. Source and test changes stale earlier evidence.
 
-</book:doc>
+## Implementation
+
+## Implementation review
+
+### Implementation
+
+- [apps/desktop/src-tauri/src/launch_path.rs](../../../mechanisms/apps/desktop/src-tauri/src/launch_path.rs.md#output-9697ca6e6f7a)
+- [apps/desktop/src-tauri/src/main.rs](../../../mechanisms/apps/desktop/src-tauri/src/main.rs.md#output-981e94b5aacd)
+- [crates/hick-term/src/session.rs](../../../mechanisms/crates/hick-term/src/session.rs.md#output-5705d2b8acc0)
+- [crates/hick-term/src/shell_integration.rs](../../../mechanisms/crates/hick-term/src/shell_integration.rs.md#output-3465af886d7a)
+- [crates/hickory-cli/src/engine/client.rs](../../../mechanisms/crates/hickory-cli/src/engine/client.rs.md#output-5c9c7cadce49)
+- [crates/hickory-cli/src/serve/github.rs](../../../mechanisms/crates/hickory-cli/src/serve/github.rs.md#output-1de81b976483)
+
+### Evidence status
+
+- Implementation review: not verified. Retention does not renew an implementation review.
+- Executed checks: [the run record](../../../evidence/focused-checks.md) lists actual executions.
+- Human judgment: stakeholder priorities confirmed; individual requirement acceptance remains unrecorded.
+- Dependencies: exact cited-file hashes are in the capture and source entries. Transitive source and environment changes can also stale evidence.
+
+</storycode:doc>

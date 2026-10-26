@@ -1,4 +1,4 @@
-<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+<storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
 # The History Lens Reads The Repository As A Story
 
 For: Authors reviewing history and choosing where an edit should land.
@@ -20,13 +20,7 @@ The existing requirement is retained. Its original detail is below; implementati
 ## Read the detailed requirements
 
 - [Requirements 1](requirements/01.md)
-<book:include file="requirements/01.md" />
 
-## Inspect implementation and tests
-
-[Follow the actual construction, named witnesses and evidence gaps](review.md).
-
-<book:include file="review.md" />
 
 Earlier wording and all later notes remain in [the preserved original](../../../support/files/docs/guarantees/lenses/the-history-lens-reads-the-repository-as-a-story.md.md). The paragraph ledger records their exact ranges and dispositions.
 
@@ -34,4 +28,34 @@ Requirement decision: Retain the existing requirement without inferring new inte
 
 Implementation review: not verified. Executed checks and human judgment are recorded separately. Source and test changes stale earlier evidence.
 
-</book:doc>
+## Read the retained requirement detail
+
+- [Requirement detail](requirements/01.md)
+<storycode:include file="requirements/01.md" />
+
+## Implementation
+
+## Implementation review
+
+### Implementation
+
+- [apps/web/src/views/GitPane.tsx](../../../mechanisms/apps/web/src/views/GitPane.tsx.md#output-f7cd01998027)
+- [apps/web/src/views/HistoryLens.tsx](../../../mechanisms/apps/web/src/views/HistoryLens.tsx.md#output-b01a7a57f285)
+- [apps/web/src/views/WorkspaceView.tsx](../../../mechanisms/apps/web/src/views/WorkspaceView.tsx.md#output-47afe3575948)
+- [apps/web/src/views/workspaceState.ts](../../../mechanisms/apps/web/src/views/workspaceState.ts.md#output-efd800f9ed5a)
+- [crates/hickory-cli/src/serve/git.rs](../../../mechanisms/crates/hickory-cli/src/serve/git.rs.md#output-3794196055eb)
+- [crates/hickory-cli/src/serve/mod.rs](../../../mechanisms/crates/hickory-cli/src/serve/mod.rs.md#output-09ea558208cd)
+
+### Tests and fixtures
+
+- [apps/web/src/views/HistoryLens.test.tsx](../../../mechanisms/apps/web/src/views/HistoryLens.tsx.md#output-8206e3ef4d86)
+- [crates/hickory-cli/tests/git_ops.rs](../../../mechanisms/crates/hickory-cli/tests/git_ops.rs.md#output-34c22c3c39d6)
+
+### Evidence status
+
+- Implementation review: not verified. Retention does not renew an implementation review.
+- Executed checks: [the run record](../../../evidence/focused-checks.md) lists actual executions.
+- Human judgment: stakeholder priorities confirmed; individual requirement acceptance remains unrecorded.
+- Dependencies: exact cited-file hashes are in the capture and source entries. Transitive source and environment changes can also stale evidence.
+
+</storycode:doc>

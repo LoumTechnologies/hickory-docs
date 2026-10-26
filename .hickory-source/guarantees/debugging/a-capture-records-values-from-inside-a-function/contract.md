@@ -1,4 +1,4 @@
-<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+<storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
 # A Capture Records Values From Inside A Function, On Every Hit
 
 For: Authors debugging generated code while navigating its document source.
@@ -16,13 +16,7 @@ The existing requirement is retained. Its original detail is below; implementati
 ## Read the detailed requirements
 
 - [Requirements 1](requirements/01.md)
-<book:include file="requirements/01.md" />
 
-## Inspect implementation and tests
-
-[Follow the actual construction, named witnesses and evidence gaps](review.md).
-
-<book:include file="review.md" />
 
 Earlier wording and all later notes remain in [the preserved original](../../../support/files/docs/guarantees/debugging/a-capture-records-values-from-inside-a-function.md.md). The paragraph ledger records their exact ranges and dispositions.
 
@@ -30,10 +24,463 @@ Requirement decision: Retain the existing requirement without inferring new inte
 
 Implementation review: not verified. Executed checks and human judgment are recorded separately. Source and test changes stale earlier evidence.
 
-## Source constructed here
 
-[Open this behavior’s construction inputs](construction.md).
+## Read the retained requirement detail
 
-<book:include file="construction.md" />
+- [Requirement detail](requirements/01.md)
+<storycode:include file="requirements/01.md" />
 
-</book:doc>
+## Implementation
+
+<a id="output-1af22f03ab6e"></a>
+## `crates/hick-literate/src/capture.rs`
+
+Related contracts: [A Capture Records Values From Inside A Function, On Every Hit](contract.md).
+
+<a id="f-1af22f03ab6e-PrivateCapture"></a>
+### `PrivateCapture`
+
+`<hick:capture>` declarations, read off the document.
+A capture is the non-interactive half of the debugger: a breakpoint the
+document owns, evaluated by the same session API the app's debugger drives
+(`hick_dap::capture`). This module is the *parsing* half — what the tag
+means and how a malformed one is reported. The running is in `hick-dap`,
+and the two are deliberately separate: a document can be checked for a
+nonsense `at=` with no adapter installed and no program run.
+\```xml
+<hick:exec container="lab">
+python3 pricing.py
+<hick:capture at="pricing.py:14" of="subtotal, len(lines)" when="subtotal < 0" />
+</hick:exec>
+\```
+`at` is a location in a generated file, which is a location in the
+document. `of` is a list of expressions. `when` is a breakpoint condition —
+and a condition wants `<` and `>`, which the no-escaping invariant makes
+ordinary rather than awkward: a comparison reads as a comparison.
+See `docs/specs/freeform/literate-debugging.md`.
+
+<storycode:copy id="f-1af22f03ab6e-PrivateCapture">
+//! `<hick:capture>` declarations, read off the document.
+//!
+//! A capture is the non-interactive half of the debugger: a breakpoint the
+//! document owns, evaluated by the same session API the app's debugger drives
+//! (`hick_dap::capture`). This module is the *parsing* half — what the tag
+//! means and how a malformed one is reported. The running is in `hick-dap`,
+//! and the two are deliberately separate: a document can be checked for a
+//! nonsense `at=` with no adapter installed and no program run.
+//!
+//! ```xml
+//! <hick:exec container="lab">
+//! python3 pricing.py
+//!   <hick:capture at="pricing.py:14" of="subtotal, len(lines)" when="subtotal < 0" />
+//! </hick:exec>
+//! ```
+//!
+//! `at` is a location in a generated file, which is a location in the
+//! document. `of` is a list of expressions. `when` is a breakpoint condition —
+//! and a condition wants `<` and `>`, which the no-escaping invariant makes
+//! ordinary rather than awkward: a comparison reads as a comparison.
+//!
+//! See `docs/specs/freeform/literate-debugging.md`.
+
+use hick_dap::capture::{CaptureSpec, DEFAULT_MAX_HITS, parse_at, split_expressions};
+use hick_lang::{HickNode, HickTag};
+
+use crate::{CellId, tag_attr};
+
+/// Host-private destination for actual capture values. This is not a UI/tool
+/// result callback; consumers must keep it outside predictor context.
+pub struct PrivateCapture {
+    pub project: std::path::PathBuf,
+    pub receive:
+        std::sync::Arc<dyn Fn(&[hick_dap::capture::Captured]) -> anyhow::Result<()> + Send + Sync>,
+}
+
+</storycode:copy>
+<a id="f-1af22f03ab6e-append_or_deliver"></a>
+### `append_or_deliver`
+
+<storycode:copy id="f-1af22f03ab6e-append_or_deliver">
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn append_or_deliver(
+    executor: &dyn hickory_executor::Executor,
+    container: &str,
+    line: usize,
+    document: &std::path::Path,
+    source: &str,
+    project: &std::path::Path,
+    specs: &[CaptureSpec],
+    private: Option<&PrivateCapture>,
+    output: &mut String,
+) -> anyhow::Result<()> {
+    if let Some(private) = private {
+        let captured =
+            hick_dap::capture::run_private(document, source, &private.project, specs).await?;
+        (private.receive)(&captured)?;
+    } else {
+        let table = run_cell(document, source, project, specs).await;
+        if !table.is_empty() {
+            output.push('\n');
+            output.push_str(&table);
+            executor.inject_transcript_entry(
+                container,
+                hickory_executor::ExecTranscriptEntry {
+                    commands: Vec::new(),
+                    output: table,
+                    events: Vec::new(),
+                    source_line: Some(line),
+                },
+            );
+        }
+    }
+    Ok(())
+}
+
+</storycode:copy>
+<a id="f-1af22f03ab6e-CellCaptures"></a>
+### `CellCaptures`
+
+Every capture one cell declared, in document order.
+
+<storycode:copy id="f-1af22f03ab6e-CellCaptures">
+/// Every capture one cell declared, in document order.
+#[derive(Debug, Clone)]
+pub struct CellCaptures {
+    pub cell: CellId,
+    /// 1-based source line of the owning exec tag.
+    pub exec_line: usize,
+    pub specs: Vec<CaptureSpec>,
+}
+
+</storycode:copy>
+<a id="f-1af22f03ab6e-collect"></a>
+### `collect`
+
+Collect the captures declared in a document.
+Returns an error for a capture that cannot mean anything — a missing or
+malformed `at`, an empty `of`, a `max` of zero — rather than running the
+program and weaving an empty table, which would read as "this never
+happened" when the truth is "this was never asked".
+
+<storycode:copy id="f-1af22f03ab6e-collect">
+/// Collect the captures declared in a document.
+///
+/// Returns an error for a capture that cannot mean anything — a missing or
+/// malformed `at`, an empty `of`, a `max` of zero — rather than running the
+/// program and weaving an empty table, which would read as "this never
+/// happened" when the truth is "this was never asked".
+pub fn collect(nodes: &[HickNode]) -> Result<Vec<CellCaptures>, String> {
+    let mut out = Vec::new();
+    collect_from(nodes, &mut out)?;
+    Ok(out)
+}
+
+</storycode:copy>
+<a id="f-1af22f03ab6e-collect_from"></a>
+### `collect_from`
+
+<storycode:copy id="f-1af22f03ab6e-collect_from">
+fn collect_from(nodes: &[HickNode], out: &mut Vec<CellCaptures>) -> Result<(), String> {
+    for node in nodes {
+        let HickNode::Tag(tag) = node else { continue };
+        if tag.name == "capture" {
+            // Reached without passing through an exec, so it belongs to
+            // nothing. Silently ignoring it is how a document ends up
+            // claiming to verify something it never looked at.
+            return Err(format!(
+                "line {}: <hick:capture> must be a child of <hick:exec> — it is a breakpoint \
+                 in the program that cell runs, so on its own there is nothing to stop.",
+                tag.source_line
+            ));
+        }
+        if tag.name == "exec" {
+            let captures: Vec<&HickTag> =
+                tag.child_tags().filter(|t| t.name == "capture").collect();
+            if !captures.is_empty() {
+                let mut specs = Vec::new();
+                for capture in captures {
+                    specs.push(parse_capture(capture)?);
+                }
+                out.push(CellCaptures {
+                    cell: CellId::exec(
+                        tag_attr(tag, "container").unwrap_or_default(),
+                        tag.source_line,
+                    ),
+                    exec_line: tag.source_line,
+                    specs,
+                });
+            }
+            // Its own captures are accounted for; anything nested deeper is
+            // not an exec's child and is caught by the branch above.
+            for child in tag.child_tags().filter(|t| t.name != "capture") {
+                collect_from(&child.children, out)?;
+            }
+            continue;
+        }
+        collect_from(&tag.children, out)?;
+    }
+    Ok(())
+}
+
+</storycode:copy>
+<a id="f-1af22f03ab6e-parse_capture"></a>
+### `parse_capture`
+
+<storycode:copy id="f-1af22f03ab6e-parse_capture">
+fn parse_capture(tag: &HickTag) -> Result<CaptureSpec, String> {
+    let line_no = tag.source_line;
+    let at = tag_attr(tag, "at").ok_or_else(|| {
+        format!(
+            "line {line_no}: <hick:capture> has no `at`. Write the location to stop at as \
+             `at=\"pricing.py:14\"` — the file a `hick:file` block generates, and the line in it."
+        )
+    })?;
+    let (file, line) = parse_at(&at).map_err(|e| format!("line {line_no}: {e}"))?;
+
+    let of = tag_attr(tag, "of").ok_or_else(|| {
+        format!(
+            "line {line_no}: <hick:capture> has no `of`. List what to record as \
+             `of=\"subtotal, len(lines)\"` — expressions in the debugged program's own language."
+        )
+    })?;
+    let expressions = split_expressions(&of);
+    if expressions.is_empty() {
+        return Err(format!(
+            "line {line_no}: <hick:capture of=\"{of}\"> lists no expression to record."
+        ));
+    }
+
+    // `when` belongs to the language: it decides whether a node is in the
+    // document at all, and conditional filtering runs long before anything is
+    // debugged. A capture that wrote `when` for its breakpoint condition
+    // would be quietly deleted whenever that expression looked false, so it
+    // is refused by name rather than misread.
+    if tag_attr(tag, "when").is_some() {
+        return Err(format!(
+            "line {line_no}: <hick:capture when=\"…\"> means what `when` means everywhere else \
+             in a document — include this node only if the condition holds — and it is decided \
+             before the program runs. Write the breakpoint's own condition as \
+             `condition=\"quantity > 2\"`, which is evaluated by the debugger, in the debuggee."
+        ));
+    }
+
+    let max = match tag_attr(tag, "max") {
+        None => DEFAULT_MAX_HITS,
+        Some(raw) => {
+            let parsed: usize = raw.trim().parse().map_err(|_| {
+                format!(
+                    "line {line_no}: <hick:capture max=\"{raw}\"> is not a number. `max` bounds \
+                     how many hits are recorded (default {DEFAULT_MAX_HITS})."
+                )
+            })?;
+            if parsed == 0 {
+                return Err(format!(
+                    "line {line_no}: <hick:capture max=\"0\"> would record nothing. Remove the \
+                     capture instead, or raise `max`."
+                ));
+            }
+            parsed
+        }
+    };
+
+    Ok(CaptureSpec {
+        file,
+        line,
+        expressions,
+        condition: tag_attr(tag, "condition").filter(|c| !c.trim().is_empty()),
+        max,
+    })
+}
+
+</storycode:copy>
+<a id="f-1af22f03ab6e-run_cell"></a>
+### `run_cell`
+
+Run one cell's captures and render what they recorded.
+Returns the text to append to the cell's output, which is empty when there
+was nothing to record.
+**A capture degrades rather than failing the run.** A machine with no debug
+adapter installed is the normal state of CI and of a reader who cloned the
+repository to look at it, and a document that cannot be *read* without
+`debugpy` would be a worse document. What the run weaves in that case says
+what is missing and how to get it — the same treatment a missing model
+credential gets for an agent cell.
+
+<storycode:copy id="f-1af22f03ab6e-run_cell">
+/// Run one cell's captures and render what they recorded.
+///
+/// Returns the text to append to the cell's output, which is empty when there
+/// was nothing to record.
+///
+/// **A capture degrades rather than failing the run.** A machine with no debug
+/// adapter installed is the normal state of CI and of a reader who cloned the
+/// repository to look at it, and a document that cannot be *read* without
+/// `debugpy` would be a worse document. What the run weaves in that case says
+/// what is missing and how to get it — the same treatment a missing model
+/// credential gets for an agent cell.
+pub async fn run_cell(
+    document: &std::path::Path,
+    source: &str,
+    project: &std::path::Path,
+    specs: &[CaptureSpec],
+) -> String {
+    match hick_dap::capture::run(document, source, project, specs).await {
+        Ok(captured) => captured
+            .iter()
+            .map(hick_dap::capture::render)
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Err(error) => {
+            log::warn!(
+                "captures in {} could not run: {error:#}",
+                document.display()
+            );
+            format!("_captures did not run: {error:#}_\n")
+        }
+    }
+}
+
+</storycode:copy>
+<a id="f-1af22f03ab6e-tests"></a>
+### `tests`
+
+<storycode:copy id="f-1af22f03ab6e-tests">
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(source: &str) -> Result<Vec<CellCaptures>, String> {
+        let doc = hick_lang::parse(source).expect("the document parses");
+        collect(&doc.nodes)
+    }
+
+    const DOC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="out.md">
+<hick:exec container="lab">
+python3 pricing.py
+  <hick:capture at="pricing.py:14" of="subtotal, len(lines)" condition="subtotal &lt; 0" max="5" />
+</hick:exec>
+</hick:doc>
+"##;
+
+    #[test]
+    fn a_capture_is_read_off_its_cell() {
+        let found = parse(&DOC.replace("&lt;", "<")).unwrap();
+        assert_eq!(found.len(), 1);
+        let spec = &found[0].specs[0];
+        assert_eq!(spec.file, "pricing.py");
+        assert_eq!(spec.line, 14);
+        assert_eq!(spec.expressions, ["subtotal", "len(lines)"]);
+        // A raw `<` in an attribute, which the no-escaping invariant makes
+        // ordinary — a comparison reads as a comparison.
+        assert_eq!(spec.condition.as_deref(), Some("subtotal < 0"));
+        assert_eq!(spec.max, 5);
+    }
+
+    #[test]
+    fn hits_are_bounded_by_default() {
+        let source = DOC.replace("&lt;", "<").replace(" max=\"5\"", "");
+        assert_eq!(parse(&source).unwrap()[0].specs[0].max, DEFAULT_MAX_HITS);
+    }
+
+    #[test]
+    fn a_cell_may_declare_several() {
+        let source = DOC.replace("&lt;", "<").replace(
+            "</hick:exec>",
+            "  <hick:capture at=\"pricing.py:2\" of=\"LINES\" />\n</hick:exec>",
+        );
+        assert_eq!(parse(&source).unwrap()[0].specs.len(), 2);
+    }
+
+    #[test]
+    fn a_capture_with_no_location_says_how_to_write_one() {
+        let source = DOC
+            .replace("&lt;", "<")
+            .replace("at=\"pricing.py:14\" ", "");
+        let error = parse(&source).unwrap_err();
+        assert!(error.contains("at=\"pricing.py:14\""), "{error}");
+    }
+
+    #[test]
+    fn a_capture_with_nothing_to_record_is_an_error() {
+        let source = DOC
+            .replace("&lt;", "<")
+            .replace("of=\"subtotal, len(lines)\" ", "");
+        assert!(parse(&source).unwrap_err().contains("no `of`"));
+    }
+
+    #[test]
+    fn a_max_that_is_not_a_number_is_reported_against_its_line() {
+        let source = DOC
+            .replace("&lt;", "<")
+            .replace("max=\"5\"", "max=\"lots\"");
+        let error = parse(&source).unwrap_err();
+        assert!(error.contains("line 5"), "{error}");
+        assert!(error.contains("is not a number"), "{error}");
+    }
+
+    #[test]
+    fn a_max_of_zero_would_record_nothing() {
+        let source = DOC.replace("&lt;", "<").replace("max=\"5\"", "max=\"0\"");
+        assert!(parse(&source).unwrap_err().contains("Remove the capture"));
+    }
+
+    #[test]
+    fn a_when_is_refused_because_the_language_owns_it() {
+        // `when` is conditional inclusion, applied before anything runs. A
+        // capture that used it for its breakpoint condition would vanish from
+        // the document instead of firing — which is how this was found.
+        let source = DOC.replace("&lt;", "<").replace("condition=", "when=");
+        let error = parse(&source).unwrap_err();
+        assert!(error.contains("condition=\"quantity > 2\""), "{error}");
+    }
+
+    #[test]
+    fn a_capture_outside_a_cell_is_refused() {
+        let source = r##"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="out.md">
+<hick:capture at="a.py:1" of="x" />
+</hick:doc>
+"##;
+        let error = parse(source).unwrap_err();
+        assert!(error.contains("must be a child of <hick:exec>"), "{error}");
+    }
+
+    #[test]
+    fn a_document_with_no_captures_collects_nothing() {
+        let source = DOC.replace("&lt;", "<").replace(
+            "  <hick:capture at=\"pricing.py:14\" of=\"subtotal, len(lines)\" \
+                 condition=\"subtotal < 0\" max=\"5\" />\n",
+            "",
+        );
+        assert!(parse(&source).unwrap().is_empty());
+    }
+}
+</storycode:copy>
+
+### Assemble `crates/hick-literate/src/capture.rs`
+
+The selections below preserve the original byte order. Narrative reading order does not change the output.
+
+<storycode:file path="crates/hick-literate/src/capture.rs"><storycode:paste select="#f-1af22f03ab6e-PrivateCapture"/><storycode:paste select="#f-1af22f03ab6e-append_or_deliver"/><storycode:paste select="#f-1af22f03ab6e-CellCaptures"/><storycode:paste select="#f-1af22f03ab6e-collect"/><storycode:paste select="#f-1af22f03ab6e-collect_from"/><storycode:paste select="#f-1af22f03ab6e-parse_capture"/><storycode:paste select="#f-1af22f03ab6e-run_cell"/><storycode:paste select="#f-1af22f03ab6e-tests"/></storycode:file>
+
+## Implementation review
+
+### Implementation
+
+- [crates/hick-dap/src/capture.rs](../../../mechanisms/crates/hick-dap/src/capture.rs.md#output-9b1310a1716d)
+- [crates/hick-literate/src/capture.rs](contract.md#output-1af22f03ab6e)
+
+### Tests and fixtures
+
+- [crates/hick-dap/tests/live_capture.rs](../../../mechanisms/crates/hick-dap/tests/live_capture.rs.md#output-74b67dfe72b0)
+- [crates/hickory-cli/tests/capture_run.rs](../../../mechanisms/crates/hickory-cli/tests/capture_run.rs.md#output-71575bb4ea42)
+
+### Evidence status
+
+- Implementation review: not verified. Retention does not renew an implementation review.
+- Executed checks: [the run record](../../../evidence/focused-checks.md) lists actual executions.
+- Human judgment: stakeholder priorities confirmed; individual requirement acceptance remains unrecorded.
+- Dependencies: exact cited-file hashes are in the capture and source entries. Transitive source and environment changes can also stale evidence.
+
+</storycode:doc>

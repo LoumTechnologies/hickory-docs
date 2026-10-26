@@ -51,7 +51,7 @@ def audit():
     baseline=json.loads((BASE/'baseline.json').read_text())
     assert {e['path'] for e in baseline['entries']} <= set(m['constructors']),'Incomplete construction inventory'
     pages=[c['source'] for c in m['constructors'].values()]
-    assert len(pages)==len(set(pages)), 'Two outputs share a construction file'
+    # Several outputs may share a narrative; each output still has one construction.
     assert all((ROOT/page).is_file() for page in pages), 'A constructor source is missing'
     if (ROOT/'.git').exists():
         tracked=subprocess.check_output(['git','ls-files','-z'],cwd=ROOT).decode().split('\0')
@@ -60,17 +60,44 @@ def audit():
     original_guarantees={e['path'] for e in baseline['entries'] if e['path'].startswith('docs/guarantees/') and e['path'].endswith('.md')}
     assert original_guarantees=={r['origin'] for r in m['contracts'].values()}|set(m['evidence_records']), 'A guarantee/evidence file has no disposition'
     unresolved=[]
+    constructions=collections.defaultdict(list)
+    definitions=collections.defaultdict(list)
+    selections=[]
     for page in [ROOT/'project.md',*(ROOT/'.hickory-source').rglob('*.md')]:
         if not page.is_file(): continue
         text=page.read_text()
-        # Links quoted inside original file payloads belong to that generated file.
-        editorial=re.sub(r'<([A-Za-z_][\w.-]*):entry\b.*?</\1:entry>', '', text, flags=re.S)
+        relative=page.relative_to(ROOT).as_posix()
+        namespace=re.search(r'xmlns:([\w.-]+)="http://www\.hickorydocs\.com/1\.0"',text)
+        editorial=text
+        if namespace:
+            prefix=re.escape(namespace[1])
+            raw=re.compile(r'<'+prefix+r':(entry|copy)\b([^>]*)>.*?</'+prefix+r':\1>',re.S)
+            for match in raw.finditer(text):
+                attribute='path' if match[1]=='entry' else 'id'
+                found=re.search(attribute+r'="([^"]+)"',match[2])
+                assert found, 'Missing '+attribute+' in '+relative
+                (constructions if match[1]=='entry' else definitions)[found[1]].append(relative)
+            editorial=raw.sub('',text)
+            for attrs in re.findall(r'<'+prefix+r':file\b([^>]*)>',editorial):
+                found=re.search(r'path="([^"]+)"',attrs)
+                assert found, 'File construction without path: '+relative
+                constructions[found[1]].append(relative)
+            selections+=re.findall(r'<'+prefix+r':paste\b[^>]*select="#([^"]+)"',editorial)
         editorial=re.sub(r'(?ms)^```[^\n]*\n.*?^```[^\n]*$', '', editorial)
         editorial=re.sub(r'`[^`\n]*`', '', editorial)
         for target in re.findall(r'\[[^\]\n]+\]\(([^)\s]+)\)',editorial):
             if target.startswith(('#','http:','https:','mailto:','/')):continue
             path=target.partition('#')[0]
-            if not (page.parent/path).is_file():unresolved.append((str(page.relative_to(ROOT)),target))
+            if not (page.parent/path).is_file():unresolved.append((relative,target))
+    assert set(constructions)==set(m['constructors']), 'Actual construction inventory differs from the ownership map: '+str(sorted(set(constructions)^set(m['constructors'])))
+    for path,locations in constructions.items():
+        assert locations==[m['constructors'][path]['source']], 'Duplicate or misplaced construction: '+path+' '+str(locations)
+    assert all(len(locations)==1 for locations in definitions.values()), 'A fragment has more than one definition'
+    assert set(selections)<=set(definitions), 'Unresolved selected fragment: '+str(sorted(set(selections)-set(definitions)))
+    narrative=json.loads((BASE/'narrative-map.json').read_text())
+    for fragment in narrative['fragments']:
+        assert definitions.get(fragment['id'])==[fragment['page']], 'Fragment ownership differs: '+fragment['id']
+    print(f"{len(definitions)} single-owner fragments; {len(narrative['explanation_gaps'])} files retain explicit explanation review work.")
     paragraph_coverage=None
     if m.get('reconciliation_version'):
         from reconciliation_audit import validate
@@ -96,6 +123,7 @@ def main():
     commands.add_parser('audit')
     commands.add_parser('generate')
     commands.add_parser('check')
+    locate=commands.add_parser('locate');locate.add_argument('output')
     show=commands.add_parser('show');show.add_argument('guarantee')
     test=commands.add_parser('test');test.add_argument('guarantee');test.add_argument('--execute',action='store_true')
     args=parser.parse_args()
@@ -105,6 +133,15 @@ def main():
         if not engine.is_file():raise ValueError('Build hickory-dogfood/tools/behavior-engine with the command in docs/developers/literate-workflow.md first.')
         result,_=run([engine,args.command,ROOT]);print(result.stdout.strip());return 0
     m=read_map()
+    if args.command=='locate':
+        record=m['constructors'].get(args.output)
+        if record is None:raise ValueError('Unknown constructed output: '+args.output)
+        print('Construction: '+record['source']+('#'+record['anchor'] if record.get('anchor') else ''))
+        narrative=json.loads((BASE/'narrative-map.json').read_text())
+        for fragment in narrative['fragments']:
+            if fragment['output']==args.output:
+                print(fragment['page']+'#'+fragment['id']+' — '+fragment['symbol']+' ('+fragment['basis']+')')
+        return 0
     key=args.guarantee.removeprefix('docs/guarantees/')
     if key not in m['contracts']:raise ValueError(f'Unknown guarantee: {key}')
     record=m['contracts'][key]

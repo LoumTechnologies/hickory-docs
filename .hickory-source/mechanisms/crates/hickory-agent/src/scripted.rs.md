@@ -1,0 +1,134 @@
+<storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
+# Maintain crates/hickory-agent/src/scripted.rs
+
+For: maintainers changing this mechanism and reviewing the contracts that depend on it.
+
+This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
+
+<a id="output-09d6f04529b7"></a>
+## `crates/hickory-agent/src/scripted.rs`
+
+<a id="f-09d6f04529b7-ScriptedLlmClient"></a>
+### `ScriptedLlmClient`
+
+A canned [`LlmClient`] that replays scripted responses — no network.
+Used by tests (and offline development) to exercise model-client integrations
+deterministically: each `complete` call pops the next scripted response.
+Responses can carry fake [`Usage`] so cost-accounting plumbing is
+testable offline (e.g. asserting `cache_read_input_tokens` propagates
+into events on turn 2).
+
+<storycode:copy id="f-09d6f04529b7-ScriptedLlmClient">
+//! A canned [`LlmClient`] that replays scripted responses — no network.
+//!
+//! Used by tests (and offline development) to exercise model-client integrations
+//! deterministically: each `complete` call pops the next scripted response.
+//! Responses can carry fake [`Usage`] so cost-accounting plumbing is
+//! testable offline (e.g. asserting `cache_read_input_tokens` propagates
+//! into events on turn 2).
+
+use std::collections::VecDeque;
+use std::sync::Mutex;
+
+use async_trait::async_trait;
+
+use crate::llm::{ChatChunk, ChatStream, LlmClient, Message};
+use crate::usage::Usage;
+
+/// An [`LlmClient`] that returns pre-scripted responses in order.
+pub struct ScriptedLlmClient {
+    responses: Mutex<VecDeque<(String, Usage)>>,
+    model: String,
+}
+
+</storycode:copy>
+<a id="f-09d6f04529b7-impl-ScriptedLlmClient"></a>
+### `impl-ScriptedLlmClient`
+
+<storycode:copy id="f-09d6f04529b7-impl-ScriptedLlmClient">
+impl ScriptedLlmClient {
+    /// Create with the responses to replay, in order (zero usage).
+    pub fn new(responses: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            responses: Mutex::new(
+                responses
+                    .into_iter()
+                    .map(|r| (r.into(), Usage::default()))
+                    .collect(),
+            ),
+            model: "scripted".into(),
+        }
+    }
+
+    /// Create with responses that each report a fake [`Usage`].
+    pub fn with_usages(responses: impl IntoIterator<Item = (impl Into<String>, Usage)>) -> Self {
+        Self {
+            responses: Mutex::new(responses.into_iter().map(|(r, u)| (r.into(), u)).collect()),
+            model: "scripted".into(),
+        }
+    }
+
+    /// Report a different model name (e.g. to exercise a real price-table
+    /// entry in cost tests).
+    pub fn with_model_name(mut self, model: impl Into<String>) -> Self {
+        self.model = model.into();
+        self
+    }
+
+    fn pop(&self) -> anyhow::Result<(String, Usage)> {
+        self.responses
+            .lock()
+            .unwrap()
+            .pop_front()
+            .ok_or_else(|| anyhow::anyhow!("ScriptedLlmClient ran out of responses"))
+    }
+}
+
+</storycode:copy>
+<a id="f-09d6f04529b7-impl-LlmClient-for-ScriptedLlmClient"></a>
+### `impl-LlmClient for ScriptedLlmClient`
+
+<storycode:copy id="f-09d6f04529b7-impl-LlmClient-for-ScriptedLlmClient">
+#[async_trait]
+impl LlmClient for ScriptedLlmClient {
+    async fn complete(&self, _messages: Vec<Message>) -> anyhow::Result<String> {
+        Ok(self.pop()?.0)
+    }
+
+    async fn complete_with_usage(
+        &self,
+        _messages: Vec<Message>,
+    ) -> anyhow::Result<(String, Usage)> {
+        self.pop()
+    }
+
+    async fn complete_stream(&self, _messages: Vec<Message>) -> anyhow::Result<ChatStream> {
+        let (text, usage) = self.pop()?;
+        let stream = futures::stream::once(async move {
+            Ok(ChatChunk {
+                delta: text,
+                reasoning: String::new(),
+                finish_reason: Some("stop".into()),
+                usage: Some(usage),
+            })
+        });
+        Ok(Box::pin(stream))
+    }
+
+    fn provider_name(&self) -> &str {
+        "scripted"
+    }
+
+    fn model_name(&self) -> &str {
+        &self.model
+    }
+}
+</storycode:copy>
+
+### Assemble `crates/hickory-agent/src/scripted.rs`
+
+The selections below preserve the original byte order. Narrative reading order does not change the output.
+
+<storycode:file path="crates/hickory-agent/src/scripted.rs"><storycode:paste select="#f-09d6f04529b7-ScriptedLlmClient"/><storycode:paste select="#f-09d6f04529b7-impl-ScriptedLlmClient"/><storycode:paste select="#f-09d6f04529b7-impl-LlmClient-for-ScriptedLlmClient"/></storycode:file>
+
+</storycode:doc>

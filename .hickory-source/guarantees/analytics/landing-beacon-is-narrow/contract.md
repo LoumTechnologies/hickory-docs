@@ -1,4 +1,4 @@
-<book:doc xmlns:book="http://www.hickorydocs.com/1.0">
+<storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
 # The Landing Beacon Forwards Only Declared Events With Scalar Properties
 
 For: Maintainers evaluating landing-page behavior and visitor privacy.
@@ -13,4 +13,10 @@ Requirement decision: The promised apps/server analytics route is absent from th
 
 Implementation review: not verified. Executed checks and human judgment are recorded separately. Source and test changes stale earlier evidence.
 
-</book:doc>
+## Implementation
+
+## Implementation review
+
+Historical contract. No separate implementation review was recorded.
+
+</storycode:doc>

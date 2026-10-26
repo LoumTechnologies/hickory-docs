@@ -1,0 +1,844 @@
+<storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
+# Maintain crates/hick-observe/src/prediction_tests.rs
+
+For: maintainers changing this mechanism and reviewing the contracts that depend on it.
+
+This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
+
+<a id="output-a797b872866a"></a>
+## `crates/hick-observe/src/prediction_tests.rs`
+
+Related contracts: [Browser-local prediction practice uses the shared gate](../../../../guarantees/verification/browser-predictions-use-the-shared-gate/contract.md), [Keep a prediction separate from the answer it is tested against](../../../../guarantees/verification/predictions-precede-managed-observation/contract.md).
+
+[Read the test `combined_predicate_requires_every_target_and_rejects_missing_extra_or_unbounded_fields` beside its requirement](../../../../guarantees/verification/predictions-precede-managed-observation/contract.md#f-a797b872866a-combined_predicate_requires_every_target_and_rejects_missing_extra_or_unbounded_fields).
+<a id="f-a797b872866a-use_declaration"></a>
+### `use_declaration`
+
+<storycode:copy id="f-a797b872866a-use_declaration">
+use serde_json::json;
+
+</storycode:copy>
+[Read the test `selected_history_preserves_failure_and_repair_without_exporting_private_answers` beside its requirement](../../../../guarantees/verification/predictions-precede-managed-observation/contract.md#f-a797b872866a-selected_history_preserves_failure_and_repair_without_exporting_private_answers).
+<a id="f-a797b872866a-actor"></a>
+### `actor`
+
+<storycode:copy id="f-a797b872866a-actor">
+fn actor(kind: &str) -> Actor {
+    Actor {
+        kind: kind.into(),
+        id: format!("fixture-{kind}"),
+    }
+}
+</storycode:copy>
+<a id="f-a797b872866a-seal"></a>
+### `seal`
+
+<storycode:copy id="f-a797b872866a-seal">
+fn seal(predicted: u64, source: char) -> Seal {
+    let inputs = json!({"attempts":[80,80],"budget":100});
+    Seal {
+        scenario: Scenario {
+            family: "retry-total-budget-v1".into(),
+            inputs: inputs.clone(),
+            requirement_reference: "R1".into(),
+            requirement: Predicate::NumberAtMost(100.0),
+            identity_known: true,
+        },
+        identity: Identity {
+            source: source.to_string().repeat(64),
+            inputs: digest(&inputs).unwrap(),
+            dependencies: BTreeMap::new(),
+            environment: BTreeMap::from([("node".into(), "e".repeat(64))]),
+        },
+        target: Target::Output {
+            execution: "deadline-witness".into(),
+        },
+        predicted: Predicate::Equals(json!(predicted)),
+        rationale: "Two attempts share one total budget".into(),
+    }
+}
+</storycode:copy>
+<a id="f-a797b872866a-finish"></a>
+### `finish`
+
+<storycode:copy id="f-a797b872866a-finish">
+fn finish(ledger: &Ledger, attempt: &str, actual: Value, evidence: Value) -> Result<Summary> {
+    let observation = ledger.transaction(|journal| {
+        let (_, seal, _) = find_attempt(journal, attempt)?;
+        Ok(ObservedResult {
+            identity: seal.identity.clone(),
+            target: seal.target.clone(),
+            actual,
+            evidence,
+        })
+    })?;
+    ledger.finish(attempt, observation)
+}
+
+</storycode:copy>
+[Read the test `admission_has_one_dispatch_owner_across_independent_hosts` beside its requirement](../../../../guarantees/verification/predictions-precede-managed-observation/contract.md#f-a797b872866a-admission_has_one_dispatch_owner_across_independent_hosts).
+[Read the test `independent_execution_check_is_durable_and_cannot_be_replaced` beside its requirement](../../../../guarantees/verification/predictions-precede-managed-observation/contract.md#f-a797b872866a-independent_execution_check_is_durable_and_cannot_be_replaced).
+<a id="f-a797b872866a-missing_stale_and_concurrent_seals_refuse_execution_identity"></a>
+### `missing_stale_and_concurrent_seals_refuse_execution_identity`
+
+<storycode:copy id="f-a797b872866a-missing_stale_and_concurrent_seals_refuse_execution_identity">
+#[test]
+fn missing_stale_and_concurrent_seals_refuse_execution_identity() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let ledger = Ledger::open(root.path())?;
+    let prediction = seal(100, 'a');
+    assert!(
+        ledger
+            .begin(
+                "missing",
+                "one",
+                &prediction.identity,
+                false,
+                actor("agent")
+            )
+            .is_err()
+    );
+    let sealed = ledger.seal(0, prediction.clone(), actor("agent"))?;
+    assert!(ledger.seal(0, prediction.clone(), actor("agent")).is_err());
+    assert!(
+        ledger
+            .begin(
+                &sealed.id,
+                "one",
+                &seal(100, 'b').identity,
+                false,
+                actor("agent")
+            )
+            .is_err()
+    );
+    let first = ledger.begin(
+        &sealed.id,
+        "one",
+        &prediction.identity,
+        false,
+        actor("agent"),
+    )?;
+    assert_eq!(
+        ledger
+            .begin(
+                &sealed.id,
+                "one",
+                &prediction.identity,
+                false,
+                actor("agent")
+            )?
+            .id,
+        first.id
+    );
+    assert!(
+        ledger
+            .begin(
+                &sealed.id,
+                "one",
+                &prediction.identity,
+                false,
+                actor("human")
+            )
+            .is_err()
+    );
+    assert!(
+        ledger
+            .begin(
+                &sealed.id,
+                "two",
+                &prediction.identity,
+                false,
+                actor("agent")
+            )
+            .is_err()
+    );
+    Ok(())
+}
+</storycode:copy>
+<a id="f-a797b872866a-mismatches_withhold_actual_values_and_reveal_records_actor_before_return"></a>
+### `mismatches_withhold_actual_values_and_reveal_records_actor_before_return`
+
+<storycode:copy id="f-a797b872866a-mismatches_withhold_actual_values_and_reveal_records_actor_before_return">
+#[test]
+fn mismatches_withhold_actual_values_and_reveal_records_actor_before_return() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let ledger = Ledger::open(root.path())?;
+    let prediction = seal(100, 'a');
+    let sealed = ledger.seal(0, prediction.clone(), actor("agent"))?;
+    let attempt = ledger.begin(
+        &sealed.id,
+        "run",
+        &prediction.identity,
+        false,
+        actor("agent"),
+    )?;
+    let result = finish(
+        &ledger,
+        &attempt.id,
+        json!(160),
+        json!({"stdout":"private actual 160"}),
+    )?;
+    assert_eq!(result.classification, Classification::Mismatch);
+    let public = serde_json::to_string(&ledger.history(None)?)?;
+    assert!(!public.contains("private actual 160"));
+    assert!(!public.contains(":160"));
+    assert!(
+        ledger
+            .promote(&attempt.id, &prediction.identity, actor("agent"))
+            .is_err()
+    );
+    let revealed = ledger.reveal(&attempt.id, actor("human"), "native-debugger")?;
+    assert_eq!(revealed["actual"], 160);
+    let reopened = Ledger::open(root.path())?.history(None)?;
+    assert_eq!(
+        reopened.ordering.last().unwrap()["event"]["kind"],
+        "observed"
+    );
+    assert_eq!(
+        reopened.ordering.last().unwrap()["event"]["actor"]["kind"],
+        "human"
+    );
+    let generation = ledger.history(None)?.generation;
+    assert!(
+        ledger
+            .reveal(&attempt.id, actor("agent"), "context-delivery")
+            .is_err()
+    );
+    assert!(
+        ledger
+            .reveal(&attempt.id, actor("host"), "tool-response")
+            .is_err()
+    );
+    assert_eq!(ledger.history(None)?.generation, generation);
+    // Record a pre-existing accidental exposure; recording it does not deliver data.
+    ledger.observe(
+        &prediction.scenario,
+        prediction.identity.clone(),
+        actor("agent"),
+        "prior-context",
+    )?;
+    assert_eq!(
+        ledger.history(None)?.ordering.last().unwrap()["event"]["actor"]["kind"],
+        "agent"
+    );
+    assert!(finish(&ledger, &attempt.id, json!(100), json!({})).is_err());
+    Ok(())
+}
+</storycode:copy>
+<a id="f-a797b872866a-correctly_predicting_the_bug_does_not_satisfy_the_requirement"></a>
+### `correctly_predicting_the_bug_does_not_satisfy_the_requirement`
+
+<storycode:copy id="f-a797b872866a-correctly_predicting_the_bug_does_not_satisfy_the_requirement">
+#[test]
+fn correctly_predicting_the_bug_does_not_satisfy_the_requirement() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let ledger = Ledger::open(root.path())?;
+    let prediction = seal(160, 'a');
+    let sealed = ledger.seal(0, prediction.clone(), actor("agent"))?;
+    let attempt = ledger.begin(
+        &sealed.id,
+        "run",
+        &prediction.identity,
+        false,
+        actor("agent"),
+    )?;
+    let result = finish(&ledger, &attempt.id, json!(160), json!({}))?;
+    assert_eq!(result.prediction_matched, Some(true));
+    assert_eq!(result.original_requirement_satisfied, Some(false));
+    assert_eq!(result.classification, Classification::RequirementFailed);
+    assert!(
+        ledger
+            .promote(&attempt.id, &prediction.identity, actor("agent"))
+            .is_err()
+    );
+    Ok(())
+}
+</storycode:copy>
+<a id="f-a797b872866a-code_correction_preserves_failed_history_and_requires_current_identity"></a>
+### `code_correction_preserves_failed_history_and_requires_current_identity`
+
+<storycode:copy id="f-a797b872866a-code_correction_preserves_failed_history_and_requires_current_identity">
+#[test]
+fn code_correction_preserves_failed_history_and_requires_current_identity() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let ledger = Ledger::open(root.path())?;
+    let original = seal(100, 'a');
+    let sealed = ledger.seal(0, original.clone(), actor("agent"))?;
+    let failure = ledger.begin(&sealed.id, "bad", &original.identity, false, actor("agent"))?;
+    finish(&ledger, &failure.id, json!(160), json!({}))?;
+    ledger.observe(
+        &original.scenario,
+        original.identity.clone(),
+        actor("agent"),
+        "prior-debug-state",
+    )?;
+    let repaired = seal(100, 'b');
+    let sealed = ledger.seal(
+        ledger.history(None)?.generation,
+        repaired.clone(),
+        actor("agent"),
+    )?;
+    let attempt = ledger.begin(
+        &sealed.id,
+        "good",
+        &repaired.identity,
+        false,
+        actor("agent"),
+    )?;
+    let result = finish(&ledger, &attempt.id, json!(100), json!({}))?;
+    assert_eq!(
+        result.classification,
+        Classification::VerifiedAfterCorrection
+    );
+    assert!(
+        ledger
+            .promote(&attempt.id, &repaired.identity, actor("agent"))?
+            .promoted
+    );
+    assert_eq!(
+        Ledger::open(root.path())?.history(None)?.attempts[0].classification,
+        Classification::Mismatch
+    );
+    assert!(
+        ledger
+            .promote(&attempt.id, &seal(100, 'c').identity, actor("agent"))
+            .is_err()
+    );
+    Ok(())
+}
+</storycode:copy>
+<a id="f-a797b872866a-observed_expectation_adjustments_cannot_bless_the_bug_or_reset_via_source_identity"></a>
+### `observed_expectation_adjustments_cannot_bless_the_bug_or_reset_via_source_identity`
+
+<storycode:copy id="f-a797b872866a-observed_expectation_adjustments_cannot_bless_the_bug_or_reset_via_source_identity">
+#[test]
+fn observed_expectation_adjustments_cannot_bless_the_bug_or_reset_via_source_identity() -> Result<()>
+{
+    let root = tempfile::tempdir()?;
+    let ledger = Ledger::open(root.path())?;
+    let original = seal(100, 'a');
+    let sealed = ledger.seal(0, original.clone(), actor("agent"))?;
+    let failure = ledger.begin(
+        &sealed.id,
+        "first",
+        &original.identity,
+        false,
+        actor("agent"),
+    )?;
+    finish(&ledger, &failure.id, json!(160), json!({}))?;
+    ledger.observe(
+        &original.scenario,
+        original.identity.clone(),
+        actor("agent"),
+        "prior-cached-transcript",
+    )?;
+    let mut adjusted = seal(160, 'b');
+    adjusted.scenario.requirement = Predicate::NumberAtMost(160.0);
+    assert_eq!(adjusted.scenario.key()?, original.scenario.key()?);
+    let sealed = ledger.seal(
+        ledger.history(None)?.generation,
+        adjusted.clone(),
+        actor("agent"),
+    )?;
+    let next = ledger.begin(
+        &sealed.id,
+        "adjusted",
+        &adjusted.identity,
+        false,
+        actor("agent"),
+    )?;
+    let summary = finish(&ledger, &next.id, json!(160), json!({}))?;
+    assert_eq!(
+        summary.classification,
+        Classification::AdjustedAfterObservation
+    );
+    assert_eq!(summary.original_requirement_satisfied, Some(false));
+    assert!(
+        ledger
+            .promote(&next.id, &adjusted.identity, actor("agent"))
+            .is_err()
+    );
+    let mut novel = seal(50, 'b');
+    novel.scenario.inputs = json!({"attempts":[20,30],"budget":100});
+    novel.identity.inputs = digest(&novel.scenario.inputs)?;
+    let sealed = ledger.seal(
+        ledger.history(None)?.generation,
+        novel.clone(),
+        actor("agent"),
+    )?;
+    let next = ledger.begin(&sealed.id, "novel", &novel.identity, false, actor("agent"))?;
+    assert_eq!(
+        finish(&ledger, &next.id, json!(50), json!({}))?.classification,
+        Classification::FirstAttemptVerified
+    );
+    Ok(())
+}
+</storycode:copy>
+<a id="f-a797b872866a-unknown_prior_exposure_and_replay_cannot_certify_pristine_success"></a>
+### `unknown_prior_exposure_and_replay_cannot_certify_pristine_success`
+
+<storycode:copy id="f-a797b872866a-unknown_prior_exposure_and_replay_cannot_certify_pristine_success">
+#[test]
+fn unknown_prior_exposure_and_replay_cannot_certify_pristine_success() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let ledger = Ledger::open(root.path())?;
+    let prediction = seal(100, 'a');
+    ledger.observe(
+        &prediction.scenario,
+        prediction.identity.clone(),
+        actor("human"),
+        "earlier-debugger",
+    )?;
+    let sealed = ledger.seal(
+        ledger.history(None)?.generation,
+        prediction.clone(),
+        actor("agent"),
+    )?;
+    let attempt = ledger.begin(
+        &sealed.id,
+        "run",
+        &prediction.identity,
+        false,
+        actor("agent"),
+    )?;
+    assert_eq!(
+        finish(&ledger, &attempt.id, json!(100), json!({}))?.classification,
+        Classification::Unknown
+    );
+    assert!(
+        ledger
+            .promote(&attempt.id, &prediction.identity, actor("agent"))
+            .is_err()
+    );
+    let other = tempfile::tempdir()?;
+    let replay_ledger = Ledger::open(other.path())?;
+    let sealed = replay_ledger.seal(0, prediction.clone(), actor("agent"))?;
+    let replay = replay_ledger.begin(
+        &sealed.id,
+        "replay",
+        &prediction.identity,
+        true,
+        actor("agent"),
+    )?;
+    assert_eq!(
+        finish(&replay_ledger, &replay.id, json!(100), json!({}))?.classification,
+        Classification::Replayed
+    );
+    assert!(
+        replay_ledger
+            .promote(&replay.id, &prediction.identity, actor("agent"))
+            .is_err()
+    );
+    Ok(())
+}
+</storycode:copy>
+<a id="f-a797b872866a-corrupt_history_is_refused_instead_of_becoming_an_empty_ledger"></a>
+### `corrupt_history_is_refused_instead_of_becoming_an_empty_ledger`
+
+<storycode:copy id="f-a797b872866a-corrupt_history_is_refused_instead_of_becoming_an_empty_ledger">
+#[test]
+fn corrupt_history_is_refused_instead_of_becoming_an_empty_ledger() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let ledger = Ledger::open(root.path())?;
+    ledger.seal(0, seal(100, 'a'), actor("agent"))?;
+    fs::write(
+        root.path().join("prediction.json"),
+        br#"{"version":1,"entries":["corrupt"]}"#,
+    )?;
+    assert!(ledger.history(None).is_err());
+    assert!(ledger.seal(0, seal(100, 'b'), actor("agent")).is_err());
+    Ok(())
+}
+
+</storycode:copy>
+<a id="f-a797b872866a-debugger_predictions_bind_expression_exact_source_span_and_hit_and_retain_context"></a>
+### `debugger_predictions_bind_expression_exact_source_span_and_hit_and_retain_context`
+
+<storycode:copy id="f-a797b872866a-debugger_predictions_bind_expression_exact_source_span_and_hit_and_retain_context">
+#[test]
+fn debugger_predictions_bind_expression_exact_source_span_and_hit_and_retain_context() -> Result<()>
+{
+    let root = tempfile::tempdir()?;
+    let ledger = Ledger::open(root.path())?;
+    let mut prediction = seal(20, 'a');
+    prediction.scenario.family = "retry-budget.remaining-before-attempt".into();
+    prediction.target = Target::Debugger {
+        frame: None,
+        source: "root".into(),
+        source_revision: prediction.identity.source.clone(),
+        start_byte: 20,
+        end_byte: 25,
+        expression: "budget - total".into(),
+        hit: 2,
+    };
+    let sealed = ledger.seal(0, prediction.clone(), actor("agent"))?;
+    let attempt = ledger.begin(
+        &sealed.id,
+        "debug-run",
+        &prediction.identity,
+        false,
+        actor("agent"),
+    )?;
+    let mut observed = ObservedResult {
+        identity: prediction.identity.clone(),
+        target: prediction.target.clone(),
+        actual: json!(20),
+        evidence: json!({"adapter":"existing-hick-capture", "stop":"stop-2", "frame":"frame-1"}),
+    };
+    if let Target::Debugger { hit, .. } = &mut observed.target {
+        *hit = 1;
+    }
+    assert!(ledger.finish(&attempt.id, observed.clone()).is_err());
+    observed.target = prediction.target.clone();
+    observed.identity.source = "b".repeat(64);
+    assert!(ledger.finish(&attempt.id, observed.clone()).is_err());
+    observed.identity = prediction.identity.clone();
+    assert_eq!(
+        ledger.finish(&attempt.id, observed)?.classification,
+        Classification::FirstAttemptVerified
+    );
+    ledger.reveal(&attempt.id, actor("human"), "debugger-variables")?;
+    ledger.observe(
+        &prediction.scenario,
+        prediction.identity.clone(),
+        actor("agent"),
+        "prior-debug-context",
+    )?;
+    ledger.seal(ledger.history(None)?.generation, prediction, actor("agent"))?;
+    let history = ledger.history(None)?;
+    let context = &history.ordering.last().unwrap()["event"]["context"];
+    assert_eq!(context[0]["delivered_to_predictor"], false);
+    assert_eq!(context[1]["delivered_to_predictor"], true);
+    assert_eq!(context[0]["surface"], "debugger-variables");
+    Ok(())
+}
+
+</storycode:copy>
+<a id="f-a797b872866a-interrupted_attempts_survive_restart_and_are_never_presented_as_success"></a>
+### `interrupted_attempts_survive_restart_and_are_never_presented_as_success`
+
+<storycode:copy id="f-a797b872866a-interrupted_attempts_survive_restart_and_are_never_presented_as_success">
+#[test]
+fn interrupted_attempts_survive_restart_and_are_never_presented_as_success() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let ledger = Ledger::open(root.path())?;
+    let prediction = seal(100, 'a');
+    let sealed = ledger.seal(0, prediction.clone(), actor("agent"))?;
+    let pending = ledger.begin(
+        &sealed.id,
+        "before-crash",
+        &prediction.identity,
+        false,
+        actor("agent"),
+    )?;
+    let reopened = Ledger::open(root.path())?;
+    assert!(
+        reopened
+            .begin(
+                &sealed.id,
+                "after-crash",
+                &prediction.identity,
+                false,
+                actor("agent")
+            )
+            .is_err()
+    );
+    assert!(
+        reopened
+            .interrupt(&pending.id, actor("agent"), Interruption::HostInterrupted)
+            .is_err()
+    );
+    assert_eq!(
+        reopened
+            .interrupt(&pending.id, actor("host"), Interruption::HostInterrupted)?
+            .classification,
+        Classification::Unknown
+    );
+    assert!(finish(&reopened, &pending.id, json!(100), json!({})).is_err());
+    let next = reopened.begin(
+        &sealed.id,
+        "after-crash",
+        &prediction.identity,
+        false,
+        actor("agent"),
+    )?;
+    assert_eq!(
+        finish(&reopened, &next.id, json!(100), json!({}))?.classification,
+        Classification::VerifiedAfterPriorAttempt
+    );
+    assert_eq!(
+        reopened.history(None)?.attempts[0].classification,
+        Classification::Unknown
+    );
+    Ok(())
+}
+
+</storycode:copy>
+<a id="f-a797b872866a-independent_concurrent_writers_cannot_seal_against_the_same_generation"></a>
+### `independent_concurrent_writers_cannot_seal_against_the_same_generation`
+
+<storycode:copy id="f-a797b872866a-independent_concurrent_writers_cannot_seal_against_the_same_generation">
+#[test]
+fn independent_concurrent_writers_cannot_seal_against_the_same_generation() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let workers: Vec<_> = (0..2)
+        .map(|_| {
+            let path = root.path().to_owned();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                let ledger = Ledger::open(path).unwrap();
+                barrier.wait();
+                ledger.seal(0, seal(100, 'a'), actor("agent")).is_ok()
+            })
+        })
+        .collect();
+    assert_eq!(
+        workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .filter(|success| *success)
+            .count(),
+        1
+    );
+    assert_eq!(Ledger::open(root.path())?.history(None)?.generation, 1);
+    Ok(())
+}
+
+</storycode:copy>
+<a id="f-a797b872866a-guessing_a_replacement_expectation_cannot_earn_verification_credit"></a>
+### `guessing_a_replacement_expectation_cannot_earn_verification_credit`
+
+<storycode:copy id="f-a797b872866a-guessing_a_replacement_expectation_cannot_earn_verification_credit">
+#[test]
+fn guessing_a_replacement_expectation_cannot_earn_verification_credit() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let ledger = Ledger::open(root.path())?;
+    let original = seal(100, 'a');
+    let sealed = ledger.seal(0, original.clone(), actor("agent"))?;
+    let first = ledger.begin(
+        &sealed.id,
+        "first",
+        &original.identity,
+        false,
+        actor("agent"),
+    )?;
+    finish(
+        &ledger,
+        &first.id,
+        json!(90),
+        json!({"stderr":"secret answer 90"}),
+    )?;
+    assert!(ledger.reveal(&first.id, actor("agent"), "debug").is_err());
+    // Even a lucky guess at the secret result, within the original requirement,
+    // is not evidence that the original prediction or implementation was repaired.
+    let replacement = seal(90, 'b');
+    let sealed = ledger.seal(
+        ledger.history(None)?.generation,
+        replacement.clone(),
+        actor("agent"),
+    )?;
+    let next = ledger.begin(
+        &sealed.id,
+        "replacement",
+        &replacement.identity,
+        false,
+        actor("agent"),
+    )?;
+    let result = finish(&ledger, &next.id, json!(90), json!({}))?;
+    assert_eq!(result.prediction_matched, Some(true));
+    assert_eq!(result.original_requirement_satisfied, Some(true));
+    assert_eq!(result.classification, Classification::PredictionChanged);
+    assert!(
+        ledger
+            .promote(&next.id, &replacement.identity, actor("agent"))
+            .is_err()
+    );
+    Ok(())
+}
+
+</storycode:copy>
+[Read the test `future_seals_bind_prior_stop_and_context_and_never_claim_independent_first_success` beside its requirement](../../../../guarantees/verification/predictions-precede-managed-observation/contract.md#f-a797b872866a-future_seals_bind_prior_stop_and_context_and_never_claim_independent_first_success).
+<a id="f-a797b872866a-scoped"></a>
+### `scoped`
+
+<storycode:copy id="f-a797b872866a-scoped">
+#[path = "prediction_scope_tests.rs"]
+mod scoped;
+
+</storycode:copy>
+<a id="f-a797b872866a-portable_browser_ledger_reuses_gate_after_restore_and_never_reexecutes_admission"></a>
+### `portable_browser_ledger_reuses_gate_after_restore_and_never_reexecutes_admission`
+
+<storycode:copy id="f-a797b872866a-portable_browser_ledger_reuses_gate_after_restore_and_never_reexecutes_admission">
+#[test]
+fn portable_browser_ledger_reuses_gate_after_restore_and_never_reexecutes_admission() -> Result<()>
+{
+    let ledger = Ledger::portable(None)?;
+    let original = seal(100, 'a');
+    let sealed = ledger.seal(0, original.clone(), actor("agent"))?;
+    let admitted = ledger.admit(
+        &sealed.id,
+        "browser-original",
+        &original.identity,
+        false,
+        actor("agent"),
+    )?;
+    assert!(admitted.dispatch);
+    let restored = Ledger::portable(Some(&ledger.portable_snapshot()?))?;
+    assert!(
+        !restored
+            .admit(
+                &sealed.id,
+                "browser-original",
+                &original.identity,
+                false,
+                actor("agent")
+            )?
+            .dispatch
+    );
+    assert_eq!(
+        finish(
+            &restored,
+            &admitted.receipt.id,
+            json!(160),
+            json!({"private":"browser-held-out"})
+        )?
+        .classification,
+        Classification::Mismatch
+    );
+    assert!(
+        restored
+            .reveal(&admitted.receipt.id, actor("agent"), "tool")
+            .is_err()
+    );
+    assert!(
+        restored
+            .promote(&admitted.receipt.id, &original.identity, actor("agent"))
+            .is_err()
+    );
+    let corrected = seal(100, 'b');
+    let receipt = restored.seal(
+        restored.history(None)?.generation,
+        corrected.clone(),
+        actor("agent"),
+    )?;
+    let second = restored.begin(
+        &receipt.id,
+        "browser-corrected",
+        &corrected.identity,
+        false,
+        actor("agent"),
+    )?;
+    assert_eq!(
+        finish(&restored, &second.id, json!(100), json!({}))?.classification,
+        Classification::VerifiedAfterCorrection
+    );
+    assert!(
+        restored
+            .promote(&second.id, &corrected.identity, actor("agent"))?
+            .current_certification
+    );
+    let after = Ledger::portable(Some(&restored.portable_snapshot()?))?;
+    let safe = serde_json::to_string(&after.predictor_history(
+        Some(&corrected.identity),
+        &actor("agent"),
+        &[corrected.scenario.key()?],
+    )?)?;
+    assert!(!safe.contains("browser-held-out"));
+    assert_eq!(after.history(Some(&corrected.identity))?.attempts.len(), 2);
+    Ok(())
+}
+
+</storycode:copy>
+<a id="f-a797b872866a-portable_browser_history_refuses_corruption_and_rolls_back_failed_transactions"></a>
+### `portable_browser_history_refuses_corruption_and_rolls_back_failed_transactions`
+
+<storycode:copy id="f-a797b872866a-portable_browser_history_refuses_corruption_and_rolls_back_failed_transactions">
+#[test]
+fn portable_browser_history_refuses_corruption_and_rolls_back_failed_transactions() -> Result<()> {
+    let ledger = Ledger::portable(None)?;
+    ledger.seal(0, seal(100, 'a'), actor("agent"))?;
+    let snapshot = ledger.portable_snapshot()?;
+    assert!(ledger.seal(0, seal(160, 'b'), actor("agent")).is_err());
+    assert_eq!(ledger.portable_snapshot()?, snapshot);
+    let mut changed: Value = serde_json::from_str(&snapshot)?;
+    changed["entries"][0]["sequence"] = json!(9);
+    assert!(Ledger::portable(Some(&changed.to_string())).is_err());
+    assert!(Ledger::portable(Some("not a journal")).is_err());
+    assert!(Ledger::portable(Some(&" ".repeat(1024 * 1024 + 1))).is_err());
+    let root = tempfile::tempdir()?;
+    assert!(Ledger::open(root.path())?.portable_snapshot().is_err());
+    Ok(())
+}
+
+</storycode:copy>
+<a id="f-a797b872866a-unchanged_expectation_feedback_does_not_hide_a_changed_prediction_under_unknown_origin"></a>
+### `unchanged_expectation_feedback_does_not_hide_a_changed_prediction_under_unknown_origin`
+
+<storycode:copy id="f-a797b872866a-unchanged_expectation_feedback_does_not_hide_a_changed_prediction_under_unknown_origin">
+#[test]
+fn unchanged_expectation_feedback_does_not_hide_a_changed_prediction_under_unknown_origin()
+-> Result<()> {
+    let ledger = Ledger::portable(None)?;
+    let mut original = seal(100, 'a');
+    original.scenario.identity_known = false;
+    let first = ledger.seal(0, original.clone(), actor("agent"))?;
+    let attempt = ledger.begin(
+        &first.id,
+        "original-unknown",
+        &original.identity,
+        false,
+        actor("agent"),
+    )?;
+    finish(&ledger, &attempt.id, json!(160), json!({}))?;
+    assert!(ledger.original_expectation_unchanged(&attempt.id)?);
+    let mut changed = original.clone();
+    changed.identity.source = "b".repeat(64);
+    changed.predicted = Predicate::Equals(json!(160));
+    let sealed = ledger.seal(
+        ledger.history(None)?.generation,
+        changed.clone(),
+        actor("agent"),
+    )?;
+    let next = ledger.begin(
+        &sealed.id,
+        "changed-unknown",
+        &changed.identity,
+        false,
+        actor("agent"),
+    )?;
+    assert_eq!(
+        finish(&ledger, &next.id, json!(160), json!({}))?.classification,
+        Classification::Unknown
+    );
+    assert!(!ledger.original_expectation_unchanged(&next.id)?);
+    assert!(
+        ledger
+            .promote(&next.id, &changed.identity, actor("agent"))
+            .is_err()
+    );
+    let foreign = ledger.seal(
+        ledger.history(None)?.generation,
+        original.clone(),
+        actor("human"),
+    )?;
+    let human = ledger.begin(
+        &foreign.id,
+        "foreign-original",
+        &original.identity,
+        false,
+        actor("human"),
+    )?;
+    assert!(!ledger.original_expectation_unchanged(&human.id)?);
+    Ok(())
+}
+</storycode:copy>
+
+### Assemble `crates/hick-observe/src/prediction_tests.rs`
+
+The selections below preserve the original byte order. Narrative reading order does not change the output.
+
+<storycode:file path="crates/hick-observe/src/prediction_tests.rs"><storycode:paste select="#f-a797b872866a-combined_predicate_requires_every_target_and_rejects_missing_extra_or_unbounded_fields"/><storycode:paste select="#f-a797b872866a-use_declaration"/><storycode:paste select="#f-a797b872866a-selected_history_preserves_failure_and_repair_without_exporting_private_answers"/><storycode:paste select="#f-a797b872866a-actor"/><storycode:paste select="#f-a797b872866a-seal"/><storycode:paste select="#f-a797b872866a-finish"/><storycode:paste select="#f-a797b872866a-admission_has_one_dispatch_owner_across_independent_hosts"/><storycode:paste select="#f-a797b872866a-independent_execution_check_is_durable_and_cannot_be_replaced"/><storycode:paste select="#f-a797b872866a-missing_stale_and_concurrent_seals_refuse_execution_identity"/><storycode:paste select="#f-a797b872866a-mismatches_withhold_actual_values_and_reveal_records_actor_before_return"/><storycode:paste select="#f-a797b872866a-correctly_predicting_the_bug_does_not_satisfy_the_requirement"/><storycode:paste select="#f-a797b872866a-code_correction_preserves_failed_history_and_requires_current_identity"/><storycode:paste select="#f-a797b872866a-observed_expectation_adjustments_cannot_bless_the_bug_or_reset_via_source_identity"/><storycode:paste select="#f-a797b872866a-unknown_prior_exposure_and_replay_cannot_certify_pristine_success"/><storycode:paste select="#f-a797b872866a-corrupt_history_is_refused_instead_of_becoming_an_empty_ledger"/><storycode:paste select="#f-a797b872866a-debugger_predictions_bind_expression_exact_source_span_and_hit_and_retain_context"/><storycode:paste select="#f-a797b872866a-interrupted_attempts_survive_restart_and_are_never_presented_as_success"/><storycode:paste select="#f-a797b872866a-independent_concurrent_writers_cannot_seal_against_the_same_generation"/><storycode:paste select="#f-a797b872866a-guessing_a_replacement_expectation_cannot_earn_verification_credit"/><storycode:paste select="#f-a797b872866a-future_seals_bind_prior_stop_and_context_and_never_claim_independent_first_success"/><storycode:paste select="#f-a797b872866a-scoped"/><storycode:paste select="#f-a797b872866a-portable_browser_ledger_reuses_gate_after_restore_and_never_reexecutes_admission"/><storycode:paste select="#f-a797b872866a-portable_browser_history_refuses_corruption_and_rolls_back_failed_transactions"/><storycode:paste select="#f-a797b872866a-unchanged_expectation_feedback_does_not_hide_a_changed_prediction_under_unknown_origin"/></storycode:file>
+
+</storycode:doc>

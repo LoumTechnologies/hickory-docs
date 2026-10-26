@@ -1,0 +1,88 @@
+<storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
+# Maintain apps/web/src/performance/PerformanceTools.tsx
+
+For: maintainers changing this mechanism and reviewing the contracts that depend on it.
+
+This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
+
+<a id="output-1b2de125f849"></a>
+## `apps/web/src/performance/PerformanceTools.tsx`
+
+Present and edit the shared engine state. Browser-side revisions, pending requests and local drafts affect which source and UI actions are still valid.
+
+<a id="f-1b2de125f849-profileCall"></a>
+### `profileCall`
+
+<storycode:copy id="f-1b2de125f849-profileCall">
+import { createPortal } from "react-dom";
+import { useCallback, useEffect, useId, useState } from "react";
+import { request } from "../api/client";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { openLocation } from "../lib/revealLine";
+import { selectPerformance } from "./selection";
+import type { PerformanceRun } from "./types";
+import "../coverage/coverage.css";
+export const profileCall = <T,>(body: Record<string, unknown>) => request<T>("POST", "/api/performance", body);
+</storycode:copy>
+<a id="f-1b2de125f849-PerformanceTools"></a>
+### `PerformanceTools`
+
+<storycode:copy id="f-1b2de125f849-PerformanceTools">
+export function PerformanceTools({ path }: { path?: string | null }) {
+  const [open, setOpen] = useState(false), id = `performance:${useId()}`, revision = useUiRevision(() => [open, path]);
+  const invoke = useUiCommands([{ key: id, command: { subject: id, parent: id, label: open ? "Close performance profiles" : "Open performance profiles", parameters: {}, prerequisites: [], read: () => ({ revision: revision(), enabled: true, value: { open, path: path ?? null } }), execute: async () => { setOpen(value => !value); return { status: "completed", value: { panel_open: !open } }; } } }]);
+  return <><button className="btn" onClick={() => { void invoke(id); }}>Performance profiles</button>{open && createPortal(<PerformancePanel initialPath={path ?? "."} close={() => setOpen(false)} />, document.body)}</>;
+}
+</storycode:copy>
+<a id="f-1b2de125f849-PerformancePanel"></a>
+### `PerformancePanel`
+
+<storycode:copy id="f-1b2de125f849-PerformancePanel">
+export function PerformancePanel({ initialPath = ".", close }: { initialPath?: string; close: () => void }) {
+  const [path, setPath] = useState(initialPath), [labels, setLabels] = useState(""), [runs, setRuns] = useState<PerformanceRun[]>([]), [selected, setSelected] = useState<PerformanceRun | null>(null), [thread, setThread] = useState(0);
+  const [url, setUrl] = useState("http://127.0.0.1:9222"), [page, setPage] = useState(""), [profile, setProfile] = useState(""), [profiles, setProfiles] = useState<string[]>([]), [program, setProgram] = useState("");
+  const [error, setError] = useState(""), [pending, setPending] = useState(false), [format, setFormat] = useState("chrome-cpu"), [raw, setRaw] = useState(""), [identity, setIdentity] = useState("");
+  const [filter, setFilter] = useState(""), [limit, setLimit] = useState(100), [other, setOther] = useState(""), [comparison, setComparison] = useState<unknown>(null);
+  const refresh = useCallback(async () => { const data = await profileCall<{ runs: PerformanceRun[] }>({ action: "list" }); setRuns(data.runs); }, []);
+  useEffect(() => { void refresh().catch(e => setError(String(e))); }, [refresh]);
+  useEffect(() => { if (!runs.some(r => r.status === "running")) return; const timer = setInterval(() => { void refresh().catch(e => setError(String(e))); }, 2000); return () => clearInterval(timer); }, [runs, refresh]);
+  const choose = async (id: string) => { const run = await profileCall<PerformanceRun>({ action: "get", id }); setSelected(run); setThread(0); selectPerformance(run); setComparison(null); };
+  const act = async (action: string, extra: Record<string, unknown> = {}) => { setPending(true); setError(""); try {
+    const result = await profileCall<PerformanceRun>({ action, path, ...(selected ? { id: selected.id } : {}), labels: labels.split(",").map(s => s.trim()).filter(Boolean), ...extra });
+    if (result.id && result.status !== "stopping") await choose(result.id); await refresh();
+  } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setPending(false); } };
+  const scope = selected?.report?.threads[thread], active = selected && (runs.find(r => r.id === selected.id)?.status ?? selected.status) === "running";
+  const rows = scope?.rows.filter(r => `${r.frame.name} ${r.frame.file ?? "unresolved"}`.includes(filter)) ?? [];
+  return <div className="coverage-backdrop"><section className="coverage-panel" role="dialog" aria-modal="true" aria-label="Performance profiles"><header><h2>Performance profiles</h2><button className="btn" onClick={close}>Close</button></header>
+    <p>Measure a workload, select a scope, then inspect function hotspots inline in its literate source. Function anchors are not per-line timings. Sampling observations are not calls; inclusive costs overlap.</p>
+    <div className="coverage-controls"><label>Project or saved Python document<input value={path} onChange={e => setPath(e.target.value)} /></label><label>Labels<input value={labels} onChange={e => setLabels(e.target.value)} placeholder="happy-path, manual" /></label>
+      <button className="btn" disabled={pending} onClick={() => { setPending(true); void profileCall<{ profiles: Record<string, unknown> }>({ action: "inspect", path }).then(v => setProfiles(Object.keys(v.profiles))).catch(e => setError(String(e))).finally(() => setPending(false)); }}>Read project profiles</button>
+    </div>
+    <details open><summary>Human or AI browser profiling</summary><div className="coverage-controls"><label>Chrome CDP URL<input value={url} onChange={e => setUrl(e.target.value)} /></label><label>Page URL contains<input value={page} onChange={e => setPage(e.target.value)} /></label><button className="btn" disabled={pending} onClick={() => { void act("browser-start", { url, selector: page || undefined }); }}>Start browser CPU profile</button><button className="btn" disabled={pending || !active} onClick={() => { void act("stop"); }}>Stop and collect profile</button></div><p>Exercise the selected browser tab yourself or with an AI. No application instrumentation is required for sampling. Inline TypeScript anchors require source maps with matching original contents; unresolved frames remain in the table.</p></details>
+    <details><summary>Saved Python and native apps or test workloads</summary><div className="coverage-controls"><label>Generated Python entry (optional)<input value={program} onChange={e => setProgram(e.target.value)} /></label><button className="btn" disabled={pending} onClick={() => { void act("capture-python", { program: program || undefined, seconds: 10 }); }}>Profile saved Python confined</button><label>Native collector profile<input value={profile} onChange={e => setProfile(e.target.value)} list="performance-profiles" /><datalist id="performance-profiles">{profiles.map(p => <option value={p} key={p} />)}</datalist></label><button className="btn" disabled={pending || !profile} onClick={() => { void act("run", { profile }); }}>Run profiler profile</button></div><p>Native profiles in .hick-profile.json run explicit argv commands with local permissions. Use them for Python, C#, Rust, Node, automated tests or manual app testing. Collection can stop naturally or through Stop.</p></details>
+    <details><summary>Import a profile</summary><div className="coverage-controls"><label>Format<select value={format} onChange={e => setFormat(e.target.value)}>{["chrome-cpu", "speedscope", "cprofile-json", "firefox"].map(f => <option key={f}>{f}</option>)}</select></label><label>Profile file<input type="file" accept=".json,.cpuprofile" onChange={e => { const file = e.target.files?.[0]; if (file) void file.text().then(setRaw); }} /></label><label>Original identity JSON (optional)<textarea value={identity} onChange={e => setIdentity(e.target.value)} /></label><button className="btn" disabled={pending || !raw} onClick={() => { try { void act("import", { format, raw, ...(identity ? { identity: JSON.parse(identity) as unknown } : {}) }); } catch (e) { setError(String(e)); } }}>Import profile</button></div><p>Without original source hashes the profile stays unknown and cannot decorate current source. Native/unmapped frames remain inspectable.</p></details>
+    {error && <p className="error" role="alert">{error}</p>}
+    <div className="coverage-columns"><nav aria-label="Profile run history"><h3>Profile runs</h3><button className="btn" onClick={() => { void refresh().catch(e => setError(String(e))); }}>Refresh profiles</button>{runs.filter(r => !labels || labels.split(",").some(label => r.labels.includes(label.trim()))).map(r => <button className="coverage-run" key={r.id} aria-pressed={r.id === selected?.id} onClick={() => { void choose(r.id).catch(e => setError(String(e))); }}>{new Date(r.started_ms).toLocaleString()} · {r.mode} · {r.status}<br />{r.source_state} · {r.labels.join(", ")}<br /><small>{r.id}</small></button>)}</nav><main>
+      {selected && <><h3>{selected.identity.collector} · {selected.status} · {selected.source_state} source</h3><p>Run {selected.id} · version {selected.identity.version} · scope {selected.identity.scope || "."}</p>{selected.error && <p className="error" role="alert">{selected.error}</p>}
+        <button className="btn" onClick={() => { void choose(selected.id).catch(e => setError(String(e))); }}>Reload selected profile</button><button className="btn" onClick={() => selectPerformance(null)}>Clear inline profiles</button>
+        {selected.report ? <><label>Measured thread / profile scope<select value={thread} onChange={e => { const index = +e.target.value; setThread(index); selectPerformance(selected, index); setLimit(100); }}>{selected.report.threads.map((t, i) => <option value={i} key={i}>{t.name} · {t.unit}</option>)}</select></label>
+          {scope && <p>Measured weight: {scope.measured_weight.toPrecision(5)} {scope.unit} · interval {scope.interval_start}–{scope.interval_end} {scope.interval_unit} ({scope.clock}) · {scope.aggregation}. {scope.rows.length === 0 ? "No function samples/aggregates; no zero-cost conclusion is supported." : ""}</p>}
+          <label>Filter functions or source<input value={filter} onChange={e => { setFilter(e.target.value); setLimit(100); }} /></label>
+          <table><thead><tr><th>Function / source anchor</th><th>Self ({scope?.unit})</th><th>Inclusive (overlap)</th><th>Stack observations</th><th>Total / primitive calls</th></tr></thead><tbody>{rows.slice(0, limit).map((r, index) => { const file = r.frame.file, line = r.frame.line, mapping = file && line ? selected.mappings[file]?.[line] : null; const mapped = !!file && !!line && !!selected.sources[mapping?.path ?? file]; return <tr key={index}><td><button className="coverage-link" disabled={!mapped} onClick={() => { if (file && line) { close(); openLocation(mapping?.path ?? file, mapping?.line ?? line); } }}>{r.frame.name} · {file ?? "native/unresolved"}:{line ?? "unknown"}{mapping ? " → document" : mapped ? "" : " · unresolved source"}</button></td><td>{r.self_weight.toPrecision(5)}</td><td>{r.inclusive_weight.toPrecision(5)}</td><td>{r.samples ?? "unavailable"}</td><td>{r.total_calls ?? "unavailable"} / {r.primitive_calls ?? "unavailable"}</td></tr>; })}</tbody></table>{rows.length > limit && <button className="btn" onClick={() => setLimit(n => n + 100)}>Show more functions ({rows.length - limit})</button>}
+          <p>{selected.report.limitations.join(" · ")}</p>
+        </> : <p>Profile unavailable. Missing measurement is not zero cost.</p>}
+        <div className="coverage-controls"><label>Compare recorded workload<select value={other} onChange={e => setOther(e.target.value)}><option value="">Choose run</option>{runs.filter(r => r.id !== selected.id).map(r => <option key={r.id} value={r.id}>{r.id.slice(0, 8)} · {r.source_state} · {r.labels.join(", ")}</option>)}</select></label><button className="btn" disabled={pending || !other} onClick={() => { setPending(true); void profileCall({ action: "compare", id: selected.id, other, thread }).then(setComparison).catch(e => setError(String(e))).finally(() => setPending(false)); }}>Compare profile costs</button></div>{comparison !== null && <details open><summary>Comparison evidence (missing costs stay unavailable)</summary><pre>{JSON.stringify(comparison, null, 2)}</pre></details>}
+        <details><summary>Environment, source identity and original evidence</summary><pre>{JSON.stringify({ environment: selected.environment, identity: selected.identity }, null, 2)}</pre><pre>{selected.output}</pre><pre>{selected.report?.raw}</pre></details>
+      </>}
+    </main></div>
+  </section></div>;
+}
+</storycode:copy>
+
+### Assemble `apps/web/src/performance/PerformanceTools.tsx`
+
+The selections below preserve the original byte order. Narrative reading order does not change the output.
+
+<storycode:file path="apps/web/src/performance/PerformanceTools.tsx"><storycode:paste select="#f-1b2de125f849-profileCall"/><storycode:paste select="#f-1b2de125f849-PerformanceTools"/><storycode:paste select="#f-1b2de125f849-PerformancePanel"/></storycode:file>
+
+</storycode:doc>

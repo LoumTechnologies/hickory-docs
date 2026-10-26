@@ -1,0 +1,2792 @@
+<storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
+# Maintain crates/hick-lsp/src/backend.rs
+
+For: maintainers changing this mechanism and reviewing the contracts that depend on it.
+
+This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
+
+<a id="output-c936496a03c1"></a>
+## `crates/hick-lsp/src/backend.rs`
+
+Related contracts: [A Plain File Has The Same Language Server A Document Has](../../../../guarantees/editor-intelligence/a-plain-file-has-the-same-language-server/contract.md), [Call Hierarchy Answers In Documents](../../../../guarantees/editor-intelligence/call-hierarchy-answers-in-documents/contract.md), [The LSP Channel Degrades To Structural Or Null Answers, Never Errors](../../../../guarantees/editor-intelligence/lsp-channel-degrades-never-errors/contract.md), [Save Can Format First, With The File's Own Formatter](../../../../guarantees/editor-intelligence/save-can-format-first/contract.md), [The Meta-LSP Forwards Whatever The Child Supports](../../../../guarantees/editor-intelligence/the-meta-lsp-forwards-what-the-child-supports/contract.md).
+
+<a id="f-c936496a03c1-diagnostic_context"></a>
+### `diagnostic_context`
+
+<storycode:copy id="f-c936496a03c1-diagnostic_context">
+mod diagnostic_context;
+</storycode:copy>
+<a id="f-c936496a03c1-use_declaration"></a>
+### `use_declaration`
+
+<storycode:copy id="f-c936496a03c1-use_declaration">
+use diagnostic_context::provider_action_diagnostics;
+</storycode:copy>
+<a id="f-c936496a03c1-captured"></a>
+### `captured`
+
+<storycode:copy id="f-c936496a03c1-captured">
+mod captured;
+</storycode:copy>
+<a id="f-c936496a03c1-use_declaration-2"></a>
+### `use_declaration`
+
+<storycode:copy id="f-c936496a03c1-use_declaration-2">
+use std::collections::HashMap;
+</storycode:copy>
+<a id="f-c936496a03c1-use_declaration-3"></a>
+### `use_declaration`
+
+<storycode:copy id="f-c936496a03c1-use_declaration-3">
+use std::sync::Arc;
+
+</storycode:copy>
+<a id="f-c936496a03c1-use_declaration-4"></a>
+### `use_declaration`
+
+<storycode:copy id="f-c936496a03c1-use_declaration-4">
+use tokio::sync::{Mutex, RwLock, mpsc};
+</storycode:copy>
+<a id="f-c936496a03c1-use_declaration-5"></a>
+### `use_declaration`
+
+<storycode:copy id="f-c936496a03c1-use_declaration-5">
+use tower_lsp::jsonrpc::Result;
+</storycode:copy>
+<a id="f-c936496a03c1-use_declaration-6"></a>
+### `use_declaration`
+
+<storycode:copy id="f-c936496a03c1-use_declaration-6">
+use tower_lsp::lsp_types::request::{
+    GotoDeclarationParams, GotoDeclarationResponse, GotoImplementationParams,
+    GotoImplementationResponse, GotoTypeDefinitionParams, GotoTypeDefinitionResponse,
+};
+</storycode:copy>
+<a id="f-c936496a03c1-use_declaration-7"></a>
+### `use_declaration`
+
+<storycode:copy id="f-c936496a03c1-use_declaration-7">
+use tower_lsp::lsp_types::*;
+</storycode:copy>
+<a id="f-c936496a03c1-use_declaration-8"></a>
+### `use_declaration`
+
+<storycode:copy id="f-c936496a03c1-use_declaration-8">
+use tower_lsp::{Client, LanguageServer};
+
+</storycode:copy>
+<a id="f-c936496a03c1-use_declaration-9"></a>
+### `use_declaration`
+
+<storycode:copy id="f-c936496a03c1-use_declaration-9">
+use crate::child_lsp::{ChildNotification, lsp_command};
+</storycode:copy>
+<a id="f-c936496a03c1-use_declaration-10"></a>
+### `use_declaration`
+
+<storycode:copy id="f-c936496a03c1-use_declaration-10">
+use crate::dispatcher::Dispatcher;
+</storycode:copy>
+<a id="f-c936496a03c1-use_declaration-11"></a>
+### `use_declaration`
+
+<storycode:copy id="f-c936496a03c1-use_declaration-11">
+use crate::document::HickDocumentState;
+</storycode:copy>
+<a id="f-c936496a03c1-use_declaration-12"></a>
+### `use_declaration`
+
+<storycode:copy id="f-c936496a03c1-use_declaration-12">
+use crate::location_map::translate_locations;
+</storycode:copy>
+<a id="f-c936496a03c1-use_declaration-13"></a>
+### `use_declaration`
+
+<storycode:copy id="f-c936496a03c1-use_declaration-13">
+use crate::position_map::PositionMap;
+</storycode:copy>
+<a id="f-c936496a03c1-use_declaration-14"></a>
+### `use_declaration`
+
+<storycode:copy id="f-c936496a03c1-use_declaration-14">
+use crate::staging::{StagingArea, StagingError};
+
+</storycode:copy>
+<a id="f-c936496a03c1-ChildDiagnosticsStore"></a>
+### `ChildDiagnosticsStore`
+
+Accumulated child diagnostics: hick document URI -> (virtual file URI -> diagnostics).
+
+<storycode:copy id="f-c936496a03c1-ChildDiagnosticsStore">
+/// Accumulated child diagnostics: hick document URI -> (virtual file URI -> diagnostics).
+type ChildDiagnosticsStore = Arc<RwLock<HashMap<Url, HashMap<Url, Vec<Diagnostic>>>>>;
+
+</storycode:copy>
+<a id="f-c936496a03c1-PreparedHierarchyItem"></a>
+### `PreparedHierarchyItem`
+
+One hierarchy item as the child produced it, with where to send it back.
+
+<storycode:copy id="f-c936496a03c1-PreparedHierarchyItem">
+/// One hierarchy item as the child produced it, with where to send it back.
+#[derive(Clone)]
+struct PreparedHierarchyItem {
+    vf_uri: Url,
+    language: String,
+    /// The item verbatim, in the child's coordinates.
+    item: serde_json::Value,
+}
+
+</storycode:copy>
+<a id="f-c936496a03c1-uuid_ish"></a>
+### `uuid_ish`
+
+A short unique-enough key for one prepared item.
+Not a UUID and does not need to be: it names an entry in this process's
+own map for the life of one hierarchy exploration.
+
+<storycode:copy id="f-c936496a03c1-uuid_ish">
+/// A short unique-enough key for one prepared item.
+///
+/// Not a UUID and does not need to be: it names an entry in this process's
+/// own map for the life of one hierarchy exploration.
+fn uuid_ish() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    format!("{:x}", NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+</storycode:copy>
+<a id="f-c936496a03c1-HickBackend"></a>
+### `HickBackend`
+
+<storycode:copy id="f-c936496a03c1-HickBackend">
+pub struct HickBackend {
+    client: Client,
+    /// Open document states, keyed by URI.
+    documents: Arc<RwLock<HashMap<Url, DocEntry>>>,
+    /// Dispatcher for child LSP servers.
+    dispatcher: Arc<Mutex<Dispatcher>>,
+    /// Receiver for notifications from child LSPs.
+    notification_rx: Arc<Mutex<mpsc::UnboundedReceiver<ChildNotification>>>,
+    /// Mapping from virtual file URI -> (hick document URI, PositionMap).
+    vfile_index: Arc<RwLock<HashMap<Url, VFileMapping>>>,
+    /// Accumulated child diagnostics keyed by (hick_uri, vfile_uri).
+    /// When any child sends diagnostics, we update its entry and republish
+    /// the merged set for the hick document, avoiding later children
+    /// overwriting earlier children's diagnostics.
+    child_diagnostics: ChildDiagnosticsStore,
+    /// The language whose child answered the most recent completion.
+    ///
+    /// `completionItem/resolve` arrives with only the item — no document, no
+    /// position — and the item's `data` is opaque to us: it is the child's own
+    /// bookkeeping (pyright puts a virtual-file URI in there). So the item can
+    /// only be resolved by the server that produced it, and this is how we
+    /// remember which one that was. An editor resolves the item it is showing,
+    /// which is always from the completion it just asked for.
+    last_completion_language: Arc<RwLock<Option<(String, String)>>>,
+    /// Hierarchy items this server handed the client, in the child's OWN
+    /// coordinates, keyed by the id planted in each item's `data`.
+    ///
+    /// Call and type hierarchy are three-step protocols: `prepare…` answers
+    /// with items, and the client hands one back to ask for its callers or
+    prepared_hierarchy: Arc<RwLock<HashMap<String, PreparedHierarchyItem>>>,
+    workspace_root: Arc<RwLock<Option<Url>>>,
+    staging: StagingArea,
+    projects: Arc<crate::ProjectContexts>,
+    /// Whether the user has already been shown a staging failure.
+    ///
+    /// A failure repeats on every keystroke, and one popup per keystroke is
+    /// worse than the silence this replaced. The first one is shown; the rest
+    /// go to the editor's log, which is where a user looks second.
+    staging_failure_shown: Arc<RwLock<bool>>,
+}
+
+</storycode:copy>
+<a id="f-c936496a03c1-DocEntry"></a>
+### `DocEntry`
+
+<storycode:copy id="f-c936496a03c1-DocEntry">
+struct DocEntry {
+    /// The parsed document state (None if parse failed).
+    state: Option<HickDocumentState>,
+    /// Virtual file URIs that are currently "open" in child LSPs.
+    open_vfiles: Vec<Url>,
+    /// Version counter for virtual files sent to children.
+    vfile_version: i32,
+}
+
+</storycode:copy>
+<a id="f-c936496a03c1-VFileMapping"></a>
+### `VFileMapping`
+
+Maps a virtual file URI back to the source .md document.
+
+<storycode:copy id="f-c936496a03c1-VFileMapping">
+/// Maps a virtual file URI back to the source .md document.
+struct VFileMapping {
+    /// The .md document URI.
+    hick_uri: Url,
+    /// The language ID of this virtual file (for routing to child LSPs).
+    language_id: String,
+    /// The root the child that owns this file was initialised against.
+    root_uri: String,
+    /// Position map for translating coordinates.
+    position_map: PositionMap,
+    /// Exact provider payloads in child coordinates, never editor-supplied
+    /// diagnostics. Retained only across byte-identical source syncs.
+    provider_diagnostics: Vec<serde_json::Value>,
+    /// Child source bytes these provider diagnostics describe.
+    provider_source: String,
+}
+
+</storycode:copy>
+<a id="f-c936496a03c1-impl-HickBackend"></a>
+### `impl-HickBackend`
+
+<storycode:copy id="f-c936496a03c1-impl-HickBackend">
+impl HickBackend {
+    pub fn new(client: Client) -> Self {
+        let (notification_tx, notification_rx) = mpsc::unbounded_channel();
+
+        Self {
+            client,
+            documents: Arc::new(RwLock::new(HashMap::new())),
+            dispatcher: Arc::new(Mutex::new(Dispatcher::new(notification_tx))),
+            notification_rx: Arc::new(Mutex::new(notification_rx)),
+            vfile_index: Arc::new(RwLock::new(HashMap::new())),
+            child_diagnostics: Arc::new(RwLock::new(HashMap::new())),
+            last_completion_language: Arc::new(RwLock::new(None)),
+            prepared_hierarchy: Arc::new(RwLock::new(HashMap::new())),
+            staging: StagingArea::new(),
+            projects: Arc::new(crate::ProjectContexts::default()),
+            staging_failure_shown: Arc::new(RwLock::new(false)),
+            workspace_root: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    pub fn with_projects(client: Client, projects: Arc<crate::ProjectContexts>) -> Self {
+        let mut backend = Self::new(client);
+        backend.projects = projects;
+        backend
+    }
+
+    /// The URI a child language server knows one `hick:file` block's code by.
+    ///
+    /// Directory structure is preserved under the document's staging
+    /// directory, so a child that resolves paths out of a manifest —
+    /// rust-analyzer reading `Cargo.toml`, tsc reading `tsconfig.json` —
+    /// resolves them the way the document's own layout says.
+    fn vfile_uri(&self, hick_uri: &Url, vfile_path: &str) -> Url {
+        self.staging.vfile_uri(hick_uri, vfile_path)
+    }
+
+    /// Tell the user their code could not be staged, and why.
+    ///
+    /// This is the other half of the bug: the write used to be a `let _ =`, so
+    /// a failure produced an editor that answered nothing and said nothing.
+    /// An LSP server cannot print — stdout **is** the protocol — so it goes
+    /// three places instead: `tracing` for a developer running with
+    /// `RUST_LOG`, `window/logMessage` for the editor's LSP log every time,
+    /// and `window/showMessage` once, because a person whose hover has gone
+    /// quiet will not think to open a log pane.
+    async fn report_staging_failure(&self, hick_uri: &Url, error: &StagingError) {
+        tracing::error!(%hick_uri, %error, "could not stage a document's code");
+        let text = format!("{error}");
+        self.client
+            .log_message(MessageType::ERROR, text.clone())
+            .await;
+
+        let mut shown = self.staging_failure_shown.write().await;
+        if !*shown {
+            *shown = true;
+            self.client.show_message(MessageType::ERROR, text).await;
+        }
+    }
+
+    /// Process a document change: parse, generate virtual files, forward to
+    /// child LSPs.
+    async fn process_document(&self, hick_uri: &Url, source: &str) {
+        tracing::debug!(%hick_uri, source_len = source.len(), "process_document called");
+
+        if hick_uri.scheme() == "hick-project" {
+            self.process_captured_file(hick_uri, source).await;
+            return;
+        }
+        // A file that is not a document is not woven: it is its own virtual
+        // file, and its language server is asked about it by its real name.
+        if !is_hick_document(hick_uri, source) {
+            self.process_plain_file(hick_uri, source).await;
+            return;
+        }
+
+        // 1. Try to parse the hick document.
+        let state = match crate::project::state_for_uri(hick_uri, source) {
+            Ok(s) => {
+                tracing::debug!(
+                    vfile_count = s.virtual_files.len(),
+                    "parsed hick document successfully"
+                );
+                s
+            }
+            Err(e) => {
+                let (line, message) = parse_error_location(&e);
+                let lsp_line = if line > 0 { line - 1 } else { 0 } as u32;
+                self.client
+                    .publish_diagnostics(
+                        hick_uri.clone(),
+                        vec![Diagnostic {
+                            range: Range {
+                                start: Position {
+                                    line: lsp_line,
+                                    character: 0,
+                                },
+                                end: Position {
+                                    line: lsp_line,
+                                    character: u32::MAX,
+                                },
+                            },
+                            severity: Some(DiagnosticSeverity::ERROR),
+                            source: Some("hick-lsp".to_string()),
+                            message,
+                            ..Default::default()
+                        }],
+                        None,
+                    )
+                    .await;
+
+                self.close_vfiles_for(hick_uri, &[]).await;
+
+                let mut docs = self.documents.write().await;
+                if let Some(entry) = docs.get_mut(hick_uri) {
+                    entry.state = None;
+                }
+                return;
+            }
+        };
+
+        let new_vfile_uris: Vec<Url> = state
+            .virtual_files
+            .iter()
+            .map(|vf| self.vfile_uri(hick_uri, &vf.path))
+            .collect();
+
+        // 3. Close old virtual files, pruning diagnostics for removed files.
+        self.close_vfiles_for(hick_uri, &new_vfile_uris).await;
+
+        {
+            let mut own = crate::element_lint::element_diagnostics(source, &state.doc);
+            own.extend(crate::session_lint::session_diagnostics(source, &state.doc));
+            let merged = {
+                let mut store = self.child_diagnostics.write().await;
+                let per_hick = store.entry(hick_uri.clone()).or_default();
+                per_hick.insert(hick_uri.clone(), own);
+                per_hick.values().flatten().cloned().collect::<Vec<_>>()
+            };
+            self.client
+                .publish_diagnostics(hick_uri.clone(), merged, None)
+                .await;
+        }
+
+        let vfile_version = {
+            let docs = self.documents.read().await;
+            docs.get(hick_uri).map(|e| e.vfile_version + 1).unwrap_or(1)
+        };
+
+        // 4. Determine the root URI child LSPs are initialised against.
+        //
+        //    The document's own staging directory, not the folder the `.md`
+        //    file sits in, so a child like rust-analyzer does not go
+        //    discovering unrelated projects beside it.
+        //
+        //    A machine with nowhere to stage code has nothing to point a child
+        //    at, and a child asked about files that are not there answers
+        //    nothing — which is precisely the silent failure this used to be.
+        //    So the reason is reported and no child is spawned: hick-lsp's own
+        //    parse diagnostics and structural answers still work.
+        let root_uri = match self.staging.document_root_uri(hick_uri) {
+            Ok(root_uri) => root_uri,
+            Err(error) => {
+                self.report_staging_failure(hick_uri, &error).await;
+                self.store_document(hick_uri, state, Vec::new(), vfile_version)
+                    .await;
+                return;
+            }
+        };
+
+        // 5. Stage the complete selected project before opening any child.
+        if let Some(project) = &state.evaluated_project {
+            // The private staged scope must not retain removed sources or build artifacts.
+            self.staging.forget(hick_uri);
+            // Complete evaluated New: no borrowed working-tree manifests.
+            match self.staging.document_dir(hick_uri) {
+                Ok(root) => {
+                    if let Err(message) = crate::write_tree(
+                        &root,
+                        state.selected_project.as_ref().unwrap_or(&project.new),
+                    ) {
+                        self.client.log_message(MessageType::ERROR, message).await;
+                        self.close_vfiles_for(hick_uri, &[]).await;
+                        return;
+                    }
+                }
+                Err(error) => {
+                    self.report_staging_failure(hick_uri, &error).await;
+                    return;
+                }
+            }
+        } else {
+            copy_manifests(&self.staging, hick_uri);
+        }
+        for vf in &state.virtual_files {
+            if state.evaluated_project.is_some() {
+                continue;
+            }
+            if let Err(error) = self.staging.write_vfile(hick_uri, &vf.path, &vf.content()) {
+                self.report_staging_failure(hick_uri, &error).await;
+            }
+        }
+
+        // 6. For each virtual file with a known language, forward to child LSP.
+        let mut new_open_vfiles = Vec::new();
+
+        for vf in &state.virtual_files {
+            tracing::debug!(path = %vf.path, language_id = ?vf.language_id, "processing virtual file");
+
+            let lang_id = match vf.language_id {
+                Some(id) => id,
+                None => continue,
+            };
+
+            // Skip languages where we don't have an LSP command.
+            if lsp_command(lang_id).is_err() {
+                tracing::debug!(lang_id, "no LSP command for language, skipping");
+                continue;
+            }
+
+            let vf_uri = self.vfile_uri(hick_uri, &vf.path);
+            let content = if state.evaluated_project.is_some() {
+                vf.written_content()
+            } else {
+                vf.content()
+            };
+            tracing::debug!(%vf_uri, content_len = content.len(), "forwarding to child LSP");
+            let position_map = if let Some(map) = state.project_maps.get(&vf.path) {
+                map.clone()
+            } else {
+                PositionMap::build(&vf.segments)
+            };
+
+            // Store the mapping.
+            {
+                let mut index = self.vfile_index.write().await;
+                index.insert(
+                    vf_uri.clone(),
+                    VFileMapping {
+                        hick_uri: hick_uri.clone(),
+                        language_id: lang_id.to_string(),
+                        root_uri: root_uri.clone(),
+                        position_map,
+                        provider_diagnostics: Vec::new(),
+                        provider_source: content.clone(),
+                    },
+                );
+            }
+
+            // Send to child LSP.
+            tracing::debug!(lang_id, %root_uri, "acquiring dispatcher lock for child LSP");
+            let mut dispatcher = self.dispatcher.lock().await;
+            tracing::debug!(lang_id, "dispatching to child LSP");
+            match dispatcher.get_or_spawn(lang_id, &root_uri).await {
+                Ok(handle) => {
+                    tracing::debug!(lang_id, "child LSP ready, sending didOpen");
+                    let result = handle
+                        .notify(
+                            "textDocument/didOpen",
+                            serde_json::json!({
+                                "textDocument": {
+                                    "uri": vf_uri.as_str(),
+                                    "languageId": lang_id,
+                                    "version": vfile_version,
+                                    "text": content,
+                                }
+                            }),
+                        )
+                        .await;
+
+                    if let Err(e) = result {
+                        tracing::warn!(
+                            language_id = lang_id,
+                            path = %vf.path,
+                            error = %e,
+                            "failed to send didOpen to child LSP"
+                        );
+                    }
+
+                    new_open_vfiles.push(vf_uri);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        language_id = lang_id,
+                        error = %e,
+                        "failed to spawn child LSP"
+                    );
+                }
+            }
+        }
+
+        // 7. Update stored state.
+        self.store_document(hick_uri, state, new_open_vfiles, vfile_version)
+            .await;
+    }
+
+    /// A plain file — `src/main.rs`, `app.py`, a `justfile` — opened in the
+    /// app. There is nothing to weave: the file is handed to its language
+    /// server as itself, at its real path, with the project it belongs to as
+    /// the root, and every position maps to itself.
+    ///
+    /// This is the path an ordinary editor takes for every file, and it is
+    /// what makes the app an editor for a repository rather than only for the
+    /// documents in it. A file whose language has no server, or whose
+    /// language nothing recognises, is left alone: no diagnostics, no
+    /// answers, and no error — a justfile with no language server is not a
+    /// problem to report.
+    async fn process_plain_file(&self, uri: &Url, source: &str) {
+        let Some(language_id) = plain_language(uri) else {
+            return;
+        };
+        if lsp_command(language_id).is_err() {
+            tracing::debug!(
+                language_id,
+                "no LSP command for language, skipping plain file"
+            );
+            return;
+        }
+        let root_uri = self.plain_root_uri(uri).await;
+        self.process_file_at(uri, uri, source, language_id, root_uri)
+            .await;
+    }
+    async fn process_file_at(
+        &self,
+        uri: &Url,
+        child_uri: &Url,
+        source: &str,
+        language_id: &str,
+        root_uri: String,
+    ) {
+        let lines = source.split('\n').count() as u32;
+
+        // Already open with this child: a change, not a reopen. Sending
+        // didOpen twice for one URI is a protocol violation some servers
+        // answer by dropping the file.
+        let (version, already_open) = {
+            let docs = self.documents.read().await;
+            match docs.get(uri) {
+                Some(entry) => (
+                    entry.vfile_version + 1,
+                    entry.open_vfiles.contains(child_uri),
+                ),
+                None => (1, false),
+            }
+        };
+        {
+            let mut index = self.vfile_index.write().await;
+            // clangd suppresses identical diagnostic publications. A pane
+            // remount can sync unchanged source, so retain the exact payload
+            // only for the same provider/document/source identity.
+            let diagnostics = index
+                .get(child_uri)
+                .filter(|previous| {
+                    previous.hick_uri == *uri
+                        && previous.language_id == language_id
+                        && previous.root_uri == root_uri
+                        && previous.provider_source == source
+                })
+                .map(|previous| previous.provider_diagnostics.clone())
+                .unwrap_or_default();
+            index.insert(
+                child_uri.clone(),
+                VFileMapping {
+                    hick_uri: uri.clone(),
+                    language_id: language_id.to_string(),
+                    root_uri: root_uri.clone(),
+                    position_map: PositionMap::identity(lines),
+                    provider_diagnostics: diagnostics,
+                    provider_source: source.to_string(),
+                },
+            );
+        }
+
+        let mut dispatcher = self.dispatcher.lock().await;
+        let handle = match dispatcher.get_or_spawn(language_id, &root_uri).await {
+            Ok(handle) => handle,
+            Err(e) => {
+                tracing::warn!(language_id, error = %e, "failed to spawn child LSP for plain file");
+                return;
+            }
+        };
+        let result = if already_open {
+            handle
+                .notify(
+                    "textDocument/didChange",
+                    serde_json::json!({
+                        "textDocument": { "uri": child_uri.as_str(), "version": version },
+                        "contentChanges": [{ "text": source }],
+                    }),
+                )
+                .await
+        } else {
+            handle
+                .notify(
+                    "textDocument/didOpen",
+                    serde_json::json!({
+                        "textDocument": {
+                            "uri": child_uri.as_str(),
+                            "languageId": language_id,
+                            "version": version,
+                            "text": source,
+                        }
+                    }),
+                )
+                .await
+        };
+        if let Err(e) = result {
+            tracing::warn!(language_id, %uri, error = %e, "failed to sync plain file to child LSP");
+        }
+        drop(dispatcher);
+
+        let mut docs = self.documents.write().await;
+        let entry = docs.entry(uri.clone()).or_insert_with(|| DocEntry {
+            state: None,
+            open_vfiles: Vec::new(),
+            vfile_version: 0,
+        });
+        entry.state = None;
+        entry.open_vfiles = vec![child_uri.clone()];
+        entry.vfile_version = version;
+    }
+
+    /// Python selects its owning uv workspace when known; other files keep
+    /// the editor's workspace or the stray file's containing repository.
+    async fn plain_root_uri(&self, uri: &Url) -> String {
+        let workspace = self.workspace_root.read().await.clone();
+        let Ok(path) = uri.to_file_path() else {
+            // Not a file URI at all: the root is wherever this server was
+            // pointed, and the child is told the same.
+            return workspace.map(|u| u.to_string()).unwrap_or_default();
+        };
+        let root = crate::project_environment::plain_root(
+            &path,
+            workspace.and_then(|w| w.to_file_path().ok()),
+        );
+        Url::from_directory_path(&root)
+            .map(|u| u.to_string())
+            .unwrap_or_default()
+    }
+
+    /// Record what this document parsed to, and which virtual files are open.
+    async fn store_document(
+        &self,
+        hick_uri: &Url,
+        state: HickDocumentState,
+        open_vfiles: Vec<Url>,
+        vfile_version: i32,
+    ) {
+        let mut docs = self.documents.write().await;
+        let entry = docs.entry(hick_uri.clone()).or_insert_with(|| DocEntry {
+            state: None,
+            open_vfiles: Vec::new(),
+            vfile_version: 0,
+        });
+        entry.state = Some(state);
+        entry.open_vfiles = open_vfiles;
+        entry.vfile_version = vfile_version;
+    }
+
+    /// Close all virtual files associated with a .md document.
+    ///
+    /// Sends `textDocument/didClose` to each child LSP so that re-opening the
+    /// same URI later is not a protocol violation. Only prunes accumulated
+    /// diagnostics for virtual files that are no longer in `new_vfile_uris`,
+    /// keeping existing diagnostics for files that will be refreshed.
+    async fn close_vfiles_for(&self, hick_uri: &Url, new_vfile_uris: &[Url]) {
+        let old_vfiles = {
+            let docs = self.documents.read().await;
+            match docs.get(hick_uri) {
+                Some(entry) => entry.open_vfiles.clone(),
+                None => return,
+            }
+        };
+
+        // Collect (uri, language_id, root) triples before sending didClose.
+        let to_close: Vec<(Url, String, String)> = {
+            let mut index = self.vfile_index.write().await;
+            old_vfiles
+                .iter()
+                .filter_map(|vf_uri| {
+                    index
+                        .remove(vf_uri)
+                        .map(|m| (vf_uri.clone(), m.language_id, m.root_uri))
+                })
+                .collect()
+        };
+
+        // Remove accumulated diagnostics only for virtual files that no
+        // longer exist, so that diagnostics for surviving files persist
+        // until the child LSP sends fresh ones.
+        {
+            let mut diags = self.child_diagnostics.write().await;
+            if let Some(per_hick) = diags.get_mut(hick_uri) {
+                // The document's own diagnostics live under its own URI.
+                per_hick.retain(|vf_uri, _| vf_uri == hick_uri || new_vfile_uris.contains(vf_uri));
+            }
+        }
+
+        // Republish the remaining accumulated diagnostics (minus removed files).
+        let remaining = {
+            let store = self.child_diagnostics.read().await;
+            store
+                .get(hick_uri)
+                .map(|per_hick| per_hick.values().flatten().cloned().collect::<Vec<_>>())
+                .unwrap_or_default()
+        };
+        self.client
+            .publish_diagnostics(hick_uri.clone(), remaining, None)
+            .await;
+
+        let dispatcher = self.dispatcher.lock().await;
+        for (vf_uri, language_id, root_uri) in &to_close {
+            if let Ok(handle) = dispatcher.get_child(language_id, root_uri) {
+                let _ = handle
+                    .notify(
+                        "textDocument/didClose",
+                        serde_json::json!({
+                            "textDocument": { "uri": vf_uri.as_str() }
+                        }),
+                    )
+                    .await;
+            }
+        }
+    }
+
+    /// Find the virtual file (and translated position) for a position in a
+    /// .md document, if any virtual file covers that source line.
+    async fn virtual_target(
+        &self,
+        hick_uri: &Url,
+        pos: Position,
+    ) -> Option<(Url, String, Position)> {
+        let index = self.vfile_index.read().await;
+        let mut target = None;
+        for (vf_uri, mapping) in index.iter() {
+            if &mapping.hick_uri == hick_uri
+                && let Some((vl, vc)) = mapping.position_map.to_virtual(pos.line, pos.character)
+            {
+                if mapping.position_map.is_project() && target.is_some() {
+                    return None;
+                }
+                let candidate = (
+                    vf_uri.clone(),
+                    mapping.language_id.clone(),
+                    Position::new(vl, vc),
+                );
+                if !mapping.position_map.is_project() {
+                    return Some(candidate);
+                }
+                target = Some(candidate);
+            }
+        }
+        target
+    }
+
+    /// Every virtual file of `hick_uri`, with its language and position map.
+    ///
+    /// Document-wide requests — outline, colouring, folding — have no
+    /// position to route by, so they go to every child that owns part of the
+    /// document and the answers are merged.
+    async fn virtual_files_of(&self, hick_uri: &Url) -> Vec<(Url, String, PositionMap)> {
+        let index = self.vfile_index.read().await;
+        index
+            .iter()
+            .filter(|(_, mapping)| &mapping.hick_uri == hick_uri)
+            .map(|(vf_uri, mapping)| {
+                (
+                    vf_uri.clone(),
+                    mapping.language_id.clone(),
+                    mapping.position_map.clone(),
+                )
+            })
+            .collect()
+    }
+
+    /// Send a request carrying only a document, to one child.
+    async fn child_document_request(
+        &self,
+        method: &str,
+        vf_uri: &Url,
+        language_id: &str,
+        extra: Option<serde_json::Value>,
+    ) -> Option<serde_json::Value> {
+        let root_uri = self.root_of(vf_uri).await?;
+        let handle = {
+            let dispatcher = self.dispatcher.lock().await;
+            dispatcher.get_child(language_id, &root_uri).ok()?.clone()
+        };
+        let mut params = serde_json::json!({ "textDocument": { "uri": vf_uri.as_str() } });
+        if let Some(serde_json::Value::Object(extra)) = extra
+            && let Some(obj) = params.as_object_mut()
+        {
+            for (k, v) in extra {
+                obj.insert(k, v);
+            }
+        }
+        match handle.request(method, params).await {
+            Ok(v) if !v.is_null() => Some(v),
+            _ => None,
+        }
+    }
+
+    /// Ask every child that owns part of this document, and merge the arrays
+    /// they return with every range mapped back into document coordinates.
+    async fn fan_out_array(
+        &self,
+        method: &str,
+        hick_uri: &Url,
+        extra: Option<serde_json::Value>,
+    ) -> Vec<serde_json::Value> {
+        let mut out = Vec::new();
+        for (vf_uri, language, map) in self.virtual_files_of(hick_uri).await {
+            let Some(result) = self
+                .child_document_request(method, &vf_uri, &language, extra.clone())
+                .await
+            else {
+                continue;
+            };
+            let translated = translate_bare_ranges(result, &map);
+            match translated {
+                serde_json::Value::Array(items) => out.extend(items),
+                other => out.push(other),
+            }
+        }
+        out
+    }
+
+    /// A positional request whose result carries ranges in the same file.
+    async fn positional(
+        &self,
+        method: &str,
+        uri: &Url,
+        pos: Position,
+        extra: Option<serde_json::Value>,
+    ) -> Option<serde_json::Value> {
+        self.positional_result(method, uri, pos, extra)
+            .await
+            .ok()
+            .flatten()
+    }
+
+    async fn positional_result(
+        &self,
+        method: &str,
+        uri: &Url,
+        pos: Position,
+        extra: Option<serde_json::Value>,
+    ) -> Result<Option<serde_json::Value>> {
+        let Some((vf_uri, lang, vpos)) = self.virtual_target(uri, pos).await else {
+            return Ok(None);
+        };
+        let Some(result) = self
+            .child_request_result(method, &vf_uri, &lang, vpos, extra)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let map = {
+            let index = self.vfile_index.read().await;
+            index.get(&vf_uri).map(|m| m.position_map.clone())
+        };
+        Ok(Some(match map {
+            Some(map) => translate_bare_ranges(result, &map),
+            None => result,
+        }))
+    }
+
+    /// A positional request whose result carries LOCATIONS in other files —
+    /// definitions, implementations, type definitions.
+    async fn positional_locations(
+        &self,
+        method: &str,
+        uri: &Url,
+        pos: Position,
+    ) -> Option<serde_json::Value> {
+        let (vf_uri, lang, vpos) = self.virtual_target(uri, pos).await?;
+        let result = self
+            .child_request(method, &vf_uri, &lang, vpos, None)
+            .await?;
+        let index = self.index_snapshot().await;
+        Some(translate_locations(result, &index))
+    }
+
+    /// Find the position map for whichever virtual file a completion item
+    /// belongs to, by looking for a URI we recognise anywhere in its `data`.
+    ///
+    /// The shape of `data` is the child's business — pyright nests a `uri`,
+    /// another server might not — so this searches rather than assumes, and
+    /// returns nothing when it recognises nothing.
+    async fn map_for_completion_data(&self, item: &CompletionItem) -> Option<PositionMap> {
+        let data = item.data.as_ref()?;
+        let index = self.vfile_index.read().await;
+        let mut stack = vec![data];
+        while let Some(value) = stack.pop() {
+            match value {
+                serde_json::Value::String(text) => {
+                    if let Ok(url) = Url::parse(text)
+                        && let Some(mapping) = index.get(&url)
+                    {
+                        return Some(mapping.position_map.clone());
+                    }
+                }
+                serde_json::Value::Object(map) => stack.extend(map.values()),
+                serde_json::Value::Array(items) => stack.extend(items.iter()),
+                _ => {}
+            }
+        }
+        None
+    }
+
+    /// Remember each item the child produced, plant a key in its `data`, and
+    /// hand back the same items in DOCUMENT coordinates.
+    ///
+    /// The key replaces whatever the child had in `data`, and the original is
+    /// kept in the stored copy — so the child still sees its own `data` when
+    /// the item comes back, and the client sees only ours.
+    async fn remember_hierarchy(
+        &self,
+        result: serde_json::Value,
+        vf_uri: &Url,
+        language: &str,
+    ) -> serde_json::Value {
+        let serde_json::Value::Array(items) = result else {
+            return serde_json::Value::Null;
+        };
+        let index = self.index_snapshot().await;
+        let mut out = Vec::with_capacity(items.len());
+        for item in items {
+            out.push(self.remember_one(item, vf_uri, language, &index).await);
+        }
+        serde_json::Value::Array(out)
+    }
+
+    /// One item: stored as the child made it, returned in document lines.
+    async fn remember_one(
+        &self,
+        item: serde_json::Value,
+        vf_uri: &Url,
+        language: &str,
+        index: &HashMap<String, (Url, PositionMap)>,
+    ) -> serde_json::Value {
+        // The child's own uri is preferred over the request's: an outgoing
+        // call lands in whatever file defines the callee, which need not be
+        // the file the question was asked in.
+        let owner = item
+            .get("uri")
+            .and_then(|u| u.as_str())
+            .and_then(|u| Url::parse(u).ok())
+            .unwrap_or_else(|| vf_uri.clone());
+        let key = format!("hick-{}", uuid_ish());
+        self.prepared_hierarchy.write().await.insert(
+            key.clone(),
+            PreparedHierarchyItem {
+                vf_uri: owner,
+                language: language.to_string(),
+                item: item.clone(),
+            },
+        );
+        // `selectionRange` is translated explicitly, against the map for the
+        // item's OWN file and before `uri` is rewritten. `translate_locations`
+        // knows `range` and a LocationLink's target ranges, and returns as
+        // soon as it has done them — so this one would be left in the child's
+        // coordinates, pointing at a line of the staged file, which is a line
+        // of nothing. It is the name of the symbol in the hierarchy tree, so
+        // clicking it would land somewhere arbitrary.
+        let selection = item
+            .get("uri")
+            .and_then(|u| u.as_str())
+            .and_then(|u| index.get(&uri_key(u)))
+            .zip(item.get("selectionRange").cloned())
+            .map(|((_, map), range)| translate_bare_ranges(range, map));
+
+        let mut translated = translate_locations(item, index);
+        if let Some(object) = translated.as_object_mut() {
+            if let Some(selection) = selection {
+                object.insert("selectionRange".into(), selection);
+            }
+            object.insert("data".into(), serde_json::json!({ "hick": key }));
+        }
+        translated
+    }
+
+    /// The item the child produced, for an item the client handed back.
+    async fn recall_hierarchy(&self, item: &serde_json::Value) -> Option<PreparedHierarchyItem> {
+        let key = item.pointer("/data/hick")?.as_str()?.to_string();
+        self.prepared_hierarchy.read().await.get(&key).cloned()
+    }
+
+    /// Ask the child a hierarchy follow-up about an item it produced.
+    async fn hierarchy_followup(
+        &self,
+        method: &str,
+        item: &serde_json::Value,
+    ) -> Option<serde_json::Value> {
+        let prepared = self.recall_hierarchy(item).await?;
+        let root_uri = self.root_of(&prepared.vf_uri).await?;
+        let handle = {
+            let dispatcher = self.dispatcher.lock().await;
+            dispatcher
+                .get_child(&prepared.language, &root_uri)
+                .ok()?
+                .clone()
+        };
+        let answered = handle
+            .request(method, serde_json::json!({ "item": prepared.item }))
+            .await
+            .ok()?;
+        let index = self.index_snapshot().await;
+        let mut result = translate_locations(answered, &index);
+        // Each answer carries another item the client may drill into, so
+        // every one of them is remembered too.
+        if let serde_json::Value::Array(entries) = &mut result {
+            for entry in entries.iter_mut() {
+                for field in ["from", "to"] {
+                    if let Some(nested) = entry.get(field).cloned() {
+                        let remembered = self
+                            .remember_one(nested, &prepared.vf_uri, &prepared.language, &index)
+                            .await;
+                        if let Some(object) = entry.as_object_mut() {
+                            object.insert(field.into(), remembered);
+                        }
+                    }
+                }
+            }
+        }
+        Some(result)
+    }
+
+    async fn child_request(
+        &self,
+        method: &str,
+        vf_uri: &Url,
+        language_id: &str,
+        pos: Position,
+        extra: Option<serde_json::Value>,
+    ) -> Option<serde_json::Value> {
+        self.child_request_result(method, vf_uri, language_id, pos, extra)
+            .await
+            .ok()
+            .flatten()
+    }
+
+    async fn child_request_result(
+        &self,
+        method: &str,
+        vf_uri: &Url,
+        language_id: &str,
+        pos: Position,
+        extra: Option<serde_json::Value>,
+    ) -> Result<Option<serde_json::Value>> {
+        let Some(root_uri) = self.root_of(vf_uri).await else {
+            return Ok(None);
+        };
+        let handle = {
+            let dispatcher = self.dispatcher.lock().await;
+            let Ok(handle) = dispatcher.get_child(language_id, &root_uri) else {
+                return Ok(None);
+            };
+            handle.clone()
+        };
+        let mut params = serde_json::json!({
+            "textDocument": { "uri": vf_uri.as_str() },
+            "position": { "line": pos.line, "character": pos.character },
+        });
+        if let Some(serde_json::Value::Object(extra)) = extra
+            && let Some(obj) = params.as_object_mut()
+        {
+            for (k, v) in extra {
+                obj.insert(k, v);
+            }
+        }
+        match handle.request(method, params).await {
+            Ok(v) if !v.is_null() => Ok(Some(v)),
+            Ok(_) => Ok(None),
+            Err(e) => {
+                tracing::debug!(method, language_id, error = %e, "child LSP request failed");
+                Err(child_request_error(e))
+            }
+        }
+    }
+
+    /// The root the child owning `vf_uri` was initialised against.
+    async fn root_of(&self, vf_uri: &Url) -> Option<String> {
+        let index = self.vfile_index.read().await;
+        index.get(vf_uri).map(|m| m.root_uri.clone())
+    }
+
+    /// Snapshot of the vfile index for pure result translation.
+    async fn index_snapshot(&self) -> HashMap<String, (Url, PositionMap)> {
+        let index = self.vfile_index.read().await;
+        index
+            .iter()
+            .map(|(uri, m)| {
+                (
+                    uri_key(uri.as_str()),
+                    (m.hick_uri.clone(), m.position_map.clone()),
+                )
+            })
+            .collect()
+    }
+
+    /// Structural (copy/paste) locations for a request position.
+    async fn structural_spans(
+        &self,
+        hick_uri: &Url,
+        pos: Position,
+        kind: StructuralKind,
+    ) -> Vec<Location> {
+        let docs = self.documents.read().await;
+        let Some(state) = docs.get(hick_uri).and_then(|e| e.state.as_ref()) else {
+            return Vec::new();
+        };
+        let source = &state.doc.source;
+        let Some(offset) = crate::structural::position_to_byte(source, pos.line, pos.character)
+        else {
+            return Vec::new();
+        };
+        let spans = match kind {
+            StructuralKind::Definition => crate::structural::definition(&state.doc, offset)
+                .into_iter()
+                .collect::<Vec<_>>(),
+            StructuralKind::References {
+                include_declaration,
+            } => crate::structural::references(&state.doc, offset, include_declaration),
+        };
+        spans
+            .into_iter()
+            .map(|(s, e)| {
+                let (sl, sc) = crate::structural::byte_to_position(source, s);
+                let (el, ec) = crate::structural::byte_to_position(source, e);
+                Location {
+                    uri: hick_uri.clone(),
+                    range: Range {
+                        start: Position::new(sl, sc),
+                        end: Position::new(el, ec),
+                    },
+                }
+            })
+            .collect()
+    }
+
+    /// Start a background task that drains child LSP notifications and
+    /// translates diagnostics back to .md coordinates.
+    fn spawn_notification_handler(&self) {
+        let client = self.client.clone();
+        let notification_rx = Arc::clone(&self.notification_rx);
+        let vfile_index = Arc::clone(&self.vfile_index);
+        let child_diagnostics = Arc::clone(&self.child_diagnostics);
+
+        tokio::spawn(async move {
+            tracing::debug!("notification handler started");
+            let mut rx = notification_rx.lock().await;
+            while let Some(notif) = rx.recv().await {
+                tracing::debug!(
+                    method = %notif.method,
+                    language_id = %notif.language_id,
+                    "received child LSP notification"
+                );
+                if notif.method == "textDocument/publishDiagnostics"
+                    && let Err(e) =
+                        handle_child_diagnostics(&client, &vfile_index, &child_diagnostics, &notif)
+                            .await
+                {
+                    tracing::debug!(
+                        error = %e,
+                        "failed to process child diagnostics"
+                    );
+                }
+            }
+            tracing::debug!("notification handler exited");
+        });
+    }
+}
+
+</storycode:copy>
+<a id="f-c936496a03c1-StructuralKind"></a>
+### `StructuralKind`
+
+<storycode:copy id="f-c936496a03c1-StructuralKind">
+/// Which structural answer to compute.
+#[derive(Debug, Clone, Copy)]
+enum StructuralKind {
+    Definition,
+    References { include_declaration: bool },
+}
+
+</storycode:copy>
+<a id="f-c936496a03c1-drive_lowercased"></a>
+### `drive_lowercased`
+
+Translate every `{uri, range}` / `{targetUri, targetRange…}` location in a
+child LSP result from virtual-file coordinates back to .md coordinates.
+Locations whose URI is not a known virtual file, or whose positions fall on
+lines the position map cannot translate (e.g. pasted/synthetic content),
+are left untouched — the server-side bridge maps those through run
+provenance instead.
+A URI reduced to something two programs can agree on.
+A child language server answers with its OWN spelling of the same file.
+basedpyright on Windows returns `file:///c%3A/Users/…` where
+`Url::from_file_path` produced `file:///C:/Users/…` — lowercase drive,
+percent-encoded colon, and on some servers a different separator. Keying
+the translation index by the raw string misses every one of those, the
+location is never translated, and go-to-definition lands the user in a
+staging directory instead of their own document.
+Comparing the resolved path instead makes the spelling irrelevant. Windows
+paths are compared case-insensitively because its filesystem is, and a
+server that lowercases a drive letter must not thereby become a different
+file.
+`/C:/x` -> `/c:/x`, leaving the rest of a case-sensitive path alone.
+
+<storycode:copy id="f-c936496a03c1-drive_lowercased">
+/// Translate every `{uri, range}` / `{targetUri, targetRange…}` location in a
+/// child LSP result from virtual-file coordinates back to .md coordinates.
+///
+/// Locations whose URI is not a known virtual file, or whose positions fall on
+/// lines the position map cannot translate (e.g. pasted/synthetic content),
+/// are left untouched — the server-side bridge maps those through run
+/// provenance instead.
+/// A URI reduced to something two programs can agree on.
+///
+/// A child language server answers with its OWN spelling of the same file.
+/// basedpyright on Windows returns `file:///c%3A/Users/…` where
+/// `Url::from_file_path` produced `file:///C:/Users/…` — lowercase drive,
+/// percent-encoded colon, and on some servers a different separator. Keying
+/// the translation index by the raw string misses every one of those, the
+/// location is never translated, and go-to-definition lands the user in a
+/// staging directory instead of their own document.
+///
+/// Comparing the resolved path instead makes the spelling irrelevant. Windows
+/// paths are compared case-insensitively because its filesystem is, and a
+/// server that lowercases a drive letter must not thereby become a different
+/// file.
+/// `/C:/x` -> `/c:/x`, leaving the rest of a case-sensitive path alone.
+fn drive_lowercased(text: &str) -> String {
+    let bytes = text.as_bytes();
+    if bytes.len() >= 3 && bytes[0] == b'/' && bytes[1].is_ascii_alphabetic() && bytes[2] == b':' {
+        let mut out = String::with_capacity(text.len());
+        out.push('/');
+        out.push(bytes[1].to_ascii_lowercase() as char);
+        out.push_str(&text[2..]);
+        return out;
+    }
+    text.to_string()
+}
+
+</storycode:copy>
+<a id="f-c936496a03c1-uri_key"></a>
+### `uri_key`
+
+<storycode:copy id="f-c936496a03c1-uri_key">
+pub(crate) fn uri_key(uri: &str) -> String {
+    let Ok(url) = Url::parse(uri) else {
+        return uri.to_string();
+    };
+    match url.to_file_path() {
+        Ok(path) => {
+            let text = path.to_string_lossy().replace('\\', "/");
+            if cfg!(windows) {
+                // Windows' filesystem is case-insensitive, so two spellings
+                // that differ only in case are one file.
+                return text.to_lowercase();
+            }
+            // Elsewhere the path is case-SENSITIVE and must not be flattened
+            // — but a drive letter still gets normalised, so this rule can be
+            // asserted on any machine rather than only on the one where it
+            // matters. `/C:/x` and `/c%3A/x` are the same file wherever the
+            // URI came from.
+            drive_lowercased(&text)
+        }
+        // Not a file URI at all: keep it whole rather than inventing a key.
+        Err(()) => url.to_string(),
+    }
+}
+
+</storycode:copy>
+<a id="f-c936496a03c1-translate_edit_uris"></a>
+### `translate_edit_uris`
+
+Translate every `{start: {line, character}, end: …}` range in a child
+result (hover ranges, completion text edits) with one position map — used
+for results that carry ranges without URIs, all belonging to the request's
+own virtual file. Untranslatable ranges are removed rather than left in
+virtual coordinates.
+Rewrite a workspace edit so it names documents rather than virtual files.
+An edit that came back pointing into the staging directory would, if
+applied, write to a file that exists only for the language server's
+benefit — the user's change would land nowhere and look like it worked.
+Every `uri` is remapped to the document that produced that virtual file,
+and its ranges to that document's coordinates.
+
+<storycode:copy id="f-c936496a03c1-translate_edit_uris">
+/// Translate every `{start: {line, character}, end: …}` range in a child
+/// result (hover ranges, completion text edits) with one position map — used
+/// for results that carry ranges without URIs, all belonging to the request's
+/// own virtual file. Untranslatable ranges are removed rather than left in
+/// virtual coordinates.
+/// Rewrite a workspace edit so it names documents rather than virtual files.
+///
+/// An edit that came back pointing into the staging directory would, if
+/// applied, write to a file that exists only for the language server's
+/// benefit — the user's change would land nowhere and look like it worked.
+/// Every `uri` is remapped to the document that produced that virtual file,
+/// and its ranges to that document's coordinates.
+pub(crate) fn translate_edit_uris(
+    value: serde_json::Value,
+    index: &HashMap<String, (Url, PositionMap)>,
+) -> serde_json::Value {
+    use serde_json::Value;
+
+    fn walk(value: &mut Value, index: &HashMap<String, (Url, PositionMap)>) {
+        match value {
+            Value::Array(items) => {
+                for item in items {
+                    walk(item, index);
+                }
+            }
+            Value::Object(obj) => {
+                // `changes` is keyed BY uri, so the keys themselves move.
+                if let Some(Value::Object(changes)) = obj.get("changes").cloned() {
+                    let mut remapped = serde_json::Map::new();
+                    for (uri, edits) in changes {
+                        match index.get(&uri_key(&uri)) {
+                            Some((hick_uri, map)) => {
+                                let mut edits = edits;
+                                edits = translate_bare_ranges(edits, map);
+                                let key = hick_uri.to_string();
+                                match remapped.get_mut(&key) {
+                                    Some(Value::Array(existing)) => {
+                                        if let Value::Array(items) = edits {
+                                            existing.extend(items);
+                                        }
+                                    }
+                                    _ => {
+                                        remapped.insert(key, edits);
+                                    }
+                                }
+                            }
+                            // An edit to a file we cannot map is dropped: a
+                            // partially applied rename is worse than one that
+                            // did not happen.
+                            None => continue,
+                        }
+                    }
+                    obj.insert("changes".to_string(), Value::Object(remapped));
+                }
+
+                let keys: Vec<String> = obj.keys().cloned().collect();
+                for key in keys {
+                    if key == "changes" {
+                        continue;
+                    }
+                    if key == "uri"
+                        && let Some(uri) = obj.get("uri").and_then(|v| v.as_str())
+                        && let Some((hick_uri, _)) = index.get(&uri_key(uri))
+                    {
+                        obj.insert("uri".to_string(), Value::String(hick_uri.to_string()));
+                        continue;
+                    }
+                    if let Some(child) = obj.get_mut(&key) {
+                        walk(child, index);
+                    }
+                }
+
+                // Ranges beside a rewritten uri are in that file's
+                // coordinates; map them with the same file's map.
+                if let Some(uri) = obj.get("uri").and_then(|v| v.as_str())
+                    && let Some((_, map)) = index
+                        .iter()
+                        .find(|(_, (hick_uri, _))| hick_uri.as_str() == uri)
+                        .map(|(_, v)| v)
+                {
+                    for key in ["range", "selectionRange", "originSelectionRange"] {
+                        if let Some(range) = obj.get(key).cloned() {
+                            let mut wrapper = serde_json::json!({ key: range });
+                            wrapper = translate_bare_ranges(wrapper, map);
+                            if let Some(t) = wrapper.get(key) {
+                                obj.insert(key.to_string(), t.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut value = value;
+    walk(&mut value, index);
+    value
+}
+
+</storycode:copy>
+<a id="f-c936496a03c1-translate_bare_ranges"></a>
+### `translate_bare_ranges`
+
+<storycode:copy id="f-c936496a03c1-translate_bare_ranges">
+pub(crate) fn translate_bare_ranges(
+    value: serde_json::Value,
+    map: &PositionMap,
+) -> serde_json::Value {
+    use serde_json::Value;
+
+    fn is_range(v: &Value) -> bool {
+        v.pointer("/start/line").is_some()
+            && v.pointer("/start/character").is_some()
+            && v.pointer("/end/line").is_some()
+            && v.pointer("/end/character").is_some()
+    }
+
+    fn is_position(v: &Value) -> bool {
+        v.pointer("/line").is_some() && v.pointer("/character").is_some()
+    }
+
+    fn translate_position(v: &Value, map: &PositionMap) -> Option<Value> {
+        let line = v.pointer("/line")?.as_u64()? as u32;
+        let character = v.pointer("/character")?.as_u64()? as u32;
+        let (line, character) = map.to_source(line, character)?;
+        Some(serde_json::json!({ "line": line, "character": character }))
+    }
+
+    fn translate(v: &Value, map: &PositionMap) -> Option<Value> {
+        let sl = v.pointer("/start/line")?.as_u64()? as u32;
+        let sc = v.pointer("/start/character")?.as_u64()? as u32;
+        let el = v.pointer("/end/line")?.as_u64()? as u32;
+        let ec = v.pointer("/end/character")?.as_u64()? as u32;
+        let (sl, sc) = map.to_source(sl, sc)?;
+        let (el, ec) = map.to_source(el, ec)?;
+        Some(serde_json::json!({
+            "start": { "line": sl, "character": sc },
+            "end": { "line": el, "character": ec },
+        }))
+    }
+
+    fn walk(value: &mut Value, map: &PositionMap) {
+        match value {
+            Value::Array(items) => {
+                for item in items {
+                    walk(item, map);
+                }
+            }
+            Value::Object(obj) => {
+                let keys: Vec<String> = obj.keys().cloned().collect();
+                for key in keys {
+                    let child = obj.get(&key).cloned().unwrap_or(Value::Null);
+                    if is_range(&child) {
+                        match translate(&child, map) {
+                            Some(t) => {
+                                obj.insert(key, t);
+                            }
+                            None => {
+                                obj.remove(&key);
+                            }
+                        }
+                    } else if key == "position" && is_position(&child) {
+                        // A BARE position, which only inlay hints use. It is
+                        // not range-shaped, so the walker above steps over it
+                        // — and an untranslated one places the hint at the
+                        // virtual file's line number, which is somewhere near
+                        // the top of the document rather than beside the code
+                        // it describes.
+                        match translate_position(&child, map) {
+                            Some(t) => {
+                                obj.insert(key, t);
+                            }
+                            None => {
+                                obj.remove(&key);
+                            }
+                        }
+                    } else if let Some(v) = obj.get_mut(&key) {
+                        walk(v, map);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut value = value;
+    walk(&mut value, map);
+    value
+}
+
+</storycode:copy>
+<a id="f-c936496a03c1-MANIFESTS"></a>
+### `MANIFESTS`
+
+Files that tell a language server "this is a project of mine".
+Only manifests, and only these: they are small, they are read rather than
+executed, and each one is what its ecosystem's server looks for before it
+will answer anything semantic. Source files are deliberately NOT copied —
+the virtual file is the document's code, and dragging the surrounding
+repository in would make the server answer about files the document does
+not contain.
+
+<storycode:copy id="f-c936496a03c1-MANIFESTS">
+/// Files that tell a language server "this is a project of mine".
+///
+/// Only manifests, and only these: they are small, they are read rather than
+/// executed, and each one is what its ecosystem's server looks for before it
+/// will answer anything semantic. Source files are deliberately NOT copied —
+/// the virtual file is the document's code, and dragging the surrounding
+/// repository in would make the server answer about files the document does
+/// not contain.
+const MANIFESTS: &[&str] = &[
+    "Cargo.toml",
+    "Cargo.lock",
+    "rust-toolchain.toml",
+    "package.json",
+    "tsconfig.json",
+    "jsconfig.json",
+    "go.mod",
+    "go.sum",
+    "pyproject.toml",
+    "setup.cfg",
+    "requirements.txt",
+    "composer.json",
+    "Gemfile",
+];
+
+</storycode:copy>
+<a id="f-c936496a03c1-copy_manifests"></a>
+### `copy_manifests`
+
+Copy the document's project manifests next to its virtual files.
+Best-effort throughout: a manifest that cannot be read leaves the server
+exactly as badly off as it was before, which is the pre-existing
+behaviour rather than a new failure.
+
+<storycode:copy id="f-c936496a03c1-copy_manifests">
+/// Copy the document's project manifests next to its virtual files.
+///
+/// Best-effort throughout: a manifest that cannot be read leaves the server
+/// exactly as badly off as it was before, which is the pre-existing
+/// behaviour rather than a new failure.
+fn copy_manifests(staging: &StagingArea, hick_uri: &Url) {
+    let Ok(document_path) = hick_uri.to_file_path() else {
+        return;
+    };
+    let Some(project) = document_path.parent() else {
+        return;
+    };
+    for name in MANIFESTS {
+        let source = project.join(name);
+        if source.is_file() {
+            let _ = staging.copy_into(hick_uri, &source, name);
+        }
+    }
+}
+
+</storycode:copy>
+<a id="f-c936496a03c1-child_request_error"></a>
+### `child_request_error`
+
+<storycode:copy id="f-c936496a03c1-child_request_error">
+fn child_request_error(error: crate::child_lsp::ChildLspError) -> tower_lsp::jsonrpc::Error {
+    use tower_lsp::jsonrpc::{Error, ErrorCode};
+    let code = match &error {
+        crate::child_lsp::ChildLspError::JsonRpc { code, .. } => ErrorCode::ServerError(*code),
+        _ => ErrorCode::InternalError,
+    };
+    Error {
+        code,
+        message: error.to_string().into(),
+        data: None,
+    }
+}
+
+</storycode:copy>
+<a id="f-c936496a03c1-handle_child_diagnostics"></a>
+### `handle_child_diagnostics`
+
+Process a publishDiagnostics notification from a child LSP.
+Instead of publishing each child's diagnostics independently (which would
+cause later children to overwrite earlier ones), we accumulate diagnostics
+per virtual file and publish the merged set for the whole .md document.
+
+<storycode:copy id="f-c936496a03c1-handle_child_diagnostics">
+/// Process a publishDiagnostics notification from a child LSP.
+///
+/// Instead of publishing each child's diagnostics independently (which would
+/// cause later children to overwrite earlier ones), we accumulate diagnostics
+/// per virtual file and publish the merged set for the whole .md document.
+async fn handle_child_diagnostics(
+    client: &Client,
+    vfile_index: &Arc<RwLock<HashMap<Url, VFileMapping>>>,
+    accumulated: &ChildDiagnosticsStore,
+    notif: &ChildNotification,
+) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let uri_str = notif
+        .params
+        .get("uri")
+        .and_then(|u| u.as_str())
+        .ok_or("missing uri in publishDiagnostics")?;
+    let vf_uri = Url::parse(uri_str)?;
+
+    let mut index = vfile_index.write().await;
+    let mapping = match index.get_mut(&vf_uri) {
+        Some(m) => m,
+        None => {
+            let diag_count = notif
+                .params
+                .get("diagnostics")
+                .and_then(|d| d.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
+            tracing::debug!(
+                %vf_uri,
+                diag_count,
+                language_id = %notif.language_id,
+                "no vfile mapping for URI, dropping diagnostics"
+            );
+            return Ok(());
+        }
+    };
+
+    let child_diagnostics = notif
+        .params
+        .get("diagnostics")
+        .and_then(|d| d.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if mapping.language_id != notif.language_id {
+        return Ok(());
+    }
+    mapping.provider_diagnostics = child_diagnostics.clone();
+    let hick_uri = mapping.hick_uri.clone();
+    let position_map = &mapping.position_map;
+
+    let mut translated: HashMap<Url, Vec<Diagnostic>> = HashMap::new();
+    for diag_val in &child_diagnostics {
+        let range = match diag_val.get("range") {
+            Some(r) => r,
+            None => continue,
+        };
+
+        let start_line = range
+            .pointer("/start/line")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+        let start_char = range
+            .pointer("/start/character")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+        let end_line = range
+            .pointer("/end/line")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+        let end_char = range
+            .pointer("/end/character")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+
+        let Some((document, src_start_line, src_start_char)) =
+            position_map.source_document(start_line, start_char)
+        else {
+            continue;
+        };
+        let Some((end_document, src_end_line, src_end_char)) =
+            position_map.source_document(end_line, end_char)
+        else {
+            continue;
+        };
+        if document != end_document {
+            continue;
+        }
+        let target = document
+            .and_then(|d| hick_uri.join(&d).ok())
+            .unwrap_or_else(|| hick_uri.clone());
+
+        let severity = diag_val
+            .get("severity")
+            .and_then(|s| s.as_u64())
+            .and_then(|s| match s {
+                1 => Some(DiagnosticSeverity::ERROR),
+                2 => Some(DiagnosticSeverity::WARNING),
+                3 => Some(DiagnosticSeverity::INFORMATION),
+                4 => Some(DiagnosticSeverity::HINT),
+                _ => None,
+            });
+
+        let message = diag_val
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let source = diag_val
+            .get("source")
+            .and_then(|s| s.as_str())
+            .map(|s| s.to_string());
+
+        translated.entry(target).or_default().push(Diagnostic {
+            range: Range {
+                start: Position {
+                    line: src_start_line,
+                    character: src_start_char,
+                },
+                end: Position {
+                    line: src_end_line,
+                    character: src_end_char,
+                },
+            },
+            severity,
+            source,
+            message,
+            ..Default::default()
+        });
+    }
+
+    drop(index);
+
+    // Replace this virtual file's contribution on every affected source,
+    // including sources whose old diagnostics disappeared after an edit.
+    let updates = {
+        let mut store = accumulated.write().await;
+        let mut affected: std::collections::HashSet<Url> = translated.keys().cloned().collect();
+        for (uri, per_file) in store.iter_mut() {
+            if per_file.remove(&vf_uri).is_some() {
+                affected.insert(uri.clone());
+            }
+        }
+        for (uri, diagnostics) in translated {
+            store
+                .entry(uri)
+                .or_default()
+                .insert(vf_uri.clone(), diagnostics);
+        }
+        affected
+            .into_iter()
+            .map(|uri| {
+                let diagnostics = store[&uri].values().flatten().cloned().collect::<Vec<_>>();
+                (uri, diagnostics)
+            })
+            .collect::<Vec<_>>()
+    };
+    for (uri, diagnostics) in updates {
+        client.publish_diagnostics(uri, diagnostics, None).await;
+    }
+
+    Ok(())
+}
+
+</storycode:copy>
+<a id="f-c936496a03c1-impl-LanguageServer-for-HickBackend"></a>
+### `impl-LanguageServer for HickBackend`
+
+<storycode:copy id="f-c936496a03c1-impl-LanguageServer-for-HickBackend">
+#[tower_lsp::async_trait]
+impl LanguageServer for HickBackend {
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        #[allow(deprecated)]
+        let root = params
+            .workspace_folders
+            .as_ref()
+            .and_then(|folders| folders.first().map(|f| f.uri.clone()))
+            .or(params.root_uri);
+        *self.workspace_root.write().await = root;
+        Ok(InitializeResult {
+            capabilities: ServerCapabilities {
+                text_document_sync: Some(TextDocumentSyncCapability::Kind(
+                    TextDocumentSyncKind::FULL,
+                )),
+                // Everything forwarded to the child servers is advertised
+                // here, because a client only asks for what the server says
+                // it can do. Under-advertising is how a meta-LSP ends up
+                // feeling worse than the servers behind it: the capability is
+                // implemented, nobody requests it, and it looks missing.
+                completion_provider: Some(CompletionOptions {
+                    trigger_characters: Some(vec![
+                        ".".into(),
+                        ":".into(),
+                        "(".into(),
+                        "\"".into(),
+                        "'".into(),
+                        "/".into(),
+                        "<".into(),
+                    ]),
+                    // Documentation and full text edits arrive on resolve; a
+                    // client that is not told we resolve never asks.
+                    resolve_provider: Some(true),
+                    ..Default::default()
+                }),
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
+                definition_provider: Some(OneOf::Left(true)),
+                references_provider: Some(OneOf::Left(true)),
+                declaration_provider: Some(DeclarationCapability::Simple(true)),
+                type_definition_provider: Some(TypeDefinitionProviderCapability::Simple(true)),
+                implementation_provider: Some(ImplementationProviderCapability::Simple(true)),
+                document_highlight_provider: Some(OneOf::Left(true)),
+                // "Where is this called from" — one of the most-used
+                // navigations in an IDE, forwarded like every other request.
+                //
+                // TYPE hierarchy is not here, and not because it is hard: it
+                // is the same three-step shape and the same store would serve
+                // it. `lsp-types` 0.94.1 has no `type_hierarchy_provider`
+                // field on `ServerCapabilities` at all — not even behind its
+                // `proposed` feature — so the capability cannot be declared,
+                // and a client never asks for what a server does not
+                // advertise. Handlers for it would be code nothing can reach.
+                call_hierarchy_provider: Some(CallHierarchyServerCapability::Simple(true)),
+                document_symbol_provider: Some(OneOf::Left(true)),
+                workspace_symbol_provider: Some(OneOf::Left(true)),
+                code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                code_lens_provider: Some(CodeLensOptions {
+                    resolve_provider: Some(false),
+                }),
+                folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
+                selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
+                inlay_hint_provider: Some(OneOf::Left(true)),
+                document_formatting_provider: Some(OneOf::Left(true)),
+                signature_help_provider: Some(SignatureHelpOptions {
+                    trigger_characters: Some(vec!["(".into(), ",".into()]),
+                    retrigger_characters: Some(vec![")".into()]),
+                    work_done_progress_options: Default::default(),
+                }),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: Default::default(),
+                })),
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            legend: SemanticTokensLegend {
+                                token_types: crate::semantic::legend_types()
+                                    .into_iter()
+                                    .map(SemanticTokenType::from)
+                                    .collect(),
+                                token_modifiers: crate::semantic::legend_modifiers()
+                                    .into_iter()
+                                    .map(SemanticTokenModifier::from)
+                                    .collect(),
+                            },
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                            range: Some(false),
+                            work_done_progress_options: Default::default(),
+                        },
+                    ),
+                ),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+    }
+
+    async fn initialized(&self, _: InitializedParams) {
+        tracing::info!("hick-lsp initialized");
+        self.client
+            .log_message(MessageType::INFO, "hick-lsp initialized")
+            .await;
+
+        self.spawn_notification_handler();
+    }
+
+    async fn shutdown(&self) -> Result<()> {
+        let mut dispatcher = self.dispatcher.lock().await;
+        dispatcher.shutdown_all().await;
+        Ok(())
+    }
+
+    async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {
+        self.dispatcher.lock().await.refresh_environments().await;
+    }
+
+    async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        let uri = params.text_document.uri;
+        let source = params.text_document.text;
+
+        // The first document opened decides which project's `.hick-lsp.json`
+        // applies for the life of this process — one server, one workspace.
+        // Doing it here rather than in `initialize` covers clients that send
+        // no root URI at all.
+        if let Ok(path) = uri.to_file_path() {
+            crate::server_config::load_from_document(&path);
+        }
+
+        {
+            let mut docs = self.documents.write().await;
+            docs.entry(uri.clone()).or_insert_with(|| DocEntry {
+                state: None,
+                open_vfiles: Vec::new(),
+                vfile_version: 0,
+            });
+        }
+
+        self.process_document(&uri, &source).await;
+    }
+
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        let uri = params.text_document.uri;
+
+        if let Some(change) = params.content_changes.into_iter().next() {
+            self.process_document(&uri, &change.text).await;
+        }
+    }
+
+    async fn did_close(&self, params: DidCloseTextDocumentParams) {
+        let uri = params.text_document.uri;
+
+        self.close_vfiles_for(&uri, &[]).await;
+        // The code staged for this document goes with it. The whole staging
+        // directory is removed when this server stops either way; this is so a
+        // long session that opens a hundred documents is not still holding a
+        // copy of the code from all hundred.
+        self.staging.forget(&uri);
+
+        let mut docs = self.documents.write().await;
+        docs.remove(&uri);
+    }
+
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let uri = params.text_document_position.text_document.uri;
+        let pos = params.text_document_position.position;
+        let Some((vf_uri, lang, vpos)) = self.virtual_target(&uri, pos).await else {
+            return Ok(None);
+        };
+        let Some(result) = self
+            .child_request("textDocument/completion", &vf_uri, &lang, vpos, None)
+            .await
+        else {
+            return Ok(None);
+        };
+        // Remember who answered, so `completionItem/resolve` can go back to
+        // the same server — see `last_completion_language`.
+        *self.last_completion_language.write().await =
+            self.root_of(&vf_uri).await.map(|root| (lang.clone(), root));
+        // Completion ranges (textEdit etc.) are in virtual-file coordinates.
+        let map = {
+            let index = self.vfile_index.read().await;
+            index.get(&vf_uri).map(|m| m.position_map.clone())
+        };
+        let result = match map {
+            Some(map) => translate_bare_ranges(result, &map),
+            None => result,
+        };
+        Ok(serde_json::from_value(result).ok())
+    }
+
+    async fn completion_resolve(&self, item: CompletionItem) -> Result<CompletionItem> {
+        // Resolve is what fills in a completion's documentation and its full
+        // text edit; without it, an editor shows a bare identifier with no
+        // signature and no docs — the difference between a list of names and
+        // a language server.
+        let Some((language, root_uri)) = self.last_completion_language.read().await.clone() else {
+            return Ok(item);
+        };
+        let handle = {
+            let dispatcher = self.dispatcher.lock().await;
+            match dispatcher.get_child(&language, &root_uri) {
+                Ok(handle) => handle.clone(),
+                Err(_) => return Ok(item),
+            }
+        };
+        let Ok(params) = serde_json::to_value(&item) else {
+            return Ok(item);
+        };
+        // The resolved item's `textEdit` is in virtual-file coordinates, and
+        // the item's own `data` says which virtual file. Translating it back
+        // is what stops an accepted completion from being inserted several
+        // lines away from where it was typed.
+        let resolved = match handle.request("completionItem/resolve", params).await {
+            Ok(value) if !value.is_null() => value,
+            // An unresolvable item is still a usable item: return what the
+            // editor already had rather than dropping the completion.
+            _ => return Ok(item),
+        };
+        let map = self.map_for_completion_data(&item).await;
+        let resolved = match map {
+            Some(map) => translate_bare_ranges(resolved, &map),
+            None => resolved,
+        };
+        Ok(serde_json::from_value(resolved).unwrap_or(item))
+    }
+
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+        let Some((vf_uri, lang, vpos)) = self.virtual_target(&uri, pos).await else {
+            return Ok(None);
+        };
+        let Some(result) = self
+            .child_request("textDocument/hover", &vf_uri, &lang, vpos, None)
+            .await
+        else {
+            return Ok(None);
+        };
+        let map = {
+            let index = self.vfile_index.read().await;
+            index.get(&vf_uri).map(|m| m.position_map.clone())
+        };
+        let result = match map {
+            Some(map) => translate_bare_ranges(result, &map),
+            None => result,
+        };
+        Ok(serde_json::from_value(result).ok())
+    }
+
+    async fn prepare_call_hierarchy(
+        &self,
+        params: CallHierarchyPrepareParams,
+    ) -> Result<Option<Vec<CallHierarchyItem>>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+        let Some((vf_uri, lang, vpos)) = self.virtual_target(&uri, pos).await else {
+            return Ok(None);
+        };
+        let Some(result) = self
+            .child_request(
+                "textDocument/prepareCallHierarchy",
+                &vf_uri,
+                &lang,
+                vpos,
+                None,
+            )
+            .await
+        else {
+            return Ok(None);
+        };
+        let remembered = self.remember_hierarchy(result, &vf_uri, &lang).await;
+        Ok(serde_json::from_value(remembered).ok())
+    }
+
+    async fn incoming_calls(
+        &self,
+        params: CallHierarchyIncomingCallsParams,
+    ) -> Result<Option<Vec<CallHierarchyIncomingCall>>> {
+        let item = serde_json::to_value(&params.item).unwrap_or_default();
+        let Some(result) = self
+            .hierarchy_followup("callHierarchy/incomingCalls", &item)
+            .await
+        else {
+            return Ok(None);
+        };
+        Ok(serde_json::from_value(result).ok())
+    }
+
+    async fn outgoing_calls(
+        &self,
+        params: CallHierarchyOutgoingCallsParams,
+    ) -> Result<Option<Vec<CallHierarchyOutgoingCall>>> {
+        let item = serde_json::to_value(&params.item).unwrap_or_default();
+        let Some(result) = self
+            .hierarchy_followup("callHierarchy/outgoingCalls", &item)
+            .await
+        else {
+            return Ok(None);
+        };
+        Ok(serde_json::from_value(result).ok())
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+
+        // Structural first: paste → its copy definition.
+        let structural = self
+            .structural_spans(&uri, pos, StructuralKind::Definition)
+            .await;
+        if let Some(loc) = structural.into_iter().next() {
+            return Ok(Some(GotoDefinitionResponse::Scalar(loc)));
+        }
+
+        let Some((vf_uri, lang, vpos)) = self.virtual_target(&uri, pos).await else {
+            return Ok(None);
+        };
+        let Some(result) = self
+            .child_request("textDocument/definition", &vf_uri, &lang, vpos, None)
+            .await
+        else {
+            return Ok(None);
+        };
+        let index = self.index_snapshot().await;
+        let result = translate_locations(result, &index);
+        Ok(serde_json::from_value(result).ok())
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let uri = params.text_document_position.text_document.uri;
+        let pos = params.text_document_position.position;
+        let include_declaration = params.context.include_declaration;
+
+        // Structural copy/paste references always contribute.
+        let mut out = self
+            .structural_spans(
+                &uri,
+                pos,
+                StructuralKind::References {
+                    include_declaration,
+                },
+            )
+            .await;
+
+        // Child references, translated back to .md coordinates, merged in.
+        if let Some((vf_uri, lang, vpos)) = self.virtual_target(&uri, pos).await
+            && let Some(result) = self
+                .child_request(
+                    "textDocument/references",
+                    &vf_uri,
+                    &lang,
+                    vpos,
+                    Some(serde_json::json!({
+                        "context": { "includeDeclaration": include_declaration }
+                    })),
+                )
+                .await
+        {
+            let index = self.index_snapshot().await;
+            let translated = translate_locations(result, &index);
+            if let Ok(locs) = serde_json::from_value::<Vec<Location>>(translated) {
+                out.extend(locs);
+            }
+        }
+
+        out.sort_by(|a, b| {
+            (
+                a.uri.as_str(),
+                a.range.start.line,
+                a.range.start.character,
+                a.range.end.line,
+            )
+                .cmp(&(
+                    b.uri.as_str(),
+                    b.range.start.line,
+                    b.range.start.character,
+                    b.range.end.line,
+                ))
+        });
+        out.dedup();
+        if out.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(out))
+        }
+    }
+
+    // -- Everything else a modern editor asks for ---------------------------
+    //
+    // Each of these is the same shape: route to the child that owns the
+    // position (or fan out to every child for a document-wide question),
+    // then map the answer back into the document's coordinates. They are
+    // written out rather than generated because the LSP types differ enough
+    // that a macro would hide more than it saved — and because a reader
+    // checking whether their favourite feature is supported should be able to
+    // find it by name.
+
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
+        // The outline of a document is the outline of every block in it.
+        let items = self
+            .fan_out_array(
+                "textDocument/documentSymbol",
+                &params.text_document.uri,
+                None,
+            )
+            .await;
+        if items.is_empty() {
+            return Ok(None);
+        }
+        let value = serde_json::Value::Array(items);
+        Ok(serde_json::from_value(value).ok())
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        // Colouring: decode each child's deltas, map to the document, sort,
+        // re-encode against one legend. See `crate::semantic`.
+        let mut tokens = Vec::new();
+        for (vf_uri, language, map) in self.virtual_files_of(&params.text_document.uri).await {
+            let (child_types, child_modifiers) = {
+                let root_uri = self.root_of(&vf_uri).await.unwrap_or_default();
+                let dispatcher = self.dispatcher.lock().await;
+                dispatcher
+                    .token_legend(&language, &root_uri)
+                    .unwrap_or_default()
+            };
+            if child_types.is_empty() {
+                continue;
+            }
+            let Some(result) = self
+                .child_document_request(
+                    "textDocument/semanticTokens/full",
+                    &vf_uri,
+                    &language,
+                    None,
+                )
+                .await
+            else {
+                continue;
+            };
+            let Some(data) = result.get("data").and_then(|d| d.as_array()) else {
+                continue;
+            };
+            let raw: Vec<u32> = data
+                .iter()
+                .filter_map(|v| v.as_u64().map(|n| n as u32))
+                .collect();
+            let decoded = crate::semantic::decode(&raw, &child_types, &child_modifiers);
+            tokens.extend(crate::semantic::to_source(decoded, &map));
+        }
+        if tokens.is_empty() {
+            return Ok(None);
+        }
+        let data = crate::semantic::encode(
+            tokens,
+            &crate::semantic::legend_types(),
+            &crate::semantic::legend_modifiers(),
+        );
+        Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+            result_id: None,
+            data: data
+                .chunks_exact(5)
+                .map(|c| SemanticToken {
+                    delta_line: c[0],
+                    delta_start: c[1],
+                    length: c[2],
+                    token_type: c[3],
+                    token_modifiers_bitset: c[4],
+                })
+                .collect(),
+        })))
+    }
+
+    async fn signature_help(&self, params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+        let Some(result) = self
+            .positional("textDocument/signatureHelp", &uri, pos, None)
+            .await
+        else {
+            return Ok(None);
+        };
+        Ok(serde_json::from_value(result).ok())
+    }
+
+    async fn goto_type_definition(
+        &self,
+        params: GotoTypeDefinitionParams,
+    ) -> Result<Option<GotoTypeDefinitionResponse>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+        let Some(result) = self
+            .positional_locations("textDocument/typeDefinition", &uri, pos)
+            .await
+        else {
+            return Ok(None);
+        };
+        Ok(serde_json::from_value(result).ok())
+    }
+
+    async fn goto_implementation(
+        &self,
+        params: GotoImplementationParams,
+    ) -> Result<Option<GotoImplementationResponse>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+        let Some(result) = self
+            .positional_locations("textDocument/implementation", &uri, pos)
+            .await
+        else {
+            return Ok(None);
+        };
+        Ok(serde_json::from_value(result).ok())
+    }
+
+    async fn goto_declaration(
+        &self,
+        params: GotoDeclarationParams,
+    ) -> Result<Option<GotoDeclarationResponse>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+        let Some(result) = self
+            .positional_locations("textDocument/declaration", &uri, pos)
+            .await
+        else {
+            return Ok(None);
+        };
+        Ok(serde_json::from_value(result).ok())
+    }
+
+    async fn document_highlight(
+        &self,
+        params: DocumentHighlightParams,
+    ) -> Result<Option<Vec<DocumentHighlight>>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+        let Some(result) = self
+            .positional("textDocument/documentHighlight", &uri, pos, None)
+            .await
+        else {
+            return Ok(None);
+        };
+        Ok(serde_json::from_value(result).ok())
+    }
+
+    async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+        // `range` is REQUIRED on this request, and the document's range is
+        // meaningless to a child: its virtual file is a few lines long while
+        // the document is not, so a document-coordinate range asks about
+        // lines the child's file does not have and it answers nothing.
+        //
+        // (That is not a hypothetical. Passing no range at all made every
+        // inlay hint disappear against a server that advertises them, which
+        // read as "this server has no hints" for far longer than it should
+        // have.)
+        //
+        // Each child is asked about the whole of ITS file instead, and the
+        // document's requested range is applied afterwards, once the hints
+        // are back in document coordinates.
+        let mut out: Vec<serde_json::Value> = Vec::new();
+        for (vf_uri, language, map) in self.virtual_files_of(&params.text_document.uri).await {
+            let whole_file = serde_json::json!({
+                "range": {
+                    "start": { "line": 0, "character": 0 },
+                    "end": { "line": map.virtual_lines(), "character": 0 },
+                }
+            });
+            let Some(result) = self
+                .child_document_request(
+                    "textDocument/inlayHint",
+                    &vf_uri,
+                    &language,
+                    Some(whole_file),
+                )
+                .await
+            else {
+                continue;
+            };
+            if let serde_json::Value::Array(items) = translate_bare_ranges(result, &map) {
+                out.extend(items);
+            }
+        }
+        // Hints outside what the editor asked about are dropped here rather
+        // than in the child, which had no way to know.
+        let requested = params.range;
+        out.retain(|hint| {
+            hint.get("position")
+                .and_then(|position| position.get("line"))
+                .and_then(serde_json::Value::as_u64)
+                .is_some_and(|line| {
+                    line >= u64::from(requested.start.line) && line <= u64::from(requested.end.line)
+                })
+        });
+        if out.is_empty() {
+            return Ok(None);
+        }
+        Ok(serde_json::from_value(serde_json::Value::Array(out)).ok())
+    }
+
+    async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
+        // Folding ranges carry line numbers, not ranges, so they need their
+        // own mapping rather than `translate_bare_ranges`.
+        let mut out: Vec<FoldingRange> = Vec::new();
+        for (vf_uri, language, map) in self.virtual_files_of(&params.text_document.uri).await {
+            let Some(result) = self
+                .child_document_request("textDocument/foldingRange", &vf_uri, &language, None)
+                .await
+            else {
+                continue;
+            };
+            let Ok(ranges) = serde_json::from_value::<Vec<FoldingRange>>(result) else {
+                continue;
+            };
+            for mut range in ranges {
+                let Some((start, _)) = map.to_source(range.start_line, 0) else {
+                    continue;
+                };
+                let Some((end, _)) = map.to_source(range.end_line, 0) else {
+                    continue;
+                };
+                range.start_line = start;
+                range.end_line = end;
+                out.push(range);
+            }
+        }
+        if out.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(out))
+        }
+    }
+
+    async fn selection_range(
+        &self,
+        params: SelectionRangeParams,
+    ) -> Result<Option<Vec<SelectionRange>>> {
+        let uri = params.text_document.uri;
+        let mut out = Vec::new();
+        for position in params.positions {
+            let Some(result) = self
+                .positional(
+                    "textDocument/selectionRange",
+                    &uri,
+                    position,
+                    Some(serde_json::json!({
+                        "positions": [{ "line": position.line, "character": position.character }]
+                    })),
+                )
+                .await
+            else {
+                continue;
+            };
+            if let Ok(mut ranges) = serde_json::from_value::<Vec<SelectionRange>>(result) {
+                out.append(&mut ranges);
+            }
+        }
+        if out.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(out))
+        }
+    }
+
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+        // Actions come back carrying workspace edits whose URIs name virtual
+        // files; those are rewritten to the document by `translate_edit_uris`
+        // so applying one edits the document, never a file on no disk.
+        let uri = params.text_document.uri.clone();
+        let Some((vf_uri, lang, vpos)) = self.virtual_target(&uri, params.range.start).await else {
+            return Ok(None);
+        };
+        let ((vend_line, vend_char), diagnostics) = {
+            let index = self.vfile_index.read().await;
+            let end = index
+                .get(&vf_uri)
+                .and_then(|m| {
+                    m.position_map
+                        .to_virtual(params.range.end.line, params.range.end.character)
+                })
+                .unwrap_or((vpos.line, vpos.character));
+            let range = Range::new(vpos, Position::new(end.0, end.1));
+            let diagnostics = index
+                .get(&vf_uri)
+                .map(|mapping| provider_action_diagnostics(&mapping.provider_diagnostics, range))
+                .unwrap_or_default();
+            (end, diagnostics)
+        };
+        let extra = serde_json::json!({
+            "range": {
+                "start": { "line": vpos.line, "character": vpos.character },
+                "end": { "line": vend_line, "character": vend_char },
+            },
+            "context": { "diagnostics": diagnostics },
+        });
+        let Some(result) = self
+            .child_request_result("textDocument/codeAction", &vf_uri, &lang, vpos, Some(extra))
+            .await?
+        else {
+            return Ok(None);
+        };
+        let index = self.index_snapshot().await;
+        let translated = translate_edit_uris(result, &index);
+        Ok(serde_json::from_value(translated).ok())
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = params.text_document_position.text_document.uri;
+        let pos = params.text_document_position.position;
+        let Some((vf_uri, lang, vpos)) = self.virtual_target(&uri, pos).await else {
+            return Ok(None);
+        };
+        let Some(result) = self
+            .child_request_result(
+                "textDocument/rename",
+                &vf_uri,
+                &lang,
+                vpos,
+                Some(serde_json::json!({ "newName": params.new_name })),
+            )
+            .await?
+        else {
+            return Ok(None);
+        };
+        let index = self.index_snapshot().await;
+        Ok(serde_json::from_value(translate_edit_uris(result, &index)).ok())
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let Some(result) = self
+            .positional_result(
+                "textDocument/prepareRename",
+                &params.text_document.uri,
+                params.position,
+                None,
+            )
+            .await?
+        else {
+            return Ok(None);
+        };
+        Ok(serde_json::from_value(result).ok())
+    }
+
+    async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+        // Each block is formatted by its own language's formatter — the one
+        // rust-analyzer or pyright delegates to — and the edits come back in
+        // the virtual file's coordinates and indentation. `translate_edits`
+        // maps the ranges and puts the block's indentation back into the
+        // inserted text; a block whose edits cannot be mapped is left alone
+        // rather than half-formatted, because an edit at the wrong offset is
+        // corruption with a formatter's name on it.
+        let uri = params.text_document.uri;
+        let options = serde_json::to_value(&params.options).unwrap_or_default();
+        let mut out = Vec::new();
+        for (vf_uri, language, map) in self.virtual_files_of(&uri).await {
+            let Some(result) = self
+                .child_document_request(
+                    "textDocument/formatting",
+                    &vf_uri,
+                    &language,
+                    Some(serde_json::json!({ "options": options })),
+                )
+                .await
+            else {
+                continue;
+            };
+            if let Some(edits) = translate_edits(&result, &map) {
+                out.extend(edits);
+            }
+        }
+        if out.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(out))
+    }
+
+    async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
+        let items = self
+            .fan_out_array("textDocument/codeLens", &params.text_document.uri, None)
+            .await;
+        if items.is_empty() {
+            return Ok(None);
+        }
+        Ok(serde_json::from_value(serde_json::Value::Array(items)).ok())
+    }
+
+    async fn symbol(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> Result<Option<Vec<SymbolInformation>>> {
+        // Workspace symbols name locations in virtual files; translated, they
+        // point at the documents those blocks live in.
+        let mut out: Vec<SymbolInformation> = Vec::new();
+        let children: Vec<(String, String)> = {
+            let index = self.vfile_index.read().await;
+            let mut seen: Vec<(String, String)> = index
+                .values()
+                .map(|m| (m.language_id.clone(), m.root_uri.clone()))
+                .collect();
+            seen.sort();
+            seen.dedup();
+            seen
+        };
+        for (language, root_uri) in children {
+            let handle = {
+                let dispatcher = self.dispatcher.lock().await;
+                match dispatcher.get_child(&language, &root_uri) {
+                    Ok(handle) => handle.clone(),
+                    Err(_) => continue,
+                }
+            };
+            let Ok(result) = handle
+                .request(
+                    "workspace/symbol",
+                    serde_json::json!({ "query": params.query }),
+                )
+                .await
+            else {
+                continue;
+            };
+            let index = self.index_snapshot().await;
+            if let Ok(symbols) = serde_json::from_value::<Vec<SymbolInformation>>(
+                translate_locations(result, &index),
+            ) {
+                out.extend(symbols);
+            }
+        }
+        if out.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(out))
+        }
+    }
+}
+
+</storycode:copy>
+<a id="f-c936496a03c1-translate_edits"></a>
+### `translate_edits`
+
+A child's formatting edits, in document coordinates and indentation.
+A `hick:file` block's code is dedented into the virtual file, so a
+formatter's edit is in dedented columns and its inserted text has no
+block indentation. Both are put back: ranges through the position map,
+and the block's indentation after every newline the text inserts — except
+a trailing newline at column 0, where the indentation of the line that
+follows is outside the edit's range and already there.
+`None` when any edit cannot be mapped (a synthetic line, or a range past
+the block), because applying the others would format half a block.
+
+<storycode:copy id="f-c936496a03c1-translate_edits">
+/// A child's formatting edits, in document coordinates and indentation.
+///
+/// A `hick:file` block's code is dedented into the virtual file, so a
+/// formatter's edit is in dedented columns and its inserted text has no
+/// block indentation. Both are put back: ranges through the position map,
+/// and the block's indentation after every newline the text inserts — except
+/// a trailing newline at column 0, where the indentation of the line that
+/// follows is outside the edit's range and already there.
+///
+/// `None` when any edit cannot be mapped (a synthetic line, or a range past
+/// the block), because applying the others would format half a block.
+pub(crate) fn translate_edits(
+    value: &serde_json::Value,
+    map: &PositionMap,
+) -> Option<Vec<TextEdit>> {
+    let items = value.as_array()?;
+    let mut out = Vec::with_capacity(items.len());
+    for item in items {
+        let sl = item.pointer("/range/start/line")?.as_u64()? as u32;
+        let sc = item.pointer("/range/start/character")?.as_u64()? as u32;
+        let el = item.pointer("/range/end/line")?.as_u64()? as u32;
+        let ec = item.pointer("/range/end/character")?.as_u64()? as u32;
+        let text = item.get("newText")?.as_str()?;
+        let (ssl, ssc) = map.to_source(sl, sc)?;
+        // A whole-file edit ends one line PAST the last, at column 0, which
+        // no line mapping covers: it is the start of the line after the
+        // block, which is where the block's last newline ends.
+        let (sel, sec) = match map.to_source(el, ec) {
+            Some(end) => end,
+            None if ec == 0 && el > 0 => {
+                let (line, _) = map.to_source(el - 1, 0)?;
+                (line + 1, 0)
+            }
+            None => return None,
+        };
+        let indent = if map.is_identity() {
+            0
+        } else {
+            map.mappings
+                .iter()
+                .find(|m| m.virtual_line == sl)
+                .map(|m| m.column_offset.max(0) as usize)
+                .unwrap_or(0)
+        };
+        let new_text = reindent(text, indent, ec == 0);
+        out.push(TextEdit {
+            range: Range::new(Position::new(ssl, ssc), Position::new(sel, sec)),
+            new_text,
+        });
+    }
+    Some(out)
+}
+
+</storycode:copy>
+<a id="f-c936496a03c1-reindent"></a>
+### `reindent`
+
+`text` with `indent` spaces after every newline, leaving a trailing
+newline bare when the edit ends at column 0.
+
+<storycode:copy id="f-c936496a03c1-reindent">
+/// `text` with `indent` spaces after every newline, leaving a trailing
+/// newline bare when the edit ends at column 0.
+fn reindent(text: &str, indent: usize, ends_at_column_zero: bool) -> String {
+    if indent == 0 || !text.contains('\n') {
+        return text.to_string();
+    }
+    let pad = " ".repeat(indent);
+    let (body, trailing) = match text.strip_suffix('\n') {
+        Some(body) if ends_at_column_zero => (body, "\n"),
+        _ => (text, ""),
+    };
+    let mut out = body.replace('\n', &format!("\n{pad}"));
+    out.push_str(trailing);
+    out
+}
+
+</storycode:copy>
+<a id="f-c936496a03c1-is_hick_document"></a>
+### `is_hick_document`
+
+Whether a URI names a hick document rather than a plain file it forwards
+whole. Bare documents are Markdown now, so their extension cannot decide:
+the namespace marker is the syntax boundary.
+
+<storycode:copy id="f-c936496a03c1-is_hick_document">
+/// Whether a URI names a hick document rather than a plain file it forwards
+/// whole. Bare documents are Markdown now, so their extension cannot decide:
+/// the namespace marker is the syntax boundary.
+fn is_hick_document(_uri: &Url, source: &str) -> bool {
+    source.contains("<hick:") // content, not extension: every document is `.md`
+}
+
+</storycode:copy>
+<a id="f-c936496a03c1-plain_language"></a>
+### `plain_language`
+
+<storycode:copy id="f-c936496a03c1-plain_language">
+/// The language a plain file is in, by its name.
+fn plain_language(uri: &Url) -> Option<&'static str> {
+    let name = uri.path().rsplit('/').next()?;
+    crate::lang_detect::language_id(name)
+}
+
+</storycode:copy>
+<a id="f-c936496a03c1-parse_error_location"></a>
+### `parse_error_location`
+
+Extract a line number and user-friendly message from a [`hick_lang::ParseError`].
+
+<storycode:copy id="f-c936496a03c1-parse_error_location">
+/// Extract a line number and user-friendly message from a [`hick_lang::ParseError`].
+fn parse_error_location(err: &hick_lang::ParseError) -> (usize, String) {
+    match err {
+        hick_lang::ParseError::Syntax { line, message } => (*line, message.clone()),
+        hick_lang::ParseError::MissingRoot => (1, err.to_string()),
+        hick_lang::ParseError::UnclosedTag { line, .. } => (*line, err.to_string()),
+        hick_lang::ParseError::UnexpectedClose { line, .. } => (*line, err.to_string()),
+        hick_lang::ParseError::UnclosedComment { line } => (*line, err.to_string()),
+    }
+}
+
+</storycode:copy>
+<a id="f-c936496a03c1-tests"></a>
+### `tests`
+
+<storycode:copy id="f-c936496a03c1-tests">
+#[cfg(test)]
+#[path = "backend/audit_tests.rs"]
+mod tests;
+</storycode:copy>
+
+### Assemble `crates/hick-lsp/src/backend.rs`
+
+The selections below preserve the original byte order. Narrative reading order does not change the output.
+
+<storycode:file path="crates/hick-lsp/src/backend.rs"><storycode:paste select="#f-c936496a03c1-diagnostic_context"/><storycode:paste select="#f-c936496a03c1-use_declaration"/><storycode:paste select="#f-c936496a03c1-captured"/><storycode:paste select="#f-c936496a03c1-use_declaration-2"/><storycode:paste select="#f-c936496a03c1-use_declaration-3"/><storycode:paste select="#f-c936496a03c1-use_declaration-4"/><storycode:paste select="#f-c936496a03c1-use_declaration-5"/><storycode:paste select="#f-c936496a03c1-use_declaration-6"/><storycode:paste select="#f-c936496a03c1-use_declaration-7"/><storycode:paste select="#f-c936496a03c1-use_declaration-8"/><storycode:paste select="#f-c936496a03c1-use_declaration-9"/><storycode:paste select="#f-c936496a03c1-use_declaration-10"/><storycode:paste select="#f-c936496a03c1-use_declaration-11"/><storycode:paste select="#f-c936496a03c1-use_declaration-12"/><storycode:paste select="#f-c936496a03c1-use_declaration-13"/><storycode:paste select="#f-c936496a03c1-use_declaration-14"/><storycode:paste select="#f-c936496a03c1-ChildDiagnosticsStore"/><storycode:paste select="#f-c936496a03c1-PreparedHierarchyItem"/><storycode:paste select="#f-c936496a03c1-uuid_ish"/><storycode:paste select="#f-c936496a03c1-HickBackend"/><storycode:paste select="#f-c936496a03c1-DocEntry"/><storycode:paste select="#f-c936496a03c1-VFileMapping"/><storycode:paste select="#f-c936496a03c1-impl-HickBackend"/><storycode:paste select="#f-c936496a03c1-StructuralKind"/><storycode:paste select="#f-c936496a03c1-drive_lowercased"/><storycode:paste select="#f-c936496a03c1-uri_key"/><storycode:paste select="#f-c936496a03c1-translate_edit_uris"/><storycode:paste select="#f-c936496a03c1-translate_bare_ranges"/><storycode:paste select="#f-c936496a03c1-MANIFESTS"/><storycode:paste select="#f-c936496a03c1-copy_manifests"/><storycode:paste select="#f-c936496a03c1-child_request_error"/><storycode:paste select="#f-c936496a03c1-handle_child_diagnostics"/><storycode:paste select="#f-c936496a03c1-impl-LanguageServer-for-HickBackend"/><storycode:paste select="#f-c936496a03c1-translate_edits"/><storycode:paste select="#f-c936496a03c1-reindent"/><storycode:paste select="#f-c936496a03c1-is_hick_document"/><storycode:paste select="#f-c936496a03c1-plain_language"/><storycode:paste select="#f-c936496a03c1-parse_error_location"/><storycode:paste select="#f-c936496a03c1-tests"/></storycode:file>
+
+</storycode:doc>

@@ -18,9 +18,11 @@ just literate-bootstrap
 ```
 
 1. Read the contract's outcome, review status, evidence and exclusions.
-2. Edit its linked Markdown entry. For a known output path, look up `source` in
-   `hickory-dogfood/behavior-map.json`. Edit shared entries once and consider the
-   other contracts that cite them.
+2. Edit the actual `copy` fragment beside its explanation. `file`/`paste`
+   constructions specify output order. For a known generated path, run
+   `python3 hickory-dogfood/tools/behavior.py locate <output-path>` to find the
+   assembly owner and every fragment, including tests hosted by other contracts.
+   Edit shared mechanisms once and consider the contracts that use them.
 3. Regenerate and check agreement:
 
 ```sh
@@ -43,15 +45,32 @@ the maintained contract or evidence entry before committing it.
 
 Commit the Markdown entries, generated working files, and relevant evidence
 together. `check` compares bytes, file kinds and Unix executable bits for every
-constructed output. `audit` checks unique ownership, editorial file links and the
-original paragraph dispositions; neither certifies all promises. New output files
-need one entry, inclusion in the source closure, and a constructor-map record.
+constructed output. `audit` checks actual output constructions, unique fragment definitions, selected
+fragment references, editorial file links and original paragraph dispositions; neither certifies all promises. New output files
+need one construction, inclusion in the source closure, and a constructor-map
+record. Several outputs may be explained on the same page. New fragments also
+need their owner recorded in `hickory-dogfood/narrative-map.json`.
 
 If changing the evaluator or adapter, regenerate, rebuild with
 `just literate-bootstrap`, and repeat the checks with that build. Generation uses
 Hickory's existing loader, evaluator and safe writer through a thin native adapter.
 The full CLI weave path has a known scale limitation from repeated lineage
 parsing; this workflow does not claim that issue is fixed.
+
+## Read and maintain a narrative
+
+Keep the explanation beside the code whose decision it explains. A behavior page
+contains its requirement and directly owned code/tests. Larger behaviors link to
+named implementation chapters. Shared mechanisms explain reused code once;
+callers explain why they use it. Literal entries remain appropriate for assets
+and source containing embedded document syntax.
+
+Do not assume every declaration has an adequate explanation. The
+[explanation ledger](../../hickory-dogfood/narrative-map.json) distinguishes
+source-comment rationale, explanations inspected during reorganization, and gaps.
+The [reorganization record](../../hickory-dogfood/REORGANIZATION.md) states the
+actual scope. Give unexplained logic a concrete rationale after inspecting it;
+link ownership and passing reconstruction do not supply that rationale.
 
 ## Review the migration
 
