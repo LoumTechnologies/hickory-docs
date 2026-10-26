@@ -64451,6 +64451,24 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "review-metric-structural-witnesses",
         "review-metric-inventory-witnesses"
       ]
+    },
+    "scripts/literate-ci.py": {
+      "source": ".hickory-source/guarantees/verification/literate-ci/contract.md"
+    },
+    "scripts/test-literate-ci.py": {
+      "source": ".hickory-source/guarantees/verification/literate-ci/contract.md"
+    },
+    "ci/checks/runner.json": {
+      "source": ".hickory-source/guarantees/verification/literate-ci/contract.md"
+    },
+    "ci/checks/publication.json": {
+      "source": ".hickory-source/guarantees/embedding/publication-is-bound-to-reviewed-inputs/contract.md"
+    },
+    "ci/policy.json": {
+      "source": ".hickory-source/ci.md"
+    },
+    ".github/workflows/literate-ci.yml": {
+      "source": ".hickory-source/ci.md"
     }
   },
   "evidence_records": [

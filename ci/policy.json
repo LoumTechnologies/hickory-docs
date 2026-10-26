@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "definitions": [
+    "ci/checks/runner.json",
+    "ci/checks/publication.json"
+  ],
+  "required": [
+    "ci-runner-safety",
+    "publication-input-safety"
+  ]
+}

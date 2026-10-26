@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "checks": [
+    {
+      "id": "publication-input-safety",
+      "owner": ".hickory-source/guarantees/embedding/publication-is-bound-to-reviewed-inputs/contract.md",
+      "cwd": ".",
+      "argv": [
+        "{python}",
+        "scripts/test-publish-spec-results.py",
+        "PublicationTests.test_explicit_selection_rejects_escape_private_input_and_unreviewed_output"
+      ],
+      "needs": [],
+      "assertion": "exit-zero",
+      "timeout_seconds": 30
+    }
+  ]
+}

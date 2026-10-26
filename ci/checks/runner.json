@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "checks": [
+    {
+      "id": "ci-runner-safety",
+      "owner": ".hickory-source/guarantees/verification/literate-ci/contract.md",
+      "cwd": ".",
+      "argv": [
+        "{python}",
+        "scripts/test-literate-ci.py"
+      ],
+      "needs": [],
+      "assertion": "exit-zero",
+      "timeout_seconds": 30
+    }
+  ]
+}

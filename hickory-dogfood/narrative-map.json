@@ -146773,6 +146773,69 @@
       "page": ".hickory-source/mechanisms/scripts/review-complexity.py.md",
       "symbol": "inventory-witnesses",
       "basis": "reviewed-explanation"
+    },
+    {
+      "id": "ci-plan",
+      "output": "scripts/literate-ci.py",
+      "page": ".hickory-source/guarantees/verification/literate-ci/contract.md",
+      "symbol": "ci-plan",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "ci-execution",
+      "output": "scripts/literate-ci.py",
+      "page": ".hickory-source/guarantees/verification/literate-ci/contract.md",
+      "symbol": "ci-execution",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "ci-cli",
+      "output": "scripts/literate-ci.py",
+      "page": ".hickory-source/guarantees/verification/literate-ci/contract.md",
+      "symbol": "ci-cli",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "ci-plan-tests",
+      "output": "scripts/test-literate-ci.py",
+      "page": ".hickory-source/guarantees/verification/literate-ci/contract.md",
+      "symbol": "ci-plan-tests",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "ci-process-tests",
+      "output": "scripts/test-literate-ci.py",
+      "page": ".hickory-source/guarantees/verification/literate-ci/contract.md",
+      "symbol": "ci-process-tests",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "ci-runner-check",
+      "output": "ci/checks/runner.json",
+      "page": ".hickory-source/guarantees/verification/literate-ci/contract.md",
+      "symbol": "ci-runner-check",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "ci-publication-witness",
+      "output": "ci/checks/publication.json",
+      "page": ".hickory-source/guarantees/embedding/publication-is-bound-to-reviewed-inputs/contract.md",
+      "symbol": "ci-publication-witness",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "ci-project-policy",
+      "output": "ci/policy.json",
+      "page": ".hickory-source/ci.md",
+      "symbol": "ci-project-policy",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "ci-host-workflow",
+      "output": ".github/workflows/literate-ci.yml",
+      "page": ".hickory-source/ci.md",
+      "symbol": "ci-host-workflow",
+      "basis": "explained-decision"
     }
   ],
   "explanation_gaps": {

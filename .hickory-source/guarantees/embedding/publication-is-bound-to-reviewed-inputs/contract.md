@@ -731,4 +731,33 @@ The selections below preserve the original byte order. Narrative reading order d
 - Human judgment: stakeholder priorities confirmed; individual requirement acceptance remains unrecorded.
 - Dependencies: exact cited-file hashes are in the capture and source entries. Transitive source and environment changes can also stale evidence.
 
+## Focused CI witness
+
+This check exercises refusal of escaping paths, private inputs and unreviewed
+publication output. It is one named test, not certification of every publication
+requirement. The project policy selects its stable ID; the command stays here
+beside the behavior it checks.
+
+<storycode:copy id="ci-publication-witness">
+{
+  "version": 1,
+  "checks": [
+    {
+      "id": "publication-input-safety",
+      "owner": ".hickory-source/guarantees/embedding/publication-is-bound-to-reviewed-inputs/contract.md",
+      "cwd": ".",
+      "argv": [
+        "{python}",
+        "scripts/test-publish-spec-results.py",
+        "PublicationTests.test_explicit_selection_rejects_escape_private_input_and_unreviewed_output"
+      ],
+      "needs": [],
+      "assertion": "exit-zero",
+      "timeout_seconds": 30
+    }
+  ]
+}
+</storycode:copy>
+<storycode:file path="ci/checks/publication.json"><storycode:paste select="#ci-publication-witness"/></storycode:file>
+
 </storycode:doc>

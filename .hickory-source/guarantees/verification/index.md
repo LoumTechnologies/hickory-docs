@@ -5,6 +5,8 @@ For: Reviewers deciding what an output, recording or prediction actually establi
 
 Find the expected outcome and its falsifier before using a passing result as evidence.
 
+- [Run explicitly selected literate CI checks](literate-ci/contract.md) — experimental repository-local runner.
+
 - [A Drift Report Names What Differs](a-drift-report-names-what-differs/contract.md) — retained-requirement.
 - [A Recording A Document Keeps Lives In The Document](a-recording-a-document-keeps-lives-in-the-document/contract.md) — retained-requirement.
 - [Reuse a recording only for the inputs that produced it](a-recording-is-keyed-by-the-cells-inputs/contract.md) — reconciled-requirement.
@@ -43,4 +45,5 @@ Find the expected outcome and its falsifier before using a passing result as evi
 <book:include file="test-separates-unverifiable-from-drifted/contract.md" />
 <book:include file="the-installed-hook-names-the-outcome/contract.md" />
 
+<book:include file="literate-ci/contract.md" />
 </book:doc>

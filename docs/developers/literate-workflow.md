@@ -94,6 +94,25 @@ refuses stale generated adapters. It requires Python 3 and Node with both locked
 npm dependency sets installed. CI uses Node 22; the pilot was verified locally
 with Node 24.14.0. The host recording does not claim container provenance.
 
+## Try the literate CI pilot
+
+Check definitions are constructed beside their owning behavior. The project
+[CI policy](../../.hickory-source/ci.md) selects their stable IDs and documents
+execution limits. After regenerating, inspect or run the same policy locally:
+
+```sh
+python3 scripts/literate-ci.py
+python3 scripts/literate-ci.py --execute
+```
+
+The second command prints a fresh receipt directory under `target/literate-ci/`.
+Open its `report.json` and per-check logs to inspect outcomes. Dirty local runs
+have no `tested_revision`. The **Literate CI pilot** GitHub Actions workflow is
+manually dispatched and uploads the same receipts; it changes no merge gates.
+Commands execute as trusted host code with the inherited environment. This is an
+initial JSON bridge built with existing copy/file syntax, not new `hick:exec`
+scheduling semantics. Keep broad regression runs and their monitoring separate.
+
 ## Review the migration
 
 [The source index](../../project.md) is canonical. The generated old files in
