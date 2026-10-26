@@ -31,7 +31,7 @@ Captured SHA-256: `11f1506b0d701d3eba846c07ddb9cd18d2d8e9b7f2feb28355a69ce9d777c
       ],
       "reviewed_inputs": {
         "examples/ai-engineer-deadline.md": "636ddbd13794d41faa0907e64e96bcf6d213a466f2dfd44423ae2b17a767099a",
-        "Cargo.lock": "9b1d6f85f884dd271adf6c6b2dc97cf3d649345b237f3dc94eed254a99a55694",
+        "Cargo.lock": "2281cc1289f143fb9ff06f6d113031e28276c3d59102e298210b0fd1e6ac7e50",
         "rust-toolchain.toml": "4d0674575b116a100c7d0ad754308dc6dea178b4808c760afc43136db967c7a6"
       }
     },
@@ -88,5 +88,16 @@ Captured SHA-256: `11f1506b0d701d3eba846c07ddb9cd18d2d8e9b7f2feb28355a69ce9d777c
   ]
 }
 </book:entry>
+
+
+## Reviewed lockfile update, 2026-10-26
+
+The Cargo.lock diff since the previously reviewed revision
+`6ed67e75ed6e5b89b2967b673760bd35ceb257ab` was inspected before changing this pin.
+It adds the coverage, plugin and profile workspace dependencies and source-map
+registry dependencies with their lock metadata. No selected example source,
+asset approval, requirement or expected status changed. This is a public-content
+review of the dependency input; executable outcomes still require the selected
+verification commands. No automatic review-hash refresh was introduced.
 
 </book:doc>
