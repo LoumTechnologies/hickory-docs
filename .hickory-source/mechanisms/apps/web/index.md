@@ -1155,4 +1155,8 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 - [`apps/web/vite.site.config.ts`](vite.site.config.ts.md)
 <storycode:include file="vite.site.config.ts.md" />
 
+- [`routes.ts`](src/api/routes.ts.md)
+<storycode:include file="src/api/routes.ts.md" />
+- [`generatedApi.ts`](src/api/generatedApi.ts.md)
+<storycode:include file="src/api/generatedApi.ts.md" />
 </storycode:doc>

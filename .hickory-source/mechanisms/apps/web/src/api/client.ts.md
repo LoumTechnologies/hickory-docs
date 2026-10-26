@@ -16,82 +16,39 @@ Related contracts: [A running agent can be stopped](../../../../../guarantees/ag
 ### `MOCK`
 
 <storycode:copy id="f-1e909407d4cd-MOCK">
-import type { FleetPairingJob } from "./fleetPairings";
-import type { CommitReadingData } from "./git";
 import type { AgentEditorContext } from "./agentTypes";
+import type { FleetPairingJob } from "./fleetPairings";
+import { generatedApi } from "./generatedApi";
+import type { CommitReadingData } from "./git";
 import type {
   AdoptResponse,
-  AgentTurnsResponse,
-  BlameLine,
   BlockActionOutcome,
-  CitesResponse,
-  ContextResponse,
-  ContinuitySettings,
-  DivergedOutputs,
-  Doc,
-  DocSummary,
-  ElementDescription,
-  ExecutorInfo,
-  FileOpRequest,
-  FilesResponse,
   FindOptions,
   FindResponse,
   FleetMachine,
-  FleetResponse,
-  FormulaResults,
-  FormulaTrace,
-  GitBranch,
-  GitChanges,
-  GitCommitDetail,
   GitCommitResult,
   GitDiff,
   GitLog,
-  GitRecipeRun,
-  GitReplay,
   GitSaid,
-  GitStatus,
-  InitOutcome,
-  MergeDriverStatus,
   MergedViewResponse,
   OpenTerminal,
-  OutputEdit,
-  OutputEditResponse,
-  OutputFile,
-  OutputsResponse,
-  PlainFile,
   PlainFileSaved,
-  Project,
   ProjectSuggestion,
-  PublicationFloor,
-  RefactorStatus,
   RenderResponse,
   ReplaceResponse,
-  ReplayCommit,
   ReplayResponse,
-  Run,
   SampleCreated,
   SavedAsset,
   ScaffoldCatalog,
   ScaffoldPreview,
-  ScaffoldResult,
   ScaffoldSpec,
   ScaffoldStarted,
   ScaffoldTemplateDetail,
   ScratchpadSaved,
   SearchResponse,
-  SessionViewResponse,
-  SettingsKeysPatch,
-  SettingsKeysResponse,
-  StructureResponse,
-  TerminalAnchor,
   TerminalSession,
-  TerminalsResponse,
-  UiSettings,
-  WorkspaceDraft,
-  WorkspaceUiState,
-  WorktreeInfo,
+  WorkspaceUiState
 } from "./types";
-import type { GithubIssue, GithubPullRequest, GithubWorkspace } from "./github";
 import { waitForWorkspace } from "./workspaceStartup";
 
 export const MOCK = import.meta.env.VITE_MOCK === "1";
@@ -291,118 +248,25 @@ function dedupedRender(id: string): Promise<RenderResponse> {
 <a id="f-1e909407d4cd-api"></a>
 ### `api`
 
+The compact [route declarations](routes.ts.md) own the 99 mechanical wrappers.
+The [code-model generator](../../../../scripts/generate-api.py.md) emits their
+parameter forwarding; this object retains the adapters with defaults, conditional
+payloads, render deduplication, and special transport behavior. `request` still
+owns startup gating and errors for both kinds of adapter.
+
 <storycode:copy id="f-1e909407d4cd-api">
 export const api = {
-  projects: () => request<Project[]>("GET", "/api/projects"),
-  createProject: (name: string, visibility: "public" | "private") =>
-    request<Project>("POST", "/api/projects", { name, visibility }),
-  projectDocs: (projectId: string) =>
-    request<DocSummary[]>("GET", `/api/projects/${projectId}/docs`),
-  createDoc: (projectId: string, path: string, source: string) =>
-    request<Doc>("POST", `/api/projects/${projectId}/docs`, { path, source }),
-
-  doc: (id: string) => request<Doc>("GET", `/api/docs/${id}`),
-  saveDoc: (id: string, source: string) =>
-    request<Doc>("PUT", `/api/docs/${id}`, { source }),
+  ...generatedApi(request),
   render: (id: string) => dedupedRender(id),
-
-  /** The open folder's file tree: directories first, alphabetical. */
-  files: () => request<FilesResponse>("GET", "/api/files"),
-
-  /** GitHub objects rooted in this checkout. Authentication remains in the
-   * person's `gh` credential store; these routes never carry a token. */
-  githubWorkspace: () => request<GithubWorkspace>("GET", "/api/workspace/github"),
-  githubPullRequest: (number: number) =>
-    request<GithubPullRequest>("GET", `/api/workspace/github/pr/${number}`),
-  githubIssue: (repository: string, number: number) =>
-    request<GithubIssue>(
-      "GET",
-      `/api/workspace/github/issue/${number}?repository=${encodeURIComponent(repository)}`,
-    ),
-  associateGithubIssue: (repository: string, number: number, folder: string) =>
-    request<{ repository: string; number: number; folder: string }>(
-      "POST",
-      "/api/workspace/github/issues",
-      { repository, number, folder },
-    ),
-  editGithubObject: (
-    kind: "pr" | "issue",
-    repository: string,
-    number: number,
-    field: "title" | "body",
-    value: string,
-  ) => request<{ ok: true }>("POST", "/api/workspace/github/edit", {
-    kind, repository, number, field, value,
-  }),
-  commentOnGithubObject: (
-    kind: "pr" | "issue",
-    repository: string,
-    number: number,
-    body: string,
-  ) => request<{ ok: true }>("POST", "/api/workspace/github/comment", {
-    kind, repository, number, body,
-  }),
-  githubCheckLog: (run: number, job: number) =>
-    request<{ text: string; truncated: boolean }>(
-      "GET",
-      `/api/workspace/github/check-log?run=${run}&job=${job}`,
-    ),
-  markGithubNotificationRead: (thread: string) =>
-    request<{ ok: true }>("POST", `/api/workspace/github/notification/${encodeURIComponent(thread)}`),
-
-  /** Show a path in the platform's file manager: a file selected inside its
-   * folder, a directory opened. `path` is root-relative; `""` is the folder
-   * itself. */
-  reveal: (path: string) =>
-    request<{ ok: true }>("POST", "/api/reveal", { path }),
-  /** Open a path in whatever program this machine already opens that kind of
-   * file with. Nothing is read or written here — the OS association decides. */
-  openExternal: (path: string) =>
-    request<{ ok: true }>("POST", "/api/open-external", { path }),
-
-  /** Any text file in the folder, whole, with the hash a save passes back. */
-  openFile: (path: string) =>
-    request<{ path: string; doc_id?: string }>("POST", "/api/open-file", { path }),
-
-  file: (path: string) =>
-    request<PlainFile>("GET", `/api/file?path=${encodeURIComponent(path)}`),
   /** Adopt a plain file into a literate document, byte-exactly: the server
    * verifies the new document weaves the file's exact bytes before writing
    * anything. `into` appends to an existing document instead of creating
    * `<stem>.md` beside the file. */
-  /** One dired verb: rename, move, copy, delete, a new file or folder. */
-  fileOp: (op: FileOpRequest) =>
-    request<{ op: string; from?: string; to?: string; path?: string }>(
-      "POST",
-      "/api/files/op",
-      op,
-    ),
   adopt: (path: string, into?: string) =>
     request<AdoptResponse>("POST", "/api/adopt", {
       path,
       ...(into !== undefined ? { into } : {}),
     }),
-
-  /** Fetch a tool the project needs — today a debug adapter — through the
-   * same catalogue and the same confinement `hick dap install` uses. See
-   * crates/hickory-cli/src/serve/install.rs. */
-  installTool: (kind: string, language: string) =>
-    request<{ installed: string; path: string }>("POST", "/api/install", {
-      kind,
-      language,
-    }),
-
-  /** The platform's own folder chooser, opened at `start`. `{path: null}` is
-   * a cancel, which is an answer and not an error. 503 when the program
-   * hosting the engine has no dialogs — see crates/hickory-cli/src/serve/shell.rs. */
-  pickFolder: (start: string) =>
-    request<{ path: string | null }>("POST", "/api/pick-folder", { start }),
-  saveFileDialog: (name: string) =>
-    request<{ path: string | null }>("POST", "/api/save-file-dialog", { name }),
-  /** Close the native window after the page has settled dirty buffers. */
-  closeWindow: () => request<{ ok: true }>("POST", "/api/window/close"),
-  /** Clear a native application-quit request after its close flow was cancelled. */
-  cancelQuit: () => request<{ ok: true }>("POST", "/api/window/cancel-quit"),
 
   /** What this machine can scaffold: every `dotnet new` template its SDK
    * has. 422 with `{missing: "dotnet"}` when there is no SDK at all — the
@@ -438,13 +302,6 @@ export const api = {
    * docs/guarantees/execution/a-command-the-app-runs-is-watched-in-a-terminal.md. */
   scaffoldCreate: (spec: ScaffoldSpec) =>
     request<ScaffoldStarted>("POST", "/api/scaffold", { ...spec }),
-  /** How a started scaffold ended. The terminal tells the person; this is
-   * how the app finds out, so the tree and the history pane can catch up. */
-  scaffoldResult: (session: string) =>
-    request<ScaffoldResult>(
-      "GET",
-      `/api/scaffold/result?session=${encodeURIComponent(session)}`,
-    ),
 
   /** Put a `<hick:sample>` under the cell that generated this file: a window
    * onto a few of its lines, shown in the weave and never stored in the
@@ -479,16 +336,6 @@ export const api = {
   saveScratchpad: (text: string, agentAssisted = false) =>
     request<ScratchpadSaved>("POST", agentAssisted ? "/api/v1/scratchpad" : "/api/scratchpad", { text, ...(agentAssisted ? { agent_assisted: true } : {}) }),
 
-  /** Pin the document's current woven outputs as a refactor baseline. */
-  refactorBegin: (docId: string) =>
-    request<RefactorStatus>("POST", `/api/docs/${docId}/refactor/begin`),
-  /** The live equivalence verdict against the pinned baseline. */
-  refactorStatus: (docId: string) =>
-    request<RefactorStatus>("GET", `/api/docs/${docId}/refactor/status`),
-  /** Drop the baseline. */
-  refactorEnd: (docId: string) =>
-    request<RefactorStatus>("POST", `/api/docs/${docId}/refactor/end`),
-
   /** Save a plain file whole. `baseHash` is the hash the content was loaded
    * under — a mismatch means the disk moved and the server answers 409.
    * `force` is the deliberate overwrite after that 409. */
@@ -499,32 +346,6 @@ export const api = {
       ...(baseHash !== undefined ? { base_hash: baseHash } : {}),
       ...(force ? { force } : {}),
     }),
-
-  outputs: (docId: string) =>
-    request<OutputsResponse>("GET", `/api/docs/${docId}/outputs`),
-  /** Context provenance: every agent write in this document and what was in
-   * front of the model when it happened. */
-  context: (docId: string) =>
-    request<ContextResponse>("GET", `/api/docs/${docId}/context`),
-  /** A session file as the conversation it records (turns, steps, tree). */
-  sessionView: (path: string) =>
-    request<SessionViewResponse>("GET", `/api/sessions/view?path=${encodeURIComponent(path)}`),
-  /** Declared provenance: every `cites=` in the document, resolved. */
-  cites: (docId: string) =>
-    request<CitesResponse>("GET", `/api/docs/${docId}/cites`),
-  outputFile: (docId: string, path: string) =>
-    request<OutputFile>(
-      "GET",
-      `/api/docs/${docId}/outputs/file?path=${encodeURIComponent(path)}`,
-    ),
-  editOutput: (docId: string, path: string, edits: OutputEdit[]) =>
-    request<OutputEditResponse>("POST", `/api/docs/${docId}/outputs/edit`, {
-      path,
-      edits,
-    }),
-
-  /** The vocabulary the server draws, as data. */
-  elements: () => request<{ elements: ElementDescription[] }>("GET", "/api/elements"),
   /** One action on the element whose tag starts at byte `at`. The element
    * says what it wants and the server carries it out; a run comes back as
    * a run id on the same channel `run` uses. */
@@ -540,27 +361,8 @@ export const api = {
       `/api/docs/${docId}/run`,
       { ...(cells ? { cells } : {}), ...(expectedSourceHash ? { expected_source_hash: expectedSourceHash } : {}) },
     ),
-  runStatus: (runId: string) => request<Run>("GET", `/api/runs/${runId}`),
   check: (docId: string, expectedSourceHash?: string) =>
     request<{ run_id: string }>("POST", `/api/docs/${docId}/check`, expectedSourceHash ? { expected_source_hash: expectedSourceHash } : undefined),
-
-  executor: () => request<ExecutorInfo>("GET", "/api/executor"),
-
-  /** The agent's LLM API keys: configured-or-not plus a masked hint. The
-   * full key never travels back — see SettingsKeysResponse. */
-  settingsKeys: () =>
-    request<SettingsKeysResponse>("GET", "/api/settings/keys"),
-  /** Set/clear only the named providers (string sets, null clears). */
-  saveSettingsKeys: (patch: SettingsKeysPatch) =>
-    request<SettingsKeysResponse>("PUT", "/api/settings/keys", patch),
-
-  /** UI settings the server persists (ui.json): the custom window title. */
-  settingsUi: () => request<UiSettings>("GET", "/api/settings/ui"),
-  saveSettingsUi: (settings: Partial<UiSettings>) =>
-    request<UiSettings>("PUT", "/api/settings/ui", settings),
-
-  /** Definitions and references across this session's generated files. */
-  structure: () => request<StructureResponse>("GET", "/api/structure"),
   /** What this project calls things: identifiers from its own text, ranked
    * by how often they are used and — when the local model is installed — by
    * how close their surroundings are to what is being typed. A different
@@ -573,28 +375,6 @@ export const api = {
         `&context=${encodeURIComponent(context.slice(-600))}&k=${k}`,
     ),
 
-  /** Every formula in a grid, computed.
-   *
-   * The host resolves references and works out the order before any backend
-   * is asked anything, so this is one call whatever language the formulas
-   * are in. The backend installs itself on first use — it is a script the
-   * binary carries, not a download. */
-  evaluateFormulas: (language: string, rows: string[][]) =>
-    request<FormulaResults>("POST", "/api/formula/evaluate", {
-      language,
-      rows,
-    }),
-
-  /** The same evaluation, cell by cell — what the table's debugger steps
-   * through. The same code path on the host, so the steps can never disagree
-   * with the values the grid is showing. */
-  traceFormulas: (language: string, rows: string[][]) =>
-    request<FormulaTrace>("POST", "/api/formula/trace", { language, rows }),
-
-  /** Languages this machine can evaluate formulas in right now. */
-  formulaLanguages: () =>
-    request<{ languages: string[] }>("GET", "/api/formula/languages"),
-
   /** The commit graph, with every commit's files and line counts — one git
    * invocation, so expanding a row costs nothing. The verbs that change the
    * repository are below, each one git command run as itself. */
@@ -604,83 +384,22 @@ export const api = {
       `/api/git/log?limit=${limit}` +
         (path ? `&path=${encodeURIComponent(path)}` : ""),
     ),
-
-  /** The branch, and whether anything is uncommitted. */
-  gitStatus: () => request<GitStatus>("GET", "/api/git/status"),
-  /** One commit as a card: its diff, and which of its files were edited
-   * since. Asked on expand by the history lens. */
-  gitCommitDetail: (sha: string) =>
-    request<GitCommitDetail>("GET", `/api/git/commit?sha=${encodeURIComponent(sha)}`),
   // The history lens's verbs (lenses.md steps 4–6). Each is one git
   // operation run as itself on the server; a refusal comes back in git's
   // words, and a join that stops on a conflict comes back as 409.
-  /** Run a recipe commit's recipe again and join the result. */
-  gitReplay: (sha: string) => request<GitReplay>("POST", "/api/git/replay", { sha }),
-  /** The tail: run a command in a clean worktree at HEAD and commit its
-   * output under `output/` with the recipe. */
-  gitRecipe: (command: string, output: string) =>
-    request<GitRecipeRun>("POST", "/api/git/recipe", { command, output }),
-  gitReword: (sha: string, message: string) =>
-    request<{ head: string }>("POST", "/api/git/reword", { sha, message }),
-  gitDrop: (sha: string) => request<{ head: string }>("POST", "/api/git/drop", { sha }),
-  gitMove: (sha: string, direction: "earlier" | "later") =>
-    request<{ head: string }>("POST", "/api/git/move", { sha, direction }),
 
   // The git pane's verbs — each one git command, run as itself, with git's
   // own words when it refuses. See crates/hickory-cli/src/serve/git_ops.rs.
-  /** Produced files whose disk bytes are not the document's, and why. */
-  divergedOutputs: () => request<DivergedOutputs>("GET", "/api/outputs/diverged"),
-  /** Overwrite a diverged file with what its document produces. */
-  regenerateOutput: (path: string, expected_current: string, expected_produced: string) =>
-    request<{ ok: boolean; path: string; applied: boolean; carried_back: boolean }>("POST", "/api/v1/outputs/regenerate", { path, expected_current, expected_produced }),
-  /** Write the bytes a person chose — a merge's result — over a diverged file. */
-  resolveOutput: (path: string, content: string, expected_current: string, expected_produced: string) =>
-    request<{ ok: boolean; path: string; applied: boolean; carried_back: boolean }>("POST", "/api/v1/outputs/resolve", { path, content, expected_current, expected_produced }),
   gitReading: (sha: string) => request<CommitReadingData>("GET", `/api/git/reading?${new URLSearchParams({ sha })}`),
-  gitChanges: () => request<GitChanges>("GET", "/api/git/changes"),
   gitDiff: (path: string, staged = false) =>
     request<GitDiff>(
       "GET",
       `/api/git/diff?path=${encodeURIComponent(path)}&staged=${staged ? "true" : "false"}`,
     ),
-  gitStage: (body: { paths?: string[]; all?: boolean }) =>
-    request<GitSaid>("POST", "/api/git/stage", body),
-  gitUnstage: (body: { paths?: string[]; all?: boolean }) =>
-    request<GitSaid>("POST", "/api/git/unstage", body),
-  gitDiscard: (paths: string[]) => request<GitSaid>("POST", "/api/git/discard", { paths }),
   gitCommit: (message: string, amend = false) =>
     request<GitCommitResult>("POST", "/api/git/commit", { message, amend }),
-  gitPush: () => request<GitSaid>("POST", "/api/git/push", {}),
-  gitPull: () => request<GitSaid>("POST", "/api/git/pull", {}),
-  gitBranches: () => request<{ branches: GitBranch[] }>("GET", "/api/git/branches"),
   gitCheckout: (branch: string, create = false) =>
     request<GitSaid>("POST", "/api/git/checkout", { branch, create }),
-  gitStash: (action: "push" | "pop") => request<GitSaid>("POST", "/api/git/stash", { action }),
-
-  /** Which commits on this branch are still drafts. */
-  gitFloor: () =>
-    request<{ repository: boolean; floor?: PublicationFloor }>(
-      "GET",
-      "/api/git/floor",
-    ),
-
-  /** Whether `.md` merges go through hick in this clone. Asked at project
-   * open, because a clone that never ran `hick init` has neither the driver
-   * nor the pre-commit hook that would report it missing. */
-  mergeDriver: () =>
-    request<{ status: MergeDriverStatus; ok: boolean }>(
-      "GET",
-      "/api/git/merge-driver",
-    ),
-  /** Run `hick init` on the open folder — the banner's button. */
-  initRepository: () => request<InitOutcome>("POST", "/api/git/merge-driver"),
-
-  /** What a merged view can be opened over. */
-  worktrees: () =>
-    request<{ repository: boolean; worktrees: WorktreeInfo[] }>(
-      "GET",
-      "/api/worktrees",
-    ),
 
   /** Captured worktree lens; exact selection is independent of write authority. */
   merged: (path: string, targets?: string[]) =>
@@ -692,41 +411,7 @@ export const api = {
       if (error instanceof ApiError && error.status === 404) throw new ApiError(404, "Worktree selection protocol v1 is unavailable. Update the app and engine together; no legacy selection was requested.", error.body);
       throw error;
     }),
-
-  /** This machine, and the machines paired with it. Identity, not
-   * connectivity: nothing here can be attached to yet. */
-  fleet: () => request<FleetResponse>("GET", "/api/fleet"),
-
-  /** A phrase to read out, before hosting it. */
-  fleetPhrase: () =>
-    request<{ phrase: string; seconds: number; note: string }>(
-      "GET",
-      "/api/fleet/phrase",
-    ),
-
-  startFleetPairing: (window: string, request_id: string, mode: "host" | "dial", phrase: string) =>
-    request<{ started: boolean; job: FleetPairingJob }>("POST", "/api/v1/fleet/pairings", { window, request_id, mode, phrase }),
-  fleetPairings: (window: string) => request<{ jobs: FleetPairingJob[] }>("GET", `/api/v1/fleet/pairings?window=${encodeURIComponent(window)}`),
-  fleetPairing: (window: string, id: string) => request<FleetPairingJob>("GET", `/api/v1/fleet/pairings/${encodeURIComponent(id)}?window=${encodeURIComponent(window)}`),
   cancelFleetPairing: (window: string, id: string) => request<{ job: FleetPairingJob }>("POST", `/api/v1/fleet/pairings/${encodeURIComponent(id)}/cancel?window=${encodeURIComponent(window)}`, {}, true),
-  forgetFleetPairing: (window: string, id: string) => request<{ forgotten: string }>("DELETE", `/api/v1/fleet/pairings/${encodeURIComponent(id)}?window=${encodeURIComponent(window)}`),
-
-  /** Wait for the other machine to dial this phrase. Blocks for the window. */
-  fleetHost: (phrase: string) =>
-    request<{ machine: FleetMachine; their_fingerprint: string; our_fingerprint: string }>(
-      "POST",
-      "/api/fleet/host",
-      { phrase },
-    ),
-
-  /** Dial a phrase the other machine printed. */
-  fleetPair: (phrase: string) =>
-    request<{
-      machine: FleetMachine;
-      their_fingerprint: string;
-      our_fingerprint: string;
-      note: string;
-    }>("POST", "/api/fleet/pair", { phrase }),
 
   /** The line another machine accepts to enrol this one. */
   fleetInvite: (phone = false) =>
@@ -734,10 +419,6 @@ export const api = {
       "GET",
       `/api/fleet/invite${phone ? "?phone=true" : ""}`,
     ),
-
-  /** Enrol the machine an invitation names. */
-  fleetAccept: (invitation: string) =>
-    request<{ machine: FleetMachine }>("POST", "/api/fleet/accept", { invitation }),
 
   /** Give or take one verb for one machine. */
   fleetGrant: (machine: string, grant: string, on: boolean, expectedKey?: string) =>
@@ -751,20 +432,6 @@ export const api = {
       machine, ...(expectedKey !== undefined ? { expected_key: expectedKey } : {}),
     }),
 
-  /** Is continuity on for this project? Off by default. */
-  continuity: () =>
-    request<ContinuitySettings>("GET", "/api/settings/continuity"),
-
-  setContinuity: (enabled: boolean) =>
-    request<{ enabled: boolean }>("PUT", "/api/settings/continuity", { enabled }),
-
-  /** The commits this document's time slider can stop at, newest first. */
-  docHistory: (docId: string) =>
-    request<{ repository: boolean; commits: ReplayCommit[] }>(
-      "GET",
-      `/api/docs/${docId}/history`,
-    ),
-
   /** The lineage this document had AT a commit — recomputed by weaving that
    * commit's document, never executing anything. */
   docReplay: (docId: string, commit: string, path?: string) =>
@@ -772,15 +439,6 @@ export const api = {
       "GET",
       `/api/docs/${docId}/replay?commit=${encodeURIComponent(commit)}` +
         (path ? `&path=${encodeURIComponent(path)}` : ""),
-    ),
-
-  /** Who last touched each line. Answers `{lines: []}` for a folder that is
-   * not a repository, an untracked file, or a machine with no git — the
-   * column is an optional annotation, never a reason a file will not open. */
-  blame: (path: string) =>
-    request<{ path: string; lines: BlameLine[] }>(
-      "GET",
-      `/api/blame?path=${encodeURIComponent(path)}`,
     ),
 
   /** EXHAUSTIVE find across the folder, in path order — the one replace is
@@ -842,87 +500,22 @@ export const api = {
       ...(provider !== undefined ? { provider } : {}),
       ...(model !== undefined ? { model } : {}),
     }),
-
-  /** Stop the agent turn running on this document. The run halts at its
-   * next seam — mid-stream included, which is what stops the token spend —
-   * and finishes with status "stopped" on the run channel. */
-  agentStop: (docId: string) =>
-    request<{ stopping: string }>("POST", `/api/docs/${docId}/agent/stop`),
-
-  agentTurns: (docId: string) =>
-    request<AgentTurnsResponse>("GET", `/api/docs/${docId}/agent/turns`),
-
-  /** Every terminal session, and the one attention queue across them. The
-   * order of `attention` is the server's — see hick_term::attention — so the
-   * queue, the session tree, and ⌘J cannot disagree about what is next. */
-  terminals: () => request<TerminalsResponse>("GET", "/api/terminals"),
-  /** Run one test (or a file's tests) in a terminal session named after it.
-   * See crates/hickory-cli/src/serve/test_run.rs. */
-  runTest: (body: { path: string; name: string; language: string; expected_source_hash?: string }) =>
-    request<TerminalSession & { source_hash: string; source_checked_at_admission: boolean; source_frozen: false }>("POST", "/api/tests/run", body),
   openTerminal: (spec: OpenTerminal = {}) =>
     request<TerminalSession>("POST", "/api/terminals", spec),
-  closeTerminal: (id: string) =>
-    request<void>("DELETE", `/api/terminals/${id}`),
   /** Type into a session. The pane's own keystrokes go over the socket
    * instead; this is for everything else (menus, the card's input line). */
   terminalInput: (id: string, data: string, agent = false) =>
     request<void>("POST", `/api/terminals/${id}/input`, { data, ...(agent ? { agent: true } : {}) }),
-  terminalResize: (id: string, rows: number, cols: number) =>
-    request<void>("POST", `/api/terminals/${id}/resize`, { rows, cols }),
-  interruptTerminal: (id: string) =>
-    request<void>("POST", `/api/terminals/${id}/interrupt`),
-  /** Answer the attention card: writes, and clears the prompt in the same
-   * request, so the session leaves the queue immediately rather than on the
-   * next poll. */
-  answerTerminal: (id: string, send: string) =>
-    request<TerminalSession>("POST", `/api/terminals/${id}/answer`, { send }),
-  setTurbo: (enabled: boolean) =>
-    request<{ turbo: boolean }>("PUT", "/api/terminals/turbo", { enabled }),
-  /** Which terminals are writing into which documents, all at once — "never
-   * anchor silently" means the state has to be readable at any moment, not
-   * announced once when it changes. */
-  terminalAnchors: () => request<{ anchors: Record<string, TerminalAnchor> }>(
-    "GET",
-    "/api/terminals/anchors",
-  ),
-  anchorTerminal: (id: string, doc: string, container: string) =>
-    request<TerminalAnchor>("POST", `/api/terminals/${id}/anchor`, { doc, container }),
-  unanchorTerminal: (id: string) =>
-    request<void>("DELETE", `/api/terminals/${id}/anchor`),
-  /** Record again after a suspension. Always a new cell. */
-  resumeAnchor: (id: string) =>
-    request<TerminalAnchor>("POST", `/api/terminals/${id}/anchor/resume`),
 
   // --- What the window remembers between runs -----------------------------
   //
   // Stored under the user's own data directory, never in the project: git
   // cannot reach it by construction. See api.md, "Workspace state and
   // drafts".
-
-  /** The stored window layout, or null on a project opened for the first
-   * time (and on a damaged file, which reads as "no layout" rather than as
-   * a reason not to start). */
-  workspaceUi: () =>
-    request<{ state: WorkspaceUiState }>("GET", "/api/workspace/ui"),
-  responseDraft: (doc: string) => request<{ scope: string; state: unknown }>("GET", `/api/workspace/responses?doc=${encodeURIComponent(doc)}`),
   saveResponseDraft: (doc: string, scope: string, state: unknown, keepalive = false) =>
     request<{ ok: true }>("PUT", `/api/workspace/responses?doc=${encodeURIComponent(doc)}`, { scope, state }, keepalive),
   saveWorkspaceUi: (state: WorkspaceUiState, keepalive = false) =>
-    request<{ ok: true }>("PUT", "/api/workspace/ui", { state }, keepalive),
-
-  /** Every buffer that had unsaved changes when the app last closed, each
-   * carrying the bytes it was taken from so a file that moved on can be
-   * merged rather than fought over. */
-  drafts: () =>
-    request<{ drafts: WorkspaceDraft[] }>("GET", "/api/workspace/drafts"),
-  saveDraft: (draft: WorkspaceDraft) =>
-    request<{ ok: true }>("PUT", "/api/workspace/drafts", draft),
-  discardDraft: (path: string) =>
-    request<{ ok: true }>(
-      "DELETE",
-      `/api/workspace/drafts?path=${encodeURIComponent(path)}`,
-    ),
+    request<{ ok: true }>("PUT", "/api/workspace/ui", { state }, keepalive)
 };
 </storycode:copy>
 
@@ -932,4 +525,36 @@ The selections below preserve the original byte order. Narrative reading order d
 
 <storycode:file path="apps/web/src/api/client.ts"><storycode:paste select="#f-1e909407d4cd-MOCK"/><storycode:paste select="#f-1e909407d4cd-ApiError"/><storycode:paste select="#f-1e909407d4cd-ERROR_TEXT_LIMIT"/><storycode:paste select="#f-1e909407d4cd-apiError"/><storycode:paste select="#f-1e909407d4cd-MockHandler"/><storycode:paste select="#f-1e909407d4cd-mockHandler"/><storycode:paste select="#f-1e909407d4cd-installMockHandler"/><storycode:paste select="#f-1e909407d4cd-request"/><storycode:paste select="#f-1e909407d4cd-inFlightRenders"/><storycode:paste select="#f-1e909407d4cd-dedupedRender"/><storycode:paste select="#f-1e909407d4cd-api"/></storycode:file>
 
+## Forwarding witness
+
+A real client call must preserve URL encoding, literal interpolation and the
+wire distinction between no body, an empty object and the caller’s draft object.
+This focused assertion exercises the generated adapters through the same mocked
+transport used by the existing client tests.
+
+<storycode:copy id="api-codegen-forwarding-witness">
+describe("generated API forwarding", () => {
+  afterEach(() => installMockHandler(null as never));
+  it("preserves encoded paths, literal identifiers and body distinctions", async () => {
+    const handler = vi.fn(async (_method: string, _path: string, _body?: unknown) => ({}));
+    installMockHandler(handler);
+    await api.file("a b/é.md");
+    await api.doc("a/b");
+    await api.saveDoc("doc", "text");
+    await api.gitPush();
+    await api.closeWindow();
+    const draft = { path: "doc.md", contents: "text", base: "", saved_at: 0 };
+    await api.saveDraft(draft);
+    expect(handler.mock.calls).toEqual([
+      ["GET", "/api/file?path=a%20b%2F%C3%A9.md", undefined],
+      ["GET", "/api/docs/a/b", undefined],
+      ["PUT", "/api/docs/doc", { source: "text" }],
+      ["POST", "/api/git/push", {}],
+      ["POST", "/api/window/close", undefined],
+      ["PUT", "/api/workspace/drafts", draft],
+    ]);
+    expect(handler.mock.calls[5][2]).toBe(draft);
+  });
+});
+</storycode:copy>
 </storycode:doc>

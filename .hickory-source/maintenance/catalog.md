@@ -82,4 +82,7 @@ Implementation and test narratives are in [the mechanism index](../mechanisms/in
 - [`hickory-dogfood/REORGANIZATION.md`](files/hickory-dogfood/REORGANIZATION.md.md)
 <storycode:include file="files/hickory-dogfood/REORGANIZATION.md.md" />
 
+- [`hickory-dogfood/CODEMODEL-PILOT.md`](files/hickory-dogfood/CODEMODEL-PILOT.md.md)
+<storycode:include file="files/hickory-dogfood/CODEMODEL-PILOT.md.md" />
+
 </storycode:doc>

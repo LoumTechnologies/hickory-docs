@@ -521,6 +521,10 @@ jobs:
           cache-dependency-path: apps/web/package-lock.json
       - uses: extractions/setup-just@v4
       - run: npm ci
+      - run: npm --prefix code-models/typescript ci
+        working-directory: .
+      - run: python3 scripts/generate-api.py --check
+        working-directory: .
       - run: npm test
       # The file-length ratchet, from the repository root (this job's
       # working directory is the web package).

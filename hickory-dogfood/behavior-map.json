@@ -21998,7 +21998,8 @@
         "f-7aab2bc50e5c-expression_statement-3",
         "f-7aab2bc50e5c-expression_statement-4",
         "f-7aab2bc50e5c-expression_statement-5",
-        "f-7aab2bc50e5c-expression_statement-6"
+        "f-7aab2bc50e5c-expression_statement-6",
+        "api-codegen-forwarding-witness"
       ],
       "anchor": "output-7aab2bc50e5c",
       "narrative_owner": "execution/a-command-the-app-runs-is-watched-in-a-terminal.md"
@@ -64362,6 +64363,54 @@
         "audit-witness-refuse-missing-fragment"
       ],
       "narrative_owner": "mechanism:hickory-dogfood"
+    },
+    "hickory-dogfood/CODEMODEL-PILOT.md": {
+      "source": ".hickory-source/maintenance/files/hickory-dogfood/CODEMODEL-PILOT.md.md",
+      "owner": "maintenance",
+      "role": "experiment-evidence",
+      "construction": "entry"
+    },
+    "apps/web/src/api/routes.ts": {
+      "source": ".hickory-source/mechanisms/apps/web/src/api/routes.ts.md",
+      "owner": "shared",
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "api-codegen-route-vocabulary",
+        "api-codegen-routes-projects",
+        "api-codegen-routes-documents",
+        "api-codegen-routes-git",
+        "api-codegen-routes-fleet",
+        "api-codegen-routes-sessions"
+      ]
+    },
+    "scripts/generate-api.py": {
+      "source": ".hickory-source/mechanisms/scripts/generate-api.py.md",
+      "owner": "shared",
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "api-codegen-model-query",
+        "api-codegen-adapter-policy",
+        "api-codegen-path-substitution",
+        "api-codegen-body-selection",
+        "api-codegen-typed-emission",
+        "api-codegen-retained-output",
+        "api-codegen-refresh-and-check"
+      ]
+    },
+    "apps/web/src/api/route-model/tsconfig.json": {
+      "source": ".hickory-source/mechanisms/apps/web/src/api/routes.ts.md",
+      "owner": "shared",
+      "role": "configuration",
+      "construction": "entry"
+    },
+    "apps/web/src/api/generatedApi.ts": {
+      "source": ".hickory-source/mechanisms/apps/web/src/api/generatedApi.ts.md",
+      "owner": "shared",
+      "role": "generated-code",
+      "construction": "recorded-exec",
+      "generated_by": "scripts/generate-api.py"
     }
   },
   "evidence_records": [

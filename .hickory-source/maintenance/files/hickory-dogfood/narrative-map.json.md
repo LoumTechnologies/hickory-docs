@@ -10,7 +10,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
   "format": 1,
   "starting_revision": "9461830eeee3b5c7f8cfe9c45edf3c1cdd060350",
   "policy": "Narrative ownership is separate from semantic verification. Existing source comments are retained explanation candidates; undocumented declarations remain explicit review work.",
-  "code_outputs": 1834,
+  "code_outputs": 1837,
   "relocated_annotated_tests": 184,
   "fragments": [
     {
@@ -6189,7 +6189,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "output": "apps/web/src/api/client.ts",
       "page": ".hickory-source/mechanisms/apps/web/src/api/client.ts.md",
       "symbol": "api",
-      "basis": "needs-explanation",
+      "basis": "reviewed-explanation",
       "original_range": [
         5742,
         36524
@@ -146627,6 +146627,104 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "symbol": "BehaviorAuditTests / refuse-missing-fragment",
       "basis": "reviewed-explanation",
       "original_range": null
+    },
+    {
+      "id": "api-codegen-route-vocabulary",
+      "output": "apps/web/src/api/routes.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/api/routes.ts.md",
+      "symbol": "route-vocabulary",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "api-codegen-routes-projects",
+      "output": "apps/web/src/api/routes.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/api/routes.ts.md",
+      "symbol": "routes-projects",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "api-codegen-routes-documents",
+      "output": "apps/web/src/api/routes.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/api/routes.ts.md",
+      "symbol": "routes-documents",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "api-codegen-routes-git",
+      "output": "apps/web/src/api/routes.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/api/routes.ts.md",
+      "symbol": "routes-git",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "api-codegen-routes-fleet",
+      "output": "apps/web/src/api/routes.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/api/routes.ts.md",
+      "symbol": "routes-fleet",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "api-codegen-routes-sessions",
+      "output": "apps/web/src/api/routes.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/api/routes.ts.md",
+      "symbol": "routes-sessions",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "api-codegen-model-query",
+      "output": "scripts/generate-api.py",
+      "page": ".hickory-source/mechanisms/scripts/generate-api.py.md",
+      "symbol": "model-query",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "api-codegen-adapter-policy",
+      "output": "scripts/generate-api.py",
+      "page": ".hickory-source/mechanisms/scripts/generate-api.py.md",
+      "symbol": "adapter-policy",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "api-codegen-retained-output",
+      "output": "scripts/generate-api.py",
+      "page": ".hickory-source/mechanisms/scripts/generate-api.py.md",
+      "symbol": "retained-output",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "api-codegen-refresh-and-check",
+      "output": "scripts/generate-api.py",
+      "page": ".hickory-source/mechanisms/scripts/generate-api.py.md",
+      "symbol": "refresh-and-check",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "api-codegen-forwarding-witness",
+      "output": "apps/web/src/api/client.test.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/api/client.ts.md",
+      "symbol": "forwarding-witness",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "api-codegen-path-substitution",
+      "output": "scripts/generate-api.py",
+      "page": ".hickory-source/mechanisms/scripts/generate-api.py.md",
+      "symbol": "path-substitution",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "api-codegen-body-selection",
+      "output": "scripts/generate-api.py",
+      "page": ".hickory-source/mechanisms/scripts/generate-api.py.md",
+      "symbol": "body-selection",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "api-codegen-typed-emission",
+      "output": "scripts/generate-api.py",
+      "page": ".hickory-source/mechanisms/scripts/generate-api.py.md",
+      "symbol": "typed-emission",
+      "basis": "reviewed-explanation"
     }
   ],
   "explanation_gaps": {
@@ -147245,8 +147343,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "MockHandler",
       "mockHandler",
       "request",
-      "dedupedRender",
-      "api"
+      "dedupedRender"
     ],
     "apps/web/src/api/environments.ts": [
       "EnvironmentAction",
@@ -159507,9 +159604,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
     ]
   },
   "summary": {
-    "needs-explanation": 9387,
+    "needs-explanation": 9386,
     "existing-source-comment": 3899,
-    "reviewed-explanation": 44
+    "reviewed-explanation": 59
   },
   "paired_test_modules": [
     {

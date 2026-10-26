@@ -52,4 +52,6 @@ Follow the named module below to its maintained code, original rationale and rel
 - [`scripts/ui-reachability.mjs`](ui-reachability.mjs.md)
 <storycode:include file="ui-reachability.mjs.md" />
 
+- [`generate-api.py`](generate-api.py.md)
+<storycode:include file="generate-api.py.md" />
 </storycode:doc>

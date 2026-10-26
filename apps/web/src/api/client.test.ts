@@ -180,3 +180,26 @@ it("preserves versioned merged-view all, empty and literal-name selections witho
     expect(handler).toHaveBeenCalledTimes(5);
   } finally { installMockHandler(null as never); }
 });
+describe("generated API forwarding", () => {
+  afterEach(() => installMockHandler(null as never));
+  it("preserves encoded paths, literal identifiers and body distinctions", async () => {
+    const handler = vi.fn(async (_method: string, _path: string, _body?: unknown) => ({}));
+    installMockHandler(handler);
+    await api.file("a b/é.md");
+    await api.doc("a/b");
+    await api.saveDoc("doc", "text");
+    await api.gitPush();
+    await api.closeWindow();
+    const draft = { path: "doc.md", contents: "text", base: "", saved_at: 0 };
+    await api.saveDraft(draft);
+    expect(handler.mock.calls).toEqual([
+      ["GET", "/api/file?path=a%20b%2F%C3%A9.md", undefined],
+      ["GET", "/api/docs/a/b", undefined],
+      ["PUT", "/api/docs/doc", { source: "text" }],
+      ["POST", "/api/git/push", {}],
+      ["POST", "/api/window/close", undefined],
+      ["PUT", "/api/workspace/drafts", draft],
+    ]);
+    expect(handler.mock.calls[5][2]).toBe(draft);
+  });
+});

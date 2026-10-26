@@ -72,6 +72,7 @@ fmt:
 # the LSP tests spawn the `hick-lsp` binary, which `cargo test` alone does not
 # produce, and without it they fail claiming no language server is installed.
 ci:
+    python3 scripts/generate-api.py --check
     if [ "$(uname -s)" = Darwin ] && [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 26 ]; then just build-fskit; fi
     just check-codegen
     just check-file-length
@@ -819,5 +820,6 @@ literate-generate:
 
 # Read-only source/output agreement and editorial accounting checks.
 literate-check:
+    python3 scripts/generate-api.py --check
     python3 hickory-dogfood/tools/behavior.py check
     python3 hickory-dogfood/tools/behavior.py audit

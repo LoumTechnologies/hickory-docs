@@ -43,6 +43,11 @@ pub fn steps(root: &Path, head: &str) -> Result<Vec<(String, String)>> {
         add("Web build", "npm --prefix apps/web run build");
     }
     if has("web") {
+        add(
+            "API model dependencies",
+            "npm --prefix code-models/typescript ci --no-audit --no-fund",
+        );
+        add("API adapters", "python3 scripts/generate-api.py --check");
         add("Web tests", "npm --prefix apps/web test -- --maxWorkers=2");
         add("Browser installation", "just install-test-browsers");
         add("Browser embedding", "just test-browser-embedding");

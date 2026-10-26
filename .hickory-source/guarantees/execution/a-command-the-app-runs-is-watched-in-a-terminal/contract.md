@@ -258,7 +258,7 @@ it("preserves versioned merged-view all, empty and literal-name selections witho
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/api/client.test.ts"><storycode:paste select="#f-7aab2bc50e5c-expression_statement"/><storycode:paste select="#f-7aab2bc50e5c-expression_statement-2"/><storycode:paste select="#f-7aab2bc50e5c-expression_statement-3"/><storycode:paste select="#f-7aab2bc50e5c-expression_statement-4"/><storycode:paste select="#f-7aab2bc50e5c-expression_statement-5"/><storycode:paste select="#f-7aab2bc50e5c-expression_statement-6"/></storycode:file>
+<storycode:file path="apps/web/src/api/client.test.ts"><storycode:paste select="#f-7aab2bc50e5c-expression_statement"/><storycode:paste select="#f-7aab2bc50e5c-expression_statement-2"/><storycode:paste select="#f-7aab2bc50e5c-expression_statement-3"/><storycode:paste select="#f-7aab2bc50e5c-expression_statement-4"/><storycode:paste select="#f-7aab2bc50e5c-expression_statement-5"/><storycode:paste select="#f-7aab2bc50e5c-expression_statement-6"/><storycode:paste select="#api-codegen-forwarding-witness"/></storycode:file>
 
 ## Implementation review
 

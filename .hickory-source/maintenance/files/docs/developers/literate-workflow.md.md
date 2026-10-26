@@ -80,6 +80,28 @@ The [reorganization record](../../hickory-dogfood/REORGANIZATION.md) states the
 actual scope. Give unexplained logic a concrete rationale after inspecting it;
 link ownership and passing reconstruction do not supply that rationale.
 
+## Regenerate the API adapters
+
+The [route chapter](../../.hickory-source/mechanisms/apps/web/src/api/routes.ts.md)
+contains typed declarations for simple API forwarding. Keep conditional
+serialization and transport decisions in the manual client. To change a route:
+
+```sh
+npm --prefix apps/web ci
+npm --prefix code-models/typescript ci
+# Edit routes.ts.md or the generator's owning Markdown, then materialize inputs:
+just literate-generate
+python3 scripts/generate-api.py --write
+just literate-generate
+just literate-check
+```
+
+The write step refreshes a kept Hickory exec result. Ordinary reconstruction
+replays that result offline; `literate-check` additionally reruns the model and
+refuses stale generated adapters. It requires Python 3 and Node with both locked
+npm dependency sets installed. CI uses Node 22; the pilot was verified locally
+with Node 24.14.0. The host recording does not claim container provenance.
+
 ## Review the migration
 
 [The source index](../../project.md) is canonical. The generated old files in
