@@ -64469,6 +64469,39 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     ".github/workflows/literate-ci.yml": {
       "source": ".hickory-source/ci.md"
+    },
+    "scripts/export-ci-site.py": {
+      "source": ".hickory-source/guarantees/verification/literate-ci/site.md"
+    },
+    "ci/public-preview.json": {
+      "source": ".hickory-source/guarantees/verification/literate-ci/site.md"
+    },
+    "apps/web/vite.ci.config.ts": {
+      "source": ".hickory-source/guarantees/verification/literate-ci/site.md"
+    },
+    "apps/web/ci.html": {
+      "source": ".hickory-source/guarantees/verification/literate-ci/site.md"
+    },
+    "apps/web/src/embed/ci.tsx": {
+      "source": ".hickory-source/guarantees/verification/literate-ci/site.md"
+    },
+    "apps/web/src/embed/CiPublication.tsx": {
+      "source": ".hickory-source/guarantees/verification/literate-ci/site.md"
+    },
+    "apps/web/src/embed/ci.css": {
+      "source": ".hickory-source/guarantees/verification/literate-ci/site.md"
+    },
+    "scripts/test-export-ci-site.py": {
+      "source": ".hickory-source/guarantees/verification/literate-ci/site.md"
+    },
+    "apps/web/src/embed/CiPublication.test.tsx": {
+      "source": ".hickory-source/guarantees/verification/literate-ci/site.md"
+    },
+    "apps/web/e2e/ciPublication.spec.ts": {
+      "source": ".hickory-source/guarantees/verification/literate-ci/site.md"
+    },
+    "apps/web/public/ci-preview/bundle.json": {
+      "source": ".hickory-source/guarantees/verification/literate-ci/preview.md"
     }
   },
   "evidence_records": [

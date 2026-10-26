@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "checks": [
+    "ci-runner-safety",
+    "publication-input-safety"
+  ],
+  "include_logs": true
+}

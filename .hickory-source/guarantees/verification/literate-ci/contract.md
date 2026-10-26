@@ -167,8 +167,15 @@ def git_state(root):
 def execute(root, plan, hashes, destination):
     destination.mkdir(parents=True, exist_ok=False)
     before = git_state(root)
+    documents = {}
+    for check in plan:
+        source = inside(root, check["owner"]).read_bytes()
+        source_hash = sha(source)
+        if source_hash != hashes.get(check["owner"]):
+            raise ValueError("Owning source changed after planning")
+        documents[check["owner"]] = dict(source=source.decode("utf-8"), source_hash=source_hash)
     report = dict(version=1, started_at=timestamp(), base_revision=before["head"],
-                  tested_revision=None, before=before, definition_hashes=hashes,
+                  tested_revision=None, before=before, definition_hashes=hashes, documents=documents,
                   environment=dict(platform=platform.platform(), python=sys.version,
                                    executor="host", inherited_environment=True,
                                    runner_sha256=sha(Path(__file__).read_bytes())),
@@ -362,6 +369,7 @@ Run real success, failure and timeout commands. A blocked consumer must not crea
         self.assertEqual(report["status"], "passed")
         self.assertIsNone(report["tested_revision"])
         self.assertTrue(report["after"]["dirty"])
+        self.assertEqual(report["documents"]["owner.md"]["source"], "Explained behavior")
 
 
 if __name__ == "__main__":
@@ -402,4 +410,7 @@ The runner owns its own focused safety checks. A CI command needs an explicit as
 
 <book:file path="ci/checks/runner.json"><book:paste select="#ci-runner-check"/></book:file>
 
+
+Read [the static export](site.md) to share selected captured documents and results.
+<book:include file="site.md" />
 </book:doc>

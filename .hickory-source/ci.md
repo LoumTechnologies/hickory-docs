@@ -35,6 +35,16 @@ code with secrets or privileges you would not give that code directly.
 </book:copy>
 <book:file path="ci/policy.json"><book:paste select="#ci-project-policy"/></book:file>
 
+## Share a local result as static files
+
+After executing, use its printed run directory with
+`python3 scripts/export-ci-site.py --run target/literate-ci/RUN-ID --output target/ci-site`.
+The [export contract](guarantees/verification/literate-ci/site.md) explains the
+explicit public selection, captured-source identity and draft-only editing.
+The output directory includes its own editor assets and can be hosted at any
+HTTP path. The homepage links a preserved preview; publishing another run is
+still a manual content decision, not an automatic CI upload.
+
 ## Let GitHub launch the same local runner
 
 The host provisions Python and preserves the logs even after failure. It grants

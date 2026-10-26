@@ -48,7 +48,7 @@ export default defineConfig({
     outDir: "dist-site",
     emptyOutDir: true,
     rollupOptions: {
-      input: { snapshot: resolve(import.meta.dirname, "snapshot.html"), site: resolve(import.meta.dirname, "site.html"), ...(process.env.HICKORY_SITE_ONLY === "1" ? {} : {
+      input: { ci: resolve(import.meta.dirname, "ci.html"), snapshot: resolve(import.meta.dirname, "snapshot.html"), site: resolve(import.meta.dirname, "site.html"), ...(process.env.HICKORY_SITE_ONLY === "1" ? {} : {
         embed: resolve(import.meta.dirname, "embed.html"), iframe: resolve(import.meta.dirname, "iframe.html"),
       }) },
     },

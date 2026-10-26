@@ -1,0 +1,30 @@
+import { test, expect } from "@playwright/test";
+
+test("a static CI publication renders the real document and keeps edits local", async ({ page }) => {
+  test.skip(!process.env.HICKORY_CI_PREVIEW, "Requires the exported local CI site");
+  const apiRequests: string[] = [];
+  page.on("request", request => { if (new URL(request.url()).pathname.startsWith("/api/")) apiRequests.push(request.url()); });
+  await page.goto("/ci.html");
+  await expect(page.getByRole("heading", { name: "Literate CI, run locally" })).toBeVisible();
+  await expect(page.locator(".cm-editor")).toBeVisible();
+  await expect(page.locator(".cm-content")).toHaveAttribute("contenteditable", "false");
+  await page.getByText("Captured command logs", { exact: true }).click();
+  await expect(page.getByText(/Ran 6 tests/)).toBeVisible();
+  await page.getByRole("button", { name: "Try editing a local draft" }).click();
+  await expect(page.locator(".cm-content")).toHaveAttribute("contenteditable", "true");
+  await page.locator(".cm-content").press("Control+Home");
+  await page.locator(".cm-content").pressSequentially("Local draft ");
+  await expect(page.getByRole("status")).toContainText("have not been tested");
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download draft" }).click();
+  await expect((await download).suggestedFilename()).toBe("contract.md");
+  await page.getByRole("button", { name: "Return to captured source" }).click();
+  await expect(page.locator(".cm-content")).toHaveAttribute("contenteditable", "false");
+  await page.getByRole("button", { name: /publication-input-safety/ }).click();
+  await expect(page.getByRole("region", { name: "Check result" }).getByRole("heading", { level: 2 })).toHaveText("publication-input-safety");
+  await expect(page.locator(".cm-editor")).toBeVisible();
+  expect(apiRequests).toEqual([]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole("heading", { name: "Literate CI, run locally" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});

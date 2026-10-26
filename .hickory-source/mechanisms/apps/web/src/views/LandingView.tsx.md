@@ -70,6 +70,7 @@ export function LandingView() {
       <p className="muted">The unstable channel has no compatibility promise. Check each artifact's build revision: published packages may predate this development workflow. Source/build instructions and asset availability do not establish a witnessed native/provider run.</p>
       <p><UiLink href="./snapshot.html?index=publications/index.json">Published executable-spec results</UiLink></p>
       <p><UiLink href="./snapshot.html">Open a document snapshot</UiLink></p>
+      <p><UiLink href="./ci.html">Explore a local CI run with its literate source</UiLink></p>
       {config.sourceRevision && <p className="muted">Build source: <UiLink href={`https://github.com/LoumTechnologies/hickory-docs/tree/${config.sourceRevision}`}>{config.sourceRevision.slice(0, 7)}</UiLink></p>}
     </footer>
     <TooltipLayer />

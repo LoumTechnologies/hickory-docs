@@ -146836,6 +146836,90 @@
       "page": ".hickory-source/ci.md",
       "symbol": "ci-host-workflow",
       "basis": "explained-decision"
+    },
+    {
+      "id": "ci-export-selection",
+      "output": "scripts/export-ci-site.py",
+      "page": ".hickory-source/guarantees/verification/literate-ci/site.md",
+      "symbol": "ci-export-selection",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "ci-export-package",
+      "output": "scripts/export-ci-site.py",
+      "page": ".hickory-source/guarantees/verification/literate-ci/site.md",
+      "symbol": "ci-export-package",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "ci-public-selection",
+      "output": "ci/public-preview.json",
+      "page": ".hickory-source/guarantees/verification/literate-ci/site.md",
+      "symbol": "ci-public-selection",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "ci-portable-build",
+      "output": "apps/web/vite.ci.config.ts",
+      "page": ".hickory-source/guarantees/verification/literate-ci/site.md",
+      "symbol": "ci-portable-build",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "ci-page-entry",
+      "output": "apps/web/ci.html",
+      "page": ".hickory-source/guarantees/verification/literate-ci/site.md",
+      "symbol": "ci-page-entry",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "ci-page-mount",
+      "output": "apps/web/src/embed/ci.tsx",
+      "page": ".hickory-source/guarantees/verification/literate-ci/site.md",
+      "symbol": "ci-page-mount",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "ci-publication-decoder",
+      "output": "apps/web/src/embed/CiPublication.tsx",
+      "page": ".hickory-source/guarantees/verification/literate-ci/site.md",
+      "symbol": "ci-publication-decoder",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "ci-publication-view",
+      "output": "apps/web/src/embed/CiPublication.tsx",
+      "page": ".hickory-source/guarantees/verification/literate-ci/site.md",
+      "symbol": "ci-publication-view",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "ci-publication-layout",
+      "output": "apps/web/src/embed/ci.css",
+      "page": ".hickory-source/guarantees/verification/literate-ci/site.md",
+      "symbol": "ci-publication-layout",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "ci-export-tests",
+      "output": "scripts/test-export-ci-site.py",
+      "page": ".hickory-source/guarantees/verification/literate-ci/site.md",
+      "symbol": "ci-export-tests",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "ci-view-tests",
+      "output": "apps/web/src/embed/CiPublication.test.tsx",
+      "page": ".hickory-source/guarantees/verification/literate-ci/site.md",
+      "symbol": "ci-view-tests",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "ci-static-browser-test",
+      "output": "apps/web/e2e/ciPublication.spec.ts",
+      "page": ".hickory-source/guarantees/verification/literate-ci/site.md",
+      "symbol": "ci-static-browser-test",
+      "basis": "explained-decision"
     }
   ],
   "explanation_gaps": {

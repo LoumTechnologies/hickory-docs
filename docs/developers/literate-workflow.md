@@ -113,6 +113,18 @@ Commands execute as trusted host code with the inherited environment. This is an
 initial JSON bridge built with existing copy/file syntax, not new `hick:exec`
 scheduling semantics. Keep broad regression runs and their monitoring separate.
 
+To export a selected run as a standalone viewer (requires the existing web
+Node dependencies), use the receipt directory printed by the execution command:
+
+```sh
+python3 scripts/export-ci-site.py --run target/literate-ci/RUN-ID --output target/ci-site
+```
+
+Serve the resulting directory over HTTP. It contains the shared Hickory document
+surface, selected captured owners, outcomes and explicitly selected logs. Review
+`ci/public-preview.json` before sharing. Browser edits are disposable drafts with
+download support; they never change the recorded evidence or save to Git.
+
 ## Review the migration
 
 [The source index](../../project.md) is canonical. The generated old files in

@@ -88,6 +88,7 @@ class LiterateCITests(unittest.TestCase):
         self.assertEqual(report["status"], "passed")
         self.assertIsNone(report["tested_revision"])
         self.assertTrue(report["after"]["dirty"])
+        self.assertEqual(report["documents"]["owner.md"]["source"], "Explained behavior")
 
 
 if __name__ == "__main__":

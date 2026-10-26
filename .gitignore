@@ -71,3 +71,6 @@ sessions/
 /hickory-dogfood/build/
 /hickory-dogfood/*.log
 /hickory-dogfood/reconciliation/*.log
+
+# Standalone local CI viewer build
+/apps/web/dist-ci/
