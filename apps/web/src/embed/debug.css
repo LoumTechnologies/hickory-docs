@@ -14,3 +14,8 @@
 .hickory-browser-debug .cm-breakpoint-gutter:hover .cm-bp-ghost { background: #84564e; }
 .hickory-browser-debug .cm-bp-broken { background: transparent; border: 1px solid var(--danger); }
 .hickory-browser-debug .cm-paused-arrow { color: var(--warn); }
+.hickory-browser-debug .hickory-embed .cm-content { caret-color: var(--fg); }
+.hickory-browser-debug .hickory-embed .cm-cursor, .hickory-browser-debug .hickory-embed .cm-dropCursor { border-left-color: var(--fg); }
+.hickory-browser-debug section[aria-label="Runtime run history"] { min-width: 0; overflow-wrap: anywhere; }
+.hickory-browser-debug section[aria-label="Runtime run history"] label { display: block; }
+.hickory-browser-debug section[aria-label="Runtime run history"] select { max-width: 100%; box-sizing: border-box; }

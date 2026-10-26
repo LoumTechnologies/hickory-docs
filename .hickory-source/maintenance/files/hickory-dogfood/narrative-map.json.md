@@ -146928,6 +146928,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/guarantees/verification/literate-ci/site.md",
       "symbol": "ci-static-browser-test",
       "basis": "explained-decision"
+    },
+    {
+      "id": "browser-debug-base-style",
+      "output": "apps/web/src/embed/debug.css",
+      "page": ".hickory-source/mechanisms/apps/web/src/embed/debug.css.md",
+      "symbol": "browser-debug-base-style",
+      "basis": "needs-explanation"
+    },
+    {
+      "id": "browser-debug-caret-style",
+      "output": "apps/web/src/embed/debug.css",
+      "page": ".hickory-source/mechanisms/apps/web/src/embed/debug.css.md",
+      "symbol": "browser-debug-caret-style",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "browser-debug-history-width",
+      "output": "apps/web/src/embed/debug.css",
+      "page": ".hickory-source/mechanisms/apps/web/src/embed/debug.css.md",
+      "symbol": "browser-debug-history-width",
+      "basis": "explained-decision"
     }
   ],
   "explanation_gaps": {

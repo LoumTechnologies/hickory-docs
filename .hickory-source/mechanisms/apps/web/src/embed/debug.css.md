@@ -10,9 +10,9 @@ This page owns the output construction and the explained fragments below. Source
 
 Present and edit the shared engine state. Browser-side revisions, pending requests and local drafts affect which source and UI actions are still valid.
 
-This literal construction preserves embedded document syntax and exact file bytes. Its internal reasoning boundaries still need editorial review.
+The existing debugger palette and layout remain together below; their internal reasoning boundaries still need editorial review. The caret override is explained separately because it must win independently of stylesheet loading order.
 
-<storycode:entry path="apps/web/src/embed/debug.css">
+<storycode:copy id="browser-debug-base-style">
 .hickory-browser-debug { --warn: #ebbe69; --accent-2: #98c4a1; --danger: #ef9b8e; --ok: #98c4a1; --fg: #e4ded5; --fg-muted: #b2b9b0; --border: #4c514b; --bg: #202522; --bg-elevated: #282e29; color: var(--fg); background: var(--bg); border-radius: 8px; padding: 12px; }
 .hickory-browser-debug button, .hickory-browser-debug select, .hickory-browser-debug input { background: var(--bg-elevated); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; cursor: pointer; }
 .hickory-browser-debug button:disabled { opacity: .4; cursor: default; }
@@ -29,6 +29,43 @@ This literal construction preserves embedded document syntax and exact file byte
 .hickory-browser-debug .cm-breakpoint-gutter:hover .cm-bp-ghost { background: #84564e; }
 .hickory-browser-debug .cm-bp-broken { background: transparent; border: 1px solid var(--danger); }
 .hickory-browser-debug .cm-paused-arrow { color: var(--warn); }
-</storycode:entry>
+</storycode:copy>
+
+
+## Keep the debugger caret tied to its own foreground
+
+Static multi-entry builds can change the order of shared stylesheets. The generic
+embed cursor rule must not replace this debugger's warm foreground with the
+standalone viewer's palette. Scope the native and drawn caret overrides through
+both containers so they win regardless of CSS chunk order. The existing focused
+homepage browser test checks the drawn caret's exact contrasting color and then
+edits and restarts the paused program.
+
+<storycode:copy id="browser-debug-caret-style">
+.hickory-browser-debug .hickory-embed .cm-content { caret-color: var(--fg); }
+.hickory-browser-debug .hickory-embed .cm-cursor, .hickory-browser-debug .hickory-embed .cm-dropCursor { border-left-color: var(--fg); }
+</storycode:copy>
+## Keep retained run identities inside the viewport
+
+A retained run's UUID can make a native select wider than the mobile debugger.
+Allow its grid item to shrink, wrap the adjacent source fingerprint, and constrain the select itself; clipping the page
+would hide controls rather than keep them usable. The homepage's existing 390px
+browser assertion exercises this after running and restarting the program.
+
+<storycode:copy id="browser-debug-history-width">
+.hickory-browser-debug section[aria-label="Runtime run history"] { min-width: 0; overflow-wrap: anywhere; }
+.hickory-browser-debug section[aria-label="Runtime run history"] label { display: block; }
+.hickory-browser-debug section[aria-label="Runtime run history"] select { max-width: 100%; box-sizing: border-box; }
+</storycode:copy>
+<storycode:file path="apps/web/src/embed/debug.css"><storycode:paste select="#browser-debug-base-style"/><storycode:paste select="#browser-debug-caret-style"/><storycode:paste select="#browser-debug-history-width"/></storycode:file>
+
+## Focused execution evidence
+
+On 2026-10-26, `browserEmbedding.spec.ts`'s `homepage loads genuinely paused,
+edits with a visible caret and restarts` flow passed in local Chromium against
+the rebuilt static site. It exercised the exact caret color, edits, restart,
+program output and 390px viewport assertion. Local Firefox could not start
+because its expected binary was absent; WebKit lacked a system library. No local
+cross-browser success or broad regression coverage is claimed.
 
 </storycode:doc>
