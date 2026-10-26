@@ -73,6 +73,7 @@ fmt:
 # produce, and without it they fail claiming no language server is installed.
 ci:
     python3 scripts/generate-api.py --check
+    just test-review-complexity
     if [ "$(uname -s)" = Darwin ] && [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 26 ]; then just build-fskit; fi
     just check-codegen
     just check-file-length
@@ -817,6 +818,14 @@ literate-bootstrap:
 # Materialize the application and maintenance outputs from maintained Markdown.
 literate-generate:
     python3 hickory-dogfood/tools/behavior.py generate
+
+# Deterministic syntax-based review scorecard; arguments pass to the analyzer.
+review-complexity *ARGS:
+    python3 scripts/review-complexity.py {{ARGS}}
+
+# Focused structural invariance, revision and source-location witnesses.
+test-review-complexity:
+    python3 -m unittest discover -s scripts/tests -p test_review_complexity.py -v
 
 # Read-only source/output agreement and editorial accounting checks.
 literate-check:

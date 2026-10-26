@@ -64419,6 +64419,38 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "role": "generated-code",
       "construction": "recorded-exec",
       "generated_by": "scripts/generate-api.py"
+    },
+    "scripts/review-complexity.py": {
+      "source": ".hickory-source/mechanisms/scripts/review-complexity.py.md",
+      "owner": "shared",
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "review-metric-python-structure",
+        "review-metric-inventory-and-source",
+        "review-metric-editor-ranges",
+        "review-metric-snapshot-scorecard",
+        "review-metric-compare-and-command"
+      ]
+    },
+    "scripts/review-complexity-ts.mjs": {
+      "source": ".hickory-source/mechanisms/scripts/review-complexity.py.md",
+      "owner": "shared",
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "review-metric-typescript-structure"
+      ]
+    },
+    "scripts/tests/test_review_complexity.py": {
+      "source": ".hickory-source/mechanisms/scripts/review-complexity.py.md",
+      "owner": "shared",
+      "role": "test",
+      "construction": "fragments",
+      "fragments": [
+        "review-metric-structural-witnesses",
+        "review-metric-inventory-witnesses"
+      ]
     }
   },
   "evidence_records": [

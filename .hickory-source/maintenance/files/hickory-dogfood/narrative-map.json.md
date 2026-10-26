@@ -10,7 +10,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
   "format": 1,
   "starting_revision": "9461830eeee3b5c7f8cfe9c45edf3c1cdd060350",
   "policy": "Narrative ownership is separate from semantic verification. Existing source comments are retained explanation candidates; undocumented declarations remain explicit review work.",
-  "code_outputs": 1837,
+  "code_outputs": 1840,
   "relocated_annotated_tests": 184,
   "fragments": [
     {
@@ -146725,6 +146725,62 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/scripts/generate-api.py.md",
       "symbol": "typed-emission",
       "basis": "reviewed-explanation"
+    },
+    {
+      "id": "review-metric-python-structure",
+      "output": "scripts/review-complexity.py",
+      "page": ".hickory-source/mechanisms/scripts/review-complexity.py.md",
+      "symbol": "python-structure",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "review-metric-inventory-and-source",
+      "output": "scripts/review-complexity.py",
+      "page": ".hickory-source/mechanisms/scripts/review-complexity.py.md",
+      "symbol": "inventory-and-source",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "review-metric-editor-ranges",
+      "output": "scripts/review-complexity.py",
+      "page": ".hickory-source/mechanisms/scripts/review-complexity.py.md",
+      "symbol": "editor-ranges",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "review-metric-snapshot-scorecard",
+      "output": "scripts/review-complexity.py",
+      "page": ".hickory-source/mechanisms/scripts/review-complexity.py.md",
+      "symbol": "snapshot-scorecard",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "review-metric-compare-and-command",
+      "output": "scripts/review-complexity.py",
+      "page": ".hickory-source/mechanisms/scripts/review-complexity.py.md",
+      "symbol": "compare-and-command",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "review-metric-typescript-structure",
+      "output": "scripts/review-complexity-ts.mjs",
+      "page": ".hickory-source/mechanisms/scripts/review-complexity.py.md",
+      "symbol": "typescript-structure",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "review-metric-structural-witnesses",
+      "output": "scripts/tests/test_review_complexity.py",
+      "page": ".hickory-source/mechanisms/scripts/review-complexity.py.md",
+      "symbol": "structural-witnesses",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "review-metric-inventory-witnesses",
+      "output": "scripts/tests/test_review_complexity.py",
+      "page": ".hickory-source/mechanisms/scripts/review-complexity.py.md",
+      "symbol": "inventory-witnesses",
+      "basis": "reviewed-explanation"
     }
   ],
   "explanation_gaps": {
@@ -159606,7 +159662,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
   "summary": {
     "needs-explanation": 9386,
     "existing-source-comment": 3899,
-    "reviewed-explanation": 59
+    "reviewed-explanation": 67
   },
   "paired_test_modules": [
     {

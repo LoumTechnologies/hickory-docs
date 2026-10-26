@@ -54,4 +54,6 @@ Follow the named module below to its maintained code, original rationale and rel
 
 - [`generate-api.py`](generate-api.py.md)
 <storycode:include file="generate-api.py.md" />
+- [Review complexity scorecard](review-complexity.py.md)
+<storycode:include file="review-complexity.py.md" />
 </storycode:doc>
