@@ -42,7 +42,6 @@ pub enum ResolutionMode {
     Merge,
     Regenerate,
 }
-
 </storycode:copy>
 <a id="f-d4f59b7595b5-OutputResolution"></a>
 ### `OutputResolution`
@@ -60,7 +59,6 @@ pub struct OutputResolution {
     pub expected_produced: String,
     pub mode: ResolutionMode,
 }
-
 </storycode:copy>
 <a id="f-d4f59b7595b5-OutputState"></a>
 ### `OutputState`
@@ -79,7 +77,6 @@ pub struct OutputState {
     /// Byte-precise lineage of `content`.
     pub provenance: Vec<Provenance>,
 }
-
 </storycode:copy>
 <a id="f-d4f59b7595b5-impl-OutputState"></a>
 ### `impl-OutputState`
@@ -96,7 +93,6 @@ impl OutputState {
         self.provenance.iter().any(|p| p.origin.source().is_some())
     }
 }
-
 </storycode:copy>
 <a id="f-d4f59b7595b5-WovenState"></a>
 ### `WovenState`
@@ -121,7 +117,6 @@ pub struct WovenState {
     /// docs/guarantees/authoring/an-output-that-cannot-be-carried-back-is-held.md
     held: HashMap<PathBuf, Diverged>,
 }
-
 </storycode:copy>
 <a id="f-d4f59b7595b5-Diverged"></a>
 ### `Diverged`
@@ -142,7 +137,6 @@ pub struct Diverged {
     /// anything yet (`Kept`).
     pub theirs: String,
 }
-
 </storycode:copy>
 <a id="f-d4f59b7595b5-DivergedKind"></a>
 ### `DivergedKind`
@@ -156,7 +150,6 @@ pub enum DivergedKind {
     /// what is on disk was left alone.
     Kept,
 }
-
 </storycode:copy>
 <a id="f-d4f59b7595b5-impl-DivergedKind"></a>
 ### `impl-DivergedKind`
@@ -170,7 +163,6 @@ impl DivergedKind {
         }
     }
 }
-
 </storycode:copy>
 <a id="f-d4f59b7595b5-impl-WovenState"></a>
 ### `impl-WovenState`
@@ -316,6 +308,17 @@ impl WovenState {
 
     /// Keep an output file as it is on disk, and remember why the loop is
     /// not touching it.
+    /// A pending capture is an unresolved ownership choice, even if authored
+    /// source now happens to match disk. Preserve its visible hold until the
+    /// caller observes explicit acceptance and resumes normal generation.
+    pub fn defer_output(&mut self, path: &Path, output: OutputState, reason: String) {
+        self.hold_output(path, reason);
+        if let Some(held) = self.held.get_mut(path) {
+            held.theirs = output.content.clone();
+        }
+        self.outputs.insert(path.to_path_buf(), output);
+    }
+
     pub fn hold_output(&mut self, path: &Path, reason: String) {
         let base = self
             .outputs
@@ -390,6 +393,18 @@ impl WovenState {
             output.content == *expected_produced,
             "Tracked produced output changed; refresh before resolving"
         );
+        let document_root = output.doc.parent().unwrap_or(Path::new("."));
+        let entry = output
+            .doc
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| anyhow::anyhow!("invalid document name"))?;
+        let captures =
+            hick_project_env::pending::status(document_root, entry).map_err(anyhow::Error::msg)?;
+        anyhow::ensure!(
+            captures.is_empty(),
+            "This output has a pending capture. Choose its conceptual owner and accept it with hick project edits / new-patch / accept before using merge or regeneration. To revert it, restore the output, capture that observation, then accept it."
+        );
         let readonly = !output.editable();
         anyhow::ensure!(
             *mode != ResolutionMode::Regenerate || content == expected_produced,
@@ -437,7 +452,6 @@ impl WovenState {
         }
     }
 }
-
 </storycode:copy>
 <a id="f-d4f59b7595b5-write_atomic"></a>
 ### `write_atomic`
@@ -476,7 +490,6 @@ pub fn write_atomic(path: &Path, content: &str) -> Result<()> {
         }
     }
 }
-
 </storycode:copy>
 <a id="f-d4f59b7595b5-set_read_only"></a>
 ### `set_read_only`
@@ -515,7 +528,6 @@ pub fn set_read_only(path: &Path, read_only: bool) -> Result<()> {
     std::fs::set_permissions(path, updated)
         .with_context(|| format!("failed to set permissions on {}", path.display()))
 }
-
 </storycode:copy>
 <a id="f-d4f59b7595b5-toggled"></a>
 ### `toggled`
@@ -535,7 +547,6 @@ fn toggled(perms: std::fs::Permissions, read_only: bool) -> std::fs::Permissions
     };
     std::fs::Permissions::from_mode(updated)
 }
-
 </storycode:copy>
 <a id="f-d4f59b7595b5-toggled-2"></a>
 ### `toggled`
@@ -546,7 +557,6 @@ fn toggled(mut perms: std::fs::Permissions, read_only: bool) -> std::fs::Permiss
     perms.set_readonly(read_only);
     perms
 }
-
 </storycode:copy>
 <a id="f-d4f59b7595b5-resolution_tests"></a>
 ### `resolution_tests`

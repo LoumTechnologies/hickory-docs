@@ -479,6 +479,7 @@ pub async fn up(config: crate::up::UpConfig) -> Result<()> {
     let mut opts = Attach::new(config.root.clone(), config.executor);
     opts.params = config.params;
     opts.run = config.run;
+    opts.amend_output_edits = config.amend_output_edits;
     let connection = connect(opts).await?;
     let _guard = connection.guard();
     eprintln!(
@@ -502,7 +503,6 @@ pub async fn up(config: crate::up::UpConfig) -> Result<()> {
         }
     }
 }
-
 </storycode:copy>
 <a id="f-5c9c7cadce49-forward_cli"></a>
 ### `forward_cli`

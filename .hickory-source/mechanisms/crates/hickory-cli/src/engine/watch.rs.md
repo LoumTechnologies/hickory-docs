@@ -122,7 +122,7 @@ impl Coordinator {
                         };
                         let result: Result<()> = async {
                             crate::up::drain_inbox(&root, &inbox);
-                            let config = UpConfig { root: reg.attach.target.clone(), params: reg.attach.params,
+                            let config = UpConfig { amend_output_edits: reg.attach.amend_output_edits, root: reg.attach.target.clone(), params: reg.attach.params,
                                 executor: reg.attach.executor, run: reg.attach.run };
                             let docs: Vec<_> = reg.state.index.entries().iter()
                                 .filter_map(|(id, _)| reg.state.index.absolute(id))
@@ -194,7 +194,11 @@ impl Coordinator {
                             }
                             let active: Vec<_> = subscriptions.read().unwrap().values().cloned().collect();
                             let config_for = |doc: &std::path::Path| {
-                                let mut config = UpConfig { root: view.config.root.clone(), params: view.config.params.clone(), executor: view.config.executor, run: false };
+                                let mut config = UpConfig { amend_output_edits: view.config.amend_output_edits, root: view.config.root.clone(), params: view.config.params.clone(), executor: view.config.executor, run: false };
+                                let matching: Vec<_> = active.iter().filter(|sub|doc == sub.target || doc.starts_with(&sub.target)).collect();
+                                // An overlapping default client must not inherit
+                                // another client's explicit amendment permission.
+                                config.amend_output_edits = !matching.is_empty() && matching.iter().all(|sub|sub.amend_output_edits);
                                 if let Some(sub) = active.iter().find(|sub| sub.run && (doc == sub.target || doc.starts_with(&sub.target))) {
                                     config.run = true; config.params = sub.params.clone(); config.executor = sub.executor;
                                 }
@@ -243,7 +247,6 @@ impl Coordinator {
         Ok(startup)
     }
 }
-
 </storycode:copy>
 <a id="f-dc5bee2ae567-publish"></a>
 ### `publish`

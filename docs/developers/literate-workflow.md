@@ -17,6 +17,11 @@ dependencies. Run from the repository root:
 just literate-bootstrap
 ```
 
+Bootstrap records an agreeing source/output baseline without rewriting products.
+Run it before the first edit in a fresh checkout. If products already differ and
+no baseline exists, preserve and reconcile those differences first; Hickory will
+not guess whether they came from a source edit or an external tool.
+
 1. Read the contract's outcome, review status, evidence and exclusions.
 2. Edit the actual `copy` fragment beside its explanation. `file`/`paste`
    constructions specify output order. For a known generated path, run
@@ -56,6 +61,76 @@ If changing the evaluator or adapter, regenerate, rebuild with
 Hickory's existing loader, evaluator and safe writer through a thin native adapter.
 The full CLI weave path has a known scale limitation from repeated lineage
 parsing; this workflow does not claim that issue is fixed.
+
+## Incorporate edits made by ordinary tools
+
+Generation records its successful source/output baseline locally under
+`.hick-journal/output-edits/`. A formatter, IDE or agent can edit the generated
+files normally. Capture the changes at a synchronization boundary:
+
+```sh
+python3 hickory-dogfood/tools/behavior.py capture
+python3 hickory-dogfood/tools/behavior.py edits
+python3 hickory-dogfood/tools/behavior.py edits --id CAPTURE_ID
+```
+
+Use `capture --path path/to/new.py` to include a new output that did not exist
+in the baseline. Tracked deletions, binary bytes and portable metadata are
+retained too, although some cannot become a unified text patch. Captures never
+change the source owner. Generation detects tracked output edits itself and
+stops while any capture remains pending, including after restart or if source
+has caught up. Keep the local journal until incorporation. Ordinary transcript-cache cleanup
+does not remove it; deleting the journal discards local capture history.
+
+Choose the conceptual owner. To amend an existing concept or split a mixed
+change, edit the owning Markdown and verify the complete resulting construction.
+Then accept the selected observation:
+
+```sh
+python3 hickory-dogfood/tools/behavior.py accept --id CAPTURE_ID
+```
+
+Acceptance requires that both the complete authored output and current disk
+match the capture. It archives previous observations; it does not run behavior
+tests or establish semantic correctness. If disk changed again, capture again
+and choose that newer observation. Reverting disk also needs an explicit capture
+and acceptance; old pending work never silently disappears.
+
+For a new concern, author a concept patch first:
+
+```sh
+python3 hickory-dogfood/tools/behavior.py new-patch --id CAPTURE_ID \
+  --document .hickory-source/privacy.md --patch-id redact-sensitive-values \
+  --explanation 'Redact sensitive values before logging them.'
+```
+
+The new page is included by the entry document and initially depends on every
+construction in the captured predecessor. Review it and its ordering, then run
+`accept`. The proposal validates complete reconstruction before writing source;
+if source has moved since the original baseline, reconcile that change first.
+The ownership maps remain maintained inputs: update them when adding new output
+constructions or named copy fragments, and run `audit` as usual.
+
+Other declared projects use `hick project materialize project.md`, followed by
+`hick project capture`, `edits`, `new-patch` or `accept` with the entry path and
+`--root` option. `hick project generate` remains a pure inventory operation.
+
+`hick up` now captures external output saves by default and holds the files.
+It records a durable baseline per document, preserving pending edits across
+restart. Standalone notebook source can be amended and accepted with
+`hick project accept notes.md --id CAPTURE_ID --root DIRECTORY`; it uses the
+existing weave pipeline for the complete output check. Automatic new-concept
+proposals require a declared project. The mounted agent filesystem also captures saves, including virtual products
+that have never been materialized; subsequent reads show the pending result.
+Explicit source-aware editor operations remain amendments. `hick up --amend-output-edits` explicitly selects the older
+provenance-based incorporation mode for workflows that already know the desired
+owner. If this host misses native filesystem events, use
+`HICKORY_WATCH_MODE=poll hick up DIRECTORY`; capture still checks actual bytes
+against its baseline at the next synchronization boundary.
+
+The source/disk guards and journal lock serialize Hickory's own operations; they
+are not a filesystem transaction against an external program writing during
+publication. Finish a tool's edit before capturing or incorporating it.
 
 ## Read and maintain a narrative
 

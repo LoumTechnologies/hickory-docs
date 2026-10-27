@@ -36,8 +36,8 @@ save by lineage, and a refused save restores the file and explains why.
 //!
 //! One command that makes a directory of `.md` documents behave like
 //! ordinary source: every document's outputs are on disk as real files, any
-//! editor can open them, and an edit saved in one of them lands back in the
-//! document it came from. The loop runs until interrupted.
+//! editor can open them, and an external edit becomes a durable pending capture.
+//! Incorporation explicitly chooses the conceptual source owner. The loop runs until interrupted.
 //!
 //! Three things have to be true for that to feel like editing files rather
 //! than operating machinery, and each is handled in a different place:
@@ -60,7 +60,6 @@ pub mod reverse;
 
 <storycode:copy id="f-73148a3ab9db-state">
 pub mod state;
-
 </storycode:copy>
 <a id="f-73148a3ab9db-use_declaration"></a>
 ### `use_declaration`
@@ -79,7 +78,6 @@ use std::path::{Path, PathBuf};
 
 <storycode:copy id="f-73148a3ab9db-use_declaration-3">
 use std::time::{Duration, Instant, SystemTime};
-
 </storycode:copy>
 <a id="f-73148a3ab9db-use_declaration-4"></a>
 ### `use_declaration`
@@ -98,7 +96,6 @@ use fs2::FileExt;
 
 <storycode:copy id="f-73148a3ab9db-use_declaration-6">
 use notify::{EventKind, RecursiveMode, Watcher};
-
 </storycode:copy>
 <a id="f-73148a3ab9db-use_declaration-7"></a>
 ### `use_declaration`
@@ -111,7 +108,6 @@ use crate::{ExecutorChoice, RunMode, expand_docs, output_lineage, run_doc};
 
 <storycode:copy id="f-73148a3ab9db-use_declaration-8">
 use state::{OutputState, WovenState};
-
 </storycode:copy>
 <a id="f-73148a3ab9db-file_watcher"></a>
 ### `file_watcher`
@@ -127,7 +123,6 @@ pub(crate) fn file_watcher(
 ) -> notify::Result<Box<dyn Watcher + Send>> {
     watcher_with_mode(handler, std::env::var("HICKORY_WATCH_MODE").ok().as_deref())
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-watcher_with_mode"></a>
 ### `watcher_with_mode`
@@ -150,7 +145,6 @@ fn watcher_with_mode(
         )),
     }
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-UpCommand"></a>
 ### `UpCommand`
@@ -190,7 +184,6 @@ pub enum UpCommand {
     /// Reprocess a document changed by an engine action through the watcher.
     Reweave(PathBuf),
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-watch_error"></a>
 ### `watch_error`
@@ -243,7 +236,6 @@ pub(crate) fn watch_error(err: notify::Error) -> anyhow::Error {
         None => anyhow::Error::new(err),
     }
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-WEAVE_DEBOUNCE"></a>
 ### `WEAVE_DEBOUNCE`
@@ -262,7 +254,6 @@ Reacting to the first event in that sequence reads a half-written file.
 /// writes, and renames; VS Code writes a sibling and renames over the target.
 /// Reacting to the first event in that sequence reads a half-written file.
 const WEAVE_DEBOUNCE: Duration = Duration::from_millis(120);
-
 </storycode:copy>
 <a id="f-73148a3ab9db-RUN_DEBOUNCE"></a>
 ### `RUN_DEBOUNCE`
@@ -274,7 +265,6 @@ of saves should collapse into one run, so this waits longer for quiet.
 /// The same, for a loop that executes cells. Running is expensive and a burst
 /// of saves should collapse into one run, so this waits longer for quiet.
 const RUN_DEBOUNCE: Duration = Duration::from_millis(500);
-
 </storycode:copy>
 <a id="f-73148a3ab9db-BATCH_SETTLE_BUDGET"></a>
 ### `BATCH_SETTLE_BUDGET`
@@ -345,7 +335,6 @@ events its later writes produce bring the loop back to correct the document.
 /// chunks still defeats it; `BATCH_SETTLE_BUDGET` bounds the damage, and the
 /// events its later writes produce bring the loop back to correct the document.
 const BATCH_SETTLE_STABLE_FOR: Duration = Duration::from_millis(300);
-
 </storycode:copy>
 <a id="f-73148a3ab9db-fingerprints"></a>
 ### `fingerprints`
@@ -374,7 +363,6 @@ fn fingerprints(batch: &HashSet<PathBuf>) -> HashMap<PathBuf, Option<(u64, Optio
         })
         .collect()
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-settle_batch"></a>
 ### `settle_batch`
@@ -452,7 +440,6 @@ pub(crate) async fn settle_batch(batch: &HashSet<PathBuf>) -> bool {
     }
     false
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-UpConfig"></a>
 ### `UpConfig`
@@ -460,6 +447,8 @@ pub(crate) async fn settle_batch(batch: &HashSet<PathBuf>) -> bool {
 <storycode:copy id="f-73148a3ab9db-UpConfig">
 /// What `hick up` was asked to do.
 pub struct UpConfig {
+    /// Explicitly amend existing origins instead of capturing unclassified edits.
+    pub amend_output_edits: bool,
     /// The directory (or single document) to keep woven.
     pub root: PathBuf,
     /// Parameter overrides, as every other command takes them.
@@ -472,7 +461,6 @@ pub struct UpConfig {
     /// `hick run` of the same document.
     pub executor: ExecutorChoice,
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-impl-UpConfig"></a>
 ### `impl-UpConfig`
@@ -495,7 +483,6 @@ impl UpConfig {
         }
     }
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-DirectoryLock"></a>
 ### `DirectoryLock`
@@ -522,7 +509,6 @@ pub struct DirectoryLock {
     _file: std::fs::File,
     path: PathBuf,
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-impl-DirectoryLock"></a>
 ### `impl-DirectoryLock`
@@ -570,7 +556,6 @@ impl DirectoryLock {
         Ok(Self { _file: file, path })
     }
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-impl-Drop-for-DirectoryLock"></a>
 ### `impl-Drop for DirectoryLock`
@@ -584,7 +569,6 @@ impl Drop for DirectoryLock {
         let _ = &self.path;
     }
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-run"></a>
 ### `run`
@@ -740,7 +724,6 @@ pub async fn run(config: UpConfig) -> Result<()> {
     state.release_read_only();
     Ok(())
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-drain_inbox"></a>
 ### `drain_inbox`
@@ -775,7 +758,6 @@ pub(crate) fn drain_inbox(root: &Path, config: &crate::ingest::InboxConfig) -> V
     }
     written
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-weave_document"></a>
 ### `weave_document`
@@ -800,10 +782,15 @@ pub(crate) async fn weave_document(
 ) -> Result<()> {
     weave_document_as(doc, config.mode(), config, state).await
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-weave_document_as"></a>
 ### `weave_document_as`
+
+Check the complete document output baseline before the first per-file write.
+Pending captures stop the whole publication, including after restarting the
+watcher. Remember the new baseline only when disk and source still match the
+completed weave. A source edit that happens to match disk does not accept the
+capture; acceptance remains an explicit action.
 
 Weave one document in an explicit mode.
 Separate from [`weave_document`] because startup under `--run` needs a fast
@@ -838,6 +825,29 @@ async fn weave_document_as(
     let missing_recording = run.result.outputs_missing_a_recording();
     let weave_target = run.doc.weave_path.as_deref();
 
+    let entry = doc
+        .file_name()
+        .and_then(|n| n.to_str())
+        .context("non-UTF-8 document name")?;
+    let mut capture_sources =
+        hick_project_env::pending::sources(&base, entry).map_err(anyhow::Error::msg)?;
+    capture_sources.insert(entry.into(), run.source.clone());
+    let mut generated = hick_lang::ProjectTree::default();
+    for (path, content) in &run.result.files {
+        let bytes = match content {
+            hick_exec::node::FileContent::Text(text) => text.as_bytes().to_vec(),
+            hick_exec::node::FileContent::Binary(bytes) => bytes.to_bytes()?,
+        };
+        generated
+            .insert(path, hick_lang::ProjectEntry::file(bytes))
+            .map_err(anyhow::Error::msg)?;
+    }
+    let pending = if config.amend_output_edits || !missing_recording.is_empty() {
+        vec![]
+    } else {
+        hick_project_env::pending::prepare_generation(&base, entry, &capture_sources, &generated)
+            .map_err(anyhow::Error::msg)?
+    };
     let mut rel_paths: Vec<&String> = run.result.files.keys().collect();
     rel_paths.sort();
     for rel_path in rel_paths {
@@ -845,6 +855,15 @@ async fn weave_document_as(
         // so they are written by the normal run path and not watched here.
         let Some(hick_exec::node::FileContent::Text(content)) = run.result.files.get(rel_path)
         else {
+            if pending.is_empty() && !missing_recording.contains(rel_path.as_str()) {
+                let mut binary = hick_lang::ProjectTree::default();
+                if let Some(entry) = generated.get(rel_path) {
+                    binary
+                        .insert(rel_path, entry.as_ref().clone())
+                        .map_err(anyhow::Error::msg)?;
+                    hick_project_env::write_tree(&base, &binary).map_err(anyhow::Error::msg)?;
+                }
+            }
             continue;
         };
         let full = crate::contained_output_path(&base, rel_path)?;
@@ -879,18 +898,29 @@ async fn weave_document_as(
         }
         let provenance = output_lineage(&run, rel_path).unwrap_or_default();
         produced.insert(full.clone());
-        state.write_output(
-            &base,
-            &full,
-            OutputState {
-                doc: doc.to_path_buf(),
-                rel_path: rel_path.clone(),
-                content: content.clone(),
-                provenance,
-            },
-        )?;
+        let output = OutputState {
+            doc: doc.to_path_buf(),
+            rel_path: rel_path.clone(),
+            content: content.clone(),
+            provenance,
+        };
+        if pending.is_empty() {
+            state.write_output(&base, &full, output)?;
+        } else {
+            let reason = format!(
+                "{} pending output capture(s); inspect with hick project edits {} --root {}",
+                pending.len(),
+                entry,
+                base.display()
+            );
+            state.defer_output(&full, output, reason);
+        }
     }
 
+    if !config.amend_output_edits && pending.is_empty() && missing_recording.is_empty() {
+        hick_project_env::pending::checkpoint(&base, entry, &capture_sources, &generated)
+            .map_err(anyhow::Error::msg)?;
+    }
     state.retain_outputs_of(doc, &produced);
     state.record_doc(doc.to_path_buf(), run.source.clone());
     // Included/upstream files are documents too: provenance can name them as
@@ -913,7 +943,6 @@ async fn weave_document_as(
     }
     Ok(())
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-establish_baselines"></a>
 ### `establish_baselines`
@@ -938,7 +967,6 @@ pub(crate) async fn establish_baselines(
         let _ = weave_document_as(doc, RunMode::Weave, config, state).await;
     }
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-handle_batch"></a>
 ### `handle_batch`
@@ -963,7 +991,6 @@ pub(crate) async fn handle_batch(
 ) -> Result<()> {
     handle_batch_with(batch, config, state, None).await
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-handle_batch_with"></a>
 ### `handle_batch_with`
@@ -979,6 +1006,18 @@ pub(crate) async fn handle_batch_with(
     let mut saved_outputs: Vec<PathBuf> = Vec::new();
 
     for path in batch {
+        if let Some(root) = incorporation_root(&path) {
+            if let Ok(bytes) = std::fs::read(&path)
+                && let Ok(signal) = serde_json::from_slice::<serde_json::Value>(&bytes)
+                && let Some(entry) = signal["entry"].as_str()
+                && hick_lang::validate_project_path(entry).is_ok()
+                && let Ok(doc) = root.join(entry).canonicalize()
+                && doc.starts_with(root)
+            {
+                dirty_docs.insert(doc);
+            }
+            continue;
+        }
         if is_noise(&path) {
             continue;
         }
@@ -1004,7 +1043,11 @@ pub(crate) async fn handle_batch_with(
 
     saved_outputs.sort();
     for path in saved_outputs {
-        match consume_output_save(&path, state) {
+        let chosen = state
+            .output(&path)
+            .and_then(|o| configs.map(|choose| choose(&o.doc)));
+        let amend = chosen.as_ref().unwrap_or(config).amend_output_edits;
+        match consume_output_save(&path, state, amend) {
             Ok(Some(doc)) => {
                 dirty_docs.insert(doc);
             }
@@ -1025,10 +1068,14 @@ pub(crate) async fn handle_batch_with(
     }
     Ok(())
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-consume_output_save"></a>
 ### `consume_output_save`
+
+An ordinary tool does not declare conceptual intent. The default captures its
+change against the durable generation baseline and holds disk unchanged.
+`--amend-output-edits` explicitly selects the older provenance-based incorporation
+behavior; only that mode may rewrite an existing source owner on save.
 
 Carry one saved output file back into its document.
 Returns the document that changed, or `None` when the save produced no
@@ -1036,12 +1083,17 @@ document edit at all (whitespace the weave normalizes, or a save with no
 change in it).
 
 <storycode:copy id="f-73148a3ab9db-consume_output_save">
-/// Carry one saved output file back into its document.
+/// Capture one output save by default; amend its existing origin only when
+/// the caller explicitly selected that incorporation mode.
 ///
 /// Returns the document that changed, or `None` when the save produced no
 /// document edit at all (whitespace the weave normalizes, or a save with no
 /// change in it).
-fn consume_output_save(path: &Path, state: &mut WovenState) -> Result<Option<PathBuf>> {
+fn consume_output_save(
+    path: &Path,
+    state: &mut WovenState,
+    amend: bool,
+) -> Result<Option<PathBuf>> {
     let Some(output) = state.output(path) else {
         return Ok(None);
     };
@@ -1054,6 +1106,36 @@ fn consume_output_save(path: &Path, state: &mut WovenState) -> Result<Option<Pat
         Err(_) => return Ok(None),
     };
 
+    if !amend {
+        let root = doc.parent().unwrap_or(Path::new("."));
+        let entry = doc
+            .file_name()
+            .and_then(|p| p.to_str())
+            .context("non-UTF-8 document path")?;
+        // The durable predecessor was recorded after the last successful weave.
+        // Capturing cannot choose an existing concept as the destination.
+        match hick_project_env::pending::capture(root, entry, &[]) {
+            Ok(Some(capture)) => {
+                let reason = format!(
+                    "pending output capture {}; inspect with hick project edits {} --root {}",
+                    capture.id,
+                    entry,
+                    root.display()
+                );
+                eprintln!("  {}: {reason}", path.display());
+                state.hold_output(path, reason);
+            }
+            Ok(None) => (),
+            Err(error) => {
+                state.hold_output(
+                    path,
+                    format!("output edit retained; capture could not be recorded: {error}"),
+                );
+                return Err(anyhow::Error::msg(error));
+            }
+        }
+        return Ok(None);
+    }
     let expected: HashMap<String, String> = state
         .doc_paths()
         .into_iter()
@@ -1109,7 +1191,6 @@ fn consume_output_save(path: &Path, state: &mut WovenState) -> Result<Option<Pat
         }
     }
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-is_noise"></a>
 ### `is_noise`
@@ -1120,10 +1201,32 @@ scratch files, VCS internals, and the transcript cache.
 <storycode:copy id="f-73148a3ab9db-is_noise">
 /// Paths that are never worth reacting to: our own temporaries, editor
 /// scratch files, VCS internals, and the transcript cache.
+fn incorporation_root(path: &Path) -> Option<&Path> {
+    if path.file_name()?.to_str()? != "incorporated.json" {
+        return None;
+    }
+    let project = path.parent()?;
+    let edits = project.parent()?;
+    let journal = edits.parent()?;
+    if edits.file_name()?.to_str()? != "output-edits"
+        || journal.file_name()?.to_str()? != ".hick-journal"
+    {
+        return None;
+    }
+    Some(journal.parent()?)
+}
+
 pub(crate) fn is_noise(path: &Path) -> bool {
+    if incorporation_root(path).is_some() {
+        return false;
+    }
     if path.components().any(|c| {
         let name = c.as_os_str().to_string_lossy();
-        name == ".git" || name == ".hick-cache" || name == "node_modules" || name == "target"
+        name == ".git"
+            || name == ".hick-cache"
+            || name == ".hick-journal"
+            || name == "node_modules"
+            || name == "target"
     }) {
         return true;
     }
@@ -1140,7 +1243,6 @@ pub(crate) fn is_noise(path: &Path) -> bool {
         || name.starts_with(".#")
         || name.starts_with(".goutputstream")
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-report_ready"></a>
 ### `report_ready`
@@ -1189,7 +1291,6 @@ fn report_ready(state: &WovenState, config: &UpConfig, total_docs: usize, failed
     }
     eprintln!("  edit any output file and the change lands in its document. Ctrl-C to stop.");
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-settle_tests"></a>
 ### `settle_tests`
@@ -1273,7 +1374,6 @@ mod settle_tests {
         );
     }
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-watch_error_tests"></a>
 ### `watch_error_tests`
@@ -1321,7 +1421,6 @@ mod watch_error_tests {
         assert!(!msg.contains("sysctl"), "no spurious advice: {msg}");
     }
 }
-
 </storycode:copy>
 <a id="f-73148a3ab9db-watcher_mode_tests"></a>
 ### `watcher_mode_tests`

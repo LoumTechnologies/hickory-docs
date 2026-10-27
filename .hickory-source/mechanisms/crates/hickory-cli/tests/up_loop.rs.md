@@ -127,6 +127,7 @@ impl Loop {
         let sink = log.reopen().expect("reopen stderr capture");
         let child = hick()
             .arg("up")
+            .arg("--amend-output-edits")
             .arg(dir.path())
             .stdout(Stdio::null())
             .stderr(Stdio::from(sink))
@@ -190,7 +191,6 @@ impl Loop {
         format!("{what} within the timeout, and {status}.\nIts stderr:\n{stderr}")
     }
 }
-
 </storycode:copy>
 <a id="f-3098574124c3-impl-Drop-for-Loop"></a>
 ### `impl-Drop for Loop`
@@ -343,6 +343,7 @@ fn an_empty_directory_is_an_error_that_says_so() {
     let dir = tempfile::tempdir().expect("tempdir");
     let out = hick()
         .arg("up")
+        .arg("--amend-output-edits")
         .arg(dir.path())
         .output()
         .expect("run hick up");

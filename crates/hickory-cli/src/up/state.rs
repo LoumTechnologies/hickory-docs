@@ -18,7 +18,6 @@ pub enum ResolutionMode {
     Merge,
     Regenerate,
 }
-
 /// Exact observed sides of a requested held-output merge.
 #[derive(Debug)]
 pub struct OutputResolution {
@@ -29,7 +28,6 @@ pub struct OutputResolution {
     pub expected_produced: String,
     pub mode: ResolutionMode,
 }
-
 /// One woven output file, as we last wrote it.
 pub struct OutputState {
     /// The `.md` document this file was woven from.
@@ -43,7 +41,6 @@ pub struct OutputState {
     /// Byte-precise lineage of `content`.
     pub provenance: Vec<Provenance>,
 }
-
 impl OutputState {
     /// Whether any byte of this file maps back to a document span.
     ///
@@ -55,7 +52,6 @@ impl OutputState {
         self.provenance.iter().any(|p| p.origin.source().is_some())
     }
 }
-
 /// Everything the loop remembers between events.
 #[derive(Default)]
 pub struct WovenState {
@@ -73,7 +69,6 @@ pub struct WovenState {
     /// docs/guarantees/authoring/an-output-that-cannot-be-carried-back-is-held.md
     held: HashMap<PathBuf, Diverged>,
 }
-
 /// Why a produced file is not what its document produces, and the two
 /// other versions a merge needs.
 #[derive(Debug, Clone)]
@@ -86,7 +81,6 @@ pub struct Diverged {
     /// anything yet (`Kept`).
     pub theirs: String,
 }
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DivergedKind {
     /// Somebody wrote the file and the loop could not carry it back.
@@ -95,7 +89,6 @@ pub enum DivergedKind {
     /// what is on disk was left alone.
     Kept,
 }
-
 impl DivergedKind {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -104,7 +97,6 @@ impl DivergedKind {
         }
     }
 }
-
 impl WovenState {
     /// Snapshot engine-owned paths before a coordinated filesystem act.
     pub fn snapshot(&self) -> HashMap<PathBuf, Vec<u8>> {
@@ -245,6 +237,17 @@ impl WovenState {
 
     /// Keep an output file as it is on disk, and remember why the loop is
     /// not touching it.
+    /// A pending capture is an unresolved ownership choice, even if authored
+    /// source now happens to match disk. Preserve its visible hold until the
+    /// caller observes explicit acceptance and resumes normal generation.
+    pub fn defer_output(&mut self, path: &Path, output: OutputState, reason: String) {
+        self.hold_output(path, reason);
+        if let Some(held) = self.held.get_mut(path) {
+            held.theirs = output.content.clone();
+        }
+        self.outputs.insert(path.to_path_buf(), output);
+    }
+
     pub fn hold_output(&mut self, path: &Path, reason: String) {
         let base = self
             .outputs
@@ -319,6 +322,18 @@ impl WovenState {
             output.content == *expected_produced,
             "Tracked produced output changed; refresh before resolving"
         );
+        let document_root = output.doc.parent().unwrap_or(Path::new("."));
+        let entry = output
+            .doc
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| anyhow::anyhow!("invalid document name"))?;
+        let captures =
+            hick_project_env::pending::status(document_root, entry).map_err(anyhow::Error::msg)?;
+        anyhow::ensure!(
+            captures.is_empty(),
+            "This output has a pending capture. Choose its conceptual owner and accept it with hick project edits / new-patch / accept before using merge or regeneration. To revert it, restore the output, capture that observation, then accept it."
+        );
         let readonly = !output.editable();
         anyhow::ensure!(
             *mode != ResolutionMode::Regenerate || content == expected_produced,
@@ -366,7 +381,6 @@ impl WovenState {
         }
     }
 }
-
 /// Replace a file's contents without ever leaving a partial file visible.
 ///
 /// Write to a sibling temporary file and rename over the target: an editor
@@ -394,7 +408,6 @@ pub fn write_atomic(path: &Path, content: &str) -> Result<()> {
         }
     }
 }
-
 /// Mark a file read-only, or writable again.
 ///
 /// This is advisory, and deliberately so: it is a signal editors already
@@ -418,7 +431,6 @@ pub fn set_read_only(path: &Path, read_only: bool) -> Result<()> {
     std::fs::set_permissions(path, updated)
         .with_context(|| format!("failed to set permissions on {}", path.display()))
 }
-
 #[cfg(unix)]
 fn toggled(perms: std::fs::Permissions, read_only: bool) -> std::fs::Permissions {
     use std::os::unix::fs::PermissionsExt;
@@ -433,12 +445,10 @@ fn toggled(perms: std::fs::Permissions, read_only: bool) -> std::fs::Permissions
     };
     std::fs::Permissions::from_mode(updated)
 }
-
 #[cfg(not(unix))]
 fn toggled(mut perms: std::fs::Permissions, read_only: bool) -> std::fs::Permissions {
     perms.set_readonly(read_only);
     perms
 }
-
 #[cfg(test)]
 mod resolution_tests;

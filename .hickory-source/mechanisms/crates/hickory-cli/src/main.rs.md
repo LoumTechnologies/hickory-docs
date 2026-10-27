@@ -119,8 +119,8 @@ enum Command {
     #[command(verbatim_doc_comment)]
     Test(TestArgs),
     /// Weave a folder and keep it woven: write every document's output files,
-    /// then watch. A change to a document re-weaves it; a change saved in one
-    /// of the generated files is carried back into the document it came from.
+    /// then watch. A document change re-weaves it; an external output save
+    /// becomes a pending capture until its conceptual owner is chosen.
     ///
     /// This is the command that makes `.md` documents editable with any
     /// editor. Runs until interrupted.
@@ -322,7 +322,6 @@ enum Command {
     #[command(name = "__sandbox-run", hide = true)]
     SandboxRun(SandboxRunArgs),
 }
-
 </storycode:copy>
 <a id="f-5607f2721a2d-BrokerCommand"></a>
 ### `BrokerCommand`
@@ -780,6 +779,10 @@ struct LintArgs {
 <storycode:copy id="f-5607f2721a2d-UpArgs">
 #[derive(clap::Args)]
 struct UpArgs {
+    /// Explicitly amend original source owners on output save, using provenance.
+    /// By default output edits are captured pending a conceptual ownership choice.
+    #[arg(long)]
+    amend_output_edits: bool,
     /// A directory of documents, or a single `.md` document.
     /// Default: the working directory.
     path: Option<PathBuf>,
@@ -800,7 +803,6 @@ struct UpArgs {
     #[arg(long)]
     run: bool,
 }
-
 </storycode:copy>
 <a id="f-5607f2721a2d-WeaveArgs"></a>
 ### `WeaveArgs`
@@ -1225,7 +1227,7 @@ fn run() -> ExitCode {
             return Ok(ExitCode::from(code.clamp(0, 255) as u8));
         }
         match cli.command {
-            Command::Project(args) => hickory_cli::project_command::run(args),
+            Command::Project(args) => hickory_cli::project_command::run(args).await,
             Command::Observe(args) => hickory_cli::observation::command(args).await,
             Command::Run(args) => cmd_run(args).await,
             Command::Lint(args) => cmd_lint(args),
@@ -1280,7 +1282,6 @@ fn run() -> ExitCode {
         }
     }
 }
-
 </storycode:copy>
 <a id="f-5607f2721a2d-warn_about_secrets_in_output"></a>
 ### `warn_about_secrets_in_output`
@@ -1817,6 +1818,7 @@ async fn cmd_search(args: SearchArgs) -> Result<ExitCode> {
 <storycode:copy id="f-5607f2721a2d-cmd_up">
 async fn cmd_up(args: UpArgs) -> Result<ExitCode> {
     hickory_cli::engine::up(hickory_cli::up::UpConfig {
+        amend_output_edits: args.amend_output_edits,
         root: args.path.unwrap_or_else(|| PathBuf::from(".")),
         params: params_with_features(&args.params, &args.features),
         run: args.run,
@@ -1825,7 +1827,6 @@ async fn cmd_up(args: UpArgs) -> Result<ExitCode> {
     .await?;
     Ok(ExitCode::SUCCESS)
 }
-
 </storycode:copy>
 <a id="f-5607f2721a2d-cmd_weave"></a>
 ### `cmd_weave`

@@ -21,6 +21,23 @@ Requirement decision: Fold the implemented editor/WASM/native-guard continuation
 Implementation review: not verified. Executed checks and human judgment are recorded separately. Source and test changes stale earlier evidence.
 
 
+## Capture external output edits before incorporation
+
+Ordinary tools edit generated files without choosing a conceptual owner. Native
+project materialization records its exact successful baseline; changed products
+become durable pending captures and block regeneration. Capture never amends the
+source that supplied those bytes. Authors explicitly create a new concept patch,
+or amend/split the existing source and accept only after complete reconstruction
+matches the captured result. Binary changes remain captured without pretending
+that a textual patch can express them.
+
+Direct authored patch editing and explicit reverse editing retain their existing
+validation below. They are incorporation tools, not a default ownership decision
+for an unclassified filesystem edit.
+
+Read the [capture mechanism and focused witnesses](output-capture.md).
+<storycode:include file="output-capture.md" />
+
 ## Implementation
 
 <a id="output-1fd16b1e6cf1"></a>

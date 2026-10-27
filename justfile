@@ -814,6 +814,7 @@ test-context-store:
 # Bootstrap the native adapter from this repository's generated Rust source.
 literate-bootstrap:
     CARGO_TARGET_DIR="{{justfile_directory()}}/target/dogfood" cargo build --locked --release --manifest-path hickory-dogfood/tools/behavior-engine/Cargo.toml
+    python3 hickory-dogfood/tools/behavior.py baseline
 
 # Materialize the application and maintenance outputs from maintained Markdown.
 literate-generate:

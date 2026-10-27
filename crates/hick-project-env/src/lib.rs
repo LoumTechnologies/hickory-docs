@@ -208,5 +208,6 @@ pub fn selected_manager(root: &Path, detected: &str) -> Option<String> {
     data.get(detected).cloned()
 }
 
+pub mod pending;
 mod tree;
 pub use tree::write_tree;

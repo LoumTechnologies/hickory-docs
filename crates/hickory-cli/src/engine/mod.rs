@@ -18,7 +18,9 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 // A protocol version, not a release version: compatible releases may attach.
-const PROTOCOL: u32 = 2;
+// Version 3 makes unclassified output saves pending. An older daemon could
+// otherwise accept the new client and silently amend its source instead.
+const PROTOCOL: u32 = 3;
 const PREDICTION_PROTOCOL: &str = "private_prediction_v1";
 pub(crate) const WORKER: &str = "HICKORY_ENGINE_WORKER";
 const HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(2);
@@ -34,6 +36,9 @@ struct Endpoint {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Attach {
+    /// Explicit legacy incorporation; absent clients capture output edits.
+    #[serde(default)]
+    pub amend_output_edits: bool,
     /// Trusted host startup profile; inherited by every client of this workspace.
     #[serde(default)]
     pub prediction: Option<crate::serve::PrivatePredictionStartup>,
@@ -56,11 +61,11 @@ pub struct Attach {
     pub callback_token: String,
     pub client: String,
 }
-
 impl Attach {
     pub fn new(target: PathBuf, executor: crate::ExecutorChoice) -> Self {
         Self {
             prediction: None,
+            amend_output_edits: false,
             target,
             executor,
             params: Vec::new(),
@@ -75,7 +80,6 @@ impl Attach {
         }
     }
 }
-
 #[derive(Serialize, Deserialize)]
 struct Attached {
     #[serde(default)]

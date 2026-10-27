@@ -15593,7 +15593,12 @@
       ],
       "unresolved_references": [],
       "flags": [],
-      "tests": [],
+      "tests": [
+        {
+          "file": "crates/hickory-cli/tests/project_revision.rs",
+          "name": "cli_captures_a_multi_document_edit_as_a_new_concept_before_acceptance"
+        }
+      ],
       "decision": "Fold the implemented editor/WASM/native-guard continuation into the contract and retire the old pending-wiring exclusion.",
       "reason": null,
       "owned": [
@@ -56848,7 +56853,8 @@
         "f-e0a4f3a47871-mercurial_revision_uses_the_shared_tree_and_exact_committed_bytes",
         "f-e0a4f3a47871-candidate_git_scope_is_the_chosen_project_directory",
         "f-e0a4f3a47871-automatic_candidate_selection_checks_scoped_projects_and_unexplained_outputs",
-        "f-e0a4f3a47871-automatic_index_check_and_hook_list_ignore_dirty_project_working_bytes"
+        "f-e0a4f3a47871-automatic_index_check_and_hook_list_ignore_dirty_project_working_bytes",
+        "output-test-cli-concept-incorporation"
       ],
       "anchor": "output-e0a4f3a47871",
       "narrative_owner": "mechanism:crates/hickory-cli"
@@ -64262,8 +64268,13 @@
       "owner": "maintenance",
       "used_by": [],
       "role": "migration-and-maintenance",
-      "construction": "literal",
-      "fragments": [],
+      "construction": "fragments",
+      "fragments": [
+        "engine-entry",
+        "engine-capture-actions",
+        "engine-source-closure",
+        "engine-generation-actions"
+      ],
       "anchor": "output-8d9876126a99",
       "narrative_owner": "mechanism:hickory-dogfood"
     },
@@ -64709,6 +64720,38 @@
         "mobile-room-recovery-in-memory-desktop-room",
         "mobile-room-recovery-restart-and-merge"
       ]
+    },
+    "crates/hick-project-env/src/pending.rs": {
+      "source": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "owner": "literate-projects/patch-edits-revalidate-downstream-construction.md",
+      "used_by": [
+        "literate-projects/patch-edits-revalidate-downstream-construction.md"
+      ],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "output-capture-types",
+        "output-confined-snapshots",
+        "output-snapshot-values",
+        "output-journal-files",
+        "output-journal-blobs",
+        "output-journal-records",
+        "output-observation-diffs",
+        "output-capture-publication",
+        "output-capture-incorporation",
+        "output-capture-watcher",
+        "output-capture-mounted",
+        "output-concept-proposal",
+        "output-capture-tests",
+        "output-test-external-edits-are-durable-pending-and-block-generation-until-explicit-incorporation",
+        "output-test-moved-source-and-later-output-edits-cannot-be-implicitly-acknowledged",
+        "output-test-an-amended-or-split-arrangement-is-accepted-only-for-the-complete-capture",
+        "output-test-binary-and-deleted-outputs-are-preserved-without-inventing-text-patches",
+        "output-test-virtual-captures-preserve-unmaterialized-products-without-claiming-disk-writes",
+        "output-test-reverting-disk-still-requires-explicit-acceptance-and-preserves-history",
+        "output-test-capture-and-publication-refuse-symlink-ancestors-and-unknown-preexisting-outputs"
+      ],
+      "narrative_owner": "literate-projects/patch-edits-revalidate-downstream-construction.md"
     }
   },
   "evidence_records": [

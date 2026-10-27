@@ -217,3 +217,85 @@ fn automatic_index_check_and_hook_list_ignore_dirty_project_working_bytes() {
             .contains("app")
     );
 }
+// Capture external tools' edits without choosing an existing concept as owner.
+#[test]
+fn cli_captures_a_multi_document_edit_as_a_new_concept_before_acceptance() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("project.md"), "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"foundation.md logging.md\"/></h:doc>").unwrap();
+    let foundation = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:file id=\"base\" path=\"app.py\">print('hello')\n</h:file></h:doc>";
+    let logging = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:patch id=\"logging\" after=\"base\">\n--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-print('hello')\n+print('logged')\n</h:patch></h:doc>";
+    std::fs::write(root.join("foundation.md"), foundation).unwrap();
+    std::fs::write(root.join("logging.md"), logging).unwrap();
+    let run = |args: &[&str]| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_hick"))
+            .arg("project")
+            .args(args)
+            .arg("--root")
+            .arg(root)
+            .output()
+            .unwrap()
+    };
+    let success = |args: &[&str]| {
+        let output = run(args);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    };
+    success(&["materialize", "project.md"]);
+    assert_eq!(
+        std::fs::read_to_string(root.join("app.py")).unwrap(),
+        "print('logged')\n"
+    );
+    // This is exactly what a naive editor or formatter does: write a file.
+    std::fs::write(root.join("app.py"), "print('private')\n").unwrap();
+    let refused = run(&["materialize", "project.md"]);
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("pending output"));
+    assert_eq!(
+        std::fs::read_to_string(root.join("foundation.md")).unwrap(),
+        foundation
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("logging.md")).unwrap(),
+        logging
+    );
+    success(&["capture", "project.md"]);
+    let listed = success(&["edits", "project.md"]);
+    let id = listed.split_once(':').unwrap().0;
+    let patch = success(&["edits", "project.md", "--id", id]);
+    assert!(patch.contains("+print('private')"));
+    success(&[
+        "new-patch",
+        "project.md",
+        "--id",
+        id,
+        "--document",
+        "privacy.md",
+        "--patch-id",
+        "privacy",
+        "--explanation",
+        "Keep sensitive values out of logs.",
+    ]);
+    assert_eq!(
+        std::fs::read_to_string(root.join("logging.md")).unwrap(),
+        logging
+    );
+    assert!(
+        std::fs::read_to_string(root.join("privacy.md"))
+            .unwrap()
+            .contains("Keep sensitive values out of logs.")
+    );
+    assert!(success(&["edits", "project.md"]).contains(id));
+    success(&["accept", "project.md", "--id", id]);
+    assert!(success(&["edits", "project.md"]).contains("No pending captures"));
+    success(&["verify", "project.md"]);
+    success(&["materialize", "project.md"]);
+    assert_eq!(
+        std::fs::read_to_string(root.join("app.py")).unwrap(),
+        "print('private')\n"
+    );
+}

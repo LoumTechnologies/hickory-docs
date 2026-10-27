@@ -52,11 +52,11 @@ impl Engine {
         if let Some(view) = &self.cached
             && view.sources == sources
         {
-            return Ok(view.clone());
+            return view.clone().with_pending(&self.state);
         }
         let view = View::weave(&self.state, sources).await?;
         self.cached = Some(view.clone());
-        Ok(view)
+        view.with_pending(&self.state)
     }
     pub async fn request(&mut self, p: &Value) -> Result<Value> {
         let op = p["op"].as_str().context("operation is required")?;
@@ -350,32 +350,51 @@ impl Engine {
             sources.insert(rel.into(), source.into());
             changed.push(rel.to_string());
         } else if let Some(output) = base.outputs.get(rel) {
-            let old = std::str::from_utf8(before)?;
-            let new = std::str::from_utf8(after)?;
-            let edits = crate::up::reverse::source_edits_for_save(old, new, &output.lineage)?;
-            let absolute: HashMap<_, _> = sources
-                .iter()
-                .map(|(p, s)| {
-                    (
-                        self.state.index.root().join(p).display().to_string(),
-                        s.clone(),
-                    )
-                })
-                .collect();
-            let updated = hickory_lineage::apply_source_edits(&absolute, &edits)?;
-            for (path, source) in updated {
-                let rel = std::path::Path::new(&path)
-                    .strip_prefix(self.state.index.root())?
+            let document = std::path::Path::new(&output.document);
+            let parent = document.parent().unwrap();
+            let root = self.state.index.root().join(parent);
+            let entry = document
+                .file_name()
+                .unwrap()
+                .to_str()
+                .context("invalid document name")?;
+            let source =
+                hick_project_env::pending::sources(&root, entry).map_err(anyhow::Error::msg)?;
+            for (path, text) in &source {
+                let key = parent.join(path).to_string_lossy().replace('\\', "/");
+                ensure!(
+                    base.sources.get(&key) == Some(text),
+                    "source changed since the workspace read"
+                );
+            }
+            let mut old = hick_lang::ProjectTree::default();
+            for (path, product) in &base.outputs {
+                if product.document != output.document {
+                    continue;
+                }
+                let path = std::path::Path::new(path)
+                    .strip_prefix(parent)?
                     .to_string_lossy()
                     .replace('\\', "/");
-                view::confined(self.state.index.root(), &rel)?;
-                sources.insert(rel.clone(), source);
-                changed.push(rel);
+                old.insert(&path, hick_lang::ProjectEntry::file(product.bytes.clone()))
+                    .map_err(anyhow::Error::msg)?;
             }
-            ensure!(
-                changed.len() <= 1,
-                "this save changes several source documents; use Hickory's document tools to review the batch"
-            );
+            let mut target = old.clone();
+            let path = std::path::Path::new(rel)
+                .strip_prefix(parent)?
+                .to_string_lossy()
+                .replace('\\', "/");
+            target
+                .insert(&path, hick_lang::ProjectEntry::file(after.to_vec()))
+                .map_err(anyhow::Error::msg)?;
+            let capture =
+                hick_project_env::pending::capture_virtual(&root, entry, &source, &old, &target)
+                    .map_err(anyhow::Error::msg)?;
+            // The capture is durable before exposing the save. A failed disk
+            // write leaves a pending observation, never a rewritten source.
+            store::write_atomic(&view::confined(self.state.index.root(), rel)?, after)?;
+            self.record.lock().await.context("filesystem-write", &json!({"turn":self.turn,"path":rel,"pending_capture":capture.id,"before":view::hash(before),"after":view::hash(after)}))?;
+            return Ok(());
         } else {
             store::write_atomic(&view::confined(self.state.index.root(), rel)?, after)?;
             if rel.ends_with(".md") {

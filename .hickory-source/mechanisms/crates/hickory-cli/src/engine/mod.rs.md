@@ -109,7 +109,9 @@ A protocol version, not a release version: compatible releases may attach.
 
 <storycode:copy id="f-e55203129482-PROTOCOL">
 // A protocol version, not a release version: compatible releases may attach.
-const PROTOCOL: u32 = 2;
+// Version 3 makes unclassified output saves pending. An older daemon could
+// otherwise accept the new client and silently amend its source instead.
+const PROTOCOL: u32 = 3;
 </storycode:copy>
 <a id="f-e55203129482-PREDICTION_PROTOCOL"></a>
 ### `PREDICTION_PROTOCOL`
@@ -155,6 +157,9 @@ struct Endpoint {
 <storycode:copy id="f-e55203129482-Attach">
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Attach {
+    /// Explicit legacy incorporation; absent clients capture output edits.
+    #[serde(default)]
+    pub amend_output_edits: bool,
     /// Trusted host startup profile; inherited by every client of this workspace.
     #[serde(default)]
     pub prediction: Option<crate::serve::PrivatePredictionStartup>,
@@ -177,7 +182,6 @@ pub struct Attach {
     pub callback_token: String,
     pub client: String,
 }
-
 </storycode:copy>
 <a id="f-e55203129482-impl-Attach"></a>
 ### `impl-Attach`
@@ -187,6 +191,7 @@ impl Attach {
     pub fn new(target: PathBuf, executor: crate::ExecutorChoice) -> Self {
         Self {
             prediction: None,
+            amend_output_edits: false,
             target,
             executor,
             params: Vec::new(),
@@ -201,7 +206,6 @@ impl Attach {
         }
     }
 }
-
 </storycode:copy>
 <a id="f-e55203129482-Attached"></a>
 ### `Attached`

@@ -77,7 +77,17 @@ async fn buffered_output_save_reverse_edits_source_and_live_room() {
         .request(&json!({"op":"close","handle":h}))
         .await
         .unwrap();
-    assert_eq!(room.text().await, SOURCE.replace("hello", "goodbye"));
+    assert_eq!(room.text().await, SOURCE);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("demo.md")).unwrap(),
+        SOURCE
+    );
+    let captures = hick_project_env::pending::status(dir.path(), "demo.md").unwrap();
+    assert_eq!(captures.len(), 1);
+    assert!(captures[0].patch.as_ref().unwrap().contains("goodbye"));
+    let mut reopened = Engine::open(state.clone(), dir.path().join("second-access.md")).unwrap();
+    let again = open(&mut reopened, "greet.rs", false).await;
+    assert_eq!(read(&mut reopened, &again).await, after);
     let next = open(&mut engine, "greet.rs", false).await;
     assert_eq!(read(&mut engine, &next).await, after);
     let session = std::fs::read_to_string(dir.path().join("access.md")).unwrap();
@@ -150,10 +160,13 @@ async fn temp_file_rename_uses_lineage_and_refuses_synthetic_bytes() {
         .await
         .unwrap();
     assert!(!dir.path().join("edit.tmp").exists());
-    assert!(
-        std::fs::read_to_string(dir.path().join("demo.md"))
-            .unwrap()
-            .contains("renamed")
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("demo.md")).unwrap(),
+        SOURCE
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("greet.rs")).unwrap(),
+        text
     );
     let reading = open(&mut engine, "synthetic.txt", true).await;
     replace(&mut engine, &reading, "invented replacement\n").await;
@@ -161,7 +174,16 @@ async fn temp_file_rename_uses_lineage_and_refuses_synthetic_bytes() {
         engine
             .request(&json!({"op":"close","handle":reading}))
             .await
-            .is_err()
+            .is_ok()
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("demo.md")).unwrap(),
+        SOURCE
+    );
+    assert!(
+        !hick_project_env::pending::status(dir.path(), "demo.md")
+            .unwrap()
+            .is_empty()
     );
 }
 #[tokio::test]
@@ -180,6 +202,12 @@ async fn confines_paths_links_and_repository_history() {
     assert!(
         engine
             .request(&json!({"op":"open","path":".git/config","write":true}))
+            .await
+            .is_err()
+    );
+    assert!(
+        engine
+            .request(&json!({"op":"create","path":".hick-journal/erase-pending","directory":false}))
             .await
             .is_err()
     );
@@ -205,7 +233,6 @@ async fn confines_paths_links_and_repository_history() {
             .any(|e| e["path"] == "greet.rs")
     );
 }
-
 #[tokio::test]
 async fn text_frontend_shares_reverse_edits_and_records_actual_context() {
     let (dir, mut engine, _) = setup().await;
@@ -222,14 +249,25 @@ async fn text_frontend_shares_reverse_edits_and_records_actual_context() {
         .await
         .unwrap();
     let session = std::fs::read_to_string(dir.path().join("access.md")).unwrap();
-    assert!(session.contains("<hick:read") && session.contains("<hick:wrote"));
     assert!(
-        std::fs::read_to_string(dir.path().join("demo.md"))
+        session.contains("<hick:read")
+            && session.contains("pending_capture")
+            && !session.contains("<hick:wrote")
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("demo.md")).unwrap(),
+        SOURCE
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("greet.rs")).unwrap(),
+        after
+    );
+    assert!(
+        !hick_project_env::pending::status(dir.path(), "demo.md")
             .unwrap()
-            .contains("protocol")
+            .is_empty()
     );
 }
-
 #[tokio::test]
 async fn replacing_a_read_output_with_a_temp_file_refuses_concurrent_changes() {
     let (dir, mut engine, state) = setup().await;
@@ -260,7 +298,6 @@ async fn replacing_a_read_output_with_a_temp_file_refuses_concurrent_changes() {
             .contains("person")
     );
 }
-
 #[tokio::test]
 async fn new_markdown_is_validated_before_publication_and_private_host_returns_errno() {
     let (dir, mut engine, _) = setup().await;
@@ -301,7 +338,6 @@ async fn new_markdown_is_validated_before_publication_and_private_host_returns_e
     assert_eq!(reply["errno"], 2);
     assert!(reply["error"].as_str().unwrap().contains("No such file"));
 }
-
 #[tokio::test]
 async fn final_publication_guard_refuses_a_newer_room_and_failed_persistence() {
     let (_dir, _engine, state) = setup().await;

@@ -117,6 +117,7 @@ async fn run_loop(
     mut stop: tokio::sync::oneshot::Receiver<()>,
 ) {
     let config = UpConfig {
+        amend_output_edits: false,
         root: root.clone(),
         params: (*state.params).clone(),
         run: false,
@@ -207,7 +208,6 @@ async fn run_loop(
     // other tool must find ordinary files afterwards.
     woven.release_read_only();
 }
-
 /// Copy the loop's held set where the routes can read it, as root-relative
 /// paths.
 pub(crate) fn publish_held(state: &LocalState, root: &PathBuf, woven: &WovenState) {

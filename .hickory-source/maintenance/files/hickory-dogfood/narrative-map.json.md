@@ -147173,6 +147173,181 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/room-recovery.md",
       "symbol": "mobile-room-recovery-restart-and-merge",
       "basis": "explanation-inspected"
+    },
+    {
+      "id": "output-capture-types",
+      "output": "crates/hick-project-env/src/pending.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "Retain observations without assigning conceptual ownership",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "output-concept-proposal",
+      "output": "crates/hick-project-env/src/pending.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "Author a new conceptual transformation only by explicit choice",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "output-confined-snapshots",
+      "output": "crates/hick-project-env/src/pending.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "Confine native reads",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "output-snapshot-values",
+      "output": "crates/hick-project-env/src/pending.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "Represent complete portable output",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "output-journal-files",
+      "output": "crates/hick-project-env/src/pending.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "Serialize journal publication",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "output-journal-blobs",
+      "output": "crates/hick-project-env/src/pending.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "Share immutable baseline content",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "output-journal-records",
+      "output": "crates/hick-project-env/src/pending.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "Resolve manifests at the typed boundary",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "output-observation-diffs",
+      "output": "crates/hick-project-env/src/pending.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "Capture a transition without assigning ownership",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "output-capture-publication",
+      "output": "crates/hick-project-env/src/pending.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "Guard generation before writing products",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "output-capture-incorporation",
+      "output": "crates/hick-project-env/src/pending.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "Accept only an exact reconstructed result",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "output-capture-watcher",
+      "output": "crates/hick-project-env/src/pending.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "Keep watcher memory subordinate to durable state",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "output-capture-mounted",
+      "output": "crates/hick-project-env/src/pending.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "Capture mounted edits against their read snapshot",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "output-capture-tests",
+      "output": "crates/hick-project-env/src/pending.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "Prepare an ordinary-tool fixture",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "output-test-external-edits-are-durable-pending-and-block-generation-until-explicit-incorporation",
+      "output": "crates/hick-project-env/src/pending.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "external edits are durable pending and block generation until explicit incorporation",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "output-test-moved-source-and-later-output-edits-cannot-be-implicitly-acknowledged",
+      "output": "crates/hick-project-env/src/pending.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "moved source and later output edits cannot be implicitly acknowledged",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "output-test-an-amended-or-split-arrangement-is-accepted-only-for-the-complete-capture",
+      "output": "crates/hick-project-env/src/pending.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "an amended or split arrangement is accepted only for the complete capture",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "output-test-binary-and-deleted-outputs-are-preserved-without-inventing-text-patches",
+      "output": "crates/hick-project-env/src/pending.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "binary and deleted outputs are preserved without inventing text patches",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "output-test-virtual-captures-preserve-unmaterialized-products-without-claiming-disk-writes",
+      "output": "crates/hick-project-env/src/pending.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "virtual captures preserve unmaterialized products without claiming disk writes",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "output-test-reverting-disk-still-requires-explicit-acceptance-and-preserves-history",
+      "output": "crates/hick-project-env/src/pending.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "reverting disk still requires explicit acceptance and preserves history",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "output-test-capture-and-publication-refuse-symlink-ancestors-and-unknown-preexisting-outputs",
+      "output": "crates/hick-project-env/src/pending.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "capture and publication refuse symlink ancestors and unknown preexisting outputs",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "engine-entry",
+      "output": "hickory-dogfood/tools/behavior-engine/src/main.rs",
+      "page": ".hickory-source/mechanisms/hickory-dogfood/tools/behavior-engine/src/main.rs.md",
+      "symbol": "Select one explicit operation",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "engine-capture-actions",
+      "output": "hickory-dogfood/tools/behavior-engine/src/main.rs",
+      "page": ".hickory-source/mechanisms/hickory-dogfood/tools/behavior-engine/src/main.rs.md",
+      "symbol": "Keep observation independent of current-source validity",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "engine-source-closure",
+      "output": "hickory-dogfood/tools/behavior-engine/src/main.rs",
+      "page": ".hickory-source/mechanisms/hickory-dogfood/tools/behavior-engine/src/main.rs.md",
+      "symbol": "Load only declared Markdown inputs",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "engine-generation-actions",
+      "output": "hickory-dogfood/tools/behavior-engine/src/main.rs",
+      "page": ".hickory-source/mechanisms/hickory-dogfood/tools/behavior-engine/src/main.rs.md",
+      "symbol": "Publish, initialize or compare deliberately",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "output-test-cli-concept-incorporation",
+      "output": "crates/hickory-cli/tests/project_revision.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "cli_captures_a_multi_document_edit_as_a_new_concept_before_acceptance",
+      "basis": "reviewed-explanation"
     }
   ],
   "explanation_gaps": {

@@ -370,6 +370,7 @@ pub async fn up(config: crate::up::UpConfig) -> Result<()> {
     let mut opts = Attach::new(config.root.clone(), config.executor);
     opts.params = config.params;
     opts.run = config.run;
+    opts.amend_output_edits = config.amend_output_edits;
     let connection = connect(opts).await?;
     let _guard = connection.guard();
     eprintln!(
@@ -393,7 +394,6 @@ pub async fn up(config: crate::up::UpConfig) -> Result<()> {
         }
     }
 }
-
 /// All one-shot CLI writers run as an engine-owned child under the same write
 /// coordinator. Workers inherit the marker so git hooks never recurse into it.
 pub async fn forward_cli(args: &[String]) -> Result<Option<i32>> {

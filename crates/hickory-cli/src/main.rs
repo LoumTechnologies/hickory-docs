@@ -68,8 +68,8 @@ enum Command {
     #[command(verbatim_doc_comment)]
     Test(TestArgs),
     /// Weave a folder and keep it woven: write every document's output files,
-    /// then watch. A change to a document re-weaves it; a change saved in one
-    /// of the generated files is carried back into the document it came from.
+    /// then watch. A document change re-weaves it; an external output save
+    /// becomes a pending capture until its conceptual owner is chosen.
     ///
     /// This is the command that makes `.md` documents editable with any
     /// editor. Runs until interrupted.
@@ -271,7 +271,6 @@ enum Command {
     #[command(name = "__sandbox-run", hide = true)]
     SandboxRun(SandboxRunArgs),
 }
-
 #[derive(Subcommand)]
 enum BrokerCommand {
     /// Serve the proxy.
@@ -639,6 +638,10 @@ struct LintArgs {
 
 #[derive(clap::Args)]
 struct UpArgs {
+    /// Explicitly amend original source owners on output save, using provenance.
+    /// By default output edits are captured pending a conceptual ownership choice.
+    #[arg(long)]
+    amend_output_edits: bool,
     /// A directory of documents, or a single `.md` document.
     /// Default: the working directory.
     path: Option<PathBuf>,
@@ -659,7 +662,6 @@ struct UpArgs {
     #[arg(long)]
     run: bool,
 }
-
 #[derive(clap::Args)]
 struct WeaveArgs {
     /// A `.md` document.
@@ -978,7 +980,7 @@ fn run() -> ExitCode {
             return Ok(ExitCode::from(code.clamp(0, 255) as u8));
         }
         match cli.command {
-            Command::Project(args) => hickory_cli::project_command::run(args),
+            Command::Project(args) => hickory_cli::project_command::run(args).await,
             Command::Observe(args) => hickory_cli::observation::command(args).await,
             Command::Run(args) => cmd_run(args).await,
             Command::Lint(args) => cmd_lint(args),
@@ -1033,7 +1035,6 @@ fn run() -> ExitCode {
         }
     }
 }
-
 /// Say when a cell's OUTPUT looks like it carried a credential.
 ///
 /// A warning, and deliberately not the refusal an anchored terminal makes.
@@ -1498,6 +1499,7 @@ async fn cmd_search(args: SearchArgs) -> Result<ExitCode> {
 
 async fn cmd_up(args: UpArgs) -> Result<ExitCode> {
     hickory_cli::engine::up(hickory_cli::up::UpConfig {
+        amend_output_edits: args.amend_output_edits,
         root: args.path.unwrap_or_else(|| PathBuf::from(".")),
         params: params_with_features(&args.params, &args.features),
         run: args.run,
@@ -1506,7 +1508,6 @@ async fn cmd_up(args: UpArgs) -> Result<ExitCode> {
     .await?;
     Ok(ExitCode::SUCCESS)
 }
-
 async fn cmd_weave(args: WeaveArgs) -> Result<ExitCode> {
     let docs = expand_docs(&args.path)?;
     let params = params_with_features(&args.params, &args.features);

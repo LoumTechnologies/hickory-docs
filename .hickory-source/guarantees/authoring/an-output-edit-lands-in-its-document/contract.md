@@ -7,7 +7,9 @@ Type a second change while the first generated-file save is pending. The next sa
 
 ## What must happen
 
-Supported generated-text edits map to their document source. The frontend computes each diff against the last content acknowledged by the backend; successful saves advance that baseline, failed saves leave it unchanged. Saves are serialized. Incoming output does not replace pending local text, and a discard request rechecks the expected buffer before and after awaiting earlier saves. The filesystem watcher also rechecks contributing source before publication and refuses stale or synthetic edits instead of overwriting unrelated work.
+Explicit source-aware generated-text edits map to their document source. The frontend computes each diff against the last content acknowledged by the backend; successful saves advance that baseline, failed saves leave it unchanged. Saves are serialized. Incoming output does not replace pending local text, and a discard request rechecks the expected buffer before and after awaiting earlier saves. Unclassified filesystem saves become durable pending captures by default; they do not choose a conceptual owner from byte provenance. Regeneration preserves them until explicit incorporation. The opt-in `hick up --amend-output-edits` mode rechecks contributing source before publication and refuses stale or synthetic edits instead of overwriting unrelated work.
+
+See [capture before incorporation](../../literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md) for the native mechanism and focused witnesses. Existing reverse-edit loop tests below explicitly select amendment mode.
 
 ## Limits of the evidence
 

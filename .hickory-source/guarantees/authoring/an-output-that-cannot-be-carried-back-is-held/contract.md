@@ -9,6 +9,13 @@ A generated file differs from the document and cannot be mapped back. Leaving th
 
 Unreproducible generated output is retained as divergent rather than overwritten. The surface names the write consequence: generated files offer Leave disk unchanged or Regenerate from document; plain buffers offer Overwrite disk with this buffer or Reload from disk. Merge uses the recorded base and current sides under their source guards. Dismissing a notice is not resolution. Kept unrecorded output and an external change under an unsaved buffer remain distinct reasons for divergence.
 
+Pending output captures add an explicit ownership decision before generic
+merge/regeneration. Those older controls refuse to dismiss a pending capture;
+use `hick project edits`, `new-patch` or an authored amendment followed by
+`accept`. Reverting a capture requires recording and accepting the reverted
+observation. Acceptance emits a targeted event so a running watcher refreshes
+its hold without a further source edit.
+
 ## Limits of the evidence
 
 Retaining a divergent file is not verification. Per-target guards do not form a filesystem transaction across all products.

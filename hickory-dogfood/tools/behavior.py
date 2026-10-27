@@ -122,16 +122,33 @@ def main():
     commands=parser.add_subparsers(dest='command',required=True)
     commands.add_parser('audit')
     commands.add_parser('generate')
+    commands.add_parser('baseline',help='Record an agreeing source/output baseline without rewriting products')
     commands.add_parser('check')
+    capture=commands.add_parser('capture',help='Capture external output edits without changing concept owners')
+    capture.add_argument('--path',action='append',default=[],dest='paths')
+    edits=commands.add_parser('edits',help='List pending captures or display one patch')
+    edits.add_argument('--id')
+    accept=commands.add_parser('accept',help='Accept authored source that exactly reconstructs a capture')
+    accept.add_argument('--id',required=True)
+    proposal=commands.add_parser('new-patch',help='Author a new concept patch; keep it pending for review')
+    proposal.add_argument('--id',required=True)
+    proposal.add_argument('--document',required=True)
+    proposal.add_argument('--patch-id',required=True)
+    proposal.add_argument('--explanation',required=True)
     locate=commands.add_parser('locate');locate.add_argument('output')
     show=commands.add_parser('show');show.add_argument('guarantee')
     test=commands.add_parser('test');test.add_argument('guarantee');test.add_argument('--execute',action='store_true')
     args=parser.parse_args()
     if args.command=='audit':return audit()
-    if args.command in ('generate','check'):
+    if args.command in ('generate','baseline','check','capture','edits','accept','new-patch'):
         engine=ROOT/'target/dogfood/release/hickory-behavior-engine'
         if not engine.is_file():raise ValueError('Build hickory-dogfood/tools/behavior-engine with the command in docs/developers/literate-workflow.md first.')
-        result,_=run([engine,args.command,ROOT]);print(result.stdout.strip());return 0
+        extra=[]
+        if args.command=='capture':extra=args.paths
+        elif args.command=='edits':extra=[args.id] if args.id else []
+        elif args.command=='accept':extra=[args.id]
+        elif args.command=='new-patch':extra=[args.id,args.document,args.patch_id,args.explanation]
+        result,_=run([engine,args.command,ROOT,*extra]);print(result.stdout.strip());return 0
     m=read_map()
     if args.command=='locate':
         record=m['constructors'].get(args.output)

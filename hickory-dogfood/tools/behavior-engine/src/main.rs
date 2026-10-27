@@ -4,13 +4,81 @@ use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
-    let action = args.next().ok_or("expected generate, check or inspect")?;
-    if !matches!(action.as_str(), "generate" | "check" | "inspect") {
-        return Err("expected generate, check or inspect".into());
+    let action = args.next().ok_or(
+        "expected generate, baseline, check, inspect, capture, edits, accept or new-patch",
+    )?;
+    if !matches!(
+        action.as_str(),
+        "generate"
+            | "baseline"
+            | "check"
+            | "inspect"
+            | "capture"
+            | "edits"
+            | "accept"
+            | "new-patch"
+    ) {
+        return Err(
+            "expected generate, baseline, check, inspect, capture, edits, accept or new-patch"
+                .into(),
+        );
     }
     let root = PathBuf::from(args.next().ok_or("expected project root")?).canonicalize()?;
-    if args.next().is_some() {
-        return Err("unexpected arguments".into());
+    let rest: Vec<String> = args.collect();
+    use hick_project_env::pending;
+    match action.as_str() {
+        "capture" => {
+            if let Some(c) = pending::capture(&root, "project.md", &rest)? {
+                println!("Pending {}: {}", c.id, c.paths.join(", "));
+            } else {
+                println!("No external output edits.");
+            }
+            return Ok(());
+        }
+        "edits" => {
+            if rest.len() > 1 {
+                return Err("expected at most one capture id".into());
+            }
+            let captures = pending::status(&root, "project.md")?;
+            if let Some(id) = rest.first() {
+                let capture = captures
+                    .iter()
+                    .find(|c| &c.id == id)
+                    .ok_or("unknown pending capture")?;
+                println!(
+                    "{}",
+                    capture
+                        .patch
+                        .as_deref()
+                        .or(capture.patch_error.as_deref())
+                        .unwrap_or("No textual patch")
+                );
+            } else {
+                for c in &captures {
+                    println!("{}: {}", c.id, c.paths.join(", "));
+                }
+                if captures.is_empty() {
+                    println!("No pending captures.");
+                }
+            }
+            return Ok(());
+        }
+        "accept" if rest.len() == 1 => {
+            pending::accept(&root, "project.md", &rest[0])?;
+            println!("Capture incorporated; observations archived.");
+            return Ok(());
+        }
+        "new-patch" if rest.len() == 4 => {
+            pending::new_patch(&root, "project.md", &rest[0], &rest[1], &rest[2], &rest[3])?;
+            println!(
+                "Authored {}; review then accept the pending capture.",
+                rest[1]
+            );
+            return Ok(());
+        }
+        "accept" | "new-patch" => return Err("wrong capture incorporation arguments".into()),
+        _ if !rest.is_empty() => return Err("unexpected arguments".into()),
+        _ => (),
     }
     let sources = load_project_sources("project.md", &|name| {
         let path = root.join(name);
@@ -28,12 +96,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
     let project = evaluate_project("project.md", &sources, &ProjectTree::default())?;
     if action == "generate" {
-        let written = hick_project_env::write_tree(&root, &project.new)?;
+        let written = pending::materialize(&root, "project.md", &sources, &project.new)?;
         println!(
             "Constructed {} files from {} Markdown sources.",
             written.len(),
             sources.len()
         );
+    } else if action == "baseline" {
+        let captures = pending::prepare_generation(&root, "project.md", &sources, &project.new)?;
+        if !captures.is_empty() {
+            return Err(
+                "Output captures remain pending; inspect them before recording a baseline".into(),
+            );
+        }
+        pending::checkpoint(&root, "project.md", &sources, &project.new)?;
+        println!("Recorded an exact source/output baseline without rewriting products.");
     } else if action == "check" {
         for (path, entry) in project.new.entries() {
             let full = root.join(path);

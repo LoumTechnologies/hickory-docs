@@ -92,7 +92,7 @@ impl Loop {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join(doc_name), doc).expect("write doc");
         let mut cmd = hick();
-        cmd.arg("up").arg(dir.path());
+        cmd.arg("up").arg("--amend-output-edits").arg(dir.path());
         if run {
             cmd.arg("--run");
         }
@@ -132,7 +132,6 @@ impl Loop {
         }
     }
 }
-
 impl Drop for Loop {
     fn drop(&mut self) {
         let _ = self.child.kill();
@@ -531,6 +530,7 @@ fn edits_across_many_documents_all_land() {
     }
     let child = hick()
         .arg("up")
+        .arg("--amend-output-edits")
         .arg(dir.path())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -565,7 +565,6 @@ fn edits_across_many_documents_all_land() {
         assert_parses(&doc);
     }
 }
-
 struct Kill(Child);
 impl Drop for Kill {
     fn drop(&mut self) {

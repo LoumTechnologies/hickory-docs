@@ -17,6 +17,8 @@ publish.workspace = true
 license.workspace = true
 
 [dependencies]
+fs2 = "0.4"
+similar = "2"
 hick-lang.workspace = true
 async-trait = "0.1"
 globset = "0.4"

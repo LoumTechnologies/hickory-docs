@@ -3,18 +3,20 @@
 
 For: Authors using an agent to change documents while retaining review control.
 
-Given an agent workspace frontend using `workspace_fs::Engine`, when a buffered
-save replaces a source document or a generated text product, then the engine
-checks the source revision and original bytes, maps product edits through the
-existing lineage implementation, validates the candidate weave, and refuses a
-save that cannot reproduce the proposed bytes before publishing the source.
-The durable write and live-room update occur
-under one room lock with a final source comparison; debounced room persistence
-uses that lock too, so an older snapshot cannot finish saving over it.
-A reverse save spanning several source documents is refused. Generated reads
-are derived from the source view; they do not trust stale backing products.
+Given an agent workspace frontend using `workspace_fs::Engine`, a buffered
+source save still validates its candidate weave and publishes under the room
+lock. A generated-product save instead captures its exact read snapshot and
+edited result without modifying the source or live room. The pending result is
+visible on subsequent mounted reads and after reopening the frontend. Both
+source and pending bytes contribute to the revision, so stale handles refuse.
+Synthetic and binary product edits may be captured without claiming they can be
+amended through provenance or represented as an executable text patch.
 
-The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
+Incorporation explicitly chooses a concept and checks complete reconstruction.
+Mounted captures may include products never materialized on disk; acceptance
+checks disk for the edited paths and evaluates the complete virtual result.
+
+The retained detail below describes the previous reverse-save interface. The capture rule above supersedes its automatic source-ownership decision. Existing test identifiers are retained; their assertions now check pending capture and unchanged source.
 
 ## Read the detailed requirements
 
@@ -129,6 +131,11 @@ async fn replace(engine: &mut Engine, handle: &str, text: &str) {
 <a id="f-51472b1d3b69-buffered_output_save_reverse_edits_source_and_live_room"></a>
 ### `buffered_output_save_reverse_edits_source_and_live_room`
 
+The historical test ID is retained, but ownership has changed: source and the
+live room remain unchanged after close. The pending output is readable from a
+new frontend, so capturing does not depend on the handle's lifetime.
+
+
 <storycode:copy id="f-51472b1d3b69-buffered_output_save_reverse_edits_source_and_live_room">
 #[tokio::test]
 async fn buffered_output_save_reverse_edits_source_and_live_room() {
@@ -148,7 +155,17 @@ async fn buffered_output_save_reverse_edits_source_and_live_room() {
         .request(&json!({"op":"close","handle":h}))
         .await
         .unwrap();
-    assert_eq!(room.text().await, SOURCE.replace("hello", "goodbye"));
+    assert_eq!(room.text().await, SOURCE);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("demo.md")).unwrap(),
+        SOURCE
+    );
+    let captures = hick_project_env::pending::status(dir.path(), "demo.md").unwrap();
+    assert_eq!(captures.len(), 1);
+    assert!(captures[0].patch.as_ref().unwrap().contains("goodbye"));
+    let mut reopened = Engine::open(state.clone(), dir.path().join("second-access.md")).unwrap();
+    let again = open(&mut reopened, "greet.rs", false).await;
+    assert_eq!(read(&mut reopened, &again).await, after);
     let next = open(&mut engine, "greet.rs", false).await;
     assert_eq!(read(&mut engine, &next).await, after);
     let session = std::fs::read_to_string(dir.path().join("access.md")).unwrap();
@@ -210,6 +227,11 @@ async fn invalid_source_and_stale_output_never_publish() {
 <a id="f-51472b1d3b69-temp_file_rename_uses_lineage_and_refuses_synthetic_bytes"></a>
 ### `temp_file_rename_uses_lineage_and_refuses_synthetic_bytes`
 
+A temporary-file replacement captures the resulting product. A synthetic change
+can now be retained without asserting that its generator source can accept a
+reverse edit; both changes remain pending.
+
+
 <storycode:copy id="f-51472b1d3b69-temp_file_rename_uses_lineage_and_refuses_synthetic_bytes">
 #[tokio::test]
 async fn temp_file_rename_uses_lineage_and_refuses_synthetic_bytes() {
@@ -231,10 +253,13 @@ async fn temp_file_rename_uses_lineage_and_refuses_synthetic_bytes() {
         .await
         .unwrap();
     assert!(!dir.path().join("edit.tmp").exists());
-    assert!(
-        std::fs::read_to_string(dir.path().join("demo.md"))
-            .unwrap()
-            .contains("renamed")
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("demo.md")).unwrap(),
+        SOURCE
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("greet.rs")).unwrap(),
+        text
     );
     let reading = open(&mut engine, "synthetic.txt", true).await;
     replace(&mut engine, &reading, "invented replacement\n").await;
@@ -242,7 +267,16 @@ async fn temp_file_rename_uses_lineage_and_refuses_synthetic_bytes() {
         engine
             .request(&json!({"op":"close","handle":reading}))
             .await
-            .is_err()
+            .is_ok()
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("demo.md")).unwrap(),
+        SOURCE
+    );
+    assert!(
+        !hick_project_env::pending::status(dir.path(), "demo.md")
+            .unwrap()
+            .is_empty()
     );
 }
 </storycode:copy>
@@ -269,6 +303,12 @@ async fn confines_paths_links_and_repository_history() {
             .await
             .is_err()
     );
+    assert!(
+        engine
+            .request(&json!({"op":"create","path":".hick-journal/erase-pending","directory":false}))
+            .await
+            .is_err()
+    );
     #[cfg(unix)]
     {
         std::os::unix::fs::symlink("/etc/passwd", dir.path().join("escape")).unwrap();
@@ -291,7 +331,6 @@ async fn confines_paths_links_and_repository_history() {
             .any(|e| e["path"] == "greet.rs")
     );
 }
-
 </storycode:copy>
 <a id="f-51472b1d3b69-text_frontend_shares_reverse_edits_and_records_actual_context"></a>
 ### `text_frontend_shares_reverse_edits_and_records_actual_context`
@@ -313,14 +352,25 @@ async fn text_frontend_shares_reverse_edits_and_records_actual_context() {
         .await
         .unwrap();
     let session = std::fs::read_to_string(dir.path().join("access.md")).unwrap();
-    assert!(session.contains("<hick:read") && session.contains("<hick:wrote"));
     assert!(
-        std::fs::read_to_string(dir.path().join("demo.md"))
+        session.contains("<hick:read")
+            && session.contains("pending_capture")
+            && !session.contains("<hick:wrote")
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("demo.md")).unwrap(),
+        SOURCE
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("greet.rs")).unwrap(),
+        after
+    );
+    assert!(
+        !hick_project_env::pending::status(dir.path(), "demo.md")
             .unwrap()
-            .contains("protocol")
+            .is_empty()
     );
 }
-
 </storycode:copy>
 <a id="f-51472b1d3b69-replacing_a_read_output_with_a_temp_file_refuses_concurrent_changes"></a>
 ### `replacing_a_read_output_with_a_temp_file_refuses_concurrent_changes`
@@ -356,7 +406,6 @@ async fn replacing_a_read_output_with_a_temp_file_refuses_concurrent_changes() {
             .contains("person")
     );
 }
-
 </storycode:copy>
 <a id="f-51472b1d3b69-new_markdown_is_validated_before_publication_and_private_host_returns_errno"></a>
 ### `new_markdown_is_validated_before_publication_and_private_host_returns_errno`
@@ -402,7 +451,6 @@ async fn new_markdown_is_validated_before_publication_and_private_host_returns_e
     assert_eq!(reply["errno"], 2);
     assert!(reply["error"].as_str().unwrap().contains("No such file"));
 }
-
 </storycode:copy>
 <a id="f-51472b1d3b69-final_publication_guard_refuses_a_newer_room_and_failed_persistence"></a>
 ### `final_publication_guard_refuses_a_newer_room_and_failed_persistence`

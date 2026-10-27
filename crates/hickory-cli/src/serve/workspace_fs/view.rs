@@ -1,6 +1,5 @@
 use super::super::LocalState;
 use anyhow::{Result, ensure};
-use hickory_lineage::Provenance;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
@@ -14,8 +13,9 @@ pub struct Entry {
 }
 #[derive(Clone)]
 pub struct Output {
+    pub document: String,
+    pub lineage: Vec<hickory_lineage::Provenance>,
     pub bytes: Vec<u8>,
-    pub lineage: Vec<Provenance>,
 }
 #[derive(Clone)]
 pub struct View {
@@ -57,8 +57,9 @@ pub fn writable(rel: &str) -> Result<()> {
     ensure!(
         !Path::new(rel).components().any(|c| c.as_os_str() == ".git"
             || c.as_os_str() == ".hick-cache"
+            || c.as_os_str() == ".hick-journal"
             || c.as_os_str() == "sessions"),
-        "repository history, caches, and session records are read-only here"
+        "repository history, pending journals, caches, and session records are read-only here"
     );
     Ok(())
 }
@@ -119,7 +120,14 @@ impl View {
                     .get(key)
                     .map(hickory_lineage::from_provenance_map)
                     .unwrap_or_default();
-                outputs.insert(target, Output { bytes, lineage });
+                outputs.insert(
+                    target,
+                    Output {
+                        bytes,
+                        lineage,
+                        document: rel.clone(),
+                    },
+                );
             }
         }
         let revision = hash(serde_json::to_string(&sources)?.as_bytes());
@@ -128,6 +136,36 @@ impl View {
             sources,
             outputs,
         })
+    }
+    /// Pending observations are part of the mounted view, not amendments to
+    /// the source. Hash them into its revision so open handles become stale.
+    pub fn with_pending(mut self, state: &LocalState) -> Result<Self> {
+        let owners: std::collections::BTreeSet<_> =
+            self.outputs.values().map(|o| o.document.clone()).collect();
+        for owner in owners {
+            let document = Path::new(&owner);
+            let parent = document.parent().unwrap();
+            let entry = document.file_name().unwrap().to_str().unwrap();
+            let root = state.index.root().join(parent);
+            for (path, bytes) in
+                hick_project_env::pending::overlay(&root, entry).map_err(anyhow::Error::msg)?
+            {
+                let rel = parent.join(path).to_string_lossy().replace('\\', "/");
+                if let Some(bytes) = bytes {
+                    if let Some(output) = self.outputs.get_mut(&rel) {
+                        output.bytes = bytes;
+                        // The pending result is not reproduced by source yet.
+                        // Do not attach its new bytes to the old provenance.
+                        output.lineage.clear();
+                    }
+                } else {
+                    self.outputs.remove(&rel);
+                }
+            }
+        }
+        let bytes: BTreeMap<_, _> = self.outputs.iter().map(|(p, o)| (p, &o.bytes)).collect();
+        self.revision = hash(serde_json::to_vec(&(&self.sources, bytes))?.as_slice());
+        Ok(self)
     }
     pub fn bytes(&self, state: &LocalState, rel: &str) -> Result<Vec<u8>> {
         let path = confined(state.index.root(), rel)?;
