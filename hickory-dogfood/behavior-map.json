@@ -8712,7 +8712,7 @@
       "origin": "docs/guarantees/collaboration/one-road-out-with-a-toll-booth.md",
       "page": ".hickory-source/guarantees/collaboration/one-road-out-with-a-toll-booth/contract.md",
       "domain": "collaboration",
-      "title": "One Road Out, With A Toll Booth On It \u2014 Never An Airgap",
+      "title": "One Road Out, With A Toll Booth On It — Never An Airgap",
       "disposition": "retained-requirement",
       "review": "not verified",
       "references": [
@@ -9412,7 +9412,7 @@
       "origin": "docs/guarantees/debugging/an-adapter-that-listens-is-connected-to.md",
       "page": ".hickory-source/guarantees/debugging/an-adapter-that-listens-is-connected-to/contract.md",
       "domain": "debugging",
-      "title": "Use the adapter\u2019s transport and the current measured language support",
+      "title": "Use the adapter’s transport and the current measured language support",
       "disposition": "reconciled-requirement",
       "review": "not verified",
       "references": [
@@ -14483,7 +14483,7 @@
       "origin": "docs/guarantees/lineage/a-refactor-records-what-it-moved.md",
       "page": ".hickory-source/guarantees/lineage/a-refactor-records-what-it-moved/contract.md",
       "domain": "lineage",
-      "title": "A Refactor Records What It Moved \u2014 Byte-Exactly, And Only When Continuity Is On",
+      "title": "A Refactor Records What It Moved — Byte-Exactly, And Only When Continuity Is On",
       "disposition": "retained-requirement",
       "review": "not verified",
       "references": [
@@ -14653,7 +14653,7 @@
       "origin": "docs/guarantees/lineage/agent-lineage-degrades-without-a-session.md",
       "page": ".hickory-source/guarantees/lineage/agent-lineage-degrades-without-a-session/contract.md",
       "domain": "lineage",
-      "title": "Agent-Authored Bytes Always Report Session, Turn, And A Git-Derived Author \u2014 Even When The Session Cannot Be Read",
+      "title": "Agent-Authored Bytes Always Report Session, Turn, And A Git-Derived Author — Even When The Session Cannot Be Read",
       "disposition": "retained-requirement",
       "review": "not verified",
       "references": [
@@ -64494,6 +64494,221 @@
     },
     "apps/web/public/ci-preview/bundle.json": {
       "source": ".hickory-source/guarantees/verification/literate-ci/preview.md"
+    },
+    "apps/mobile/Cargo.toml": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/asset-apps-mobile-Cargo.toml.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "build-and-assets"
+    },
+    "apps/mobile/core/Cargo.toml": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/asset-apps-mobile-core-Cargo.toml.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "build-and-assets"
+    },
+    "apps/mobile/core/src/lib.rs": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/drafts.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "mobile-drafts-modules"
+      ]
+    },
+    "apps/mobile/core/src/drafts.rs": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/drafts.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "mobile-drafts-draft-model",
+        "mobile-drafts-load-and-list",
+        "mobile-drafts-atomic-save",
+        "mobile-drafts-persistence-witnesses"
+      ]
+    },
+    "apps/mobile/core/src/peer.rs": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/peer.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "mobile-peer-stream-adapter",
+        "mobile-peer-dial-enrolled-key",
+        "mobile-peer-bounded-http",
+        "mobile-peer-live-room",
+        "mobile-peer-operation-scope"
+      ]
+    },
+    "apps/mobile/src-tauri/Cargo.toml": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/asset-apps-mobile-src-tauri-Cargo.toml.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "build-and-assets"
+    },
+    "apps/mobile/src-tauri/tauri.conf.json": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/asset-apps-mobile-src-tauri-tauri.conf.json.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "build-and-assets"
+    },
+    "apps/mobile/src-tauri/capabilities/default.json": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/asset-apps-mobile-src-tauri-capabilities-default.json.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "build-and-assets"
+    },
+    "apps/mobile/src-tauri/build.rs": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/host.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "mobile-host-build-context"
+      ]
+    },
+    "apps/mobile/src-tauri/src/main.rs": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/host.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "mobile-host-desktop-preview"
+      ]
+    },
+    "apps/mobile/src-tauri/src/lib.rs": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/host.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "mobile-host-host-state",
+        "mobile-host-typed-document-actions",
+        "mobile-host-room-ownership",
+        "mobile-host-application-lifetime"
+      ]
+    },
+    "apps/web/mobile.html": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/asset-apps-web-mobile.html.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "build-and-assets"
+    },
+    "apps/web/vite.mobile.config.ts": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/web-build.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "mobile-web-build-mobile-assets"
+      ]
+    },
+    "apps/web/src/mobile/main.tsx": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/web-build.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "mobile-web-build-load-shared-parser"
+      ]
+    },
+    "apps/web/src/mobile/bridge.ts": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/bridge.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "mobile-bridge-native-contract",
+        "mobile-bridge-ordered-saves",
+        "mobile-bridge-native-socket"
+      ]
+    },
+    "apps/web/src/mobile/MobileApp.tsx": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/interface.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "mobile-interface-library-and-peer-selection",
+        "mobile-interface-document-session",
+        "mobile-interface-editor-and-tool-states"
+      ]
+    },
+    "apps/web/src/mobile/mobile.css": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/asset-apps-web-src-mobile-mobile.css.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "build-and-assets"
+    },
+    "apps/mobile/core/tests/peer.rs": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/peer-witnesses.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "mobile-peer-witnesses-paired-loopback-fixture",
+        "mobile-peer-witnesses-grant-and-frame-assertions"
+      ]
+    },
+    "apps/web/src/mobile/bridge.test.ts": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/frontend-witnesses.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "mobile-frontend-witnesses-draft-save-races",
+        "mobile-frontend-witnesses-late-room-setup"
+      ]
+    },
+    "apps/web/src/mobile/transport.test.ts": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/frontend-witnesses.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "mobile-frontend-witnesses-shared-protocol-reconnect"
+      ]
+    },
+    "apps/web/e2e/mobile.spec.ts": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/frontend-witnesses.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "mobile-frontend-witnesses-offline-browser-flow"
+      ]
+    },
+    "apps/mobile/Cargo.lock": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/asset-apps-mobile-Cargo.lock.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "build-and-assets"
+    },
+    "apps/web/src/mobile/recovery.test.ts": {
+      "source": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/room-recovery.md",
+      "owner": "release/mobile-keeps-useful-desktop-features.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "mobile-room-recovery-in-memory-desktop-room",
+        "mobile-room-recovery-restart-and-merge"
+      ]
     }
   },
   "evidence_records": [

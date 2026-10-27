@@ -286,7 +286,7 @@ Related contracts: [Pair identity without silently granting execution](../../../
 <storycode:copy id="f-ef08e5ce40d1-expression_statement">
 // docs/guarantees/collaboration/a-machine-is-a-keypair.md
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { api } from "../api/client";
 import { FleetPane } from "./FleetPane";
@@ -402,6 +402,12 @@ describe("what the pane says", () => {
 <a id="f-ef08e5ce40d1-expression_statement-3"></a>
 ### `expression_statement`
 
+Invitation controls belong to the explicitly opened fallback disclosure. These
+witnesses open it before requesting or accepting an invitation, matching the
+controller prerequisite rather than invoking an invisible control. Grant-refusal
+evidence uses a changed-key refusal; phone kind no longer prevents an explicit
+desktop execution grant.
+
 <storycode:copy id="f-ef08e5ce40d1-expression_statement-3">
 describe("pairing from the pane", () => {
   it("shows this machine's invitation and says a fleet is mutual", async () => {
@@ -412,6 +418,11 @@ describe("pairing from the pane", () => {
       note: "Then do the same in the other direction — a fleet is a MUTUAL list of keys.",
     });
     renderFleet();
+    const disclosure = await screen.findByText("Machines that cannot reach each other");
+    await act(async () => {
+      fireEvent.click(disclosure);
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
     await waitFor(() => expect(screen.getByRole("button", { name: /invitation/i })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: /invitation/i }));
     await waitFor(() =>
@@ -426,6 +437,11 @@ describe("pairing from the pane", () => {
     fleet();
     const accept = vi.spyOn(api, "fleetAccept").mockResolvedValue({ machine: desktop });
     renderFleet();
+    const disclosure = await screen.findByText("Machines that cannot reach each other");
+    await act(async () => {
+      fireEvent.click(disclosure);
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
     await waitFor(() => expect(screen.getByLabelText(/an invitation to accept/i)).toBeTruthy());
     fireEvent.change(screen.getByLabelText(/an invitation to accept/i), {
       target: { value: "hick-fleet:xyz" },
@@ -447,16 +463,15 @@ describe("pairing from the pane", () => {
   });
 
   it("shows a refusal in full rather than swallowing it", async () => {
-    // A phone declining `execute` and a name already taken both land here,
-    // and both are worth reading.
+    // A changed fleet target is refused even when the UI has an older roster.
     fleet([{ ...desktop, name: "phone", kind: "phone", grants: ["view"] }]);
     vi.spyOn(api, "fleetGrant").mockRejectedValue(
-      new Error("phone is a phone, and a phone has no executor to grant."),
+      new Error("The paired phone key changed; refresh the fleet before granting access."),
     );
     renderFleet();
     await waitFor(() => expect(screen.getByRole("button", { name: "execute" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "execute" }));
-    await waitFor(() => expect(screen.getByText(/no executor to grant/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/phone key changed/)).toBeTruthy());
   });
 
   it("removes a machine, and says that is the whole of the revocation", async () => {

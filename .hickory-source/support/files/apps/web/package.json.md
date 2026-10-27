@@ -16,6 +16,8 @@ Captured SHA-256: `5cc9914d2e8e68b7c95fd5750a496ad677c34def92ea1564a2752caccf239
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:mobile": "vite --config vite.mobile.config.ts --open /mobile.html",
+    "build:mobile": "tsc -b && vite build --config vite.mobile.config.ts",
     "dev:site": "vite --open /site.html",
     "dev:mock": "VITE_MOCK=1 vite",
     "build": "tsc -b && vite build",

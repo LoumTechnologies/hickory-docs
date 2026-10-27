@@ -5,6 +5,7 @@ For: Maintainers publishing installers and people checking what a download conta
 
 Choose the platform and channel, then inspect the build provenance and installation witness.
 
+- [Use Hickory on a phone, with desktop tools when connected](mobile-keeps-useful-desktop-features/contract.md) — product direction; mobile implementation pending.
 - [A Download Runs Without A Rust Toolchain](a-download-runs-without-a-rust-toolchain/contract.md) — retained-requirement.
 - [A Local Install Is a Launchable macOS App](a-local-install-is-a-launchable-macos-app/contract.md) — retained-requirement.
 - [Desktop collection excludes unchanged cached installers](desktop-artifacts-come-from-the-current-build/contract.md) — retained-requirement.
@@ -13,6 +14,7 @@ Choose the platform and channel, then inspect the build provenance and installat
 - [The Desktop App Is Its Own Download](the-desktop-app-is-its-own-download/contract.md) — retained-requirement.
 - [Unstable Updates Require Consent](unstable-updates-require-consent/contract.md) — retained-requirement.
 
+<book:include file="mobile-keeps-useful-desktop-features/contract.md" />
 <book:include file="a-download-runs-without-a-rust-toolchain/contract.md" />
 <book:include file="a-local-install-is-a-launchable-macos-app/contract.md" />
 <book:include file="desktop-artifacts-come-from-the-current-build/contract.md" />

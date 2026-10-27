@@ -103,17 +103,16 @@ fn execute_is_off_until_it_is_given_deliberately() {
 }
 
 #[test]
-fn a_phone_can_never_be_granted_execute() {
-    // It reads and captures; it cannot spawn a subprocess, so there is no
-    // executor to grant.
+fn a_phone_can_request_remote_execution_after_an_explicit_grant() {
+    // Grants authorize this caller on the desktop, not execution on the phone.
     let a = tempfile::tempdir().unwrap();
     let phone = tempfile::tempdir().unwrap();
     let (_, invite, _) = run(phone.path(), "phone", &["fleet", "invite", "--phone"]);
     run(a.path(), "laptop", &["fleet", "accept", invite.trim()]);
 
-    let (ok, _, stderr) = run(a.path(), "laptop", &["fleet", "grant", "phone", "execute"]);
-    assert!(!ok, "{stderr}");
-    assert!(stderr.contains("no executor to grant"), "{stderr}");
+    let (ok, granted, stderr) = run(a.path(), "laptop", &["fleet", "grant", "phone", "execute"]);
+    assert!(ok, "{stderr}");
+    assert!(granted.contains("execute"), "{granted}");
 }
 
 #[test]

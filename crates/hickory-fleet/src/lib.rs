@@ -101,13 +101,13 @@ impl Grant {
     }
 }
 
-/// What kind of machine this is. A phone has no executor to grant.
+/// What kind of machine this is. A phone may request execution on a desktop but does not host a local process executor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
     #[default]
     Desktop,
-    /// Reads and captures; never executes (`notes-ide.md`).
+    /// Edits locally and may control a granted desktop executor; no local process executor.
     Phone,
 }
 
@@ -538,14 +538,6 @@ impl Fleet {
                 }
             );
         }
-        if grant == Grant::Execute && on && machine.kind == Kind::Phone {
-            bail!(
-                "{name} is a phone, and a phone has no executor to grant. It \
-                 reads and captures; it cannot spawn a subprocess, so there are \
-                 no cells, no terminal, no LSP and no debugger on it.\n  \
-                 Nothing was changed."
-            );
-        }
         if on {
             machine.grants.insert(grant);
         } else {
@@ -675,17 +667,26 @@ mod tests {
     }
 
     #[test]
-    fn a_phone_cannot_be_given_execute_because_it_has_no_executor() {
+    fn a_phone_requests_remote_execution_only_after_an_explicit_grant() {
         let dir = tempfile::tempdir().unwrap();
         let id = identity(dir.path(), "phone");
         let fleet = Fleet::at(dir.path());
-        fleet
-            .add(&id.invitation(Kind::Phone), "2026-08-23")
-            .unwrap();
-        let err = fleet.set_grant("phone", Grant::Execute, true).unwrap_err();
-        let msg = format!("{err:#}");
-        assert!(msg.contains("no executor to grant"), "{msg}");
-        assert!(!fleet.get("phone").unwrap().may(Grant::Execute));
+        let invitation = id.invitation(Kind::Phone);
+        let added = fleet.add(&invitation, "2026-10-26").unwrap();
+        assert!(!added.may(Grant::Execute));
+        assert!(
+            fleet
+                .set_grant("phone", Grant::Execute, true)
+                .unwrap()
+                .may(Grant::Execute)
+        );
+        fleet.set_grant("phone", Grant::Execute, false).unwrap();
+        assert!(
+            !fleet
+                .add(&invitation, "2026-10-26")
+                .unwrap()
+                .may(Grant::Execute)
+        );
     }
 
     #[test]

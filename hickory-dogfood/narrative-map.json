@@ -130700,7 +130700,7 @@
       "id": "f-cccf3953dc0f-a_phone_can_never_be_granted_execute",
       "output": "crates/hickory-cli/tests/fleet.rs",
       "page": ".hickory-source/guarantees/collaboration/a-machine-is-a-keypair/contract.md",
-      "symbol": "a_phone_can_never_be_granted_execute",
+      "symbol": "a_phone_can_request_remote_execution_after_an_explicit_grant",
       "basis": "needs-explanation",
       "original_range": [
         3732,
@@ -146941,6 +146941,230 @@
       "page": ".hickory-source/mechanisms/apps/web/src/embed/debug.css.md",
       "symbol": "browser-debug-history-width",
       "basis": "explained-decision"
+    },
+    {
+      "id": "mobile-drafts-modules",
+      "output": "apps/mobile/core/src/lib.rs",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/drafts.md",
+      "symbol": "mobile-drafts-modules",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-drafts-draft-model",
+      "output": "apps/mobile/core/src/drafts.rs",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/drafts.md",
+      "symbol": "mobile-drafts-draft-model",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-drafts-load-and-list",
+      "output": "apps/mobile/core/src/drafts.rs",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/drafts.md",
+      "symbol": "mobile-drafts-load-and-list",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-drafts-atomic-save",
+      "output": "apps/mobile/core/src/drafts.rs",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/drafts.md",
+      "symbol": "mobile-drafts-atomic-save",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-drafts-persistence-witnesses",
+      "output": "apps/mobile/core/src/drafts.rs",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/drafts.md",
+      "symbol": "mobile-drafts-persistence-witnesses",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-peer-stream-adapter",
+      "output": "apps/mobile/core/src/peer.rs",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/peer.md",
+      "symbol": "mobile-peer-stream-adapter",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-peer-dial-enrolled-key",
+      "output": "apps/mobile/core/src/peer.rs",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/peer.md",
+      "symbol": "mobile-peer-dial-enrolled-key",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-peer-bounded-http",
+      "output": "apps/mobile/core/src/peer.rs",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/peer.md",
+      "symbol": "mobile-peer-bounded-http",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-peer-live-room",
+      "output": "apps/mobile/core/src/peer.rs",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/peer.md",
+      "symbol": "mobile-peer-live-room",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-peer-operation-scope",
+      "output": "apps/mobile/core/src/peer.rs",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/peer.md",
+      "symbol": "mobile-peer-operation-scope",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-host-build-context",
+      "output": "apps/mobile/src-tauri/build.rs",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/host.md",
+      "symbol": "mobile-host-build-context",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-host-desktop-preview",
+      "output": "apps/mobile/src-tauri/src/main.rs",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/host.md",
+      "symbol": "mobile-host-desktop-preview",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-host-host-state",
+      "output": "apps/mobile/src-tauri/src/lib.rs",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/host.md",
+      "symbol": "mobile-host-host-state",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-host-typed-document-actions",
+      "output": "apps/mobile/src-tauri/src/lib.rs",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/host.md",
+      "symbol": "mobile-host-typed-document-actions",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-host-room-ownership",
+      "output": "apps/mobile/src-tauri/src/lib.rs",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/host.md",
+      "symbol": "mobile-host-room-ownership",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-host-application-lifetime",
+      "output": "apps/mobile/src-tauri/src/lib.rs",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/host.md",
+      "symbol": "mobile-host-application-lifetime",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-web-build-mobile-assets",
+      "output": "apps/web/vite.mobile.config.ts",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/web-build.md",
+      "symbol": "mobile-web-build-mobile-assets",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-web-build-load-shared-parser",
+      "output": "apps/web/src/mobile/main.tsx",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/web-build.md",
+      "symbol": "mobile-web-build-load-shared-parser",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-bridge-native-contract",
+      "output": "apps/web/src/mobile/bridge.ts",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/bridge.md",
+      "symbol": "mobile-bridge-native-contract",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-bridge-ordered-saves",
+      "output": "apps/web/src/mobile/bridge.ts",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/bridge.md",
+      "symbol": "mobile-bridge-ordered-saves",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-bridge-native-socket",
+      "output": "apps/web/src/mobile/bridge.ts",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/bridge.md",
+      "symbol": "mobile-bridge-native-socket",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-interface-library-and-peer-selection",
+      "output": "apps/web/src/mobile/MobileApp.tsx",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/interface.md",
+      "symbol": "mobile-interface-library-and-peer-selection",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-interface-document-session",
+      "output": "apps/web/src/mobile/MobileApp.tsx",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/interface.md",
+      "symbol": "mobile-interface-document-session",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-interface-editor-and-tool-states",
+      "output": "apps/web/src/mobile/MobileApp.tsx",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/interface.md",
+      "symbol": "mobile-interface-editor-and-tool-states",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-peer-witnesses-paired-loopback-fixture",
+      "output": "apps/mobile/core/tests/peer.rs",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/peer-witnesses.md",
+      "symbol": "mobile-peer-witnesses-paired-loopback-fixture",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-peer-witnesses-grant-and-frame-assertions",
+      "output": "apps/mobile/core/tests/peer.rs",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/peer-witnesses.md",
+      "symbol": "mobile-peer-witnesses-grant-and-frame-assertions",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-frontend-witnesses-draft-save-races",
+      "output": "apps/web/src/mobile/bridge.test.ts",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/frontend-witnesses.md",
+      "symbol": "mobile-frontend-witnesses-draft-save-races",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-frontend-witnesses-late-room-setup",
+      "output": "apps/web/src/mobile/bridge.test.ts",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/frontend-witnesses.md",
+      "symbol": "mobile-frontend-witnesses-late-room-setup",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-frontend-witnesses-shared-protocol-reconnect",
+      "output": "apps/web/src/mobile/transport.test.ts",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/frontend-witnesses.md",
+      "symbol": "mobile-frontend-witnesses-shared-protocol-reconnect",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-frontend-witnesses-offline-browser-flow",
+      "output": "apps/web/e2e/mobile.spec.ts",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/frontend-witnesses.md",
+      "symbol": "mobile-frontend-witnesses-offline-browser-flow",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-room-recovery-in-memory-desktop-room",
+      "output": "apps/web/src/mobile/recovery.test.ts",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/room-recovery.md",
+      "symbol": "mobile-room-recovery-in-memory-desktop-room",
+      "basis": "explanation-inspected"
+    },
+    {
+      "id": "mobile-room-recovery-restart-and-merge",
+      "output": "apps/web/src/mobile/recovery.test.ts",
+      "page": ".hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/room-recovery.md",
+      "symbol": "mobile-room-recovery-restart-and-merge",
+      "basis": "explanation-inspected"
     }
   ],
   "explanation_gaps": {

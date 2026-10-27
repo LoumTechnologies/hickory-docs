@@ -20,6 +20,7 @@ Choose a task:
 - [Pair machines or inspect local persistence](.hickory-source/guarantees/collaboration/index.md).
 - [Compose focused CI checks](.hickory-source/ci.md).
 - [Publish or install a build](.hickory-source/guarantees/release/index.md).
+- [Plan mobile use and desktop-backed tools](.hickory-source/guarantees/release/mobile-keeps-useful-desktop-features/contract.md).
 
 The contract pages retain unresolved review work. Historical hosted contracts are labeled explicitly. Source references establish navigation; they do not make an unrun test pass or settle a product decision.
 

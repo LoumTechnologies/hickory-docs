@@ -415,8 +415,8 @@ enum FleetCommand {
     /// screenshot, or read aloud. Enrolment is SSH's ceremony — run this on
     /// each machine and accept it on the other.
     Invite {
-        /// Say this machine is a phone: it reads and captures, and can never
-        /// be granted `execute` because it has no executor.
+        /// Say this machine is a phone. It can request execution on a desktop
+        /// only after an explicit grant; it has no local process executor.
         #[arg(long)]
         phone: bool,
     },

@@ -1,0 +1,10 @@
+{
+  "identifier": "mobile",
+  "description": "The local mobile document window",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default"
+  ]
+}

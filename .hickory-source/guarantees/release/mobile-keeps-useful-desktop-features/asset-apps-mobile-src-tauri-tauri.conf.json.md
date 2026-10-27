@@ -1,0 +1,47 @@
+<mobile:doc xmlns:mobile="http://www.hickorydocs.com/1.0">
+# Bundle only the mobile entry point
+
+Bundle only the mobile entry point. This literal construction preserves build configuration exactly.
+
+<mobile:entry path="apps/mobile/src-tauri/tauri.conf.json">
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Hickory Docs",
+  "version": "0.1.0",
+  "identifier": "com.loumtechnologies.hickorydocs.mobile",
+  "build": {
+    "frontendDist": "../../web/dist-mobile",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm --prefix ../web run dev:mobile",
+    "beforeBuildCommand": "npm --prefix ../web run build:mobile"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "url": "mobile.html",
+        "title": "Hickory Docs",
+        "width": 420,
+        "height": 800
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; frame-src 'none'; base-uri 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "icon": [
+      "../../desktop/src-tauri/icons/icon.png"
+    ],
+    "iOS": {
+      "minimumSystemVersion": "16.0"
+    },
+    "android": {
+      "minSdkVersion": 24
+    }
+  }
+}
+</mobile:entry>
+</mobile:doc>

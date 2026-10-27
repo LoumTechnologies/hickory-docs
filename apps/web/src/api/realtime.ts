@@ -12,6 +12,17 @@ import type { RunWsMessage } from "./types";
 export const CHANNEL_YJS = 0x00;
 export const CHANNEL_RUN = 0x01;
 
+/** The document protocol can run through a browser socket or native Iroh IPC. */
+export interface RealtimeSocket {
+  readonly readyState: number;
+  binaryType: string;
+  onopen: ((event: Event) => unknown) | null;
+  onmessage: ((event: MessageEvent) => unknown) | null;
+  onclose: ((event: CloseEvent) => unknown) | null;
+  send(frame: Uint8Array): void;
+  close(): void;
+}
+
 export interface Realtime {
   /** Subscribe to channel-0x01 run events. Returns an unsubscribe fn. */
   onRunEvent(cb: (msg: RunWsMessage) => void): () => void;
@@ -73,7 +84,7 @@ const REFUSALS_BEFORE_GIVING_UP = 3;
 export class WsRealtime implements Realtime {
   /** The server seeds the room from `docs.source`; never seed from here. */
   readonly serverAuthoritative = true;
-  private ws: WebSocket | null = null;
+  private ws: RealtimeSocket | null = null;
   private runListeners = new Set<(msg: RunWsMessage) => void>();
   private debugHandler: ((frame: Uint8Array) => boolean) | null = null;
   private doc: Y.Doc | null = null;
@@ -86,14 +97,16 @@ export class WsRealtime implements Realtime {
   private queue: Uint8Array[] = [];
   private lspChannel: LspChannel | null = null;
 
-  constructor(private docName: string) {
+  constructor(private docName: string, private socket: (url: string) => RealtimeSocket = (url) => new WebSocket(url)) {
     this.connect();
   }
 
   private connect() {
+    if (this.closed) return;
+    this.synced = false;
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const params = new URLSearchParams({ doc: this.docName });
-    const ws = new WebSocket(`${proto}//${location.host}/api/ws?${params}`);
+    const ws = this.socket(`${proto}//${location.host}/api/ws?${params}`);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
     ws.onopen = () => {

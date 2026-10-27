@@ -10,6 +10,12 @@ Pairing the same key twice must not restore an execute grant that was revoked. R
 Each machine retains its private identity locally and pairs by exchanging public identity. Fleet membership is mutual. Grants are per machine; execution is initially off, pairing is idempotent, conflicting identities under one name are refused, and damaged invitations fail. Registering a key does not by itself establish a network connection. Optional peer connectivity is governed by the peer-channel contract.
 
 
+A phone may receive an explicit execute grant to request work on this desktop.
+The grant authorizes the caller; it does not imply the phone has a local
+executor. Enrollment still leaves execute off, and pairing again cannot restore
+a revoked grant. This mobile requirement replaces the historical phone-kind
+restriction; the remaining per-machine authorization boundary is unchanged.
+
 ## Limits of the evidence
 
 The original contract also describes platform and invitation cases. Those clauses remain in historical evidence and require a full fleet review before the replacement can be accepted as exhaustive. This page is partially reviewed, not a certification of every pairing path.
@@ -261,21 +267,23 @@ fn execute_is_off_until_it_is_given_deliberately() {
 
 </storycode:copy>
 <a id="f-cccf3953dc0f-a_phone_can_never_be_granted_execute"></a>
-### `a_phone_can_never_be_granted_execute`
+### Allow an explicitly granted phone to control desktop execution
+
+This witness replaces the historical phone-kind refusal. It checks the CLI
+spelling of an explicit grant; pairing alone still grants no execution.
 
 <storycode:copy id="f-cccf3953dc0f-a_phone_can_never_be_granted_execute">
 #[test]
-fn a_phone_can_never_be_granted_execute() {
-    // It reads and captures; it cannot spawn a subprocess, so there is no
-    // executor to grant.
+fn a_phone_can_request_remote_execution_after_an_explicit_grant() {
+    // Grants authorize this caller on the desktop, not execution on the phone.
     let a = tempfile::tempdir().unwrap();
     let phone = tempfile::tempdir().unwrap();
     let (_, invite, _) = run(phone.path(), "phone", &["fleet", "invite", "--phone"]);
     run(a.path(), "laptop", &["fleet", "accept", invite.trim()]);
 
-    let (ok, _, stderr) = run(a.path(), "laptop", &["fleet", "grant", "phone", "execute"]);
-    assert!(!ok, "{stderr}");
-    assert!(stderr.contains("no executor to grant"), "{stderr}");
+    let (ok, granted, stderr) = run(a.path(), "laptop", &["fleet", "grant", "phone", "execute"]);
+    assert!(ok, "{stderr}");
+    assert!(granted.contains("execute"), "{granted}");
 }
 
 </storycode:copy>
