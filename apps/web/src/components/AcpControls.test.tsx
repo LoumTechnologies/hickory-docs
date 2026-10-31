@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { AcpControls, useAcp } from "./AcpControls";
 import { acpApi, type AcpState } from "../api/acp";
-vi.mock("../api/acp", () => ({ acpApi: { catalogue: vi.fn(), connect: vi.fn(), state: vi.fn(), authenticate: vi.fn(), configure: vi.fn(), permission: vi.fn(), install: vi.fn() } }));
+vi.mock("../api/acp", () => ({ acpApi: { catalogue: vi.fn(), connect: vi.fn(), state: vi.fn(), authenticate: vi.fn(), configure: vi.fn(), permission: vi.fn(), install: vi.fn(), edits: vi.fn() } }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.mocked(acpApi.state).mockReset(); });
 function Surface({ running = null, settingsOpen = true }: { running?: string | null; settingsOpen?: boolean }) {
   const control = useAcp("doc", "codex", undefined, running);
@@ -28,9 +28,12 @@ describe("ACP controls", () => {
   });
   it("renders the adapter's model choices and persists a change", async () => {
     vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [] });
-    vi.mocked(acpApi.connect).mockResolvedValue(ready);
+    vi.mocked(acpApi.connect).mockResolvedValue({ ...ready, edits: { mode: "auto-accept", changes: [] } });
+    vi.mocked(acpApi.edits).mockResolvedValue(ready);
     vi.mocked(acpApi.configure).mockResolvedValue({ ...ready, configOptions: [{ ...ready.configOptions![0], currentValue: "careful" }] });
     render(<Surface />);
+    fireEvent.click(await screen.findByRole("button", { name: "Require document edit approval again" }));
+    await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("doc", { mode: "review" }, "codex"));
     await screen.findByRole("combobox", { name: "Model" });
     fireEvent.change(screen.getByRole("combobox", { name: "Model" }), { target: { value: "careful" } });
     await waitFor(() => expect(acpApi.configure).toHaveBeenCalledWith("doc", "model", "careful"));

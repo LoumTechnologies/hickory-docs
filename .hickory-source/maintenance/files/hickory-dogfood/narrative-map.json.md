@@ -147348,6 +147348,20 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
       "symbol": "cli_captures_a_multi_document_edit_as_a_new_concept_before_acceptance",
       "basis": "reviewed-explanation"
+    },
+    {
+      "id": "f-d82ea3dcdcf9-proposal-controls",
+      "output": "apps/web/src/components/AgentChanges.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/components/AgentChanges.tsx.md",
+      "symbol": "proposal-controls",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "f-83abe8d9f9e9-context-gutter",
+      "output": "apps/web/src/components/ContextUpdates.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/components/ContextUpdates.tsx.md",
+      "symbol": "context-gutter",
+      "basis": "explained-decision"
     }
   ],
   "explanation_gaps": {

@@ -39,6 +39,10 @@ test("configure the Python agent, review its edit, recover the conversation and 
   await page.getByRole("combobox", { name: "Agent", exact: true }).selectOption("python");
   await page.getByRole("combobox", { name: "Agent", exact: true }).press("Escape");
   const response = agent.getByRole("textbox", { name: "Agent conversation and response" });
+  await expect(agent.getByRole("region", { name: "Conversation document edits" })).toHaveCount(0);
+  await expect(agent.getByRole("button", { name: /Changed agent context/ })).toHaveCount(0);
+  await expect(agent.locator(".chat-identity")).toContainText("Anthropic");
+  await page.screenshot({ path: "/tmp/hickory-python-agent-empty.png", fullPage: true });
   await response.click(); await response.press("ControlOrMeta+End"); await response.pressSequentially("Propose in Python");
   const sent = page.waitForRequest(request => request.method() === "POST" && /\/api\/docs\/[^/]+\/agent$/.test(new URL(request.url()).pathname));
   await agent.getByRole("button", { name: "Send", exact: true }).click();
@@ -48,8 +52,7 @@ test("configure the Python agent, review its edit, recover the conversation and 
   await expect(review).toBeVisible();
   await expect(review.locator(".comparison-added")).toContainText("Python agent proposal");
   expect((await (await page.request.get(`/api/docs/${note.id}`)).json()).source).toBe("# Original human input\n");
-  await expect(agent.getByRole("combobox", { name: "Document edits" })).toBeDisabled();
-  expect(await agent.getByRole("option", { name: "Auto-accept" }).count()).toBe(0);
+  await expect(agent.getByRole("checkbox", { name: "Always approve document edits in this conversation" })).toBeVisible();
   await page.screenshot({ path: "/tmp/hickory-python-agent-review.png", fullPage: true });
   await review.getByRole("button", { name: "Accept change" }).click();
   await expect.poll(async () => (await (await page.request.get(`/api/docs/${note.id}`)).json()).source).toBe("# Python agent proposal\n# Original human input\n");
@@ -58,7 +61,7 @@ test("configure the Python agent, review its edit, recover the conversation and 
   expect(history.turns[0].backend).toBe("python");
   expect(history.turns[0].status).toBe("ok");
   expect(history.turns[0].answer).toContain("Changeset verified (source-output equality)");
-  expect(history.turns[0].answer).toContain("runtime checks unrun.");
+  expect(history.turns[0].answer).toContain("no completed runtime check recorded.");
   await page.reload();
   // Center tabs expose the restored source independently of the review panes.
   await page.getByRole("tablist", { name: "Center views" }).getByRole("tab", { name: "note.md", exact: true }).click();

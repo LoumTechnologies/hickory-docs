@@ -33,4 +33,24 @@ These checks exercise core reconstruction and byte mapping; failed saves and dis
 
 Three separate paragraph-ledger controls rejected a removed interval, a changed hash and an incorrect destination. This checks accounting of original text, not semantic equivalence of a replacement. LLM implementation review, executed checks and human acceptance remain separate.
 
+
+## Agent pane refinement — 2026-10-31
+
+For maintainers reviewing contextual approval and conversation space, the following
+focused checks passed locally with the installed web dependencies and confined
+Python runtime. These are execution observations, not acceptance of every agent
+contract or a broad regression result.
+
+- `npm --prefix apps/web test -- src/components/AgentChanges.test.tsx src/components/ChatDock.test.tsx src/components/ContextUpdates.test.tsx src/components/AcpControls.test.tsx src/views/WorkspaceChat.test.tsx`: 64 passing tests. These cover empty review/context UI, proposal decisions, agent self-authorization refusal, mandatory private transport, context revision/race handling, provider/model identity, approval reset and hidden context selection.
+- `npm --prefix apps/web run typecheck`: passed.
+- With `HICKORY_AGENT_TEST_PYTHON` set to `apps/agent/.venv/bin/python`, `cargo test -p hickory-cli --test serve_python_agent python_turn_requires_review_streams_receipts_and_rehydrates_its_branch -- --exact`: passed. The real confined runtime waits for the current decision, retains future approval in its session, applies a later proposal, restores the saved choice and starts a new conversation in Review.
+- `cargo test -p hickory-cli --test serve_acp acp_untitled_edits_use_tools_and_wait_for_client_review -- --exact`: passed. Authorizing future edits at a pending review leaves the current proposal pending; Accept/Reject and consumed-decision refusal still work.
+- `cargo test -p hickory-cli --lib private_acp_managed_tools_require_review_and_refuse_unscoped_delivery`: one passing safety case.
+- `bash scripts/test-python-agent-ui.sh`: one passing Chromium flow using the scripted provider and real confined worker, through runtime configuration, edit review, reload/recovery and cancellation. The empty-pane screenshot was visually inspected. The stale assertion for unrun-check wording was updated to the supervisor's existing receipt text. Later ACP model compatibility and approval-reset wiring were checked in the focused component tests above.
+- Source reconstruction, `behavior.py check`, `behavior.py audit` and `git diff --check` passed during this change. Reconstruction establishes source/output agreement; the audit retains the existing explicit explanation gaps.
+
+Paid providers, other native hosts and broad regressions were not exercised. The
+changed context gutter's decisions and lifecycle were exercised in component tests;
+its changed-reference popup was not driven against a paid-provider browser session.
+
 </book:doc>

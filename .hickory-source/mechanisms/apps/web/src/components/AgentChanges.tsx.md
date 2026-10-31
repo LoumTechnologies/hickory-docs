@@ -15,6 +15,12 @@ Related contracts: [Separate model snippets from trusted host operations](../../
 <a id="f-d82ea3dcdcf9-AgentChanges"></a>
 ### `AgentChanges`
 
+An empty review queue renders nothing. A proposal provides the comparison and its
+Accept/Reject controls, plus explicit human authorization for future document
+edits in this conversation. Changing that policy leaves existing proposals pending.
+Private review transports omit this option. The mode command refuses agent
+self-authorization; editor freshness checks still precede acknowledgment.
+
 <storycode:copy id="f-d82ea3dcdcf9-AgentChanges">
 import "./AgentChanges.css";
 import { useEffect, useId, useRef, useState } from "react";
@@ -95,7 +101,7 @@ export function AgentChanges({ doc, state, running, apply, update, submitDecisio
       if (actor.kind === "agent") return { status: "requires_input", request: `edit-review:${doc}:${state.backend}:${change.id}`, reason: "The human reviews and decides this proposed edit in the actual change review; inspect its returned status afterward" };
       return decide(change, args.accepted as boolean);
     });
-    add("mode", "Set conversation edit review mode", { mode: { type: "string", maxLength: 11, choices: ["review", "auto-accept"] } }, !running && state.backend !== "python", async (args, actor) => {
+    add("mode", "Set conversation edit review mode", { mode: { type: "string", maxLength: 11, choices: ["review", "auto-accept"] } }, (!running || !!state.edits?.changes.some(c => c.status === "pending")) && !submitDecision, async (args, actor) => {
       if (actor.kind === "agent" && args.mode === "auto-accept") return { status: "requires_input", request: `edit-mode:${doc}:${state.backend}`, reason: "A human must authorize automatic acceptance of future edits" };
       try {
         const actual = await acpApi.edits(doc, { mode: args.mode as "review" | "auto-accept" }, state.backend); update(actual);
@@ -103,17 +109,32 @@ export function AgentChanges({ doc, state, running, apply, update, submitDecisio
       } catch (reason) { setError(String(reason)); return { status: "unavailable", reason: String(reason) }; }
     });
   }
+</storycode:copy>
+
+## Show approval only with a proposal
+
+Keep commands mounted even when the queue has no visible content, so actual host
+state remains readable. The visible section starts only when a change or error
+exists. Future approval is a separate choice from Accept/Reject, and mandatory
+private review has no policy toggle. The comparison uses the same editor as the
+separate review tab, preserving editable proposal bytes and stale-buffer refusal.
+After a decision, retain a compact status/link rather than a full comparison above
+the conversation. The recorded comparison remains available through View change.
+
+<storycode:copy id="f-d82ea3dcdcf9-proposal-controls">
   const invoke = useUiCommands(commands);
-  if (!state?.edits) return null;
+  if (!state?.edits || (!state.edits.changes.length && !error)) return null;
   return <section className="agent-changes" aria-label="Conversation document edits">
-    <label>Document edits <select aria-label="Document edits" value={state.edits.mode} disabled={running || state.backend === "python"}
-      onChange={e => void invoke(`${parent}:mode`, { mode: e.target.value })}><option value="review">Review</option>{state.backend !== "python" && <option value="auto-accept">Auto-accept</option>}</select></label>
-    <p className="muted">Reviews cover Hickory document tools. {state.backend === "python" ? "Python document-edit previews require approval. Shared UI operations retain their separate host permissions. Acceptance does not verify the edit or change its authorship. Checks remain unrun." : "Native agent commands follow the adapter’s permissions and can bypass this review."}</p>
+    {!submitDecision && state.edits.changes.some(c => c.status === "pending") && <label>
+      <input type="checkbox" aria-label="Always approve document edits in this conversation" checked={state.edits.mode === "auto-accept"}
+        onChange={e => void invoke(`${parent}:mode`, { mode: e.target.checked ? "auto-accept" : "review" })} />
+      Always approve document edits in this conversation
+    </label>}
     {error && <p role="alert">{error}</p>}
     {state.edits.changes.map(change => <div key={change.id} className="agent-change-link">
       <span>{change.status === "pending" ? "Proposed change" : change.status === "applying" ? "Applying change" : `${change.status.charAt(0).toUpperCase()}${change.status.slice(1)} change`} · {change.path ?? change.name}</span>
-      <DocumentReading id={`proposal:${doc}:${change.id}`} />
-      <button className="btn" onClick={() => void invoke(`${parent}:open`, { id: change.id })}>Review in document</button>
+      {change.status === "pending" && <DocumentReading id={`proposal:${doc}:${change.id}`} />}
+      <button className="btn" onClick={() => void invoke(`${parent}:open`, { id: change.id })}>{change.status === "pending" ? "Review in document" : "View change"}</button>
     </div>)}
   </section>;
 }
@@ -123,7 +144,7 @@ export function AgentChanges({ doc, state, running, apply, update, submitDecisio
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/components/AgentChanges.tsx"><storycode:paste select="#f-d82ea3dcdcf9-AgentChanges"/></storycode:file>
+<storycode:file path="apps/web/src/components/AgentChanges.tsx"><storycode:paste select="#f-d82ea3dcdcf9-AgentChanges"/><storycode:paste select="#f-d82ea3dcdcf9-proposal-controls"/></storycode:file>
 
 
 ## Exercise this mechanism
@@ -210,6 +231,7 @@ it("auto-accepts the same change without a user gesture", async () => {
   render(<AgentChanges doc="workspace" state={{ ...state, edits: { mode: "auto-accept", changes: [{ ...change, status: "applying" }] } }} running apply={apply} update={() => {}} />);
   await waitFor(() => expect(apply).toHaveBeenCalledTimes(1));
   expect(screen.queryByRole("button", { name: "Accept change" })).toBeNull();
+  expect(document.querySelector(".comparison-added")).toBeNull();
 });
 </storycode:copy>
 <a id="f-7ab5cdb69360-expression_statement-7"></a>
@@ -228,13 +250,16 @@ it("reports a stale buffer to the agent as a failed edit", async () => {
 ### `expression_statement`
 
 <storycode:copy id="f-7ab5cdb69360-expression_statement-8">
-it("changes the per-conversation policy and disables it during a turn", async () => {
+it("offers future approval at a pending proposal even during a turn and leaves that proposal undecided", async () => {
   vi.mocked(acpApi.edits).mockResolvedValue(state);
   const view = render(<AgentChanges doc="workspace" state={state} running={false} update={() => {}} />);
-  fireEvent.change(screen.getByRole("combobox", { name: "Document edits" }), { target: { value: "auto-accept" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "Always approve document edits in this conversation" }));
   await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { mode: "auto-accept" }, "codex"));
   view.rerender(<AgentChanges doc="workspace" state={state} running update={() => {}} />);
-  expect((screen.getByRole("combobox", { name: "Document edits" }) as HTMLSelectElement).disabled).toBe(true);
+  expect((screen.getByRole("checkbox", { name: "Always approve document edits in this conversation" }) as HTMLInputElement).disabled).toBe(false);
+  expect(acpApi.edits).toHaveBeenCalledTimes(1);
+  view.rerender(<AgentChanges doc="workspace" state={{ ...state, edits: { mode: "review", changes: [] } }} running={false} update={() => {}} />);
+  expect(screen.queryByRole("region", { name: "Conversation document edits" })).toBeNull();
 });
 
 </storycode:copy>
@@ -256,13 +281,11 @@ it("returns newer editor text with a stale rejection so the agent can read again
 
 <storycode:copy id="f-7ab5cdb69360-expression_statement-10">
 // Guarantee: docs/guarantees/agent/python-execution-has-two-boundaries.md
-it("requires a human gesture for Python proposals and labels checks unrun", async () => {
+it("requires a human decision for the pending Python proposal and offers authorization for future edits", async () => {
   const pythonState: AcpState = { backend: "python", ready: true, edits: { mode: "review", changes: [{ ...change, editor: false }] } };
   const apply = vi.fn(); vi.mocked(acpApi.edits).mockResolvedValue(pythonState);
   render(<AgentChanges doc="workspace" state={pythonState} running={false} apply={apply} update={() => {}} />);
-  expect((screen.getByRole("combobox", { name: "Document edits" }) as HTMLSelectElement).disabled).toBe(true);
-  expect(screen.queryByRole("option", { name: "Auto-accept" })).toBeNull();
-  expect(screen.getByText(/Checks remain unrun/)).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "Always approve document edits in this conversation" })).toBeTruthy();
   expect(acpApi.edits).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Accept change" }));
   await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { id: "change", accepted: true, error: undefined }, "python"));
@@ -331,6 +354,7 @@ it("discloses exact proposals but requires the human decision and cannot self-en
 it("uses the host-selected private review transport without calling ordinary review APIs", async () => {
   const submitDecision = vi.fn().mockResolvedValue({ ...state, backend: "python" });
   render(<AgentChanges doc="private:bound" state={{ ...state, backend: "python", edits: { mode: "review", changes: [{ ...change, editor: false }] } }} running submitDecision={submitDecision} update={() => {}} />);
+  expect(screen.queryByRole("checkbox", { name: "Always approve document edits in this conversation" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Reject change" }));
   await waitFor(() => expect(submitDecision).toHaveBeenCalledWith({ id: "change", accepted: false, error: undefined }));
   expect(acpApi.edits).not.toHaveBeenCalled();

@@ -40,10 +40,11 @@ come from the adapter, including the models available to your account. Send:
 > Read this document and its generated code using the hick tools. Change the
 > greeting from hello to welcome, then verify the result.
 
-Choose **Document edits → Review** to inspect changes and click **Accept change**
-or **Reject change**. Choose **Auto-accept** to apply them as they arrive. The
-choice belongs to this conversation and is remembered when you reopen it;
-new conversations start with Review. Change the setting between turns.
+Proposed document edits show **Accept change** and **Reject change** beside the
+comparison. Select **Always approve document edits in this conversation** there
+to authorize future edits; decide the current proposal separately. The choice is
+remembered in this conversation. New conversations start with review. To restore
+approval, open **Agent settings → Require document edit approval again** between turns.
 
 For a current note, including an untitled draft, simply ask:
 

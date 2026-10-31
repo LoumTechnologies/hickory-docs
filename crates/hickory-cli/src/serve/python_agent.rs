@@ -6,7 +6,7 @@ use super::{
 };
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
 };
 use hickory_agent::{AgentEvent, LlmClient, PriorTurn, Usage};
 use serde::Deserialize;
@@ -125,11 +125,66 @@ fn queue(state: &LocalState, doc: &str) -> Arc<super::agent_review::ReviewQueue>
 pub async fn snapshot(
     State(state): State<LocalState>,
     Path(doc): Path<String>,
+    Query(selection): Query<std::collections::HashMap<String, String>>,
 ) -> ApiResult<Json<Value>> {
     super::agent_context::subject(&state, &doc)?;
+    if let Some(selected) = selection.get("session") {
+        let root = super::agent_context::session_root(&state, &doc)?;
+        let selected = if selected.is_empty() {
+            None
+        } else {
+            let path = root
+                .join(selected)
+                .canonicalize()
+                .map_err(|e| ApiError::unprocessable(e.to_string()))?;
+            let sessions = root
+                .join("sessions")
+                .canonicalize()
+                .map_err(|e| ApiError::unprocessable(e.to_string()))?;
+            if !path.starts_with(sessions) {
+                return Err(ApiError::bad_request(
+                    "Choose a conversation under this workspace's sessions folder.",
+                ));
+            }
+            let source = std::fs::read_to_string(&path)
+                .map_err(|e| ApiError::unprocessable(e.to_string()))?;
+            let subject = super::agent_context::subject(&state, &doc)?;
+            if hickory_agent::session_view::session_view(&source)
+                .doc
+                .as_deref()
+                .map(std::path::Path::new)
+                != Some(subject.as_path())
+                || session_backend(&path, "") != "python"
+            {
+                return Err(ApiError::conflict(
+                    "Choose a Python conversation for this document.",
+                ));
+            }
+            Some(path)
+        };
+        let running = state
+            .agent
+            .turns
+            .lock()
+            .unwrap()
+            .get(&doc)
+            .is_some_and(|turns| turns.iter().any(|t| t.status == "running"));
+        if !running {
+            let mut reviews = state.agent.reviews.lock().unwrap();
+            let entry = reviews.entry(format!("python:{doc}")).or_default();
+            if *entry.session.lock().unwrap() != selected {
+                let next = Arc::new(super::agent_review::ReviewQueue::default());
+                *next.edits.mode.lock().unwrap() = selected
+                    .as_deref()
+                    .and_then(super::acp::record::edit_mode)
+                    .unwrap_or_default();
+                *next.session.lock().unwrap() = selected;
+                *entry = next;
+            }
+        }
+    }
     let result = runtime(&state);
-    let mut edits = queue(&state, &doc).edits.snapshot();
-    edits["mode"] = json!("review");
+    let edits = queue(&state, &doc).edits.snapshot();
     Ok(Json(
         json!({"backend":"python","ready":result.is_ok(),"canRewind":true,"error":result.err().map(|e| format!("{e:#}")),"edits":edits}),
     ))
@@ -145,12 +200,38 @@ pub async fn decide(
             .refreshed(&id, context.buffers)
             .map_err(|e| ApiError::conflict(e.to_string()))?;
     }
-    if body.mode == Some(super::acp::edits::Mode::AutoAccept) {
-        return Err(ApiError::bad_request(
-            "Python agent edits always require independent approval.",
-        ));
-    }
     super::agent_context::subject(&state, &doc)?;
+    if let Some(mode) = body.mode {
+        let queue = queue(&state, &doc);
+        let pending = queue.edits.snapshot()["changes"]
+            .as_array()
+            .is_some_and(|changes| changes.iter().any(|c| c["status"] == "pending"));
+        let running = state
+            .agent
+            .turns
+            .lock()
+            .unwrap()
+            .get(&doc)
+            .is_some_and(|turns| turns.iter().any(|t| t.status == "running"));
+        if running && !pending {
+            return Err(ApiError::conflict(
+                "Wait for an edit proposal or for this turn to finish before changing edit approval.",
+            ));
+        }
+        if let Some(path) = queue.session.lock().unwrap().as_ref() {
+            use hickory_agent::{HickSessionLog, SessionEvent, SessionLog};
+            let log = HickSessionLog::append_or_create(path.clone())
+                .map_err(|e| ApiError::unprocessable(e.to_string()))?;
+            log.record(SessionEvent::Context {
+                kind: "acp-edit-mode",
+                data: &json!({"mode":mode}),
+            });
+            log.record(SessionEvent::End);
+            log.check()
+                .map_err(|e| ApiError::unprocessable(e.to_string()))?;
+        }
+        *queue.edits.mode.lock().unwrap() = mode;
+    }
     if let Some(id) = body.id {
         if let Some(text) = body.new_text {
             queue(&state, &doc)
@@ -172,7 +253,7 @@ pub async fn decide(
             )
             .map_err(|e| ApiError::unprocessable(e.to_string()))?;
     }
-    snapshot(State(state), Path(doc)).await
+    snapshot(State(state), Path(doc), Query(Default::default())).await
 }
 pub fn session_backend(path: &std::path::Path, provider: &str) -> String {
     if let Some(backend) = provider.strip_prefix("acp:") {
@@ -264,11 +345,12 @@ impl crate::python_agent::Review for Review {
         match self
             .queue
             .edits
-            .submit_review(
+            .submit(
                 proposal.tool.clone(),
                 Some(display),
                 proposal.before.clone(),
                 proposal.after.clone(),
+                false,
             )
             .await
         {
@@ -365,8 +447,15 @@ pub(super) async fn run_turn(
         inbox.fork(&identity.turn, identity.parent.as_deref());
         inbox.save().map_err(|e| e.to_string())?;
     }
-    *queue.session.lock().unwrap() = Some(identity.session.clone());
-    *queue.edits.mode.lock().unwrap() = super::acp::edits::Mode::Review;
+    // A different conversation starts from its own retained policy, or Review.
+    {
+        let mut session = queue.session.lock().unwrap();
+        if session.as_ref() != Some(&identity.session) {
+            *queue.edits.mode.lock().unwrap() =
+                super::acp::record::edit_mode(&identity.session).unwrap_or_default();
+        }
+        *session = Some(identity.session.clone());
+    }
     if let Ok(value) = serde_json::from_str::<Value>(&identity.context)
         && let Some(editors) = value.get("editors")
         && let Ok(editors) =
@@ -474,7 +563,6 @@ pub(super) async fn run_turn(
         })
         .map_err(|e| format!("{e:#}"))
 }
-
 #[derive(Deserialize)]
 struct ContextRequest {
     branch: String,

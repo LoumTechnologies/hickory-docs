@@ -3,10 +3,14 @@
 
 For: Authors using an agent to change documents while retaining review control.
 
-Given a built-in or ACP conversation, when the user chooses **Review** or **Auto-accept**
-under **Document edits**, then that choice belongs to this conversation and is
-restored when its saved conversation is reopened. New conversations start with
-Review. Changing it during a turn is refused.
+New built-in and ACP conversations start with review. Pending document edits show
+Accept/Reject beside their comparison, with an **Always approve document edits in
+this conversation** option. That choice authorizes future proposals and never
+silently accepts an existing proposal. It belongs to the conversation and is
+retained in its session. Agent settings can restore approval between turns.
+Policy changes during a running turn are allowed only at a pending proposal.
+Mandatory private prediction and source-incorporation reviews remain independent.
+An empty queue has no permissions row or explanatory banner.
 
 The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
 
@@ -219,6 +223,12 @@ async fn acp_untitled_edits_use_tools_and_wait_for_client_review() {
         assert_eq!(change["oldText"], "# Original 📝\n");
         assert_eq!(change["newText"], "# Changed by ACP 📝\n");
         assert_eq!(change["name"], "Untitled 1");
+        if accepted {
+            let (status, policy) = app.request("POST", &app.route("/acp/edits"), json!({"mode":"auto-accept"})).await;
+            assert_eq!(status, 200, "{policy}");
+            assert_eq!(policy["edits"]["mode"], "auto-accept");
+            assert_eq!(policy["edits"]["changes"].as_array().unwrap().last().unwrap()["status"], "pending");
+        }
         assert_eq!(change["buffer"], "untitled-tab");
         assert!(change["path"].is_null());
         assert!(!app.root.join("Untitled 1").exists());

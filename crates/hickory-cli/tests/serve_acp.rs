@@ -649,6 +649,12 @@ async fn acp_untitled_edits_use_tools_and_wait_for_client_review() {
         assert_eq!(change["oldText"], "# Original 📝\n");
         assert_eq!(change["newText"], "# Changed by ACP 📝\n");
         assert_eq!(change["name"], "Untitled 1");
+        if accepted {
+            let (status, policy) = app.request("POST", &app.route("/acp/edits"), json!({"mode":"auto-accept"})).await;
+            assert_eq!(status, 200, "{policy}");
+            assert_eq!(policy["edits"]["mode"], "auto-accept");
+            assert_eq!(policy["edits"]["changes"].as_array().unwrap().last().unwrap()["status"], "pending");
+        }
         assert_eq!(change["buffer"], "untitled-tab");
         assert!(change["path"].is_null());
         assert!(!app.root.join("Untitled 1").exists());

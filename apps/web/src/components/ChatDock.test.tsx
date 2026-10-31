@@ -44,8 +44,8 @@ describe("switching agents", () => {
     const agents = [{ id: "python", name: "Hickory Python", command: "python", args: [], available: true }, { id: "codex", name: "Codex", command: "codex-acp", args: [], available: true },
       { id: "claude", name: "Claude Agent", command: "claude-agent-acp", args: [], available: false, installable: true }];
     vi.mocked(acpApi.catalogue).mockResolvedValue({ agents });
-    vi.mocked(acpApi.connect).mockResolvedValue({ backend: "codex", ready: true });
-    vi.mocked(acpApi.state).mockResolvedValue({ backend: "codex", ready: true });
+    vi.mocked(acpApi.connect).mockResolvedValue({ backend: "codex", ready: true, models: { currentModelId: "adapter-model" } });
+    vi.mocked(acpApi.state).mockResolvedValue({ backend: "codex", ready: true, models: { currentModelId: "adapter-model" } });
     vi.mocked(api.agentTurns).mockResolvedValue({ turns: [turn("old", null)], backend: "python", provider: "anthropic", model: "claude-sonnet-5", totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
     vi.mocked(api.agent).mockResolvedValue({ session_id: "acp-turn" });
     const realtime = { onRunEvent: () => () => undefined } as unknown as Realtime;
@@ -60,6 +60,7 @@ describe("switching agents", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Agent" }), { target: { value: "codex" } });
     await waitFor(() => expect(acpApi.connect).toHaveBeenCalledWith("d1", "codex", undefined));
     expect(localStorage.getItem("hickory.agent")).toBe("codex");
+    expect(screen.getByText("Codex · ACP · adapter-model")).toBeTruthy();
     await typeResponse("Use Codex");
     await waitFor(() => expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -88,8 +89,13 @@ describe("switching agents", () => {
     fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
     await screen.findByRole("option", { name: "Hickory Python" });
     fireEvent.change(screen.getByRole("combobox", { name: "Agent" }), { target: { value: "python" } });
-    await waitFor(() => expect(acpApi.state).toHaveBeenCalledWith("d1", "python"));
+    await waitFor(() => expect(acpApi.state).toHaveBeenCalledWith("d1", "python", ""));
     expect(acpApi.connect).not.toHaveBeenCalled();
+    expect(screen.getByText("Anthropic · claude-sonnet-5")).toBeTruthy();
+    expect(screen.queryByText(/Ask the Python agent/)).toBeNull();
+    expect(screen.queryByText(/Context:.*Next context projection/)).toBeNull();
+    expect(screen.queryByRole("region", { name: "Conversation document edits" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Changed agent context/ })).toBeNull();
     expect(screen.getByRole("combobox", { name: "Provider" })).toBeTruthy();
     fireEvent.change(screen.getByRole("textbox", { name: "Model" }), { target: { value: "my-model" } });
     await typeResponse("Propose a note in Python");

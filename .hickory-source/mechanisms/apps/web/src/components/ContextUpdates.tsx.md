@@ -17,6 +17,7 @@ Related contracts: [Explicit context updates preserve confirmed history](../../.
 
 <storycode:copy id="f-83abe8d9f9e9-Item">
 import { useState, useEffect, useId, useRef } from "react";
+import { createPortal } from "react-dom";
 import { UiActionsVisibility, useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import type { UiCommand, UiField } from "../lib/uiActions";
 import { request } from "../api/client";
@@ -49,13 +50,31 @@ export function ContextUpdates(props: ContextUpdateProps) {
 <a id="f-83abe8d9f9e9-OwnedContextUpdates"></a>
 ### `OwnedContextUpdates`
 
+Background comparisons keep the affordance absent when nothing changed. A changed
+reference or comparison error adds only a gutter button. Its panel is portaled
+outside pane clipping and never displaces the response editor. Opening it inspects
+fresh revisions; selection and queuing still use the exact observed revision and
+retain the existing branch retirement and overlapping-request guards.
+
 <storycode:copy id="f-83abe8d9f9e9-OwnedContextUpdates">
 function OwnedContextUpdates({ doc, branch, getContext }: ContextUpdateProps) {
   const captureContext = useRef(getContext); captureContext.current = getContext;
   const instance = useId(); const parent = `context-updates:${instance}`;
-  const disclosure = useRef<HTMLDetailsElement>(null);
+  const disclosure = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ right: 8, top: 48 });
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    if (!open) return;
+    const dismiss = (event: PointerEvent) => {
+      if (!panel.current?.contains(event.target as Node) && !disclosure.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const close = () => setOpen(false);
+    document.addEventListener("pointerdown", dismiss);
+    window.addEventListener("resize", close);
+    return () => { document.removeEventListener("pointerdown", dismiss); window.removeEventListener("resize", close); };
+  }, [open]);
   const scope = `${doc}:${branch}`; const scopeRef = useRef(scope); scopeRef.current = scope;
   const [view, setView] = useState<View | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
@@ -112,7 +131,13 @@ function OwnedContextUpdates({ doc, branch, getContext }: ContextUpdateProps) {
   function add(id: string, label: string, parameters: Record<string, UiField>, execute: UiCommand["execute"], enabled = !!branch && !busy, group = parent) {
     commands.push({ key: `${parent}/${id}`, command: { label, parent: group, subject: parent, parameters, prerequisites: ["Updates retain confirmed branch/reference/revision lineage; queuing is not provider delivery"], read: () => ({ revision: revision(), enabled: enabled && (!admission.current || id.startsWith("read") || id === "disclosure"), reason: enabled && (!admission.current || id.startsWith("read") || id === "disclosure") ? undefined : "Select a branch and wait for the current context operation" }), execute } });
   }
-  add("disclosure", "Set changed agent context visibility", { open: { type: "boolean" } }, async args => { if (!disclosure.current) return { status: "unavailable", reason: "Context disclosure is not mounted" }; disclosure.current.open = Boolean(args.open); setOpen(Boolean(args.open)); return { status: "completed", value: { open: Boolean(args.open) } }; }, true, "agent-context-disclosures");
+  function showContext(visible: boolean) {
+    const rect = disclosure.current?.getBoundingClientRect();
+    if (rect) setPosition({ right: Math.max(8, Math.min(window.innerWidth - rect.right, window.innerWidth - Math.min(448, window.innerWidth * .9) - 8)), top: Math.max(8, Math.min(rect.bottom, window.innerHeight - 160)) });
+    setOpen(visible);
+    if (visible) void inspect();
+  }
+  if (changed.length || error || open) add("disclosure", "Set changed agent context visibility", { open: { type: "boolean" } }, async args => { if (!disclosure.current) return { status: "unavailable", reason: "Context disclosure is not mounted" }; showContext(Boolean(args.open)); return { status: "completed", value: { open: Boolean(args.open) } }; }, true, "agent-context-disclosures");
   if (open) {
     const page: Record<string, UiField> = { offset: { type: "number", minimum: 0, maximum: 100000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 8192, integer: true } };
     add("read", "Read context update status bytes", page, async args => {
@@ -139,9 +164,23 @@ function OwnedContextUpdates({ doc, branch, getContext }: ContextUpdateProps) {
       }
     }
   }
+</storycode:copy>
+
+## Reveal changed context without moving the editor
+
+Register current commands before hiding the empty state. A gutter button opens a
+floating comparison with explicit refresh, individual selection and select-all
+methods. Only the panel contains patches and delivery receipts. Escape restores
+focus to the gutter button, and outside clicks dismiss the panel. Queuing remains
+an explicit action against observed revisions rather than a claim of delivery.
+
+<storycode:copy id="f-83abe8d9f9e9-context-gutter">
   useUiCommands(commands);
-  return <details ref={disclosure} onToggle={e => { setOpen(e.currentTarget.open); if (e.currentTarget.open) void inspect(); }}>
-    <summary>Changed agent context ({changed.length})</summary>
+  if (!changed.length && !error && !open) return null;
+  return <div className="agent-context-gutter">
+    <button ref={disclosure} className="btn-link" aria-label={error ? "Context comparison unavailable" : `Changed agent context (${changed.length})`} aria-expanded={open} aria-controls={`${instance}-context`} title={error || `${changed.length} context references changed`} onClick={() => showContext(!open)}>↻{changed.length || "!"}</button>
+    {open && createPortal(<div ref={panel} id={`${instance}-context`} className="agent-context-panel" style={position} role="region" aria-label="Changed agent context" onKeyDown={e => { if (e.key === "Escape") { e.stopPropagation(); setOpen(false); disclosure.current?.focus(); } }}>
+    <button className="btn-link" aria-label="Close changed context" onClick={() => { setOpen(false); disclosure.current?.focus(); }}>Close</button>
     <p>Compare with confirmed delivery on this branch. Updates enter a subsequent model boundary. Unsaved text is never saved by this action.</p>
     <button className="btn" disabled={busy || !branch} onClick={() => void inspect()}>Refresh patches and delivery status</button>
     {error && <p role="alert">{error}</p>}
@@ -156,7 +195,8 @@ function OwnedContextUpdates({ doc, branch, getContext }: ContextUpdateProps) {
     <button className="btn" disabled={busy || !view?.items.some(i => i.eligible)} onClick={selectAll}>Select all eligible</button>
     {view?.updates.map(u => <p key={u.id}>{u.state === "provider_confirmed" ? "Included" : u.state}{u.request ? ` in request ${u.request}` : ""}</p>)}
     <p className="muted">{view?.coverage}</p>
-  </details>;
+    </div>, document.body)}
+  </div>;
 }
 </storycode:copy>
 
@@ -164,6 +204,6 @@ function OwnedContextUpdates({ doc, branch, getContext }: ContextUpdateProps) {
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/components/ContextUpdates.tsx"><storycode:paste select="#f-83abe8d9f9e9-Item"/><storycode:paste select="#f-83abe8d9f9e9-View"/><storycode:paste select="#f-83abe8d9f9e9-ContextUpdateProps"/><storycode:paste select="#f-83abe8d9f9e9-ContextUpdates"/><storycode:paste select="#f-83abe8d9f9e9-OwnedContextUpdates"/></storycode:file>
+<storycode:file path="apps/web/src/components/ContextUpdates.tsx"><storycode:paste select="#f-83abe8d9f9e9-Item"/><storycode:paste select="#f-83abe8d9f9e9-View"/><storycode:paste select="#f-83abe8d9f9e9-ContextUpdateProps"/><storycode:paste select="#f-83abe8d9f9e9-ContextUpdates"/><storycode:paste select="#f-83abe8d9f9e9-OwnedContextUpdates"/><storycode:paste select="#f-83abe8d9f9e9-context-gutter"/></storycode:file>
 
 </storycode:doc>

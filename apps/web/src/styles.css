@@ -3240,6 +3240,7 @@ button.fleet-grant {
 .chat-dock { width: 100%; }
 
 .chat-dock {
+  position: relative;
   flex: none;
   z-index: 20;
   display: flex;
@@ -3272,6 +3273,11 @@ button.fleet-grant {
   cursor: pointer;
   padding: 0;
 }
+.chat-identity { min-width: 0; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Changed context occupies the pane gutter; the comparison floats above content. */
+.agent-context-gutter { position: absolute; right: 0; top: 2.5rem; z-index: 2; font-size: .7rem; }
+.agent-context-gutter button { writing-mode: vertical-rl; padding: .25rem 0; }
+.agent-context-panel { position: fixed; z-index: 900; width: min(28rem, 90vw); max-height: min(32rem, 70vh); overflow: auto; padding: .75rem; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 20px #0004; font-size: .8rem; }
 .chat-count { color: var(--fg-muted); }
 .chat-new { margin-left: auto; font-size: 0.74rem; }
 .chat-stats {

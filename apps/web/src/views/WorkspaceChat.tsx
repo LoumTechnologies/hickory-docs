@@ -110,7 +110,7 @@ export function WorkspaceChat({ layout, registry, untitledSources, plainSources,
       : plainSearchEditor(target.target);
     applyAgentEdit(view, change);
   };
-  return <div className="workspace-chat"><details className="chat-note" open={projectionOpen} onToggle={event => setProjectionOpen(event.currentTarget.open)}><summary onClick={event => { event.preventDefault(); void projectionActions.invoke("visibility", { open: !projectionOpen }); }}>Next context projection</summary>
+  return <div className="workspace-chat"><ChatDock contextControls={<details className="chat-note" open={projectionOpen} onToggle={event => setProjectionOpen(event.currentTarget.open)}><summary onClick={event => { event.preventDefault(); void projectionActions.invoke("visibility", { open: !projectionOpen }); }}>Next context projection</summary>
     <p>Select documents explicitly. Expanded text excludes folds; pin includes the complete document. Unavailable editor fold state omits text until reopened or pinned. Collapsing changes future selection; previous exposure remains in history.</p>
     {tabs.map(tab => <div key={tab.id}><label><input type="checkbox" checked={!!selection[tab.id]} onChange={event => void projectionActions.invoke("choose", { id: tab.id, mode: event.target.checked ? "expanded" : "off" })} />{tab.title ?? tab.target}</label>
       <label><input type="checkbox" disabled={!selection[tab.id]} checked={selection[tab.id] === "pinned"} onChange={event => void projectionActions.invoke("choose", { id: tab.id, mode: event.target.checked ? "pinned" : "expanded" })} />Pin full text</label></div>)}
@@ -118,7 +118,7 @@ export function WorkspaceChat({ layout, registry, untitledSources, plainSources,
     {previewError && <p role="alert">{previewError}</p>}
     <p>Preview is a capture, not a delivery receipt. Send captures selection again. Request history, instructions and tools add context; actual requests are recorded in the session.</p>
     {preview?.projection && <pre aria-label="Context projection preview">{JSON.stringify(preview.projection, null, 2)}</pre>}
-  </details><ChatDock key={folder ?? "window"} docId="workspace" recoveryWorkspace={folder ?? "window"} applyAgentChange={applyAgentChange} realtime={realtime} getContext={getContext}
+  </details>} key={folder ?? "window"} docId="workspace" recoveryWorkspace={folder ?? "window"} applyAgentChange={applyAgentChange} realtime={realtime} getContext={getContext}
     contextLabel={[folder, ...tabs.map(tab => `${tab.title ?? tab.target}${tab.kind === "untitled" ? " (unsaved)" : ""}`)].filter(Boolean).join(" · ") || "No open editors or folder"}
     onOpenSession={onOpenSession}
     onAgentFinished={() => {

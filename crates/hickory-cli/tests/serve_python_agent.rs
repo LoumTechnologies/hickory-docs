@@ -429,6 +429,7 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
         let model = Model::new([
             json!({"python":"tool('record_assumption', {'statement':'The meeting note is current', 'reason':'Summary may omit new facts', 'evidence':['User supplied context'], 'falsifier':'A newer note'})\ntool('create_doc', {'path':'proposal.md', 'input':'AI proposal'})"}),
             json!({"done":"Stopped without verification."}),
+            json!({"python":"tool('create_doc', {'path':'second.md', 'input':'Approved by conversation policy'})"}),
             json!({"done":"Follow-up stopped."}),
         ]);
         app.state.agent.set_llm_override(model.clone());
@@ -459,7 +460,12 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
             )
             .await
             .0,
-            400
+            200
+        );
+        assert!(!app.root.join("proposal.md").exists());
+        assert_eq!(
+            app.request("GET", &app.route("/python"), json!({})).await.1["edits"]["mode"],
+            "auto-accept"
         );
         assert_eq!(
             app.request(
@@ -514,6 +520,32 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
         let child = app.wait(&child_id).await;
         assert_eq!(child["session"], turn["session"]);
         assert_eq!(child["parent_id"], turn_id);
+        // Reopening restores policy; a new thread cannot inherit prior approvals.
+        let fresh = app
+            .request("GET", &app.route("/python?session="), json!({}))
+            .await;
+        assert_eq!(fresh.1["edits"]["mode"], "review");
+        assert_eq!(fresh.1["edits"]["changes"], json!([]));
+        let restored = app
+            .request(
+                "GET",
+                &app.route(&format!(
+                    "/python?session={}",
+                    turn["session"].as_str().unwrap()
+                )),
+                json!({}),
+            )
+            .await;
+        assert_eq!(restored.0, 200, "{restored:?}");
+        assert_eq!(restored.1["edits"]["mode"], "auto-accept");
+        assert!(
+            app.root.join("second.md").exists(),
+            "future proposal proceeds through the authorized policy"
+        );
+        assert_eq!(
+            app.request("GET", &app.route("/python"), json!({})).await.1["edits"]["mode"],
+            "auto-accept"
+        );
         let requests = model.requests.lock().unwrap().clone();
         assert!(
             requests
@@ -626,7 +658,6 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
         }));
     }
 }
-
 #[tokio::test(flavor = "multi_thread")]
 async fn stop_cancels_a_pending_python_review_and_keeps_the_audit() {
     let Some(python) = python() else {

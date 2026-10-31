@@ -77,7 +77,7 @@ export function AgentChanges({ doc, state, running, apply, update, submitDecisio
       if (actor.kind === "agent") return { status: "requires_input", request: `edit-review:${doc}:${state.backend}:${change.id}`, reason: "The human reviews and decides this proposed edit in the actual change review; inspect its returned status afterward" };
       return decide(change, args.accepted as boolean);
     });
-    add("mode", "Set conversation edit review mode", { mode: { type: "string", maxLength: 11, choices: ["review", "auto-accept"] } }, !running && state.backend !== "python", async (args, actor) => {
+    add("mode", "Set conversation edit review mode", { mode: { type: "string", maxLength: 11, choices: ["review", "auto-accept"] } }, (!running || !!state.edits?.changes.some(c => c.status === "pending")) && !submitDecision, async (args, actor) => {
       if (actor.kind === "agent" && args.mode === "auto-accept") return { status: "requires_input", request: `edit-mode:${doc}:${state.backend}`, reason: "A human must authorize automatic acceptance of future edits" };
       try {
         const actual = await acpApi.edits(doc, { mode: args.mode as "review" | "auto-accept" }, state.backend); update(actual);
@@ -86,16 +86,18 @@ export function AgentChanges({ doc, state, running, apply, update, submitDecisio
     });
   }
   const invoke = useUiCommands(commands);
-  if (!state?.edits) return null;
+  if (!state?.edits || (!state.edits.changes.length && !error)) return null;
   return <section className="agent-changes" aria-label="Conversation document edits">
-    <label>Document edits <select aria-label="Document edits" value={state.edits.mode} disabled={running || state.backend === "python"}
-      onChange={e => void invoke(`${parent}:mode`, { mode: e.target.value })}><option value="review">Review</option>{state.backend !== "python" && <option value="auto-accept">Auto-accept</option>}</select></label>
-    <p className="muted">Reviews cover Hickory document tools. {state.backend === "python" ? "Python document-edit previews require approval. Shared UI operations retain their separate host permissions. Acceptance does not verify the edit or change its authorship. Checks remain unrun." : "Native agent commands follow the adapter’s permissions and can bypass this review."}</p>
+    {!submitDecision && state.edits.changes.some(c => c.status === "pending") && <label>
+      <input type="checkbox" aria-label="Always approve document edits in this conversation" checked={state.edits.mode === "auto-accept"}
+        onChange={e => void invoke(`${parent}:mode`, { mode: e.target.checked ? "auto-accept" : "review" })} />
+      Always approve document edits in this conversation
+    </label>}
     {error && <p role="alert">{error}</p>}
     {state.edits.changes.map(change => <div key={change.id} className="agent-change-link">
       <span>{change.status === "pending" ? "Proposed change" : change.status === "applying" ? "Applying change" : `${change.status.charAt(0).toUpperCase()}${change.status.slice(1)} change`} · {change.path ?? change.name}</span>
-      <DocumentReading id={`proposal:${doc}:${change.id}`} />
-      <button className="btn" onClick={() => void invoke(`${parent}:open`, { id: change.id })}>Review in document</button>
+      {change.status === "pending" && <DocumentReading id={`proposal:${doc}:${change.id}`} />}
+      <button className="btn" onClick={() => void invoke(`${parent}:open`, { id: change.id })}>{change.status === "pending" ? "Review in document" : "View change"}</button>
     </div>)}
   </section>;
 }

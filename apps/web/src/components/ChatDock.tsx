@@ -121,6 +121,7 @@ export interface ChatDockProps {
   getContext?: () => Promise<AgentEditorContext>;
   applyAgentChange?: (change: AgentChange) => void | Promise<void>;
   contextLabel?: string;
+  contextControls?: import("react").ReactNode;
   realtime: Realtime;
   /** Collapse to the composer only. */
   /** Collapse, for the one place this is still a dock. As a PANE there is
@@ -275,6 +276,7 @@ export function ChatDock({
   getContext,
   applyAgentChange,
   contextLabel,
+  contextControls,
   realtime,
   collapsed = false,
   onToggleCollapsed,
@@ -549,6 +551,7 @@ export function ChatDock({
       aria-label="Agent chat"
       data-coach-target="agent"
     >
+      {!collapsed && backend === "python" && <ContextUpdates key={running ?? tip ?? "root"} doc={docId} branch={running ?? tip} getContext={getContext} />}
       <header className="chat-head">
         {onToggleCollapsed ? (
           <button
@@ -562,6 +565,9 @@ export function ChatDock({
         ) : (
           <span className="chat-toggle chat-toggle--static">Agent</span>
         )}
+        <span className="chat-identity" title={backend === "python" ? "Python agent · provider and selected model" : "ACP adapter · reported model"}>
+          {backend === "python" ? `${PROVIDERS.find(p => p.id === provider)?.label ?? provider} · ${model.trim() || defaultModelFor(provider)}` : `${acp.agents.find(a => a.id === backend)?.name ?? backend} · ACP · ${acp.state?.configOptions?.find(o => o.category === "model" || o.id === "model")?.currentValue || acp.state?.models?.currentModelId || "Model not reported"}`}
+        </span>
         {turns.length > 0 && (
           <span className="chat-count">
             {branch.length} of {turns.length} turn
@@ -600,6 +606,7 @@ export function ChatDock({
           rememberAgent(next); setBackend(next); setTip(null); setUnavailable(false); setError(null); setNote(null);
         }} />
         <AcpControls doc={docId} backend={backend} running={running !== null} control={acp} settingsOnly />
+        {contextControls}
         <label><UiCheckbox label="conversation collapsed lineage" checked={showCollapsedLineage} onCheckedChange={checked => {
           setShowCollapsedLineage(checked); saveCollapsedLineage(checked);
         }} />Show lineage for collapsed conversation items</label>
@@ -610,13 +617,6 @@ export function ChatDock({
       {!collapsed && (
         <div className="chat-log" ref={logRef}>
           <AgentChanges doc={docId} state={acp.state} running={running !== null} apply={applyAgentChange} update={acp.setState} />
-          {branch.length === 0 && !running && (
-            <p className="muted chat-empty">
-              {backend === "python" ? "Ask the Python agent to edit or extend this document. Document-edit previews require review; shared UI operations retain their host permissions. Checks remain unrun." : "Ask the agent to edit, extend, or verify this document."} It works
-              through the document and its generated output, and every session
-              is saved into the project as a <code>hick:session</code> file.
-            </p>
-          )}
           {showTree ? (
             <ChatTree
               turns={turns}
@@ -642,8 +642,6 @@ export function ChatDock({
         </div>
       )}
 
-      {backend === "python" && <ContextUpdates key={running ?? tip ?? "root"} doc={docId} branch={running ?? tip} getContext={getContext} />}
-      {contextLabel && <p className="chat-note muted">Context: {contextLabel}. Use Next context projection to select editor text.</p>}
       <div className="chat-composer">
         <span className="muted">{!collapsed && !showTree ? <button className="btn-link" onClick={() => focusConversationResponse(logRef.current)}>Write a response</button> : "Type your response at the bottom"} · ⌘/Ctrl+Enter to send</span>
         {running ? (

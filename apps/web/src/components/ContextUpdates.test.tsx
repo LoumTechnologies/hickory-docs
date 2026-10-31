@@ -13,7 +13,7 @@ it("discloses patches before selection and queues their exact observed revisions
   vi.mocked(request).mockResolvedValue(view);
   const registry = new UiActions({ workspace: "practice", window: "one" }, () => true, async () => {});
   render(<UiActionContext.Provider value={registry}><ContextUpdates doc="workspace" branch="a" /></UiActionContext.Provider>);
-  await screen.findByText("AGENTS.md · changed_observed_passage");
+  await screen.findByRole("button", { name: "Changed agent context (1)" });
   expect(registry.groups().groups).toEqual(["agent-context-disclosures"]);
   let n = 0;
   const invoke = async (parent: string, label: string, args = {}) => {
@@ -41,6 +41,7 @@ it("shows the candidate patch and queues explicitly selected unsaved bytes witho
   vi.mocked(request).mockResolvedValue(view);
   const getContext = vi.fn(async () => ({ buffers: [{ id: "unsaved", name: "Draft", path: null, content: "draft", focused: true }] }));
   render(<ContextUpdates doc="workspace" branch="a" getContext={getContext} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Changed agent context (1)" }));
   await screen.findByText("AGENTS.md · changed_observed_passage");
   fireEvent.click(screen.getByLabelText("Select update"));
   vi.mocked(request).mockResolvedValue({ ...view, updates: [{ id: "u1", old: "old", state: "queued", request: null, source: { revision: "r2" } }] });
@@ -60,6 +61,8 @@ it("polls at its interval using the current capture callback without a rerender 
   try {
     await act(async () => {});
     expect(request).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: /Changed agent context/ })).toBeNull();
+    expect(document.querySelector(".agent-context-gutter")).toBeNull();
     for (let i = 0; i < 10; i++) ui.rerender(<ContextUpdates doc="workspace" branch="a" getContext={latest} />);
     await act(async () => {});
     expect(request).toHaveBeenCalledTimes(1);
@@ -91,7 +94,7 @@ it("does not overlap slow captures or post a retired branch capture", async () =
 
 // Guarantee: docs/guarantees/agent/explicit-context-updates.md
 it("does not submit a manual context capture after its originating branch retires", async () => {
-  const view = { items: [], updates: [], coverage: "current fixture" };
+  const view = { items: [{ reference: "old", path: "note.md", before: "before", after: "after", status: "changed", revision: "r2", eligible: true }], updates: [], coverage: "current fixture" };
   vi.mocked(request).mockResolvedValue(view);
   let release!: (value: { buffers: [] }) => void;
   const capture = vi.fn().mockResolvedValue({ buffers: [] }).mockImplementationOnce(async () => ({ buffers: [] })).mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
@@ -124,9 +127,8 @@ it("keeps a newer explicit queue result when an older background refresh complet
   const rendered = render(<ContextUpdates doc="workspace" branch="a" />);
   try {
     await act(async () => {});
-    const outer = document.querySelector("details")!;
-    await act(async () => { outer.open = true; fireEvent(outer, new Event("toggle")); });
-    const patch = outer.querySelector("details")!;
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Changed agent context (1)" })); });
+    const patch = document.querySelector<HTMLDetailsElement>(".agent-context-panel details")!;
     await act(async () => { patch.open = true; fireEvent(patch, new Event("toggle")); });
     fireEvent.click(screen.getByLabelText("Select update"));
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });

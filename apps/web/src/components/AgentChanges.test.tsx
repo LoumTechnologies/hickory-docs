@@ -32,6 +32,7 @@ it("auto-accepts the same change without a user gesture", async () => {
   render(<AgentChanges doc="workspace" state={{ ...state, edits: { mode: "auto-accept", changes: [{ ...change, status: "applying" }] } }} running apply={apply} update={() => {}} />);
   await waitFor(() => expect(apply).toHaveBeenCalledTimes(1));
   expect(screen.queryByRole("button", { name: "Accept change" })).toBeNull();
+  expect(document.querySelector(".comparison-added")).toBeNull();
 });
 it("reports a stale buffer to the agent as a failed edit", async () => {
   vi.mocked(acpApi.edits).mockResolvedValue(state);
@@ -40,13 +41,16 @@ it("reports a stale buffer to the agent as a failed edit", async () => {
   await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { id: "change", accepted: false, error: "The document changed." }, "codex"));
   expect(screen.getAllByRole("alert")[0].textContent).toBe("The document changed.");
 });
-it("changes the per-conversation policy and disables it during a turn", async () => {
+it("offers future approval at a pending proposal even during a turn and leaves that proposal undecided", async () => {
   vi.mocked(acpApi.edits).mockResolvedValue(state);
   const view = render(<AgentChanges doc="workspace" state={state} running={false} update={() => {}} />);
-  fireEvent.change(screen.getByRole("combobox", { name: "Document edits" }), { target: { value: "auto-accept" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "Always approve document edits in this conversation" }));
   await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { mode: "auto-accept" }, "codex"));
   view.rerender(<AgentChanges doc="workspace" state={state} running update={() => {}} />);
-  expect((screen.getByRole("combobox", { name: "Document edits" }) as HTMLSelectElement).disabled).toBe(true);
+  expect((screen.getByRole("checkbox", { name: "Always approve document edits in this conversation" }) as HTMLInputElement).disabled).toBe(false);
+  expect(acpApi.edits).toHaveBeenCalledTimes(1);
+  view.rerender(<AgentChanges doc="workspace" state={{ ...state, edits: { mode: "review", changes: [] } }} running={false} update={() => {}} />);
+  expect(screen.queryByRole("region", { name: "Conversation document edits" })).toBeNull();
 });
 
 it("returns newer editor text with a stale rejection so the agent can read again", async () => {
@@ -58,13 +62,11 @@ it("returns newer editor text with a stale rejection so the agent can read again
 });
 
 // Guarantee: docs/guarantees/agent/python-execution-has-two-boundaries.md
-it("requires a human gesture for Python proposals and labels checks unrun", async () => {
+it("requires a human decision for the pending Python proposal and offers authorization for future edits", async () => {
   const pythonState: AcpState = { backend: "python", ready: true, edits: { mode: "review", changes: [{ ...change, editor: false }] } };
   const apply = vi.fn(); vi.mocked(acpApi.edits).mockResolvedValue(pythonState);
   render(<AgentChanges doc="workspace" state={pythonState} running={false} apply={apply} update={() => {}} />);
-  expect((screen.getByRole("combobox", { name: "Document edits" }) as HTMLSelectElement).disabled).toBe(true);
-  expect(screen.queryByRole("option", { name: "Auto-accept" })).toBeNull();
-  expect(screen.getByText(/Checks remain unrun/)).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "Always approve document edits in this conversation" })).toBeTruthy();
   expect(acpApi.edits).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Accept change" }));
   await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { id: "change", accepted: true, error: undefined }, "python"));
@@ -118,6 +120,7 @@ it("discloses exact proposals but requires the human decision and cannot self-en
 it("uses the host-selected private review transport without calling ordinary review APIs", async () => {
   const submitDecision = vi.fn().mockResolvedValue({ ...state, backend: "python" });
   render(<AgentChanges doc="private:bound" state={{ ...state, backend: "python", edits: { mode: "review", changes: [{ ...change, editor: false }] } }} running submitDecision={submitDecision} update={() => {}} />);
+  expect(screen.queryByRole("checkbox", { name: "Always approve document edits in this conversation" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Reject change" }));
   await waitFor(() => expect(submitDecision).toHaveBeenCalledWith({ id: "change", accepted: false, error: undefined }));
   expect(acpApi.edits).not.toHaveBeenCalled();

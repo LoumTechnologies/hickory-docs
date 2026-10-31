@@ -33,7 +33,7 @@ export function useAcp(doc: string, backend: string, session: string | undefined
   const connect = useCallback(async (): Promise<Operation> => {
     const stamp = ++version.current;
     setBusy(true); setError(null); setState(null);
-    try { const next = await (backend === "python" ? acpApi.state(doc, backend) : acpApi.connect(doc, backend, session)); if (stamp === version.current) setState(next); return { state: next, superseded: stamp !== version.current }; }
+    try { const next = await (backend === "python" ? acpApi.state(doc, backend, session ?? "") : acpApi.connect(doc, backend, session)); if (stamp === version.current) setState(next); return { state: next, superseded: stamp !== version.current }; }
     catch (e) { const error = e instanceof Error ? e.message : String(e); if (stamp === version.current) setError(error); return { error, superseded: stamp !== version.current }; }
     finally { if (stamp === version.current) setBusy(false); }
   }, [doc, backend, session]);
@@ -93,6 +93,7 @@ export function AcpControls({ doc, backend, running, control, settingsOpen = tru
     return { status: "completed", value: { bytes: Array.from(bytes.slice(offset, end)), encoding: "JSON UTF-8", offset, total_bytes: bytes.length, next_offset: end < bytes.length ? end : null } };
   });
   if (settingsOpen) {
+    if (state?.edits?.mode === "auto-accept") add("review-policy", "Require document edit approval again", {}, !busy && !running, async () => operationOutcome(await control.act(() => acpApi.edits(doc, { mode: "review" }, backend))));
     if (backend === "python" ? !state?.ready : !running) add("connect", backend === "python" ? "Check conversation Python runtime" : "Reconnect conversation adapter", {}, !busy, async () => operationOutcome(await control.connect()));
     if (backend !== "python") {
       if (!state?.ready && availableAgent?.installable && !availableAgent.available) add("install", `Install conversation adapter: ${availableAgent.name.slice(0, 256)}`, {}, !busy, async () => operationOutcome(await control.install()));
@@ -109,13 +110,16 @@ export function AcpControls({ doc, backend, running, control, settingsOpen = tru
   }
   const invoke = useUiCommands(commands);
   const click = (key: string, args: Parameters<typeof invoke>[1] = {}) => { void invoke(`${parent}:${key}`, args).catch(reason => control.setError(String(reason))); };
+  const reviewPolicy = settingsOpen && state?.edits?.mode === "auto-accept" && <button className="btn-link" disabled={busy || running} onClick={() => click("review-policy")}>Require document edit approval again</button>;
   if (backend === "python") return <div className="acp-controls" aria-label="Python agent controls">
+    {reviewPolicy}
     {(error || state?.error) && <p role="alert" className="chat-note error">{error || state?.error}</p>}
     {settingsOpen && !state?.ready && <p>Set the Python runtime in <a href="#/settings">Settings → Agents</a>, then <button className="btn-link" disabled={busy} onClick={() => click("connect")}>Check runtime</button>.</p>}
   </div>;
   const agent = agents.find(a => a.id === backend);
   return <div className="acp-controls" aria-label="Agent controls">
     {settingsOpen && <div className="acp-settings">
+      {reviewPolicy}
       {!state?.configOptions?.length && state?.modes && <label>Mode<select aria-label="Mode" value={state.modes.currentModeId} disabled={busy || running}
         onChange={e => click("mode", { mode: e.target.value })}>
         {state.modes.availableModes.map(mode => <option key={mode.id} value={mode.id}>{mode.name}</option>)}

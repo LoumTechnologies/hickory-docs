@@ -71,7 +71,8 @@ it("sends a startup untitled editor without a folder, using fresh text", async (
   render(<WorkspaceChat layout={layout} registry={new SessionRegistry()} untitledSources={source}
     plainSources={{ current: new Map() }} folder={null} focusedEditor={untitled.id} onOpenSession={() => {}} />);
   expect(screen.queryByText("Open a document to talk to the agent about it.")).toBeNull();
-  expect(screen.getByText(/Context:.*unsaved/)).toBeTruthy();
+  expect(screen.queryByText(/Context:.*unsaved/)).toBeNull();
+  expect(screen.queryByText("Next context projection")).toBeNull();
   source.current[untitled.id] = "latest unsaved text";
   await waitFor(() => expect(api.agentTurns).toHaveBeenCalled());
   const host = await screen.findByRole("textbox", { name: "Agent conversation and response" });
@@ -169,6 +170,7 @@ it("previews only explicitly selected unsaved text and lets a user pin it", asyn
   const layout = openUntitledTab(initialWorkspace());
   const draft = panes(layout.root).flatMap(pane => pane.tabs).find(t => t.kind === "untitled")!;
   render(<WorkspaceChat layout={layout} registry={new SessionRegistry()} untitledSources={{ current: { [draft.id]: "unsaved selected text" } }} plainSources={{ current: new Map() }} folder={null} focusedEditor={draft.id} onOpenSession={() => {}} />);
+  fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
   fireEvent.click(screen.getByText("Next context projection"));
   fireEvent.click(screen.getByRole("checkbox", { name: "Untitled" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Pin full text" }));

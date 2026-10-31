@@ -195,6 +195,7 @@ export interface ChatDockProps {
   getContext?: () => Promise<AgentEditorContext>;
   applyAgentChange?: (change: AgentChange) => void | Promise<void>;
   contextLabel?: string;
+  contextControls?: import("react").ReactNode;
   realtime: Realtime;
   /** Collapse to the composer only. */
   /** Collapse, for the one place this is still a dock. As a PANE there is
@@ -439,6 +440,11 @@ export function deepestFrom(turns: AgentTurn[], from: string): string {
 <a id="f-57557cac78c8-ChatDock"></a>
 ### `ChatDock`
 
+The header identifies the selected provider/model or ACP adapter without adding a
+configuration row. Empty conversations start with the response editor itself.
+Context comparisons live in the gutter only when a retained reference differs;
+editor identity remains available to the agent without an always-visible banner.
+
 <storycode:copy id="f-57557cac78c8-ChatDock">
 export function ChatDock({
   initialPrompt = "",
@@ -447,6 +453,7 @@ export function ChatDock({
   getContext,
   applyAgentChange,
   contextLabel,
+  contextControls,
   realtime,
   collapsed = false,
   onToggleCollapsed,
@@ -721,6 +728,7 @@ export function ChatDock({
       aria-label="Agent chat"
       data-coach-target="agent"
     >
+      {!collapsed && backend === "python" && <ContextUpdates key={running ?? tip ?? "root"} doc={docId} branch={running ?? tip} getContext={getContext} />}
       <header className="chat-head">
         {onToggleCollapsed ? (
           <button
@@ -734,6 +742,9 @@ export function ChatDock({
         ) : (
           <span className="chat-toggle chat-toggle--static">Agent</span>
         )}
+        <span className="chat-identity" title={backend === "python" ? "Python agent · provider and selected model" : "ACP adapter · reported model"}>
+          {backend === "python" ? `${PROVIDERS.find(p => p.id === provider)?.label ?? provider} · ${model.trim() || defaultModelFor(provider)}` : `${acp.agents.find(a => a.id === backend)?.name ?? backend} · ACP · ${acp.state?.configOptions?.find(o => o.category === "model" || o.id === "model")?.currentValue || acp.state?.models?.currentModelId || "Model not reported"}`}
+        </span>
         {turns.length > 0 && (
           <span className="chat-count">
             {branch.length} of {turns.length} turn
@@ -772,6 +783,7 @@ export function ChatDock({
           rememberAgent(next); setBackend(next); setTip(null); setUnavailable(false); setError(null); setNote(null);
         }} />
         <AcpControls doc={docId} backend={backend} running={running !== null} control={acp} settingsOnly />
+        {contextControls}
         <label><UiCheckbox label="conversation collapsed lineage" checked={showCollapsedLineage} onCheckedChange={checked => {
           setShowCollapsedLineage(checked); saveCollapsedLineage(checked);
         }} />Show lineage for collapsed conversation items</label>
@@ -782,13 +794,6 @@ export function ChatDock({
       {!collapsed && (
         <div className="chat-log" ref={logRef}>
           <AgentChanges doc={docId} state={acp.state} running={running !== null} apply={applyAgentChange} update={acp.setState} />
-          {branch.length === 0 && !running && (
-            <p className="muted chat-empty">
-              {backend === "python" ? "Ask the Python agent to edit or extend this document. Document-edit previews require review; shared UI operations retain their host permissions. Checks remain unrun." : "Ask the agent to edit, extend, or verify this document."} It works
-              through the document and its generated output, and every session
-              is saved into the project as a <code>hick:session</code> file.
-            </p>
-          )}
           {showTree ? (
             <ChatTree
               turns={turns}
@@ -814,8 +819,6 @@ export function ChatDock({
         </div>
       )}
 
-      {backend === "python" && <ContextUpdates key={running ?? tip ?? "root"} doc={docId} branch={running ?? tip} getContext={getContext} />}
-      {contextLabel && <p className="chat-note muted">Context: {contextLabel}. Use Next context projection to select editor text.</p>}
       <div className="chat-composer">
         <span className="muted">{!collapsed && !showTree ? <button className="btn-link" onClick={() => focusConversationResponse(logRef.current)}>Write a response</button> : "Type your response at the bottom"} · ⌘/Ctrl+Enter to send</span>
         {running ? (
@@ -965,8 +968,8 @@ describe("switching agents", () => {
     const agents = [{ id: "python", name: "Hickory Python", command: "python", args: [], available: true }, { id: "codex", name: "Codex", command: "codex-acp", args: [], available: true },
       { id: "claude", name: "Claude Agent", command: "claude-agent-acp", args: [], available: false, installable: true }];
     vi.mocked(acpApi.catalogue).mockResolvedValue({ agents });
-    vi.mocked(acpApi.connect).mockResolvedValue({ backend: "codex", ready: true });
-    vi.mocked(acpApi.state).mockResolvedValue({ backend: "codex", ready: true });
+    vi.mocked(acpApi.connect).mockResolvedValue({ backend: "codex", ready: true, models: { currentModelId: "adapter-model" } });
+    vi.mocked(acpApi.state).mockResolvedValue({ backend: "codex", ready: true, models: { currentModelId: "adapter-model" } });
     vi.mocked(api.agentTurns).mockResolvedValue({ turns: [turn("old", null)], backend: "python", provider: "anthropic", model: "claude-sonnet-5", totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
     vi.mocked(api.agent).mockResolvedValue({ session_id: "acp-turn" });
     const realtime = { onRunEvent: () => () => undefined } as unknown as Realtime;
@@ -981,6 +984,7 @@ describe("switching agents", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Agent" }), { target: { value: "codex" } });
     await waitFor(() => expect(acpApi.connect).toHaveBeenCalledWith("d1", "codex", undefined));
     expect(localStorage.getItem("hickory.agent")).toBe("codex");
+    expect(screen.getByText("Codex · ACP · adapter-model")).toBeTruthy();
     await typeResponse("Use Codex");
     await waitFor(() => expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -1009,8 +1013,13 @@ describe("switching agents", () => {
     fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
     await screen.findByRole("option", { name: "Hickory Python" });
     fireEvent.change(screen.getByRole("combobox", { name: "Agent" }), { target: { value: "python" } });
-    await waitFor(() => expect(acpApi.state).toHaveBeenCalledWith("d1", "python"));
+    await waitFor(() => expect(acpApi.state).toHaveBeenCalledWith("d1", "python", ""));
     expect(acpApi.connect).not.toHaveBeenCalled();
+    expect(screen.getByText("Anthropic · claude-sonnet-5")).toBeTruthy();
+    expect(screen.queryByText(/Ask the Python agent/)).toBeNull();
+    expect(screen.queryByText(/Context:.*Next context projection/)).toBeNull();
+    expect(screen.queryByRole("region", { name: "Conversation document edits" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Changed agent context/ })).toBeNull();
     expect(screen.getByRole("combobox", { name: "Provider" })).toBeTruthy();
     fireEvent.change(screen.getByRole("textbox", { name: "Model" }), { target: { value: "my-model" } });
     await typeResponse("Propose a note in Python");

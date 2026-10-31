@@ -639,22 +639,30 @@ pub async fn edit_decision(
             .map_err(error)?;
     }
     if let Some(mode) = body.mode {
-        if state
-            .agent
-            .turns
-            .lock()
-            .unwrap()
-            .get(&doc)
-            .is_some_and(|turns| turns.iter().any(|t| t.status == "running"))
+        let pending = client.host.edits.snapshot()["changes"]
+            .as_array()
+            .is_some_and(|changes| changes.iter().any(|c| c["status"] == "pending"));
+        if !pending
+            && state
+                .agent
+                .turns
+                .lock()
+                .unwrap()
+                .get(&doc)
+                .is_some_and(|turns| turns.iter().any(|t| t.status == "running"))
         {
             return Err(ApiError::conflict(
                 "Wait for this turn to finish before changing edit approval.",
             ));
         }
         // Changing modes never silently accepts an already pending edit.
-        let _operation = client.operation.try_lock().map_err(|_| {
-            ApiError::conflict("Wait for this turn to finish before changing edit approval.")
-        })?;
+        let _operation = if pending {
+            None
+        } else {
+            Some(client.operation.try_lock().map_err(|_| {
+                ApiError::conflict("Wait for an edit proposal or for this turn to finish before changing edit approval.")
+            })?)
+        };
         client
             .record
             .lock()
@@ -690,7 +698,6 @@ pub async fn edit_decision(
     }
     Ok(Json(client.snapshot()))
 }
-
 pub(super) async fn project_review(state: &LocalState, doc: &str) -> ApiResult<Arc<edits::Edits>> {
     Ok(connection(state, doc).await?.host.edits.clone())
 }
