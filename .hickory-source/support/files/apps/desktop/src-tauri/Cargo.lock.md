@@ -3063,6 +3063,7 @@ name = "hick-project-env"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "fs2",
  "globset",
  "hick-lang",
  "hickory-workspace",
@@ -3071,6 +3072,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2 0.10.9",
+ "similar",
  "tempfile",
  "tokio",
  "toml 0.5.11",

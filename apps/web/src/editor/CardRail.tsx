@@ -17,6 +17,7 @@
 // is the same rule that keeps two crowded cards apart — so a card's actions
 // read as a group without any second layout pass.
 
+import { createPortal } from "react-dom";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useUiCommands } from "../lib/uiActionBridge";
 import type { EditorView } from "@codemirror/view";
@@ -287,7 +288,11 @@ export function CardRail({
 
   return (
     <div className="cm-card-rail" data-empty={icons.length === 0} role="toolbar" aria-label="Cell and diagram actions" ref={railRef}>
-      {actionError && <span role="alert">{actionError}</span>}
+      {actionError && createPortal(<div className="cm-card-action-error" role="alert">
+        <strong>Action failed</strong>
+        <p>{actionError}</p>
+        <button type="button" onClick={() => setActionError("")}>Dismiss</button>
+      </div>, document.body)}
       {icons.map(({ card, action, key }) => {
         const state = stateOf(card);
         const rendered = renderedAt.includes(card.at);

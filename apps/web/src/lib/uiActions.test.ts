@@ -126,13 +126,18 @@ describe("explicit UI command dispatch", () => {
     expect(await registry.act(scope, actor, { handle, arguments: {}, request_id: "r" })).toMatchObject({ status: "stale" });
     expect(execute).not.toHaveBeenCalled();
   });
+  // A failed write must release the subject so a repaired connection can retry.
   it("fails closed when intent cannot be retained and does not invent a completed result", async () => {
     const f = fixture();
-    const registry = new UiActions(scope, () => true, async () => { throw Error("disk full"); });
+    let failing = true;
+    const registry = new UiActions(scope, () => true, async () => { if (failing) throw Error("disk full"); });
     registry.register("run", f.command);
     const handle = registry.observe("editor").actions[0].handle;
     expect(await registry.act(scope, actor, { handle, arguments: {}, request_id: "r" })).toMatchObject({ status: "error", reason: "Could not retain the action intent; no action was submitted: Error: disk full" });
     expect(f.execute).not.toHaveBeenCalled();
+    failing = false;
+    expect(await registry.act(scope, actor, { handle, arguments: {}, request_id: "retry" })).toMatchObject({ status: "result" });
+    expect(f.execute).toHaveBeenCalledOnce();
   });
   it("cannot revive a command unregistered while intent is being retained", async () => {
     const f = fixture(); let remove!: () => void;

@@ -367,7 +367,9 @@ Expose pending work only for the recorded actor. Cancellation requires the same 
 <a id="f-0cc430d9eb03-UiActions--recheck-around-durable-intent"></a>
 ### Recheck around durable intent
 
-Require a live disclosed handle, unchanged state, current actor permission and valid arguments before recording intent. Recheck registration, confinement, state and permission after that await. Capture and retain the result separately: if recording fails after effects, report that uncertainty rather than suggesting a safe automatic retry.
+Require a live disclosed handle, unchanged state, current actor permission and valid arguments before recording intent. Recheck registration, confinement, state and permission after that await. If intent retention fails, release the subject lock before returning so a new
+request can retry after the connection is repaired. The old request still returns
+its original failure. Capture and retain the result separately: if recording fails after effects, report that uncertainty rather than suggesting a safe automatic retry.
 
 <storycode:copy id="f-0cc430d9eb03-UiActions--recheck-around-durable-intent">
   private async execute(actor: UiActor, invocation: UiInvocation, signal: AbortSignal): Promise<UiResult> {
@@ -391,6 +393,7 @@ Require a live disclosed handle, unchanged state, current actor permission and v
         // Do not overwrite an intent-retention failure with the later, less
         // useful "result" failure. The handler has not run, so callers can
         // safely repair the host connection and submit a new request.
+        this.busy.delete(action.subject);
         return Object.freeze({ status: "error", reason: `Could not retain the action intent; no action was submitted: ${String(error)}` });
       }
       if (signal.aborted) result = { status: "unavailable", reason: "Cancelled before execution" };
@@ -584,13 +587,18 @@ describe("explicit UI command dispatch", () => {
     expect(await registry.act(scope, actor, { handle, arguments: {}, request_id: "r" })).toMatchObject({ status: "stale" });
     expect(execute).not.toHaveBeenCalled();
   });
+  // A failed write must release the subject so a repaired connection can retry.
   it("fails closed when intent cannot be retained and does not invent a completed result", async () => {
     const f = fixture();
-    const registry = new UiActions(scope, () => true, async () => { throw Error("disk full"); });
+    let failing = true;
+    const registry = new UiActions(scope, () => true, async () => { if (failing) throw Error("disk full"); });
     registry.register("run", f.command);
     const handle = registry.observe("editor").actions[0].handle;
     expect(await registry.act(scope, actor, { handle, arguments: {}, request_id: "r" })).toMatchObject({ status: "error", reason: "Could not retain the action intent; no action was submitted: Error: disk full" });
     expect(f.execute).not.toHaveBeenCalled();
+    failing = false;
+    expect(await registry.act(scope, actor, { handle, arguments: {}, request_id: "retry" })).toMatchObject({ status: "result" });
+    expect(f.execute).toHaveBeenCalledOnce();
   });
   it("cannot revive a command unregistered while intent is being retained", async () => {
     const f = fixture(); let remove!: () => void;

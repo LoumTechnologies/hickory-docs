@@ -229,6 +229,7 @@ export class UiActions {
         // Do not overwrite an intent-retention failure with the later, less
         // useful "result" failure. The handler has not run, so callers can
         // safely repair the host connection and submit a new request.
+        this.busy.delete(action.subject);
         return Object.freeze({ status: "error", reason: `Could not retain the action intent; no action was submitted: ${String(error)}` });
       }
       if (signal.aborted) result = { status: "unavailable", reason: "Cancelled before execution" };

@@ -5604,6 +5604,27 @@ button.fleet-grant {
   border-left: 1px solid var(--border);
   background: var(--bg-sunken);
 }
+/* Errors escape the 1.5rem rail via a body portal; wrap long host messages. */
+.cm-card-action-error {
+  position: fixed;
+  z-index: 10000;
+  inset-inline: 1rem;
+  bottom: 1rem;
+  width: min(40rem, calc(100vw - 2rem));
+  margin-inline: auto;
+  box-sizing: border-box;
+  padding: 1rem;
+  max-height: 50vh;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--fail);
+  border-radius: .5rem;
+  box-shadow: 0 4px 24px #0004;
+}
+.cm-card-action-error p { margin-block: .5rem; }
 .cm-card-rail__icon {
   position: absolute;
   left: 50%;

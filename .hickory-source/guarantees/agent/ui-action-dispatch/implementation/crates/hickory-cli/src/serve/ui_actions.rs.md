@@ -68,14 +68,27 @@ pub struct Hub {
 <a id="f-f9fb61439562-impl-Hub"></a>
 ### `impl-Hub`
 
+Agent calls require a recent browser heartbeat. Browser polls and retained receipts
+may resume an existing window after sleep; checking freshness on those recovery
+paths would permanently reject every retry. They never recreate a closed window
+or redirect an old turn to a replacement window.
+
 <storycode:copy id="f-f9fb61439562-impl-Hub">
 impl Hub {
     pub(crate) fn ensure_window(&self, id: &str) -> anyhow::Result<()> {
         self.window(id).map(|_| ())
     }
     fn window(&self, id: &str) -> anyhow::Result<Arc<Window>> {
-        let window = self
-            .windows
+        let window = self.existing_window(id)?;
+        anyhow::ensure!(
+            window.touched.lock().unwrap().elapsed() < Duration::from_secs(90),
+            "Originating UI window stopped responding"
+        );
+        Ok(window)
+    }
+    // Only browser-originated traffic can renew an existing window.
+    fn existing_window(&self, id: &str) -> anyhow::Result<Arc<Window>> {
+        self.windows
             .lock()
             .unwrap()
             .get(id)
@@ -84,12 +97,7 @@ impl Hub {
                 anyhow::anyhow!(
                     "Originating UI window is unavailable; reopen it and send a new turn"
                 )
-            })?;
-        anyhow::ensure!(
-            window.touched.lock().unwrap().elapsed() < Duration::from_secs(90),
-            "Originating UI window stopped responding"
-        );
-        Ok(window)
+            })
     }
 
     pub async fn call(
@@ -192,7 +200,7 @@ async fn open(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
 async fn poll(State(state): State<LocalState>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
     let window = state
         .ui_actions
-        .window(&id)
+        .existing_window(&id)
         .map_err(|e| ApiError::unavailable(e.to_string()))?;
     *window.touched.lock().unwrap() = Instant::now();
     let mut receive = window
@@ -232,8 +240,9 @@ async fn reply(
 ) -> ApiResult<Json<Value>> {
     let window = state
         .ui_actions
-        .window(&id)
+        .existing_window(&id)
         .map_err(|e| ApiError::unavailable(e.to_string()))?;
+    *window.touched.lock().unwrap() = Instant::now();
     let tx = window
         .pending
         .lock()
@@ -256,9 +265,9 @@ async fn receipt(
     Path(id): Path<String>,
     Json(body): Json<Value>,
 ) -> ApiResult<Json<Value>> {
-    state
+    let window = state
         .ui_actions
-        .window(&id)
+        .existing_window(&id)
         .map_err(|e| ApiError::unavailable(e.to_string()))?;
     let stage = body["stage"]
         .as_str()
@@ -317,6 +326,7 @@ async fn receipt(
     } else {
         super::store::write_atomic(&path, &raw).map_err(|e| ApiError::internal(e.to_string()))?;
     }
+    *window.touched.lock().unwrap() = Instant::now();
     Ok(Json(json!({"retained":true})))
 }
 </storycode:copy>
@@ -741,6 +751,35 @@ mod tests {
             cancellation["arguments"],
             json!({"request_id":"original-operation"})
         );
+    }
+
+    #[tokio::test]
+    async fn browser_activity_resumes_an_idle_window_without_rebinding() {
+        let (_directory, state) = state().await;
+        let scope = open(State(state.clone())).await.unwrap().0;
+        let id = scope["window"].as_str().unwrap().to_owned();
+        let window = state.ui_actions.window(&id).unwrap();
+        *window.touched.lock().unwrap() = Instant::now() - Duration::from_secs(100);
+        assert!(state.ui_actions.ensure_window(&id).is_err());
+        let body = json!({"stage":"requested","scope":scope,"request_id":"resumed","actor":{"id":"local-user","kind":"human"},"arguments":{},"action":{"label":"Run"}});
+        let _ = receipt(State(state.clone()), Path(id.clone()), Json(body))
+            .await
+            .unwrap();
+        assert!(state.ui_actions.ensure_window(&id).is_ok());
+        *window.touched.lock().unwrap() = Instant::now() - Duration::from_secs(100);
+        window
+            .send
+            .try_send(Request {
+                id: String::new(),
+                actor: json!({}),
+                method: "ui_cancel".into(),
+                arguments: json!({}),
+            })
+            .unwrap();
+        let _ = poll(State(state.clone()), Path(id.clone())).await.unwrap();
+        assert!(state.ui_actions.ensure_window(&id).is_ok());
+        let _ = close(State(state.clone()), Path(id.clone())).await;
+        assert!(poll(State(state), Path(id)).await.is_err());
     }
 
     #[tokio::test]

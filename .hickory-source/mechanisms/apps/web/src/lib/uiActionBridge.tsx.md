@@ -356,6 +356,24 @@ describe("registered human UI and structured agent transport", () => {
     expect(screen.queryByText(descriptor.handle)).toBeNull();
   });
 
+  // An intent failure must remain readable outside the clipped rail and dismissible.
+  it("shows a complete rail failure outside the toolbar without running the cell", async () => {
+    const message = "Originating UI window stopped responding " + "host detail ".repeat(40);
+    const actions = new UiActions(scope, () => true, async () => { throw Error(message); });
+    const callback = vi.fn();
+    const card: DocCard = { key: "failed-exec", kind: "exec", index: 0, at: 1, from: 1, to: 4, label: "printf" };
+    const mounted = render(<UiActionContext.Provider value={actions}><CardRail documentId="failure" view={null} cards={[card]} stateOf={() => "idle"} openKey={null} renderedAt={[]} actionsOf={() => ["run"]} replayingAt={[]} onAction={callback} /></UiActionContext.Provider>);
+    fireEvent.click(mounted.getByRole("button", { name: /printf.*click to run it/ }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(message);
+    expect(alert.closest(".cm-card-rail")).toBeNull();
+    expect(alert.parentElement).toBe(document.body);
+    expect(callback).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    mounted.unmount();
+  });
+
   it("runs the existing cell callback once per request and never claims runtime verification", async () => {
     const { actions, receipts } = registry();
     const callback = vi.fn();
