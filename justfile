@@ -174,15 +174,27 @@ test-unstable-release:
     bash -n scripts/build-unstable-macos.sh scripts/dist-desktop.sh
 
 # Build and install the native macOS app in Applications (no disk image needed).
-local-install:
+local-install finish="false":
     #!/usr/bin/env bash
     set -Eeuo pipefail
     phase="checking prerequisites"
+    finish={{quote(finish)}}
+    if [[ "$finish" != false && "$finish" != true ]]; then
+      echo "Expected finish=false (build and install) or true (install the existing build)." >&2
+      exit 1
+    fi
+    privileged=()
+    if [ "$finish" = true ]; then privileged=(sudo); fi
+    install_retry() {
+      echo "To finish installing the verified build without rebuilding, run:" >&2
+      printf 'sudo -v && just --justfile %q local-install true\n' "$PWD/justfile" >&2
+    }
     trap 'status=$?; echo "local-install failed while $phase (exit $status). See ${log:-the output above}." >&2' ERR
     if [ "$(uname -s)" != Darwin ] || [ "$(uname -m)" != arm64 ]; then
       echo "local-install requires an Apple Silicon Mac." >&2
       exit 1
     fi
+    if [ "$finish" = false ]; then
     if ! command -v cargo-tauri >/dev/null 2>&1; then
       echo "Install the desktop build tool first: cargo install tauri-cli --version '^2' --locked" >&2
       exit 1
@@ -191,7 +203,8 @@ local-install:
       echo "Install uv first (the bundled Python agent is built with it): https://docs.astral.sh/uv/getting-started/installation/" >&2
       exit 1
     fi
-    if [ ! -w /Applications ]; then
+    fi
+    if [ "$finish" = false ] && [ ! -w /Applications ]; then
       echo "local-install needs write access to /Applications." >&2
       exit 1
     fi
@@ -199,6 +212,8 @@ local-install:
     log="$PWD/.dev/local-install.log"
     exec > >(tee "$log") 2>&1
     echo "Install log: $log"
+    export CARGO_TARGET_DIR="$PWD/apps/desktop/src-tauri/target"
+    if [ "$finish" = false ]; then
     phase="building the release app"
     echo "Building the release app (local ad-hoc signing; notarization is skipped)."
     if [ ! -d apps/web/node_modules ]; then
@@ -222,6 +237,7 @@ local-install:
         --config ../../../.dev/desktop-cli.json \
         --config ../../../.dev/desktop-python-agent.json
     )
+    fi
     bundle="$CARGO_TARGET_DIR/aarch64-apple-darwin/release/bundle/macos/Hickory Docs.app"
     phase="verifying the release signature"
     echo "Verifying the release signature."
@@ -231,20 +247,37 @@ local-install:
     # bundle until the replacement succeeds.
     phase="staging the app for installation"
     echo "Staging $destination."
-    staging="$(mktemp -d /Applications/.hickory-install.XXXXXX)"
-    trap 'rm -rf "$staging"' EXIT
+    if ! staging="$("${privileged[@]}" mktemp -d /Applications/.hickory-install.XXXXXX)"; then
+      install_retry
+      exit 1
+    fi
+    # Keep staging user-owned: compilation, copying, and registration stay unprivileged.
+    if [ "$finish" = true ]; then sudo chown "$(id -u):$(id -g)" "$staging"; fi
+    trap '
+      status=$?
+      "${privileged[@]}" rm -rf "$staging" || true
+      exit "$status"
+    ' EXIT
     # Compile before replacing anything: no downloaded association utility.
     rustc --edition=2024 scripts/default-markdown-editor.rs -o "$staging/default-markdown-editor"
     ditto "$bundle" "$staging/Hickory Docs.app"
     phase="replacing the installed app"
     if [ -e "$destination" ]; then
-      mv "$destination" "$staging/previous.app"
+      if ! "${privileged[@]}" mv "$destination" "$staging/previous.app"; then
+        install_retry
+        exit 1
+      fi
     fi
-    if ! mv "$staging/Hickory Docs.app" "$destination"; then
+    if ! "${privileged[@]}" mv "$staging/Hickory Docs.app" "$destination"; then
       if [ -e "$staging/previous.app" ]; then
-        mv "$staging/previous.app" "$destination"
+        if ! "${privileged[@]}" mv "$staging/previous.app" "$destination"; then
+          echo "Rollback failed; previous app preserved at $staging/previous.app." >&2
+          trap - EXIT
+          exit 1
+        fi
       fi
       echo "Could not replace $destination; restored the previous app if present." >&2
+      install_retry
       exit 1
     fi
     phase="registering the installed app with macOS"
