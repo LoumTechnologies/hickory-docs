@@ -43,7 +43,8 @@ responses, exhausted response lists and iteration exhaustion produce errors.
 ## Inject clients
 
 `core.Agent(model, tools, execute, record, cancelled)` is the independent API.
-`model.complete(messages)` returns raw model response text.
+`model.complete(messages)` returns raw text or `ModelResponse(text, finish_reason, metrics)`.
+Use the response object to preserve token-limit status; truncated actions never execute.
 `tools.call(name, arguments)` implements capabilities; `tools.complete(summary)`
 returns an acceptance receipt. The executor interprets a snippet and returns an
 observation. The recorder and cancellation callback are optional.
@@ -156,3 +157,95 @@ CLI/HTTP/WS tests, confinement checks and Chromium acceptance. Both use fake
 models, temporary workspaces and no paid provider calls. Linux confinement needs
 working `bwrap` and user namespaces. The runtime is bundled in macOS desktop
 builds; CLI archives and other desktop platforms still need a configured runtime.
+
+## Continue from an accepted construction
+
+Successful completion now presents the accepted literate artifact as the answer.
+Its explanatory order describes the construction, not the chronology of discovery.
+The session retains model summaries, wrong turns, tool receipts and exact requests.
+After a successful submission, the worker can continue from the accepted document
+instead of its exploratory messages. The host rechecks freshness first; stale
+acceptance cannot become a handoff. A trusted stage instruction then asks the
+model to assess remaining requirements and finish, rather than restart discovery.
+It grants no new authority and does not certify that the task is fulfilled. The original task and selected editor context
+remain. Ancestry records condensation as an opaque derivation: byte equality does
+not establish that every important lesson survived.
+
+`HICKORY_AGENT_DOCUMENT_HANDOFF=false` disables this request replacement for paired
+experiments. The final completion gate is unchanged. Previous accepted documents
+are retained as assistant exchanges on continuation, with their historical scope.
+
+## Run a bounded local experiment
+
+The independent local client uses an installed loopback Ollama model, without a
+cloud fallback or model download. It sets CPU execution, context allocation,
+sampling and thinking explicitly and records Ollama's load, prompt and generation
+timings. It refuses an obviously oversized load on a busy Linux host. The input
+size estimate is a heuristic; inspect actual allocated context and reported usage.
+
+For a read-only fixture smoke test:
+
+```sh
+PYTHONPATH="$PWD/apps/agent/src" apps/agent/.venv/bin/python -m hickory_agent_worker.cli \
+  --ollama-model qwen3.5:latest --instruction-profile focused \
+  --workspace /absolute/path/to/fixtures 'Read the documents and summarize them'
+```
+
+For the focused coding experiment, use a built `hick` binary:
+
+```sh
+PYTHONPATH="$PWD/apps/agent/src" apps/agent/.venv/bin/python -m hickory_agent_worker.local_experiment \
+  --hick target/debug/hick --model qwen3.5:latest \
+  --instruction-profile focused --output target/local-agent/my-run
+```
+
+The runner compares temperatures 1.0 and 0.2 with append and document-handoff
+contexts on three small tasks. Use `--repetitions 2` to use seeds 42 and 43 and
+reverse mode order in the second repetition. `--tasks ledger`, `--modes handoff`,
+`--temperatures 0.2`, `--context-tokens 8192` and `--output-tokens 768` bound a
+smaller run. A result directory resumes only with identical configuration;
+interrupted attempts are preserved separately. Requests, replies, candidate
+revisions, actual check receipts and `report.json` remain there. These are local
+development fixtures, not production review or evidence of frontier-model parity.
+Candidate code runs in Monty with no tool callback. Hickory reconstructs candidate
+bytes in disposable directories. Public examples guide repair; held-out examples
+are scored only after the agent stops. Input mutation is non-passing.
+
+For this experiment's state, inspect its `report.json` and per-case `result.json`.
+`ollama ps` shows residency and allocated context. Neither is a regression check.
+Broad regressions and their status monitoring remain a separate maintainer task.
+
+## Configure local inference through the hosted agent
+
+The existing compatible client accepts `OPENAI_BASE_URL` as the **complete** URL,
+for example `http://127.0.0.1:11434/v1/chat/completions`. Use provider `openai`, the
+installed model id, and a nonempty local placeholder key. Launch Hickory with
+these environment values; settings do not currently expose a local endpoint form.
+The standalone development client's `--base-url` instead appends that route.
+Native Ollama settings above apply to the independent client; hosted compatible
+requests depend on the endpoint's supported fields and server context allocation.
+
+Host controls (all optional):
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `HICKORY_AGENT_INFERENCE_TIMEOUT_SECS` | 180 | Per-request wall time; 1–14400 seconds |
+| `HICKORY_AGENT_RUN_TIMEOUT_SECS` | 3600 | Whole-run wall time; 1–86400 seconds |
+| `HICKORY_AGENT_CONTEXT_BYTES` | 700000 | Explicit request byte guard; 1024–700000 |
+| `HICKORY_AGENT_DOCUMENT_HANDOFF` | true | Replace exploration only after current acceptance |
+| `HICKORY_AGENT_CONTEXT_LAYOUT` | structured | `interleaved` places revision-matched captured evidence beside selected source |
+| `HICKORY_AGENT_INSTRUCTION_PROFILE` | full | `focused` selects shorter capability-based guidance; private predictions retain full policy |
+| `HICKORY_AGENT_MAX_OUTPUT_TOKENS` | 16384 | Compatible-client output cap; 1–131072 |
+| `HICKORY_AGENT_TEMPERATURE` | endpoint default | Optional finite value from 0 to 2 |
+| `HICKORY_AGENT_TOP_P` | endpoint default | Optional finite value from 0 to 1 |
+| `HICKORY_AGENT_TOP_K` | endpoint default | Optional integer from 1 to 1000 |
+| `HICKORY_AGENT_REASONING_EFFORT` | endpoint default | `none`, `low`, `medium` or `high`, if supported |
+
+Malformed host controls fail before inference. Larger output limits do not expand
+Monty snippet or transport budgets. A token-limit response is retained as evidence
+but no action in it executes; the agent is asked to split the unfinished step.
+The focused profile is opt-in because small fixture results do not establish
+coverage of all production tasks. Every profile retains independent tool approval
+and host completion checks.
+
+See [the document-loop and context-placement study](local-agent-study.md) for the separate hypotheses, experimental commands and limits.

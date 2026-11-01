@@ -21,6 +21,21 @@ Requirement decision: Apply the current Python completion requirement and retire
 Implementation review: not verified. Executed checks and human judgment are recorded separately. Source and test changes stale earlier evidence.
 
 
+## Verified document handoff
+
+After a successful submission, Python may replace exploratory messages with the
+accepted literate construction. The host rechecks its fingerprint before the
+handoff. The original task and editor selection remain; discarded exploration
+remains in the session and context ancestry. This establishes reproduction of
+captured outputs, not preservation of all meaning. Constraints and actual check
+receipts must remain explicit in the authored explanation.
+
+The [local workflow mechanism](../../../mechanisms/apps/agent/local-workflow.md)
+contains focused handoff witnesses and an isolated local-model experiment runner.
+It does not change production edit approval, grant shell execution, or certify
+that a reviewer prefers the explanation. Candidate revisions and their actual
+public checks remain separate from held-out scoring.
+
 ## Implementation
 
 ## Test the behavior: `model_claims_and_worker_prints_cannot_certify_completion`

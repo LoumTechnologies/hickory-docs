@@ -336,6 +336,8 @@ pub fn client_for_action_with_limit(
 <a id="f-2be2d28e151b-configured_client"></a>
 ### `configured_client`
 
+Compatible clients validate optional inference settings before a request. The provider selector still fails on unknown providers and missing credentials; local endpoint configuration does not grant new workspace authority.
+
 <storycode:copy id="f-2be2d28e151b-configured_client">
 fn configured_client(
     selector: &str,
@@ -380,7 +382,9 @@ fn configured_client(
             Arc::new(c)
         }
         ProviderSelection::Compatible(p) => {
-            let mut c = OpenAiCompatClient::new(p).with_api_key(key);
+            let mut c = OpenAiCompatClient::new(p)
+                .with_api_key(key)
+                .with_generation_environment()?;
             if json_action && p == crate::llm_openai::Provider::DeepSeek {
                 c = c.with_json_object();
             }

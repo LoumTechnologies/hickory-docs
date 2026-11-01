@@ -57,7 +57,12 @@ export async function editorContext(
       : tab.kind === "generated" ? `output:${tab.docId}:${tab.target}` : `file:${tab.target}`;
     documents.push(await projectDocument(buffer.id, buffer.content, view ?? retainedReadingState(key), selection[buffer.id] === "pinned"));
   }
-  const observations = [...new Map(buffers.flatMap(buffer => buffer.observations).map(record => [JSON.stringify(record), record])).values()];
+  // Keep the capture's buffer identity: a provider URI can be an alias rather
+  // than the editor path, and flattening observations otherwise loses that join.
+  const revisions = new Map(documents.map(document => [document.id, document.revision]));
+  const observations = [...new Map(buffers.flatMap(buffer => buffer.observations.map(record => ({
+    ...record, source_buffer: { id: buffer.id, revision: revisions.get(buffer.id) ?? null },
+  }))).map(record => [JSON.stringify(record), record])).values()];
   const projection: ReadingProjection = { version: 1, documents, observations, estimate: projectionEstimate({ documents, observations }) };
   return { live: true, buffers, ...(originatingWindow ? { ui_window: originatingWindow } : {}), ...(selection ? { projection } : {}) };
 }

@@ -485,8 +485,9 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
             turn["answer"]
                 .as_str()
                 .unwrap()
-                .starts_with("Changeset verified")
+                .starts_with("<hick:doc")
         );
+        assert!(turn["answer"].as_str().unwrap().contains("Source-output equality verified"));
         assert_eq!(turn["usage"]["input_tokens"], 21);
         assert_eq!(app.root.join("proposal.md").exists(), accept);
         let mut events = vec![];
@@ -559,7 +560,7 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
                 .last()
                 .unwrap()
                 .iter()
-                .any(|m| m.content.contains("Stopped without verification."))
+                .any(|m| matches!(&m.role, hickory_agent::Role::Assistant) && m.content.starts_with("<hick:doc"))
         );
         assert!(
             requests
@@ -571,6 +572,7 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
         // Keep submitted messages for exact manifest comparison below.
         let path = app.root.join(turn["session"].as_str().unwrap());
         let source = std::fs::read_to_string(&path).unwrap();
+        assert!(source.contains("Stopped without verification."), "The declaration remains historical session evidence");
         assert!(source.contains("python-edit-review"));
         assert!(source.contains("python-model-response"));
         // Guarantee: docs/guarantees/agent/python-requests-have-validated-context.md
@@ -654,7 +656,7 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
             t["answer"]
                 .as_str()
                 .unwrap()
-                .starts_with("Changeset verified")
+                .starts_with("<hick:doc")
         }));
     }
 }

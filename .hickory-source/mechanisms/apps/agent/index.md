@@ -24,4 +24,17 @@ Choose and deliver agent context while preserving the host protocol and the evid
 - [`apps/agent/tests/test_worker.py`](tests/test_worker.py.md)
 <storycode:include file="tests/test_worker.py.md" />
 
+- [Verified document handoff and local measurements](local-workflow.md)
+<storycode:include file="local-workflow.md" />
+
+- [Document loop and context-placement study](document-context-study.md)
+<storycode:include file="document-context-study.md" />
+
+- [Selected source with captured evidence](source-context-reading.md)
+<storycode:include file="source-context-reading.md" />
+
+
+- [Historical coding benchmark and readable evidence](historical-coding-benchmark.md)
+<storycode:include file="historical-coding-benchmark.md" />
+
 </storycode:doc>

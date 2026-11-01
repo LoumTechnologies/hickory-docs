@@ -38,6 +38,8 @@ const MAX_FRAME: usize = 1_048_576;
 <a id="f-609d98dd1fad-Config"></a>
 ### `Config`
 
+Local inference can legitimately take longer than a cloud request. Read bounded host configuration once before spawning the worker; malformed values fail before any model call. The context limit is in bytes and cannot expand the transport ceiling. A handoff switch permits paired experiments without changing safety gates.
+
 <storycode:copy id="f-609d98dd1fad-Config">
 pub struct Config {
     pub python: PathBuf,
@@ -45,6 +47,52 @@ pub struct Config {
     pub doc: Option<PathBuf>,
     pub prompt: String,
     pub max_turns: usize,
+}
+
+/// Trusted resource limits. Never accepted from a worker or model tool call.
+struct RuntimeLimits {
+    inference_seconds: u64,
+    run_seconds: u64,
+    context_bytes: u64,
+    document_handoff: bool,
+    instruction_profile: String,
+    context_layout: String,
+}
+impl RuntimeLimits {
+    fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Result<Self> {
+        let number = |name: &str, default: u64, min: u64, max: u64| -> Result<u64> {
+            let value = lookup(name)
+                .map(|v| v.parse::<u64>())
+                .transpose()
+                .with_context(|| format!("{name} must be an integer"))?
+                .unwrap_or(default);
+            ensure!(
+                (min..=max).contains(&value),
+                "{name} must be between {min} and {max}"
+            );
+            Ok(value)
+        };
+        let handoff = lookup("HICKORY_AGENT_DOCUMENT_HANDOFF").unwrap_or_else(|| "true".into());
+        ensure!(
+            matches!(handoff.as_str(), "true" | "false"),
+            "HICKORY_AGENT_DOCUMENT_HANDOFF must be true or false"
+        );
+        let profile = lookup("HICKORY_AGENT_INSTRUCTION_PROFILE").unwrap_or_else(|| "full".into());
+        ensure!(
+            matches!(profile.as_str(), "full" | "focused"),
+            "HICKORY_AGENT_INSTRUCTION_PROFILE must be full or focused"
+        );
+        let layout = lookup("HICKORY_AGENT_CONTEXT_LAYOUT").unwrap_or_else(|| "structured".into());
+        ensure!(matches!(layout.as_str(), "structured" | "interleaved"), "HICKORY_AGENT_CONTEXT_LAYOUT must be structured or interleaved");
+        Ok(Self {
+            context_layout: layout,
+            instruction_profile: profile,
+            inference_seconds: number("HICKORY_AGENT_INFERENCE_TIMEOUT_SECS", 180, 1, 14400)?,
+            run_seconds: number("HICKORY_AGENT_RUN_TIMEOUT_SECS", 3600, 1, 86400)?,
+            context_bytes: number("HICKORY_AGENT_CONTEXT_BYTES", 700000, 1024, 700000)?,
+            document_handoff: handoff == "true",
+        })
+    }
 }
 
 </storycode:copy>
@@ -358,6 +406,7 @@ struct HostEditorBuffer {
 <storycode:copy id="f-609d98dd1fad-Host">
 struct Host<'a> {
     config: &'a Config,
+    limits: RuntimeLimits,
     client: &'a dyn LlmClient,
     review: &'a mut dyn Review,
     server: Server,
@@ -374,10 +423,12 @@ struct Host<'a> {
     finished: bool,
     unchecked_edits: bool,
     ui_checks_recorded: bool,
+    runtime_receipts: Vec<Value>,
     summary: String,
     usage: Usage,
     on_event: &'a mut (dyn FnMut(AgentEvent) + Send),
 }
+
 </storycode:copy>
 <a id="f-609d98dd1fad-host"></a>
 ### `host`
@@ -467,6 +518,8 @@ pub async fn run(
 <a id="f-609d98dd1fad-run_conversation"></a>
 ### `run_conversation`
 
+The configured timeouts apply to this run without changing cancellation or process confinement. Pass only context size and handoff policy to Python; credentials and inference transport remain in Rust.
+
 <storycode:copy id="f-609d98dd1fad-run_conversation">
 pub async fn run_conversation(
     config: Config,
@@ -475,6 +528,7 @@ pub async fn run_conversation(
     conversation: Conversation,
     on_event: &mut (dyn FnMut(AgentEvent) + Send),
 ) -> Result<Outcome> {
+    let limits = RuntimeLimits::from_lookup(|name| std::env::var(name).ok())?;
     let private = if conversation.private_prediction {
         ensure!(
             review.private_prediction_safe(),
@@ -737,7 +791,13 @@ pub async fn run_conversation(
         ));
     }
     bootstrap["context_references"] = json!(bootstrap_references);
+    bootstrap["instruction_profile"] = json!(limits.instruction_profile);
+    bootstrap["context_layout"] = json!(limits.context_layout);
+    bootstrap["context_limit"] = json!(limits.context_bytes);
+    bootstrap["document_handoff"] = json!(limits.document_handoff);
+    let run_seconds = limits.run_seconds;
     let mut host = Host {
+        limits,
         config: &config,
         client,
         review,
@@ -755,6 +815,7 @@ pub async fn run_conversation(
         finished: false,
         unchecked_edits: false,
         ui_checks_recorded: false,
+        runtime_receipts: Vec::new(),
         summary: String::new(),
         usage: Usage::default(),
         on_event,
@@ -836,8 +897,8 @@ pub async fn run_conversation(
         bail!("Worker request budget exhausted")
     };
     let result: Result<()> = tokio::select! {
-        result = tokio::time::timeout(Duration::from_secs(3600), worker_run) =>
-            result.unwrap_or_else(|_| Err(anyhow::anyhow!("Python agent exceeded the one-hour runtime limit"))),
+        result = tokio::time::timeout(Duration::from_secs(run_seconds), worker_run) =>
+            result.unwrap_or_else(|_| Err(anyhow::anyhow!("Python agent exceeded the configured runtime limit"))),
         _ = async {
             loop {
                 if conversation.cancel.as_ref().is_some_and(|flag| flag.load(Ordering::Relaxed)) { break; }
@@ -945,9 +1006,39 @@ pub async fn probe(python: &Path) -> Result<()> {
 <a id="f-609d98dd1fad-observation_capability_tests"></a>
 ### `observation_capability_tests`
 
+Focused resource witnesses reject zero or excessive timeouts, transport expansion and ambiguous policy values. They use an injected lookup rather than mutating process-global environment during parallel tests.
+
 <storycode:copy id="f-609d98dd1fad-observation_capability_tests">
 #[cfg(test)]
 mod observation_capability_tests {
+    #[test]
+    fn local_limits_are_bounded_and_invalid_configuration_fails_closed() {
+        let defaults = super::RuntimeLimits::from_lookup(|_| None).unwrap();
+        assert_eq!(defaults.inference_seconds, 180);
+        assert!(defaults.document_handoff);
+        let local = super::RuntimeLimits::from_lookup(|key| match key {
+            "HICKORY_AGENT_INFERENCE_TIMEOUT_SECS" => Some("900".into()),
+            "HICKORY_AGENT_CONTEXT_BYTES" => Some("24000".into()),
+            "HICKORY_AGENT_DOCUMENT_HANDOFF" => Some("false".into()),
+            _ => None,
+        })
+        .unwrap();
+        assert_eq!(local.inference_seconds, 900);
+        assert_eq!(local.context_bytes, 24000);
+        assert!(!local.document_handoff);
+        for (key, value) in [
+            ("HICKORY_AGENT_INFERENCE_TIMEOUT_SECS", "0"),
+            ("HICKORY_AGENT_RUN_TIMEOUT_SECS", "86401"),
+            ("HICKORY_AGENT_CONTEXT_BYTES", "700001"),
+            ("HICKORY_AGENT_DOCUMENT_HANDOFF", "yes"),
+        ] {
+            assert!(
+                super::RuntimeLimits::from_lookup(|name| (name == key).then(|| value.into()))
+                    .is_err()
+            );
+        }
+    }
+
     // Guarantee: docs/guarantees/debugging/source-anchored-observation-reading.md
     #[test]
     fn receiving_debugger_evidence_does_not_grant_python_debugger_capabilities() {

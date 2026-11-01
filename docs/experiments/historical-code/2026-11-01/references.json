@@ -1,0 +1,468 @@
+[
+  {
+    "case": "codeio-exception-factory",
+    "reference_public": {
+      "passed": true,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n\nBuild succeeded.\n    0 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.62\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.1203616890052217,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 0,
+        "output": "CHECKS_PASSED\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.31456501499633305,
+        "timeout": false
+      }
+    },
+    "reference_hidden": {
+      "passed": true,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n\nBuild succeeded.\n    0 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.66\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.119281563995173,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 0,
+        "output": "CHECKS_PASSED\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.2644215959953726,
+        "timeout": false
+      }
+    },
+    "before_public": {
+      "passed": false,
+      "stage": "compile",
+      "build": {
+        "exit_code": 1,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n/work/Program.cs(22,30): error CS0103: The name 'MakeException' does not exist in the current context [/work/Study.csproj]\n/work/Program.cs(23,30): error CS0103: The name 'MakeException' does not exist in the current context [/work/Study.csproj]\n\nBuild FAILED.\n\n/work/Program.cs(22,30): error CS0103: The name 'MakeException' does not exist in the current context [/work/Study.csproj]\n/work/Program.cs(23,30): error CS0103: The name 'MakeException' does not exist in the current context [/work/Study.csproj]\n    0 Warning(s)\n    2 Error(s)\n\nTime Elapsed 00:00:02.48\n",
+        "output_truncated": false,
+        "elapsed_seconds": 2.918786735004687,
+        "timeout": false
+      },
+      "run": null
+    },
+    "eligible": true,
+    "fixture_sha256": "700a8c34a9f9108a59c7464d6155cdd8c91a3b587fd7e0f92652bf81ffdb84cc"
+  },
+  {
+    "case": "codeio-strip-type-arguments",
+    "reference_public": {
+      "passed": true,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n\nBuild succeeded.\n    0 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.55\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.018730367999524,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 0,
+        "output": "CHECKS_PASSED\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.31482851200416917,
+        "timeout": false
+      }
+    },
+    "reference_hidden": {
+      "passed": true,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n\nBuild succeeded.\n    0 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.61\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.0695102359968587,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 0,
+        "output": "CHECKS_PASSED\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.3145218739955453,
+        "timeout": false
+      }
+    },
+    "before_public": {
+      "passed": false,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n\nBuild succeeded.\n    0 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.60\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.0714038939986494,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 1,
+        "output": "NotImplementedException: The method or operation is not implemented.\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.3646189350038185,
+        "timeout": false
+      }
+    },
+    "eligible": true,
+    "fixture_sha256": "e7206374dfe79e8dbbc2a3baae206ea44b4f1542145a1e36a113573edaebd232"
+  },
+  {
+    "case": "codeio-variable-name",
+    "reference_public": {
+      "passed": true,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n\nBuild succeeded.\n    0 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.69\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.119940285003395,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 0,
+        "output": "CHECKS_PASSED\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.3143475149990991,
+        "timeout": false
+      }
+    },
+    "reference_hidden": {
+      "passed": true,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n\nBuild succeeded.\n    0 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.63\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.0718743699981133,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 0,
+        "output": "CHECKS_PASSED\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.3144508900004439,
+        "timeout": false
+      }
+    },
+    "before_public": {
+      "passed": false,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n\nBuild succeeded.\n    0 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.66\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.119061520003015,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 1,
+        "output": "NotImplementedException: The method or operation is not implemented.\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.31458566400397103,
+        "timeout": false
+      }
+    },
+    "eligible": true,
+    "fixture_sha256": "b59f5af9170c90384667e43f6998f89de21f7df003641753138081a6ed7bd568"
+  },
+  {
+    "case": "codeio-cartesian-product",
+    "reference_public": {
+      "passed": true,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n\nBuild succeeded.\n    0 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.71\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.170589717999974,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 0,
+        "output": "CHECKS_PASSED\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.31443656400369946,
+        "timeout": false
+      }
+    },
+    "reference_hidden": {
+      "passed": true,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n\nBuild succeeded.\n    0 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.75\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.1716322120046243,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 0,
+        "output": "CHECKS_PASSED\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.31443929800298065,
+        "timeout": false
+      }
+    },
+    "before_public": {
+      "passed": false,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n\nBuild succeeded.\n    0 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.63\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.070217719003267,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 1,
+        "output": "NotImplementedException: The method or operation is not implemented.\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.31442617400171,
+        "timeout": false
+      }
+    },
+    "eligible": true,
+    "fixture_sha256": "7a1706e4543a5727885e03e319fe123cff57def83bf15c2be8ab754522daa3a4"
+  },
+  {
+    "case": "letters-next-image",
+    "reference_public": {
+      "passed": true,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n/work/Program.cs(12,45): warning CS0649: Field 'Subject.ManualClassification.X' is never assigned to, and will always have its default value 0 [/work/Study.csproj]\n/work/Program.cs(12,62): warning CS0649: Field 'Subject.ManualClassification.Letter' is never assigned to, and will always have its default value null [/work/Study.csproj]\n\nBuild succeeded.\n\n/work/Program.cs(12,45): warning CS0649: Field 'Subject.ManualClassification.X' is never assigned to, and will always have its default value 0 [/work/Study.csproj]\n/work/Program.cs(12,62): warning CS0649: Field 'Subject.ManualClassification.Letter' is never assigned to, and will always have its default value null [/work/Study.csproj]\n    2 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.70\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.219500725004764,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 0,
+        "output": "CHECKS_PASSED\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.3146053410018794,
+        "timeout": false
+      }
+    },
+    "reference_hidden": {
+      "passed": true,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n/work/Program.cs(12,62): warning CS0649: Field 'Subject.ManualClassification.Letter' is never assigned to, and will always have its default value null [/work/Study.csproj]\n\nBuild succeeded.\n\n/work/Program.cs(12,62): warning CS0649: Field 'Subject.ManualClassification.Letter' is never assigned to, and will always have its default value null [/work/Study.csproj]\n    1 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.74\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.2196314519969746,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 0,
+        "output": "CHECKS_PASSED\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.3146180559997447,
+        "timeout": false
+      }
+    },
+    "before_public": {
+      "passed": false,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n/work/Program.cs(12,62): warning CS0649: Field 'Subject.ManualClassification.Letter' is never assigned to, and will always have its default value null [/work/Study.csproj]\n/work/Program.cs(12,45): warning CS0649: Field 'Subject.ManualClassification.X' is never assigned to, and will always have its default value 0 [/work/Study.csproj]\n/work/Program.cs(13,20): warning CS0414: The field 'Subject._folderPath' is assigned but its value is never used [/work/Study.csproj]\n\nBuild succeeded.\n\n/work/Program.cs(12,62): warning CS0649: Field 'Subject.ManualClassification.Letter' is never assigned to, and will always have its default value null [/work/Study.csproj]\n/work/Program.cs(12,45): warning CS0649: Field 'Subject.ManualClassification.X' is never assigned to, and will always have its default value 0 [/work/Study.csproj]\n/work/Program.cs(13,20): warning CS0414: The field 'Subject._folderPath' is assigned but its value is never used [/work/Study.csproj]\n    3 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.70\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.169937178005057,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 1,
+        "output": "NotImplementedException: The method or operation is not implemented.\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.314484372996958,
+        "timeout": false
+      }
+    },
+    "eligible": true,
+    "fixture_sha256": "81b766bf84022c00569f781c959785133363fff14b254e1009b18bc64d84a381"
+  },
+  {
+    "case": "letters-record-label",
+    "reference_public": {
+      "passed": true,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n\nBuild succeeded.\n    0 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.67\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.1220075499950326,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 0,
+        "output": "CHECKS_PASSED\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.31439810099982424,
+        "timeout": false
+      }
+    },
+    "reference_hidden": {
+      "passed": true,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n\nBuild succeeded.\n    0 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.72\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.169745127001079,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 0,
+        "output": "CHECKS_PASSED\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.3149671830033185,
+        "timeout": false
+      }
+    },
+    "before_public": {
+      "passed": false,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n/work/Program.cs(12,45): warning CS0649: Field 'Subject.ManualClassification.X' is never assigned to, and will always have its default value 0 [/work/Study.csproj]\n/work/Program.cs(12,62): warning CS0649: Field 'Subject.ManualClassification.Letter' is never assigned to, and will always have its default value null [/work/Study.csproj]\n\nBuild succeeded.\n\n/work/Program.cs(12,45): warning CS0649: Field 'Subject.ManualClassification.X' is never assigned to, and will always have its default value 0 [/work/Study.csproj]\n/work/Program.cs(12,62): warning CS0649: Field 'Subject.ManualClassification.Letter' is never assigned to, and will always have its default value null [/work/Study.csproj]\n    2 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.72\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.2198127029987518,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 1,
+        "output": "NotImplementedException: The method or operation is not implemented.\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.31465329099592054,
+        "timeout": false
+      }
+    },
+    "eligible": true,
+    "fixture_sha256": "7582e1a64082d4ee1423c6a657c93c5325d5c200617a1fb87e13101b36b1ea97"
+  },
+  {
+    "case": "dependencies-to-project",
+    "reference_public": {
+      "passed": true,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n\nBuild succeeded.\n    0 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.67\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.1192520179974963,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 0,
+        "output": "Changing App's dependency on Lib from a package reference to a project reference\nCHECKS_PASSED\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.31447311200463446,
+        "timeout": false
+      }
+    },
+    "reference_hidden": {
+      "passed": true,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n\nBuild succeeded.\n    0 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.70\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.169474397000158,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 0,
+        "output": "CHECKS_PASSED\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.3144486860037432,
+        "timeout": false
+      }
+    },
+    "before_public": {
+      "passed": false,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n\nBuild succeeded.\n    0 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.68\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.1187596719973953,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 1,
+        "output": "Exception: Assertion failed\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.31441450100101065,
+        "timeout": false
+      }
+    },
+    "eligible": true,
+    "fixture_sha256": "ca1099a1c8db2d0bb88e84eddc9c1d6d96dd72dc8b155759f1331a542e1bd15a"
+  },
+  {
+    "case": "dependencies-to-package",
+    "reference_public": {
+      "passed": true,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n\nBuild succeeded.\n    0 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.65\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.1201088929956313,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 0,
+        "output": "Changing App's dependency on Lib from a project reference to a package reference\nCHECKS_PASSED\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.314660254996852,
+        "timeout": false
+      }
+    },
+    "reference_hidden": {
+      "passed": true,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n\nBuild succeeded.\n    0 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.68\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.1698894080036553,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 0,
+        "output": "CHECKS_PASSED\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.3145520010002656,
+        "timeout": false
+      }
+    },
+    "before_public": {
+      "passed": false,
+      "stage": "execute",
+      "build": {
+        "exit_code": 0,
+        "output": "An issue was encountered verifying workloads. For more information, run \"dotnet workload update\".\n\nBuild succeeded.\n    0 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:00:02.66\n",
+        "output_truncated": false,
+        "elapsed_seconds": 3.119711915998778,
+        "timeout": false
+      },
+      "run": {
+        "exit_code": 1,
+        "output": "Exception: Assertion failed\n",
+        "output_truncated": false,
+        "elapsed_seconds": 0.314542692998657,
+        "timeout": false
+      }
+    },
+    "eligible": true,
+    "fixture_sha256": "71c4afc3b117f9f0754bb55dd818a909846ae220e83a780566d0ab917325f519"
+  }
+]

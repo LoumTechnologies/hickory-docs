@@ -15,6 +15,8 @@ Related contracts: [Conversation edits use the client's review policy](../../../
 <a id="f-c40e3ff7e23b-expression_statement"></a>
 ### `expression_statement`
 
+The browser flow expects the accepted document in retained history after real independent review; equality status is separate from runtime evidence.
+
 <storycode:copy id="f-c40e3ff7e23b-expression_statement">
 import { expect, test } from "@playwright/test";
 
@@ -60,7 +62,7 @@ test("configure the Python agent, review its edit, recover the conversation and 
   const history = await (await page.request.get(turnsPath)).json();
   expect(history.turns[0].backend).toBe("python");
   expect(history.turns[0].status).toBe("ok");
-  expect(history.turns[0].answer).toContain("Changeset verified (source-output equality)");
+  expect(history.turns[0].answer).toContain("<hick:doc");
   expect(history.turns[0].answer).toContain("no completed runtime check recorded.");
   await page.reload();
   // Center tabs expose the restored source independently of the review panes.

@@ -32,6 +32,7 @@ import { panes, tab } from "../shell/layout";
 import { api } from "../api/client";
 import { registerSearchEditor } from "../lib/workspaceSearch";
 vi.mock("../api/client", () => ({ request: vi.fn().mockImplementation(async (_method, path: string) => path.endsWith("/agent/python/context") ? { items: [], updates: [], coverage: "No retained references in this fixture" } : {}), api: { responseDraft: vi.fn().mockResolvedValue({ scope: "test", state: null }), saveResponseDraft: vi.fn().mockResolvedValue({ ok: true }), agent: vi.fn(), agentTurns: vi.fn(), file: vi.fn(), executor: vi.fn().mockResolvedValue({}), complete: vi.fn().mockResolvedValue({ suggestions: [] }) } }));
+import { selectObservations, type ObservationReading } from "../debug/observations";
 </storycode:copy>
 <a id="f-41ee32c19327-expression_statement-2"></a>
 ### `expression_statement`
@@ -185,6 +186,8 @@ it("previews only explicitly selected unsaved text and lets a user pin it", asyn
 <a id="f-41ee32c19327-expression_statement-12"></a>
 ### `expression_statement`
 
+The provider matches a path through an alias while retaining its original URI. The selected capture must preserve the correct buffer/revision association and the actual run identity, rather than relying on string equality between those two paths.
+
 <storycode:copy id="f-41ee32c19327-expression_statement-12">
 // Guarantee: docs/guarantees/agent/expanded-reading-projection.md
 it("captures folded and pinned documents independently of focus and scrolling", async () => {
@@ -206,6 +209,26 @@ it("captures folded and pinned documents independently of focus and scrolling", 
     expect(next.projection!.documents[1].segments[0].text).toBe("unsaved pin");
     expect(next.buffers[0].content).toBe(content);
   } finally { view.destroy(); }
+});
+
+it("binds aliased captured evidence to the selected buffer revision", async () => {
+  const file = tab("file", "notes.py"), owner = Symbol("source association");
+  const content = "value = 2\n";
+  const scope = { run: "actual-run", stop: "runtime", frame: null, invocation: null };
+  const reading: ObservationReading = { schema_version: 1,
+    source: { id: "captured-source", uri: "hick:///original.py", revision: "provider-revision", bytes: Array.from(new TextEncoder().encode(content)) },
+    source_aliases: ["notes.py"], scope,
+    locations: [{ id: "loc", revision: "provider-revision", line: 1, location: { source: "captured-source", bytes: { start: 0, end: content.length }, precision: "exact" } }],
+    annotations: [{ evidence: "receipt-1", provider: "fixture", payload_schema: "stdout/v1", location: "loc", scope, payload: { kind: "stdout", value: 2 } }], unsupported: [] };
+  selectObservations(reading, true, false, owner);
+  try {
+    const result = await editorContext([file], file.id, new SessionRegistry(), {}, new Map([[file.id, content]]), { [file.id]: "pinned" });
+    expect(result.projection?.observations).toHaveLength(1);
+    expect(result.projection?.observations[0]).toMatchObject({
+      source_buffer: { id: file.id, revision: result.projection?.documents[0].revision },
+      reading: { source: { uri: "hick:///original.py" }, scope: { run: "actual-run" } },
+    });
+  } finally { selectObservations(reading, false, false, owner); }
 });
 </storycode:copy>
 

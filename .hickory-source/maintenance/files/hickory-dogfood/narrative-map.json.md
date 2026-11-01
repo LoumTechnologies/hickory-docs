@@ -147362,6 +147362,328 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/apps/web/src/components/ContextUpdates.tsx.md",
       "symbol": "context-gutter",
       "basis": "explained-decision"
+    },
+    {
+      "id": "local-agent-312b58ba-dependencies",
+      "output": "apps/agent/src/hickory_agent_worker/local.py",
+      "page": ".hickory-source/mechanisms/apps/agent/local-workflow.md",
+      "symbol": "dependencies",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "local-agent-312b58ba-LocalSettings",
+      "output": "apps/agent/src/hickory_agent_worker/local.py",
+      "page": ".hickory-source/mechanisms/apps/agent/local-workflow.md",
+      "symbol": "LocalSettings",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "local-agent-312b58ba-OllamaModel",
+      "output": "apps/agent/src/hickory_agent_worker/local.py",
+      "page": ".hickory-source/mechanisms/apps/agent/local-workflow.md",
+      "symbol": "OllamaModel",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "local-agent-7a982a28-dependencies",
+      "output": "apps/agent/src/hickory_agent_worker/local_experiment.py",
+      "page": ".hickory-source/mechanisms/apps/agent/local-workflow.md",
+      "symbol": "dependencies",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "local-agent-7a982a28-digest",
+      "output": "apps/agent/src/hickory_agent_worker/local_experiment.py",
+      "page": ".hickory-source/mechanisms/apps/agent/local-workflow.md",
+      "symbol": "digest",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "local-agent-7a982a28-evaluate",
+      "output": "apps/agent/src/hickory_agent_worker/local_experiment.py",
+      "page": ".hickory-source/mechanisms/apps/agent/local-workflow.md",
+      "symbol": "evaluate",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "local-agent-7a982a28-ExperimentTools",
+      "output": "apps/agent/src/hickory_agent_worker/local_experiment.py",
+      "page": ".hickory-source/mechanisms/apps/agent/local-workflow.md",
+      "symbol": "ExperimentTools",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "local-agent-7a982a28-run-case",
+      "output": "apps/agent/src/hickory_agent_worker/local_experiment.py",
+      "page": ".hickory-source/mechanisms/apps/agent/local-workflow.md",
+      "symbol": "run-case",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "local-agent-7a982a28-main",
+      "output": "apps/agent/src/hickory_agent_worker/local_experiment.py",
+      "page": ".hickory-source/mechanisms/apps/agent/local-workflow.md",
+      "symbol": "main",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "local-agent-b2c89978-dependencies",
+      "output": "apps/agent/tests/test_local_workflow.py",
+      "page": ".hickory-source/mechanisms/apps/agent/local-workflow.md",
+      "symbol": "dependencies",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "local-agent-b2c89978-HandoffTests",
+      "output": "apps/agent/tests/test_local_workflow.py",
+      "page": ".hickory-source/mechanisms/apps/agent/local-workflow.md",
+      "symbol": "HandoffTests",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "local-agent-b2c89978-LocalTransportTests",
+      "output": "apps/agent/tests/test_local_workflow.py",
+      "page": ".hickory-source/mechanisms/apps/agent/local-workflow.md",
+      "symbol": "LocalTransportTests",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-5b535e0b-dependencies",
+      "page": ".hickory-source/mechanisms/apps/agent/document-context-study.md",
+      "output": "apps/agent/src/hickory_agent_worker/context_study.py",
+      "symbol": "dependencies",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-5b535e0b-render-reading",
+      "page": ".hickory-source/mechanisms/apps/agent/document-context-study.md",
+      "output": "apps/agent/src/hickory_agent_worker/context_study.py",
+      "symbol": "render_reading",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-5b535e0b-make-case",
+      "page": ".hickory-source/mechanisms/apps/agent/document-context-study.md",
+      "output": "apps/agent/src/hickory_agent_worker/context_study.py",
+      "symbol": "make_case",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-5b535e0b-score",
+      "page": ".hickory-source/mechanisms/apps/agent/document-context-study.md",
+      "output": "apps/agent/src/hickory_agent_worker/context_study.py",
+      "symbol": "score",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-5b535e0b-main",
+      "page": ".hickory-source/mechanisms/apps/agent/document-context-study.md",
+      "output": "apps/agent/src/hickory_agent_worker/context_study.py",
+      "symbol": "main",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-e1b1b939-dependencies",
+      "page": ".hickory-source/mechanisms/apps/agent/document-context-study.md",
+      "output": "apps/agent/src/hickory_agent_worker/document_loop.py",
+      "symbol": "dependencies",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-e1b1b939-DocumentResult",
+      "page": ".hickory-source/mechanisms/apps/agent/document-context-study.md",
+      "output": "apps/agent/src/hickory_agent_worker/document_loop.py",
+      "symbol": "DocumentResult",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-e1b1b939-DocumentAgent",
+      "page": ".hickory-source/mechanisms/apps/agent/document-context-study.md",
+      "output": "apps/agent/src/hickory_agent_worker/document_loop.py",
+      "symbol": "DocumentAgent",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-caea5ef6-dependencies",
+      "page": ".hickory-source/mechanisms/apps/agent/document-context-study.md",
+      "output": "apps/agent/src/hickory_agent_worker/document_experiment.py",
+      "symbol": "dependencies",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-caea5ef6-DocumentEvaluator",
+      "page": ".hickory-source/mechanisms/apps/agent/document-context-study.md",
+      "output": "apps/agent/src/hickory_agent_worker/document_experiment.py",
+      "symbol": "DocumentEvaluator",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-caea5ef6-main",
+      "page": ".hickory-source/mechanisms/apps/agent/document-context-study.md",
+      "output": "apps/agent/src/hickory_agent_worker/document_experiment.py",
+      "symbol": "main",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-d0dbd528-dependencies",
+      "page": ".hickory-source/mechanisms/apps/agent/document-context-study.md",
+      "output": "apps/agent/tests/test_document_context.py",
+      "symbol": "dependencies",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-d0dbd528-DocumentLoopTests",
+      "page": ".hickory-source/mechanisms/apps/agent/document-context-study.md",
+      "output": "apps/agent/tests/test_document_context.py",
+      "symbol": "DocumentLoopTests",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-d0dbd528-ContextPlacementTests",
+      "page": ".hickory-source/mechanisms/apps/agent/document-context-study.md",
+      "output": "apps/agent/tests/test_document_context.py",
+      "symbol": "ContextPlacementTests",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-5d3a1d48-dependencies",
+      "page": ".hickory-source/mechanisms/apps/agent/source-context-reading.md",
+      "output": "apps/agent/src/hickory_agent_worker/context_reading.py",
+      "symbol": "dependencies",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-5d3a1d48-render-editor-context",
+      "page": ".hickory-source/mechanisms/apps/agent/source-context-reading.md",
+      "output": "apps/agent/src/hickory_agent_worker/context_reading.py",
+      "symbol": "render_editor_context",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-22263866-dependencies",
+      "page": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "output": "apps/agent/src/hickory_agent_worker/history_benchmark.py",
+      "symbol": "dependencies",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-22263866-digest",
+      "page": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "output": "apps/agent/src/hickory_agent_worker/history_benchmark.py",
+      "symbol": "digest",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-22263866-load-dataset",
+      "page": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "output": "apps/agent/src/hickory_agent_worker/history_benchmark.py",
+      "symbol": "load_dataset",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-22263866-candidate-method",
+      "page": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "output": "apps/agent/src/hickory_agent_worker/history_benchmark.py",
+      "symbol": "candidate_method",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-22263866-program",
+      "page": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "output": "apps/agent/src/hickory_agent_worker/history_benchmark.py",
+      "symbol": "program",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-22263866-fixture-fingerprint",
+      "page": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "output": "apps/agent/src/hickory_agent_worker/history_benchmark.py",
+      "symbol": "fixture_fingerprint",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-22263866-validate-references",
+      "page": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "output": "apps/agent/src/hickory_agent_worker/history_benchmark.py",
+      "symbol": "validate_references",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-22263866-invoke",
+      "page": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "output": "apps/agent/src/hickory_agent_worker/history_benchmark.py",
+      "symbol": "invoke",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-22263866-grade",
+      "page": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "output": "apps/agent/src/hickory_agent_worker/history_benchmark.py",
+      "symbol": "grade",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-22263866-reading",
+      "page": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "output": "apps/agent/src/hickory_agent_worker/history_benchmark.py",
+      "symbol": "reading",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-22263866-feedback-text",
+      "page": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "output": "apps/agent/src/hickory_agent_worker/history_benchmark.py",
+      "symbol": "feedback_text",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-22263866-image-identity",
+      "page": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "output": "apps/agent/src/hickory_agent_worker/history_benchmark.py",
+      "symbol": "image_identity",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-22263866-verify-references",
+      "page": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "output": "apps/agent/src/hickory_agent_worker/history_benchmark.py",
+      "symbol": "verify_references",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-22263866-experiment",
+      "page": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "output": "apps/agent/src/hickory_agent_worker/history_benchmark.py",
+      "symbol": "experiment",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-22263866-main",
+      "page": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "output": "apps/agent/src/hickory_agent_worker/history_benchmark.py",
+      "symbol": "main",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-1128f21f-dependencies",
+      "page": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "output": "apps/agent/tests/test_history_benchmark.py",
+      "symbol": "dependencies",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-1128f21f-fixture",
+      "page": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "output": "apps/agent/tests/test_history_benchmark.py",
+      "symbol": "fixture",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-1128f21f-HistoricalBenchmarkTests",
+      "page": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "output": "apps/agent/tests/test_history_benchmark.py",
+      "symbol": "HistoricalBenchmarkTests",
+      "basis": "explained-decision"
     }
   ],
   "explanation_gaps": {

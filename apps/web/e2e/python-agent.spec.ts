@@ -42,7 +42,7 @@ test("configure the Python agent, review its edit, recover the conversation and 
   const history = await (await page.request.get(turnsPath)).json();
   expect(history.turns[0].backend).toBe("python");
   expect(history.turns[0].status).toBe("ok");
-  expect(history.turns[0].answer).toContain("Changeset verified (source-output equality)");
+  expect(history.turns[0].answer).toContain("<hick:doc");
   expect(history.turns[0].answer).toContain("no completed runtime check recorded.");
   await page.reload();
   // Center tabs expose the restored source independently of the review panes.

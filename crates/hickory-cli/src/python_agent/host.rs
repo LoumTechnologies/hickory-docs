@@ -5,6 +5,7 @@ impl Host<'_> {
         for record in self.review.take_ui_verifications() {
             metadata(&self.session, "verification", &record)?;
             self.ui_checks_recorded = true;
+            self.runtime_receipts.push(record);
         }
         Ok(())
     }
@@ -436,13 +437,18 @@ impl Host<'_> {
                 )?;
                 (self.on_event)(AgentEvent::Thinking);
                 use futures::StreamExt;
+                let started = std::time::Instant::now();
                 let request = async {
                     let mut stream = self.client.complete_stream(messages).await?;
                     let mut raw = String::new();
                     let mut usage = Usage::default();
                     let mut reasoning = String::new();
+                    let mut finish_reason = None;
                     while let Some(chunk) = stream.next().await {
                         let chunk = chunk?;
+                        if chunk.finish_reason.is_some() {
+                            finish_reason = chunk.finish_reason.clone();
+                        }
                         raw.push_str(&chunk.delta);
                         ensure!(
                             raw.len() <= MAX_FRAME / 2,
@@ -465,14 +471,18 @@ impl Host<'_> {
                             usage.add(&value);
                         }
                     }
-                    Ok::<_, anyhow::Error>((raw, usage, reasoning))
+                    Ok::<_, anyhow::Error>((raw, usage, reasoning, finish_reason))
                 };
                 delivery["state"] = json!("transport_started");
                 metadata(&self.session, "python-context-delivery", &delivery)?;
                 context_delivery(self.review.context_inbox(), &bundle.request, &delivery);
                 self.active_delivery = Some(delivery.clone());
-                let outcome = tokio::time::timeout(Duration::from_secs(180), request).await;
-                let (raw, usage, reasoning) = match outcome {
+                let outcome = tokio::time::timeout(
+                    Duration::from_secs(self.limits.inference_seconds),
+                    request,
+                )
+                .await;
+                let (raw, usage, reasoning, finish_reason) = match outcome {
                     Ok(Ok(value)) => {
                         self.private_failure = None;
                         value
@@ -533,12 +543,16 @@ impl Host<'_> {
                     inbox.save()?;
                 }
                 self.active_delivery = None;
-                let result = json!({"text":raw,"reference":response_node.id});
+                let metrics = json!({"elapsed_seconds":started.elapsed().as_secs_f64(),
+                    "input_tokens":usage.input_tokens,"output_tokens":usage.output_tokens,
+                    "finish_reason":finish_reason,"model":self.client.model_name()});
+                let result = json!({"text":raw,"reference":response_node.id,
+                    "finish_reason":finish_reason,"metrics":metrics});
                 self.deliveries.get_mut(&bundle.request.id).unwrap().1 = Some(result.clone());
                 metadata(
                     &self.session,
                     "python-model-response",
-                    &json!({"actor":"model-declared","raw":raw,"reasoning":reasoning}),
+                    &json!({"actor":"model-declared","raw":raw,"reasoning":reasoning,"metrics":metrics}),
                 )?;
                 if !reasoning.is_empty() {
                     append(
@@ -574,7 +588,12 @@ impl Host<'_> {
                 ensure!(
                     matches!(
                         kind,
-                        "action" | "observation" | "model-error" | "context-prepared"
+                        "action"
+                            | "observation"
+                            | "model-error"
+                            | "context-prepared"
+                            | "context-handoff"
+                            | "inference-metrics"
                     ),
                     "Unknown worker record kind"
                 );
@@ -615,6 +634,19 @@ impl Host<'_> {
                 });
                 result
             }
+            "handoff" => {
+                ensure!(
+                    self.private.is_none(),
+                    "Private predictions have no ordinary handoff"
+                );
+                self.review.refresh().await?;
+                let artifact = self.server.agent_completion()?;
+                self.record_ui_verifications()?;
+                let mut value = serde_json::to_value(&artifact)?;
+                value["runtime_receipts"] = json!(self.runtime_receipts);
+                metadata(&self.session, "python-document-handoff", &value)?;
+                Ok(value)
+            }
             "complete" => {
                 let summary = params["summary"]
                     .as_str()
@@ -629,7 +661,7 @@ impl Host<'_> {
                 metadata(
                     &self.session,
                     "python-verified-changeset",
-                    &serde_json::to_value(artifact)?,
+                    &serde_json::to_value(&artifact)?,
                 )?;
                 metadata(
                     &self.session,
@@ -642,7 +674,11 @@ impl Host<'_> {
                     "no completed runtime check recorded"
                 };
                 self.summary = format!(
-                    "Changeset verified (source-output equality); {checks}. Model summary:\n\n{summary}"
+                    "{}\n\nSource-output equality verified; {checks}. Explanation accuracy is not certified.",
+                    artifact
+                        .sources
+                        .get(&artifact.entry)
+                        .context("Accepted artifact entry missing")?
                 );
                 append(
                     &self.session,

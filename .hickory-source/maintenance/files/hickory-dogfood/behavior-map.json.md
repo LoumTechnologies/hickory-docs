@@ -8720,7 +8720,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "origin": "docs/guarantees/collaboration/one-road-out-with-a-toll-booth.md",
       "page": ".hickory-source/guarantees/collaboration/one-road-out-with-a-toll-booth/contract.md",
       "domain": "collaboration",
-      "title": "One Road Out, With A Toll Booth On It — Never An Airgap",
+      "title": "One Road Out, With A Toll Booth On It \u2014 Never An Airgap",
       "disposition": "retained-requirement",
       "review": "not verified",
       "references": [
@@ -9420,7 +9420,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "origin": "docs/guarantees/debugging/an-adapter-that-listens-is-connected-to.md",
       "page": ".hickory-source/guarantees/debugging/an-adapter-that-listens-is-connected-to/contract.md",
       "domain": "debugging",
-      "title": "Use the adapter’s transport and the current measured language support",
+      "title": "Use the adapter\u2019s transport and the current measured language support",
       "disposition": "reconciled-requirement",
       "review": "not verified",
       "references": [
@@ -14491,7 +14491,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "origin": "docs/guarantees/lineage/a-refactor-records-what-it-moved.md",
       "page": ".hickory-source/guarantees/lineage/a-refactor-records-what-it-moved/contract.md",
       "domain": "lineage",
-      "title": "A Refactor Records What It Moved — Byte-Exactly, And Only When Continuity Is On",
+      "title": "A Refactor Records What It Moved \u2014 Byte-Exactly, And Only When Continuity Is On",
       "disposition": "retained-requirement",
       "review": "not verified",
       "references": [
@@ -14661,7 +14661,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "origin": "docs/guarantees/lineage/agent-lineage-degrades-without-a-session.md",
       "page": ".hickory-source/guarantees/lineage/agent-lineage-degrades-without-a-session/contract.md",
       "domain": "lineage",
-      "title": "Agent-Authored Bytes Always Report Session, Turn, And A Git-Derived Author — Even When The Session Cannot Be Read",
+      "title": "Agent-Authored Bytes Always Report Session, Turn, And A Git-Derived Author \u2014 Even When The Session Cannot Be Read",
       "disposition": "retained-requirement",
       "review": "not verified",
       "references": [
@@ -64760,6 +64760,436 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "output-test-capture-and-publication-refuse-symlink-ancestors-and-unknown-preexisting-outputs"
       ],
       "narrative_owner": "literate-projects/patch-edits-revalidate-downstream-construction.md"
+    },
+    "apps/agent/src/hickory_agent_worker/local.py": {
+      "source": ".hickory-source/mechanisms/apps/agent/local-workflow.md",
+      "owner": "agent/changeset-completion-is-negotiated-and-checked.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "local-agent-312b58ba-dependencies",
+        "local-agent-312b58ba-LocalSettings",
+        "local-agent-312b58ba-OllamaModel"
+      ]
+    },
+    "apps/agent/src/hickory_agent_worker/local_experiment.py": {
+      "source": ".hickory-source/mechanisms/apps/agent/local-workflow.md",
+      "owner": "agent/changeset-completion-is-negotiated-and-checked.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "local-agent-7a982a28-dependencies",
+        "local-agent-7a982a28-digest",
+        "local-agent-7a982a28-evaluate",
+        "local-agent-7a982a28-ExperimentTools",
+        "local-agent-7a982a28-run-case",
+        "local-agent-7a982a28-main"
+      ]
+    },
+    "apps/agent/tests/test_local_workflow.py": {
+      "source": ".hickory-source/mechanisms/apps/agent/local-workflow.md",
+      "owner": "agent/changeset-completion-is-negotiated-and-checked.md",
+      "used_by": [],
+      "role": "test",
+      "construction": "fragments",
+      "fragments": [
+        "local-agent-b2c89978-dependencies",
+        "local-agent-b2c89978-HandoffTests",
+        "local-agent-b2c89978-LocalTransportTests"
+      ]
+    },
+    "apps/agent/src/hickory_agent_worker/context_study.py": {
+      "source": ".hickory-source/mechanisms/apps/agent/document-context-study.md",
+      "owner": "agent/changeset-completion-is-negotiated-and-checked.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "context-study-5b535e0b-dependencies",
+        "context-study-5b535e0b-render-reading",
+        "context-study-5b535e0b-make-case",
+        "context-study-5b535e0b-score",
+        "context-study-5b535e0b-main"
+      ]
+    },
+    "apps/agent/src/hickory_agent_worker/document_loop.py": {
+      "source": ".hickory-source/mechanisms/apps/agent/document-context-study.md",
+      "owner": "agent/changeset-completion-is-negotiated-and-checked.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "context-study-e1b1b939-dependencies",
+        "context-study-e1b1b939-DocumentResult",
+        "context-study-e1b1b939-DocumentAgent"
+      ]
+    },
+    "apps/agent/src/hickory_agent_worker/document_experiment.py": {
+      "source": ".hickory-source/mechanisms/apps/agent/document-context-study.md",
+      "owner": "agent/changeset-completion-is-negotiated-and-checked.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "context-study-caea5ef6-dependencies",
+        "context-study-caea5ef6-DocumentEvaluator",
+        "context-study-caea5ef6-main"
+      ]
+    },
+    "apps/agent/tests/test_document_context.py": {
+      "source": ".hickory-source/mechanisms/apps/agent/document-context-study.md",
+      "owner": "agent/changeset-completion-is-negotiated-and-checked.md",
+      "used_by": [],
+      "role": "test",
+      "construction": "fragments",
+      "fragments": [
+        "context-study-d0dbd528-dependencies",
+        "context-study-d0dbd528-DocumentLoopTests",
+        "context-study-d0dbd528-ContextPlacementTests"
+      ]
+    },
+    "apps/agent/src/hickory_agent_worker/context_reading.py": {
+      "source": ".hickory-source/mechanisms/apps/agent/source-context-reading.md",
+      "owner": "agent/changeset-completion-is-negotiated-and-checked.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "context-study-5d3a1d48-dependencies",
+        "context-study-5d3a1d48-render-editor-context"
+      ]
+    },
+    "docs/developers/local-agent-study.md": {
+      "source": ".hickory-source/mechanisms/apps/agent/document-context-study.md",
+      "owner": "agent/changeset-completion-is-negotiated-and-checked.md",
+      "used_by": [],
+      "role": "documentation",
+      "construction": "literal"
+    },
+    "docs/developers/local-agent-results-2026-10-31.md": {
+      "source": ".hickory-source/evidence/local-agent-2026-10-31.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/local-agent/2026-10-31/records.json": {
+      "source": ".hickory-source/evidence/local-agent-2026-10-31.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/local-agent/2026-10-31/intervals/project.md": {
+      "source": ".hickory-source/evidence/local-agent-2026-10-31.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/local-agent/2026-10-31/ledger/project.md": {
+      "source": ".hickory-source/evidence/local-agent-2026-10-31.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/local-agent/2026-10-31/tokens/project.md": {
+      "source": ".hickory-source/evidence/local-agent-2026-10-31.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/developers/local-agent-qwen38-2026-11-01.md": {
+      "source": ".hickory-source/evidence/local-agent-qwen38-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/local-agent/2026-11-01-qwen38/records.json": {
+      "source": ".hickory-source/evidence/local-agent-qwen38-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/local-agent/2026-11-01-qwen38/intervals/project.md": {
+      "source": ".hickory-source/evidence/local-agent-qwen38-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/local-agent/2026-11-01-qwen38/ledger/project.md": {
+      "source": ".hickory-source/evidence/local-agent-qwen38-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/local-agent/2026-11-01-qwen38/tokens/project.md": {
+      "source": ".hickory-source/evidence/local-agent-qwen38-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/developers/local-agent-placement-2026-11-01.md": {
+      "source": ".hickory-source/evidence/local-agent-placement-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/local-agent/2026-11-01-placement/records.json": {
+      "source": ".hickory-source/evidence/local-agent-placement-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "apps/agent/src/hickory_agent_worker/history_benchmark.py": {
+      "source": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "owner": "agent/changeset-completion-is-negotiated-and-checked.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "context-study-22263866-dependencies",
+        "context-study-22263866-digest",
+        "context-study-22263866-load-dataset",
+        "context-study-22263866-candidate-method",
+        "context-study-22263866-program",
+        "context-study-22263866-fixture-fingerprint",
+        "context-study-22263866-validate-references",
+        "context-study-22263866-invoke",
+        "context-study-22263866-grade",
+        "context-study-22263866-reading",
+        "context-study-22263866-feedback-text",
+        "context-study-22263866-image-identity",
+        "context-study-22263866-verify-references",
+        "context-study-22263866-experiment",
+        "context-study-22263866-main"
+      ]
+    },
+    "apps/agent/tests/test_history_benchmark.py": {
+      "source": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "owner": "agent/changeset-completion-is-negotiated-and-checked.md",
+      "used_by": [],
+      "role": "test",
+      "construction": "fragments",
+      "fragments": [
+        "context-study-1128f21f-dependencies",
+        "context-study-1128f21f-fixture",
+        "context-study-1128f21f-HistoricalBenchmarkTests"
+      ]
+    },
+    "docs/experiments/historical-code/2026-11-01/dataset.json": {
+      "source": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "owner": "agent/changeset-completion-is-negotiated-and-checked.md",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/provenance.json": {
+      "source": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "owner": "agent/changeset-completion-is-negotiated-and-checked.md",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/references.json": {
+      "source": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "owner": "agent/changeset-completion-is-negotiated-and-checked.md",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/developers/historical-code-benchmark.md": {
+      "source": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "owner": "agent/changeset-completion-is-negotiated-and-checked.md",
+      "used_by": [],
+      "role": "documentation",
+      "construction": "literal"
+    },
+    "docs/developers/historical-code-results-2026-11-01.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/run-records.json": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/cases/codeio-exception-factory.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/cases/codeio-strip-type-arguments.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/cases/codeio-variable-name.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/cases/codeio-cartesian-product.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/cases/letters-next-image.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/cases/letters-record-label.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/cases/dependencies-to-project.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/cases/dependencies-to-package.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/models/qwen3-coder-30b/codeio-exception-factory.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/models/qwen3-coder-30b/codeio-strip-type-arguments.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/models/qwen3-coder-30b/codeio-variable-name.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/models/qwen3-coder-30b/letters-next-image.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/models/qwen3-coder-30b/letters-record-label.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/models/qwen3-coder-30b/dependencies-to-project.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/models/qwen3-coder-30b/dependencies-to-package.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/models/qwen3.8-27b/codeio-exception-factory.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/models/qwen3.8-27b/codeio-strip-type-arguments.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/models/qwen3.8-27b/codeio-variable-name.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/models/qwen3.8-27b/letters-next-image.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/models/qwen3.8-27b/letters-record-label.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/models/qwen3.8-27b/dependencies-to-package.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/diagnostics/qwen38-cartesian-full-class.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
+    },
+    "docs/experiments/historical-code/2026-11-01/diagnostics/qwen-coder-cartesian-richer-feedback.md": {
+      "source": ".hickory-source/evidence/historical-code-2026-11-01.md",
+      "owner": "evidence",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "construction": "literal"
     }
   },
   "evidence_records": [

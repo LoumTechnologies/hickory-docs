@@ -262,7 +262,9 @@ fn configured_client(
             Arc::new(c)
         }
         ProviderSelection::Compatible(p) => {
-            let mut c = OpenAiCompatClient::new(p).with_api_key(key);
+            let mut c = OpenAiCompatClient::new(p)
+                .with_api_key(key)
+                .with_generation_environment()?;
             if json_action && p == crate::llm_openai::Provider::DeepSeek {
                 c = c.with_json_object();
             }

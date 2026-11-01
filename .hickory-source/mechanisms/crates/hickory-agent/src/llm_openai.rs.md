@@ -229,6 +229,7 @@ pub struct OpenAiCompatClient {
     api_key: String,
     model: String,
     max_tokens: u32,
+    generation: serde_json::Map<String, serde_json::Value>,
     json_object: bool,
     base_url: String,
 }
@@ -236,6 +237,8 @@ pub struct OpenAiCompatClient {
 </storycode:copy>
 <a id="f-0150d11c8f60-impl-OpenAiCompatClient"></a>
 ### `impl-OpenAiCompatClient`
+
+Sampling and reasoning effort are optional host configuration. Record them in the serialized provider request, validate finite ranges, and retain provider defaults when unset. These are experiment controls, not claims that one temperature is best for every role.
 
 <storycode:copy id="f-0150d11c8f60-impl-OpenAiCompatClient">
 impl OpenAiCompatClient {
@@ -250,6 +253,7 @@ impl OpenAiCompatClient {
             model: std::env::var(provider.model_env())
                 .unwrap_or_else(|_| provider.default_model().to_string()),
             max_tokens: 16384,
+            generation: serde_json::Map::new(),
             json_object: false,
             base_url: std::env::var(provider.base_url_env())
                 .unwrap_or_else(|_| provider.default_base_url().to_string()),
@@ -288,6 +292,12 @@ impl OpenAiCompatClient {
         self
     }
 
+    /// Explicit, recorded request settings; absent values retain vendor defaults.
+    pub fn with_generation_environment(mut self) -> anyhow::Result<Self> {
+        self.generation = generation_options(|name| std::env::var(name).ok())?;
+        Ok(self)
+    }
+
     /// Which vendor this client talks to.
     pub fn provider(&self) -> Provider {
         self.provider
@@ -320,6 +330,14 @@ impl OpenAiCompatClient {
             "stream": stream,
         });
         body[self.provider.max_tokens_field()] = serde_json::json!(self.max_tokens);
+        for (name, value) in &self.generation {
+            let field = if name == "max_completion_tokens" {
+                self.provider.max_tokens_field()
+            } else {
+                name.as_str()
+            };
+            body[field] = value.clone();
+        }
         if self.json_object {
             body["response_format"] = serde_json::json!({"type":"json_object"});
         }
@@ -354,6 +372,54 @@ impl OpenAiCompatClient {
         }
         Ok(resp)
     }
+}
+
+fn generation_options(
+    lookup: impl Fn(&str) -> Option<String>,
+) -> anyhow::Result<serde_json::Map<String, serde_json::Value>> {
+    let mut options = serde_json::Map::new();
+    for (env, field, min, max) in [
+        ("HICKORY_AGENT_TEMPERATURE", "temperature", 0.0, 2.0),
+        ("HICKORY_AGENT_TOP_P", "top_p", 0.0, 1.0),
+    ] {
+        if let Some(text) = lookup(env) {
+            let value: f64 = text
+                .parse()
+                .map_err(|_| anyhow::anyhow!("{env} must be a number"))?;
+            anyhow::ensure!(
+                value.is_finite() && (min..=max).contains(&value),
+                "{env} must be finite and between {min} and {max}"
+            );
+            options.insert(field.into(), serde_json::json!(value));
+        }
+    }
+    for (env, field, max) in [
+        ("HICKORY_AGENT_TOP_K", "top_k", 1000_u32),
+        (
+            "HICKORY_AGENT_MAX_OUTPUT_TOKENS",
+            "max_completion_tokens",
+            131072_u32,
+        ),
+    ] {
+        if let Some(text) = lookup(env) {
+            let value: u32 = text
+                .parse()
+                .map_err(|_| anyhow::anyhow!("{env} must be an integer"))?;
+            anyhow::ensure!(
+                (1..=max).contains(&value),
+                "{env} must be between 1 and {max}"
+            );
+            options.insert(field.into(), serde_json::json!(value));
+        }
+    }
+    if let Some(value) = lookup("HICKORY_AGENT_REASONING_EFFORT") {
+        anyhow::ensure!(
+            ["none", "low", "medium", "high"].contains(&value.as_str()),
+            "Unsupported HICKORY_AGENT_REASONING_EFFORT"
+        );
+        options.insert("reasoning_effort".into(), serde_json::json!(value));
+    }
+    Ok(options)
 }
 
 </storycode:copy>
@@ -652,9 +718,44 @@ fn parse_next_event(buffer: &mut String, done: &mut bool) -> Option<ChatChunk> {
 <a id="f-0150d11c8f60-tests"></a>
 ### `tests`
 
+Request witnesses ensure a local output override replaces the correct vendor field rather than sending both dialects. Invalid finite ranges fail before transport, independently of environment state.
+
 <storycode:copy id="f-0150d11c8f60-tests">
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn local_generation_controls_validate_and_use_the_vendor_output_field() {
+        let options = super::generation_options(|name| match name {
+            "HICKORY_AGENT_TEMPERATURE" => Some("0.2".into()),
+            "HICKORY_AGENT_MAX_OUTPUT_TOKENS" => Some("768".into()),
+            "HICKORY_AGENT_REASONING_EFFORT" => Some("none".into()),
+            _ => None,
+        })
+        .unwrap();
+        for provider in [super::Provider::OpenAi, super::Provider::OpenRouter] {
+            let mut client = super::OpenAiCompatClient::new(provider);
+            client.generation = options.clone();
+            let body = client.request_body(&[], true);
+            assert_eq!(body[provider.max_tokens_field()], 768);
+            assert_eq!(body["temperature"], 0.2);
+            assert_eq!(body["reasoning_effort"], "none");
+            let absent = if provider == super::Provider::OpenAi {
+                "max_tokens"
+            } else {
+                "max_completion_tokens"
+            };
+            assert!(body.get(absent).is_none());
+        }
+        for (key, value) in [
+            ("HICKORY_AGENT_TEMPERATURE", "NaN"),
+            ("HICKORY_AGENT_TOP_P", "2"),
+            ("HICKORY_AGENT_TOP_K", "0"),
+            ("HICKORY_AGENT_MAX_OUTPUT_TOKENS", "131073"),
+        ] {
+            assert!(super::generation_options(|name| (name == key).then(|| value.into())).is_err());
+        }
+    }
+
     use super::*;
 
     // Guarantee: docs/guarantees/verification/predictions-precede-managed-observation.md

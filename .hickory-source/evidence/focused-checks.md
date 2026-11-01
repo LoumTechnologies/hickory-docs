@@ -53,4 +53,20 @@ Paid providers, other native hosts and broad regressions were not exercised. The
 changed context gutter's decisions and lifecycle were exercised in component tests;
 its changed-reference popup was not driven against a paid-provider browser session.
 
+
+- [Local agent measurements and retained raw evidence](local-agent-2026-10-31.md).
+<book:include file="local-agent-2026-10-31.md" />
+
+
+- [Qwen3.8 local CPU measurements](local-agent-qwen38-2026-11-01.md).
+<book:include file="local-agent-qwen38-2026-11-01.md" />
+
+
+- [Context placement measurements](local-agent-placement-2026-11-01.md).
+<book:include file="local-agent-placement-2026-11-01.md" />
+
+
+- [Historical human-code benchmark](historical-code-2026-11-01.md)
+<book:include file="historical-code-2026-11-01.md" />
+
 </book:doc>
