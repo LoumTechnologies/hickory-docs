@@ -37,4 +37,7 @@ Choose and deliver agent context while preserving the host protocol and the evid
 - [Historical coding benchmark and readable evidence](historical-coding-benchmark.md)
 <storycode:include file="historical-coding-benchmark.md" />
 
+- [Factorial context screening and study protocol](factorial-context-study.md)
+<storycode:include file="factorial-context-study.md" />
+
 </storycode:doc>

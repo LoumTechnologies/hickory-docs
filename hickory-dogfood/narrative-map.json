@@ -147676,6 +147676,83 @@
       "output": "apps/agent/tests/test_history_benchmark.py",
       "symbol": "HistoricalBenchmarkTests",
       "basis": "explained-decision"
+    },
+    {
+      "id": "history-wait-for-model-headroom",
+      "page": ".hickory-source/mechanisms/apps/agent/historical-coding-benchmark.md",
+      "output": "apps/agent/src/hickory_agent_worker/history_benchmark.py",
+      "symbol": "open_model",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-baa79e98-dependencies",
+      "page": ".hickory-source/mechanisms/apps/agent/factorial-context-study.md",
+      "output": "apps/agent/src/hickory_agent_worker/factorial_study.py",
+      "symbol": "dependencies",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-baa79e98-conditions",
+      "page": ".hickory-source/mechanisms/apps/agent/factorial-context-study.md",
+      "output": "apps/agent/src/hickory_agent_worker/factorial_study.py",
+      "symbol": "conditions",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-baa79e98-balanced-case",
+      "page": ".hickory-source/mechanisms/apps/agent/factorial-context-study.md",
+      "output": "apps/agent/src/hickory_agent_worker/factorial_study.py",
+      "symbol": "balanced_case",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-baa79e98-context-blocks",
+      "page": ".hickory-source/mechanisms/apps/agent/factorial-context-study.md",
+      "output": "apps/agent/src/hickory_agent_worker/factorial_study.py",
+      "symbol": "context_blocks",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-baa79e98-render",
+      "page": ".hickory-source/mechanisms/apps/agent/factorial-context-study.md",
+      "output": "apps/agent/src/hickory_agent_worker/factorial_study.py",
+      "symbol": "render",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-baa79e98-schedule",
+      "page": ".hickory-source/mechanisms/apps/agent/factorial-context-study.md",
+      "output": "apps/agent/src/hickory_agent_worker/factorial_study.py",
+      "symbol": "schedule",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-baa79e98-summarize",
+      "page": ".hickory-source/mechanisms/apps/agent/factorial-context-study.md",
+      "output": "apps/agent/src/hickory_agent_worker/factorial_study.py",
+      "symbol": "summarize",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-baa79e98-main",
+      "page": ".hickory-source/mechanisms/apps/agent/factorial-context-study.md",
+      "output": "apps/agent/src/hickory_agent_worker/factorial_study.py",
+      "symbol": "main",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-e9a47cc3-dependencies",
+      "page": ".hickory-source/mechanisms/apps/agent/factorial-context-study.md",
+      "output": "apps/agent/tests/test_factorial_study.py",
+      "symbol": "dependencies",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "context-study-e9a47cc3-FactorialTests",
+      "page": ".hickory-source/mechanisms/apps/agent/factorial-context-study.md",
+      "output": "apps/agent/tests/test_factorial_study.py",
+      "symbol": "FactorialTests",
+      "basis": "explained-decision"
     }
   ],
   "explanation_gaps": {

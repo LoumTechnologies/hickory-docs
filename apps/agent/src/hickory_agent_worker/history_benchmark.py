@@ -130,6 +130,22 @@ def verify_references(dataset,output):
         print(json.dumps(dict(case=case['id'],eligible=row['eligible'],before_stage=row['before_public']['stage'])),flush=True)
     return rows
 
+def open_model(model_name, settings, max_wait_seconds=30):
+    """Wait only for the local transport's explicit memory-headroom refusal."""
+    deadline = time.monotonic() + max_wait_seconds
+    while True:
+        try:
+            return OllamaModel(model_name, settings)
+        except RuntimeError as exc:
+            if str(exc) != 'Insufficient available memory for this model plus context headroom':
+                raise
+            if time.monotonic() >= deadline:
+                raise
+            # Stopping Ollama can return before process memory is reclaimed.
+            # Retrying construction never retries inference or weakens the guard.
+            time.sleep(0.25)
+
+
 def experiment(dataset,reference_rows,args):
     validate_references(dataset,reference_rows)
     settings=LocalSettings(context_tokens=8192,output_tokens=1536,temperature=0.2,response_format='text')
@@ -141,7 +157,7 @@ def experiment(dataset,reference_rows,args):
     config_path.write_text(json.dumps(config,indent=2)+'\n')
     all_rows=[]
     for model_name in args.models:
-        model=OllamaModel(model_name,settings)
+        model=open_model(model_name,settings)
         model_dir=output/model_name.replace(':','-');model_dir.mkdir(exist_ok=True)
         (model_dir/'model.json').write_text(json.dumps(model.identity,indent=2)+'\n')
         try:

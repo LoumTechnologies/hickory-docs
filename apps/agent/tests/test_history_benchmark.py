@@ -67,6 +67,25 @@ class HistoricalBenchmarkTests(unittest.TestCase):
             self.assertIn('truncated',result[0]['calls'][0]['error'])
 
 
+    def test_memory_reclamation_wait_preserves_the_headroom_guard(self):
+        ready=object()
+        error=RuntimeError('Insufficient available memory for this model plus context headroom')
+        with patch.object(study,'OllamaModel',side_effect=[error,ready]) as constructor,patch.object(study.time,'monotonic',side_effect=[0,1]),patch.object(study.time,'sleep') as sleep:
+            self.assertIs(study.open_model('local',object()),ready)
+            self.assertEqual(constructor.call_count,2)
+            sleep.assert_called_once_with(0.25)
+        with patch.object(study,'OllamaModel',side_effect=error),patch.object(study.time,'monotonic',side_effect=[0,31]),patch.object(study.time,'sleep') as sleep:
+            with self.assertRaises(RuntimeError):study.open_model('local',object())
+            sleep.assert_not_called()
+
+    def test_unrelated_model_errors_are_not_retried(self):
+        with patch.object(study,'OllamaModel',side_effect=RuntimeError('different transport failure')) as constructor,patch.object(study.time,'sleep') as sleep:
+            with self.assertRaisesRegex(RuntimeError,'different transport'):
+                study.open_model('local',object())
+            constructor.assert_called_once()
+            sleep.assert_not_called()
+
+
 if __name__=='__main__':
     unittest.main()
 

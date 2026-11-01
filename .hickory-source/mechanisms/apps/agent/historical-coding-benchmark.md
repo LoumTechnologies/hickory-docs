@@ -228,6 +228,29 @@ def verify_references(dataset,output):
 
 </build:copy>
 
+## Wait for model memory to be reclaimed
+
+The first live transition stopped before Qwen3.8 because Ollama acknowledged unloading Qwen3-Coder before its memory had been reclaimed. Retry only the transport's explicit headroom refusal for at most thirty seconds. Other errors remain immediate, the allocation guard remains authoritative, and this helper never sends an inference request. The original trial was resumed manually; its executed runner is retained separately from this orchestration fix.
+
+<build:copy id="history-wait-for-model-headroom">
+def open_model(model_name, settings, max_wait_seconds=30):
+    """Wait only for the local transport's explicit memory-headroom refusal."""
+    deadline = time.monotonic() + max_wait_seconds
+    while True:
+        try:
+            return OllamaModel(model_name, settings)
+        except RuntimeError as exc:
+            if str(exc) != 'Insufficient available memory for this model plus context headroom':
+                raise
+            if time.monotonic() >= deadline:
+                raise
+            # Stopping Ollama can return before process memory is reclaimed.
+            # Retrying construction never retries inference or weakens the guard.
+            time.sleep(0.25)
+
+
+</build:copy>
+
 ## experiment
 
 Each attempt sees the original task, current candidate and public feedback in a fresh request. Stop at public success and evaluate held-out checks once after repair stops. Retain failed and truncated attempts, refuse changed configurations on resume, and unload each model before testing the next.
@@ -244,7 +267,7 @@ def experiment(dataset,reference_rows,args):
     config_path.write_text(json.dumps(config,indent=2)+'\n')
     all_rows=[]
     for model_name in args.models:
-        model=OllamaModel(model_name,settings)
+        model=open_model(model_name,settings)
         model_dir=output/model_name.replace(':','-');model_dir.mkdir(exist_ok=True)
         (model_dir/'model.json').write_text(json.dumps(model.identity,indent=2)+'\n')
         try:
@@ -321,7 +344,7 @@ if __name__=='__main__':
 </build:copy>
 
 <build:file path="apps/agent/src/hickory_agent_worker/history_benchmark.py">
-<build:paste select="#context-study-22263866-dependencies" /><build:paste select="#context-study-22263866-digest" /><build:paste select="#context-study-22263866-load-dataset" /><build:paste select="#context-study-22263866-candidate-method" /><build:paste select="#context-study-22263866-program" /><build:paste select="#context-study-22263866-fixture-fingerprint" /><build:paste select="#context-study-22263866-validate-references" /><build:paste select="#context-study-22263866-invoke" /><build:paste select="#context-study-22263866-grade" /><build:paste select="#context-study-22263866-reading" /><build:paste select="#context-study-22263866-feedback-text" /><build:paste select="#context-study-22263866-image-identity" /><build:paste select="#context-study-22263866-verify-references" /><build:paste select="#context-study-22263866-experiment" /><build:paste select="#context-study-22263866-main" />
+<build:paste select="#context-study-22263866-dependencies" /><build:paste select="#context-study-22263866-digest" /><build:paste select="#context-study-22263866-load-dataset" /><build:paste select="#context-study-22263866-candidate-method" /><build:paste select="#context-study-22263866-program" /><build:paste select="#context-study-22263866-fixture-fingerprint" /><build:paste select="#context-study-22263866-validate-references" /><build:paste select="#context-study-22263866-invoke" /><build:paste select="#context-study-22263866-grade" /><build:paste select="#context-study-22263866-reading" /><build:paste select="#context-study-22263866-feedback-text" /><build:paste select="#context-study-22263866-image-identity" /><build:paste select="#context-study-22263866-verify-references" /><build:paste select="#history-wait-for-model-headroom" /><build:paste select="#context-study-22263866-experiment" /><build:paste select="#context-study-22263866-main" />
 </build:file>
 
 ## dependencies
@@ -410,6 +433,25 @@ class HistoricalBenchmarkTests(unittest.TestCase):
             self.assertFalse(result[0]['public_passed'])
             self.assertFalse(result[0]['hidden_passed'])
             self.assertIn('truncated',result[0]['calls'][0]['error'])
+
+
+    def test_memory_reclamation_wait_preserves_the_headroom_guard(self):
+        ready=object()
+        error=RuntimeError('Insufficient available memory for this model plus context headroom')
+        with patch.object(study,'OllamaModel',side_effect=[error,ready]) as constructor,patch.object(study.time,'monotonic',side_effect=[0,1]),patch.object(study.time,'sleep') as sleep:
+            self.assertIs(study.open_model('local',object()),ready)
+            self.assertEqual(constructor.call_count,2)
+            sleep.assert_called_once_with(0.25)
+        with patch.object(study,'OllamaModel',side_effect=error),patch.object(study.time,'monotonic',side_effect=[0,31]),patch.object(study.time,'sleep') as sleep:
+            with self.assertRaises(RuntimeError):study.open_model('local',object())
+            sleep.assert_not_called()
+
+    def test_unrelated_model_errors_are_not_retried(self):
+        with patch.object(study,'OllamaModel',side_effect=RuntimeError('different transport failure')) as constructor,patch.object(study.time,'sleep') as sleep:
+            with self.assertRaisesRegex(RuntimeError,'different transport'):
+                study.open_model('local',object())
+            constructor.assert_called_once()
+            sleep.assert_not_called()
 
 
 if __name__=='__main__':
@@ -2436,11 +2478,11 @@ There are eight tasks but only four source commits, including multiple closely r
 
 This is a proposed extension, not an implemented batch debugger. The existing native bridge waits for a step to settle and records source/stop/frame-scoped expression receipts. The UI step action acknowledges dispatch before the stop arrives. An autonomous sequence must use a settled-stop acknowledgement and refresh scope between operations, rather than issue repeated UI clicks against one old handle.
 
-Existing watches refresh at pauses, and adapter capabilities expose conditional breakpoints, hit conditions and logpoints. First test whether a model can install a few targeted probes, continue until an interesting stop and read one source-aligned trace. This may avoid repeated inference without stepping every line. Where stepping is necessary, allow a bounded plan: evaluate chosen expressions, step over at most N stops, collect value changes, and stop on a requested predicate, breakpoint, exception, source/frame change, cancellation or budget exhaustion. Each operation must retain the existing session permissions and freshness checks. Current readings bind frame handles to a stop; refresh them after stepping rather than reuse the initial handle. Following a call across stops needs an explicit continuity policy, and ambiguous continuity should stop the plan. Reverse steps require actual adapter support; browsing recorded earlier values does not reverse the running program.
+Existing watches refresh at pauses, and adapter capabilities expose conditional breakpoints, hit conditions and logpoints. First test whether a model can install a few targeted probes, continue until an interesting stop and read one source-aligned trace. The primary hypothesis is that coherent source-aligned observations improve diagnosis and verified repairs; reducing repeated inference is secondary. Where stepping is necessary, allow a bounded plan: evaluate chosen expressions, step over at most N stops, collect value changes, and stop on a requested predicate, breakpoint, exception, source/frame change, cancellation or budget exhaustion. Each operation must retain the existing session permissions and freshness checks. Current readings bind frame handles to a stop; refresh them after stepping rather than reuse the initial handle. Following a call across stops needs an explicit continuity policy, and ambiguous continuity should stop the plan. Reverse steps require actual adapter support; browsing recorded earlier values does not reverse the running program.
 
 Represent the plan and observations as sections in a literate document. Group expression changes and messages at the lines and stops that produced them; retain the full ordered receipts separately. A compact reading can show where an invariant first failed without making the model process an unrelated transcript or a JSON state dump.
 
-Compare a one-model-call-per-step baseline with the same permitted operations in fixed batches, then with bounded conditional probes. Keep source tasks, available facts, watches, permissions and runtime-step limits fixed. Count verified repairs, model calls, tokens, runtime operations, elapsed time, wrong-frame actions and stale-state refusals. Separate mechanical inference-call reduction from any measured improvement in debugging success. The historical coding trial above uses compiler/public-check feedback; it does not yet measure this debugger hypothesis.
+First replay identical debugger receipts as source-aligned versus chronological readings, keeping facts and available actions fixed. Make verified repair success the primary outcome; count wrong-source and wrong-frame associations as diagnostic outcomes. Then compare one-model-call-per-step execution, fixed batches and bounded conditional probes in a separate interactive experiment with equal permitted operations and runtime budgets. Adaptive probes may collect different facts, so their effect cannot be attributed to placement alone. Report calls, tokens and elapsed time as secondary measurements. The historical coding trial above uses compiler/public-check feedback; it does not yet measure this debugger hypothesis. See the [factorial study protocol](../../.hickory-source/mechanisms/apps/agent/factorial-context-study.md) for feature interactions and confirmation requirements.
 </build:entry>
 
 </build:doc>

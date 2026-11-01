@@ -64972,6 +64972,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "context-study-22263866-feedback-text",
         "context-study-22263866-image-identity",
         "context-study-22263866-verify-references",
+        "history-wait-for-model-headroom",
         "context-study-22263866-experiment",
         "context-study-22263866-main"
       ]
@@ -65190,6 +65191,34 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "used_by": [],
       "role": "experiment-evidence",
       "construction": "literal"
+    },
+    "apps/agent/src/hickory_agent_worker/factorial_study.py": {
+      "source": ".hickory-source/mechanisms/apps/agent/factorial-context-study.md",
+      "owner": "agent/changeset-completion-is-negotiated-and-checked.md",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "context-study-baa79e98-dependencies",
+        "context-study-baa79e98-conditions",
+        "context-study-baa79e98-balanced-case",
+        "context-study-baa79e98-context-blocks",
+        "context-study-baa79e98-render",
+        "context-study-baa79e98-schedule",
+        "context-study-baa79e98-summarize",
+        "context-study-baa79e98-main"
+      ]
+    },
+    "apps/agent/tests/test_factorial_study.py": {
+      "source": ".hickory-source/mechanisms/apps/agent/factorial-context-study.md",
+      "owner": "agent/changeset-completion-is-negotiated-and-checked.md",
+      "used_by": [],
+      "role": "test",
+      "construction": "fragments",
+      "fragments": [
+        "context-study-e9a47cc3-dependencies",
+        "context-study-e9a47cc3-FactorialTests"
+      ]
     }
   },
   "evidence_records": [
