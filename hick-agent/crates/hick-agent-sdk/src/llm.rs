@@ -1,6 +1,7 @@
 //! LLM client abstraction.
 
 use std::pin::Pin;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::Stream;
@@ -63,4 +64,27 @@ pub trait LlmClient: Send + Sync {
 
     /// Model name for display (e.g. "claude-sonnet-4-5-20250929").
     fn model_name(&self) -> &str;
+}
+
+/// Blanket impl so an `Arc<dyn LlmClient>` can itself be used as a `Box<dyn LlmClient>`.
+#[async_trait]
+impl LlmClient for Arc<dyn LlmClient> {
+    async fn complete(&self, messages: Vec<Message>) -> anyhow::Result<String> {
+        (**self).complete(messages).await
+    }
+
+    async fn complete_stream(
+        &self,
+        messages: Vec<Message>,
+    ) -> anyhow::Result<Pin<Box<dyn Stream<Item = anyhow::Result<ChatChunk>> + Send>>> {
+        (**self).complete_stream(messages).await
+    }
+
+    fn provider_name(&self) -> &str {
+        (**self).provider_name()
+    }
+
+    fn model_name(&self) -> &str {
+        (**self).model_name()
+    }
 }

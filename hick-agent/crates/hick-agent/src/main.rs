@@ -37,7 +37,7 @@ use hick_agent_tui::{run_tui, TabSource, TuiConfig};
 use hick_agent_hick_edit::{PipelineWatcher, insert_paste_slots};
 use hick_agent_sdk::{
     AgentContext, AgentHistory, AgentIo, AgentSecurityConfig, AnthropicClient,
-    FilteredLlmClient, IntentRouter, LlmClient, Message, NetworkApprovalRequest,
+    FilteredLlmClient, IntentRouter, LlmClient, Message, ModelRole, NetworkApprovalRequest,
     NetworkFilter, OpenAiCompatClient, Role, SinkGuard,
     ToolData, ToolExecutor, XmlDiagnosticLogger, XmlSessionLog, NullSessionLog,
     run_agent_engine,
@@ -1154,7 +1154,7 @@ async fn main() -> Result<()> {
     // Load ~/.config/hick/keys.toml and inject any missing provider keys into the
     // process environment so that all downstream env-var reads pick them up.
     // env vars and --api-key take priority (we only set if absent/empty).
-    let user_keys_providers = match config::UserKeys::load() {
+    let (user_keys_providers, startup_user_keys) = match config::UserKeys::load() {
         Ok(Some(keys)) => {
             let mut loaded = Vec::<&'static str>::new();
             let pairs: &[(&'static str, Option<&str>)] = &[
@@ -1173,12 +1173,12 @@ async fn main() -> Result<()> {
                     }
                 }
             }
-            loaded
+            (loaded, keys)
         }
-        Ok(None) => Vec::new(),
+        Ok(None) => (Vec::new(), config::UserKeys::default()),
         Err(e) => {
             eprintln!("Warning: ~/.config/hick/keys.toml: {e}");
-            Vec::new()
+            (Vec::new(), config::UserKeys::default())
         }
     };
 
@@ -1675,6 +1675,40 @@ async fn main() -> Result<()> {
                 policy_evaluator,
                 inject_sdk_pythonpath: inject_sdk,
             });
+
+            // Build a ModelRouter from agent.toml if available. The Default-role
+            // client replaces the CLI-built `llm` so config-file model selection
+            // takes effect. Roles other than Default are wired in later tasks.
+            let llm: Box<dyn LlmClient> = {
+                let cfg_router = config::AgentConfig::load(config.as_deref(), &project_dir)
+                    .ok()
+                    .and_then(|ac| match ac {
+                        config::AgentConfig::Point(pc) => {
+                            match config::build_model_router(&pc, &startup_user_keys) {
+                                Ok(r) => {
+                                    event_tx.send(AgentEvent::Info(format!(
+                                        "Model router: built from agent.toml ({})",
+                                        pc.model.model_id
+                                    ))).ok();
+                                    Some(r)
+                                }
+                                Err(e) => {
+                                    event_tx.send(AgentEvent::Info(format!(
+                                        "Model router: config error: {e}"
+                                    ))).ok();
+                                    None
+                                }
+                            }
+                        }
+                        config::AgentConfig::Search(_) => None,
+                    });
+
+                if let Some(r) = cfg_router {
+                    Box::new(std::sync::Arc::clone(r.get(ModelRole::Default)))
+                } else {
+                    llm
+                }
+            };
 
             let mut router = IntentRouter::new();
             router.register(ScriptBlockIntentParser);

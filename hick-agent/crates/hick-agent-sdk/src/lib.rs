@@ -48,6 +48,7 @@ pub mod conversation_tree;
 pub mod llm;
 pub mod llm_anthropic;
 pub mod llm_openai_compat;
+pub mod model_router;
 pub mod mcp_client;
 pub mod mcp_config;
 pub mod mcp_format;
@@ -117,6 +118,10 @@ pub use llm::ChatChunk;
 pub use llm_anthropic::AnthropicClient;
 /// OpenAI-compatible chat completion client (works with OpenAI, xAI, Groq, Ollama, etc.).
 pub use llm_openai_compat::OpenAiCompatClient;
+/// Role-based model router: maps activity roles to their configured [`LlmClient`]s.
+pub use model_router::ModelRouter;
+/// Activity role used to select a model client from a [`ModelRouter`].
+pub use model_router::ModelRole;
 
 // ---------------------------------------------------------------------------
 // Network filtering

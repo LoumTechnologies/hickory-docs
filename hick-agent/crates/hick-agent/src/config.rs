@@ -13,9 +13,10 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{bail, Context as _};
-use hick_agent_sdk::AgentSecurityConfig;
+use hick_agent_sdk::{AgentSecurityConfig, AnthropicClient, LlmClient, ModelRole, ModelRouter, OpenAiCompatClient};
 use serde::Deserialize;
 
 // Known valid keys for `[intent_parsers]` and `[classifiers]`. Any other key
@@ -61,6 +62,35 @@ pub struct ModelSection {
     /// Maximum output tokens per request.
     #[serde(default)]
     pub max_tokens: Option<u32>,
+}
+
+// ---------------------------------------------------------------------------
+// [models] section — per-role model overrides
+// ---------------------------------------------------------------------------
+
+/// Per-role model configuration entry inside `[models]`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RoleModelConfig {
+    pub provider: Provider,
+    pub model_id: String,
+}
+
+/// `[models]` section: optional per-role model overrides.
+///
+/// Each field selects the provider and model for a specific agent activity.
+/// Absent roles fall back to the router's `Default` client.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ModelsSection {
+    #[serde(default)]
+    pub default: Option<RoleModelConfig>,
+    #[serde(default)]
+    pub smol: Option<RoleModelConfig>,
+    #[serde(default)]
+    pub slow: Option<RoleModelConfig>,
+    #[serde(default)]
+    pub plan: Option<RoleModelConfig>,
+    #[serde(default)]
+    pub commit: Option<RoleModelConfig>,
 }
 
 // ---------------------------------------------------------------------------
@@ -390,6 +420,8 @@ pub struct SearchSection {
 #[derive(Debug, Clone)]
 pub struct PointConfig {
     pub model: ModelSection,
+    /// Per-role model overrides (`[models]` section).
+    pub models: ModelsSection,
     pub extensions: ExtensionsSection,
     /// Inline security config (replaces the old `agent-security.toml` pointer).
     pub security: AgentSecurityConfig,
@@ -657,6 +689,7 @@ impl AgentConfig {
 
         let base = PointConfig {
             model: raw.model,
+            models: raw.models,
             extensions: raw.extensions,
             security: raw.security,
             mcp: raw.mcp,
@@ -683,6 +716,8 @@ impl AgentConfig {
 #[derive(Debug, Deserialize)]
 struct RawConfig {
     model: ModelSection,
+    #[serde(default)]
+    models: ModelsSection,
     #[serde(default)]
     extensions: ExtensionsSection,
     /// Inline security config — fields mirror `AgentSecurityConfig`.
@@ -844,6 +879,103 @@ fn home_keys_path() -> Option<PathBuf> {
     std::env::var("HOME")
         .ok()
         .map(|h| PathBuf::from(h).join(".config/hick/keys.toml"))
+}
+
+// ---------------------------------------------------------------------------
+// ModelRouter construction
+// ---------------------------------------------------------------------------
+
+/// Resolve an API key for `provider`:
+/// 1. `api_key_env` override env var (if Some)
+/// 2. `UserKeys::key_for()`
+/// 3. Provider's conventional env var
+fn resolve_api_key(api_key_env: Option<&str>, provider: &Provider, user_keys: &UserKeys) -> String {
+    if let Some(var) = api_key_env {
+        if let Ok(k) = std::env::var(var) {
+            if !k.is_empty() {
+                return k;
+            }
+        }
+    }
+    if let Some(k) = user_keys.key_for(provider) {
+        return k.to_string();
+    }
+    let env_var = match provider {
+        Provider::Anthropic  => "ANTHROPIC_API_KEY",
+        Provider::OpenAI     => "OPENAI_API_KEY",
+        Provider::XAI        => "XAI_API_KEY",
+        Provider::OpenRouter => "OPENROUTER_API_KEY",
+        Provider::DeepSeek   => "DEEPSEEK_API_KEY",
+    };
+    std::env::var(env_var).unwrap_or_default()
+}
+
+fn build_arc_client(
+    provider: &Provider,
+    model_id: &str,
+    api_key_env: Option<&str>,
+    user_keys: &UserKeys,
+) -> Arc<dyn LlmClient> {
+    let api_key = resolve_api_key(api_key_env, provider, user_keys);
+    match provider {
+        Provider::Anthropic => Arc::new(AnthropicClient::with_config(model_id.to_string(), api_key)),
+        Provider::OpenAI => Arc::new(OpenAiCompatClient::custom(
+            "https://api.openai.com/v1",
+            api_key,
+            model_id.to_string(),
+            "openai",
+        )),
+        Provider::XAI => Arc::new(OpenAiCompatClient::custom(
+            "https://api.x.ai/v1",
+            api_key,
+            model_id.to_string(),
+            "xai",
+        )),
+        Provider::OpenRouter => Arc::new(OpenAiCompatClient::custom(
+            "https://openrouter.ai/api/v1",
+            api_key,
+            model_id.to_string(),
+            "openrouter",
+        )),
+        Provider::DeepSeek => Arc::new(OpenAiCompatClient::custom(
+            "https://api.deepseek.com",
+            api_key,
+            model_id.to_string(),
+            "deepseek",
+        )),
+    }
+}
+
+/// Build a [`ModelRouter`] from a parsed [`PointConfig`] and user API keys.
+///
+/// The `Default` role is always populated from the `[model]` section.
+/// Each role present in `[models]` is registered on top of that.
+/// If `[models]` is absent the router contains only the `Default` role.
+pub fn build_model_router(config: &PointConfig, user_keys: &UserKeys) -> anyhow::Result<ModelRouter> {
+    let default_client = build_arc_client(
+        &config.model.provider,
+        &config.model.model_id,
+        config.model.api_key_env.as_deref(),
+        user_keys,
+    );
+    let mut router = ModelRouter::new(default_client);
+
+    macro_rules! maybe_add {
+        ($role:expr, $opt:expr) => {
+            if let Some(ref rc) = $opt {
+                let client = build_arc_client(&rc.provider, &rc.model_id, None, user_keys);
+                router = router.with_role($role, client);
+            }
+        };
+    }
+
+    maybe_add!(ModelRole::Default, config.models.default);
+    maybe_add!(ModelRole::Smol,    config.models.smol);
+    maybe_add!(ModelRole::Slow,    config.models.slow);
+    maybe_add!(ModelRole::Plan,    config.models.plan);
+    maybe_add!(ModelRole::Commit,  config.models.commit);
+
+    Ok(router)
 }
 
 // ---------------------------------------------------------------------------
@@ -1255,5 +1387,96 @@ model_id = "claude-opus-4-7-20251101"
         let cfg = AgentConfig::parse(toml).unwrap();
         let AgentConfig::Point(pc) = cfg else { panic!("expected Point") };
         assert!(pc.eval.auto_prune_threshold.is_none());
+    }
+
+    // ---------------------------------------------------------------------------
+    // [models] section tests (TASK-63)
+    // ---------------------------------------------------------------------------
+
+    // AC #6a: [models] with all five roles parses correctly.
+    #[test]
+    fn models_section_all_five_roles_parse() {
+        let toml = r#"
+[model]
+provider = "anthropic"
+model_id  = "claude-opus-4-7-20251101"
+
+[models]
+default = { provider = "anthropic", model_id = "claude-opus-4-7-20251101" }
+smol    = { provider = "anthropic", model_id = "claude-haiku-4-5-20251001" }
+slow    = { provider = "xai",       model_id = "grok-3" }
+plan    = { provider = "openai",    model_id = "gpt-4o" }
+commit  = { provider = "deepseek",  model_id = "deepseek-chat" }
+"#;
+        let cfg = AgentConfig::parse(toml).unwrap();
+        let AgentConfig::Point(pc) = cfg else { panic!("expected Point") };
+        assert!(pc.models.default.is_some());
+        assert!(pc.models.smol.is_some());
+        assert!(pc.models.slow.is_some());
+        assert!(pc.models.plan.is_some());
+        assert!(pc.models.commit.is_some());
+
+        let smol = pc.models.smol.as_ref().unwrap();
+        assert_eq!(smol.model_id, "claude-haiku-4-5-20251001");
+        assert_eq!(smol.provider, Provider::Anthropic);
+
+        let slow = pc.models.slow.as_ref().unwrap();
+        assert_eq!(slow.provider, Provider::XAI);
+    }
+
+    // AC #6b: absent [models] produces a single-role router pointing to [model].
+    #[test]
+    fn absent_models_section_produces_single_role_router() {
+        let toml = r#"
+[model]
+provider = "anthropic"
+model_id  = "claude-opus-4-7-20251101"
+"#;
+        let cfg = AgentConfig::parse(toml).unwrap();
+        let AgentConfig::Point(pc) = cfg else { panic!("expected Point") };
+        let keys = UserKeys::default();
+        let router = build_model_router(&pc, &keys).unwrap();
+        assert_eq!(router.get(ModelRole::Default).model_name(), "claude-opus-4-7-20251101");
+        // Smol falls back to Default when not configured.
+        assert_eq!(router.get(ModelRole::Smol).model_name(), "claude-opus-4-7-20251101");
+    }
+
+    // AC #6c: invalid provider string is rejected at parse time with a useful error.
+    #[test]
+    fn invalid_provider_string_rejected_at_parse_time() {
+        let toml = r#"
+[model]
+model_id = "claude-opus-4-7-20251101"
+
+[models]
+smol = { provider = "typo", model_id = "some-model" }
+"#;
+        let err = AgentConfig::parse(toml).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("typo") || msg.contains("provider") || msg.contains("unknown variant"),
+            "error should mention the invalid value: {msg}"
+        );
+    }
+
+    // AC #6d: ModelRole::Smol falls back to Default when smol is not configured.
+    #[test]
+    fn smol_role_falls_back_to_default_when_absent() {
+        let toml = r#"
+[model]
+provider = "anthropic"
+model_id  = "claude-opus-4-7-20251101"
+
+[models]
+commit = { provider = "anthropic", model_id = "claude-haiku-4-5-20251001" }
+"#;
+        let cfg = AgentConfig::parse(toml).unwrap();
+        let AgentConfig::Point(pc) = cfg else { panic!("expected Point") };
+        let keys = UserKeys::default();
+        let router = build_model_router(&pc, &keys).unwrap();
+        // smol not configured → falls back to Default
+        assert_eq!(router.get(ModelRole::Smol).model_name(), "claude-opus-4-7-20251101");
+        // commit is configured
+        assert_eq!(router.get(ModelRole::Commit).model_name(), "claude-haiku-4-5-20251001");
     }
 }
