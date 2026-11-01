@@ -1,7 +1,8 @@
 // Typora-style markdown DISPLAY styling, shared between the document editor
 // (wysiwyg.ts, over .md prose) and the output panes (OutputEditorPane, over
 // a generated .md file). Decorations only — line classes and marks; nothing
-// here ever replaces, hides, or edits text.
+// here ever replaces or edits text. Inactive dash rules conceal their glyphs
+// visually; entering the line restores the original characters.
 //
 // Two layers:
 //  - `proseDecorationRanges` turns already-parsed headings/inline marks into
@@ -148,9 +149,46 @@ const markdownField = StateField.define<DecorationSet>({
  * editor's prose, display-only, composes with whatever else the pane loads.
  */
 export function markdownStyling(): Extension {
-  return markdownField;
+  return [markdownField, horizontalRuleStyling()];
 }
 
+
+/** Render dash rules except on lines containing a cursor. */
+export function horizontalRuleStyling(
+  excluded: (state: EditorState) => readonly (readonly [number, number])[] = () => [],
+): Extension {
+  const build = (state: EditorState): DecorationSet => {
+    const text = state.doc.toString();
+    const blocked = [...fencedCodeRanges(text), ...excluded(state)];
+    const active = new Set(state.selection.ranges.map((r) => state.doc.lineAt(r.head).number));
+    const ranges: Range<Decoration>[] = [];
+    for (let n = 1; n <= state.doc.lines; n++) {
+      const line = state.doc.line(n);
+      if (active.has(n) || !/^ {0,3}(?:-[ \t]*){3,}$/.test(line.text)) continue;
+      if (blocked.some(([from, to]) => line.from < to && line.to > from)) continue;
+      // A nonblank preceding paragraph makes --- a heading underline.
+      if (n > 1 && state.doc.line(n - 1).text.trim() &&
+          !/^ {0,3}(?:-[ \t]*){3,}$/.test(state.doc.line(n - 1).text)) continue;
+      ranges.push(Decoration.line({ class: "cm-md-rule" }).range(line.from));
+    }
+    return Decoration.set(ranges);
+  };
+  return [
+    StateField.define<DecorationSet>({
+      create: build,
+      update: (value, tr) => tr.docChanged || tr.selection ? build(tr.state) : value,
+      provide: (field) => EditorView.decorations.from(field),
+    }),
+    EditorView.baseTheme({
+      ".cm-line.cm-md-rule": { position: "relative", color: "transparent" },
+      ".cm-line.cm-md-rule::after": {
+        content: '\'""\'', position: "absolute", left: "0", top: "50%",
+        width: "var(--prose-wrap, 100%)", borderTop: "1px solid var(--fg, currentColor)",
+        opacity: "0.35", pointerEvents: "none",
+      },
+    }),
+  ];
+}
 /** Whether a file path names a markdown file. */
 export function isMarkdownPath(path: string): boolean {
   return /\.(md|markdown)$/i.test(path);

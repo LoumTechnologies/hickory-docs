@@ -25,6 +25,19 @@ cover this addition. On 2026-11-01, all 12 focused keyboard cases passed in
 Vitest/jsdom and the web TypeScript check passed. This checks source edits and
 keymap dispatch; it does not claim browser layout or human acceptance.
 
+## Cursor-aware horizontal rules
+
+Blank-separated dash rules draw to the soft wrap marker while inactive and show
+the original characters whenever a selection head enters their line. The source
+stays editable with native cursor positioning. Fenced code, verbatim Hickory
+payloads, indented code and Setext underlines remain literal.
+
+On 2026-11-01, the focused markdownStyling and wysiwyg suites passed (21 tests).
+The changed pages reconstructed and passed byte agreement in isolation. Whole
+project generate/check/audit could not complete because the existing source
+`mechanisms/crates/hickory-agent/src/bin/token_economics.rs.md` is missing.
+Browser geometry and human visual acceptance remain unverified.
+
 ## Read the detailed requirements
 
 - [Requirements 1](requirements/01.md)
@@ -58,11 +71,12 @@ Related contracts: [Markdown Quotes And Task Lists Are Read As Prose](contract.m
 import { describe, expect, it } from "vitest";
 import { EditorState } from "@codemirror/state";
 import type { Range } from "@codemirror/state";
-import type { Decoration } from "@codemirror/view";
+import { EditorView, type Decoration } from "@codemirror/view";
 import {
   fencedCodeRanges,
   isMarkdownPath,
   markdownDecorations,
+  horizontalRuleStyling,
   parseMarkdownProse,
   proseDecorationRanges,
 } from "./markdownStyling";
@@ -244,6 +258,38 @@ describe("markdownStyling — markdownDecorations (extension-level)", () => {
 ### `expression_statement`
 
 <storycode:copy id="f-59145de2de8b-expression_statement-6">
+describe("cursor-aware horizontal rules", () => {
+  const rules = (state: EditorState) => {
+    const found: number[] = [];
+    for (const set of state.facet(EditorView.decorations)) {
+      if (typeof set === "function") continue;
+      set.between(0, state.doc.length, (from, _to, deco) => {
+        if (deco.spec.class === "cm-md-rule") found.push(from);
+      });
+    }
+    return found;
+  };
+  it("reveals source on entry, restores the rule on exit, and responds to edits", () => {
+    const src = "text\n\n---\n\nend";
+    let state = EditorState.create({ doc: src, extensions: horizontalRuleStyling() });
+    expect(rules(state)).toEqual([6]);
+    state = state.update({ selection: { anchor: 7 } }).state;
+    expect(rules(state)).toEqual([]);
+    expect(state.doc.line(3).text).toBe("---");
+    state = state.update({ selection: { anchor: 0 } }).state;
+    expect(rules(state)).toEqual([6]);
+    state = state.update({ changes: { from: 6, to: 7, insert: "x" } }).state;
+    expect(rules(state)).toEqual([]);
+  });
+  it("leaves fences, payloads, four-space code and heading underlines literal", () => {
+    const src = "text\n---\n\n```\n---\n```\n\n    ---\n\n---\n";
+    const from = src.lastIndexOf("---");
+    const state = EditorState.create({ doc: src,
+      extensions: horizontalRuleStyling(() => [[from, from + 3]]) });
+    expect(rules(state)).toEqual([]);
+  });
+});
+
 describe("markdownStyling — isMarkdownPath", () => {
   it("matches .md and .markdown (any case), nothing else", () => {
     expect(isMarkdownPath("README.md")).toBe(true);
@@ -289,7 +335,8 @@ heading heights are part of the same update (CodeMirror's layout rule).
 // Typora-style markdown DISPLAY styling, shared between the document editor
 // (wysiwyg.ts, over .md prose) and the output panes (OutputEditorPane, over
 // a generated .md file). Decorations only — line classes and marks; nothing
-// here ever replaces, hides, or edits text.
+// here ever replaces or edits text. Inactive dash rules conceal their glyphs
+// visually; entering the line restores the original characters.
 //
 // Two layers:
 //  - `proseDecorationRanges` turns already-parsed headings/inline marks into
@@ -525,15 +572,60 @@ const markdownField = StateField.define<DecorationSet>({
 The output panes' markdown styling extension: same look as the document
 editor's prose, display-only, composes with whatever else the pane loads.
 
+Horizontal rules retain their source line and gutter row. On every selection change,
+recompute which lines contain selection heads so moving onto a rule restores its
+literal dashes before editing. A transparent line with an overlaid border keeps
+native click and arrow-key positioning; it never replaces document bytes. The
+border uses the same pixel measure as the wrap ruler. Blank-separated dash rules
+are rendered; a dash underline immediately after prose remains a Setext heading.
+Fences and executable payloads are excluded by both editor integrations.
+
 <storycode:copy id="f-432a956d4c21-markdownStyling">
 /**
  * The output panes' markdown styling extension: same look as the document
  * editor's prose, display-only, composes with whatever else the pane loads.
  */
 export function markdownStyling(): Extension {
-  return markdownField;
+  return [markdownField, horizontalRuleStyling()];
 }
 
+
+/** Render dash rules except on lines containing a cursor. */
+export function horizontalRuleStyling(
+  excluded: (state: EditorState) => readonly (readonly [number, number])[] = () => [],
+): Extension {
+  const build = (state: EditorState): DecorationSet => {
+    const text = state.doc.toString();
+    const blocked = [...fencedCodeRanges(text), ...excluded(state)];
+    const active = new Set(state.selection.ranges.map((r) => state.doc.lineAt(r.head).number));
+    const ranges: Range<Decoration>[] = [];
+    for (let n = 1; n <= state.doc.lines; n++) {
+      const line = state.doc.line(n);
+      if (active.has(n) || !/^ {0,3}(?:-[ \t]*){3,}$/.test(line.text)) continue;
+      if (blocked.some(([from, to]) => line.from < to && line.to > from)) continue;
+      // A nonblank preceding paragraph makes --- a heading underline.
+      if (n > 1 && state.doc.line(n - 1).text.trim() &&
+          !/^ {0,3}(?:-[ \t]*){3,}$/.test(state.doc.line(n - 1).text)) continue;
+      ranges.push(Decoration.line({ class: "cm-md-rule" }).range(line.from));
+    }
+    return Decoration.set(ranges);
+  };
+  return [
+    StateField.define<DecorationSet>({
+      create: build,
+      update: (value, tr) => tr.docChanged || tr.selection ? build(tr.state) : value,
+      provide: (field) => EditorView.decorations.from(field),
+    }),
+    EditorView.baseTheme({
+      ".cm-line.cm-md-rule": { position: "relative", color: "transparent" },
+      ".cm-line.cm-md-rule::after": {
+        content: '\'""\'', position: "absolute", left: "0", top: "50%",
+        width: "var(--prose-wrap, 100%)", borderTop: "1px solid var(--fg, currentColor)",
+        opacity: "0.35", pointerEvents: "none",
+      },
+    }),
+  ];
+}
 </storycode:copy>
 <a id="f-432a956d4c21-isMarkdownPath"></a>
 ### `isMarkdownPath`

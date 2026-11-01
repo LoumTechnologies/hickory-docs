@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { EditorState } from "@codemirror/state";
 import type { Range } from "@codemirror/state";
-import type { Decoration } from "@codemirror/view";
+import { EditorView, type Decoration } from "@codemirror/view";
 import {
   fencedCodeRanges,
   isMarkdownPath,
   markdownDecorations,
+  horizontalRuleStyling,
   parseMarkdownProse,
   proseDecorationRanges,
 } from "./markdownStyling";
@@ -154,6 +155,38 @@ describe("markdownStyling — markdownDecorations (extension-level)", () => {
     expect(classes.join(" ")).not.toContain("cm-md-h2");
     // Display-only: the buffer text is untouched.
     expect(state.doc.toString()).toBe(src);
+  });
+});
+
+describe("cursor-aware horizontal rules", () => {
+  const rules = (state: EditorState) => {
+    const found: number[] = [];
+    for (const set of state.facet(EditorView.decorations)) {
+      if (typeof set === "function") continue;
+      set.between(0, state.doc.length, (from, _to, deco) => {
+        if (deco.spec.class === "cm-md-rule") found.push(from);
+      });
+    }
+    return found;
+  };
+  it("reveals source on entry, restores the rule on exit, and responds to edits", () => {
+    const src = "text\n\n---\n\nend";
+    let state = EditorState.create({ doc: src, extensions: horizontalRuleStyling() });
+    expect(rules(state)).toEqual([6]);
+    state = state.update({ selection: { anchor: 7 } }).state;
+    expect(rules(state)).toEqual([]);
+    expect(state.doc.line(3).text).toBe("---");
+    state = state.update({ selection: { anchor: 0 } }).state;
+    expect(rules(state)).toEqual([6]);
+    state = state.update({ changes: { from: 6, to: 7, insert: "x" } }).state;
+    expect(rules(state)).toEqual([]);
+  });
+  it("leaves fences, payloads, four-space code and heading underlines literal", () => {
+    const src = "text\n---\n\n```\n---\n```\n\n    ---\n\n---\n";
+    const from = src.lastIndexOf("---");
+    const state = EditorState.create({ doc: src,
+      extensions: horizontalRuleStyling(() => [[from, from + 3]]) });
+    expect(rules(state)).toEqual([]);
   });
 });
 
