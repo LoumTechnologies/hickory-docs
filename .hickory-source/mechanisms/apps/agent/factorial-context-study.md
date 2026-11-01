@@ -70,6 +70,23 @@ At earlier pilot medians (about 73 seconds for Coder and 189 seconds for Qwen3.8
 
 A separate bounded calibration was started with sixteen real calls on each local model, sequentially. It is incomplete at this record and cannot establish a correctness effect or power a confirmation study. Progress is retained in `target/local-agent/factorial/calibration-status.json` and each model directory's `summary.json`; raw transcripts are local only. No broad regressions were run.
 
+## Resume from the 2026-11-01 handoff
+
+The implementation and earlier pilot evidence are preserved in checkpoint `22bf4c83` on `master`. No DEX workflow is involved. Continue from this protocol and the [historical benchmark owner](historical-coding-benchmark.md); do not interpret the synthetic screen as a coding-success experiment. Next substantive work is to finish calibration, inspect its throughput and validity, then qualify an independent coding/debugging confirmation corpus before scheduling a large matrix.
+
+At this handoff, Qwen3-Coder completed all sixteen conditions for the first family’s run-selection scene: 16/16 correct, zero recorded transport errors, 883.2 seconds summed request time. This is one scene, not sixteen independent tasks and not evidence that one feature helps. Qwen3.8 had completed one correct condition and remained running under the local calibration supervisor. These counts are a snapshot, not a final report.
+
+The supervisor and raw calibration files are ignored local artifacts under `target/local-agent/factorial/` and are not included in Git or this push. On this Linux machine, inspect `calibration-status.json`, `coder-calibration/summary.json` and `qwen38-calibration/summary.json` before starting anything. The supervisor PID at launch was 1374639; check its actual command before treating a later process with that PID as this experiment. Let the running Qwen batch finish rather than issuing concurrent model requests. Resuming the runner on a directory with sixteen completed conditions advances to new trials; it does not merely summarize the completed calibration.
+
+On another checkout, those local files will be absent. The deterministic scenes and schedule are reconstructed from committed code; select a fresh output directory and rerun a bounded calibration. For example:
+
+```sh
+PYTHONPATH=apps/agent/src apps/agent/.venv/bin/python -m hickory_agent_worker.factorial_study \
+  --model qwen3.8:27b --output target/local-agent/factorial/qwen38-fresh-calibration --max-calls 16
+```
+
+Use the installed local model tags and Python environment described in the [historical benchmark guide](../../../../docs/developers/historical-code-benchmark.md). Changed source/configuration or model digests require a new output directory. Preserve raw local run directories separately if moving machines; a Git checkout alone preserves the experiment machinery and prior committed evidence, not these new raw runs. Post-commit regression checks are monitored by the user with `just checks-status`; no broad regression run or status monitoring was performed for this handoff.
+
 ## Why the preceding session added so many lines
 
 An audit against `f1bbc396`, before adding this runner, counted 22,062 added and 76 removed lines across the preserved session work and current edits. The checkpoint commit `2a83df5f` is titled “preserve local work before Linux user removal”; it is not a clean feature-only baseline. The categories below describe the actual diff, rather than attributing unrelated checkpoint changes to one feature.
