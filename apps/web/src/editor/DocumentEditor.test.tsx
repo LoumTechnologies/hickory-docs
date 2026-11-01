@@ -905,3 +905,39 @@ it("keeps an edited CSV fence bound to its real span and shares dataset promotio
     expect(editor.state.doc.toString()).toBe('Before\n\n<hick:table path="data/north.csv">\nname,count\nNorth,678\n</hick:table>\n\nAfter\n');
   } finally { view.unmount(); realtime.close(); }
 });
+
+describe("document list keyboard editing", () => {
+  it.each([
+    ["- one", "Enter", "- one\n- "],
+    ["* one", "Enter", "* one\n* "],
+    ["+ one", "Enter", "+ one\n+ "],
+    ["9. one", "Enter", "9. one\n10. "],
+    ["  2) one", "Enter", "  2) one\n  3) "],
+    ["- [x] done", "Enter", "- [x] done\n- [ ] "],
+    ["- ", "Enter", ""],
+    ["plain", "Enter", "plain\n"],
+    ["```sh\n- argument\n```", "Enter", "```sh\n- argument\n\n```"],
+    ['<hick:exec>\n- argument\n</hick:exec>', "Enter", '<hick:exec>\n- argument\n\n</hick:exec>'],
+    ["- one", "Tab", "  - one"],
+    ["  - one", "Shift-Tab", "- one"],
+  ])("handles %j with %s", async (source, key, expected) => {
+    const realtime = new LocalRealtime();
+    let editor: EditorViewType | null = null;
+    const mounted = render(<DocumentEditor docId="list-keys" initialSource={source}
+      realtime={realtime} execBlocks={[]} runningCells={new Set()} onRunCell={() => undefined}
+      onViewReady={view => { editor = view; }} />);
+    try {
+      await waitFor(() => expect(editor?.state.doc.toString()).toBe(source));
+      const cursor = key.includes("Tab") ? 0 : source.includes("argument")
+        ? source.indexOf("argument") + "argument".length : source.length;
+      act(() => {
+        editor!.dispatch({ selection: { anchor: cursor } });
+        editor!.contentDOM.dispatchEvent(new KeyboardEvent("keydown", {
+          key: key.replace("Shift-", ""), shiftKey: key.startsWith("Shift-"),
+          bubbles: true, cancelable: true,
+        }));
+      });
+      expect(editor!.state.doc.toString()).toBe(expected);
+    } finally { mounted.unmount(); realtime.close(); }
+  });
+});

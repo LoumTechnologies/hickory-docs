@@ -6,7 +6,7 @@ import { useEditorEditing } from "./useEditorEditing";
 import { DebugLaunchRail } from "../debug/DebugRail";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Compartment, EditorState, Transaction } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, Transaction } from "@codemirror/state";
 import { comparisonField, setComparison } from "./comparison";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
 import {
@@ -152,6 +152,37 @@ const POPOVER_HEIGHT = 320;
 // Kept as exports here for the callers that always found them here; the
 // code lives beside the other block matching in lib/blockMatch.ts.
 export { assertionStates, matchExecBlock } from "../lib/blockMatch";
+
+/** Continue prose lists only; code and cell payloads keep ordinary Enter. */
+export function continueList(view: EditorView): boolean {
+  const { state } = view;
+  if (state.readOnly) return false;
+  const structure = structureOf(state);
+  const excluded = [
+    ...verbatimRanges(structure.blocks),
+    ...proseFences(structure, state.doc.toString()).map(f => [f.from, f.to]),
+  ];
+  const items = state.selection.ranges.map(range => {
+    const line = state.doc.lineAt(range.from);
+    const match = /^(\s*)([-+*]|(\d{1,9})([.)]))([ \t]+)(?:\[[ xX]\]([ \t]+))?/.exec(line.text);
+    if (!range.empty || !match || range.from < line.from + match[0].length ||
+        excluded.some(([from, to]) => range.from >= from && range.from <= to)) return null;
+    return { line, match };
+  });
+  if (items.some(item => !item)) return false;
+  view.dispatch(state.changeByRange(range => {
+    const { line, match } = items[state.selection.ranges.indexOf(range)]!;
+    if (!line.text.slice(match[0].length).trim()) {
+      return { changes: { from: line.from, to: line.to, insert: match[1] },
+        range: EditorSelection.cursor(line.from + match[1].length) };
+    }
+    const marker = match[3] ? `${Number(match[3]) + 1}${match[4]}` : match[2];
+    const insert = `\n${match[1]}${marker}${match[5]}${match[6] ? `[ ]${match[6]}` : ""}`;
+    return { changes: { from: range.from, insert },
+      range: EditorSelection.cursor(range.from + insert.length) };
+  }), { scrollIntoView: true, userEvent: "input" });
+  return true;
+}
 
 /**
  * The Document view: ONE CodeMirror instance over the raw .md source with
@@ -414,9 +445,11 @@ export function DocumentEditor({
           // Word motion first: bindings for one key run in registration
           // order and the first to return true wins, so these must arrive
           // before `defaultKeymap`'s own Ctrl+arrow. See editor/wordMotion.ts.
+          // Tab indents the current line; Shift-Tab removes an indentation level.
           keymap.of([
             ...wordMotionBindings,
             ...searchKeymap,
+            { key: "Enter", run: continueList },
             ...defaultKeymap,
             ...historyKeymap,
             indentWithTab,

@@ -11,6 +11,20 @@ as a checkbox that a single click toggles in the source.
 
 The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
 
+## Continue a list while typing
+
+In the document editor, Enter after a list marker continues the item at the
+caret with the same indentation and bullet, or the next ordered number. A new
+task item starts unchecked; Enter on an empty item removes its marker. Code
+fences and non-prose cell payloads retain ordinary Enter behavior. Tab indents
+the current line, including at column zero; Shift-Tab unindents it.
+
+The [keyboard implementation](../../../mechanisms/apps/web/src/editor/DocumentEditor.tsx.md#f-aab82870e517-export_statement)
+and [mounted-editor cases](../../../mechanisms/apps/web/src/editor/DocumentEditor.test.tsx.md#f-71bbcfe029bb-expression_statement-12)
+cover this addition. On 2026-11-01, all 12 focused keyboard cases passed in
+Vitest/jsdom and the web TypeScript check passed. This checks source edits and
+keymap dispatch; it does not claim browser layout or human acceptance.
+
 ## Read the detailed requirements
 
 - [Requirements 1](requirements/01.md)
