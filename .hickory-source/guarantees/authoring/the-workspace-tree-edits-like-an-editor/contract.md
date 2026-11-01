@@ -645,11 +645,11 @@ function editor(): EditorView {
 ### `expression_statement`
 
 Focused validation on 2026-11-01: the Files and DocumentEditor Vitest files
-passed all 58 tests. Full generation and check stop at the pre-existing missing
-`token_economics.rs.md` source; audit also reports missing construction sources.
-The changed outputs were assembled from their maintained copy/paste selections.
-TypeScript validation reports existing errors in `src/lib/theme.test.ts` at
-lines 71–72. These limits do not establish broader regression readiness.
+passed all 58 tests. Initial full generation was blocked by missing source pages;
+after rebasing onto the upstream restoration, generation, source/output check and
+ownership audit passed (2,986 outputs). TypeScript validation reports existing
+errors in `src/lib/theme.test.ts` at lines 71–72. These focused results do not
+establish broader regression readiness.
 
 The opening-state witness checks nested folds as well as the visible top-level
 rows, then opens the parent to ensure the child directory remains collapsed.
