@@ -64,6 +64,11 @@ const execBlocks = CLI_BLOCKS.filter((b): b is ExecBlock => b.kind === "exec");
 <a id="f-71bbcfe029bb-expression_statement-3"></a>
 ### `expression_statement`
 
+The newly named tab witness seeds wrapped prose and checks that the editor
+reports exactly the saved source after synchronization. A subsequent paste must
+still reflow, so disabling initial reflow cannot silently disable editing policy.
+The adjacent ordinary-open witness retains the default reflow behavior.
+
 <storycode:copy id="f-71bbcfe029bb-expression_statement-3">
 describe("DocumentEditor (WYSIWYG over raw source)", () => {
   // Guarantee: docs/guarantees/authoring/the-editor-keeps-its-space.md
@@ -104,6 +109,24 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
     await waitFor(() => expect(output.textContent).toContain("Restore succeeded"));
     expect(view.state.doc.toString()).toBe(initialSource + source);
     realtime.close();
+  });
+
+  it("keeps a newly named tab clean while retaining paste reflow", async () => {
+    const source = "First line\nsecond line\n";
+    const realtime = new LocalRealtime(), onChange = vi.fn();
+    let view: EditorViewType | null = null;
+    localStorage.removeItem(UNWRAP_PARAGRAPHS_KEY);
+    const mounted = render(<DocumentEditor docId="newly-saved" initialSource={source}
+      realtime={realtime} reflowOnOpen={false} execBlocks={[]} runningCells={new Set()}
+      onRunCell={() => undefined} onChange={onChange} onViewReady={ready => { view = ready; }} />);
+    try {
+      await waitFor(() => expect(view?.state.doc.toString()).toBe(source));
+      await act(async () => { await Promise.resolve(); });
+      expect(onChange).toHaveBeenLastCalledWith(source);
+      await act(async () => { view!.dispatch({ changes: { from: view!.state.doc.length, insert: "\nPasted line\ncontinuation\n" }, userEvent: "input.paste" }); });
+      await waitFor(() => expect(view!.state.doc.toString()).toContain("Pasted line continuation"));
+      expect(onChange).toHaveBeenLastCalledWith(view!.state.doc.toString());
+    } finally { mounted.unmount(); realtime.close(); }
   });
 
   // Guarantee: docs/guarantees/authoring/paragraphs-unwrap-by-default.md

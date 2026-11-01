@@ -12,6 +12,19 @@ explicit discard/retention choice.
 
 The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
 
+Saving an untitled tab names the existing buffer; it must not trigger the
+paragraph reflow used when opening a different document. The workspace keeps
+its `untitled-` tab identity through adoption and uses that identity to disable
+initial reflow in the named editor. Later editing retains normal reflow.
+
+Focused evidence (2026-11-01): eight selected editor and untitled-save tests
+passed, including saved-byte preservation, later paste reflow, ordinary-open
+reflow, and refusal of changed buffers or unacknowledged creation. The four
+affected outputs were reconstructed and checked in an isolated project. Full
+project generation/check and ownership audit remain blocked by pre-existing
+missing constructor source pages, including the `token_economics.rs` owner.
+This evidence does not claim a live desktop walkthrough.
+
 ## Read the detailed requirements
 
 - [Requirements 1](requirements/01.md)

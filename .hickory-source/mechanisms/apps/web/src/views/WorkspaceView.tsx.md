@@ -1617,6 +1617,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     if (tab.kind === "document" && tab.docId) {
       return (
         <DocTabBody
+          reflowOnOpen={!tab.id.startsWith("untitled-")}
           registry={registry}
           docId={tab.docId}
           wrapColumn={workspaceUi.wrapFor(tab.target)}

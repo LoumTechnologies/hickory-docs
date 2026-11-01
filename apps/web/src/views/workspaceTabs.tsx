@@ -132,6 +132,7 @@ function DocToolbar({
 /** The document itself: debugger chrome on top, the collaborative editor
  * under it. One per "document" tab; the session it draws survives the tab. */
 export function DocTabBody({
+  reflowOnOpen = true,
   registry,
   docId,
   wrapColumn,
@@ -141,6 +142,7 @@ export function DocTabBody({
 }: {
   registry: SessionRegistry;
   docId: string;
+  reflowOnOpen?: boolean;
   /** Where prose wraps in this tab, restored with the arrangement. */
   wrapColumn?: number;
   onWrapColumn?: (column: number) => void;
@@ -227,6 +229,7 @@ export function DocTabBody({
         key={docId}
         docId={docId}
         initialSource={doc.source}
+        reflowOnOpen={reflowOnOpen}
         realtime={session.realtime}
         onChange={session.setDirtySource}
         selectSpan={session.selectSpan}

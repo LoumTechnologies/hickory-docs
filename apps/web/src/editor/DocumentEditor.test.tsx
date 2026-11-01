@@ -68,6 +68,24 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
     realtime.close();
   });
 
+  it("keeps a newly named tab clean while retaining paste reflow", async () => {
+    const source = "First line\nsecond line\n";
+    const realtime = new LocalRealtime(), onChange = vi.fn();
+    let view: EditorViewType | null = null;
+    localStorage.removeItem(UNWRAP_PARAGRAPHS_KEY);
+    const mounted = render(<DocumentEditor docId="newly-saved" initialSource={source}
+      realtime={realtime} reflowOnOpen={false} execBlocks={[]} runningCells={new Set()}
+      onRunCell={() => undefined} onChange={onChange} onViewReady={ready => { view = ready; }} />);
+    try {
+      await waitFor(() => expect(view?.state.doc.toString()).toBe(source));
+      await act(async () => { await Promise.resolve(); });
+      expect(onChange).toHaveBeenLastCalledWith(source);
+      await act(async () => { view!.dispatch({ changes: { from: view!.state.doc.length, insert: "\nPasted line\ncontinuation\n" }, userEvent: "input.paste" }); });
+      await waitFor(() => expect(view!.state.doc.toString()).toContain("Pasted line continuation"));
+      expect(onChange).toHaveBeenLastCalledWith(view!.state.doc.toString());
+    } finally { mounted.unmount(); realtime.close(); }
+  });
+
   // Guarantee: docs/guarantees/authoring/paragraphs-unwrap-by-default.md
   it("reflows synced prose through the live room and reports the source edit, with Undo and opt-out", async () => {
     const source = "A wrapped paragraph\ncontinues here.\n";

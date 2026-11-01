@@ -109,6 +109,8 @@ export interface DocumentEditorProps {
   capturedProject?: SlotContext["capturedProject"];
   editorExtensions?: Extension[];
   preserveBytes?: boolean;
+  /** Saving an existing tab is not a fresh open: preserve its acknowledged text. */
+  reflowOnOpen?: boolean;
   comparisonBase?: string | null;
   readOnly?: boolean;
   docId: string;
@@ -232,6 +234,10 @@ export function continueList(view: EditorView): boolean {
 <a id="f-aab82870e517-DocumentEditor"></a>
 ### `DocumentEditor`
 
+Initial paragraph reflow is separate from ongoing editing. A tab that has just
+been saved can disable reflow on opening its named editor, preserving the bytes
+that were acknowledged on disk instead of immediately making them dirty again.
+
 The Document view: ONE CodeMirror instance over the raw .md source with
 Typora-style decorations (see editor/wysiwyg.ts) and collaborative editing
 via Yjs — the user always edits real source; styling never replaces text.
@@ -260,6 +266,7 @@ export function DocumentEditor({
   comparisonBase = null,
   readOnly = false,
   docId,
+  reflowOnOpen = docId !== "untitled",
   initialSource,
   realtime,
   onChange,
@@ -477,7 +484,7 @@ export function DocumentEditor({
           coverageGutter(() => pathRef.current ?? undefined),
           performanceInline(() => pathRef.current ?? undefined),
           history(),
-          ...(preserveBytes ? [] : [unwrapParagraphs({ onOpen: docId !== "untitled" })]),
+          ...(preserveBytes ? [] : [unwrapParagraphs({ onOpen: reflowOnOpen })]),
           // Undo must never reach content this client did not type.
           //
           // The room's first sync arrives as an ordinary document change, and
