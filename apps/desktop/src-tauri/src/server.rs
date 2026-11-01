@@ -129,6 +129,30 @@ pub fn remember(config_dir: &Path, dir: &Path) {
     let _ = std::fs::write(recent_file(config_dir), dir.to_string_lossy().as_bytes());
 }
 
+// Give the HTTP close acknowledgement a chance to reach the page before
+// destroying its webview (or exiting the process). Never block the callback.
+fn defer_window_close(close: impl FnOnce() + Send + 'static) {
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        close();
+    });
+}
+
+#[cfg(test)]
+mod close_tests {
+    #[test]
+    fn close_is_deferred_off_the_request_thread() {
+        let caller = std::thread::current().id();
+        let started = std::time::Instant::now();
+        let (send, receive) = std::sync::mpsc::channel();
+        super::defer_window_close(move || send.send(std::thread::current().id()).unwrap());
+        let worker = receive.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert_ne!(caller, worker);
+        assert!(started.elapsed() >= std::time::Duration::from_millis(250));
+        assert!(receive.recv().is_err(), "close must run only once");
+    }
+}
+
 /// The shell's own powers, handed to the engine.
 ///
 /// Both halves are process-level acts, which is the whole reason they cannot
@@ -228,15 +252,26 @@ pub fn shell_hooks(handle: &tauri::AppHandle, config_dir: Option<&Path>) -> Shel
                 .state::<super::QuitIntent>()
                 .0
                 .swap(false, std::sync::atomic::Ordering::SeqCst);
-            if quitting {
-                closer.exit(0);
-            } else if let Some(window) = closer.get_webview_window("main") {
-                window
-                    .state::<super::CloseGate>()
-                    .0
-                    .store(true, std::sync::atomic::Ordering::SeqCst);
-                window.close()?;
-            }
+            let closer = closer.clone();
+            defer_window_close(move || {
+                if quitting {
+                    closer.exit(0);
+                } else if let Some(window) = closer.get_webview_window("main") {
+                    window
+                        .state::<super::CloseGate>()
+                        .0
+                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                    if let Err(error) = window.close() {
+                        window
+                            .state::<super::CloseGate>()
+                            .0
+                            .store(false, std::sync::atomic::Ordering::SeqCst);
+                        closer.dialog().message(format!("Could not close the window: {error}"))
+                            .kind(tauri_plugin_dialog::MessageDialogKind::Error)
+                            .title("Hickory Docs").blocking_show();
+                    }
+                }
+            });
             Ok(())
         }),
         cancel_quit: std::sync::Arc::new(move || {

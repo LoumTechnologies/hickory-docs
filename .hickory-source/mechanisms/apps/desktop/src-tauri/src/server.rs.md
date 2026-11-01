@@ -251,12 +251,50 @@ finder, so there is one answer to "where is the app" rather than two.
 process holds *this* folder, and it cannot hold another. So the new
 folder is remembered and the process restarts into it — which is what
 `switch_to` has always done for File → Open Folder.
+Window close uses the same short deferral as restart after session release succeeds.
+The close callback acknowledges an accepted shutdown request, not destruction.
+Destroying the webview inside that callback can cancel the fetch still waiting
+for its reply and display “Load failed” during a successful close. Keep detach
+failures synchronous so they retain the window; report a later native close
+failure with a native dialog because the HTTP request has already completed.
+The delay gives loopback replies time to drain; it is not proof of delivery.
+The focused witness below checks that destruction runs once on another thread
+after the drain interval. It does not exercise a native webview. On 2026-11-01,
+that witness passed as an extracted Rust unit test, and isolated Hickory
+construction/check agreed for this output. Whole-project generate/check/audit
+were blocked by pre-existing missing included source pages, beginning with
+`crates/hickory-agent/src/bin/token_economics.rs.md`.
+
 The restart is deferred by a moment so the HTTP response that asked for it
 gets out first. Exiting mid-response would leave the page reporting a
 dropped connection as if something had gone wrong, when what happened is
 precisely what was asked for.
 
 <storycode:copy id="f-821f8d0a36be-shell_hooks">
+// Give the HTTP close acknowledgement a chance to reach the page before
+// destroying its webview (or exiting the process). Never block the callback.
+fn defer_window_close(close: impl FnOnce() + Send + 'static) {
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        close();
+    });
+}
+
+#[cfg(test)]
+mod close_tests {
+    #[test]
+    fn close_is_deferred_off_the_request_thread() {
+        let caller = std::thread::current().id();
+        let started = std::time::Instant::now();
+        let (send, receive) = std::sync::mpsc::channel();
+        super::defer_window_close(move || send.send(std::thread::current().id()).unwrap());
+        let worker = receive.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert_ne!(caller, worker);
+        assert!(started.elapsed() >= std::time::Duration::from_millis(250));
+        assert!(receive.recv().is_err(), "close must run only once");
+    }
+}
+
 /// The shell's own powers, handed to the engine.
 ///
 /// Both halves are process-level acts, which is the whole reason they cannot
@@ -356,15 +394,26 @@ pub fn shell_hooks(handle: &tauri::AppHandle, config_dir: Option<&Path>) -> Shel
                 .state::<super::QuitIntent>()
                 .0
                 .swap(false, std::sync::atomic::Ordering::SeqCst);
-            if quitting {
-                closer.exit(0);
-            } else if let Some(window) = closer.get_webview_window("main") {
-                window
-                    .state::<super::CloseGate>()
-                    .0
-                    .store(true, std::sync::atomic::Ordering::SeqCst);
-                window.close()?;
-            }
+            let closer = closer.clone();
+            defer_window_close(move || {
+                if quitting {
+                    closer.exit(0);
+                } else if let Some(window) = closer.get_webview_window("main") {
+                    window
+                        .state::<super::CloseGate>()
+                        .0
+                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                    if let Err(error) = window.close() {
+                        window
+                            .state::<super::CloseGate>()
+                            .0
+                            .store(false, std::sync::atomic::Ordering::SeqCst);
+                        closer.dialog().message(format!("Could not close the window: {error}"))
+                            .kind(tauri_plugin_dialog::MessageDialogKind::Error)
+                            .title("Hickory Docs").blocking_show();
+                    }
+                }
+            });
             Ok(())
         }),
         cancel_quit: std::sync::Arc::new(move || {
