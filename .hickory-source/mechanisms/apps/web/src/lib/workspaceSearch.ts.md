@@ -16,7 +16,8 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:copy id="f-a5b848b0817a-SearchFile">
 import { rememberReadingState, restoreReadingState } from "./contextProjection";
 // Live open buffers supplement the folder index; their bytes replace stale disk hits.
-import type { EditorView } from "@codemirror/view";
+import { Decoration, EditorView, ViewPlugin } from "@codemirror/view";
+import { getSearchQuery, search, SearchQuery, setSearchQuery } from "@codemirror/search";
 import type { SearchResponse } from "../api/types";
 import { SearchIndex } from "../lineage/bm25";
 import { samePath } from "./paths";
@@ -26,8 +27,67 @@ export interface SearchFile { path: string; content: string }
 <a id="f-a5b848b0817a-plainEditors"></a>
 ### `plainEditors`
 
+Project search uses a literal, case-insensitive query for editor marks, independently
+of the ranked result list. Keep that query after choosing a result so newly mounted
+documents show the same matches. Clearing the input clears the marks. Local Find
+uses the same CodeMirror query, including its regex and case options. Decorations
+cover visible text only; the minimap reads every match from the current buffer.
+
 <storycode:copy id="f-a5b848b0817a-plainEditors">
 const plainEditors = new Map<EditorView, string>();
+let projectQuery = "";
+const highlightedEditors = new Set<EditorView>();
+
+export function highlightProjectSearch(query: string): void {
+  projectQuery = query;
+  for (const view of highlightedEditors) {
+    view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: query, literal: true })) });
+  }
+}
+
+export function searchMatchPositions(view: EditorView): { from: number; to: number }[] {
+  const query = getSearchQuery(view.state);
+  const positions: { from: number; to: number }[] = [];
+  if (query.valid) {
+    const cursor = query.getCursor(view.state);
+    for (let next = cursor.next(); !next.done; next = cursor.next()) {
+      positions.push({ from: next.value.from, to: next.value.to });
+    }
+  }
+  return positions;
+}
+
+export const persistentSearchHighlights = [search(), ViewPlugin.fromClass(class {
+  decorations = Decoration.none;
+  constructor(private view: EditorView) {
+    highlightedEditors.add(view);
+    // Dispatch after construction: CodeMirror forbids dispatch during an update.
+    queueMicrotask(() => {
+      if (highlightedEditors.has(view) && projectQuery) {
+        view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: projectQuery, literal: true })) });
+      }
+    });
+    this.draw(view);
+  }
+  update(update: import("@codemirror/view").ViewUpdate) {
+    if (update.docChanged || update.viewportChanged || !getSearchQuery(update.startState).eq(getSearchQuery(update.state))) this.draw(update.view);
+  }
+  draw(view: EditorView) {
+    const query = getSearchQuery(view.state);
+    const marks = [];
+    if (query.valid) for (const range of view.visibleRanges) {
+      const cursor = query.getCursor(view.state, range.from, range.to);
+      for (let next = cursor.next(); !next.done; next = cursor.next()) {
+        const match = next.value;
+        if (match.to > match.from) marks.push(Decoration.mark({ class: "cm-searchMatch" }).range(match.from, match.to));
+      }
+    }
+    this.decorations = Decoration.set(marks, true);
+  }
+  destroy() { /* Removed views must never receive later query dispatches. */
+    highlightedEditors.delete(this.view);
+  }
+}, { decorations: plugin => plugin.decorations })];
 
 </storycode:copy>
 <a id="f-a5b848b0817a-registerSearchEditor"></a>

@@ -611,6 +611,7 @@ the workspace, which is the only thing that knows what is open.
 // candidates, and reports the pick. What any of those things MEAN belongs to
 // the workspace, which is the only thing that knows what is open.
 
+import { highlightProjectSearch } from "../lib/workspaceSearch";
 import { isAction } from "../lib/keymap";
 import "./commandPalette.css";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -715,6 +716,11 @@ export function CommandBar({
   const previousFocus = useRef<HTMLElement | null>(null);
   const openRef = useRef(open); openRef.current = open;
   const { mode, term } = useMemo(() => parseQuery(raw), [raw]);
+  // Keep the chosen query when dismissing; reopening an empty content search
+  // clears it. Command and file-name modes do not mark document text.
+  useEffect(() => {
+    if (open) highlightProjectSearch(mode === "content" ? term : "");
+  }, [open, mode, term]);
   const reveal = (commands: boolean) => {
       if (!openRef.current) previousFocus.current = document.activeElement as HTMLElement | null;
       setRaw(commands ? ">" : "");

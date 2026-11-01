@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView, lineNumbers } from "@codemirror/view";
 import { history, undo } from "@codemirror/commands";
+import { search, SearchQuery, setSearchQuery } from "@codemirror/search";
 import { emptyPane, open, tab, type Layout, type Tab } from "./layout";
 import type { SpatialState } from "./spatialLayout";
 import { SpatialShellView } from "./SpatialShellView";
@@ -21,13 +22,30 @@ const live = new Map<string, EditorView>();
 function Buffer({ entry }: { entry: Tab }) {
   const parent = useRef<HTMLDivElement>(null);
   useUiCommands([{ key: `probe:${entry.id}`, command: { label: entry.target, parent: "test-visible-editors", subject: entry.id, parameters: {}, prerequisites: [], read: () => ({ revision: "probe", enabled: true }), execute: async () => ({ status: "completed", value: null }) } }]);
-  useEffect(() => { const view = new EditorView({ parent: parent.current!, state: EditorState.create({ doc: `${entry.target}\nsecond line`, extensions: [lineNumbers(), history()] }) }); live.set(entry.target, view); return () => { view.destroy(); live.delete(entry.target); }; }, [entry.id]);
+  useEffect(() => { const view = new EditorView({ parent: parent.current!, state: EditorState.create({ doc: `${entry.target}\nsecond line`, extensions: [lineNumbers(), history(), search()] }) }); live.set(entry.target, view); return () => { view.destroy(); live.delete(entry.target); }; }, [entry.id]);
   return <div ref={parent} />;
 }
 function Harness({ mixed = false, related = false, files = false, onClose }: { mixed?: boolean; related?: boolean; files?: boolean; onClose?: React.ComponentProps<typeof SpatialShellView>["onRequestCloseTab"] }) {
   const [layout, setLayout] = useState<Layout>(() => { const pane = emptyPane(); return { root: { ...pane, tabs: [tab("document", "main.md"), tab("document", "related.md"), ...(mixed ? [tab("file", "app.py"), tab("chat", "conversation", "Agent")] : []), tab("tree", "folder")], active: 0 }, focus: pane.id }; });
   return <><button onClick={() => { publishReading("proposal", { title: "Review", path: "note.md", before: "old", after: "new", status: "pending" }); setLayout(current => open(current, tab("tool", "reading:proposal", "Review"))); }}>Open review</button><SpatialShellView layout={layout} onRequestCloseTab={onClose} onLayout={setLayout} sources={[]} files={[]} hasFiles={files} links={related ? [{ key: "related", title: "Related file", family: "declared", from: { path: "main.md", lines: [1, 1] }, to: { path: "related.md" } }] : []} render={entry => <Buffer entry={entry} />} /></>;
 }
+it("shows current search matches in the center minimap and clears them", async () => {
+  const ui = render(<Harness />);
+  await waitFor(() => expect(live.has("main.md")).toBe(true));
+  act(() => live.get("main.md")!.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: "second" })) }));
+  const markers = () => ui.container.querySelectorAll<HTMLElement>(".spatial-minimap-search");
+  await waitFor(() => expect(markers()).toHaveLength(1));
+  expect(markers()[0].style.top).toBe("50%");
+  const related = ui.container.querySelector<HTMLElement>('[data-spatial-key="document:related.md"]')!;
+  fireEvent.click(related.querySelector('[aria-label="Center"]')!);
+  await waitFor(() => expect(markers()).toHaveLength(0));
+  act(() => live.get("related.md")!.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: "related" })) }));
+  await waitFor(() => expect(markers()).toHaveLength(1));
+  expect(markers()[0].style.top).toBe("0%");
+  act(() => live.get("related.md")!.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: "" })) }));
+  await waitFor(() => expect(markers()).toHaveLength(0));
+});
+
 it("uses registered center and restore commands without replacing the editor or accepting old layout handles", async () => {
   const registry = new UiActions({ workspace: "practice", window: "one" }, () => true, async () => {});
   const ui = render(<UiActionContext.Provider value={registry}><Harness /></UiActionContext.Provider>);

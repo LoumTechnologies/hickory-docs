@@ -23,6 +23,7 @@ import { SPATIAL_RIBBON_OPEN, type SpatialRibbonOpen } from "./spatialNavigation
 import { PaneHeaderProvider, PaneHeaderSlots } from "./PaneHeader";
 import { openCommandBar } from "./CommandBar";
 import { useCallback, useEffect, useMemo, useRef, useState, useId, type SetStateAction, type PointerEvent } from "react";
+import { searchMatchPositions } from "../lib/workspaceSearch";
 import { EditorView } from "@codemirror/view";
 import { bufferTarget } from "../lib/editorBufferTargets";
 import { onRevealLine } from "../lib/revealLine";
@@ -94,6 +95,13 @@ const paneId = (entry: Entry) => `spatial-pane-${entry.tab?.id ?? encodeURICompo
 
 Each editor has one stable mount. Centering, pinning and parallax only change its rectangle.
 
+The center minimap is a document overview rail at the center pane's right edge.
+Its viewport thumb tracks scroll geometry; search ticks use source-line fractions
+so offscreen hits remain visible without rendering the whole document. The existing
+scroll listener and half-second refresh also refresh ticks after edits, query changes
+and center switches. A center with no editor clears the old markers. These are
+source-line positions, not measured positions within rendered block widgets.
+
 <storycode:copy id="f-64456f67b44e-SpatialShellView">
 /** Each editor has one stable mount. Centering, pinning and parallax only change its rectangle. */
 export function SpatialShellView(props: Props) {
@@ -116,7 +124,7 @@ export function SpatialShellView(props: Props) {
   }, []);
   const [drawerOpen, setDrawerOpen] = useState({ left: false, right: false });
   const [requestedFiles, setRequestedFiles] = useState({ left: false, right: false });
-  const [minimap, setMinimap] = useState({ scroll: 0, total: 1, viewport: 1 });
+  const [minimap, setMinimap] = useState({ scroll: 0, total: 1, viewport: 1, matches: [] as number[] });
   const previousFolder = useRef(props.folderRoot), lastChat = useRef<string | null>(null), pendingSide = useRef<Side | null>(null);
   const columnGesture = useRef<{ side: Side; x: number; start: number } | null>(null);
   const previousTabs = useRef(new Set<string>());
@@ -253,7 +261,7 @@ export function SpatialShellView(props: Props) {
   }, [layout]); // Only newly opened tabs affect the center; changing presentation does not.
   useEffect(() => {
     const el = root.current;
-    const update = () => { const dom = el?.querySelector<HTMLElement>("[data-spatial-center=true] .cm-editor"), view = dom && EditorView.findFromDOM(dom); if (view) setMinimap({ scroll: view.scrollDOM.scrollTop, total: view.scrollDOM.scrollHeight, viewport: view.scrollDOM.clientHeight }); };
+    const update = () => { const dom = el?.querySelector<HTMLElement>("[data-spatial-center=true] .cm-editor"), view = dom && EditorView.findFromDOM(dom); if (view) setMinimap({ scroll: view.scrollDOM.scrollTop, total: view.scrollDOM.scrollHeight, viewport: view.scrollDOM.clientHeight, matches: searchMatchPositions(view).map(match => (view.state.doc.lineAt(match.from).number - 1) / view.state.doc.lines * 100) }); else setMinimap({ scroll: 0, total: 1, viewport: 1, matches: [] }); };
     el?.addEventListener("scroll", update, true); const timer = window.setInterval(update, 500);
     return () => { el?.removeEventListener("scroll", update, true); clearInterval(timer); };
   }, []);
@@ -458,6 +466,7 @@ export function SpatialShellView(props: Props) {
       onKeyDown={event => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setScene(current => ({ ...current, columns: current.columns.map((value, index) => index === (side === "left" ? 0 : 1) ? Math.max(.16, Math.min(.36, value + (event.key === "ArrowLeft" ? -.01 : .01) * (side === "left" ? 1 : -1))) : value) as [number, number] })); } }} />)}
     <div className="spatial-minimap" data-tip="Scroll the center view" role="scrollbar" aria-label="Center minimap" aria-valuenow={Math.round(minimap.scroll)} aria-valuemin={0} aria-valuemax={minimap.total} aria-controls="spatial-center"
       onPointerDown={event => { const dom = root.current?.querySelector<HTMLElement>("[data-spatial-center=true] .cm-editor"), view = dom && EditorView.findFromDOM(dom), box = event.currentTarget.getBoundingClientRect(); if (view) view.scrollDOM.scrollTop = (event.clientY - box.top) / box.height * Math.max(0, minimap.total - minimap.viewport); }}>
+      {minimap.matches.map((top, index) => <b className="spatial-minimap-search" key={`search-${index}`} style={{ top: `${top}%` }} />)}
       <i style={{ top: `${minimap.scroll / minimap.total * 100}%`, height: `${Math.min(100, minimap.viewport / minimap.total * 100)}%` }} />
       {relations.filter(relation => relation.fromPath === center?.path || relation.toPath === center?.path).map(relation => { const reverse = relation.toPath === center?.path, view = reverse ? relation.to : relation.from, range = reverse ? relation.toRange : relation.fromRange; if (!view || !range) return null; const line = view.state.doc.lineAt(Math.min(range[0], view.state.doc.length)).number; return <b key={relation.key} style={{ top: `${(line - 1) / view.state.doc.lines * 100}%` }} />; })}
     </div>
@@ -493,6 +502,7 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView, lineNumbers } from "@codemirror/view";
 import { history, undo } from "@codemirror/commands";
+import { search, SearchQuery, setSearchQuery } from "@codemirror/search";
 import { emptyPane, open, tab, type Layout, type Tab } from "./layout";
 import type { SpatialState } from "./spatialLayout";
 import { SpatialShellView } from "./SpatialShellView";
@@ -525,7 +535,7 @@ const live = new Map<string, EditorView>();
 function Buffer({ entry }: { entry: Tab }) {
   const parent = useRef<HTMLDivElement>(null);
   useUiCommands([{ key: `probe:${entry.id}`, command: { label: entry.target, parent: "test-visible-editors", subject: entry.id, parameters: {}, prerequisites: [], read: () => ({ revision: "probe", enabled: true }), execute: async () => ({ status: "completed", value: null }) } }]);
-  useEffect(() => { const view = new EditorView({ parent: parent.current!, state: EditorState.create({ doc: `${entry.target}\nsecond line`, extensions: [lineNumbers(), history()] }) }); live.set(entry.target, view); return () => { view.destroy(); live.delete(entry.target); }; }, [entry.id]);
+  useEffect(() => { const view = new EditorView({ parent: parent.current!, state: EditorState.create({ doc: `${entry.target}\nsecond line`, extensions: [lineNumbers(), history(), search()] }) }); live.set(entry.target, view); return () => { view.destroy(); live.delete(entry.target); }; }, [entry.id]);
   return <div ref={parent} />;
 }
 </storycode:copy>
@@ -541,7 +551,28 @@ function Harness({ mixed = false, related = false, files = false, onClose }: { m
 <a id="f-57fb3ab47480-expression_statement-3"></a>
 ### `expression_statement`
 
+The minimap samples the centered live buffer, including offscreen matches. This
+witness changes the query and the center separately, then clears it; markers must
+never linger from another document or an earlier query.
+
 <storycode:copy id="f-57fb3ab47480-expression_statement-3">
+it("shows current search matches in the center minimap and clears them", async () => {
+  const ui = render(<Harness />);
+  await waitFor(() => expect(live.has("main.md")).toBe(true));
+  act(() => live.get("main.md")!.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: "second" })) }));
+  const markers = () => ui.container.querySelectorAll<HTMLElement>(".spatial-minimap-search");
+  await waitFor(() => expect(markers()).toHaveLength(1));
+  expect(markers()[0].style.top).toBe("50%");
+  const related = ui.container.querySelector<HTMLElement>('[data-spatial-key="document:related.md"]')!;
+  fireEvent.click(related.querySelector('[aria-label="Center"]')!);
+  await waitFor(() => expect(markers()).toHaveLength(0));
+  act(() => live.get("related.md")!.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: "related" })) }));
+  await waitFor(() => expect(markers()).toHaveLength(1));
+  expect(markers()[0].style.top).toBe("0%");
+  act(() => live.get("related.md")!.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: "" })) }));
+  await waitFor(() => expect(markers()).toHaveLength(0));
+});
+
 it("uses registered center and restore commands without replacing the editor or accepting old layout handles", async () => {
   const registry = new UiActions({ workspace: "practice", window: "one" }, () => true, async () => {});
   const ui = render(<UiActionContext.Provider value={registry}><Harness /></UiActionContext.Provider>);

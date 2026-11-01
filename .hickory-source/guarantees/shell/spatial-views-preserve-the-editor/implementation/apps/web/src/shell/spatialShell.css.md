@@ -12,7 +12,11 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 
 Related contracts: [Spatial Views Preserve The Editor](../../../../../contract.md).
 
-This literal construction preserves embedded document syntax and exact file bytes. Its internal reasoning boundaries still need editorial review.
+The minimap rail is twelve pixels wide and remains visible without hovering. Its
+translation keeps the widened rail inside the right edge positioned by the spatial
+controller. Search ticks span the rail above the viewport thumb, so a hit stays
+visible when it falls within the current viewport. Other styling boundaries in
+this literal construction still need editorial review.
 
 <storycode:entry path="apps/web/src/shell/spatialShell.css">
 .spatial-shell { position: relative; width: 100%; flex: 1; min-height: 0; overflow: hidden; isolation: isolate; }
@@ -65,10 +69,11 @@ This literal construction preserves embedded document syntax and exact file byte
 .spatial-file-space { pointer-events: none; }
 .spatial-excerpt-edge { display: flex; gap: 8px; padding: 4px 8px; background: var(--bg); color: var(--fg-muted); border-block: 1px dotted var(--border); }
 .spatial-excerpt-edge button { color: var(--fg-muted); background: transparent; border: 0; cursor: pointer; font: inherit; }
-.spatial-minimap { position: absolute; right: calc(50% - 3px); top: 40px; bottom: 0; width: 6px; z-index: 5; opacity: .35; cursor: pointer; }
+.spatial-minimap { position: absolute; right: calc(50% - 3px); top: 40px; bottom: 0; width: 12px; transform: translateX(-6px); z-index: 5; opacity: .8; background: var(--bg-alt, rgba(127,127,127,.12)); cursor: pointer; }
 .spatial-minimap i { position: absolute; left: 0; width: 100%; min-height: 6px; background: var(--accent); }
 .spatial-minimap b { position: absolute; height: 2px; width: 6px; left: 0; background: #e7b75e; }
-.spatial-minimap:hover { opacity: .9; }
+.spatial-minimap:hover { opacity: 1; }
+.spatial-minimap b.spatial-minimap-search { width: 100%; height: 3px; background: var(--search-hit-on, #e7b75e); z-index: 1; pointer-events: none; }
 .spatial-column-rule { position: absolute; z-index: 4; cursor: ew-resize; touch-action: none; }
 .spatial-column-rule::after { position: absolute; content: ""; inset: 0 3px; border-left: 1px dotted var(--fg-muted); opacity: .4; }
 .spatial-column-rule:hover::after { opacity: 1; border-color: var(--accent); }

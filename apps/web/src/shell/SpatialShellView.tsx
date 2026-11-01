@@ -5,6 +5,7 @@ import { SPATIAL_RIBBON_OPEN, type SpatialRibbonOpen } from "./spatialNavigation
 import { PaneHeaderProvider, PaneHeaderSlots } from "./PaneHeader";
 import { openCommandBar } from "./CommandBar";
 import { useCallback, useEffect, useMemo, useRef, useState, useId, type SetStateAction, type PointerEvent } from "react";
+import { searchMatchPositions } from "../lib/workspaceSearch";
 import { EditorView } from "@codemirror/view";
 import { bufferTarget } from "../lib/editorBufferTargets";
 import { onRevealLine } from "../lib/revealLine";
@@ -61,7 +62,7 @@ export function SpatialShellView(props: Props) {
   }, []);
   const [drawerOpen, setDrawerOpen] = useState({ left: false, right: false });
   const [requestedFiles, setRequestedFiles] = useState({ left: false, right: false });
-  const [minimap, setMinimap] = useState({ scroll: 0, total: 1, viewport: 1 });
+  const [minimap, setMinimap] = useState({ scroll: 0, total: 1, viewport: 1, matches: [] as number[] });
   const previousFolder = useRef(props.folderRoot), lastChat = useRef<string | null>(null), pendingSide = useRef<Side | null>(null);
   const columnGesture = useRef<{ side: Side; x: number; start: number } | null>(null);
   const previousTabs = useRef(new Set<string>());
@@ -198,7 +199,7 @@ export function SpatialShellView(props: Props) {
   }, [layout]); // Only newly opened tabs affect the center; changing presentation does not.
   useEffect(() => {
     const el = root.current;
-    const update = () => { const dom = el?.querySelector<HTMLElement>("[data-spatial-center=true] .cm-editor"), view = dom && EditorView.findFromDOM(dom); if (view) setMinimap({ scroll: view.scrollDOM.scrollTop, total: view.scrollDOM.scrollHeight, viewport: view.scrollDOM.clientHeight }); };
+    const update = () => { const dom = el?.querySelector<HTMLElement>("[data-spatial-center=true] .cm-editor"), view = dom && EditorView.findFromDOM(dom); if (view) setMinimap({ scroll: view.scrollDOM.scrollTop, total: view.scrollDOM.scrollHeight, viewport: view.scrollDOM.clientHeight, matches: searchMatchPositions(view).map(match => (view.state.doc.lineAt(match.from).number - 1) / view.state.doc.lines * 100) }); else setMinimap({ scroll: 0, total: 1, viewport: 1, matches: [] }); };
     el?.addEventListener("scroll", update, true); const timer = window.setInterval(update, 500);
     return () => { el?.removeEventListener("scroll", update, true); clearInterval(timer); };
   }, []);
@@ -403,6 +404,7 @@ export function SpatialShellView(props: Props) {
       onKeyDown={event => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setScene(current => ({ ...current, columns: current.columns.map((value, index) => index === (side === "left" ? 0 : 1) ? Math.max(.16, Math.min(.36, value + (event.key === "ArrowLeft" ? -.01 : .01) * (side === "left" ? 1 : -1))) : value) as [number, number] })); } }} />)}
     <div className="spatial-minimap" data-tip="Scroll the center view" role="scrollbar" aria-label="Center minimap" aria-valuenow={Math.round(minimap.scroll)} aria-valuemin={0} aria-valuemax={minimap.total} aria-controls="spatial-center"
       onPointerDown={event => { const dom = root.current?.querySelector<HTMLElement>("[data-spatial-center=true] .cm-editor"), view = dom && EditorView.findFromDOM(dom), box = event.currentTarget.getBoundingClientRect(); if (view) view.scrollDOM.scrollTop = (event.clientY - box.top) / box.height * Math.max(0, minimap.total - minimap.viewport); }}>
+      {minimap.matches.map((top, index) => <b className="spatial-minimap-search" key={`search-${index}`} style={{ top: `${top}%` }} />)}
       <i style={{ top: `${minimap.scroll / minimap.total * 100}%`, height: `${Math.min(100, minimap.viewport / minimap.total * 100)}%` }} />
       {relations.filter(relation => relation.fromPath === center?.path || relation.toPath === center?.path).map(relation => { const reverse = relation.toPath === center?.path, view = reverse ? relation.to : relation.from, range = reverse ? relation.toRange : relation.fromRange; if (!view || !range) return null; const line = view.state.doc.lineAt(Math.min(range[0], view.state.doc.length)).number; return <b key={relation.key} style={{ top: `${(line - 1) / view.state.doc.lines * 100}%` }} />; })}
     </div>

@@ -2,6 +2,7 @@
 //
 // Picking a hit uses the workspace's existing open-and-reveal routing.
 
+import { highlightProjectSearch } from "../lib/workspaceSearch";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { useUiListActions } from "../lib/uiListActions";
@@ -34,6 +35,7 @@ export function SearchPanel({
   // against a slow earlier answer landing after a faster later one.
   useEffect(() => {
     const q = query.trim();
+    highlightProjectSearch(q);
     if (!q) {
       setResult(null);
       setError(null);

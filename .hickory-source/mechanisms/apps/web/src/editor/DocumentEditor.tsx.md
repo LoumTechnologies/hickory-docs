@@ -33,6 +33,7 @@ import {
   historyKeymap,
   indentWithTab,
 } from "@codemirror/commands";
+import { persistentSearchHighlights } from "../lib/workspaceSearch";
 import { search, searchKeymap } from "@codemirror/search";
 import { wordMotionBindings } from "./wordMotion";
 import { requestMenuAction } from "../lib/menuBridge";
@@ -506,6 +507,8 @@ export function DocumentEditor({
           // it; the shifted chord stays free for the shell's project search.
           // The panel sits on top — a find that covers the line it found is
           // a find that answers a question by hiding the answer.
+          // Project matches stay visible after the search overlay closes.
+          persistentSearchHighlights,
           search({ top: true }),
           // Word motion first: bindings for one key run in registration
           // order and the first to return true wins, so these must arrive

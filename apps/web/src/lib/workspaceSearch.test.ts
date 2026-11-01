@@ -1,9 +1,35 @@
 import { EditorState } from "@codemirror/state";
+import { SearchQuery, setSearchQuery } from "@codemirror/search";
 import { EditorView } from "@codemirror/view";
 import { describe, expect, it, vi } from "vitest";
-import { openPlainSearchFiles, registerSearchEditor, searchWorkspace } from "./workspaceSearch";
+import { highlightProjectSearch, persistentSearchHighlights, searchMatchPositions, openPlainSearchFiles, registerSearchEditor, searchWorkspace } from "./workspaceSearch";
 
 const hit = (path: string, snippet: string) => ({ path, snippet, start_line: 1, end_line: 1, score: 1 });
+
+// These checks inspect exact character ranges and actual editor decorations,
+// rather than inferring visibility from the ranked search response.
+it("marks every literal occurrence, follows edits, and clears stale marks", async () => {
+  highlightProjectSearch("a.b");
+  const view = new EditorView({ state: EditorState.create({ doc: "A.b aXb\na.b", extensions: [persistentSearchHighlights] }), parent: document.body });
+  try {
+    await Promise.resolve();
+    expect(searchMatchPositions(view)).toEqual([{ from: 0, to: 3 }, { from: 8, to: 11 }]);
+    expect(view.dom.querySelectorAll(".cm-searchMatch")).toHaveLength(2);
+    view.dispatch({ changes: { from: 8, to: 11, insert: "gone" } });
+    expect(searchMatchPositions(view)).toEqual([{ from: 0, to: 3 }]);
+    highlightProjectSearch("");
+    expect(searchMatchPositions(view)).toEqual([]);
+    expect(view.dom.querySelectorAll(".cm-searchMatch")).toHaveLength(0);
+  } finally { view.destroy(); highlightProjectSearch(""); }
+});
+
+it("uses local Find options for both editor marks and minimap positions", () => {
+  const view = new EditorView({ state: EditorState.create({ doc: "cat Cat cot", extensions: [persistentSearchHighlights] }) });
+  try {
+    view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: "c.t", regexp: true, caseSensitive: true })) });
+    expect(searchMatchPositions(view)).toEqual([{ from: 0, to: 3 }, { from: 8, to: 11 }]);
+  } finally { view.destroy(); }
+});
 
 describe("searching open files and the folder", () => {
   it("searches every open file without a folder", async () => {
