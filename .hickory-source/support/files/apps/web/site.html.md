@@ -3,7 +3,9 @@
 
 For: maintainers changing this file and reviewers tracing the related behavioral requirements.
 
-Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+Resolve appearance before the bundle paints: explicit saved themes take precedence,
+otherwise use the OS light/dark preference. The shared theme mechanism tests this
+inline resolver alongside the runtime implementation.
 
 
 Captured SHA-256: `53f32f322dde289c3305662d0eae43cd15b82b189c0e8183fd721dfdee016371`.
@@ -16,8 +18,8 @@ Captured SHA-256: `53f32f322dde289c3305662d0eae43cd15b82b189c0e8183fd721dfdee016
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark" />
     <title>Hickory Docs — a downloadable notes IDE</title>
-    <!-- Theme, before the bundle — same contract as index.html and
-         src/lib/theme.ts (key, values, default "dark"). -->
+    <!-- Resolve saved choice or OS appearance before first paint.
+         Keep this in sync with src/lib/theme.ts. -->
     <script>
       (function () {
         var theme;
@@ -26,7 +28,9 @@ Captured SHA-256: `53f32f322dde289c3305662d0eae43cd15b82b189c0e8183fd721dfdee016
         } catch (e) {
           /* storage disabled: keep the default */
         }
-        if (theme !== "dark" && theme !== "warm-dark" && theme !== "light") theme = "dark";
+        if (theme !== "dark" && theme !== "warm-dark" && theme !== "light") {
+          theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        }
         document.documentElement.dataset.theme = theme;
         var meta = document.querySelector('meta[name="color-scheme"]');
         if (meta) meta.setAttribute("content", theme === "light" ? "light" : "dark");

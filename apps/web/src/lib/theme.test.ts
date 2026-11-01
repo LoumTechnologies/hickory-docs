@@ -1,20 +1,29 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { applyStoredTheme, applyTheme, loadTheme, saveTheme, THEME_KEY } from "./theme";
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   localStorage.removeItem(THEME_KEY);
   delete document.documentElement.dataset.theme;
   document.querySelector('meta[name="color-scheme"]')?.remove();
 });
 
 describe("theme persistence", () => {
-  it("defaults to dark with nothing stored", () => {
+  it.each([true, false])("uses system light preference %s without saving it", (matches) => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches })));
+    expect(loadTheme()).toBe(matches ? "light" : "dark");
+    expect(localStorage.getItem(THEME_KEY)).toBeNull();
+  });
+
+  it("defaults to dark when system preference is unavailable", () => {
     localStorage.removeItem(THEME_KEY);
     expect(loadTheme()).toBe("dark");
   });
 
-  it("round-trips each saved choice through localStorage", () => {
+  it("round-trips each saved choice over the opposite system preference", () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
     for (const theme of ["light", "warm-dark", "dark"] as const) {
       saveTheme(theme);
       expect(localStorage.getItem(THEME_KEY)).toBe(theme);
@@ -22,9 +31,15 @@ describe("theme persistence", () => {
     }
   });
 
-  it("falls back to dark on a value nothing ever wrote", () => {
+  it("uses the system on a value nothing ever wrote", () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
     localStorage.setItem(THEME_KEY, "solarized");
-    expect(loadTheme()).toBe("dark");
+    expect(loadTheme()).toBe("light");
+  });
+
+  it("uses the system when storage throws", () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
+    expect(loadTheme({ getItem() { throw new Error("disabled"); } })).toBe("light");
   });
 
   it("works without any storage at all", () => {
@@ -34,6 +49,41 @@ describe("theme persistence", () => {
 });
 
 describe("applying a theme to the document", () => {
+  it("tracks system changes until an explicit choice is saved", () => {
+    let matches = true;
+    let change = () => {};
+    const addEventListener = vi.fn((_event, listener) => { change = listener; });
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches, addEventListener })));
+    const doc = document.implementation.createHTMLDocument();
+    expect(applyStoredTheme(doc)).toBe("light");
+    applyStoredTheme(doc);
+    expect(addEventListener).toHaveBeenCalledTimes(1);
+    matches = false;
+    change();
+    expect(doc.documentElement.dataset.theme).toBe("dark");
+    saveTheme("warm-dark");
+    matches = true;
+    change();
+    expect(doc.documentElement.dataset.theme).toBe("warm-dark");
+  });
+
+  it.each(["index.html", "site.html"])("resolves %s before first paint", (file) => {
+    const html = readFileSync(file, "utf8");
+    const script = html.match(/<script>([\s\S]*?)<\/script>/)![1];
+    for (const matches of [true, false]) {
+      vi.stubGlobal("matchMedia", vi.fn(() => ({ matches })));
+      for (const stored of [null, "invalid", "dark", "warm-dark", "light"]) {
+        if (stored === null) localStorage.removeItem(THEME_KEY);
+        else localStorage.setItem(THEME_KEY, stored);
+        const doc = document.implementation.createHTMLDocument();
+        doc.head.innerHTML = '<meta name="color-scheme" content="dark">';
+        new Function("document", script)(doc);
+        expect(doc.documentElement.dataset.theme).toBe(loadTheme());
+        expect(doc.querySelector("meta")!.content).toBe(loadTheme() === "light" ? "light" : "dark");
+      }
+    }
+  });
+
   it("sets data-theme on the root element", () => {
     applyTheme("warm-dark");
     expect(document.documentElement.dataset.theme).toBe("warm-dark");

@@ -13,10 +13,8 @@
       :root[data-theme="light"] .boot-status { background: #faf9f7; color: #21201d; }
       :root[data-theme="warm-dark"] .boot-status { background: #161512; color: #e6e3dc; }
     </style>
-    <!-- Theme, before the bundle: styles.css defaults to the dark theme on
-         :root, so only a stored non-default choice needs applying — but it
-         must land before first paint or a light-theme user gets a dark
-         flash. Mirrors src/lib/theme.ts (key, values, default). -->
+    <!-- Resolve saved choice or OS appearance before first paint.
+         Keep this in sync with src/lib/theme.ts. -->
     <script>
       (function () {
         var theme;
@@ -25,7 +23,9 @@
         } catch (e) {
           /* storage disabled: keep the default */
         }
-        if (theme !== "dark" && theme !== "warm-dark" && theme !== "light") theme = "dark";
+        if (theme !== "dark" && theme !== "warm-dark" && theme !== "light") {
+          theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        }
         document.documentElement.dataset.theme = theme;
         var meta = document.querySelector('meta[name="color-scheme"]');
         if (meta) meta.setAttribute("content", theme === "light" ? "light" : "dark");

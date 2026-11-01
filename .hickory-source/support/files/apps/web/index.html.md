@@ -3,7 +3,9 @@
 
 For: maintainers changing this file and reviewers tracing the related behavioral requirements.
 
-Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+Resolve appearance before the bundle paints: explicit saved themes take precedence,
+otherwise use the OS light/dark preference. The shared theme mechanism tests this
+inline resolver alongside the runtime implementation.
 
 
 Captured SHA-256: `2f848d9bfd237d64640cde5e5fa8ea4080532a71c8142827d7be6e92f1c93017`.
@@ -24,10 +26,8 @@ Captured SHA-256: `2f848d9bfd237d64640cde5e5fa8ea4080532a71c8142827d7be6e92f1c93
       :root[data-theme="light"] .boot-status { background: #faf9f7; color: #21201d; }
       :root[data-theme="warm-dark"] .boot-status { background: #161512; color: #e6e3dc; }
     </style>
-    <!-- Theme, before the bundle: styles.css defaults to the dark theme on
-         :root, so only a stored non-default choice needs applying — but it
-         must land before first paint or a light-theme user gets a dark
-         flash. Mirrors src/lib/theme.ts (key, values, default). -->
+    <!-- Resolve saved choice or OS appearance before first paint.
+         Keep this in sync with src/lib/theme.ts. -->
     <script>
       (function () {
         var theme;
@@ -36,7 +36,9 @@ Captured SHA-256: `2f848d9bfd237d64640cde5e5fa8ea4080532a71c8142827d7be6e92f1c93
         } catch (e) {
           /* storage disabled: keep the default */
         }
-        if (theme !== "dark" && theme !== "warm-dark" && theme !== "light") theme = "dark";
+        if (theme !== "dark" && theme !== "warm-dark" && theme !== "light") {
+          theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        }
         document.documentElement.dataset.theme = theme;
         var meta = document.querySelector('meta[name="color-scheme"]');
         if (meta) meta.setAttribute("content", theme === "light" ? "light" : "dark");

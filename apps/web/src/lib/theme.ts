@@ -1,7 +1,6 @@
 // The UI theme: which of the three token sets in styles.css dresses the app.
 // A presentation preference, so it persists per browser (localStorage), with
-// a hard default of "dark" — the cool editor-grade palette that `:root`
-// carries — for anything unset or unrecognisable.
+// the operating system’s light/dark preference used when unset or unrecognisable.
 //
 // Applied as `data-theme` on <html>. An inline script in index.html applies
 // the stored value BEFORE the bundle loads, so the first paint is already the
@@ -17,12 +16,22 @@ export const THEMES: readonly Theme[] = ["dark", "warm-dark", "light"];
 const isTheme = (value: unknown): value is Theme =>
   value === "dark" || value === "warm-dark" || value === "light";
 
-/** The persisted theme, defaulting to "dark" on anything unset or invalid. */
+/** Prefer a saved choice; otherwise follow the operating system. */
 export function loadTheme(
-  storage: Pick<Storage, "getItem"> | null = typeof localStorage === "undefined" ? null : localStorage,
+  storage?: Pick<Storage, "getItem"> | null,
 ): Theme {
-  const stored = storage?.getItem(THEME_KEY);
-  return isTheme(stored) ? stored : "dark";
+  try {
+    const source = storage === undefined
+      ? (typeof localStorage === "undefined" ? null : localStorage)
+      : storage;
+    const stored = source?.getItem(THEME_KEY);
+    if (isTheme(stored)) return stored;
+  } catch {
+    // Storage can be disabled by browser policy; system appearance still works.
+  }
+  return typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: light)").matches
+    ? "light"
+    : "dark";
 }
 
 export function saveTheme(
@@ -44,9 +53,16 @@ export function applyTheme(theme: Theme, doc: Document = document): void {
     ?.setAttribute("content", theme === "light" ? "light" : "dark");
 }
 
-/** Load, apply, done — the one call the app boot and the picker both make. */
+const watchedDocuments = new WeakSet<Document>();
+
+/** Apply the preference and keep an unsaved default in sync with the OS. */
 export function applyStoredTheme(doc: Document = document): Theme {
   const theme = loadTheme();
   applyTheme(theme, doc);
+  if (!watchedDocuments.has(doc) && typeof window !== "undefined" && window.matchMedia) {
+    const preference = window.matchMedia("(prefers-color-scheme: light)");
+    preference.addEventListener("change", () => applyTheme(loadTheme(), doc));
+    watchedDocuments.add(doc);
+  }
   return theme;
 }
