@@ -6,6 +6,8 @@ use async_trait::async_trait;
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 
+use crate::token_usage::TokenUsage;
+
 /// A chat message with a role and content string.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
@@ -63,4 +65,12 @@ pub trait LlmClient: Send + Sync {
 
     /// Model name for display (e.g. "claude-sonnet-4-5-20250929").
     fn model_name(&self) -> &str;
+
+    /// Token usage from the most recent completed call.
+    ///
+    /// For streaming completions this is populated after the stream is fully
+    /// consumed. Providers that do not track usage return `None`.
+    fn last_usage(&self) -> Option<TokenUsage> {
+        None
+    }
 }

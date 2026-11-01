@@ -4,17 +4,19 @@
 //! API that implements the OpenAI chat completions interface.
 
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 
 use async_openai::config::OpenAIConfig;
 use async_openai::types::{
     ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestMessage,
     ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs,
-    CreateChatCompletionRequestArgs,
+    ChatCompletionStreamOptions, CreateChatCompletionRequestArgs,
 };
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 
 use crate::llm::{ChatChunk, LlmClient, Message, Role};
+use crate::token_usage::TokenUsage;
 
 /// OpenAI-compatible chat completion client (works with OpenAI, xAI, Groq, Ollama, etc.).
 ///
@@ -23,6 +25,7 @@ pub struct OpenAiCompatClient {
     client: async_openai::Client<OpenAIConfig>,
     model: String,
     provider: String,
+    last_usage: Arc<Mutex<Option<TokenUsage>>>,
 }
 
 impl OpenAiCompatClient {
@@ -33,6 +36,7 @@ impl OpenAiCompatClient {
             client: async_openai::Client::with_config(config),
             model,
             provider: "openai".into(),
+            last_usage: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -62,6 +66,7 @@ impl OpenAiCompatClient {
             client: async_openai::Client::with_config(config),
             model,
             provider: provider_name.into(),
+            last_usage: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -97,6 +102,18 @@ impl LlmClient for OpenAiCompatClient {
             .build()?;
 
         let response = self.client.chat().create(request).await?;
+
+        if let Some(usage) = response.usage {
+            *self.last_usage.lock().unwrap() = Some(TokenUsage {
+                input_tokens: usage.prompt_tokens as u64,
+                output_tokens: usage.completion_tokens as u64,
+                cache_creation_tokens: 0,
+                cache_read_tokens: 0,
+                provider: self.provider.clone(),
+                model: self.model.clone(),
+            });
+        }
+
         let content = response
             .choices
             .first()
@@ -117,12 +134,30 @@ impl LlmClient for OpenAiCompatClient {
         let request = CreateChatCompletionRequestArgs::default()
             .model(&self.model)
             .messages(api_messages)
+            .stream_options(ChatCompletionStreamOptions { include_usage: true })
             .build()?;
 
         let stream = self.client.chat().create_stream(request).await?;
 
-        let mapped = stream.map(|result| {
+        let usage_out = Arc::clone(&self.last_usage);
+        let provider = self.provider.clone();
+        let model = self.model.clone();
+
+        let mapped = stream.map(move |result| {
             let response = result.map_err(|e| anyhow::anyhow!("{}", e))?;
+
+            // The last stream chunk carries usage when include_usage=true.
+            if let Some(usage) = &response.usage {
+                *usage_out.lock().unwrap() = Some(TokenUsage {
+                    input_tokens: usage.prompt_tokens as u64,
+                    output_tokens: usage.completion_tokens as u64,
+                    cache_creation_tokens: 0,
+                    cache_read_tokens: 0,
+                    provider: provider.clone(),
+                    model: model.clone(),
+                });
+            }
+
             let choice = response.choices.first();
             let delta = choice
                 .and_then(|c| c.delta.content.clone())
@@ -147,5 +182,9 @@ impl LlmClient for OpenAiCompatClient {
 
     fn model_name(&self) -> &str {
         &self.model
+    }
+
+    fn last_usage(&self) -> Option<TokenUsage> {
+        self.last_usage.lock().unwrap().clone()
     }
 }

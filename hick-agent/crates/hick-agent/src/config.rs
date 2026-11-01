@@ -82,6 +82,37 @@ pub struct ExtensionsSection {
     pub mcp_xml: bool,
     #[serde(default)]
     pub mcp_graphql: bool,
+    /// When true, wraps the LLM client with [`hick_agent_telemetry::TelemetryClient`]
+    /// to phone-home token usage to the billing server.
+    #[serde(default)]
+    pub telemetry: bool,
+}
+
+// ---------------------------------------------------------------------------
+// [telemetry] section
+// ---------------------------------------------------------------------------
+
+/// `[telemetry]` section: billing server config, used when
+/// `extensions.telemetry = true`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TelemetrySection {
+    /// Base URL of the billing server.
+    #[serde(default = "default_billing_url")]
+    pub billing_url: String,
+    /// Path to a file holding the user's billing JWT (from `hick auth`).
+    /// Default: `~/.hick/billing_token`.
+    #[serde(default)]
+    pub token_file: Option<std::path::PathBuf>,
+}
+
+fn default_billing_url() -> String {
+    "https://billing.hickory.dev".into()
+}
+
+impl Default for TelemetrySection {
+    fn default() -> Self {
+        Self { billing_url: default_billing_url(), token_file: None }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -399,6 +430,7 @@ pub struct PointConfig {
     /// Extra text appended to the agent system prompt. Path relative to
     /// the project directory.
     pub system_prompt_extra: Option<String>,
+    pub telemetry: TelemetrySection,
 }
 
 // ---------------------------------------------------------------------------
@@ -535,13 +567,15 @@ impl SearchSpaceConfig {
              mcp_wasm = {}\n\
              mcp_sdk = {}\n\
              mcp_xml = {}\n\
-             mcp_graphql = {}\n",
+             mcp_graphql = {}\n\
+             telemetry = {}\n",
             ext.script_first,
             ext.hick_edit,
             ext.mcp_wasm,
             ext.mcp_sdk,
             ext.mcp_xml,
             ext.mcp_graphql,
+            ext.telemetry,
         )
     }
 }
@@ -663,6 +697,7 @@ impl AgentConfig {
             machine: raw.machine,
             eval: raw.eval,
             system_prompt_extra: raw.system_prompt_extra,
+            telemetry: raw.telemetry,
         };
 
         // Discriminate on [search] presence (AC #1).
@@ -696,6 +731,8 @@ struct RawConfig {
     eval: EvalSection,
     #[serde(default)]
     system_prompt_extra: Option<String>,
+    #[serde(default)]
+    telemetry: TelemetrySection,
     // [search] is parsed separately from the raw toml::Value.
 }
 

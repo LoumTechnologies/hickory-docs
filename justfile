@@ -75,8 +75,11 @@ rebuild-alpine VERSION="3.23.2":
     cargo run -p c2w-testbed -- \
         --no-docker \
         --wizer \
-        --setup-cmd "apk add --no-cache nodejs npm python3 py3-pip" \
+        --setup-cmd "apk add --no-cache nodejs npm python3 py3-pip bash curl uv" \
         --setup-cmd "npm install -g tsx" \
+        --setup-cmd "mkdir -p /usr/local/nvm && curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | NVM_DIR=/usr/local/nvm bash" \
+        --setup-cmd "mkdir -p /etc/profile.d && printf 'export NVM_DIR=/usr/local/nvm\n[ -s \"\$NVM_DIR/nvm.sh\" ] && . \"\$NVM_DIR/nvm.sh\"\n' > /etc/profile.d/nvm.sh" \
+        --setup-cmd "bash -c '. /usr/local/nvm/nvm.sh && nvm alias default system'" \
         "alpine:{{VERSION}}" \
         "{{IMAGES_DIR}}/alpine/{{VERSION}}.wasm"
     @rm -f "{{IMAGES_DIR}}/alpine/{{VERSION}}.wasm.zip"

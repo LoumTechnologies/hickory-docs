@@ -1,0 +1,10 @@
+[statuses]
+list = ["todo", "in-progress", "done", "blocked"]
+default = "todo"
+
+[ticket]
+id_prefix = "task"
+milestone_prefix = "milestone"
+default_location = "work"
+id_counter = 0
+milestone_counter = 0

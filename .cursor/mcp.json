@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ticketry": {
+      "args": [],
+      "command": "/home/loumtech/.cargo/bin/ticketry-mcp"
+    }
+  }
+}

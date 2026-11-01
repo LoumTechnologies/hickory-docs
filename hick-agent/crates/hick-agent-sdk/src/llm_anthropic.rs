@@ -4,12 +4,14 @@
 //! Anthropic Messages API (https://api.anthropic.com/v1/messages).
 
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 
 use crate::llm::{ChatChunk, LlmClient, Message, Role};
+use crate::token_usage::TokenUsage;
 
 const ANTHROPIC_API_BASE: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
@@ -20,6 +22,7 @@ pub struct AnthropicClient {
     api_key: String,
     model: String,
     max_tokens: u32,
+    last_usage: Arc<Mutex<Option<TokenUsage>>>,
 }
 
 impl AnthropicClient {
@@ -31,6 +34,7 @@ impl AnthropicClient {
             api_key,
             model: "claude-sonnet-4-5-20250929".to_string(),
             max_tokens: 16384,
+            last_usage: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -41,6 +45,7 @@ impl AnthropicClient {
             api_key,
             model,
             max_tokens: 16384,
+            last_usage: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -70,11 +75,22 @@ struct AnthropicMessage {
 #[derive(Deserialize)]
 struct AnthropicResponse {
     content: Vec<AnthropicContentBlock>,
+    usage: AnthropicUsage,
 }
 
 #[derive(Deserialize)]
 struct AnthropicContentBlock {
     text: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct AnthropicUsage {
+    input_tokens: u64,
+    output_tokens: u64,
+    #[serde(default)]
+    cache_creation_input_tokens: u64,
+    #[serde(default)]
+    cache_read_input_tokens: u64,
 }
 
 fn build_request(
@@ -137,6 +153,16 @@ impl LlmClient for AnthropicClient {
         }
 
         let parsed: AnthropicResponse = resp.json().await?;
+
+        *self.last_usage.lock().unwrap() = Some(TokenUsage {
+            input_tokens: parsed.usage.input_tokens,
+            output_tokens: parsed.usage.output_tokens,
+            cache_creation_tokens: parsed.usage.cache_creation_input_tokens,
+            cache_read_tokens: parsed.usage.cache_read_input_tokens,
+            provider: "anthropic".into(),
+            model: self.model.clone(),
+        });
+
         let text = parsed
             .content
             .into_iter()
@@ -169,7 +195,7 @@ impl LlmClient for AnthropicClient {
         }
 
         let byte_stream = resp.bytes_stream();
-        let stream = SseParser::new(byte_stream);
+        let stream = SseParser::new(byte_stream, self.model.clone(), Arc::clone(&self.last_usage));
         Ok(Box::pin(stream))
     }
 
@@ -180,18 +206,136 @@ impl LlmClient for AnthropicClient {
     fn model_name(&self) -> &str {
         &self.model
     }
+
+    fn last_usage(&self) -> Option<TokenUsage> {
+        self.last_usage.lock().unwrap().clone()
+    }
 }
 
 struct SseParser<S> {
     inner: S,
     buffer: String,
+    model: String,
+    usage_out: Arc<Mutex<Option<TokenUsage>>>,
+    // Partial accumulators — input tokens arrive in message_start,
+    // output tokens arrive in message_delta.
+    input_acc: u64,
+    cache_create_acc: u64,
+    cache_read_acc: u64,
 }
 
 impl<S> SseParser<S> {
-    fn new(inner: S) -> Self {
+    fn new(inner: S, model: String, usage_out: Arc<Mutex<Option<TokenUsage>>>) -> Self {
         Self {
             inner,
             buffer: String::new(),
+            model,
+            usage_out,
+            input_acc: 0,
+            cache_create_acc: 0,
+            cache_read_acc: 0,
+        }
+    }
+
+    fn flush_usage(&mut self, output_tokens: u64) {
+        *self.usage_out.lock().unwrap() = Some(TokenUsage {
+            input_tokens: self.input_acc,
+            output_tokens,
+            cache_creation_tokens: self.cache_create_acc,
+            cache_read_tokens: self.cache_read_acc,
+            provider: "anthropic".into(),
+            model: self.model.clone(),
+        });
+    }
+
+    fn parse_next_event(&mut self) -> Option<ChatChunk> {
+        loop {
+            let boundary = self.buffer.find("\n\n")?;
+            let event_block = self.buffer[..boundary].to_string();
+            self.buffer = self.buffer[boundary + 2..].to_string();
+
+            let mut event_type = String::new();
+            let mut data = String::new();
+
+            for line in event_block.lines() {
+                if let Some(rest) = line.strip_prefix("event: ") {
+                    event_type = rest.trim().to_string();
+                } else if let Some(rest) = line.strip_prefix("data: ") {
+                    data = rest.to_string();
+                }
+            }
+
+            match event_type.as_str() {
+                "message_start" => {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&data) {
+                        if let Some(usage) = parsed
+                            .get("message")
+                            .and_then(|m| m.get("usage"))
+                        {
+                            self.input_acc = usage
+                                .get("input_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0);
+                            self.cache_create_acc = usage
+                                .get("cache_creation_input_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0);
+                            self.cache_read_acc = usage
+                                .get("cache_read_input_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0);
+                        }
+                    }
+                    continue;
+                }
+                "content_block_delta" => {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&data) {
+                        let text = parsed
+                            .get("delta")
+                            .and_then(|d| d.get("text"))
+                            .and_then(|t| t.as_str())
+                            .unwrap_or_default();
+                        if !text.is_empty() {
+                            return Some(ChatChunk {
+                                delta: text.to_string(),
+                                finish_reason: None,
+                            });
+                        }
+                    }
+                }
+                "message_delta" => {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&data) {
+                        let output_tokens = parsed
+                            .get("usage")
+                            .and_then(|u| u.get("output_tokens"))
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
+                        if output_tokens > 0 {
+                            self.flush_usage(output_tokens);
+                        }
+                        let stop_reason = parsed
+                            .get("delta")
+                            .and_then(|d| d.get("stop_reason"))
+                            .and_then(|r| r.as_str())
+                            .map(|s| s.to_string());
+                        if stop_reason.is_some() {
+                            return Some(ChatChunk {
+                                delta: String::new(),
+                                finish_reason: stop_reason,
+                            });
+                        }
+                    }
+                }
+                "message_stop" => {
+                    return Some(ChatChunk {
+                        delta: String::new(),
+                        finish_reason: Some("end_turn".into()),
+                    });
+                }
+                _ => {
+                    continue;
+                }
+            }
         }
     }
 }
@@ -209,7 +353,7 @@ where
         let this = self.get_mut();
 
         loop {
-            if let Some(chunk) = parse_next_event(&mut this.buffer) {
+            if let Some(chunk) = this.parse_next_event() {
                 return std::task::Poll::Ready(Some(Ok(chunk)));
             }
 
@@ -222,73 +366,12 @@ where
                     return std::task::Poll::Ready(Some(Err(anyhow::anyhow!("{}", e))));
                 }
                 std::task::Poll::Ready(None) => {
-                    if let Some(chunk) = parse_next_event(&mut this.buffer) {
+                    if let Some(chunk) = this.parse_next_event() {
                         return std::task::Poll::Ready(Some(Ok(chunk)));
                     }
                     return std::task::Poll::Ready(None);
                 }
                 std::task::Poll::Pending => return std::task::Poll::Pending,
-            }
-        }
-    }
-}
-
-fn parse_next_event(buffer: &mut String) -> Option<ChatChunk> {
-    loop {
-        let boundary = buffer.find("\n\n")?;
-        let event_block = buffer[..boundary].to_string();
-        *buffer = buffer[boundary + 2..].to_string();
-
-        let mut event_type = String::new();
-        let mut data = String::new();
-
-        for line in event_block.lines() {
-            if let Some(rest) = line.strip_prefix("event: ") {
-                event_type = rest.trim().to_string();
-            } else if let Some(rest) = line.strip_prefix("data: ") {
-                data = rest.to_string();
-            }
-        }
-
-        match event_type.as_str() {
-            "content_block_delta" => {
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&data) {
-                    let text = parsed
-                        .get("delta")
-                        .and_then(|d| d.get("text"))
-                        .and_then(|t| t.as_str())
-                        .unwrap_or_default();
-                    if !text.is_empty() {
-                        return Some(ChatChunk {
-                            delta: text.to_string(),
-                            finish_reason: None,
-                        });
-                    }
-                }
-            }
-            "message_delta" => {
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&data) {
-                    let stop_reason = parsed
-                        .get("delta")
-                        .and_then(|d| d.get("stop_reason"))
-                        .and_then(|r| r.as_str())
-                        .map(|s| s.to_string());
-                    if stop_reason.is_some() {
-                        return Some(ChatChunk {
-                            delta: String::new(),
-                            finish_reason: stop_reason,
-                        });
-                    }
-                }
-            }
-            "message_stop" => {
-                return Some(ChatChunk {
-                    delta: String::new(),
-                    finish_reason: Some("end_turn".into()),
-                });
-            }
-            _ => {
-                continue;
             }
         }
     }
