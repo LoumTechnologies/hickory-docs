@@ -66,6 +66,11 @@ struct View {
 <a id="f-dc5bee2ae567-impl-Coordinator"></a>
 ### `impl-Coordinator`
 
+A file subscription prepares only its selected document and watches its immediate
+parent for saves. Recursive watching and inbox ingestion belong to explicit folder
+subscriptions. Event filtering keeps unrelated sibling notes out of file sessions
+while preserving changes to known sources and generated outputs.
+
 <storycode:copy id="f-dc5bee2ae567-impl-Coordinator">
 impl Coordinator {
     pub fn start(
@@ -92,6 +97,7 @@ impl Coordinator {
         let task = tokio::spawn(async move {
             let mut views: HashMap<PathBuf, View> = HashMap::new();
             let mut watched: Vec<PathBuf> = Vec::new();
+            let mut shallow = HashSet::new();
             let mut marks = HashMap::new();
             loop {
                 tokio::select! {
@@ -103,12 +109,18 @@ impl Coordinator {
                         // client ownership: a queued attach must remain leasable.
                         reg.startup.progress("watching", 0, 0, None);
                         let setup = (|| -> Result<_> {
-                            if !watched.iter().any(|p| root.starts_with(p)) {
-                                watcher.watch(&root, RecursiveMode::Recursive).map_err(crate::up::watch_error)
+                            if !watched.iter().any(|p| root.starts_with(p))
+                                && (reg.attach.target.is_dir() || !shallow.contains(&root)) {
+                                if shallow.remove(&root) { let _ = watcher.unwatch(&root); }
+                                watcher.watch(&root, if reg.attach.target.is_dir() { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive }).map_err(crate::up::watch_error)
                                     .with_context(|| format!("watching {}", root.display()))?;
-                                let descendants: Vec<_> = watched.iter().filter(|p| p.starts_with(&root)).cloned().collect();
-                                for path in descendants { let _ = watcher.unwatch(&path); watched.retain(|p| p != &path); }
-                                watched.push(root.clone());
+                                if reg.attach.target.is_dir() {
+                                    let descendants: Vec<_> = watched.iter().filter(|p| p.starts_with(&root)).cloned().collect();
+                                    for path in descendants { let _ = watcher.unwatch(&path); watched.retain(|p| p != &path); }
+                                    watched.push(root.clone());
+                                } else {
+                                    shallow.insert(root.clone());
+                                }
                             }
                             *reg.state.up_commands.lock().unwrap() = Some(commands.clone());
                             crate::ingest::InboxConfig::from_env()
@@ -121,11 +133,12 @@ impl Coordinator {
                             }
                         };
                         let result: Result<()> = async {
-                            crate::up::drain_inbox(&root, &inbox);
+                            if reg.attach.target.is_dir() { crate::up::drain_inbox(&root, &inbox); }
                             let config = UpConfig { amend_output_edits: reg.attach.amend_output_edits, root: reg.attach.target.clone(), params: reg.attach.params,
                                 executor: reg.attach.executor, run: reg.attach.run };
                             let docs: Vec<_> = reg.state.index.entries().iter()
                                 .filter_map(|(id, _)| reg.state.index.absolute(id))
+                                .filter(|path| path.starts_with(&reg.attach.target))
                                 .filter(|path| woven.doc_source(path).is_none()).collect();
                             reg.startup.progress("baselines", 0, docs.len(), None);
                             if config.run { crate::up::establish_baselines(&docs, &config, &mut woven).await; }
@@ -172,7 +185,14 @@ impl Coordinator {
                         let mut woven = history.lock().await;
                         // A physical path is processed once, choosing the narrowest view's config.
                         let mut groups: HashMap<PathBuf, HashSet<PathBuf>> = HashMap::new();
+                        let active: Vec<_> = subscriptions.read().unwrap().values().cloned().collect();
                         for path in batch {
+                            // Retain owned output/dependency events, but don't
+                            // adopt unrelated siblings into a file-only session.
+                            if !active.iter().any(|sub| path.starts_with(&sub.target))
+                                && woven.output(&path).is_none() && woven.doc_source(&path).is_none() {
+                                continue;
+                            }
                             if let Some(root) = views.keys().filter(|p| path.starts_with(p)).max_by_key(|p| p.components().count()) {
                                 groups.entry(root.clone()).or_default().insert(path);
                             }

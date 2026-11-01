@@ -47,15 +47,16 @@ async fn prepare_inner(
             .unwrap_or_else(|| PathBuf::from("."))
     };
 
-    // Scan the target to decide whether there is anything to serve, then index
-    // the directory that contains it: rooms and path resolution work from the
-    // root, so a single-file session can still follow `hick:upstream` beside
-    // it.
-    // An empty folder is a valid session, not an error: it is the app's
-    // first-run state (the default workspace starts with no documents, and
-    // the UI lands on a fresh untitled one). A FILE target that does not
-    // exist is still refused below by DocIndex::scan.
-    let index = Arc::new(DocIndex::scan(&root)?);
+    // The parent is a resolution base, not permission to discover siblings.
+    // Explicit folders may be empty; missing targets were rejected above.
+    let index = Arc::new(if target.is_dir() {
+        DocIndex::scan(&root)?
+    } else {
+        // Keep path resolution at the parent without discovering its siblings.
+        let index = DocIndex::empty_shared(&root);
+        index.add(&target.file_name().unwrap().to_string_lossy());
+        index
+    });
 
     // Provider keys load before the first request so a bad file fails here,
     // with the file named, rather than as a mystery 500 on the first agent

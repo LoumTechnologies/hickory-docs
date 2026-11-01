@@ -91,7 +91,7 @@ pub(super) fn editor_bootstrap(path: &str, method: &axum::http::Method) -> bool 
         (method, path),
         (
             &Method::GET,
-            "/api/health" | "/api/settings/ui" | "/api/files" | "/api/projects"
+            "/api/health" | "/api/settings/ui" | "/api/files" | "/api/projects" | "/api/prediction/state"
         ) | (
             &Method::GET | &Method::PUT | &Method::DELETE,
             "/api/workspace/ui" | "/api/workspace/drafts"

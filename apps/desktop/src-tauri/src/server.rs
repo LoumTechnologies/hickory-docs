@@ -349,13 +349,12 @@ pub(crate) async fn start_with_menu(
         target.parent().unwrap_or(target)
     };
     // Folder windows never migrate their existing rooms to another folder.
-    // Single-file windows can: preserve their companion-document identities
-    // for that later attachment, without charging folder launches for a scan.
-    let index = std::sync::Arc::new(if target.is_file() {
-        hickory_cli::serve::store::DocIndex::shared(root)?
-    } else {
-        hickory_cli::serve::store::DocIndex::empty_shared(root)
-    });
+    // Single-file windows can. Start their proxy index empty too: the selected
+    // files and engine supply identities without scanning the containing folder.
+    let index = std::sync::Arc::new(hickory_cli::serve::store::DocIndex::empty_shared(root));
+    if target.is_file() {
+        index.add(&target.file_name().unwrap().to_string_lossy());
+    }
     let files = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashSet::new()));
     if target.is_file() {
         files.write().unwrap().insert(target.canonicalize()?);

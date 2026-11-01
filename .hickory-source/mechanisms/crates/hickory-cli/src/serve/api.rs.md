@@ -723,6 +723,10 @@ const FILE_TREE_CAP: usize = 10_000;
 <a id="f-e71b04ae5298-files"></a>
 ### `files`
 
+A file window has no folder browser. Return its folder identity without walking
+the containing directory; opening a note in Documents must not enumerate the
+whole tree just to tell the frontend that no folder is open.
+
 `GET /api/files` — the served root's file tree, for the folder pane.
 Names only, gitignore-aware; excludes the same hidden and cached files as search.
 
@@ -741,9 +745,13 @@ pub async fn files(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
     let root_path = root.canonicalize().unwrap_or_else(|_| root.clone());
     let index = state.index.clone();
     // Walking a working tree is filesystem work; keep it off the runtime.
-    let (mut tree, truncated) = tokio::task::spawn_blocking(move || file_tree(&root, &index))
-        .await
-        .map_err(|e| ApiError::internal(format!("file listing task failed: {e}")))?;
+    let (mut tree, truncated) = if state.folder_open {
+        tokio::task::spawn_blocking(move || file_tree(&root, &index))
+            .await
+            .map_err(|e| ApiError::internal(format!("file listing task failed: {e}")))?
+    } else {
+        (Vec::new(), false)
+    };
     {
         let held = state.held.lock().expect("held outputs").clone();
         if !held.is_empty() {

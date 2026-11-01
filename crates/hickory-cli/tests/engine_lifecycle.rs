@@ -482,6 +482,11 @@ printf finished
         .await
         .unwrap();
     assert_eq!(drafts["drafts"][0]["contents"], draft["contents"]);
+    // The actual frontend probes policy before mounting its editable surface.
+    let policy = http.get(format!("{api}/prediction/state"))
+        .bearer_auth(token).send().await.unwrap();
+    assert_eq!(policy.status(), 422);
+    assert!(policy.headers().get("x-hickory-startup").is_none());
     for path in ["settings/ui", "workspace/ui", "files"] {
         assert_eq!(
             http.get(format!("{api}/{path}"))
@@ -962,10 +967,43 @@ async fn file_and_folder_windows_keep_independent_files_visibility() {
     std::fs::remove_file(project.dir.path().join("note.md")).unwrap();
     let path = project.dir.path().join("note.md");
     std::fs::write(&path, "# A note\n").unwrap();
-    let folder = project.client(project.dir.path(), "folder-view");
+    // Opening this note must neither discover nor generate a sibling project.
+    let nested = project.dir.path().join("src/other-project");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(nested.join("project.md"), DOC).unwrap();
     let file = project.client(&path, "file-view");
+    let selected = docs(&file).await;
+    assert_eq!(selected.as_array().unwrap().len(), 1);
+    assert!(!nested.join("hello.py").exists());
+    // A second note shares the physical index without adopting its siblings.
+    let second_path = project.dir.path().join("second.md");
+    std::fs::write(&second_path, "# Second selected note\n").unwrap();
+    // The Open File menu uses this route in an existing window.
+    let opened = reqwest::Client::new().post(format!("{}/api/open-file", file.url))
+        .json(&json!({"path": second_path})).send().await.unwrap();
+    assert!(opened.status().is_success());
+    assert_eq!(docs(&file).await.as_array().unwrap().len(), 2);
+    assert!(!nested.join("hello.py").exists());
+    let second = project.client(&second_path, "second-file-view");
+    assert_eq!(docs(&file).await.as_array().unwrap().len(), 2);
+    assert_eq!(docs(&file).await, docs(&second).await);
+    assert!(!nested.join("hello.py").exists());
+    // Selecting a note in another directory must not scan that directory either.
+    let elsewhere_path = nested.join("selected.md");
+    std::fs::write(&elsewhere_path, "# Selected elsewhere\n").unwrap();
+    let elsewhere = project.client(&elsewhere_path, "elsewhere-file-view");
+    assert_eq!(docs(&elsewhere).await.as_array().unwrap().len(), 1);
+    assert!(!nested.join("hello.py").exists());
+    // A sibling save after startup must not silently expand the subscription.
+    std::fs::write(project.dir.path().join("sibling.md"), DOC).unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(docs(&file).await.as_array().unwrap().len(), 2);
+    assert!(!project.dir.path().join("hello.py").exists());
+    assert!(!nested.join("hello.py").exists());
+    let folder = project.client(project.dir.path(), "folder-view");
+    assert!(nested.join("hello.py").exists());
     let another_folder = project.client(project.dir.path(), "another-folder-view");
-    for (client, expected) in [(&folder, true), (&file, false), (&another_folder, true)] {
+    for (client, expected) in [(&folder, true), (&file, false), (&second, false), (&elsewhere, false), (&another_folder, true)] {
         let response: Value = reqwest::get(format!("{}/api/files", client.url))
             .await
             .unwrap()
@@ -973,6 +1011,7 @@ async fn file_and_folder_windows_keep_independent_files_visibility() {
             .await
             .unwrap();
         assert_eq!(response["folder_open"], expected);
+        if !expected { assert_eq!(response["tree"], json!([])); }
     }
     assert_eq!(docs(&folder).await, docs(&file).await);
 }

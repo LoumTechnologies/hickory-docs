@@ -352,6 +352,18 @@ async fn attach(
                 "This workspace is using different execution settings. Use the same executor and parameters as its existing session.",
             ));
         }
+        if state.private_prediction.is_none() {
+            // A later folder open expands the shared index deliberately. A second
+            // file open only adds its own document to the existing physical rooms.
+            if opts.target.is_dir() {
+                for (_, path) in DocIndex::scan(&root).map_err(error)?.entries() {
+                    state.index.add(&path);
+                }
+            } else {
+                state.index.add(&opts.target.file_name().unwrap().to_string_lossy());
+            }
+            state.store.register(&state.index);
+        }
         state.clone()
     } else {
         let private_binding = opts
@@ -362,11 +374,7 @@ async fn attach(
             .map_err(error)?;
         let directory_lock = crate::up::DirectoryLock::acquire(&root).map_err(error)?;
         let options = ServeOptions {
-            target: if opts.prediction.is_some() {
-                opts.target.clone()
-            } else {
-                root.clone()
-            },
+            target: opts.target.clone(),
             port: 0,
             params: opts.params.clone(),
             executor: opts.executor,

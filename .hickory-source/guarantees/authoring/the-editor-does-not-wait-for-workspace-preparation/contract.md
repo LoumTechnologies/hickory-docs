@@ -22,6 +22,19 @@ Requirement decision: Retain the existing requirement without inferring new inte
 
 Implementation review: not verified. Executed checks and human judgment are recorded separately. Source and test changes stale earlier evidence.
 
+Startup repair evidence (2026-11-01): the two focused `engine_lifecycle` tests
+`background_attach_serves_editor_storage_before_outputs_are_ready` and
+`file_and_folder_windows_keep_independent_files_visibility` passed in the development
+profile. They check the policy probe during blocked preparation, retained read/write
+gating, selected-file discovery, sibling saves and explicit folder expansion. The
+nine frontend tests in `src/main.test.tsx` and `src/api/workspaceStartup.test.tsx`
+also passed. Seven changed output constructions were generated and byte-checked
+with the native adapter in an isolated project using their maintained fragments.
+Full repository `generate` and `check` are blocked by missing included source
+pages; `audit` reports a missing constructor source. This evidence does not claim
+a packaged desktop walkthrough or broad regression coverage.
+
+
 
 ## Read the retained requirement detail
 
@@ -311,6 +324,11 @@ impl Startup {
 <a id="f-4049bfca1169-editor_bootstrap"></a>
 ### `editor_bootstrap`
 
+The read-only prediction status decides which editor may mount. It must bypass
+weaving just like settings: otherwise the ordinary editor remains a blank opening
+screen until every document finishes. The probe reads already-bound policy; it
+neither enables private mode nor unlocks execution or file writes.
+
 Only editor bootstrap/storage may bypass initialization. In particular,
 file reads, writes, execution, and collaboration sockets must wait until
 generated-file ownership and the reverse-edit baselines are established.
@@ -325,7 +343,7 @@ pub(super) fn editor_bootstrap(path: &str, method: &axum::http::Method) -> bool 
         (method, path),
         (
             &Method::GET,
-            "/api/health" | "/api/settings/ui" | "/api/files" | "/api/projects"
+            "/api/health" | "/api/settings/ui" | "/api/files" | "/api/projects" | "/api/prediction/state"
         ) | (
             &Method::GET | &Method::PUT | &Method::DELETE,
             "/api/workspace/ui" | "/api/workspace/drafts"
@@ -479,6 +497,11 @@ printf finished
         .await
         .unwrap();
     assert_eq!(drafts["drafts"][0]["contents"], draft["contents"]);
+    // The actual frontend probes policy before mounting its editable surface.
+    let policy = http.get(format!("{api}/prediction/state"))
+        .bearer_auth(token).send().await.unwrap();
+    assert_eq!(policy.status(), 422);
+    assert!(policy.headers().get("x-hickory-startup").is_none());
     for path in ["settings/ui", "workspace/ui", "files"] {
         assert_eq!(
             http.get(format!("{api}/{path}"))
