@@ -365,17 +365,38 @@ pub(crate) async fn require_ordinary_agent_context() -> Result<()> {
 }
 
 pub async fn up(config: crate::up::UpConfig) -> Result<()> {
+    anyhow::ensure!(
+        !config.amend_output_edits,
+        "Declared project watches preserve external output edits. Use hick project capture and accept to incorporate them."
+    );
+    anyhow::ensure!(
+        !config.run,
+        "Observation does not execute cells. Use hick run for execution, or hick project materialize ROOT_ENTRY --root ROOT for generation."
+    );
     // Keep the CLI's useful empty-folder diagnosis.
     crate::expand_docs(&config.root)?;
     let mut opts = Attach::new(config.root.clone(), config.executor);
     opts.params = config.params;
     opts.run = config.run;
     opts.amend_output_edits = config.amend_output_edits;
+    let selected = config.root.canonicalize()?;
+    let (root, entry) = if selected.is_dir() {
+        (selected.clone(), "project.md".to_owned())
+    } else {
+        (
+            selected.parent().unwrap().to_path_buf(),
+            selected.file_name().unwrap().to_string_lossy().into_owned(),
+        )
+    };
+    hick_project_env::generation::GenerationContext::capture(&root, &entry)
+        .map_err(anyhow::Error::msg)?;
+    opts.generation_entry = Some(entry.clone());
     let connection = connect(opts).await?;
     let _guard = connection.guard();
     eprintln!(
-        "hick up: connected to the local engine for {}",
-        config.root.display()
+        "hick up: generation root {}; entry {}",
+        root.display(),
+        entry
     );
     let mut offset = connection.log_offset;
     loop {

@@ -527,8 +527,12 @@ async fn file_and_folder_windows_keep_independent_files_visibility() {
     let second_path = project.dir.path().join("second.md");
     std::fs::write(&second_path, "# Second selected note\n").unwrap();
     // The Open File menu uses this route in an existing window.
-    let opened = reqwest::Client::new().post(format!("{}/api/open-file", file.url))
-        .json(&json!({"path": second_path})).send().await.unwrap();
+    let opened = reqwest::Client::new()
+        .post(format!("{}/api/open-file", file.url))
+        .json(&json!({"path": second_path}))
+        .send()
+        .await
+        .unwrap();
     assert!(opened.status().is_success());
     assert_eq!(docs(&file).await.as_array().unwrap().len(), 2);
     assert!(!nested.join("hello.py").exists());
@@ -549,9 +553,15 @@ async fn file_and_folder_windows_keep_independent_files_visibility() {
     assert!(!project.dir.path().join("hello.py").exists());
     assert!(!nested.join("hello.py").exists());
     let folder = project.client(project.dir.path(), "folder-view");
-    assert!(nested.join("hello.py").exists());
+    assert!(!nested.join("hello.py").exists());
     let another_folder = project.client(project.dir.path(), "another-folder-view");
-    for (client, expected) in [(&folder, true), (&file, false), (&second, false), (&elsewhere, false), (&another_folder, true)] {
+    for (client, expected) in [
+        (&folder, true),
+        (&file, false),
+        (&second, false),
+        (&elsewhere, false),
+        (&another_folder, true),
+    ] {
         let response: Value = reqwest::get(format!("{}/api/files", client.url))
             .await
             .unwrap()
@@ -559,7 +569,9 @@ async fn file_and_folder_windows_keep_independent_files_visibility() {
             .await
             .unwrap();
         assert_eq!(response["folder_open"], expected);
-        if !expected { assert_eq!(response["tree"], json!([])); }
+        if !expected {
+            assert_eq!(response["tree"], json!([]));
+        }
     }
     assert_eq!(docs(&folder).await, docs(&file).await);
 }
@@ -609,6 +621,6 @@ async fn representation_edits_through_the_real_engine_do_not_deadlock_or_dirty_p
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/tests/engine_lifecycle.rs"><storycode:paste select="#f-6ea35164aaa4-DOC"/><storycode:paste select="#f-6ea35164aaa4-wait_daemon_exit"/><storycode:paste select="#f-6ea35164aaa4-daemon_exits_after_last_detach_even_with_an_open_terminal"/><storycode:paste select="#f-6ea35164aaa4-daemon_expires_crashed_clients_but_keeps_the_remaining_window"/><storycode:paste select="#f-6ea35164aaa4-daemon_exits_after_a_one_shot_cli_command"/><storycode:paste select="#f-6ea35164aaa4-daemon_expires_an_abandoned_cli_even_while_its_worker_runs"/><storycode:paste select="#f-6ea35164aaa4-daemon_cancels_background_preparation_after_last_client_exits"/><storycode:paste select="#f-6ea35164aaa4-daemon_reopen_waits_for_the_retiring_owner_and_starts_fresh"/><storycode:paste select="#f-6ea35164aaa4-Project"/><storycode:paste select="#f-6ea35164aaa4-impl-Project"/><storycode:paste select="#f-6ea35164aaa4-impl-Drop-for-Project"/><storycode:paste select="#f-6ea35164aaa4-Client"/><storycode:paste select="#f-6ea35164aaa4-impl-Drop-for-Client"/><storycode:paste select="#f-6ea35164aaa4-kill"/><storycode:paste select="#f-6ea35164aaa4-docs"/><storycode:paste select="#f-6ea35164aaa4-wait_file"/><storycode:paste select="#f-6ea35164aaa4-background_attach_serves_editor_storage_before_outputs_are_ready"/><storycode:paste select="#f-6ea35164aaa4-desktop_proxy_routes_acp_connection_configuration_and_turns"/><storycode:paste select="#f-6ea35164aaa4-windows_share_one_engine_and_one_live_document"/><storycode:paste select="#f-6ea35164aaa4-a_cli_and_a_window_attach_in_either_order"/><storycode:paste select="#f-6ea35164aaa4-parent_and_child_views_share_room_identity_and_reverse_edits"/><storycode:paste select="#f-6ea35164aaa4-window_drafts_layout_and_native_actions_are_independent"/><storycode:paste select="#f-6ea35164aaa4-engine_crash_reconnects_existing_clients_without_deleting_a_lock"/><storycode:paste select="#f-6ea35164aaa4-engine_requires_authentication_and_recovers_stale_discovery"/><storycode:paste select="#f-6ea35164aaa4-symlink_aliases_attach_to_the_same_workspace"/><storycode:paste select="#f-6ea35164aaa4-file_and_folder_windows_keep_independent_files_visibility"/><storycode:paste select="#f-6ea35164aaa4-representation_edits_through_the_real_engine_do_not_deadlock_or_dirty_prose"/></storycode:file>
+<storycode:file path="crates/hickory-cli/tests/engine_lifecycle.rs"><storycode:paste select="#f-6ea35164aaa4-DOC"/><storycode:paste select="#f-6ea35164aaa4-wait_daemon_exit"/><storycode:paste select="#f-6ea35164aaa4-daemon_exits_after_last_detach_even_with_an_open_terminal"/><storycode:paste select="#f-6ea35164aaa4-daemon_expires_crashed_clients_but_keeps_the_remaining_window"/><storycode:paste select="#f-6ea35164aaa4-daemon_exits_after_a_one_shot_cli_command"/><storycode:paste select="#f-6ea35164aaa4-daemon_expires_an_abandoned_cli_even_while_its_worker_runs"/><storycode:paste select="#f-6ea35164aaa4-daemon_cancels_background_preparation_after_last_client_exits"/><storycode:paste select="#f-6ea35164aaa4-daemon_reopen_waits_for_the_retiring_owner_and_starts_fresh"/><storycode:paste select="#f-6ea35164aaa4-Project"/><storycode:paste select="#f-6ea35164aaa4-impl-Project"/><storycode:paste select="#f-6ea35164aaa4-impl-Drop-for-Project"/><storycode:paste select="#f-6ea35164aaa4-Client"/><storycode:paste select="#f-6ea35164aaa4-impl-Drop-for-Client"/><storycode:paste select="#f-6ea35164aaa4-kill"/><storycode:paste select="#f-6ea35164aaa4-docs"/><storycode:paste select="#f-6ea35164aaa4-wait_file"/><storycode:paste select="#f-6ea35164aaa4-background_attach_serves_editor_storage_before_outputs_are_ready"/><storycode:paste select="#f-6ea35164aaa4-desktop_proxy_routes_acp_connection_configuration_and_turns"/><storycode:paste select="#f-6ea35164aaa4-windows_share_one_engine_and_one_live_document"/><storycode:paste select="#f-6ea35164aaa4-a_cli_and_a_window_attach_in_either_order"/><storycode:paste select="#f-6ea35164aaa4-parent_and_child_views_share_room_identity_and_reverse_edits"/><storycode:paste select="#f-6ea35164aaa4-window_drafts_layout_and_native_actions_are_independent"/><storycode:paste select="#f-6ea35164aaa4-engine_crash_reconnects_existing_clients_without_deleting_a_lock"/><storycode:paste select="#f-6ea35164aaa4-engine_requires_authentication_and_recovers_stale_discovery"/><storycode:paste select="#f-6ea35164aaa4-symlink_aliases_attach_to_the_same_workspace"/><storycode:paste select="#f-6ea35164aaa4-file_and_folder_windows_keep_independent_files_visibility"/><storycode:paste select="#f-6ea35164aaa4-representation_edits_through_the_real_engine_do_not_deadlock_or_dirty_prose"/><storycode:paste select="#generation-authority-lifetime-test"/></storycode:file>
 
 </storycode:doc>

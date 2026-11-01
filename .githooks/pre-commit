@@ -1,0 +1,20 @@
+#!/bin/sh
+### HICKORY ###
+# Managed by `hick project install-hook`.
+hick_project_bin=$(git config --get hickory.projectVerifier || true)
+if [ -z "$hick_project_bin" ]; then
+    hick_project_bin=$(command -v hick) || {
+        echo 'pre-commit: Hickory verifier unavailable. Run hick project install-hook. Commit blocked.' >&2
+        exit 1
+    }
+fi
+hick_project_entry=$(git config --get hickory.projectEntry) || {
+    echo 'pre-commit: project entry is not configured. Run hick project install-hook. Commit blocked.' >&2
+    exit 1
+}
+if ! "$hick_project_bin" project verify --revision :index -- "$hick_project_entry"; then
+    echo 'pre-commit: staged literate sources and outputs could not be verified. Stage a consistent project, then retry. Commit blocked.' >&2
+    exit 1
+fi
+
+### END HICKORY ###

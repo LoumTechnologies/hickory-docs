@@ -299,3 +299,123 @@ fn cli_captures_a_multi_document_edit_as_a_new_concept_before_acceptance() {
         "print('private')\n"
     );
 }
+// The installed hook must inspect exactly what Git will commit, not repaired
+// working files. Exercise real commits, including a custom hook's early exit.
+#[test]
+fn installed_project_hook_checks_staged_pairs_and_fails_closed() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    git(root, &["init", "-q"]);
+    git(root, &["config", "user.name", "Test"]);
+    git(root, &["config", "user.email", "test@example.invalid"]);
+    git(root, &["config", "core.hooksPath", ".custom hooks"]);
+    std::fs::create_dir(root.join(".custom hooks")).unwrap();
+    let hook = root.join(".custom hooks/pre-commit");
+    std::fs::write(
+        &hook,
+        "#!/bin/sh\nprintf ran > .git/custom-hook-ran\nexit 0\n",
+    )
+    .unwrap();
+    let project = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"part.md\" /></h:doc>";
+    let source = |value: &str| {
+        format!(
+            "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:file path=\"generated file.txt\">{value}\n</h:file></h:doc>"
+        )
+    };
+    std::fs::write(root.join("project.md"), project).unwrap();
+    std::fs::write(root.join("part.md"), source("before")).unwrap();
+    std::fs::write(root.join("generated file.txt"), "before\n").unwrap();
+    git(
+        root,
+        &["add", "project.md", "part.md", "generated file.txt"],
+    );
+    let install = || {
+        let output = Command::new(env!("CARGO_BIN_EXE_hick"))
+            .current_dir(root)
+            .args(["project", "install-hook"])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+    };
+    install();
+    let installed = std::fs::read(&hook).unwrap();
+    install();
+    assert_eq!(std::fs::read(&hook).unwrap(), installed);
+    assert!(!root.join("AGENTS.md").exists());
+    git(root, &["commit", "-qm", "consistent before"]);
+    assert!(root.join(".git/custom-hook-ran").exists());
+    let commit = || {
+        Command::new("git")
+            .current_dir(root)
+            .args(["commit", "--allow-empty", "-qm", "candidate"])
+            .output()
+            .unwrap()
+    };
+    // Worktree agrees, but staged output still says before: refuse.
+    std::fs::write(root.join("part.md"), source("after")).unwrap();
+    std::fs::write(root.join("generated file.txt"), "after\n").unwrap();
+    git(root, &["add", "part.md"]);
+    let refused = commit();
+    assert!(!refused.status.success(), "{refused:?}");
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("Commit blocked"));
+    assert_eq!(
+        std::fs::read_to_string(root.join("generated file.txt")).unwrap(),
+        "after\n"
+    );
+    git(root, &["add", "generated file.txt"]);
+    git(root, &["commit", "-qm", "consistent after"]);
+    // An output-only staged edit cannot borrow its repaired working bytes.
+    std::fs::write(root.join("generated file.txt"), "wrong\n").unwrap();
+    git(root, &["add", "generated file.txt"]);
+    std::fs::write(root.join("generated file.txt"), "after\n").unwrap();
+    assert!(!commit().status.success());
+    git(root, &["add", "generated file.txt"]);
+    // A missing staged output or source cannot borrow the still-present file.
+    git(root, &["rm", "--cached", "generated file.txt"]);
+    assert!(!commit().status.success());
+    git(root, &["add", "generated file.txt"]);
+    git(root, &["rm", "--cached", "part.md"]);
+    assert!(!commit().status.success());
+    git(root, &["add", "part.md"]);
+    git(root, &["rm", "--cached", "project.md"]);
+    assert!(!commit().status.success());
+    git(root, &["add", "project.md"]);
+    // Dirty unstaged source and output must not reject a consistent index.
+    std::fs::write(
+        root.join("project.md"),
+        format!("{project}\nReviewed prose\n"),
+    )
+    .unwrap();
+    git(root, &["add", "project.md"]);
+    std::fs::write(root.join("project.md"), "broken working document <h:file>").unwrap();
+    std::fs::write(root.join("generated file.txt"), "dirty working output").unwrap();
+    let accepted = commit();
+    assert!(accepted.status.success(), "{accepted:?}");
+    assert_eq!(
+        std::fs::read_to_string(root.join("generated file.txt")).unwrap(),
+        "dirty working output"
+    );
+    // Tool removal is a blocking error, never a successful skipped check.
+    let missing = root.join("no-such-verifier");
+    git(
+        root,
+        &[
+            "config",
+            "hickory.projectVerifier",
+            missing.to_str().unwrap(),
+        ],
+    );
+    let refused = commit();
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("Commit blocked"));
+    // Installing into another interpreter must refuse without changing it.
+    let python_hook = "#!/usr/bin/env python3\nraise SystemExit(0)\n";
+    std::fs::write(&hook, python_hook).unwrap();
+    let refused = Command::new(env!("CARGO_BIN_EXE_hick"))
+        .current_dir(root)
+        .args(["project", "install-hook"])
+        .output()
+        .unwrap();
+    assert!(!refused.status.success());
+    assert_eq!(std::fs::read_to_string(&hook).unwrap(), python_hook);
+}

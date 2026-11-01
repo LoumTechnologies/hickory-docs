@@ -401,171 +401,141 @@ async fn wait_file(path: &Path, expected: &str) {
     }
 }
 
-// Guarantee: docs/guarantees/authoring/the-editor-does-not-wait-for-workspace-preparation.md
-// A real running cell holds initialization open until the test releases it.
-// This tests ordering, rather than a launch-time threshold sensitive to CI load.
-#[cfg(unix)]
+// Opening a folder may discover executable documents, but grants no publication.
 #[tokio::test(flavor = "multi_thread")]
 async fn background_attach_serves_editor_storage_before_outputs_are_ready() {
     let project = Project::new();
-    let _client = project.client(project.dir.path(), "bootstrap");
     let workspace = tempfile::tempdir().unwrap();
-    let signals = tempfile::tempdir().unwrap();
-    let started = signals.path().join("started");
-    let release = signals.path().join("release");
-    let quote = |path: &Path| format!("'{}'", path.display().to_string().replace('\'', "'\\''"));
-    let source = format!(
-        r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="reading.md">
-<hick:container name="sh" image="alpine:3.20" />
-<hick:exec container="sh">
-printf started > {}
-i=0; while [ ! -f {} ]; do i=$((i+1)); [ "$i" -lt 300 ] || exit 1; sleep 0.1; done
-printf finished
-</hick:exec>
-<hick:file path="owned.txt">owned by the document</hick:file>
-</hick:doc>
-"#,
-        quote(&started),
-        quote(&release)
-    );
-    std::fs::write(workspace.path().join("slow.md"), &source).unwrap();
-    std::fs::write(workspace.path().join("plain.txt"), "before").unwrap();
-    let endpoint = project.endpoint();
-    let url = endpoint["url"].as_str().unwrap();
-    let token = endpoint["token"].as_str().unwrap();
+    let root = workspace.path();
+    let sources = root.join(".hickory-source");
+    std::fs::create_dir(&sources).unwrap();
+    let part = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:copy id=\"body\">one</h:copy><h:file path=\"app.txt\"><h:paste select=\"#body\" /></h:file></h:doc>";
+    std::fs::write(sources.join("part.md"), part).unwrap();
+    std::fs::write(root.join("project.md"), "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\".hickory-source/part.md\" /></h:doc>").unwrap();
+    std::fs::write(sources.join("unselected.md"), DOC).unwrap();
+    let window = project.client(root, "observation-window");
     let http = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(20))
         .build()
         .unwrap();
-    let mut opts = hickory_cli::engine::Attach::new(
-        workspace.path().to_path_buf(),
-        hickory_cli::ExecutorChoice::Local,
-    );
-    opts.background = true;
-    opts.run = true;
-    let response = http
-        .post(format!("{url}/attach"))
-        .bearer_auth(token)
-        .json(&opts)
+    let api = format!("{}/api", window.url);
+    assert!(!root.join("app.txt").exists());
+    assert!(!sources.join("app.txt").exists());
+    assert!(!sources.join("hello.py").exists());
+    assert!(!root.join(".hick-journal").exists());
+    let policy = http
+        .get(format!("{api}/prediction/state"))
         .send()
         .await
         .unwrap();
-    assert_eq!(response.status(), 200, "{}", response.text().await.unwrap());
-    wait_file(&started, "started").await;
-    let api = format!("{url}/clients/{}/api", opts.client);
-    let status: Value = http
-        .get(format!("{api}/startup"))
-        .bearer_auth(token)
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    assert_eq!(status["ready"], false);
-    let draft = json!({ "path": "untitled:startup", "contents": "Writing while the workspace loads", "base": "" });
+    assert_eq!(policy.status(), 422);
     let response = http
         .put(format!("{api}/workspace/drafts"))
-        .bearer_auth(token)
-        .json(&draft)
+        .json(
+            &json!({"path":"untitled:observation", "contents":"Writing while browsing", "base":""}),
+        )
         .send()
         .await
         .unwrap();
     assert_eq!(response.status(), 200);
-    let drafts: Value = http
-        .get(format!("{api}/workspace/drafts"))
-        .bearer_auth(token)
+    let target = json!({"root":".", "entry":"project.md"});
+    // A preview is read-only; a raw included page has no generation context.
+    let plan: Value = http
+        .post(format!("{api}/generation/preview"))
+        .json(&target)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(plan["outputs"], json!(["app.txt"]));
+    assert!(!root.join("app.txt").exists());
+    let refusal = http
+        .post(format!("{api}/generation/preview"))
+        .json(&json!({"root":".hickory-source", "entry":"part.md"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refusal.status(), 422);
+    assert!(!sources.join("app.txt").exists());
+    // The legacy Run action must not publish an included project construction.
+    let documents = docs(&window).await;
+    let part_id = documents
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|doc| doc["path"] == ".hickory-source/part.md")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap();
+    assert_eq!(
+        http.post(format!("{api}/docs/{part_id}/run"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        422
+    );
+    // A source save is observed, not woven. The previous plan becomes stale.
+    std::fs::write(sources.join("part.md"), part.replace("one", "two")).unwrap();
+    tokio::time::sleep(Duration::from_millis(450)).await;
+    assert!(!root.join("app.txt").exists());
+    let response = http
+        .post(format!("{api}/generation/generate"))
+        .json(&json!({"root":".", "entry":"project.md", "revision":plan["revision"]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 409);
+    let plan: Value = http
+        .post(format!("{api}/generation/preview"))
+        .json(&target)
         .send()
         .await
         .unwrap()
         .json()
         .await
         .unwrap();
-    assert_eq!(drafts["drafts"][0]["contents"], draft["contents"]);
-    // The actual frontend probes policy before mounting its editable surface.
-    let policy = http.get(format!("{api}/prediction/state"))
-        .bearer_auth(token).send().await.unwrap();
-    assert_eq!(policy.status(), 422);
-    assert!(policy.headers().get("x-hickory-startup").is_none());
-    for path in ["settings/ui", "workspace/ui", "files"] {
-        assert_eq!(
-            http.get(format!("{api}/{path}"))
-                .bearer_auth(token)
-                .send()
-                .await
-                .unwrap()
-                .status(),
-            200
-        );
-    }
-    let edit = json!({ "path": "plain.txt", "content": "after" });
+    let generation = json!({"root":".", "entry":"project.md", "revision":plan["revision"]});
     let response = http
-        .put(format!("{api}/file"))
-        .bearer_auth(token)
-        .json(&edit)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(response.status(), 503);
-    assert_eq!(response.headers()["x-hickory-startup"], "pending");
-    assert_eq!(
-        std::fs::read_to_string(workspace.path().join("plain.txt")).unwrap(),
-        "before"
-    );
-    let response = http
-        .get(format!("{api}/file?path=owned.txt"))
-        .bearer_auth(token)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(
-        response.status(),
-        503,
-        "output reads must wait for ownership too"
-    );
-    std::fs::write(release, "go").unwrap();
-    let deadline = Instant::now() + Duration::from_secs(15);
-    loop {
-        let status: Value = http
-            .get(format!("{api}/startup"))
-            .bearer_auth(token)
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
-        if status["ready"] == true {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "workspace never finished: {status}"
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    assert_eq!(
-        std::fs::read_to_string(workspace.path().join("owned.txt")).unwrap(),
-        "owned by the document"
-    );
-    let response = http
-        .put(format!("{api}/file"))
-        .bearer_auth(token)
-        .json(&edit)
+        .post(format!("{api}/generation/generate"))
+        .json(&generation)
         .send()
         .await
         .unwrap();
     assert_eq!(response.status(), 200, "{}", response.text().await.unwrap());
     assert_eq!(
-        std::fs::read_to_string(workspace.path().join("plain.txt")).unwrap(),
-        "after"
+        std::fs::read_to_string(root.join("app.txt")).unwrap(),
+        "two"
+    );
+    assert!(!sources.join("app.txt").exists());
+    assert!(!sources.join("hello.py").exists());
+    // Output edits survive observation and cannot be erased by generating again.
+    std::fs::write(root.join("app.txt"), "external edit").unwrap();
+    tokio::time::sleep(Duration::from_millis(450)).await;
+    assert_eq!(
+        std::fs::read_to_string(root.join("app.txt")).unwrap(),
+        "external edit"
+    );
+    let response = http
+        .post(format!("{api}/generation/generate"))
+        .json(&generation)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 409);
+    assert_eq!(
+        std::fs::read_to_string(root.join("app.txt")).unwrap(),
+        "external edit"
     );
     assert_eq!(
-        std::fs::read_to_string(workspace.path().join("slow.md")).unwrap(),
-        source
+        std::fs::read_to_string(sources.join("part.md")).unwrap(),
+        part.replace("one", "two")
     );
 }
-
 // Guarantee: docs/guarantees/agent/acp-agents-are-first-class.md
 #[tokio::test(flavor = "multi_thread")]
 async fn desktop_proxy_routes_acp_connection_configuration_and_turns() {
@@ -979,8 +949,12 @@ async fn file_and_folder_windows_keep_independent_files_visibility() {
     let second_path = project.dir.path().join("second.md");
     std::fs::write(&second_path, "# Second selected note\n").unwrap();
     // The Open File menu uses this route in an existing window.
-    let opened = reqwest::Client::new().post(format!("{}/api/open-file", file.url))
-        .json(&json!({"path": second_path})).send().await.unwrap();
+    let opened = reqwest::Client::new()
+        .post(format!("{}/api/open-file", file.url))
+        .json(&json!({"path": second_path}))
+        .send()
+        .await
+        .unwrap();
     assert!(opened.status().is_success());
     assert_eq!(docs(&file).await.as_array().unwrap().len(), 2);
     assert!(!nested.join("hello.py").exists());
@@ -1001,9 +975,15 @@ async fn file_and_folder_windows_keep_independent_files_visibility() {
     assert!(!project.dir.path().join("hello.py").exists());
     assert!(!nested.join("hello.py").exists());
     let folder = project.client(project.dir.path(), "folder-view");
-    assert!(nested.join("hello.py").exists());
+    assert!(!nested.join("hello.py").exists());
     let another_folder = project.client(project.dir.path(), "another-folder-view");
-    for (client, expected) in [(&folder, true), (&file, false), (&second, false), (&elsewhere, false), (&another_folder, true)] {
+    for (client, expected) in [
+        (&folder, true),
+        (&file, false),
+        (&second, false),
+        (&elsewhere, false),
+        (&another_folder, true),
+    ] {
         let response: Value = reqwest::get(format!("{}/api/files", client.url))
             .await
             .unwrap()
@@ -1011,7 +991,9 @@ async fn file_and_folder_windows_keep_independent_files_visibility() {
             .await
             .unwrap();
         assert_eq!(response["folder_open"], expected);
-        if !expected { assert_eq!(response["tree"], json!([])); }
+        if !expected {
+            assert_eq!(response["tree"], json!([]));
+        }
     }
     assert_eq!(docs(&folder).await, docs(&file).await);
 }
@@ -1047,4 +1029,83 @@ async fn representation_edits_through_the_real_engine_do_not_deadlock_or_dirty_p
             .join(format!("__lens-{}.md", v["id"].as_str().unwrap()))
             .exists()
     );
+}
+/// A headless subscription may generate, but its open observer cannot inherit
+/// that authority when the explicitly generating client detaches.
+#[tokio::test(flavor = "multi_thread")]
+async fn detaching_generation_leaves_observers_read_only() {
+    let project = Project::new();
+    // Use the same canonical identity as the captured generation context.
+    let canonical = project.dir.path().canonicalize().unwrap();
+    let root = canonical.as_path();
+    std::fs::remove_file(root.join("note.md")).unwrap();
+    std::fs::create_dir(root.join(".hickory-source")).unwrap();
+    let part = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:file path=\"app.txt\">one</h:file></h:doc>";
+    std::fs::write(root.join(".hickory-source/part.md"), part).unwrap();
+    std::fs::write(root.join("project.md"), "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\".hickory-source/part.md\" /></h:doc>").unwrap();
+    // This is a publication-authority test, not a native event-delivery test.
+    // A per-process polling backend keeps it deterministic without changing
+    // process-global environment for the other tests.
+    let child = project.hick().arg("__engine")
+        .env("HICKORY_WATCH_MODE", "poll").spawn().unwrap();
+    let _daemon = Client { child, url: String::new() };
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !project.state.path().join("engine/endpoint.json").exists() {
+        assert!(Instant::now() < deadline, "polling engine did not start");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let observer = project.client(root, "observer");
+    assert!(!root.join("app.txt").exists());
+    let endpoint = project.endpoint();
+    let url = endpoint["url"].as_str().unwrap();
+    let token = endpoint["token"].as_str().unwrap();
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .unwrap();
+    let mut options =
+        hickory_cli::engine::Attach::new(root.to_path_buf(), hickory_cli::ExecutorChoice::Local);
+    options.generation_entry = Some("project.md".into());
+    let response = http
+        .post(format!("{url}/attach"))
+        .bearer_auth(token)
+        .json(&options)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200, "{}", response.text().await.unwrap());
+    wait_file(&root.join("app.txt"), "one").await;
+    std::fs::write(
+        root.join(".hickory-source/part.md"),
+        part.replace("one", "two"),
+    )
+    .unwrap();
+    wait_file(&root.join("app.txt"), "two").await;
+    let response = http
+        .delete(format!("{url}/clients/{}/lease", options.client))
+        .bearer_auth(token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 204);
+    std::fs::write(
+        root.join(".hickory-source/part.md"),
+        part.replace("one", "three"),
+    )
+    .unwrap();
+    std::fs::write(root.join("after-detach.md"), "Still observing").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let listed = docs(&observer).await;
+        if listed.as_array().unwrap().iter().any(|doc| doc["path"] == "after-detach.md") { break; }
+        assert!(Instant::now() < deadline, "remaining observer stopped discovering files");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    // Preview shares the write act, so it also waits for that event batch to
+    // finish. It must observe the new source without publishing its outputs.
+    let response = http.post(format!("{}/api/generation/preview", observer.url))
+        .json(&json!({"root":".", "entry":"project.md"})).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(std::fs::read_to_string(root.join("app.txt")).unwrap(), "two");
+    assert!(!root.join(".hickory-source/app.txt").exists());
 }

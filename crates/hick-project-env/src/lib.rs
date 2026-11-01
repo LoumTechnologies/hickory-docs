@@ -209,5 +209,6 @@ pub fn selected_manager(root: &Path, detected: &str) -> Option<String> {
 }
 
 pub mod pending;
+pub mod generation;
 mod tree;
 pub use tree::write_tree;

@@ -55016,7 +55016,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-c9fa53b5e3bf-run_loop",
         "f-c9fa53b5e3bf-publish_held",
         "f-c9fa53b5e3bf-notify_files_changed",
-        "f-c9fa53b5e3bf-reconcile_rooms"
+        "f-c9fa53b5e3bf-reconcile_rooms",
+        "observation-directory-discovery"
       ],
       "anchor": "output-c9fa53b5e3bf",
       "narrative_owner": "mechanism:crates/hickory-cli"
@@ -55960,7 +55961,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-6ea35164aaa4-engine_requires_authentication_and_recovers_stale_discovery",
         "f-6ea35164aaa4-symlink_aliases_attach_to_the_same_workspace",
         "f-6ea35164aaa4-file_and_folder_windows_keep_independent_files_visibility",
-        "f-6ea35164aaa4-representation_edits_through_the_real_engine_do_not_deadlock_or_dirty_prose"
+        "f-6ea35164aaa4-representation_edits_through_the_real_engine_do_not_deadlock_or_dirty_prose",
+        "generation-authority-lifetime-test"
       ],
       "anchor": "output-6ea35164aaa4",
       "narrative_owner": "mechanism:crates/hickory-cli"
@@ -65218,6 +65220,87 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "context-study-e9a47cc3-dependencies",
         "context-study-e9a47cc3-FactorialTests"
+      ]
+    },
+    "crates/hickory-cli/src/project_hook.sh": {
+      "source": ".hickory-source/guarantees/literate-projects/candidate-revisions-never-borrow-working-bytes/contract.md",
+      "owner": "literate-projects",
+      "used_by": [
+        "literate-projects/candidate-revisions-never-borrow-working-bytes.md"
+      ],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "project-hook-staged-verification"
+      ]
+    },
+    ".githooks/pre-commit": {
+      "source": ".hickory-source/guarantees/literate-projects/candidate-revisions-never-borrow-working-bytes/contract.md",
+      "owner": "literate-projects",
+      "used_by": [
+        "literate-projects/candidate-revisions-never-borrow-working-bytes.md"
+      ],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "project-hook-repository-start",
+        "project-hook-staged-verification",
+        "project-hook-repository-end"
+      ]
+    },
+    "crates/hick-project-env/src/generation.rs": {
+      "source": ".hickory-source/mechanisms/crates/hick-project-env/src/generation.rs.md",
+      "owner": "authoring",
+      "used_by": [
+        "authoring/the-editor-does-not-wait-for-workspace-preparation.md"
+      ],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "generation-context-identity",
+        "generation-context-capture",
+        "generation-context-publish",
+        "generation-context-tests"
+      ]
+    },
+    "crates/hickory-cli/src/serve/generation.rs": {
+      "source": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/generation.rs.md",
+      "owner": "authoring",
+      "used_by": [
+        "authoring/the-editor-does-not-wait-for-workspace-preparation.md"
+      ],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "generation-http-context",
+        "generation-http-actions"
+      ]
+    },
+    "apps/web/src/components/ProjectGeneration.tsx": {
+      "source": ".hickory-source/mechanisms/apps/web/src/components/ProjectGeneration.tsx.md",
+      "owner": "authoring",
+      "used_by": [
+        "authoring/the-editor-does-not-wait-for-workspace-preparation.md"
+      ],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "generation-dialog-state",
+        "generation-dialog-actions",
+        "generation-dialog-review"
+      ]
+    },
+    "apps/web/src/components/ProjectGeneration.test.tsx": {
+      "source": ".hickory-source/mechanisms/apps/web/src/components/ProjectGeneration.test.tsx.md",
+      "owner": "authoring",
+      "used_by": [
+        "authoring/the-editor-does-not-wait-for-workspace-preparation.md"
+      ],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "generation-dialog-preview-test",
+        "generation-dialog-refusal-test"
       ]
     }
   },

@@ -319,6 +319,7 @@ pub fn selected_manager(root: &Path, detected: &str) -> Option<String> {
 
 <storycode:copy id="f-0a1bae4be7ba-tree">
 pub mod pending;
+pub mod generation;
 mod tree;
 </storycode:copy>
 <a id="f-0a1bae4be7ba-use_declaration-5"></a>

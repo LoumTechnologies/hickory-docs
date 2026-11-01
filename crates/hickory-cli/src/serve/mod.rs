@@ -34,6 +34,7 @@ mod agent_projects;
 mod agent_review;
 pub mod anchored;
 pub mod api;
+mod generation;
 pub mod asset;
 mod audit_evidence;
 pub mod bisect;
@@ -459,16 +460,8 @@ impl LocalState {
             .absolute(id)
             .ok_or_else(|| ApiError::not_found(format!("no document {id} in this session")))?;
 
-        // Flush the live text to disk first: the pipeline reads files (and
-        // upstream documents) from the filesystem, so a weave of in-memory
-        // text alone would silently ignore the room's newest edits.
-        if let Some(room) = self.rooms.get(id).await {
-            let live = room.text().await;
-            if live != std::fs::read_to_string(&path).unwrap_or_default() {
-                store::write_atomic(&path, live.as_bytes())
-                    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
-            }
-        }
+        // Reading previews uses saved source. Persisting editor buffers belongs
+        // to explicit save/authoring paths, never to a render or outputs read.
 
         crate::run_doc(&path, &self.params, RunMode::Weave, ExecutorChoice::Local)
             .await
@@ -521,6 +514,8 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/prediction/preview", post(private_predictions::preview))
         .merge(ui_actions::routes())
         .merge(fleet_pairings::routes())
+        .route("/generation/preview", post(generation::preview))
+        .route("/generation/generate", post(generation::generate))
         .route("/projects", get(api::projects))
         .route(
             "/projects/{id}/docs",

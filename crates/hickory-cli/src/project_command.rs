@@ -11,6 +11,14 @@ pub struct ProjectArgs {
 }
 #[derive(Subcommand)]
 pub enum ProjectCommand {
+    /// Install a blocking, read-only staged project check in Git's hooks directory.
+    InstallHook {
+        /// Entry relative to the Git root; retained locally so removal cannot bypass the gate.
+        #[arg(default_value = "project.md")]
+        entry: String,
+        #[arg(long, default_value = ".")]
+        root: PathBuf,
+    },
     /// Write generated files, preserving unincorporated external edits.
     Materialize(OutputInput),
     /// Capture external edits without changing their conceptual source owner.
@@ -86,13 +94,19 @@ pub struct OutputInput {
 pub async fn run(args: ProjectArgs) -> Result<ExitCode> {
     use hick_project_env::pending;
     let command = match args.command {
+        ProjectCommand::InstallHook { root, entry } => {
+            let hook = crate::init::install_project_hook(&root, &entry)?;
+            println!(
+                "Installed staged project verification at {}.",
+                hook.display()
+            );
+            return Ok(ExitCode::SUCCESS);
+        }
         ProjectCommand::Materialize(input) => {
-            let root = input.root.canonicalize()?;
-            let sources = pending::sources(&root, &input.entry).map_err(anyhow::Error::msg)?;
-            let project = evaluate_project(&input.entry, &sources, &ProjectTree::default())
+            let context = hick_project_env::generation::GenerationContext::capture(&input.root, &input.entry)
                 .map_err(anyhow::Error::msg)?;
-            let paths = pending::materialize(&root, &input.entry, &sources, &project.new)
-                .map_err(anyhow::Error::msg)?;
+            let revision = context.plan().revision;
+            let paths = context.publish(&revision).map_err(anyhow::Error::msg)?;
             println!(
                 "Materialized {} outputs and recorded their baseline.",
                 paths.len()

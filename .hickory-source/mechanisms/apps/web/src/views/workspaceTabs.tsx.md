@@ -20,6 +20,7 @@ import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import { useUiReading } from "../lib/uiReading";
 import { observationSourceChanged } from "../debug/observations";
 import { PaneHeaderContent } from "../shell/PaneHeader";
+import { ProjectGenerationDialog } from "../components/ProjectGeneration";
 import { SurfaceInfo } from "../components/SurfaceInfo";
 import { ActionNotice } from "../components/ActionNotice";
 // What the workspace's tabs render.
@@ -69,6 +70,7 @@ function DocToolbar({
 }) {
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   const [error, setError] = useState("");
+  const [generationOpen, setGenerationOpen] = useState(false);
   const launcher = useRef<HTMLButtonElement>(null);
   const parent = `document-tab-menu:${useId()}`, key = `${parent}:open`;
   const revision = useUiRevision(() => [path, docId, running, menuAt, baseline.active, baseline.busy]);
@@ -85,7 +87,8 @@ function DocToolbar({
   useUiReading("document tab header status", { path, doc_id: docId, sync_state: syncState, error, menu_open: !!menuAt });
 
   const items: ContextMenuItem[] = [
-    { id: "run", label: running ? "Running…" : "Run", disabled: running, tip: "Run every cell and rewrite its generated files." },
+    { id: "generate", label: "Generate project files…", disabled: running, tip: "Choose a root and entry, then preview the saved project's outputs." },
+    { id: "run", label: running ? "Running…" : "Run", disabled: running, tip: "Run standalone cells. Use Generate project files for declared outputs." },
     { id: "test", label: "Test", disabled: running, tip: "Re-run and check expectations and output drift, like hick test." },
     { id: "review", label: "Review changes", tip: "Compare this document with HEAD in an editable literate view." },
     baseline.active
@@ -108,6 +111,7 @@ function DocToolbar({
   return (
     <PaneHeaderContent part="actions"><div className="doc-tab-toolbar" role="toolbar" aria-label={`Actions for ${path}`}>
       {error && <span role="alert">{error}</span>}
+      {generationOpen && <ProjectGenerationDialog onClose={() => setGenerationOpen(false)} />}
       <button
         ref={launcher}
         className="btn doc-tab-toolbar__more"
@@ -126,6 +130,7 @@ function DocToolbar({
           subject={path}
           onPick={(id) => {
             setMenuAt(null);
+            if (id === "generate" && !running) { setGenerationOpen(true); return; }
             if (id === "run" && !running) return onRun();
             if (id === "test" && !running) return onTest();
             if (id === "review") return openLiterate({ kind: "document", doc_id: docId }, "HEAD").catch(e => { setError(e instanceof Error ? e.message : String(e)); throw e; });

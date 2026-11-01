@@ -15,6 +15,34 @@ contract to the Markdown entries containing implementation and tests. For exampl
 [exact and atomic patches](../../.hickory-source/guarantees/literate-projects/replay-is-exact-and-atomic/contract.md)
 links the actual patch implementation and two named witnesses.
 
+## Block commits with inconsistent staged source and outputs
+
+From this repository's root, install the project-only gate:
+
+```sh
+cargo build --locked -p hickory-cli --bin hick
+git config --local core.hooksPath .githooks
+./target/debug/hick project install-hook project.md
+```
+
+For another repository with an installed CLI, run `hick project install-hook`
+(the entry defaults to `project.md`). Pass a different Git-root-relative entry
+when needed. The installer honors an existing hooks directory and preserves
+custom hook commands. It records the verifier executable and entry in clone-local
+Git configuration; repeat installation after moving or removing that executable.
+
+The gate runs `hick project verify ENTRY --revision :index`. Both the source
+closure and expected outputs come from the staged Git snapshot. Staging only half
+of a paired edit fails even when working files agree. Dirty unstaged files do not
+change the verdict. Missing sources, missing outputs, conflicts, byte/type/mode
+differences and a missing verifier block the commit. Verification does not execute
+cells, regenerate files or stage repairs.
+
+`just literate-check` checks the working tree and ownership metadata; the hook
+checks the candidate commit. Keep both. Git permits deliberate local hook bypass,
+so CI repeats source/output verification. Broad post-commit checks remain separate
+and asynchronous; monitor those yourself with `just checks-status`.
+
 ## Bootstrap once, then change a behavior
 
 A clone includes generated working files, so the existing build commands still
@@ -123,18 +151,31 @@ Other declared projects use `hick project materialize project.md`, followed by
 `hick project capture`, `edits`, `new-patch` or `accept` with the entry path and
 `--root` option. `hick project generate` remains a pure inventory operation.
 
-`hick up` now captures external output saves by default and holds the files.
-It records a durable baseline per document, preserving pending edits across
-restart. Standalone notebook source can be amended and accepted with
-`hick project accept notes.md --id CAPTURE_ID --root DIRECTORY`; it uses the
-existing weave pipeline for the complete output check. Automatic new-concept
-proposals require a declared project. The mounted agent filesystem also captures saves, including virtual products
-that have never been materialized; subsequent reads show the pending result.
-Explicit source-aware editor operations remain amendments. `hick up --amend-output-edits` explicitly selects the older
-provenance-based incorporation mode for workflows that already know the desired
-owner. If this host misses native filesystem events, use
-`HICKORY_WATCH_MODE=poll hick up DIRECTORY`; capture still checks actual bytes
-against its baseline at the next synchronization boundary.
+Opening a file or folder in the app is read-only observation: source saves are
+reconciled into editor rooms, but neither discovery nor a watcher event generates
+outputs. To generate, choose **Generate project files…** from the document actions,
+enter a root relative to the opened location and an entry relative to that root,
+then preview the canonical root, entry and output list before confirming. The
+preview uses saved files. A changed source revision retires it; preview again.
+A missing or ambiguous project declaration never falls back to processing the
+selected source page as an independent document.
+
+The equivalent one-shot CLI is `hick project materialize project.md --root ROOT`.
+`hick up project.md` is an explicit headless generation subscription; a directory
+target selects its `project.md`. It uses the same declared root/entry context and
+regenerates the complete closure when its source revision changes. It never
+weaves each discovered Markdown page. Legacy `--run` and `--amend-output-edits`
+subscriptions are refused: run standalone cells explicitly with `hick run`, and
+use `hick project capture`/`accept` for external output edits. The next generation
+captures unincorporated output edits and holds publication until they are resolved.
+Explicit source-aware editor operations remain amendments.
+If this host misses native events, including writes through filesystem aliases,
+use `HICKORY_WATCH_MODE=poll hick up DIRECTORY`. Both watcher modes preserve the
+same explicit generation context and output-edit checks.
+
+Engine protocol 4 prevents new opening clients from attaching to an older daemon
+that still generates on discovery. Finish its work and close its clients before
+reopening with the rebuilt app; there is no unsafe compatibility fallback.
 
 The source/disk guards and journal lock serialize Hickory's own operations; they
 are not a filesystem transaction against an external program writing during

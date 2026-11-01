@@ -78,3 +78,9 @@ sessions/
 /apps/mobile/target/
 /apps/mobile/src-tauri/gen/
 /apps/web/dist-mobile/
+
+# Maintained source pages are inputs, even when their names mirror runtime,
+# secret-example or build-output paths. Never omit them from a fresh clone.
+/.hickory-source/**
+!/.hickory-source/**/
+!/.hickory-source/**/*.md

@@ -108,4 +108,8 @@ A mechanism home records responsibility; it does not invent a product promise. M
 - [vmtest](vmtest/index.md)
 <storycode:include file="vmtest/index.md" />
 
+<storycode:include file="crates/hick-project-env/src/generation.rs.md" />
+<storycode:include file="crates/hickory-cli/src/serve/generation.rs.md" />
+<storycode:include file="apps/web/src/components/ProjectGeneration.tsx.md" />
+<storycode:include file="apps/web/src/components/ProjectGeneration.test.tsx.md" />
 </storycode:doc>

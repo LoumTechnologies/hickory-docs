@@ -1,9 +1,5 @@
-//! The in-app up-loop: the watcher the desktop app runs beside the rooms.
-//!
-//! `local-only.md` names the design this protects: the app and the working
-//! tree are two writers on the same files, so external edits must reconcile
-//! into the live editor, and edits saved in generated files must land back
-//! in their documents — while the app is open, without restarting anything.
+//! Read-only observation keeps external source saves visible without generating
+//! outputs or automatically carrying external output edits into source.
 //!
 //! Protects docs/guarantees/collaboration/the-app-sees-external-edits.md
 
@@ -65,53 +61,40 @@ async fn an_empty_folder_prepares_and_watches() {
     assert_eq!(state.index.entries().len(), 0);
 
     // A document that appears later — `touch`, git checkout, another program
-    // — is picked up without a restart: indexed and woven.
+    // — is picked up without a restart: indexed without generating.
     std::fs::write(root.join("late.md"), DOC).unwrap();
-    eventually("the new document is indexed and woven", || {
-        !state.index.entries().is_empty() && root.join("greet.rs").is_file()
+    eventually("the new document is indexed without generating", || {
+        !state.index.entries().is_empty()
     })
     .await;
 
+    assert!(!root.join("greet.rs").exists());
     guard.shutdown().await;
 }
 
-/// The initial pass weaves what is on disk, and an edit saved in a generated
-/// file lands back in the document — the up-loop, inside the app process.
+/// Observation preserves external output bytes and never amends its source.
 #[tokio::test]
-async fn a_generated_file_edit_lands_back_in_the_document() {
+async fn a_generated_file_edit_is_preserved_without_automatic_amendment() {
     let (_state, guard, root, _dir) = start(true).await;
-
     let output = root.join("greet.rs");
-    eventually("the initial weave writes greet.rs", || output.is_file()).await;
-
-    let text = std::fs::read_to_string(&output).unwrap();
-    // The file can be read-only while the loop runs; write the way an editor
-    // with `:w!` would.
-    let edited = text.replace("hello", "howdy");
-    let perms = std::fs::metadata(&output).unwrap().permissions();
-    let mut writable = perms.clone();
-    #[allow(clippy::permissions_set_readonly_false)]
-    writable.set_readonly(false);
-    std::fs::set_permissions(&output, writable).unwrap();
-    std::fs::write(&output, &edited).unwrap();
-
-    eventually("the edit reaches demo.md", || {
-        std::fs::read_to_string(root.join("demo.md"))
-            .unwrap_or_default()
-            .contains("howdy")
-    })
-    .await;
-
+    assert!(!output.exists());
+    std::fs::write(&output, "external output edit").unwrap();
+    std::fs::write(root.join("later.md"), DOC).unwrap();
+    tokio::time::sleep(Duration::from_millis(450)).await;
+    assert_eq!(
+        std::fs::read_to_string(&output).unwrap(),
+        "external output edit"
+    );
+    assert_eq!(std::fs::read_to_string(root.join("demo.md")).unwrap(), DOC);
     guard.shutdown().await;
 }
-
 /// An external edit to a document reconciles into its live room, so the
 /// editor buffer follows the file instead of clobbering it on the next
 /// persist.
 #[tokio::test]
 async fn an_external_doc_edit_reaches_the_live_room() {
     let (state, guard, root, _dir) = start(true).await;
-    eventually("initial weave", || root.join("greet.rs").is_file()).await;
+    assert!(!root.join("greet.rs").exists());
 
     let (id, _) = state.index.sole().expect("one document");
     let room = state.rooms.get_or_create(&id).await.expect("room opens");

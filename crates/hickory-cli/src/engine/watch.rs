@@ -6,7 +6,7 @@ use crate::{
         LocalState,
         watch::{notify_files_changed, publish_held, reconcile_rooms},
     },
-    up::{UpCommand, UpConfig, state::WovenState},
+    up::{UpCommand, state::WovenState},
 };
 use anyhow::{Context, Result};
 use notify::RecursiveMode;
@@ -31,7 +31,9 @@ struct Registration {
 }
 struct View {
     state: LocalState,
-    config: UpConfig,
+    // Only `hick up` supplies this explicit publication binding. GUI opens do not.
+    generation_entry: Option<String>,
+    generated_revision: Option<String>,
 }
 
 impl Coordinator {
@@ -41,10 +43,13 @@ impl Coordinator {
     ) -> Result<Self> {
         let (events, mut rx) = mpsc::unbounded_channel();
         let notify = events.clone();
-        let queued = events.clone();
         let mut watcher = crate::up::file_watcher(move |result: notify::Result<notify::Event>| {
             if let Ok(event) = result {
+                if matches!(event.kind, notify::EventKind::Access(_)) { return; }
                 for path in event.paths {
+                    // Native events may use a filesystem alias (for example
+                    // /var versus /private/var) unlike the canonical context.
+                    let path = path.canonicalize().unwrap_or(path);
                     if !crate::up::is_noise(&path) {
                         let _ = notify.send(path);
                     }
@@ -65,77 +70,49 @@ impl Coordinator {
                 tokio::select! {
                     Some(reg) = registrations.recv() => {
                         let _write = writes.lock().await;
-                        let mut woven = history.lock().await;
                         let root = reg.state.index.root().to_path_buf();
-                        // Watch registration is part of startup readiness, not
-                        // client ownership: a queued attach must remain leasable.
                         reg.startup.progress("watching", 0, 0, None);
-                        let setup = (|| -> Result<_> {
+                        let result = (|| -> Result<()> {
                             if !watched.iter().any(|p| root.starts_with(p))
                                 && (reg.attach.target.is_dir() || !shallow.contains(&root)) {
                                 if shallow.remove(&root) { let _ = watcher.unwatch(&root); }
-                                watcher.watch(&root, if reg.attach.target.is_dir() { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive }).map_err(crate::up::watch_error)
-                                    .with_context(|| format!("watching {}", root.display()))?;
+                                watcher.watch(&root, if reg.attach.target.is_dir() { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive })
+                                    .map_err(crate::up::watch_error).with_context(|| format!("watching {}", root.display()))?;
                                 if reg.attach.target.is_dir() {
                                     let descendants: Vec<_> = watched.iter().filter(|p| p.starts_with(&root)).cloned().collect();
                                     for path in descendants { let _ = watcher.unwatch(&path); watched.retain(|p| p != &path); }
                                     watched.push(root.clone());
-                                } else {
-                                    shallow.insert(root.clone());
-                                }
+                                } else { shallow.insert(root.clone()); }
+                            }
+                            if reg.attach.target.is_dir() {
+                                crate::serve::watch::discover_changed_path(&reg.state, &root, true);
                             }
                             *reg.state.up_commands.lock().unwrap() = Some(commands.clone());
-                            crate::ingest::InboxConfig::from_env()
-                        })();
-                        let inbox = match setup {
-                            Ok(inbox) => inbox,
-                            Err(error) => {
-                                let _ = reg.completed.send(Some(Err(format!("{error:#}"))));
-                                continue;
+                            let view = views.entry(root.clone()).or_insert(View { state: reg.state, generation_entry: None, generated_revision: None });
+                            if let Some(entry) = reg.attach.generation_entry {
+                                anyhow::ensure!(view.generation_entry.as_ref().is_none_or(|bound| bound == &entry), "This root already has a different explicit generation entry");
+                                let context = hick_project_env::generation::GenerationContext::capture(&root, &entry).map_err(anyhow::Error::msg)?;
+                                let revision = context.plan().revision;
+                                context.publish(&revision).map_err(anyhow::Error::msg)?;
+                                view.generation_entry = Some(entry);
+                                view.generated_revision = Some(revision);
                             }
-                        };
-                        let result: Result<()> = async {
-                            if reg.attach.target.is_dir() { crate::up::drain_inbox(&root, &inbox); }
-                            let config = UpConfig { amend_output_edits: reg.attach.amend_output_edits, root: reg.attach.target.clone(), params: reg.attach.params,
-                                executor: reg.attach.executor, run: reg.attach.run };
-                            let docs: Vec<_> = reg.state.index.entries().iter()
-                                .filter_map(|(id, _)| reg.state.index.absolute(id))
-                                .filter(|path| path.starts_with(&reg.attach.target))
-                                .filter(|path| woven.doc_source(path).is_none()).collect();
-                            reg.startup.progress("baselines", 0, docs.len(), None);
-                            if config.run { crate::up::establish_baselines(&docs, &config, &mut woven).await; }
-                            let total = docs.len();
-                            for (index, doc) in docs.into_iter().enumerate() {
-                                let relative = doc.strip_prefix(&root).ok().map(|path| path.to_string_lossy().into_owned());
-                                reg.startup.progress("weaving", index, total, relative);
-                                if let Err(error) = crate::up::weave_document(&doc, &config, &mut woven).await {
-                                    eprintln!("error: {error:#}");
-                                }
-                            }
-                            // --run is a live client subscription, set separately by daemon leases.
-                            views.entry(root.clone()).or_insert(View { state: reg.state.clone(), config });
-                            reg.startup.progress("reconciling", total, total, None);
-                            reconcile_rooms(&reg.state, &root, &woven).await;
-                            publish_held(&reg.state, &root, &woven);
                             Ok(())
-                        }.await;
-                        let _ = reg.completed.send(Some(result.map_err(|error| format!("{error:#}"))));
+                        })();
+                        // A normal open grants observation only. The separate
+                        // generation_entry opt-in is the CLI's explicit action.
+                        let _ = reg.completed.send(Some(result.map_err(|e| format!("{e:#}"))));
                     }
                     Some(command) = command_rx.recv() => {
-                        let _write = writes.lock().await;
-                        let mut woven = history.lock().await;
-                        let result: anyhow::Result<()> = match command {
+                        match command {
                             UpCommand::Resolve { request, reply } => {
-                                if !reply.is_closed() {
-                                    let result = woven.resolve_output(&request).map_err(|e| format!("{e:#}"));
-                                    let _ = reply.send(result);
-                                }
-                                Ok(())
-                            },
-                            UpCommand::Reweave(path) => { let _ = queued.send(path); Ok(()) },
-                        };
-                        if let Err(error) = result { eprintln!("error: {error:#}"); }
-                        publish(&views, &woven, &mut marks).await;
+                                let result = history.lock().await.resolve_output(&request).map_err(|e| format!("{e:#}"));
+                                let _ = reply.send(result);
+                            }
+                            // A run may request a refresh, but it cannot turn this
+                            // discovery loop into a generator after startup either.
+                            UpCommand::Reweave(_) => {}
+                        }
                     }
                     Some(first) = rx.recv() => {
                         let mut batch = HashSet::from([first]);
@@ -144,50 +121,40 @@ impl Coordinator {
                             while let Ok(path) = rx.try_recv() { batch.insert(path); }
                         }
                         let _write = writes.lock().await;
-                        let mut woven = history.lock().await;
-                        // A physical path is processed once, choosing the narrowest view's config.
-                        let mut groups: HashMap<PathBuf, HashSet<PathBuf>> = HashMap::new();
                         let active: Vec<_> = subscriptions.read().unwrap().values().cloned().collect();
-                        for path in batch {
-                            // Retain owned output/dependency events, but don't
-                            // adopt unrelated siblings into a file-only session.
-                            if !active.iter().any(|sub| path.starts_with(&sub.target))
-                                && woven.output(&path).is_none() && woven.doc_source(&path).is_none() {
+                        for path in &batch {
+                            for (root, view) in &views {
+                                let scope = if path.starts_with(root) { path.as_path() }
+                                    else if root.starts_with(path) && path.is_dir() { root.as_path() }
+                                    else { continue; };
+                                if active.iter().any(|sub| sub.target.is_dir() && scope.starts_with(&sub.target)) {
+                                    crate::serve::watch::discover_changed_path(&view.state, scope, true);
+                                }
+                            }
+                        }
+                        // This branch is reachable only for a separate explicit
+                        // headless subscription, never because a scan found a page.
+                        for (root, view) in &mut views {
+                            let Some(entry) = &view.generation_entry else { continue; };
+                            if !active.iter().any(|sub| sub.generation_entry.as_ref() == Some(entry)
+                                && (sub.target == *root || sub.target.parent() == Some(root.as_path()))) {
+                                view.generation_entry = None;
+                                view.generated_revision = None;
                                 continue;
                             }
-                            if let Some(root) = views.keys().filter(|p| path.starts_with(p)).max_by_key(|p| p.components().count()) {
-                                groups.entry(root.clone()).or_default().insert(path);
-                            }
-                        }
-                        for (root, mut batch) in groups {
-                            let view = &views[&root];
-                            if let Ok(inbox) = crate::ingest::InboxConfig::from_env()
-                                && batch.iter().any(|p| p.starts_with(inbox.inbox(&root)))
-                            {
-                                batch.extend(crate::up::drain_inbox(&root, &inbox));
-                            }
-                            for path in &batch {
-                                if path.is_file() && path.extension().is_some_and(|e| e == "hick" || e == "md") {
-                                    for (root, view) in &views {
-                                        if let Ok(rel) = path.strip_prefix(root) { let _ = view.state.index.discover(&rel.to_string_lossy().replace('\\', "/")); }
-                                        view.state.store.register(&view.state.index);
-                                    }
+                            if !batch.iter().any(|path| path.starts_with(root) || (root.starts_with(path) && path.is_dir())) { continue; }
+                            let result = (|| -> Result<()> {
+                                let context = hick_project_env::generation::GenerationContext::capture(root, entry).map_err(anyhow::Error::msg)?;
+                                let revision = context.plan().revision;
+                                if view.generated_revision.as_ref() != Some(&revision) {
+                                    context.publish(&revision).map_err(anyhow::Error::msg)?;
+                                    view.generated_revision = Some(revision);
                                 }
-                            }
-                            let active: Vec<_> = subscriptions.read().unwrap().values().cloned().collect();
-                            let config_for = |doc: &std::path::Path| {
-                                let mut config = UpConfig { amend_output_edits: view.config.amend_output_edits, root: view.config.root.clone(), params: view.config.params.clone(), executor: view.config.executor, run: false };
-                                let matching: Vec<_> = active.iter().filter(|sub|doc == sub.target || doc.starts_with(&sub.target)).collect();
-                                // An overlapping default client must not inherit
-                                // another client's explicit amendment permission.
-                                config.amend_output_edits = !matching.is_empty() && matching.iter().all(|sub|sub.amend_output_edits);
-                                if let Some(sub) = active.iter().find(|sub| sub.run && (doc == sub.target || doc.starts_with(&sub.target))) {
-                                    config.run = true; config.params = sub.params.clone(); config.executor = sub.executor;
-                                }
-                                config
-                            };
-                            if let Err(error) = crate::up::handle_batch_with(batch, &view.config, &mut woven, Some(&config_for)).await { eprintln!("error: {error:#}"); }
+                                Ok(())
+                            })();
+                            if let Err(error) = result { eprintln!("generation held: {error:#}"); }
                         }
+                        let woven = history.lock().await;
                         publish(&views, &woven, &mut marks).await;
                     }
                     else => break,
@@ -204,8 +171,6 @@ impl Coordinator {
     }
 
     pub async fn shutdown(&self) {
-        // Preparation or a running cell may hold woven across an await.
-        // Cancel its owner before waiting to release generated-file protection.
         self.task.abort();
         self.woven.lock().await.release_read_only();
     }

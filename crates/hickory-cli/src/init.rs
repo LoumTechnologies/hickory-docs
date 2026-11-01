@@ -258,7 +258,40 @@ fn hooks_dir(root: &Path) -> Result<PathBuf> {
 /// Create or refresh the sentinel-delimited managed block in the pre-commit
 /// hook at `hook_path`. Returns true if the file changed.
 fn install_hook_block(hook_path: &Path) -> Result<bool> {
-    let block = format!("{HOOK_BLOCK_START}\n{HOOK_BODY}\n{HOOK_BLOCK_END}\n");
+    install_hook_body(hook_path, HOOK_BODY)
+}
+
+/// A project-only gate checks the candidate index without executing cells,
+/// repairing files, updating the index or relying on unstaged working bytes.
+/// The executable is clone-local: reinstall after moving/removing the binary.
+pub fn install_project_hook(dir: &Path, entry: &str) -> Result<PathBuf> {
+    hick_lang::validate_project_path(entry).map_err(anyhow::Error::msg)?;
+    let root = git_toplevel(dir)?;
+    let hook = hooks_dir(&root)?.join("pre-commit");
+    let executable = std::env::current_exe()?;
+    let status = Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args(["config", "--local", "hickory.projectVerifier"])
+        .arg(executable)
+        .status()?;
+    anyhow::ensure!(status.success(), "could not configure the project verifier");
+    let status = Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args(["config", "--local", "hickory.projectEntry", entry])
+        .status()?;
+    anyhow::ensure!(status.success(), "could not configure the project entry");
+    install_hook_body(&hook, PROJECT_HOOK_BODY)?;
+    Ok(hook)
+}
+
+// A missing tool is a refusal, never a silent bypass. Resolve it from local
+// configuration so the committed script contains no machine-specific path.
+const PROJECT_HOOK_BODY: &str = include_str!("project_hook.sh");
+
+fn install_hook_body(hook_path: &Path, body: &str) -> Result<bool> {
+    let block = format!("{HOOK_BLOCK_START}\n{body}\n{HOOK_BLOCK_END}\n");
     let existing = match std::fs::read_to_string(hook_path) {
         Ok(s) => Some(s),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
@@ -267,22 +300,44 @@ fn install_hook_block(hook_path: &Path) -> Result<bool> {
         }
     };
 
+    // Managed bodies are shell commands. Refuse other hook interpreters rather
+    // than corrupting a Python/Ruby hook by inserting shell into its program.
+    if let Some(header) = existing
+        .as_deref()
+        .and_then(|s| s.lines().next())
+        .and_then(|line| line.strip_prefix("#!"))
+    {
+        let mut words = header.split_whitespace();
+        let program = words.next().unwrap_or("");
+        let program = if Path::new(program).file_name().is_some_and(|n| n == "env") {
+            words.find(|word| !word.starts_with('-')).unwrap_or("")
+        } else {
+            program
+        };
+        let name = Path::new(program)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        anyhow::ensure!(
+            matches!(name, "sh" | "bash" | "dash" | "ksh" | "zsh"),
+            "Cannot add shell verification to a {name} hook; preserve it behind a shell wrapper first"
+        );
+    }
+
     let new_content = match &existing {
         None => format!("#!/bin/sh\n{block}"),
         Some(content) => {
             match replace_between(content, HOOK_BLOCK_START, HOOK_BLOCK_END, &block)? {
                 Some(replaced) => replaced,
                 None => {
-                    // Existing hook without our block: append it. The block
-                    // `exit 1`s on failure but otherwise falls through to the
-                    // rest of the hook (there is none after; it is last).
-                    let mut s = content.clone();
-                    if !s.ends_with('\n') {
-                        s.push('\n');
+                    // Check first: a user's existing `exit 0` must not hide
+                    // our gate. Preserve its shebang and remaining commands.
+                    if content.starts_with("#!") {
+                        let (shebang, rest) = content.split_once('\n').unwrap_or((content, ""));
+                        format!("{shebang}\n{block}\n{rest}")
+                    } else {
+                        format!("#!/bin/sh\n{block}\n{content}")
                     }
-                    s.push('\n');
-                    s.push_str(&block);
-                    s
                 }
             }
         }

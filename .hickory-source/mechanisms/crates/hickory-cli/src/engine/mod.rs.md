@@ -109,9 +109,9 @@ A protocol version, not a release version: compatible releases may attach.
 
 <storycode:copy id="f-e55203129482-PROTOCOL">
 // A protocol version, not a release version: compatible releases may attach.
-// Version 3 makes unclassified output saves pending. An older daemon could
-// otherwise accept the new client and silently amend its source instead.
-const PROTOCOL: u32 = 3;
+// Version 4 separates read-only observation from explicit generation. Do not
+// attach a new editor to an older daemon that still weaves every discovered page.
+const PROTOCOL: u32 = 4;
 </storycode:copy>
 <a id="f-e55203129482-PREDICTION_PROTOCOL"></a>
 ### `PREDICTION_PROTOCOL`
@@ -163,12 +163,15 @@ pub struct Attach {
     /// Trusted host startup profile; inherited by every client of this workspace.
     #[serde(default)]
     pub prediction: Option<crate::serve::PrivatePredictionStartup>,
+    /// Explicit headless generation subscription. Opening clients leave this absent.
+    #[serde(default)]
+    pub generation_entry: Option<String>,
     pub target: PathBuf,
     pub params: Vec<(String, String)>,
     pub executor: crate::ExecutorChoice,
     pub run: bool,
-    /// Desktop editors can boot before the initial weave. File operations
-    /// still wait for output ownership; CLI clients keep synchronous startup.
+    /// Editors may boot before observation is registered. This flag grants
+    /// no generation authority; explicit CLI generation remains synchronous.
     #[serde(default)]
     pub background: bool,
     pub key_store_path: Option<PathBuf>,
@@ -191,6 +194,7 @@ impl Attach {
     pub fn new(target: PathBuf, executor: crate::ExecutorChoice) -> Self {
         Self {
             prediction: None,
+            generation_entry: None,
             amend_output_edits: false,
             target,
             executor,

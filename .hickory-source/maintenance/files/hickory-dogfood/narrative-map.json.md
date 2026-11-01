@@ -137198,7 +137198,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "id": "f-9de73ad7ae6f-a_generated_file_edit_lands_back_in_the_document",
       "output": "crates/hickory-cli/tests/serve_watch.rs",
       "page": ".hickory-source/guarantees/collaboration/the-app-sees-external-edits/contract.md",
-      "symbol": "a_generated_file_edit_lands_back_in_the_document",
+      "symbol": "a_generated_file_edit_is_preserved_without_automatic_amendment",
       "basis": "existing-source-comment",
       "original_range": [
         2562,
@@ -147760,6 +147760,132 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/apps/agent/factorial-context-study.md",
       "output": "apps/agent/tests/test_factorial_study.py",
       "symbol": "FactorialTests",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "project-hook-staged-verification",
+      "output": "crates/hickory-cli/src/project_hook.sh",
+      "page": ".hickory-source/guarantees/literate-projects/candidate-revisions-never-borrow-working-bytes/contract.md",
+      "symbol": "project-hook-staged-verification",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "project-hook-repository-start",
+      "output": ".githooks/pre-commit",
+      "page": ".hickory-source/guarantees/literate-projects/candidate-revisions-never-borrow-working-bytes/contract.md",
+      "symbol": "project-hook-repository-start",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "project-hook-staged-verification",
+      "output": ".githooks/pre-commit",
+      "page": ".hickory-source/guarantees/literate-projects/candidate-revisions-never-borrow-working-bytes/contract.md",
+      "symbol": "project-hook-staged-verification",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "project-hook-repository-end",
+      "output": ".githooks/pre-commit",
+      "page": ".hickory-source/guarantees/literate-projects/candidate-revisions-never-borrow-working-bytes/contract.md",
+      "symbol": "project-hook-repository-end",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "project-hook-staged-pairs-test",
+      "output": "crates/hickory-cli/tests/project_revision.rs",
+      "page": ".hickory-source/guarantees/literate-projects/candidate-revisions-never-borrow-working-bytes/contract.md",
+      "symbol": "project-hook-staged-pairs-test",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "generation-context-identity",
+      "output": "crates/hick-project-env/src/generation.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-project-env/src/generation.rs.md",
+      "symbol": "generation-context-identity",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "generation-context-capture",
+      "output": "crates/hick-project-env/src/generation.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-project-env/src/generation.rs.md",
+      "symbol": "generation-context-capture",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "generation-context-publish",
+      "output": "crates/hick-project-env/src/generation.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-project-env/src/generation.rs.md",
+      "symbol": "generation-context-publish",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "generation-context-tests",
+      "output": "crates/hick-project-env/src/generation.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-project-env/src/generation.rs.md",
+      "symbol": "generation-context-tests",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "generation-http-context",
+      "output": "crates/hickory-cli/src/serve/generation.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/generation.rs.md",
+      "symbol": "generation-http-context",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "generation-http-actions",
+      "output": "crates/hickory-cli/src/serve/generation.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/generation.rs.md",
+      "symbol": "generation-http-actions",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "generation-dialog-state",
+      "output": "apps/web/src/components/ProjectGeneration.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/components/ProjectGeneration.tsx.md",
+      "symbol": "generation-dialog-state",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "generation-dialog-actions",
+      "output": "apps/web/src/components/ProjectGeneration.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/components/ProjectGeneration.tsx.md",
+      "symbol": "generation-dialog-actions",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "generation-dialog-review",
+      "output": "apps/web/src/components/ProjectGeneration.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/components/ProjectGeneration.tsx.md",
+      "symbol": "generation-dialog-review",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "generation-dialog-preview-test",
+      "output": "apps/web/src/components/ProjectGeneration.test.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/components/ProjectGeneration.test.tsx.md",
+      "symbol": "generation-dialog-preview-test",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "generation-dialog-refusal-test",
+      "output": "apps/web/src/components/ProjectGeneration.test.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/components/ProjectGeneration.test.tsx.md",
+      "symbol": "generation-dialog-refusal-test",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "observation-directory-discovery",
+      "output": "crates/hickory-cli/src/serve/watch.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/watch.rs.md",
+      "symbol": "discover_changed_path",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "generation-authority-lifetime-test",
+      "output": "crates/hickory-cli/tests/engine_lifecycle.rs",
+      "page": ".hickory-source/guarantees/authoring/the-editor-does-not-wait-for-workspace-preparation/contract.md",
+      "symbol": "detaching_generation_leaves_observers_read_only",
       "basis": "explained-decision"
     }
   ],

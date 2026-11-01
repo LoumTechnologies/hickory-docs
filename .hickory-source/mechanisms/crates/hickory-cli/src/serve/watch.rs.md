@@ -13,41 +13,17 @@ Related contracts: [Keep divergent output until an explicit decision names the w
 <a id="f-c9fa53b5e3bf-DEBOUNCE"></a>
 ### `DEBOUNCE`
 
-The up-loop, running inside the app's process.
-`local-only.md` names the design: the desktop app runs the up-loop and the
-rooms together, so the window and the working tree can never disagree for
-long. This module is that loop — the same weave/reverse machinery
-`hick up` runs headless (`crate::up`), driven from the serve state, with
-one addition the headless loop has no use for: after every batch, changed
-documents are reconciled into their live rooms, so an edit made by vim, a
-formatter, or a coding agent appears in the editor buffer instead of being
-clobbered by the room's next debounced persist.
-What is deliberately NOT here:
-- **No directory lock.** The desktop shell already holds
-[`crate::up::DirectoryLock`] for this folder; taking it twice would
-refuse ourselves.
-- **No `--run`.** The in-app loop weaves on change; executing cells is the
-Run button's deliberate act, same as the headless default.
+The observer updates document identities and reconciles external source edits into
+live rooms. It never weaves discovered pages or amends source after an output
+save. Explicit project generation owns publication; editor saves own persistence.
 
 <storycode:copy id="f-c9fa53b5e3bf-DEBOUNCE">
-//! The up-loop, running inside the app's process.
+//! Read-only filesystem observation beside the editor rooms.
 //!
-//! `local-only.md` names the design: the desktop app runs the up-loop and the
-//! rooms together, so the window and the working tree can never disagree for
-//! long. This module is that loop — the same weave/reverse machinery
-//! `hick up` runs headless (`crate::up`), driven from the serve state, with
-//! one addition the headless loop has no use for: after every batch, changed
-//! documents are reconciled into their live rooms, so an edit made by vim, a
-//! formatter, or a coding agent appears in the editor buffer instead of being
-//! clobbered by the room's next debounced persist.
-//!
-//! What is deliberately NOT here:
-//!
-//! - **No directory lock.** The desktop shell already holds
-//!   [`crate::up::DirectoryLock`] for this folder; taking it twice would
-//!   refuse ourselves.
-//! - **No `--run`.** The in-app loop weaves on change; executing cells is the
-//!   Run button's deliberate act, same as the headless default.
+//! Index new documents and reconcile external source saves. Neither startup,
+//! discovery, output edits nor refresh commands mint generation authority.
+//! Publication belongs to the explicit root/entry generation action.
+//! The caller owns directory coordination; this observer takes no second lock.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -57,7 +33,7 @@ use notify::{EventKind, RecursiveMode, Watcher as _};
 
 use super::LocalState;
 use crate::up::state::WovenState;
-use crate::up::{UpCommand, UpConfig, handle_batch, weave_document};
+use crate::up::UpCommand;
 
 /// How long the directory must stay quiet before a burst of events is one
 /// batch. Matches the headless loop's weave debounce.
@@ -114,17 +90,12 @@ impl Drop for WatchGuard {
 <a id="f-c9fa53b5e3bf-spawn"></a>
 ### `spawn`
 
-Start watching the served folder and keep it woven until told to stop.
-The watcher starts BEFORE the first weave, for the same reason the
-headless loop's does: the first pass writes output files early, and an
-edit made to one of them during startup must arrive late, not vanish.
+Install observation before refreshing the index. The initial refresh closes the
+prepare/watch gap without establishing any output ownership or publication authority.
 
 <storycode:copy id="f-c9fa53b5e3bf-spawn">
-/// Start watching the served folder and keep it woven until told to stop.
-///
-/// The watcher starts BEFORE the first weave, for the same reason the
-/// headless loop's does: the first pass writes output files early, and an
-/// edit made to one of them during startup must arrive late, not vanish.
+/// Observe the selected scope until stopped. Refresh the read-only index after
+/// registration so changes between preparation and native activation are seen.
 pub fn spawn(state: LocalState) -> Result<WatchGuard> {
     let root = state
         .index
@@ -135,10 +106,7 @@ pub fn spawn(state: LocalState) -> Result<WatchGuard> {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<PathBuf>();
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         let Ok(event) = res else { return };
-        if !matches!(
-            event.kind,
-            EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
-        ) {
+        if matches!(event.kind, EventKind::Access(_)) {
             return;
         }
         for path in event.paths {
@@ -154,7 +122,7 @@ pub fn spawn(state: LocalState) -> Result<WatchGuard> {
     .map_err(crate::up::watch_error)
     .context("failed to start watching for file changes")?;
     watcher
-        .watch(&root, RecursiveMode::Recursive)
+        .watch(&root, if state.folder_open { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive })
         .map_err(crate::up::watch_error)
         .with_context(|| format!("failed to watch {}", root.display()))?;
 
@@ -182,27 +150,16 @@ async fn run_loop(
     mut commands: tokio::sync::mpsc::UnboundedReceiver<UpCommand>,
     mut stop: tokio::sync::oneshot::Receiver<()>,
 ) {
-    let config = UpConfig {
-        amend_output_edits: false,
-        root: root.clone(),
-        params: (*state.params).clone(),
-        run: false,
-        executor: state.executor,
-    };
     let mut woven = WovenState::default();
     // Per-document fingerprint of the outputs' bytes, so "files changed" is
     // published only when a batch actually rewrote something — not for every
     // echo the watcher hears.
     let mut output_marks: HashMap<PathBuf, u64> = HashMap::new();
 
-    // Initial pass: weave what is already indexed. An empty folder weaves
-    // nothing and simply waits — that is the app's first-run state.
-    for (_, rel) in state.index.entries() {
-        let doc = root.join(rel);
-        if let Err(e) = weave_document(&doc, &config, &mut woven).await {
-            log::warn!("initial weave of {} failed: {e:#}", doc.display());
-        }
-    }
+    // Refresh after watcher installation: a file may appear between prepare's
+    // inventory and the native watch becoming active. This pass only indexes.
+    discover_changed_path(&state, &root, state.folder_open);
+    // Observation installs no generation context and publishes no outputs.
     reconcile_rooms(&state, &root, &woven).await;
     publish_held(&state, &root, &woven);
 
@@ -220,11 +177,7 @@ async fn run_loop(
                             let _ = reply.send(result);
                         }
                     }
-                    Some(UpCommand::Reweave(path)) => {
-                        if let Err(e) = crate::up::weave_document(&path, &config, &mut woven).await {
-                            log::warn!("could not reweave {}: {e:#}", path.display());
-                        }
-                    }
+                    Some(UpCommand::Reweave(_)) => {}
                     None => {}
                 }
                 publish_held(&state, &root, &woven);
@@ -248,23 +201,10 @@ async fn run_loop(
         // A `.md` file the index has never seen is a document created by
         // something other than the app — `touch notes.md`, a git checkout,
         // an agent. Register it so the app can list and open it without a
-        // restart; the weave below is `handle_batch`'s job.
-        for path in &batch {
-            if path.extension().is_some_and(|e| e == "md")
-                && path.is_file()
-                && let Ok(rel) = path
-                    .canonicalize()
-                    .unwrap_or_else(|_| path.clone())
-                    .strip_prefix(&root)
-                    .map(|r| r.to_string_lossy().replace('\\', "/"))
-            {
-                let _ = state.index.discover(&rel);
-            }
-        }
+        // restart. Observation never generates outputs.
+        for path in &batch { discover_changed_path(&state, path, state.folder_open); }
 
-        if let Err(e) = handle_batch(batch, &config, &mut woven).await {
-            log::warn!("up-loop batch failed: {e:#}");
-        }
+        // Source saves and discovery events only reconcile editor rooms.
         reconcile_rooms(&state, &root, &woven).await;
         publish_held(&state, &root, &woven);
         notify_files_changed(&state, &root, &woven, &mut output_marks).await;
@@ -315,8 +255,8 @@ document, so a pane can refetch (and flash) exactly its own files.
 <storycode:copy id="f-c9fa53b5e3bf-notify_files_changed">
 /// Tell every open window that this batch may have rewritten output files.
 ///
-/// The loop weaves server-side; without this, a pane showing a generated
-/// file learns about the re-weave only on its next focus or run. The event
+/// Fingerprinted output observations can notify a generated-file pane.
+/// An opening observer does not create those publication observations. The event
 /// rides the run channel the frontend already listens on, per watched
 /// document, so a pane can refetch (and flash) exactly its own files.
 pub(crate) async fn notify_files_changed(
@@ -414,6 +354,61 @@ pub(crate) async fn reconcile_rooms(state: &LocalState, root: &PathBuf, _woven: 
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/src/serve/watch.rs"><storycode:paste select="#f-c9fa53b5e3bf-DEBOUNCE"/><storycode:paste select="#f-c9fa53b5e3bf-WatchGuard"/><storycode:paste select="#f-c9fa53b5e3bf-impl-WatchGuard"/><storycode:paste select="#f-c9fa53b5e3bf-impl-Drop-for-WatchGuard"/><storycode:paste select="#f-c9fa53b5e3bf-spawn"/><storycode:paste select="#f-c9fa53b5e3bf-run_loop"/><storycode:paste select="#f-c9fa53b5e3bf-publish_held"/><storycode:paste select="#f-c9fa53b5e3bf-notify_files_changed"/><storycode:paste select="#f-c9fa53b5e3bf-reconcile_rooms"/></storycode:file>
+<storycode:file path="crates/hickory-cli/src/serve/watch.rs"><storycode:paste select="#f-c9fa53b5e3bf-DEBOUNCE"/><storycode:paste select="#f-c9fa53b5e3bf-WatchGuard"/><storycode:paste select="#f-c9fa53b5e3bf-impl-WatchGuard"/><storycode:paste select="#f-c9fa53b5e3bf-impl-Drop-for-WatchGuard"/><storycode:paste select="#f-c9fa53b5e3bf-spawn"/><storycode:paste select="#f-c9fa53b5e3bf-run_loop"/><storycode:paste select="#f-c9fa53b5e3bf-publish_held"/><storycode:paste select="#f-c9fa53b5e3bf-notify_files_changed"/><storycode:paste select="#f-c9fa53b5e3bf-reconcile_rooms"/><storycode:paste select="#observation-directory-discovery"/></storycode:file>
+
+
+Directory events identify a subtree rather than one new Markdown file on some
+hosts. Refresh only a folder-authorized subtree; a file observer never recursively
+walks its parent. This helper updates identifiers and has no generation API.
+
+<storycode:copy id="observation-directory-discovery">
+/// Directory notifications are common on macOS. A folder observer may refresh
+/// that subtree's index, but this helper can neither evaluate nor publish files.
+pub(crate) fn discover_changed_path(state: &LocalState, changed: &std::path::Path, folder_authorized: bool) {
+    let canonical = changed.canonicalize().unwrap_or_else(|_| changed.to_path_buf());
+    let changed = canonical.as_path();
+    if crate::up::is_noise(changed) {
+        return;
+    }
+    let root = state.index.root();
+    let scope = if changed.starts_with(root) {
+        changed
+    } else if root.starts_with(changed) && changed.is_dir() {
+        root
+    } else {
+        return;
+    };
+    let candidates = if scope.is_dir() {
+        if !folder_authorized {
+            return;
+        }
+        match hick_literate::discover_default_documents(scope) {
+            Ok(paths) => paths,
+            Err(error) => {
+                log::warn!("could not refresh document index: {error:#}");
+                return;
+            }
+        }
+    } else {
+        vec![scope.to_path_buf()]
+    };
+    for path in candidates {
+        if !folder_authorized {
+            let Ok(relative) = path.strip_prefix(root) else { continue; };
+            let id = state.index.id_for_path(&relative.to_string_lossy().replace('\\', "/"));
+            if state.index.path_of(&id).is_none() { continue; }
+        }
+        if !path.is_file() {
+            continue;
+        }
+        let path = path.canonicalize().unwrap_or(path);
+        if let Ok(relative) = path.strip_prefix(root) {
+            let _ = state
+                .index
+                .discover(&relative.to_string_lossy().replace('\\', "/"));
+        }
+    }
+}
+</storycode:copy>
 
 </storycode:doc>

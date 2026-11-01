@@ -67,7 +67,8 @@ if [ -n "$(git ls-files -- '*.md')" ]; then
         [ "$hick_check" -eq 0 ] || exit 1
         fi
     else
-        echo "pre-commit: hick not found on PATH; skipping .md verification" >&2
+        echo "pre-commit: hick not found on PATH. Install hick before committing. Commit blocked." >&2
+        exit 1
     fi
 fi
 </storycode:entry>

@@ -56,6 +56,20 @@ impl LocalState {
             .index
             .absolute(id)
             .ok_or_else(|| ApiError::not_found(format!("no document {id} in this session")))?;
+        let source =
+            std::fs::read_to_string(&path).map_err(|e| ApiError::unprocessable(e.to_string()))?;
+        let parsed =
+            hick_lang::parse(&source).map_err(|e| ApiError::unprocessable(e.to_string()))?;
+        if [
+            "project", "entry", "file", "copy", "paste", "patch", "include", "upstream",
+        ]
+        .iter()
+        .any(|name| !parsed.find_tags(name).is_empty())
+        {
+            return Err(ApiError::unprocessable(
+                "This document defines project outputs. Use Generate project files with an explicit root and entry, or hick project verify to check it.",
+            ));
+        }
         let run_id = format!("{:016x}", rand_id());
         let started_at = now_rfc3339();
 
