@@ -26,13 +26,13 @@ import { prepareEditorChanges } from "../editor/textInput";
 import { ChangePreview } from "../components/ChangePreview";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { codeFolding, foldGutter, foldService } from "@codemirror/language";
+import { codeFolding, foldEffect, foldable, foldGutter, foldService } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
 import { Decoration, EditorView, highlightActiveLine, keymap, lineNumbers } from "@codemirror/view";
 
 import { api } from "../api/client";
 import type { FileNode } from "../api/types";
-import { editorChrome } from "../editor/chrome";
+import { editorChrome, paneSearch } from "../editor/chrome";
 import { multipleCursors } from "../editor/multiCursor";
 import {
   filesystemTextEntries,
@@ -117,6 +117,13 @@ function projectedLines(nodes: readonly FileNode[], extras: readonly WorkspaceTe
 <a id="f-d30e9ea77e15-FilesystemTreeEditor"></a>
 ### `FilesystemTreeEditor`
 
+The Files pane initially shows only top-level rows. Fold each directory, including
+nested directories, when constructing the projection so opening a parent still
+leaves its child folders collapsed. Folding preserves the complete editable buffer
+and filesystem reconciliation input. The number rail is temporarily disabled at
+extension assembly; retain its extension so restoring it is a local decision.
+The fold gutter remains available for opening folders.
+
 <storycode:copy id="f-d30e9ea77e15-FilesystemTreeEditor">
 export function FilesystemTreeEditor({
   nodes,
@@ -186,6 +193,7 @@ export function FilesystemTreeEditor({
         doc: projection.map((line) => line.text).join("\n"),
         extensions: [
           editorChrome("code"),
+          paneSearch("Files"),
           EditorState.transactionFilter.of(transaction => {
             if (!transaction.docChanged) return transaction;
             if (pending.current) return [];
@@ -193,7 +201,8 @@ export function FilesystemTreeEditor({
             transaction.changes.iterChanges((from, to, _fromB, _toB, text) => changes.push({ from, to, insert: text.toString() }));
             return "reason" in prepareEditorChanges(transaction.startState.doc.toString(), changes) ? [] : transaction;
           }),
-          lineNumbers(),
+          // Temporarily hide the number rail while retaining an easy way to restore it.
+          ...(false ? [lineNumbers()] : []),
           history(),
           multipleCursors(),
           highlightActiveLine(),
@@ -274,6 +283,12 @@ export function FilesystemTreeEditor({
         ],
       }),
     });
+    // Fold every directory, including nested ones, without removing draft text.
+    editor.dispatch({ effects: projection.flatMap((_line, index) => {
+      const line = editor.state.doc.line(index + 1);
+      const range = foldable(editor.state, line.from, line.to);
+      return range ? [foldEffect.of(range)] : [];
+    }) });
     view.current = editor;
     setActionView(editor);
     setDirty(false);

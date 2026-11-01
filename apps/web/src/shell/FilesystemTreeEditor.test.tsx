@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { EditorSelection, EditorState } from "@codemirror/state";
+import { foldedRanges, unfoldEffect } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
 import { afterEach, expect, it, vi } from "vitest";
 
@@ -13,6 +14,52 @@ function editor(): EditorView {
   if (!found) throw new Error("filesystem editor did not mount");
   return found;
 }
+
+it("searches folded Files names through the shared icon and modal without changing text", () => {
+  const showModal = vi.fn(function (this: HTMLDialogElement) { this.open = true; });
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: showModal });
+  Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.open = false; } });
+  render(<FilesystemTreeEditor nodes={[
+    { name: "src", path: "src", dir: true, children: [
+      { name: "needle.ts", path: "src/needle.ts", dir: false },
+    ] },
+  ]} onChanged={() => {}} onOpenPath={() => {}} onContextPath={() => {}} />);
+  const view = editor(), before = view.state.doc.toString();
+  fireEvent.click(screen.getByRole("button", { name: "Search Files" }));
+  expect(showModal).toHaveBeenCalledOnce();
+  const field = screen.getByRole("searchbox", { name: "Search Files text" });
+  fireEvent.input(field, { target: { value: "NEEDLE" } });
+  expect(foldedRanges(view.state).size).toBe(0);
+  expect(view.dom.querySelector(".cm-searchMatch")?.textContent).toBe("needle");
+  expect(view.state.doc.toString()).toBe(before);
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  expect(view.dom.querySelector(".cm-searchMatch")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Search Files" }));
+  fireEvent.input(field, { target: { value: "" } });
+  expect(view.dom.querySelector(".cm-searchMatch")).toBeNull();
+  Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
+  Reflect.deleteProperty(HTMLDialogElement.prototype, "close");
+});
+
+it("starts with every folder collapsed while preserving the full editable tree", () => {
+  render(<FilesystemTreeEditor nodes={[
+    { name: "src", path: "src", dir: true, children: [
+      { name: "nested", path: "src/nested", dir: true, children: [
+        { name: "one.ts", path: "src/nested/one.ts", dir: false },
+      ] },
+    ] },
+    { name: "notes.txt", path: "notes.txt", dir: false },
+  ]} onChanged={() => {}} onOpenPath={() => {}} onContextPath={() => {}} />);
+  const view = editor();
+  expect(view.state.doc.toString()).toBe("src/\n  nested/\n    one.ts\nnotes.txt");
+  expect(foldedRanges(view.state).size).toBe(2);
+  const rows = () => Array.from(view.contentDOM.querySelectorAll(".cm-line"), row => row.textContent);
+  expect(rows()).toEqual(["src/…", "notes.txt"]);
+  view.dispatch({ effects: unfoldEffect.of({ from: view.state.doc.line(1).to, to: view.state.doc.line(3).to }) });
+  expect(foldedRanges(view.state).size).toBe(1);
+  expect(rows()).toEqual(["src/", "  nested/…", "notes.txt"]);
+  expect(document.querySelector(".filesystem-editor .cm-lineNumbers")).toBeNull();
+});
 
 // Guarantee: docs/guarantees/authoring/the-workspace-tree-edits-like-an-editor.md
 it("keeps reordered rows clean and accepts ordinary multiple selections", async () => {
@@ -31,7 +78,7 @@ it("keeps reordered rows clean and accepts ordinary multiple selections", async 
   />);
   const view = editor();
   expect(view.state.facet(EditorState.allowMultipleSelections)).toBe(true);
-  expect(document.querySelector(".filesystem-editor .cm-lineNumbers")).toBeTruthy();
+  expect(document.querySelector(".filesystem-editor .cm-lineNumbers")).toBeNull();
   view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "two.txt\none.txt" } });
   await screen.findByText("No filesystem changes — row order is presentation only.");
   expect(screen.queryByRole("toolbar", { name: "Unsaved Files changes" })).toBeNull();

@@ -36,7 +36,6 @@ import { closeTab, focus, panes, split, type Pane, type Tab } from "./layout";
 import { useShellKeys, type ShellViewProps } from "./ShellView";
 import { type RibbonFile, type RibbonLink, type RibbonSource } from "./Ribbons";
 import { SpatialController, type SpatialItem } from "./SpatialController";
-import { SpatialFileEdges } from "./SpatialFileEdges";
 import { readSpatialState, spatialize, spatialKey, type Side, type SpatialState } from "./spatialLayout";
 import { drawerContent } from "./spatialDrawers";
 import { spatialRelations } from "./spatialRelations";
@@ -92,6 +91,9 @@ const paneId = (entry: Entry) => `spatial-pane-${entry.tab?.id ?? encodeURICompo
 </storycode:copy>
 <a id="f-64456f67b44e-SpatialShellView"></a>
 ### `SpatialShellView`
+
+The Files header omits viewport hidden-row counters. Ordinary scrolling remains
+available without permanent up/down text competing with the pane title.
 
 Each editor has one stable mount. Centering, pinning and parallax only change its rectangle.
 
@@ -415,7 +417,7 @@ export function SpatialShellView(props: Props) {
           if (entry && !controller.suppressClick) pinView(entry);
         }}
         onDoubleClickCapture={event => { if ((event.target as HTMLElement).closest("[data-tree-path]")) { pendingSide.current = side; props.onLayout(split(layout, pane.id, "row", side === "right")); } }}>
-        <button role="tab" aria-label={side === "left" ? "Files" : "Right file buffer"} aria-selected={layout.focus === pane.id} className="spatial-files-title" onClick={() => props.onLayout(focus(layout, pane.id))}>Files</button><SpatialFileEdges /><div className="shell-pane__body"><UiActionsVisibility visible={visible[side] && files[side]}>{props.render(tab, pane)}</UiActionsVisibility></div>
+        <button role="tab" aria-label={side === "left" ? "Files" : "Right file buffer"} aria-selected={layout.focus === pane.id} className="spatial-files-title" onClick={() => props.onLayout(focus(layout, pane.id))}>Files</button><div className="shell-pane__body"><UiActionsVisibility visible={visible[side] && files[side]}>{props.render(tab, pane)}</UiActionsVisibility></div>
       </section>;
     })}
     {entries.map(entry => { const tab = entry.tab, centered = entry.key === center?.key, tiled = tiledKeys.has(entry.key), central = centered || tiled, name = relative(entry.path, props.folderRoot), title = tab?.title ?? props.ports?.find(port => port.id === entry.key)?.label ?? name;

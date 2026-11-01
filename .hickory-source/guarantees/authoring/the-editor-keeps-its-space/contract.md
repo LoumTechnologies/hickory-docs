@@ -343,8 +343,10 @@ two different programs.
 // `<hick:file path="orders.py">` block that writes it should not feel like
 // two different programs.
 
-import { EditorView } from "@codemirror/view";
-import type { Extension } from "@codemirror/state";
+import { Decoration, EditorView, ViewPlugin, keymap } from "@codemirror/view";
+import { Prec, StateEffect, type Extension } from "@codemirror/state";
+import { foldedRanges, unfoldEffect } from "@codemirror/language";
+import { SearchCursor } from "@codemirror/search";
 
 /** Which of the two looks an editor wears. */
 export type ChromeKind = "document" | "code";
@@ -356,6 +358,12 @@ export type ChromeKind = "document" | "code";
 The shared chrome.
 Everything here reads a token, never a literal colour, so all three themes
 follow without a second definition.
+
+Files and literate documents share a search icon and native modal. Typing marks
+all literal, case-insensitive matches in the live buffer, and opens folds containing
+matches so results can be seen. Files searches row names rather than file contents.
+Closing the modal retains highlights; clearing its field removes them. Native modal
+focus containment and Escape dismissal keep keyboard interaction consistent.
 
 <storycode:copy id="f-a4f9707ac652-editorChrome">
 /**
@@ -454,6 +462,63 @@ export function editorChrome(kind: ChromeKind): Extension {
       color: "var(--bg)",
     },
   });
+}
+
+// The same local find interaction serves document text and Files row names.
+// Decorations leave the buffer unchanged; revealing a match only opens folds.
+export function paneSearch(label: string): Extension {
+  const refresh = StateEffect.define<null>();
+  const plugin = ViewPlugin.fromClass(class {
+    query = "";
+    decorations = Decoration.none;
+    button = document.createElement("button");
+    dialog = document.createElement("dialog");
+    input = document.createElement("input");
+    status = document.createElement("span");
+    constructor(readonly view: EditorView) {
+      this.button.type = "button";
+      this.button.setAttribute("aria-label", `Search ${label}`);
+      this.button.title = `Search ${label}`;
+      this.button.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></svg>';
+      this.button.style.cssText = "position:absolute;right:8px;top:4px;z-index:5;background:var(--bg-raised);color:var(--fg);border:1px solid var(--border);border-radius:4px;cursor:pointer";
+      this.dialog.setAttribute("aria-label", `Search ${label}`);
+      this.dialog.style.cssText = "background:var(--bg-raised);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:16px";
+      this.input.type = "search";
+      this.input.placeholder = `Search ${label}`;
+      this.input.setAttribute("aria-label", `Search ${label} text`);
+      this.input.oninput = () => {
+        this.query = this.input.value;
+        const effects: ReturnType<typeof unfoldEffect.of>[] = [];
+        if (this.query) foldedRanges(view.state).between(0, view.state.doc.length, (from, to) => {
+          if (view.state.sliceDoc(from, to).toLowerCase().includes(this.query.toLowerCase()))
+            effects.push(unfoldEffect.of({ from, to }));
+        });
+        view.dispatch({ effects: [...effects, refresh.of(null)] });
+      };
+      const close = document.createElement("button");
+      close.type = "button"; close.textContent = "Close";
+      close.onclick = () => this.dialog.close();
+      this.dialog.onclose = () => this.button.focus();
+      this.dialog.append(this.input, this.status, close);
+      this.button.onclick = () => this.open();
+      view.dom.append(this.button, this.dialog);
+    }
+    open() { if (!this.dialog.open) this.dialog.showModal(); this.input.focus(); }
+    update() {
+      const marks = [];
+      if (this.query) {
+        const cursor = new SearchCursor(this.view.state.doc, this.query, 0, this.view.state.doc.length, text => text.toLowerCase());
+        while (!cursor.next().done)
+          marks.push(Decoration.mark({ class: "cm-searchMatch" }).range(cursor.value.from, cursor.value.to));
+      }
+      this.decorations = Decoration.set(marks);
+      this.status.textContent = ` ${marks.length} matches `;
+    }
+    destroy() { this.button.remove(); this.dialog.remove(); }
+  }, { decorations: value => value.decorations });
+  return [plugin, Prec.highest(keymap.of([{ key: "Mod-f", run: view => {
+    view.plugin(plugin)?.open(); return true;
+  } }]))];
 }
 </storycode:copy>
 

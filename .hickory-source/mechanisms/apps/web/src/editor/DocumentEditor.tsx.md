@@ -48,7 +48,7 @@ import { renderedMath } from "./mathRender";
 import { completions } from "../lsp/completion";
 import { EditorRuler } from "./EditorRuler";
 import { WRAP_DEFAULT, proseWrap } from "./wrapColumn";
-import { editorChrome } from "./chrome";
+import { editorChrome, paneSearch } from "./chrome";
 import { blameGutter } from "./blameGutter";
 import { useBlame } from "./useBlame";
 import { mathSpans } from "../lib/math";
@@ -509,6 +509,7 @@ export function DocumentEditor({
           // a find that answers a question by hiding the answer.
           // Project matches stay visible after the search overlay closes.
           persistentSearchHighlights,
+          paneSearch("document"),
           search({ top: true }),
           // Word motion first: bindings for one key run in registration
           // order and the first to return true wins, so these must arrive
