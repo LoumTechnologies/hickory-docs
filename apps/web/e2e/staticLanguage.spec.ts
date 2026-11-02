@@ -43,6 +43,38 @@ test("static source replays colours, hover and definition without a backend", as
   expect(requests).toEqual([]);
 });
 
+test("reader follows device appearance on load and when it changes", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.addInitScript(() => localStorage.setItem("hickory.theme", "dark"));
+  await publishedFixture(page);
+  const content = page.locator(".cm-content");
+  await expect(content).toBeVisible();
+  const colours = () => page.evaluate(() => {
+    const style = (selector: string) => getComputedStyle(document.querySelector(selector)!);
+    return { theme: document.documentElement.dataset.theme, scheme: getComputedStyle(document.documentElement).colorScheme,
+      page: style("body").backgroundColor, text: style(".hickory-embed").color,
+      code: style(".cm-file-line").backgroundColor, keyword: style(".tok-keyword").color,
+      inspector: style(".source-inspector").backgroundColor };
+  });
+  const token = content.locator(".tok-variableName").filter({ hasText: "count" }).last();
+  await token.click(); await page.keyboard.press("Alt+Enter");
+  const inspector = page.getByRole("complementary", { name: "Symbol inspector" });
+  await expect(inspector).toContainText("Captured documentation");
+  const light = await colours();
+  expect(light).toMatchObject({ theme: "light", scheme: "light", page: "rgb(250, 249, 247)", text: "rgb(33, 32, 29)", code: "rgb(241, 239, 235)" });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  const dark = await colours();
+  expect(dark).toMatchObject({ scheme: "dark", page: "rgb(30, 34, 39)", text: "rgb(221, 227, 234)", code: "rgb(25, 29, 33)" });
+  expect(dark.keyword).not.toBe(light.keyword);
+  expect(dark.inspector).not.toBe(light.inspector);
+  await expect(inspector).toContainText("Captured documentation");
+  await expect(content).toHaveAttribute("contenteditable", "false");
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  expect(await colours()).toEqual(light);
+});
+
 for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 568 }, { width: 844, height: 390 }]) {
   test.describe(`touch source ${viewport.width}x${viewport.height}`, () => {
     test.use({ viewport, hasTouch: true, isMobile: true });

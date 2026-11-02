@@ -12,7 +12,21 @@
 .source-breadcrumbs li { overflow-wrap: anywhere; }
 .source-breadcrumbs li + li::before { content: "/"; margin-right: .35rem; opacity: .5; }
 .source-breadcrumbs a { text-decoration: none; }
-.source-document .hickory-embed { border: 0; border-radius: 0; background: transparent; }
+.source-document .hickory-embed {
+  --embed-bg: var(--bg);
+  --embed-raised: var(--bg-raised);
+  --embed-fg: var(--fg);
+  --embed-muted: var(--fg-muted);
+  --embed-border: var(--border);
+  --embed-accent: var(--accent);
+  --embed-teal: var(--accent-2);
+  --embed-string: var(--tok-string);
+  --embed-literal: var(--tok-literal);
+  border: 0; border-radius: 0; background: transparent; }
+.source-document .hickory-embed .cm-file-line, .source-document .hickory-embed .cm-cell-line { background: var(--bg-sunken); }
+.source-document .hickory-embed .cm-focused .cm-selectionBackground { background: var(--select-bg); }
+.source-document .hickory-embed .tok-keyword { color: var(--tok-keyword); }
+.source-document .hickory-embed .tok-typeName { color: var(--tok-type); }
 .source-document .cm-editor { border: 0; border-radius: 0; background: transparent; }
 .source-document .cm-content { padding: 0 0 2rem; min-width: 0; width: 100%; }
 .source-document .cm-code-line { width: auto; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -20,7 +34,7 @@
 .source-files-toggle { display: none; }
 .source-document pre { max-width: 100%; overflow: auto; }
 .source-document .cm-scroller { max-width: 100%; }
-.source-inspector { position: fixed; z-index: 30; right: 1rem; bottom: 1rem; width: min(32rem, calc(100% - 2rem)); max-height: 45dvh; overflow: auto; overscroll-behavior: contain; padding: 1rem; border: 1px solid color-mix(in srgb, currentColor 30%, transparent); border-radius: .75rem; background: Canvas; color: CanvasText; box-shadow: 0 4px 24px #0003; overflow-wrap: anywhere; }
+.source-inspector { position: fixed; z-index: 30; right: 1rem; bottom: 1rem; width: min(32rem, calc(100% - 2rem)); max-height: 45dvh; overflow: auto; overscroll-behavior: contain; padding: 1rem; border: 1px solid color-mix(in srgb, currentColor 30%, transparent); border-radius: .75rem; background: var(--bg-raised); color: var(--fg); box-shadow: 0 4px 24px #0003; overflow-wrap: anywhere; }
 .source-inspector header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .source-inspector header strong { min-width: 0; }
 .source-inspector button, .source-inspector a { min-height: 44px; display: flex; align-items: center; }
