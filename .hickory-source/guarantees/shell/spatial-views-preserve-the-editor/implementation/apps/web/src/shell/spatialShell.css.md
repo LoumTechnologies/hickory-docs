@@ -18,6 +18,12 @@ controller. Search ticks span the rail above the viewport thumb, so a hit stays
 visible when it falls within the current viewport. Other styling boundaries in
 this literal construction still need editorial review.
 
+The filename and close button are separate click targets inside one tab item.
+Hovering either target highlights both with the same foreground and background;
+the selected background also continues through the close button when idle. The
+shared hover rule follows the selected rules so hovering a selected tab keeps
+both halves on the same surface.
+
 <storycode:entry path="apps/web/src/shell/spatialShell.css">
 .spatial-shell { position: relative; width: 100%; flex: 1; min-height: 0; overflow: hidden; isolation: isolate; }
 .spatial-shell .spatial-view, .spatial-shell .spatial-files { position: absolute; margin: 0; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid var(--border); background: var(--bg); display: flex; flex-direction: column; }
@@ -38,7 +44,6 @@ this literal construction still need editorial review.
 .spatial-center-tabs { position: relative; display: flex; flex: 1; min-width: 0; height: 100%; overflow-x: auto; scrollbar-width: thin; }
 .spatial-center-tab { flex: 0 0 auto; max-width: 12rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding: 5px 10px; background: transparent; border: 0; border-right: 1px solid var(--border); border-bottom: 2px solid transparent; color: var(--fg-muted); font: inherit; font-size: 12px; cursor: pointer; }
 .spatial-center-tab[aria-selected=true] { color: var(--fg); border-bottom-color: var(--accent); background: var(--bg-raised); }
-.spatial-center-tab:hover { color: var(--fg); background: var(--border); }
 .spatial-center-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .spatial-window-controls { display: flex; flex: none; padding-right: 3px; }
 .spatial-window-controls button { border: 0; background: transparent; color: var(--accent); padding: 4px; font-size: 14px; min-width: 22px; cursor: pointer; }
@@ -86,8 +91,9 @@ this literal construction still need editorial review.
 .spatial-tab-item { display: flex; flex: 0 0 auto; min-width: 0; max-width: 14rem; border-right: 1px solid var(--border); }
 .spatial-tab-item .spatial-center-tab { flex: 1; min-width: 0; border-right: 0; cursor: grab; touch-action: none; }
 .spatial-tab-close { flex: none; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--fg-muted); padding: 0 6px; cursor: pointer; }
-.spatial-center-tab[aria-selected=true] + .spatial-tab-close { border-bottom-color: var(--accent); }
-.spatial-tab-close:hover { color: var(--fg); background: var(--border); }
+.spatial-center-tab[aria-selected=true] + .spatial-tab-close { color: var(--fg); background: var(--bg-raised); border-bottom-color: var(--accent); }
+.spatial-tab-item:hover .spatial-center-tab,
+.spatial-tab-item:hover .spatial-tab-close { color: var(--fg); background: var(--border); }
 .spatial-drop-preview { position: absolute; z-index: 30; pointer-events: none; box-sizing: border-box; border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); display: grid; place-items: center; color: var(--accent); }
 .spatial-view-header { touch-action: none; }
 .spatial-drawer-toolbar button[aria-pressed=true] { color: #e7b75e; }
