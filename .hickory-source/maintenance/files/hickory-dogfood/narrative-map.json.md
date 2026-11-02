@@ -148140,6 +148140,20 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/apps/web/src/lsp/symbolInspection.test.ts.md",
       "symbol": "Keep touch inspection answers bound to the current gesture",
       "basis": "explained-decision"
+    },
+    {
+      "id": "static-apps-web-src-editor-paragraphReading-ts-0",
+      "output": "apps/web/src/editor/paragraphReading.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/paragraphReading.ts.md",
+      "symbol": "Read source-wrapped prose as flowing paragraphs",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-apps-web-src-editor-paragraphReading-test-ts-0",
+      "output": "apps/web/src/editor/paragraphReading.test.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/paragraphReading.test.ts.md",
+      "symbol": "Keep paragraph reading separate from source bytes",
+      "basis": "explained-decision"
     }
   ],
   "explanation_gaps": {

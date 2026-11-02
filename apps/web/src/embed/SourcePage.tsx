@@ -8,6 +8,7 @@ import { renderHoverMarkdown } from "../lsp/hoverMarkdown";
 import { artifactText } from "./staticArtifacts";
 import { sourceLinks } from "./sourceLinks";
 import { DocumentEmbed } from "./DocumentEmbed";
+import { paragraphReading } from "../editor/paragraphReading";
 import { ingestedFolds } from "../editor/folding";
 import { sha256 } from "../lib/reviews";
 import { UiLink, requestLinkNavigation } from "../components/UiLink";
@@ -17,7 +18,7 @@ import { useUiReading } from "../lib/uiReading";
 interface SourceDocument { path: string; title: string; sha256: string; url: string; intelligence_sha256?: string }
 interface SourceModel { language: string; sha256: string; url: string }
 interface SourceIndex { version: number; revision: string; entry: string; documents: SourceDocument[]; models?: SourceModel[]; source_url?: string }
-const folds = [ingestedFolds()];
+const folds = [ingestedFolds(), paragraphReading()];
 const safePath = (path: string) => path.endsWith(".md") && !path.startsWith("/") && !/[\\:?#%\u0000-\u001f]/.test(path) && path.split("/").every(part => part !== "" && part !== "." && part !== "..");
 
 /** Refuse arbitrary fetch targets, duplicate paths and mismatched source revisions. */

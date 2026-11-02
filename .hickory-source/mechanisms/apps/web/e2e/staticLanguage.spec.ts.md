@@ -12,7 +12,7 @@ import { gzipSync } from "node:zlib";
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
 
 async function publishedFixture(page: Page) {
-  const source = '<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n# A published program\n<h:file path="a.ts">\nexport const count = 1;\ncount;\n</h:file>\n' + 'Readable prose must wrap inside the phone viewport without clipping. '.repeat(12) + '\n<h:file path="long.ts">\n// ' + 'long_identifier_'.repeat(40) + '\n</h:file>\n</h:doc>\n';
+  const source = '<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n# A published program\n<h:file path="a.ts">\nexport const count = 1;\ncount;\n</h:file>\n' + 'Readable prose must wrap inside the phone viewport without clipping. '.repeat(6) + '\nThis continuation belongs to the same paragraph. ' + 'More flowing prose. '.repeat(12) + '\n<h:file path="long.ts">\n// ' + 'long_identifier_'.repeat(40) + '\n</h:file>\n</h:doc>\n';
   const offset = source.lastIndexOf("count;"), declaration = source.indexOf("count =");
   const position = (at: number) => ({ line: source.slice(0, at).split("\n").length - 1, character: at - source.lastIndexOf("\n", at - 1) - 1 });
   const range = { start: position(declaration), end: position(declaration + 5) };
@@ -60,6 +60,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 568 }
       const token = content.locator(".tok-variableName").filter({ hasText: "count" }).last();
       await expect(token).toBeVisible();
       const prose = content.locator(".cm-line").filter({ hasText: "Readable prose must wrap" });
+      await expect(prose).toContainText("This continuation belongs to the same paragraph.");
       expect((await prose.boundingBox())!.width).toBeLessThanOrEqual(viewport.width);
       expect((await prose.boundingBox())!.height).toBeGreaterThan(44);
       const longCode = content.locator(".cm-line").filter({ hasText: "long_identifier_" });

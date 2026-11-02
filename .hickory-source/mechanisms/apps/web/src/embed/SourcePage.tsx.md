@@ -17,6 +17,10 @@ The focused witnesses are `scripts/test-export-source-site.py` (committed bytes 
 
 These witnesses do not establish that a full repository publication fits a deployment’s time or artifact limits. Run `just site` for the complete committed-revision export. Build-time provider processes are isolated per page and retired with their scratch directories. The deploy workflow installs Rust and TypeScript LSP providers; `just site` installs the locked TypeScript model dependencies. Additional models can be selected with repeated `--model LANGUAGE=EXECUTABLE` arguments to the exporter. The public host needs none of these executables.
 
+## Let paragraphs choose their visual line breaks
+
+Authored prose is often wrapped at a source column. Reuse the editor's paragraph-unwrapping planner to display those single newlines as spaces, then let the available reading width determine soft wrapping. This reader installs `paragraphReading` alongside scaffold folds even on pages without language data. Its replacement decorations preserve the actual document bytes and the original line/column positions used for captured definitions and references. Blank lines still separate paragraphs; hard breaks and literal code remain source-significant.
+
 ## Inspect a symbol without hover
 
 On a phone, give the document the whole width and put file navigation behind a Files button. A short tap on an indexed symbol opens a persistent, nonmodal inspector at the bottom. Use ordinary buttons and disclosure controls for closing, definitions and references; keep the document scrollable above it. Escape closes transient UI. The inspector uses the shared touch/keyboard language-client gesture, so a future editable mobile host can supply the same client and provenance mapper. It does not establish that the rest of the application works on mobile.
@@ -38,6 +42,7 @@ import { renderHoverMarkdown } from "../lsp/hoverMarkdown";
 import { artifactText } from "./staticArtifacts";
 import { sourceLinks } from "./sourceLinks";
 import { DocumentEmbed } from "./DocumentEmbed";
+import { paragraphReading } from "../editor/paragraphReading";
 import { ingestedFolds } from "../editor/folding";
 import { sha256 } from "../lib/reviews";
 import { UiLink, requestLinkNavigation } from "../components/UiLink";
@@ -47,7 +52,7 @@ import { useUiReading } from "../lib/uiReading";
 interface SourceDocument { path: string; title: string; sha256: string; url: string; intelligence_sha256?: string }
 interface SourceModel { language: string; sha256: string; url: string }
 interface SourceIndex { version: number; revision: string; entry: string; documents: SourceDocument[]; models?: SourceModel[]; source_url?: string }
-const folds = [ingestedFolds()];
+const folds = [ingestedFolds(), paragraphReading()];
 const safePath = (path: string) => path.endsWith(".md") && !path.startsWith("/") && !/[\\:?#%\u0000-\u001f]/.test(path) && path.split("/").every(part => part !== "" && part !== "." && part !== "..");
 
 </storycode:copy>

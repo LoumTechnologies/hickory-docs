@@ -65437,6 +65437,12 @@
     },
     "apps/web/src/lsp/symbolInspection.test.ts": {
       "source": ".hickory-source/mechanisms/apps/web/src/lsp/symbolInspection.test.ts.md"
+    },
+    "apps/web/src/editor/paragraphReading.ts": {
+      "source": ".hickory-source/mechanisms/apps/web/src/editor/paragraphReading.ts.md"
+    },
+    "apps/web/src/editor/paragraphReading.test.ts": {
+      "source": ".hickory-source/mechanisms/apps/web/src/editor/paragraphReading.test.ts.md"
     }
   },
   "evidence_records": [
