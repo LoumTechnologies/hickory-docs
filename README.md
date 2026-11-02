@@ -1,40 +1,24 @@
 # Hickory Docs
 
-Executable documents that refuse to lie. A `.md` file is prose, a program,
-and a test suite in one artifact: every example in it actually runs, every
-output shown is the output produced, and drift between the document and
-reality is a build failure.
+Executable documents that refuse to lie. A `.md` file is prose, a program, and a test suite in one artifact: every example in it actually runs, every output shown is the output produced, and drift between the document and reality is a build failure.
 
-*For engineers whose READMEs, quickstarts, and analysis notebooks have
-silently rotted — and who want CI to catch it.*
+*For engineers whose READMEs, quickstarts, and analysis notebooks have silently rotted — and who want CI to catch it.*
 
 ## Explore the source
 
-For developers reading or changing Hickory, [project.md](project.md) is the source
-index. Start with the behavior you need; its guarantee now contains maintained
-implementation fragments, test fragments and evidence, with named chapters for
-larger behaviors. [Shared mechanisms](.hickory-source/mechanisms/index.md) own
-reused code once.
+For developers reading or changing Hickory, [project.md](project.md) is the source index. Start with the behavior you need; its guarantee now contains maintained implementation fragments, test fragments and evidence, with named chapters for larger behaviors. [Shared mechanisms](.hickory-source/mechanisms/index.md) own reused code once.
 
-Try [exact patch replay](.hickory-source/guarantees/literate-projects/replay-is-exact-and-atomic/contract.md):
-the explanation leads directly into the replay code and its failure witnesses.
-For a known generated file, locate every maintained fragment:
+Try [exact patch replay](.hickory-source/guarantees/literate-projects/replay-is-exact-and-atomic/contract.md): the explanation leads directly into the replay code and its failure witnesses. For a known generated file, locate every maintained fragment:
 
 ```sh
 python3 hickory-dogfood/tools/behavior.py locate apps/web/src/lib/outputSave.ts
 ```
 
-Follow [the literate workflow](docs/developers/literate-workflow.md) to edit,
-regenerate and check it. Ordinary Rust and TypeScript files remain committed build
-outputs. [The reorganization record](hickory-dogfood/REORGANIZATION.md) distinguishes
-narrative ownership from the explanation work still needed.
+Follow [the literate workflow](docs/developers/literate-workflow.md) to edit, regenerate and check it. Ordinary Rust and TypeScript files remain committed build outputs. [The reorganization record](hickory-dogfood/REORGANIZATION.md) distinguishes narrative ownership from the explanation work still needed.
 
 ## The problem
 
-You wrote install docs six months ago. A flag was renamed, an output format
-changed, and nobody noticed until a user did. Or: a colleague's analysis
-notebook says "mean = 51.2" but re-running it says otherwise, and nobody can
-tell which cells were run in what order.
+You wrote install docs six months ago. A flag was renamed, an output format changed, and nobody noticed until a user did. Or: a colleague's analysis notebook says "mean = 51.2" but re-running it says otherwise, and nobody can tell which cells were run in what order.
 
 Documentation drift isn't an editing problem. It's a verification problem.
 

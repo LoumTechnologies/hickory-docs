@@ -68,7 +68,7 @@ describe("applying a theme to the document", () => {
   });
 
   it.each(["index.html", "site.html"])("resolves %s before first paint", (file) => {
-    const html = readFileSync(file, "utf8");
+    const html = new TextDecoder().decode(readFileSync(file));
     const script = html.match(/<script>([\s\S]*?)<\/script>/)![1];
     for (const matches of [true, false]) {
       vi.stubGlobal("matchMedia", vi.fn(() => ({ matches })));

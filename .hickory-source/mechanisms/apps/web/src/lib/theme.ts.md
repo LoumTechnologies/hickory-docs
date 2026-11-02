@@ -222,7 +222,9 @@ describe("theme persistence", () => {
 
 Drive a system change after boot and after a saved override. Execute both real
 HTML startup scripts against the same preference matrix to detect a first-paint
-default that disagrees with the bundled resolver.
+default that disagrees with the bundled resolver. Read the HTML as bytes and
+decode UTF-8 explicitly: the web project’s minimal Node declarations expose only
+the byte-returning filesystem API, while script extraction needs a string.
 
 <storycode:copy id="f-23d56ddbc20a-expression_statement-3">
 describe("applying a theme to the document", () => {
@@ -245,7 +247,7 @@ describe("applying a theme to the document", () => {
   });
 
   it.each(["index.html", "site.html"])("resolves %s before first paint", (file) => {
-    const html = readFileSync(file, "utf8");
+    const html = new TextDecoder().decode(readFileSync(file));
     const script = html.match(/<script>([\s\S]*?)<\/script>/)![1];
     for (const matches of [true, false]) {
       vi.stubGlobal("matchMedia", vi.fn(() => ({ matches })));
