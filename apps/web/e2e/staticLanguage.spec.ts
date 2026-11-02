@@ -7,10 +7,9 @@ test("static source replays colours, hover and definition without a backend", as
   const offset = source.lastIndexOf("count;"), declaration = source.indexOf("count =");
   const position = (at: number) => ({ line: source.slice(0, at).split("\n").length - 1, character: at - source.lastIndexOf("\n", at - 1) - 1 });
   const range = { start: position(declaration), end: position(declaration + 5) };
-  const intelligence = { version: 1, source_hash: hash(source), state: "captured", spans: [
-    { from: source.indexOf("const"), to: source.indexOf("const") + 5, class: "tok-keyword" },
-    { from: offset, to: offset + 5, class: "tok-variableName" },
-  ], language: { capabilities: {}, queries: {}, diagnostics: [], occurrences: [
+  const intelligence = { version: 1, source_hash: hash(source), state: "captured", spans: [], packed_spans: {
+    classes: ["tok-keyword", "tok-variableName"], data: [source.indexOf("const"), 5, 0, offset, 5, 1],
+  }, language: { capabilities: {}, queries: {}, diagnostics: [], occurrences: [
     { from: offset, to: offset + 5, position: position(offset), hover: { state: "captured", result: { contents: "```typescript\nconst count: 1\n```\nCaptured documentation" } }, definition: { state: "captured", result: [{ uri: "hick:///project.md", range }] }, references: { state: "captured", result: [{ uri: "hick:///project.md", range }] } },
   ] } };
   const revision = "a".repeat(40), url = `documents/${"b".repeat(64)}.json`;

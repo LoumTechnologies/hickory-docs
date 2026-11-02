@@ -3,6 +3,8 @@
 
 To render semantic answers safely, bind their complete JSON to an index hash and the exact source hash. All stored editor ranges are UTF-16, including documents containing emoji. Earlier publications without analysis remain readable. Token classes are constrained to the grammar’s own class namespace.
 
+Large inventories use dictionary-coded token triples to stay within static hosting limits. Verify the original serialized hash first, expand triples into the existing renderer’s spans, and reject incomplete triples, invalid class indexes and ambiguous mixed encodings. The decoded state releases the packed representation; existing unpacked snapshots remain readable.
+
 <static:copy id="static-apps-web-src-embed-staticLanguage-ts-0">
 import type { Extension } from "@codemirror/state";
 import { EditorView, ViewPlugin, Decoration } from "@codemirror/view";
@@ -30,7 +32,18 @@ export async function decodeStaticLanguage(value: unknown, source: string, expec
   if (!expected && value === undefined) return null; // Earlier publications remain readable.
   const encoded = typeof value === "string" ? value : JSON.stringify(value);
   if (!expected || await sha256(encoded) !== expected) throw Error("Published language data does not match its hash");
-  const data = (typeof value === "string" ? JSON.parse(value) : value) as StaticLanguage;
+  let data = (typeof value === "string" ? JSON.parse(value) : value) as StaticLanguage;
+  const packed = (data as StaticLanguage & { packed_spans?: { classes: string[]; data: number[] } })?.packed_spans;
+  if (packed !== undefined) {
+    if (!packed || !Array.isArray(packed.classes) || packed.classes.some(name => typeof name !== "string" || !/^(tok-[\w-]+)( tok-[\w-]+)*$/.test(name)) || !Array.isArray(packed.data) || packed.data.length % 3 || !packed.data.every(Number.isInteger) || !Array.isArray(data.spans) || data.spans.length) throw Error("Invalid packed language spans");
+    const spans = [];
+    for (let i = 0; i < packed.data.length; i += 3) {
+      const [from, length, index] = packed.data.slice(i, i + 3);
+      if (index < 0 || index >= packed.classes.length) throw Error("Invalid packed token class");
+      spans.push({ from, to: from + length, class: packed.classes[index] });
+    }
+    data = { version: data.version, source_hash: data.source_hash, state: data.state, language: data.language, spans };
+  }
   const span = (item: { from: number; to: number }) => Number.isInteger(item.from) && Number.isInteger(item.to) && item.from >= 0 && item.to > item.from && item.to <= source.length;
   if (!data || data.version !== 1 || data.source_hash !== await sha256(source) || !["captured", "unavailable"].includes(data.state) || !Array.isArray(data.spans) || data.spans.some(item => !span(item) || !/^(tok-[\w-]+)( tok-[\w-]+)*$/.test(item.class))) throw Error("Invalid static language data");
   if (data.language && (!Array.isArray(data.language.occurrences) || data.language.occurrences.some(item => !span(item)) || !Array.isArray(data.language.diagnostics) || !data.language.queries || !data.language.capabilities)) throw Error("Invalid static language capture");

@@ -20,6 +20,8 @@ the checker. The last one has no syntactic answer at all: TypeScript's
 interfaces are structural, and nothing in the source says who implements
 them.
 
+A recursive alias such as `type Value = string | Value[]` is a graph. Eagerly expanding union members, array elements and generic arguments overflows before even a name-only query can return. Expose those children as getters so GraphQL walks exactly the finite selection the reader requested. The static model witness retains both an optional property and a recursive union without truncating either into a false empty type.
+
 <storycode:copy id="f-623cdb9d6b79-CodeModel">
 // Reading TypeScript with the compiler, not with a parser.
 //
@@ -318,6 +320,9 @@ export class CodeModel {
     const isUnion = type.isUnion();
     const isIntersection = type.isIntersection();
     const isArray = type.isArray();
+    // Recursive aliases are graphs, not eagerly expandable JSON trees.
+    // Resolve child types only when the GraphQL selection asks for them.
+    const wrap = (child) => this.#typeRef(child);
     return {
       text,
       kind: isUnion ? "union" : isIntersection ? "intersection"
@@ -325,15 +330,18 @@ export class CodeModel {
         : type.isClassOrInterface() ? "object" : "other",
       isUnion,
       isIntersection,
-      members: isUnion ? type.getUnionTypes().map((t) => this.#typeRef(t))
-        : isIntersection ? type.getIntersectionTypes().map((t) => this.#typeRef(t))
-        : [],
+      get members() {
+        return isUnion ? type.getUnionTypes().map(wrap)
+          : isIntersection ? type.getIntersectionTypes().map(wrap) : [];
+      },
       isArray,
-      elementType: isArray && type.getArrayElementType()
-        ? this.#typeRef(type.getArrayElementType()) : null,
+      get elementType() {
+        const element = isArray && type.getArrayElementType();
+        return element ? wrap(element) : null;
+      },
       isLiteral: type.isLiteral(),
       literalValue: type.isLiteral() ? String(type.getLiteralValue?.() ?? text) : null,
-      typeArguments: type.getTypeArguments().map((t) => this.#typeRef(t)),
+      get typeArguments() { return type.getTypeArguments().map(wrap); },
     };
   }
 

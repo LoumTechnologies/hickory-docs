@@ -35,6 +35,21 @@ describe("compiled read-only language information", () => {
     }
     await expect(decodeStaticLanguage(undefined, source)).resolves.toBeNull();
   });
+  it("expands packed tokens without losing ranges and refuses malformed encodings", async () => {
+    const { source, data } = await fixture();
+    const packed = { ...data, spans: [], packed_spans: { classes: ["tok-keyword"], data: [6, 5, 0] } };
+    const decoded = await decodeStaticLanguage(JSON.stringify(packed), source, await sha256(JSON.stringify(packed)));
+    expect(decoded?.spans).toEqual(data.spans);
+    for (const encoding of [
+      { classes: ["arbitrary-css"], data: [6, 5, 0] },
+      { classes: ["tok-keyword"], data: [6, 5, 1] },
+      { classes: ["tok-keyword"], data: [6, 5] },
+      { classes: ["tok-keyword"], data: [6, 0, 0] },
+    ]) {
+      const invalid = { ...packed, packed_spans: encoding };
+      await expect(decodeStaticLanguage(JSON.stringify(invalid), source, await sha256(JSON.stringify(invalid)))).rejects.toThrow("Invalid");
+    }
+  });
   it("answers inside a captured UTF-16 identifier and refuses uncaptured and mutation requests", async () => {
     const { source, data } = await fixture();
     const client = staticLanguageClient(data, source);

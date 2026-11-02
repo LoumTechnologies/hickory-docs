@@ -7,6 +7,8 @@ Archive only `project.md` and `.hickory-source/` from the named Git commit. Untr
 
 The build also compiles grammar spans from these exact archived bytes. Optional `--lsp` captures finite read-only language answers in an isolated Markdown workspace. Retain the intelligence as exact JSON text so provider numbers do not change spelling when a browser parses the outer publication. Hash the complete intelligence payload separately from the original source so mixed deployments cannot attach another revision’s semantic answers. A build without a server explicitly records unavailable semantic analysis. No language provider is installed implicitly.
 
+Token objects repeat the same keys and CSS names hundreds of thousands of times in the retained inventories. Store a class dictionary and numeric triples `(start, length, class index)` instead, preserving every span. Refuse assets above the host’s 25 MiB limit before publishing an index.
+
 <storycode:copy id="public-source-scripts-export-source-site-py">
 """Publish committed maintained Markdown for the static source browser."""
 import argparse
@@ -59,7 +61,11 @@ def export(root, destination, revision='HEAD', *, compile_language=False, lsp_co
             spec.loader.exec_module(module)
             captures = module.capture(payloads, plans, lsp_command)
         for payload, document in zip(payloads, documents):
-            intelligence = dict(version=1, source_hash=document['sha256'], spans=plans[payload['path']]['spans'],
+            spans = plans[payload['path']]['spans']
+            classes = list(dict.fromkeys(span['class'] for span in spans))
+            class_ids = {name: index for index, name in enumerate(classes)}
+            packed = [value for span in spans for value in (span['from'], span['to']-span['from'], class_ids[span['class']])]
+            intelligence = dict(version=1, source_hash=document['sha256'], spans=[], packed_spans=dict(classes=classes, data=packed),
                 language=captures.get(payload['path']), state='captured' if captures.get(payload['path'], {}).get('provider_count', 0) else 'unavailable')
             encoded = json.dumps(intelligence, ensure_ascii=False, separators=(',', ':'))
             payload['intelligence'] = encoded
@@ -74,10 +80,15 @@ def export(root, destination, revision='HEAD', *, compile_language=False, lsp_co
             encoded = json.dumps(model, ensure_ascii=False, separators=(',', ':'))
             digest = hashlib.sha256(encoded.encode()).hexdigest()
             url = f'models/{digest}.json'
+            if len(encoded.encode()) > 25 * 1024 * 1024:
+                raise ValueError(f'Code model {model["language"]} exceeds the host asset limit of 25 MiB')
             (destination / url).write_text(encoded)
             models.append(dict(language=model['language'], sha256=digest, url=url))
     for payload, document in zip(payloads, documents):
-        (destination / document['url']).write_text(json.dumps(payload, ensure_ascii=False) + '\n')
+        encoded = json.dumps(payload, ensure_ascii=False, separators=(',', ':')) + '\n'
+        if len(encoded.encode()) > 25 * 1024 * 1024:
+            raise ValueError(f'Source {payload["path"]} exceeds the host asset limit of 25 MiB')
+        (destination / document['url']).write_text(encoded)
     manifest = dict(version=1, revision=revision, entry='project.md', documents=sorted(documents, key=lambda d: d['path']))
     if models:
         manifest['models'] = models

@@ -77,8 +77,11 @@ class SourcePublicationTests(unittest.TestCase):
             self.assertEqual(payload['source'], source)
             self.assertEqual(analysis['state'], 'unavailable')
             self.assertIsNone(analysis['language'])
-            keyword = next(span for span in analysis['spans'] if span['class'] == 'tok-keyword')
-            self.assertEqual(source.encode('utf-16-le')[keyword['from']*2:keyword['to']*2].decode('utf-16-le'), 'const')
+            self.assertEqual(analysis['spans'], [])
+            packed = analysis['packed_spans']
+            triples = zip(packed['data'][::3], packed['data'][1::3], packed['data'][2::3])
+            start, length, _ = next(span for span in triples if packed['classes'][span[2]] == 'tok-keyword')
+            self.assertEqual(source.encode('utf-16-le')[start*2:(start+length)*2].decode('utf-16-le'), 'const')
             encoded = json.dumps(analysis, ensure_ascii=False, separators=(',', ':')).encode()
             self.assertEqual(hashlib.sha256(encoded).hexdigest(), document['intelligence_sha256'])
 

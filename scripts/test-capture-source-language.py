@@ -112,16 +112,19 @@ class CodeModelCaptureTests(unittest.TestCase):
             root = Path(temporary)
             for args in [('init', '-q'), ('config', 'user.email', 'test@example.invalid'), ('config', 'user.name', 'Test')]:
                 subprocess.check_call(['git', *args], cwd=root)
-            (root / 'types.ts').write_text('export interface Widget { count?: number }')
+            (root / 'types.ts').write_text('export interface Widget { count?: number }\nexport type Value = string | Value[];')
             subprocess.check_call(['git', 'add', '.'], cwd=root)
             subprocess.check_call(['git', 'commit', '-qm', 'Model fixture'], cwd=root)
             revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
             (root / 'types.ts').write_text('export interface DIRTY {}')
             result = models.capture_models(root, revision, {'types.ts': {}}, {'typescript': [str(command)]})[0]
             declarations = result['graph']['data']['types']
-            self.assertEqual(declarations[0]['name'], 'Widget')
-            self.assertEqual(declarations[0]['properties'][0]['name'], 'count')
-            self.assertTrue(declarations[0]['properties'][0]['isOptional'])
+            widget = next(declaration for declaration in declarations if declaration['name'] == 'Widget')
+            recursive = next(declaration for declaration in declarations if declaration['name'] == 'Value')
+            self.assertEqual(widget['properties'][0]['name'], 'count')
+            self.assertTrue(widget['properties'][0]['isOptional'])
+            self.assertTrue(recursive['aliasedType']['isUnion'])
+            self.assertTrue(any(member['isArray'] for member in recursive['aliasedType']['members']))
             self.assertIn('unresolved', result['graph']['data'])
             self.assertNotIn('DIRTY', json.dumps(result))
             self.assertNotIn(temporary, json.dumps(result))

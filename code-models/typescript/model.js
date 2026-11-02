@@ -295,6 +295,9 @@ export class CodeModel {
     const isUnion = type.isUnion();
     const isIntersection = type.isIntersection();
     const isArray = type.isArray();
+    // Recursive aliases are graphs, not eagerly expandable JSON trees.
+    // Resolve child types only when the GraphQL selection asks for them.
+    const wrap = (child) => this.#typeRef(child);
     return {
       text,
       kind: isUnion ? "union" : isIntersection ? "intersection"
@@ -302,15 +305,18 @@ export class CodeModel {
         : type.isClassOrInterface() ? "object" : "other",
       isUnion,
       isIntersection,
-      members: isUnion ? type.getUnionTypes().map((t) => this.#typeRef(t))
-        : isIntersection ? type.getIntersectionTypes().map((t) => this.#typeRef(t))
-        : [],
+      get members() {
+        return isUnion ? type.getUnionTypes().map(wrap)
+          : isIntersection ? type.getIntersectionTypes().map(wrap) : [];
+      },
       isArray,
-      elementType: isArray && type.getArrayElementType()
-        ? this.#typeRef(type.getArrayElementType()) : null,
+      get elementType() {
+        const element = isArray && type.getArrayElementType();
+        return element ? wrap(element) : null;
+      },
       isLiteral: type.isLiteral(),
       literalValue: type.isLiteral() ? String(type.getLiteralValue?.() ?? text) : null,
-      typeArguments: type.getTypeArguments().map((t) => this.#typeRef(t)),
+      get typeArguments() { return type.getTypeArguments().map(wrap); },
     };
   }
 

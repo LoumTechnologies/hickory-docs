@@ -66,7 +66,8 @@ def capture_models(root, revision, constructors, commands):
                     raise ValueError('Unexpected code model response')
                 result = json.loads(lines[0])
                 if result.get('errors'):
-                    raise ValueError('Code model refused its static selection')
+                    details = [dict(message=error.get('message'), path=error.get('path')) for error in result['errors'][:3]]
+                    raise ValueError('Code model refused its static selection: '+json.dumps(details))
                 return result
             schema = query(SCHEMA)
             query_text = graph_query(schema['data']['__schema'])
