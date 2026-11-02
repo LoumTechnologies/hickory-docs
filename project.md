@@ -44,6 +44,10 @@ python3 hickory-dogfood/tools/behavior.py check
 python3 hickory-dogfood/tools/behavior.py audit
 ```
 
+To publish another project without a running analysis server, use
+[`hick project export`](docs/users/static-export.md). It freezes the declared source
+and projects compiler-backed facts through the same byte provenance.
+
 The Python commands maintain this repository's dogfooding records. Other projects
 use the product's `hick project` commands. The [maintainer workflow](docs/developers/literate-workflow.md)
 explains bootstrap, staged verification and focused checks.

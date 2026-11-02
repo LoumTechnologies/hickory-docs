@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { createHash } from "node:crypto";
+import { gzipSync } from "node:zlib";
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
 
 test("static source replays colours, hover and definition without a backend", async ({ page }) => {
@@ -9,15 +10,15 @@ test("static source replays colours, hover and definition without a backend", as
   const range = { start: position(declaration), end: position(declaration + 5) };
   const intelligence = { version: 1, source_hash: hash(source), state: "captured", spans: [], packed_spans: {
     classes: ["tok-keyword", "tok-variableName"], data: [source.indexOf("const"), 5, 0, offset, 5, 1],
-  }, language: { capabilities: {}, queries: {}, diagnostics: [], occurrences: [
-    { from: offset, to: offset + 5, position: position(offset), hover: { state: "captured", result: { contents: "```typescript\nconst count: 1\n```\nCaptured documentation" } }, definition: { state: "captured", result: [{ uri: "hick:///project.md", range }] }, references: { state: "captured", result: [{ uri: "hick:///project.md", range }] } },
+  }, language: { capabilities: {}, queries: {}, diagnostics: [], shared: { count: { definition: { state: "captured", result: [{ uri: "hick:///book.md", range }] }, references: { state: "captured", result: [{ uri: "hick:///book.md", range }] } } }, occurrences: [
+    { from: offset, to: offset + 5, position: position(offset), hover: { state: "captured", result: { contents: "```typescript\nconst count: 1\n```\nCaptured documentation" } }, symbolIds: ["count"] },
   ] } };
-  const revision = "a".repeat(40), url = `documents/${"b".repeat(64)}.json`;
-  const document = { path: "project.md", title: "A program", sha256: hash(source), url, intelligence_sha256: hash(JSON.stringify(intelligence)) };
+  const revision = "a".repeat(40), url = `documents/${"b".repeat(64)}.json.gz`;
+  const document = { path: "book.md", title: "A program", sha256: hash(source), url, intelligence_sha256: hash(JSON.stringify(intelligence)) };
   const requests: string[] = [];
   page.on("request", request => { if (/^\/api(?:\/|$)|^\/ws(?:\/|$)/.test(new URL(request.url()).pathname)) requests.push(request.url()); });
-  await page.route("**/source/index.json", route => route.fulfill({ json: { version: 1, revision, entry: "project.md", documents: [document] } }));
-  await page.route(`**/source/${url}`, route => route.fulfill({ json: { path: "project.md", revision, source, intelligence } }));
+  await page.route("**/source/index.json", route => route.fulfill({ json: { version: 1, revision, entry: "book.md", documents: [document] } }));
+  await page.route(`**/source/${url}`, route => route.fulfill({ contentType: "application/gzip", body: gzipSync(JSON.stringify({ path: "book.md", revision, source, intelligence })) }));
   await page.goto("/source.html");
   const content = page.locator(".cm-content");
   await expect(content).toHaveAttribute("contenteditable", "false");
@@ -26,7 +27,7 @@ test("static source replays colours, hover and definition without a backend", as
   await token.hover();
   await expect(page.locator(".cm-lsp-hover")).toContainText("Captured documentation");
   await token.click({ modifiers: ["Control", "Shift"] });
-  await expect(page.getByRole("complementary", { name: "Captured references" })).toContainText("project.md");
+  await expect(page.getByRole("complementary", { name: "Captured references" })).toContainText("book.md");
   await token.click({ modifiers: ["Control"] });
   await expect(page).toHaveURL(new RegExp(`#L${range.start.line + 1}:${range.start.character}$`));
   expect(requests).toEqual([]);

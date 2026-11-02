@@ -65164,7 +65164,12 @@
       "source": ".hickory-source/mechanisms/scripts/test-capture-source-language.py.md"
     },
     "scripts/capture-source-models.py": {
-      "source": ".hickory-source/mechanisms/scripts/capture-source-models.py.md"
+      "source": ".hickory-source/mechanisms/scripts/capture-source-models.py.md",
+      "fragments": [
+        "static-scripts-capture-source-models-py-0",
+        "static-scripts-capture-source-models-py-1",
+        "static-model-frozen-inputs"
+      ]
     },
     "apps/web/e2e/staticLanguage.spec.ts": {
       "source": ".hickory-source/mechanisms/apps/web/e2e/staticLanguage.spec.ts.md"
@@ -65349,6 +65354,83 @@
       ],
       "anchor": "output-c959154fc401",
       "narrative_owner": "mechanism:crates/hick-flow"
+    },
+    "code-models/typescript/source-index.js": {
+      "source": ".hickory-source/mechanisms/code-models/typescript/source-index.js.md",
+      "fragments": [
+        "static-code-models-typescript-source-index-js-0",
+        "static-code-models-typescript-source-index-js-1",
+        "static-code-models-typescript-source-index-js-2"
+      ]
+    },
+    "code-models/typescript/source-index-schema.js": {
+      "source": ".hickory-source/mechanisms/code-models/typescript/source-index-schema.js.md",
+      "fragments": [
+        "static-code-models-typescript-source-index-schema-js-0"
+      ]
+    },
+    "code-models/typescript/source-index.test.js": {
+      "source": ".hickory-source/mechanisms/code-models/typescript/source-index.test.js.md",
+      "fragments": [
+        "static-code-models-typescript-source-index-test-js-0"
+      ]
+    },
+    "crates/hickory-cli/src/project_export.rs": {
+      "source": ".hickory-source/mechanisms/crates/hickory-cli/src/project_export.rs.md",
+      "fragments": [
+        "static-crates-hickory-cli-src-project_export-rs-0",
+        "static-crates-hickory-cli-src-project_export-rs-1"
+      ]
+    },
+    "scripts/map-source-index.py": {
+      "source": ".hickory-source/mechanisms/scripts/map-source-index.py.md",
+      "fragments": [
+        "static-scripts-map-source-index-py-0",
+        "static-scripts-map-source-index-py-1",
+        "static-scripts-map-source-index-py-2"
+      ]
+    },
+    "scripts/static-highlights.mjs": {
+      "source": ".hickory-source/mechanisms/scripts/static-highlights.mjs.md",
+      "fragments": [
+        "static-scripts-static-highlights-mjs-0"
+      ]
+    },
+    "scripts/static-highlights-entry.mjs": {
+      "source": ".hickory-source/mechanisms/scripts/static-highlights-entry.mjs.md",
+      "fragments": [
+        "static-scripts-static-highlights-entry-mjs-0"
+      ]
+    },
+    "scripts/build-static-highlights.mjs": {
+      "source": ".hickory-source/mechanisms/scripts/build-static-highlights.mjs.md",
+      "fragments": [
+        "static-scripts-build-static-highlights-mjs-0"
+      ]
+    },
+    "scripts/test-map-source-index.py": {
+      "source": ".hickory-source/mechanisms/scripts/test-map-source-index.py.md",
+      "fragments": [
+        "static-scripts-test-map-source-index-py-0"
+      ]
+    },
+    "docs/users/static-export.md": {
+      "source": ".hickory-source/mechanisms/docs/users/static-export.md.md",
+      "fragments": [
+        "static-docs-users-static-export-md-0"
+      ]
+    },
+    "apps/web/src/embed/staticArtifacts.ts": {
+      "source": ".hickory-source/mechanisms/apps/web/src/embed/staticArtifacts.ts.md",
+      "fragments": [
+        "static-apps-web-src-embed-staticArtifacts-ts-0"
+      ]
+    },
+    "apps/web/src/embed/staticArtifacts.test.ts": {
+      "source": ".hickory-source/mechanisms/apps/web/src/embed/staticArtifacts.test.ts.md",
+      "fragments": [
+        "static-apps-web-src-embed-staticArtifacts-test-ts-0"
+      ]
     }
   },
   "evidence_records": [

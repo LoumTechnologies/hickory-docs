@@ -237,6 +237,10 @@ echo "Installed: $INSTALL_DIR/hick"
 # The editor language server travels in the same archive. It is not required
 # to run documents, so a release that predates it installs `hick` and says
 # what is missing rather than failing.
+export_assets="$tmp/$(basename "$file" .tar.gz)/hick-export"
+if [ -d "$export_assets" ]; then
+  mkdir -p "$INSTALL_DIR/hick-export" && cp -R "$export_assets/." "$INSTALL_DIR/hick-export/" || die "could not install static export grammar assets"
+fi
 lsp="$tmp/$(basename "$file" .tar.gz)/hick-lsp"
 if [ -f "$lsp" ]; then
   install -m 755 "$lsp" "$INSTALL_DIR/hick-lsp" 2>/dev/null ||

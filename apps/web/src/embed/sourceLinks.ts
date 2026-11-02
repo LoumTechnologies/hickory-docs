@@ -4,7 +4,7 @@ import { markdownLanguage } from "@codemirror/lang-markdown";
 import { verbatimRanges } from "../editor/hickDoc";
 import { structureOf } from "../editor/wysiwyg";
 
-interface LinkIndex { revision: string; documents: readonly { path: string }[] }
+interface LinkIndex { revision: string; source_url?: string; documents: readonly { path: string }[] }
 
 /** Internal prose links stay in the published tutorial; other files retain their commit. */
 export function sourceHref(target: string, path: string, index: LinkIndex): string | null {
@@ -14,7 +14,7 @@ export function sourceHref(target: string, path: string, index: LinkIndex): stri
     if (url.origin !== "https://source.invalid") return url.href;
     const destination = decodeURIComponent(url.pathname.slice(1));
     if (index.documents.some(doc => doc.path === destination)) return `?path=${encodeURIComponent(destination)}${url.hash}`;
-    return `https://github.com/LoumTechnologies/hickory-docs/blob/${index.revision}/${url.pathname.slice(1)}${url.hash}`;
+    return index.source_url ? new URL(`${url.pathname.slice(1)}${url.hash}`, index.source_url).href : null;
   } catch { return null; }
 }
 

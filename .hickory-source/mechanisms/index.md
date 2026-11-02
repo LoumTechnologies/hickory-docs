@@ -211,4 +211,28 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="apps/web/e2e/staticLanguage.spec.ts.md" />
 
+<storycode:include file="code-models/typescript/source-index.js.md" />
+
+<storycode:include file="code-models/typescript/source-index-schema.js.md" />
+
+<storycode:include file="code-models/typescript/source-index.test.js.md" />
+
+<storycode:include file="crates/hickory-cli/src/project_export.rs.md" />
+
+<storycode:include file="scripts/map-source-index.py.md" />
+
+<storycode:include file="scripts/static-highlights.mjs.md" />
+
+<storycode:include file="scripts/static-highlights-entry.mjs.md" />
+
+<storycode:include file="scripts/build-static-highlights.mjs.md" />
+
+<storycode:include file="scripts/test-map-source-index.py.md" />
+
+<storycode:include file="docs/users/static-export.md.md" />
+
+<storycode:include file="apps/web/src/embed/staticArtifacts.ts.md" />
+
+<storycode:include file="apps/web/src/embed/staticArtifacts.test.ts.md" />
+
 </storycode:doc>

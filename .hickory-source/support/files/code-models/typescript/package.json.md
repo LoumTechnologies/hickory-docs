@@ -8,6 +8,8 @@ Edit this entry to change the generated file. It has one constructor. References
 
 Captured SHA-256: `152d1cca905d5d232811e7c3ae6e5fa069d9f6e203109412b9de53b29663044d`.
 
+Expose the bulk source-index suite through `npm test`. The deployment check runs the compiler-backed binding tests before publishing; this does not run the repository’s broad regression suite.
+
 <book:entry path="code-models/typescript/package.json">
 {
   "name": "hick-model-typescript",
@@ -15,6 +17,7 @@ Captured SHA-256: `152d1cca905d5d232811e7c3ae6e5fa069d9f6e203109412b9de53b296630
   "private": true,
   "type": "module",
   "bin": { "hick-model-typescript": "./server.js" },
+  "scripts": { "test": "node --test source-index.test.js" },
   "dependencies": {
     "graphql": "^16.9.0",
     "ts-morph": "^24.0.0"

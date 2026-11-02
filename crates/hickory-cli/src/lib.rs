@@ -39,6 +39,7 @@ pub mod open_app;
 pub mod output;
 pub mod performance;
 pub mod project_command;
+pub mod project_export;
 mod project_documents;
 mod selected_run;
 pub use selected_run::run_doc_expected;

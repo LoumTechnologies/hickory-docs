@@ -9,6 +9,7 @@
 import { Project, SyntaxKind, ts } from "ts-morph";
 import path from "node:path";
 import fs from "node:fs";
+import { buildSourceIndex } from "./source-index.js";
 
 export class CodeModel {
   constructor(root) {
@@ -16,18 +17,27 @@ export class CodeModel {
     const config = this.#findConfig();
     this.project = config
       ? new Project({ tsConfigFilePath: config })
-      : new Project({ compilerOptions: { strict: true, target: ts.ScriptTarget.ES2022 } });
+      : new Project({ compilerOptions: { strict: true, target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, jsx: ts.JsxEmit.ReactJSX, allowJs: true, allowImportingTsExtensions: true, noEmit: true, skipLibCheck: true } });
     if (!config) {
       this.project.addSourceFilesAtPaths([
         `${this.root}/**/*.ts`,
         `${this.root}/**/*.tsx`,
+        `${this.root}/**/*.js`,
+        `${this.root}/**/*.jsx`,
+        `${this.root}/**/*.mjs`,
+        `${this.root}/**/*.cjs`,
+        `${this.root}/**/*.mts`,
+        `${this.root}/**/*.cts`,
         `!${this.root}/**/node_modules/**`,
-        `!${this.root}/**/*.d.ts`,
       ]);
     }
     this.files = this.project
       .getSourceFiles()
       .filter((f) => !f.getFilePath().includes("/node_modules/"));
+  }
+
+  sourceIndex() {
+    return this._sourceIndex ??= buildSourceIndex(this);
   }
 
   #findConfig() {
@@ -51,7 +61,7 @@ export class CodeModel {
   unresolved() {
     return this.project
       .getPreEmitDiagnostics()
-      .filter((d) => [2304, 2307, 2503].includes(d.getCode()))
+      .filter((d) => [2304, 2307, 2503, 2792].includes(d.getCode()))
       .slice(0, 50)
       .map((d) => ({
         message: ts.flattenDiagnosticMessageText(d.getMessageText(), " "),

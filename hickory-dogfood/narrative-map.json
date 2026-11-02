@@ -147992,6 +147992,132 @@
       "page": ".hickory-source/mechanisms/crates/hick-flow/tests/streams.rs.md",
       "symbol": "imports",
       "basis": "explained stream-library test boundary"
+    },
+    {
+      "id": "static-code-models-typescript-source-index-js-0",
+      "output": "code-models/typescript/source-index.js",
+      "page": ".hickory-source/mechanisms/code-models/typescript/source-index.js.md",
+      "symbol": "Index source occurrences in one compiler session",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-code-models-typescript-source-index-js-1",
+      "output": "code-models/typescript/source-index.js",
+      "page": ".hickory-source/mechanisms/code-models/typescript/source-index.js.md",
+      "symbol": "Index source occurrences in one compiler session",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-code-models-typescript-source-index-js-2",
+      "output": "code-models/typescript/source-index.js",
+      "page": ".hickory-source/mechanisms/code-models/typescript/source-index.js.md",
+      "symbol": "Index source occurrences in one compiler session",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-code-models-typescript-source-index-schema-js-0",
+      "output": "code-models/typescript/source-index-schema.js",
+      "page": ".hickory-source/mechanisms/code-models/typescript/source-index-schema.js.md",
+      "symbol": "Expose the TypeScript source index as a finite query",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-code-models-typescript-source-index-test-js-0",
+      "output": "code-models/typescript/source-index.test.js",
+      "page": ".hickory-source/mechanisms/code-models/typescript/source-index.test.js.md",
+      "symbol": "Check binding identity before publishing navigation",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-crates-hickory-cli-src-project_export-rs-0",
+      "output": "crates/hickory-cli/src/project_export.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/project_export.rs.md",
+      "symbol": "Freeze declared source and export read-only language artifacts",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-crates-hickory-cli-src-project_export-rs-1",
+      "output": "crates/hickory-cli/src/project_export.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/project_export.rs.md",
+      "symbol": "Freeze declared source and export read-only language artifacts",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-scripts-map-source-index-py-0",
+      "output": "scripts/map-source-index.py",
+      "page": ".hickory-source/mechanisms/scripts/map-source-index.py.md",
+      "symbol": "Project compiler facts onto authored source ranges",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-scripts-map-source-index-py-1",
+      "output": "scripts/map-source-index.py",
+      "page": ".hickory-source/mechanisms/scripts/map-source-index.py.md",
+      "symbol": "Project compiler facts onto authored source ranges",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-scripts-map-source-index-py-2",
+      "output": "scripts/map-source-index.py",
+      "page": ".hickory-source/mechanisms/scripts/map-source-index.py.md",
+      "symbol": "Project compiler facts onto authored source ranges",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-scripts-static-highlights-mjs-0",
+      "output": "scripts/static-highlights.mjs",
+      "page": ".hickory-source/mechanisms/scripts/static-highlights.mjs.md",
+      "symbol": "Compile the shared grammar into static paint ranges",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-scripts-static-highlights-entry-mjs-0",
+      "output": "scripts/static-highlights-entry.mjs",
+      "page": ".hickory-source/mechanisms/scripts/static-highlights-entry.mjs.md",
+      "symbol": "Run the installed grammar without a checkout",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-scripts-build-static-highlights-mjs-0",
+      "output": "scripts/build-static-highlights.mjs",
+      "page": ".hickory-source/mechanisms/scripts/build-static-highlights.mjs.md",
+      "symbol": "Bundle the export grammar as a release asset",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-scripts-test-map-source-index-py-0",
+      "output": "scripts/test-map-source-index.py",
+      "page": ".hickory-source/mechanisms/scripts/test-map-source-index.py.md",
+      "symbol": "Verify exact authored navigation before hosting",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-docs-users-static-export-md-0",
+      "output": "docs/users/static-export.md",
+      "page": ".hickory-source/mechanisms/docs/users/static-export.md.md",
+      "symbol": "Export read-only source intelligence for a static host",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-apps-web-src-embed-staticArtifacts-ts-0",
+      "output": "apps/web/src/embed/staticArtifacts.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/embed/staticArtifacts.ts.md",
+      "symbol": "Read compressed static artifacts before checking their identities",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-apps-web-src-embed-staticArtifacts-test-ts-0",
+      "output": "apps/web/src/embed/staticArtifacts.test.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/embed/staticArtifacts.test.ts.md",
+      "symbol": "Read the same artifact from plain and content-decoding hosts",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-model-frozen-inputs",
+      "output": "scripts/capture-source-models.py",
+      "page": ".hickory-source/mechanisms/scripts/capture-source-models.py.md",
+      "symbol": "frozen model workspace",
+      "basis": "explained-decision"
     }
   ],
   "explanation_gaps": {

@@ -27,6 +27,7 @@ import { EditorView } from "@codemirror/view";
 import { decodeStaticLanguage, staticLanguageExtensions, staticSymbols } from "./staticLanguage";
 import type { StaticLanguage } from "./staticLanguage";
 import type { LspLocation } from "../lsp/client";
+import { artifactText } from "./staticArtifacts";
 import { sourceLinks } from "./sourceLinks";
 import { DocumentEmbed } from "./DocumentEmbed";
 import { ingestedFolds } from "../editor/folding";
@@ -37,9 +38,9 @@ import { useUiReading } from "../lib/uiReading";
 
 interface SourceDocument { path: string; title: string; sha256: string; url: string; intelligence_sha256?: string }
 interface SourceModel { language: string; sha256: string; url: string }
-interface SourceIndex { version: number; revision: string; entry: string; documents: SourceDocument[]; models?: SourceModel[] }
+interface SourceIndex { version: number; revision: string; entry: string; documents: SourceDocument[]; models?: SourceModel[]; source_url?: string }
 const folds = [ingestedFolds()];
-const safePath = (path: string) => path === "project.md" || path.startsWith(".hickory-source/") && path.endsWith(".md") && !/[\\?#%\u0000-\u001f]/.test(path) && path.split("/").every(part => part !== "" && part !== "." && part !== "..");
+const safePath = (path: string) => path.endsWith(".md") && !path.startsWith("/") && !/[\\:?#%\u0000-\u001f]/.test(path) && path.split("/").every(part => part !== "" && part !== "." && part !== "..");
 
 </storycode:copy>
 
@@ -51,14 +52,18 @@ A cached index can outlive a deployment. Refuse source whose path, commit or SHA
 /** Refuse arbitrary fetch targets, duplicate paths and mismatched source revisions. */
 export function decodeSourceIndex(value: unknown): SourceIndex {
   const index = value as SourceIndex;
-  if (!index || index.version !== 1 || !/^[a-f0-9]{40}$/.test(index.revision) || index.entry !== "project.md" || !Array.isArray(index.documents)) throw Error("Invalid source index");
+  if (!index || index.version !== 1 || !/^[a-f0-9]{40}$/.test(index.revision) || typeof index.entry !== "string" || !safePath(index.entry) || !Array.isArray(index.documents)) throw Error("Invalid source index");
+  if (index.source_url !== undefined) {
+    const url = new URL(index.source_url);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw Error("Invalid public source URL");
+  }
   const paths = new Set<string>();
   for (const doc of index.documents) {
-    if (!doc || typeof doc.path !== "string" || !safePath(doc.path) || paths.has(doc.path) || typeof doc.title !== "string" || !/^[a-f0-9]{64}$/.test(doc.sha256) || !/^documents\/[a-f0-9]{64}\.json$/.test(doc.url)) throw Error("Invalid source document");
+    if (!doc || typeof doc.path !== "string" || !safePath(doc.path) || paths.has(doc.path) || typeof doc.title !== "string" || !/^[a-f0-9]{64}$/.test(doc.sha256) || !/^documents\/[a-f0-9]{64}\.json(?:\.gz)?$/.test(doc.url)) throw Error("Invalid source document");
     if (doc.intelligence_sha256 !== undefined && !/^[a-f0-9]{64}$/.test(doc.intelligence_sha256)) throw Error("Invalid language artifact hash");
     paths.add(doc.path);
   }
-  if (index.models !== undefined && (!Array.isArray(index.models) || index.models.some(model => !model || !/^[a-z][a-z0-9_-]*$/.test(model.language) || !/^[a-f0-9]{64}$/.test(model.sha256) || model.url !== `models/${model.sha256}.json`))) throw Error("Invalid code model artifact");
+  if (index.models !== undefined && (!Array.isArray(index.models) || index.models.some(model => !model || !/^[a-z][a-z0-9_-]*$/.test(model.language) || !/^[a-f0-9]{64}$/.test(model.sha256) || ![`models/${model.sha256}.json`, `models/${model.sha256}.json.gz`].includes(model.url)))) throw Error("Invalid code model artifact");
   if (!paths.has(index.entry)) throw Error("Source entry is missing");
   return index;
 }
@@ -108,7 +113,7 @@ function SourceDirectory({ folder, current }: { folder: SourceFolder; current: s
 
 function SourceBreadcrumbs({ path, index }: { path: string; index: SourceIndex }) {
   const parts = path.split("/");
-  return <nav className="source-breadcrumbs" aria-label="Breadcrumbs"><ol><li><UiLink href="?path=project.md" title={`Published revision ${index.revision}`}>Hickory Docs</UiLink></li>{parts.map((part, i) => {
+  return <nav className="source-breadcrumbs" aria-label="Breadcrumbs"><ol><li><UiLink href={`?path=${encodeURIComponent(index.entry)}`} title={`Published revision ${index.revision}`}>{index.documents.find(doc => doc.path === index.entry)?.title ?? index.entry}</UiLink></li>{parts.map((part, i) => {
     const folder = parts.slice(0, i + 1).join("/");
     const owner = index.documents.find(doc => doc.path === `${folder}/index.md` || doc.path === `${folder}/catalog.md`);
     return <li key={folder}>{i === parts.length - 1 ? <span aria-current="page">{part}</span> : owner ? <UiLink href={`?path=${encodeURIComponent(owner.path)}`}>{part}</UiLink> : <span>{part}</span>}</li>;
@@ -137,7 +142,7 @@ function CapturedModels({ index }: { index: SourceIndex }) {
     void Promise.all((index.models ?? []).map(async model => {
       const response = await fetch(`./source/${model.url}`, { signal: controller.signal });
       if (!response.ok) throw Error("Captured code model is unavailable");
-      const text = await response.text();
+      const text = await artifactText(response);
       if (await sha256(text) !== model.sha256) throw Error("Captured code model hash differs");
       const value = JSON.parse(text);
       if (value.revision !== index.revision || value.language !== model.language) throw Error("Captured code model revision differs");
@@ -155,7 +160,7 @@ function CapturedModels({ index }: { index: SourceIndex }) {
 
 export function SourcePage() {
   const [index, setIndex] = useState<SourceIndex | null>(null);
-  const path = new URL(location.href).searchParams.get("path") ?? "project.md";
+  const path = new URL(location.href).searchParams.get("path") ?? index?.entry ?? "project.md";
   const [source, setSource] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [intelligence, setIntelligence] = useState<StaticLanguage | null>(null);
@@ -179,7 +184,7 @@ export function SourcePage() {
     setError("");
     void fetch(`./source/${document.url}`, { signal: controller.signal }).then(async response => {
       if (!response.ok) throw Error("This published source page is unavailable");
-      const payload = await response.json();
+      const payload = JSON.parse(await artifactText(response));
       const text = await decodeSource(payload, index, document);
       const analysis = await decodeStaticLanguage(payload.intelligence, text, document.intelligence_sha256);
       if (!controller.signal.aborted) { setIntelligence(analysis); setSource(text); }

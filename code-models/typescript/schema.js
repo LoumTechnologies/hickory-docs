@@ -26,6 +26,8 @@ import {
   GraphQLNonNull, GraphQLObjectType, GraphQLSchema, GraphQLString,
 } from "graphql";
 
+import { SourceIndex } from "./source-index-schema.js";
+
 const NonNullList = (t) => new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(t)));
 
 // ---------------------------------------------------------------------------
@@ -266,6 +268,7 @@ export function buildSchema(model) {
     query: new GraphQLObjectType({
       name: "Query",
       fields: {
+        sourceIndex: { type: new GraphQLNonNull(SourceIndex), resolve: () => model.sourceIndex() },
         version: { type: new GraphQLNonNull(ServerInfo), resolve: () => model.info() },
         unresolved: {
           type: NonNullList(UnresolvedReference),

@@ -88,6 +88,9 @@ mkdir -p "$STAGE"
 
 cp "target/$TARGET/release/$BIN" "$STAGE/$BIN"
 cp "target/$TARGET/release/$LSP_BIN" "$STAGE/$LSP_BIN"
+# Export grammars are build assets; the installed runtime needs Node, not Vite.
+npm ci --prefix apps/web
+node scripts/build-static-highlights.mjs "$STAGE/hick-export/static-highlights.mjs"
 cp README.md LICENSE "$STAGE/"
 cp -R examples "$STAGE/examples"
 # .hick-cache is a local execution artifact, never part of a download.

@@ -88,6 +88,10 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - uses: dtolnay/rust-toolchain@1.96.1
         with:
           targets: ${{ matrix.target }}

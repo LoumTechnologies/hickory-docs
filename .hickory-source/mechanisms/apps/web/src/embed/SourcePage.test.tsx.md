@@ -11,6 +11,9 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { sha256 } from "../lib/reviews";
 import { decodeSource, decodeSourceIndex, SourcePage } from "./SourcePage";
 vi.mock("./DocumentEmbed", () => ({ DocumentEmbed: ({ source, readOnly }: { source: string; readOnly: boolean }) => <pre data-testid="source" data-readonly={String(readOnly)}>{source}</pre> }));
+async function gzip(text: string): Promise<ArrayBuffer> {
+  return new Response(new Response(text).body!.pipeThrough(new CompressionStream("gzip"))).arrayBuffer();
+}
 const revision = "a".repeat(40), page = '.hickory-source/01-language.md';
 async function fixture() {
   const sources = ['# Build Hickory\n[Language](.hickory-source/01-language.md)', '# Construct the language\n[Start](../project.md)'];
@@ -36,6 +39,17 @@ describe("public tutorial reader", () => {
     expect(screen.queryByRole("navigation", { name: "Related source pages" })).toBeNull();
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
+  it("opens a generic entry and reads its compressed source payload", async () => {
+    const { index, payloads } = await fixture();
+    const document = { ...index.documents[0], path: "book.md", url: index.documents[0].url + ".gz" };
+    const generic = { ...index, entry: "book.md", documents: [document] };
+    const payload = { ...payloads[0], path: "book.md" };
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(url.endsWith("index.json") ? JSON.stringify(generic) : await gzip(JSON.stringify(payload)))));
+    render(<SourcePage />);
+    expect((await screen.findByTestId("source")).textContent).toContain("Build Hickory");
+    expect(screen.getByRole("link", { name: "book.md" }).getAttribute("aria-current")).toBe("page");
+    expect(() => decodeSourceIndex({ ...generic, source_url: "https://secret:token@example.invalid/" })).toThrow("Invalid public source URL");
+  });
   it("refuses a stale revision or changed bytes rather than rendering a mixed publication", async () => {
     const { index, payloads } = await fixture();
     await expect(decodeSource({ ...payloads[0], revision: "b".repeat(40) }, index, index.documents[0])).rejects.toThrow("revision and hash");
@@ -49,8 +63,8 @@ describe("public tutorial reader", () => {
     const { index, payloads } = await fixture();
     const text = JSON.stringify({ language: "typescript", revision, graph: { data: { types: [{ name: "Widget" }], unresolved: [] } } });
     const digest = await sha256(text);
-    const withModels = { ...index, models: [{ language: "typescript", sha256: digest, url: `models/${digest}.json` }] };
-    const fetcher = vi.fn(async (url: string) => new Response(url.includes("/models/") ? text : JSON.stringify(url.endsWith("index.json") ? withModels : payloads[0])));
+    const withModels = { ...index, models: [{ language: "typescript", sha256: digest, url: `models/${digest}.json.gz` }] };
+    const fetcher = vi.fn(async (url: string) => new Response(url.includes("/models/") ? await gzip(text) : JSON.stringify(url.endsWith("index.json") ? withModels : payloads[0])));
     vi.stubGlobal("fetch", fetcher);
     render(<SourcePage />);
     await screen.findByTestId("source");

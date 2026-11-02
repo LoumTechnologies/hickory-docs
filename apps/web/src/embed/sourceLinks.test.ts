@@ -2,12 +2,13 @@ import { afterEach, expect, it } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { sourceHref, sourceLinks } from "./sourceLinks";
-const index = { revision: "a".repeat(40), documents: [{ path: "project.md" }, { path: ".hickory-source/01-language.md" }] };
+const index = { revision: "a".repeat(40), source_url: `https://github.com/LoumTechnologies/hickory-docs/blob/${"a".repeat(40)}/`, documents: [{ path: "project.md" }, { path: ".hickory-source/01-language.md" }] };
 let view: EditorView | undefined;
 afterEach(() => { view?.destroy(); view = undefined; document.body.replaceChildren(); });
 it("keeps source links and anchors in the tutorial and binds other repository paths to the commit", () => {
   expect(sourceHref("../project.md#start", ".hickory-source/01-language.md", index)).toBe("?path=project.md#start");
   expect(sourceHref("docs/guide.md", "project.md", index)).toContain(`/blob/${index.revision}/docs/guide.md`);
+  expect(sourceHref("private.md", "project.md", { ...index, source_url: undefined })).toBeNull();
   expect(sourceHref("javascript:alert(1)", "project.md", index)).toBeNull();
   expect(sourceHref("https://example.com/guide", "project.md", index)).toBe("https://example.com/guide");
 });

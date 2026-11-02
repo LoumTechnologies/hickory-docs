@@ -91,6 +91,18 @@ ci:
 dev-site:
     cd apps/web && npm run dev:site
 
+# Check only the bulk-index/static-export behavior before publishing it.
+test-static-source:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    npm ci --prefix code-models/typescript --no-fund --no-audit
+    cargo build --locked -p hickory-cli --bin hick
+    npm --prefix code-models/typescript test
+    python3 scripts/test-map-source-index.py
+    python3 scripts/test-capture-source-language.py
+    HICKORY_EXPORT_HICK="$PWD/target/debug/hick" python3 scripts/test-export-source-site.py
+    npm --prefix apps/web test -- src/embed/staticLanguage.test.ts src/embed/SourcePage.test.tsx src/embed/staticArtifacts.test.ts src/embed/sourceLinks.test.ts
+
 # Build the static marketing site into apps/web/dist-site — no server, no accounts,
 # no billing. Deploy the directory anywhere that serves files.
 #   just site                      # analytics disabled
@@ -114,8 +126,8 @@ site:
     mkdir -p apps/web/public
     cp scripts/install.sh apps/web/public/install.sh
     npm ci --prefix code-models/typescript --no-fund --no-audit
-    cargo build --locked -p hick-lsp --bin hick-lsp
-    python3 scripts/export-source-site.py --output apps/web/public/source --lsp target/debug/hick-lsp --model typescript=code-models/typescript/hick-model-typescript
+    cargo build --locked -p hickory-cli --bin hick
+    target/debug/hick project export project.md --output apps/web/public/source --model typescript=code-models/typescript/hick-model-typescript --install-dependencies --source-url "https://github.com/LoumTechnologies/hickory-docs/blob/{revision}/"
     cd apps/web
     HICKORY_SITE_ONLY=1 VITE_POSTHOG_KEY="$key" npm run build:site
     echo

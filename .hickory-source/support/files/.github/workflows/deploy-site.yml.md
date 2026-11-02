@@ -10,6 +10,8 @@ Captured SHA-256: `8da6b477f248e661ef4bd5b58f7aa8d54131957d7e3d18e5770fa1fa1fdd0
 
 The static source publication now runs a build-time language compiler. Build the local Hickory LSP binary before export; the deploy job explicitly installs pinned TypeScript and Rust analysis providers. Visitors receive only captured data, and the site remains independent of those build tools after publication. Other absent language providers remain unavailable rather than triggering installation during export.
 
+Check the bulk model and static export behavior before publishing. The site then compiles one project index instead of starting a provider for every source page. Keep broad regression checks independent; this workflow’s new gate exercises only the exported read-only feature.
+
 <book:entry path=".github/workflows/deploy-site.yml">
 # Publish the static marketing site to Cloudflare Pages.
 #
@@ -98,8 +100,6 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@1.96.1
         if: ${{ !inputs.domains_only }}
-        with:
-          components: rust-analyzer
       - uses: Swatinem/rust-cache@v2
         if: ${{ !inputs.domains_only }}
       - name: Build the selected-spec runner
@@ -118,17 +118,14 @@ jobs:
           path: apps/web/public/publications
           if-no-files-found: error
 
-      - name: Install pinned static-analysis providers
+      - name: Check bulk static export
         if: ${{ !inputs.domains_only }}
-        run: |
-          npm install --no-fund --no-audit --prefix "$RUNNER_TEMP/hickory-static-lsp" typescript-language-server@4.3.3 typescript@5.7.2
-          echo "$RUNNER_TEMP/hickory-static-lsp/node_modules/.bin" >> "$GITHUB_PATH"
+        run: just test-static-source
 
       - name: Build the site
         if: ${{ !inputs.domains_only }}
         env:
           POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
-          HICKORY_STATIC_CAPTURE_WORKERS: "4"
         run: |
           just site
 

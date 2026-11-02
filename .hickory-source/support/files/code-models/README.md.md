@@ -39,6 +39,34 @@ itself. `hick code-model <language> <source>` with no `--query` prints it.
 
 Diagnostics go to **stderr**; stdout carries the protocol and nothing else.
 
+## Bulk source indexing
+
+The TypeScript provider also exposes `sourceIndex`. It builds one cached index
+from the compiler program, including UTF-16 occurrences, stable symbol identities,
+inferred types, documentation, declaration locations, diagnostics and document
+features. References are the inverse of occurrence-to-symbol membership; aliases
+and generic/contextual properties retain their compiler relationships.
+
+```graphql
+{ sourceIndex {
+  coordinateEncoding
+  files { path sha256 occurrences { from to symbols type unresolved } }
+  symbols { id name kind documentation declarations { file from to } }
+  diagnostics { file from to code message }
+} }
+```
+
+The schema also exposes call signatures, folds, inlay hints and native TypeScript
+semantic classifications. Display strings use the compiler's bounded formatting;
+they are not a replacement for the language's complete type graph. External
+library declarations are not published as project source targets, and unresolved
+binding evidence remains explicit.
+
+[`hick project export`](../docs/users/static-export.md) projects these facts
+through Hickory's byte provenance into static read-only artifacts. The current
+bulk adapter is TypeScript-specific; it does not impose TypeScript's schema on
+other language providers.
+
 ## The rules every server follows
 
 **Nothing is lowered.** A record is not a class with a flag, an enum is not a

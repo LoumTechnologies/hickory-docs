@@ -27,6 +27,8 @@ Implementation review: not verified. Executed checks and human judgment are reco
 ## Read the retained requirement detail
 
 - [Requirement detail](requirements/01.md)
+The static export command needs a self-contained grammar asset beside the installed CLI. Build that asset from the shared editor planner when assembling the release; the downloaded runtime needs Node and Python for export, but does not need Vite or this source checkout.
+
 <storycode:include file="requirements/01.md" />
 - [Requirement detail](requirements/02.md)
 <storycode:include file="requirements/02.md" />
@@ -131,6 +133,9 @@ mkdir -p "$STAGE"
 
 cp "target/$TARGET/release/$BIN" "$STAGE/$BIN"
 cp "target/$TARGET/release/$LSP_BIN" "$STAGE/$LSP_BIN"
+# Export grammars are build assets; the installed runtime needs Node, not Vite.
+npm ci --prefix apps/web
+node scripts/build-static-highlights.mjs "$STAGE/hick-export/static-highlights.mjs"
 cp README.md LICENSE "$STAGE/"
 cp -R examples "$STAGE/examples"
 # .hick-cache is a local execution artifact, never part of a download.

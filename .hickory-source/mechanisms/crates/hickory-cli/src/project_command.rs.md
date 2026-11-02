@@ -42,6 +42,8 @@ split, or newly patched arrangement before acknowledging the capture.
 <storycode:copy id="f-3d5623416448-ProjectCommand">
 #[derive(Subcommand)]
 pub enum ProjectCommand {
+    /// Export frozen source, highlighting and compiler-backed read-only intelligence.
+    Export(crate::project_export::ExportArgs),
     /// Install a blocking, read-only staged project check in Git's hooks directory.
     InstallHook {
         /// Entry relative to the Git root; retained locally so removal cannot bypass the gate.
@@ -140,6 +142,7 @@ when the author selects its ID.
 pub async fn run(args: ProjectArgs) -> Result<ExitCode> {
     use hick_project_env::pending;
     let command = match args.command {
+        ProjectCommand::Export(args) => return crate::project_export::run(args),
         ProjectCommand::InstallHook { root, entry } => {
             let hook = crate::init::install_project_hook(&root, &entry)?;
             println!(

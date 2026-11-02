@@ -5,6 +5,8 @@ For: maintainers changing this mechanism and reviewing the contracts that depend
 
 This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
 
+Keep the [source-index query](source-index-schema.js.md) separate from the recursive declaration graph. Static export can select occurrence facts directly without requesting parameterized reference queries for every symbol.
+
 <a id="output-a4887ceb71e4"></a>
 ## `code-models/typescript/schema.js`
 
@@ -61,6 +63,8 @@ import {
   GraphQLBoolean, GraphQLEnumType, GraphQLInt, GraphQLInterfaceType, GraphQLList,
   GraphQLNonNull, GraphQLObjectType, GraphQLSchema, GraphQLString,
 } from "graphql";
+
+import { SourceIndex } from "./source-index-schema.js";
 
 const NonNullList = (t) => new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(t)));
 
@@ -392,6 +396,7 @@ export function buildSchema(model) {
     query: new GraphQLObjectType({
       name: "Query",
       fields: {
+        sourceIndex: { type: new GraphQLNonNull(SourceIndex), resolve: () => model.sourceIndex() },
         version: { type: new GraphQLNonNull(ServerInfo), resolve: () => model.info() },
         unresolved: {
           type: NonNullList(UnresolvedReference),
