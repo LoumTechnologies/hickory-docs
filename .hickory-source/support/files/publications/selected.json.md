@@ -3,7 +3,7 @@
 
 For: maintainers changing this file and reviewers tracing the related behavioral requirements.
 
-The publication allowlist binds each public example to reviewed bytes. The current Cargo lock differs from its previous reviewed version only by adding the existing `fs2` and `similar` dependencies to `hick-project-env` for output-edit locking and patch generation. The example and toolchain bytes are unchanged. Refresh the lock identity after that inspection; retain refusal when any selected input changes again.
+The publication allowlist binds each public example to reviewed bytes. The current Cargo lock moves document-execution dependencies from `hick-flow` to `hick-exec` and updates internal consumers to use that owner. The diff changes no external package versions or checksums. The example and toolchain bytes are unchanged. Refresh the lock identity after that inspection; retain refusal when any selected input changes again.
 
 
 Captured SHA-256: `11f1506b0d701d3eba846c07ddb9cd18d2d8e9b7f2feb28355a69ce9d777c555`.
@@ -31,7 +31,7 @@ Captured SHA-256: `11f1506b0d701d3eba846c07ddb9cd18d2d8e9b7f2feb28355a69ce9d777c
       ],
       "reviewed_inputs": {
         "examples/ai-engineer-deadline.md": "636ddbd13794d41faa0907e64e96bcf6d213a466f2dfd44423ae2b17a767099a",
-        "Cargo.lock": "2b319a68e93cdd25814c4d8a31f98eb1ae77bf2694bd4edfed991734fc95a51f",
+        "Cargo.lock": "1a2413b6fdd0b570dda0856b5514a2d500e3bfca0c33279f9b42951bc18b0795",
         "rust-toolchain.toml": "4d0674575b116a100c7d0ad754308dc6dea178b4808c760afc43136db967c7a6"
       }
     },

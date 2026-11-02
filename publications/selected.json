@@ -20,7 +20,7 @@
       ],
       "reviewed_inputs": {
         "examples/ai-engineer-deadline.md": "636ddbd13794d41faa0907e64e96bcf6d213a466f2dfd44423ae2b17a767099a",
-        "Cargo.lock": "2b319a68e93cdd25814c4d8a31f98eb1ae77bf2694bd4edfed991734fc95a51f",
+        "Cargo.lock": "1a2413b6fdd0b570dda0856b5514a2d500e3bfca0c33279f9b42951bc18b0795",
         "rust-toolchain.toml": "4d0674575b116a100c7d0ad754308dc6dea178b4808c760afc43136db967c7a6"
       }
     },
