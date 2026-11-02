@@ -42,6 +42,33 @@ class BehaviorAuditTests(unittest.TestCase):
         return subprocess.run([sys.executable, str(self.base / "tools/behavior.py"), "audit"],
             cwd=self.root, capture_output=True, text=True)
 
+    def test_retired_baseline_output_does_not_require_a_constructor(self):
+        baseline = self.base / "baseline.json"
+        data = json.loads(baseline.read_text())
+        data["entries"].append({"path": "retired.rs"})
+        baseline.write_text(json.dumps(data))
+        result = self.audit()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_current_tracked_output_without_constructor_is_refused(self):
+        subprocess.run(["git", "init", "--quiet", str(self.root)], check=True)
+        (self.root / "unowned.py").write_text("unowned\n")
+        subprocess.run(["git", "-C", str(self.root), "add", "unowned.py"], check=True)
+        result = self.audit()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Tracked outputs without a constructor", result.stdout + result.stderr)
+
+    def test_tracked_dangling_symlink_without_constructor_is_refused(self):
+        subprocess.run(["git", "init", "--quiet", str(self.root)], check=True)
+        try:
+            (self.root / "unowned-link").symlink_to("missing-target")
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"Symlinks unavailable: {error}")
+        subprocess.run(["git", "-C", str(self.root), "add", "unowned-link"], check=True)
+        result = self.audit()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Tracked outputs without a constructor", result.stdout + result.stderr)
+
     def test_several_outputs_can_share_one_narrative(self):
         result = self.audit()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

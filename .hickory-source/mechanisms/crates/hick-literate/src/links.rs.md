@@ -28,7 +28,7 @@ fragment, an absolute path, a link to a `.csv` or a `.png` — is left byte
 for byte as written.
 ## Why this is a segmenter and not a string replace
 Because of the ribbons. Prose reaches the weave as one node carrying the
-span it came from, and `hick_flow::ProvenanceTransformNode` splits that
+span it came from, and `hick_exec::ProvenanceTransformNode` splits that
 node into segments, narrowing each passthrough segment's span to the bytes
 it actually covers. Rewriting the text in place would produce one node
 whose length no longer matches its span, and the lineage layer would
@@ -64,7 +64,7 @@ keystroke, which is worse. The tests on both sides use the same cases.
 //! ## Why this is a segmenter and not a string replace
 //!
 //! Because of the ribbons. Prose reaches the weave as one node carrying the
-//! span it came from, and `hick_flow::ProvenanceTransformNode` splits that
+//! span it came from, and `hick_exec::ProvenanceTransformNode` splits that
 //! node into segments, narrowing each passthrough segment's span to the bytes
 //! it actually covers. Rewriting the text in place would produce one node
 //! whose length no longer matches its span, and the lineage layer would

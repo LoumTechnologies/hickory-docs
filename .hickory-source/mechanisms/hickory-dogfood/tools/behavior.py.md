@@ -16,6 +16,12 @@ patch, and `accept`/`new-patch` require a selected capture. Keep `baseline`
 separate from `generate`: bootstrap must establish identity without rewriting
 products. Other historical wrapper code retains its explanation-review gaps.
 
+Audit the current constructions rather than freezing the migration-era file layout.
+A retired implementation path need not remain in the constructor map. Existing
+tracked outputs, including dangling symlinks, must still have a construction;
+source/output verification independently rejects missing constructed outputs.
+The baseline continues to identify historical requirements and their dispositions.
+
 The literal construction preserves embedded document-syntax patterns.
 
 <storycode:entry path="hickory-dogfood/tools/behavior.py">
@@ -70,13 +76,12 @@ def test_command(test):
 def audit():
     m=read_map()
     baseline=json.loads((BASE/'baseline.json').read_text())
-    assert {e['path'] for e in baseline['entries']} <= set(m['constructors']),'Incomplete construction inventory'
     pages=[c['source'] for c in m['constructors'].values()]
     # Several outputs may share a narrative; each output still has one construction.
     assert all((ROOT/page).is_file() for page in pages), 'A constructor source is missing'
     if (ROOT/'.git').exists():
         tracked=subprocess.check_output(['git','ls-files','-z'],cwd=ROOT).decode().split('\0')
-        outputs={p for p in tracked if p and p!='project.md' and not p.startswith('.hickory-source/')}
+        outputs={p for p in tracked if p and p!='project.md' and not p.startswith('.hickory-source/') and ((ROOT/p).exists() or (ROOT/p).is_symlink())}
         assert outputs<=set(m['constructors']), 'Tracked outputs without a constructor: '+str(sorted(outputs-set(m['constructors'])))
     original_guarantees={e['path'] for e in baseline['entries'] if e['path'].startswith('docs/guarantees/') and e['path'].endswith('.md')}
     assert original_guarantees=={r['origin'] for r in m['contracts'].values()}|set(m['evidence_records']), 'A guarantee/evidence file has no disposition'
@@ -279,9 +284,38 @@ class BehaviorAuditTests(unittest.TestCase):
 <a id="audit-witness-accept-multiple-outputs"></a>
 ### Accept multiple outputs
 
-Two output files may share an explanation page. Acceptance must depend on unique constructions, rather than imposing one Markdown file per output.
+Two output files may share an explanation page. A path retained only in the
+migration baseline may also be retired. These assertions distinguish both cases
+from a current tracked file that lacks a construction.
 
 <storycode:copy id="audit-witness-accept-multiple-outputs">
+    def test_retired_baseline_output_does_not_require_a_constructor(self):
+        baseline = self.base / "baseline.json"
+        data = json.loads(baseline.read_text())
+        data["entries"].append({"path": "retired.rs"})
+        baseline.write_text(json.dumps(data))
+        result = self.audit()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_current_tracked_output_without_constructor_is_refused(self):
+        subprocess.run(["git", "init", "--quiet", str(self.root)], check=True)
+        (self.root / "unowned.py").write_text("unowned\n")
+        subprocess.run(["git", "-C", str(self.root), "add", "unowned.py"], check=True)
+        result = self.audit()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Tracked outputs without a constructor", result.stdout + result.stderr)
+
+    def test_tracked_dangling_symlink_without_constructor_is_refused(self):
+        subprocess.run(["git", "init", "--quiet", str(self.root)], check=True)
+        try:
+            (self.root / "unowned-link").symlink_to("missing-target")
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"Symlinks unavailable: {error}")
+        subprocess.run(["git", "-C", str(self.root), "add", "unowned-link"], check=True)
+        result = self.audit()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Tracked outputs without a constructor", result.stdout + result.stderr)
+
     def test_several_outputs_can_share_one_narrative(self):
         result = self.audit()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

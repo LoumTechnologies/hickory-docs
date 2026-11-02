@@ -16,7 +16,7 @@ edition = "2024"
 license.workspace = true
 
 [dependencies]
-hick-flow = { path = "../hick-flow" }
+hick-exec = { path = "../hick-exec" }
 yrs = "0.21"
 tokio = { version = "1", features = ["sync", "rt", "macros"] }
 quick-xml = "0.37"

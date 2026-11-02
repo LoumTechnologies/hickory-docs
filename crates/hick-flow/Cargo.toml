@@ -5,22 +5,9 @@ edition = "2024"
 license.workspace = true
 
 [dependencies]
-hick-lang = { path = "../hick-lang" }
 futures = "0.3"
 tokio = { version = "1", features = ["sync", "rt", "macros"] }
-tokio-stream = "0.1"
 tokio-util = "0.7"
-log = "0.4"
-serde = { version = "1", features = ["derive", "rc"], optional = true }
-
-[features]
-serde = ["dep:serde", "hick-lang/serde"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-serde_json = "1"
-# Self-dependency so `cargo test -p hick-flow` builds with `serde` on. Without
-# it nothing in the workspace enables the feature, and every
-# `#[cfg(feature = "serde")]` test silently compiles out — including the
-# `SourceOrigin` round-trip that `docs/guarantees/lineage/` relies on.
-hick-flow = { path = ".", features = ["serde"] }

@@ -35,7 +35,7 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ### Implementation
 
-- [crates/hick-flow/src/transform.rs](../../../mechanisms/crates/hick-flow/src/transform.rs.md#output-88934a253aef)
+- [crates/hick-flow/src/transform.rs](../../../mechanisms/crates/hick-exec/src/transform.rs.md#output-88934a253aef)
 - [crates/hick-literate/src/links.rs](../../../mechanisms/crates/hick-literate/src/links.rs.md#output-95b0a93afc31)
 - [crates/hickory-lineage/src/lib.rs](../../../mechanisms/crates/hickory-lineage/src/lib.rs.md#output-bc43b0352ff3)
 

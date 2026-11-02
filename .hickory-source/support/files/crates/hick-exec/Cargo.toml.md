@@ -27,8 +27,15 @@ futures = "0.3"
 thiserror = "2"
 log = "0.4"
 
+serde = { version = "1", features = ["derive", "rc"], optional = true }
+
+[features]
+serde = ["dep:serde", "hick-lang/serde"]
+
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+serde_json = "1"
+hick-exec = { path = ".", features = ["serde"] }
 </book:entry>
 
 </book:doc>

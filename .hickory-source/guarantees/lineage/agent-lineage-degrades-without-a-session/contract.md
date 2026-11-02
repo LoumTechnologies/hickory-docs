@@ -33,7 +33,7 @@ Implementation review: not verified. Executed checks and human judgment are reco
 ## Implementation
 
 <a id="output-a790430ed0b2"></a>
-## `crates/hick-flow/src/provenance.rs`
+## `crates/hick-exec/src/provenance.rs`
 
 Related contracts: [Agent-Authored Bytes Always Report Session, Turn, And A Git-Derived Author — Even When The Session Cannot Be Read](contract.md).
 
@@ -330,11 +330,11 @@ mod tests {
 }
 </storycode:copy>
 
-### Assemble `crates/hick-flow/src/provenance.rs`
+### Assemble `crates/hick-exec/src/provenance.rs`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-flow/src/provenance.rs"><storycode:paste select="#f-a790430ed0b2-ProvenanceSpan"/><storycode:paste select="#f-a790430ed0b2-ProvenanceMap"/><storycode:paste select="#f-a790430ed0b2-impl-ProvenanceMap"/><storycode:paste select="#f-a790430ed0b2-tests"/></storycode:file>
+<storycode:file path="crates/hick-exec/src/provenance.rs"><storycode:paste select="#f-a790430ed0b2-ProvenanceSpan"/><storycode:paste select="#f-a790430ed0b2-ProvenanceMap"/><storycode:paste select="#f-a790430ed0b2-impl-ProvenanceMap"/><storycode:paste select="#f-a790430ed0b2-tests"/></storycode:file>
 
 <a id="output-79fd95e5a8bf"></a>
 ## `crates/hickory-cli/tests/agent_lineage.rs`
@@ -367,7 +367,7 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
 
-use hick_flow::{ProvenanceMap, ProvenanceSpan, SourceOrigin};
+use hick_exec::{ProvenanceMap, ProvenanceSpan, SourceOrigin};
 use hick_lang::SourceSpan;
 use hickory_cli::agent_lineage::{self, Authorship, Reasoning};
 
@@ -563,8 +563,8 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [crates/hick-flow/src/node.rs](../../../mechanisms/crates/hick-flow/src/node.rs.md#output-90c967a2b659)
-- [crates/hick-flow/src/provenance.rs](contract.md#output-a790430ed0b2)
+- [crates/hick-flow/src/node.rs](../../../mechanisms/crates/hick-exec/src/node.rs.md#output-90c967a2b659)
+- [crates/hick-exec/src/provenance.rs](contract.md#output-a790430ed0b2)
 - [crates/hickory-cli/src/agent_lineage.rs](../../../mechanisms/crates/hickory-cli/src/agent_lineage.rs.md#output-7b65c6db8d7c)
 - [crates/hickory-cli/src/lib.rs](../../../mechanisms/crates/hickory-cli/src/lib.rs.md#output-056f6a618871)
 - [crates/hickory-cli/src/main.rs](../../../mechanisms/crates/hickory-cli/src/main.rs.md#output-5607f2721a2d)

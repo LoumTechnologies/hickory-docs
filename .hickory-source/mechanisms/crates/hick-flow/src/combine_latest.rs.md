@@ -29,7 +29,7 @@ use futures::{Stream, StreamExt};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::node::BoxStream;
+use crate::BoxStream;
 
 // ---------------------------------------------------------------------------
 // Messages

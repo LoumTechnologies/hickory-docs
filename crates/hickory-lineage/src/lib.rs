@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 
-use hick_flow::{ProvenanceMap, SourceOrigin};
+use hick_exec::{ProvenanceMap, SourceOrigin};
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
@@ -530,7 +530,7 @@ pub use hick_plugins::metadata::lineage_language as language_for_path;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hick_flow::{ProvenanceSpan, SourceOrigin};
+    use hick_exec::{ProvenanceSpan, SourceOrigin};
     use hick_lang::SourceSpan;
     use std::sync::Arc;
 

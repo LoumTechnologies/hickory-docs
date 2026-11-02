@@ -2,7 +2,7 @@
 //!
 //! `Context` is passed to every `Node::get_stream` call. Domain-specific state
 //! (e.g. `MultiDocumentState`) can be stored as an extension using the TypeMap
-//! pattern, keeping this crate free of domain dependencies.
+//! pattern, keeping application state out of the stream-combining algorithm.
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;

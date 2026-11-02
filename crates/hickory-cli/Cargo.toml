@@ -132,7 +132,7 @@ tempfile = "3"
 tokio-tungstenite = "0.24"
 # tests/agent_lineage.rs constructs `SourceOrigin::Agent` spans directly, to
 # exercise the lineage read path independently of an agent run.
-hick-flow = { path = "../hick-flow", features = ["serde"] }
+hick-exec = { path = "../hick-exec", features = ["serde"] }
 
 # Where a downloaded file came from, read from the operating system's own
 # record of it: `user.xdg.origin.url` on Linux, `kMDItemWhereFroms` on macOS.

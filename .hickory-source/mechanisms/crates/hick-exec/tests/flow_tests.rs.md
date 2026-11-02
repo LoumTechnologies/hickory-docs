@@ -12,13 +12,13 @@ This page owns the output construction and the explained fragments below. Source
 ### `node_trace_new_has_empty_trace`
 
 <storycode:copy id="f-c959154fc401-node_trace_new_has_empty_trace">
-//! Comprehensive tests for hick-flow.
+//! Document graph behavior built on the generic stream combiner.
 
 use std::sync::Arc;
 
 use futures::StreamExt;
-use hick_flow::{
-    Context, DynamicCombineLatest, InsertionPoint, Node, NodeTrace, SeparatorNode, StringNode,
+use hick_exec::{
+    Context, InsertionPoint, Node, NodeTrace, SeparatorNode, StringNode,
     TransformNode, converge_to_string,
 };
 
@@ -536,167 +536,6 @@ async fn insertion_point_adds_self_to_trace() {
 }
 
 </storycode:copy>
-<a id="f-c959154fc401-dcl_single_source_emits"></a>
-### `dcl_single_source_emits`
-
-<storycode:copy id="f-c959154fc401-dcl_single_source_emits">
-// ===========================================================================
-// DynamicCombineLatest tests
-// ===========================================================================
-
-#[tokio::test]
-async fn dcl_single_source_emits() {
-    let dcl = DynamicCombineLatest::new(|v: Vec<i32>| v.iter().sum::<i32>());
-    dcl.add_source(futures::stream::once(async { 42 }));
-    let mut stream = dcl.stream();
-    let val = stream.next().await.unwrap();
-    assert_eq!(val, 42);
-}
-
-</storycode:copy>
-<a id="f-c959154fc401-dcl_two_sources_combine"></a>
-### `dcl_two_sources_combine`
-
-<storycode:copy id="f-c959154fc401-dcl_two_sources_combine">
-#[tokio::test]
-async fn dcl_two_sources_combine() {
-    let dcl = DynamicCombineLatest::new(|v: Vec<i32>| v.iter().sum::<i32>());
-    dcl.add_source(futures::stream::once(async { 10 }));
-    dcl.add_source(futures::stream::once(async { 20 }));
-    let mut stream = dcl.stream();
-    let val = stream.next().await.unwrap();
-    assert_eq!(val, 30);
-}
-
-</storycode:copy>
-<a id="f-c959154fc401-dcl_completes_on_quiescence"></a>
-### `dcl_completes_on_quiescence`
-
-<storycode:copy id="f-c959154fc401-dcl_completes_on_quiescence">
-#[tokio::test]
-async fn dcl_completes_on_quiescence() {
-    let dcl = DynamicCombineLatest::new(|v: Vec<i32>| v.iter().sum::<i32>());
-    dcl.add_source(futures::stream::once(async { 1 }));
-    let results: Vec<_> = dcl.stream().collect().await;
-    assert!(!results.is_empty());
-}
-
-</storycode:copy>
-<a id="f-c959154fc401-dcl_remove_source"></a>
-### `dcl_remove_source`
-
-<storycode:copy id="f-c959154fc401-dcl_remove_source">
-#[tokio::test]
-async fn dcl_remove_source() {
-    let dcl = DynamicCombineLatest::new(|v: Vec<String>| v.join(","));
-    let id1 = dcl.add_source(futures::stream::once(async { "a".to_string() }));
-    dcl.add_source(futures::stream::once(async { "b".to_string() }));
-    let mut stream = dcl.stream();
-    let val = stream.next().await.unwrap();
-    assert!(val.contains("a") && val.contains("b"));
-    dcl.remove_source(id1);
-}
-
-</storycode:copy>
-<a id="f-c959154fc401-dcl_ordering_preserved"></a>
-### `dcl_ordering_preserved`
-
-<storycode:copy id="f-c959154fc401-dcl_ordering_preserved">
-#[tokio::test]
-async fn dcl_ordering_preserved() {
-    let dcl = DynamicCombineLatest::new(|v: Vec<String>| v.join(""));
-    dcl.add_source(futures::stream::once(async { "first".to_string() }));
-    dcl.add_source(futures::stream::once(async { "second".to_string() }));
-    let mut stream = dcl.stream();
-    let val = stream.next().await.unwrap();
-    // BTreeMap ordering ensures sources appear in insertion order
-    assert_eq!(val, "firstsecond");
-}
-
-</storycode:copy>
-<a id="f-c959154fc401-dcl_shutdown_ends_stream"></a>
-### `dcl_shutdown_ends_stream`
-
-<storycode:copy id="f-c959154fc401-dcl_shutdown_ends_stream">
-#[tokio::test]
-async fn dcl_shutdown_ends_stream() {
-    let dcl = DynamicCombineLatest::new_with_config(|v: Vec<i32>| v.iter().sum::<i32>(), false);
-    dcl.add_source(futures::stream::once(async { 1 }));
-    let mut stream = dcl.stream();
-    let _ = stream.next().await;
-    dcl.shutdown();
-    // After shutdown, stream should complete
-    let result = stream.next().await;
-    assert!(result.is_none());
-}
-
-</storycode:copy>
-<a id="f-c959154fc401-dcl_multi_value_stream"></a>
-### `dcl_multi_value_stream`
-
-<storycode:copy id="f-c959154fc401-dcl_multi_value_stream">
-#[tokio::test]
-async fn dcl_multi_value_stream() {
-    let dcl = DynamicCombineLatest::new(|v: Vec<i32>| v.iter().sum::<i32>());
-    dcl.add_source(futures::stream::iter(vec![1, 2, 3]));
-    let results: Vec<_> = dcl.stream().collect().await;
-    // Should get at least 1 emission, possibly 3 if each value triggers
-    assert!(!results.is_empty());
-    // Last emission should use latest value
-    assert_eq!(*results.last().unwrap(), 3);
-}
-
-</storycode:copy>
-<a id="f-c959154fc401-dcl_identity_combiner"></a>
-### `dcl_identity_combiner`
-
-<storycode:copy id="f-c959154fc401-dcl_identity_combiner">
-#[tokio::test]
-async fn dcl_identity_combiner() {
-    let dcl = DynamicCombineLatest::new(|v: Vec<String>| v);
-    dcl.add_source(futures::stream::once(async { "only".to_string() }));
-    let mut stream = dcl.stream();
-    let val = stream.next().await.unwrap();
-    assert_eq!(val, vec!["only".to_string()]);
-}
-
-</storycode:copy>
-<a id="f-c959154fc401-dcl_add_source_after_stream_started"></a>
-### `dcl_add_source_after_stream_started`
-
-<storycode:copy id="f-c959154fc401-dcl_add_source_after_stream_started">
-#[tokio::test]
-async fn dcl_add_source_after_stream_started() {
-    let dcl = DynamicCombineLatest::new_with_config(|v: Vec<i32>| v.iter().sum::<i32>(), false);
-    dcl.add_source(futures::stream::once(async { 10 }));
-    let mut stream = dcl.stream();
-    let first = stream.next().await.unwrap();
-    assert_eq!(first, 10);
-
-    dcl.add_source(futures::stream::once(async { 5 }));
-    let second = stream.next().await.unwrap();
-    assert_eq!(second, 15);
-
-    dcl.shutdown();
-}
-
-</storycode:copy>
-<a id="f-c959154fc401-dcl_three_sources"></a>
-### `dcl_three_sources`
-
-<storycode:copy id="f-c959154fc401-dcl_three_sources">
-#[tokio::test]
-async fn dcl_three_sources() {
-    let dcl = DynamicCombineLatest::new(|v: Vec<i32>| v.iter().sum::<i32>());
-    dcl.add_source(futures::stream::once(async { 1 }));
-    dcl.add_source(futures::stream::once(async { 2 }));
-    dcl.add_source(futures::stream::once(async { 3 }));
-    let mut stream = dcl.stream();
-    let val = stream.next().await.unwrap();
-    assert_eq!(val, 6);
-}
-
-</storycode:copy>
 <a id="f-c959154fc401-context_default_has_no_extensions"></a>
 ### `context_default_has_no_extensions`
 
@@ -1208,7 +1047,7 @@ async fn integration_context_extension_flow() {
 
 #[test]
 fn span_node_has_string_value() {
-    use hick_flow::{SourceOrigin, SpanNode};
+    use hick_exec::{SourceOrigin, SpanNode};
     let node = SpanNode::new("hello", SourceOrigin::Synthetic);
     assert_eq!(node.as_string_value(), Some("hello"));
     assert_eq!(node.value(), "hello");
@@ -1221,7 +1060,7 @@ fn span_node_has_string_value() {
 <storycode:copy id="f-c959154fc401-span_node_returns_source_origin">
 #[test]
 fn span_node_returns_source_origin() {
-    use hick_flow::{SourceOrigin, SpanNode};
+    use hick_exec::{SourceOrigin, SpanNode};
     use hick_lang::SourceSpan;
 
     let span = SourceSpan::new(10, 20, 3, 5);
@@ -1250,7 +1089,7 @@ fn span_node_returns_source_origin() {
 <storycode:copy id="f-c959154fc401-span_node_converges_like_string_node">
 #[tokio::test]
 async fn span_node_converges_like_string_node() {
-    use hick_flow::{SourceOrigin, SpanNode};
+    use hick_exec::{SourceOrigin, SpanNode};
     let span_node: Arc<dyn Node> = Arc::new(SpanNode::new("hello world", SourceOrigin::Synthetic));
     let result = converge_to_string(span_node, Context::default()).await;
     assert_eq!(result.unwrap(), "hello world");
@@ -1263,7 +1102,7 @@ async fn span_node_converges_like_string_node() {
 <storycode:copy id="f-c959154fc401-span_node_in_insertion_point">
 #[tokio::test]
 async fn span_node_in_insertion_point() {
-    use hick_flow::{SourceOrigin, SpanNode};
+    use hick_exec::{SourceOrigin, SpanNode};
     use hick_lang::SourceSpan;
 
     let ip = Arc::new(InsertionPoint::new());
@@ -1297,7 +1136,7 @@ async fn span_node_in_insertion_point() {
 
 #[tokio::test]
 async fn converge_with_provenance_tracks_span_nodes() {
-    use hick_flow::{SourceOrigin, SpanNode, converge_with_provenance};
+    use hick_exec::{SourceOrigin, SpanNode, converge_with_provenance};
     use hick_lang::SourceSpan;
 
     let ip = Arc::new(InsertionPoint::new());
@@ -1347,7 +1186,7 @@ async fn converge_with_provenance_tracks_span_nodes() {
 <storycode:copy id="f-c959154fc401-converge_with_provenance_plain_string_nodes_get_synthetic">
 #[tokio::test]
 async fn converge_with_provenance_plain_string_nodes_get_synthetic() {
-    use hick_flow::{SourceOrigin, converge_with_provenance};
+    use hick_exec::{SourceOrigin, converge_with_provenance};
 
     let ip = Arc::new(InsertionPoint::new());
     ip.add(Arc::new(StringNode::new("abc")));
@@ -1376,7 +1215,7 @@ async fn converge_with_provenance_plain_string_nodes_get_synthetic() {
 <storycode:copy id="f-c959154fc401-converge_with_provenance_mixed_nodes">
 #[tokio::test]
 async fn converge_with_provenance_mixed_nodes() {
-    use hick_flow::{SourceOrigin, SpanNode, converge_with_provenance};
+    use hick_exec::{SourceOrigin, SpanNode, converge_with_provenance};
     use hick_lang::SourceSpan;
 
     let ip = Arc::new(InsertionPoint::new());
@@ -1424,6 +1263,6 @@ async fn converge_with_provenance_mixed_nodes() {
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-flow/tests/flow_tests.rs"><storycode:paste select="#f-c959154fc401-node_trace_new_has_empty_trace"/><storycode:paste select="#f-c959154fc401-node_trace_add_to_trace_preserves_final_result"/><storycode:paste select="#f-c959154fc401-node_trace_transform_changes_final_result"/><storycode:paste select="#f-c959154fc401-node_trace_accumulates_multiple_entries"/><storycode:paste select="#f-c959154fc401-node_trace_clone_is_independent"/><storycode:paste select="#f-c959154fc401-node_trace_transform_then_add_to_trace"/><storycode:paste select="#f-c959154fc401-node_trace_new_final_result_is_correct_arc"/><storycode:paste select="#f-c959154fc401-string_node_emits_value"/><storycode:paste select="#f-c959154fc401-string_node_as_string_value"/><storycode:paste select="#f-c959154fc401-string_node_stream_completes"/><storycode:paste select="#f-c959154fc401-string_node_empty_string"/><storycode:paste select="#f-c959154fc401-string_node_is_not_separator"/><storycode:paste select="#f-c959154fc401-string_node_with_stable_id"/><storycode:paste select="#f-c959154fc401-separator_node_is_separator"/><storycode:paste select="#f-c959154fc401-separator_node_wraps_value"/><storycode:paste select="#f-c959154fc401-separator_node_adds_self_to_trace"/><storycode:paste select="#f-c959154fc401-separator_node_as_string_value_is_none"/><storycode:paste select="#f-c959154fc401-insertion_point_empty_produces_output"/><storycode:paste select="#f-c959154fc401-insertion_point_single_child"/><storycode:paste select="#f-c959154fc401-insertion_point_concatenates_children"/><storycode:paste select="#f-c959154fc401-insertion_point_with_separator"/><storycode:paste select="#f-c959154fc401-insertion_point_trim_leading_separator"/><storycode:paste select="#f-c959154fc401-insertion_point_nested"/><storycode:paste select="#f-c959154fc401-insertion_point_dynamic_add"/><storycode:paste select="#f-c959154fc401-insertion_point_dynamic_remove"/><storycode:paste select="#f-c959154fc401-insertion_point_close_is_idempotent"/><storycode:paste select="#f-c959154fc401-insertion_point_deeply_nested"/><storycode:paste select="#f-c959154fc401-insertion_point_never_complete_stays_open"/><storycode:paste select="#f-c959154fc401-insertion_point_adds_self_to_trace"/><storycode:paste select="#f-c959154fc401-dcl_single_source_emits"/><storycode:paste select="#f-c959154fc401-dcl_two_sources_combine"/><storycode:paste select="#f-c959154fc401-dcl_completes_on_quiescence"/><storycode:paste select="#f-c959154fc401-dcl_remove_source"/><storycode:paste select="#f-c959154fc401-dcl_ordering_preserved"/><storycode:paste select="#f-c959154fc401-dcl_shutdown_ends_stream"/><storycode:paste select="#f-c959154fc401-dcl_multi_value_stream"/><storycode:paste select="#f-c959154fc401-dcl_identity_combiner"/><storycode:paste select="#f-c959154fc401-dcl_add_source_after_stream_started"/><storycode:paste select="#f-c959154fc401-dcl_three_sources"/><storycode:paste select="#f-c959154fc401-context_default_has_no_extensions"/><storycode:paste select="#f-c959154fc401-context_extension_roundtrip"/><storycode:paste select="#f-c959154fc401-context_multiple_extension_types"/><storycode:paste select="#f-c959154fc401-context_extension_overwrite"/><storycode:paste select="#f-c959154fc401-context_clone_preserves_extensions"/><storycode:paste select="#f-c959154fc401-context_verbose_flag"/><storycode:paste select="#f-c959154fc401-transform_uppercase"/><storycode:paste select="#f-c959154fc401-transform_replace"/><storycode:paste select="#f-c959154fc401-transform_records_in_trace"/><storycode:paste select="#f-c959154fc401-transform_nested"/><storycode:paste select="#f-c959154fc401-transform_identity"/><storycode:paste select="#f-c959154fc401-transform_empty_children"/><storycode:paste select="#f-c959154fc401-transform_with_separator"/><storycode:paste select="#f-c959154fc401-transform_multiple_children"/><storycode:paste select="#f-c959154fc401-transform_label"/><storycode:paste select="#f-c959154fc401-converge_single_string"/><storycode:paste select="#f-c959154fc401-converge_concatenation"/><storycode:paste select="#f-c959154fc401-converge_with_separator"/><storycode:paste select="#f-c959154fc401-converge_nested"/><storycode:paste select="#f-c959154fc401-converge_with_transform"/><storycode:paste select="#f-c959154fc401-converge_empty"/><storycode:paste select="#f-c959154fc401-converge_separator_single_child"/><storycode:paste select="#f-c959154fc401-integration_full_document_tree"/><storycode:paste select="#f-c959154fc401-integration_transform_chain"/><storycode:paste select="#f-c959154fc401-integration_deep_provenance"/><storycode:paste select="#f-c959154fc401-integration_concurrent_add_remove"/><storycode:paste select="#f-c959154fc401-integration_context_extension_flow"/><storycode:paste select="#f-c959154fc401-span_node_has_string_value"/><storycode:paste select="#f-c959154fc401-span_node_returns_source_origin"/><storycode:paste select="#f-c959154fc401-span_node_converges_like_string_node"/><storycode:paste select="#f-c959154fc401-span_node_in_insertion_point"/><storycode:paste select="#f-c959154fc401-converge_with_provenance_tracks_span_nodes"/><storycode:paste select="#f-c959154fc401-converge_with_provenance_plain_string_nodes_get_synthetic"/><storycode:paste select="#f-c959154fc401-converge_with_provenance_mixed_nodes"/></storycode:file>
+<storycode:file path="crates/hick-exec/tests/flow_tests.rs"><storycode:paste select="#f-c959154fc401-node_trace_new_has_empty_trace"/><storycode:paste select="#f-c959154fc401-node_trace_add_to_trace_preserves_final_result"/><storycode:paste select="#f-c959154fc401-node_trace_transform_changes_final_result"/><storycode:paste select="#f-c959154fc401-node_trace_accumulates_multiple_entries"/><storycode:paste select="#f-c959154fc401-node_trace_clone_is_independent"/><storycode:paste select="#f-c959154fc401-node_trace_transform_then_add_to_trace"/><storycode:paste select="#f-c959154fc401-node_trace_new_final_result_is_correct_arc"/><storycode:paste select="#f-c959154fc401-string_node_emits_value"/><storycode:paste select="#f-c959154fc401-string_node_as_string_value"/><storycode:paste select="#f-c959154fc401-string_node_stream_completes"/><storycode:paste select="#f-c959154fc401-string_node_empty_string"/><storycode:paste select="#f-c959154fc401-string_node_is_not_separator"/><storycode:paste select="#f-c959154fc401-string_node_with_stable_id"/><storycode:paste select="#f-c959154fc401-separator_node_is_separator"/><storycode:paste select="#f-c959154fc401-separator_node_wraps_value"/><storycode:paste select="#f-c959154fc401-separator_node_adds_self_to_trace"/><storycode:paste select="#f-c959154fc401-separator_node_as_string_value_is_none"/><storycode:paste select="#f-c959154fc401-insertion_point_empty_produces_output"/><storycode:paste select="#f-c959154fc401-insertion_point_single_child"/><storycode:paste select="#f-c959154fc401-insertion_point_concatenates_children"/><storycode:paste select="#f-c959154fc401-insertion_point_with_separator"/><storycode:paste select="#f-c959154fc401-insertion_point_trim_leading_separator"/><storycode:paste select="#f-c959154fc401-insertion_point_nested"/><storycode:paste select="#f-c959154fc401-insertion_point_dynamic_add"/><storycode:paste select="#f-c959154fc401-insertion_point_dynamic_remove"/><storycode:paste select="#f-c959154fc401-insertion_point_close_is_idempotent"/><storycode:paste select="#f-c959154fc401-insertion_point_deeply_nested"/><storycode:paste select="#f-c959154fc401-insertion_point_never_complete_stays_open"/><storycode:paste select="#f-c959154fc401-insertion_point_adds_self_to_trace"/><storycode:paste select="#f-c959154fc401-context_default_has_no_extensions"/><storycode:paste select="#f-c959154fc401-context_extension_roundtrip"/><storycode:paste select="#f-c959154fc401-context_multiple_extension_types"/><storycode:paste select="#f-c959154fc401-context_extension_overwrite"/><storycode:paste select="#f-c959154fc401-context_clone_preserves_extensions"/><storycode:paste select="#f-c959154fc401-context_verbose_flag"/><storycode:paste select="#f-c959154fc401-transform_uppercase"/><storycode:paste select="#f-c959154fc401-transform_replace"/><storycode:paste select="#f-c959154fc401-transform_records_in_trace"/><storycode:paste select="#f-c959154fc401-transform_nested"/><storycode:paste select="#f-c959154fc401-transform_identity"/><storycode:paste select="#f-c959154fc401-transform_empty_children"/><storycode:paste select="#f-c959154fc401-transform_with_separator"/><storycode:paste select="#f-c959154fc401-transform_multiple_children"/><storycode:paste select="#f-c959154fc401-transform_label"/><storycode:paste select="#f-c959154fc401-converge_single_string"/><storycode:paste select="#f-c959154fc401-converge_concatenation"/><storycode:paste select="#f-c959154fc401-converge_with_separator"/><storycode:paste select="#f-c959154fc401-converge_nested"/><storycode:paste select="#f-c959154fc401-converge_with_transform"/><storycode:paste select="#f-c959154fc401-converge_empty"/><storycode:paste select="#f-c959154fc401-converge_separator_single_child"/><storycode:paste select="#f-c959154fc401-integration_full_document_tree"/><storycode:paste select="#f-c959154fc401-integration_transform_chain"/><storycode:paste select="#f-c959154fc401-integration_deep_provenance"/><storycode:paste select="#f-c959154fc401-integration_concurrent_add_remove"/><storycode:paste select="#f-c959154fc401-integration_context_extension_flow"/><storycode:paste select="#f-c959154fc401-span_node_has_string_value"/><storycode:paste select="#f-c959154fc401-span_node_returns_source_origin"/><storycode:paste select="#f-c959154fc401-span_node_converges_like_string_node"/><storycode:paste select="#f-c959154fc401-span_node_in_insertion_point"/><storycode:paste select="#f-c959154fc401-converge_with_provenance_tracks_span_nodes"/><storycode:paste select="#f-c959154fc401-converge_with_provenance_plain_string_nodes_get_synthetic"/><storycode:paste select="#f-c959154fc401-converge_with_provenance_mixed_nodes"/></storycode:file>
 
 </storycode:doc>

@@ -69227,8 +69227,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-752ff414d219-Context",
-      "output": "crates/hick-flow/src/context.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/context.rs.md",
+      "output": "crates/hick-exec/src/context.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/context.rs.md",
       "symbol": "Context",
       "basis": "existing-source-comment",
       "original_range": [
@@ -69238,8 +69238,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-752ff414d219-impl-Context",
-      "output": "crates/hick-flow/src/context.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/context.rs.md",
+      "output": "crates/hick-exec/src/context.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/context.rs.md",
       "symbol": "impl-Context",
       "basis": "needs-explanation",
       "original_range": [
@@ -69249,8 +69249,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-ce4cf4d8baa9-converge_to_string",
-      "output": "crates/hick-flow/src/converge.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/converge.rs.md",
+      "output": "crates/hick-exec/src/converge.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/converge.rs.md",
       "symbol": "converge_to_string",
       "basis": "existing-source-comment",
       "original_range": [
@@ -69260,8 +69260,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-ce4cf4d8baa9-converge",
-      "output": "crates/hick-flow/src/converge.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/converge.rs.md",
+      "output": "crates/hick-exec/src/converge.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/converge.rs.md",
       "symbol": "converge",
       "basis": "existing-source-comment",
       "original_range": [
@@ -69271,8 +69271,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-ce4cf4d8baa9-converge_with_provenance",
-      "output": "crates/hick-flow/src/converge.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/converge.rs.md",
+      "output": "crates/hick-exec/src/converge.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/converge.rs.md",
       "symbol": "converge_with_provenance",
       "basis": "existing-source-comment",
       "original_range": [
@@ -69282,8 +69282,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-6db450a31a6b-Operation",
-      "output": "crates/hick-flow/src/insertion_point.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/insertion_point.rs.md",
+      "output": "crates/hick-exec/src/insertion_point.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/insertion_point.rs.md",
       "symbol": "Operation",
       "basis": "existing-source-comment",
       "original_range": [
@@ -69293,8 +69293,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-6db450a31a6b-InsertionPoint",
-      "output": "crates/hick-flow/src/insertion_point.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/insertion_point.rs.md",
+      "output": "crates/hick-exec/src/insertion_point.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/insertion_point.rs.md",
       "symbol": "InsertionPoint",
       "basis": "existing-source-comment",
       "original_range": [
@@ -69304,8 +69304,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-6db450a31a6b-impl-Default-for-InsertionPoint",
-      "output": "crates/hick-flow/src/insertion_point.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/insertion_point.rs.md",
+      "output": "crates/hick-exec/src/insertion_point.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/insertion_point.rs.md",
       "symbol": "impl-Default for InsertionPoint",
       "basis": "needs-explanation",
       "original_range": [
@@ -69315,8 +69315,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-6db450a31a6b-impl-InsertionPoint",
-      "output": "crates/hick-flow/src/insertion_point.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/insertion_point.rs.md",
+      "output": "crates/hick-exec/src/insertion_point.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/insertion_point.rs.md",
       "symbol": "impl-InsertionPoint",
       "basis": "needs-explanation",
       "original_range": [
@@ -69326,8 +69326,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-6db450a31a6b-impl-Node-for-InsertionPoint",
-      "output": "crates/hick-flow/src/insertion_point.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/insertion_point.rs.md",
+      "output": "crates/hick-exec/src/insertion_point.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/insertion_point.rs.md",
       "symbol": "impl-Node for InsertionPoint",
       "basis": "needs-explanation",
       "original_range": [
@@ -69336,163 +69336,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
       ]
     },
     {
-      "id": "f-084eb2e8cf67-combine_latest",
-      "output": "crates/hick-flow/src/lib.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/lib.rs.md",
-      "symbol": "combine_latest",
-      "basis": "existing-source-comment",
-      "original_range": [
-        0,
-        303
-      ]
-    },
-    {
-      "id": "f-084eb2e8cf67-context",
-      "output": "crates/hick-flow/src/lib.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/lib.rs.md",
-      "symbol": "context",
-      "basis": "needs-explanation",
-      "original_range": [
-        303,
-        320
-      ]
-    },
-    {
-      "id": "f-084eb2e8cf67-converge",
-      "output": "crates/hick-flow/src/lib.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/lib.rs.md",
-      "symbol": "converge",
-      "basis": "needs-explanation",
-      "original_range": [
-        320,
-        338
-      ]
-    },
-    {
-      "id": "f-084eb2e8cf67-insertion_point",
-      "output": "crates/hick-flow/src/lib.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/lib.rs.md",
-      "symbol": "insertion_point",
-      "basis": "needs-explanation",
-      "original_range": [
-        338,
-        363
-      ]
-    },
-    {
-      "id": "f-084eb2e8cf67-node",
-      "output": "crates/hick-flow/src/lib.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/lib.rs.md",
-      "symbol": "node",
-      "basis": "needs-explanation",
-      "original_range": [
-        363,
-        377
-      ]
-    },
-    {
-      "id": "f-084eb2e8cf67-provenance",
-      "output": "crates/hick-flow/src/lib.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/lib.rs.md",
-      "symbol": "provenance",
-      "basis": "needs-explanation",
-      "original_range": [
-        377,
-        397
-      ]
-    },
-    {
-      "id": "f-084eb2e8cf67-transform",
-      "output": "crates/hick-flow/src/lib.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/lib.rs.md",
-      "symbol": "transform",
-      "basis": "needs-explanation",
-      "original_range": [
-        397,
-        417
-      ]
-    },
-    {
-      "id": "f-084eb2e8cf67-use_declaration",
-      "output": "crates/hick-flow/src/lib.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/lib.rs.md",
-      "symbol": "use_declaration",
-      "basis": "needs-explanation",
-      "original_range": [
-        417,
-        463
-      ]
-    },
-    {
-      "id": "f-084eb2e8cf67-use_declaration-2",
-      "output": "crates/hick-flow/src/lib.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/lib.rs.md",
-      "symbol": "use_declaration",
-      "basis": "needs-explanation",
-      "original_range": [
-        463,
-        489
-      ]
-    },
-    {
-      "id": "f-084eb2e8cf67-use_declaration-3",
-      "output": "crates/hick-flow/src/lib.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/lib.rs.md",
-      "symbol": "use_declaration",
-      "basis": "needs-explanation",
-      "original_range": [
-        489,
-        565
-      ]
-    },
-    {
-      "id": "f-084eb2e8cf67-use_declaration-4",
-      "output": "crates/hick-flow/src/lib.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/lib.rs.md",
-      "symbol": "use_declaration",
-      "basis": "needs-explanation",
-      "original_range": [
-        565,
-        606
-      ]
-    },
-    {
-      "id": "f-084eb2e8cf67-use_declaration-5",
-      "output": "crates/hick-flow/src/lib.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/lib.rs.md",
-      "symbol": "use_declaration",
-      "basis": "needs-explanation",
-      "original_range": [
-        606,
-        760
-      ]
-    },
-    {
-      "id": "f-084eb2e8cf67-use_declaration-6",
-      "output": "crates/hick-flow/src/lib.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/lib.rs.md",
-      "symbol": "use_declaration",
-      "basis": "needs-explanation",
-      "original_range": [
-        760,
-        813
-      ]
-    },
-    {
-      "id": "f-084eb2e8cf67-use_declaration-7",
-      "output": "crates/hick-flow/src/lib.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/lib.rs.md",
-      "symbol": "use_declaration",
-      "basis": "needs-explanation",
-      "original_range": [
-        813,
-        923
-      ]
-    },
-    {
       "id": "f-90c967a2b659-SourceOrigin",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "SourceOrigin",
       "basis": "existing-source-comment",
       "original_range": [
@@ -69502,8 +69348,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-BoxStream",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "BoxStream",
       "basis": "needs-explanation",
       "original_range": [
@@ -69513,8 +69359,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-Node",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "Node",
       "basis": "existing-source-comment",
       "original_range": [
@@ -69524,8 +69370,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-NodeTrace",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "NodeTrace",
       "basis": "existing-source-comment",
       "original_range": [
@@ -69535,8 +69381,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-impl-NodeTrace",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "impl-NodeTrace",
       "basis": "needs-explanation",
       "original_range": [
@@ -69546,8 +69392,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-NodeValue",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "NodeValue",
       "basis": "existing-source-comment",
       "original_range": [
@@ -69557,8 +69403,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-BinaryData",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "BinaryData",
       "basis": "existing-source-comment",
       "original_range": [
@@ -69568,8 +69414,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-impl-BinaryData",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "impl-BinaryData",
       "basis": "needs-explanation",
       "original_range": [
@@ -69579,8 +69425,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-FileContent",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "FileContent",
       "basis": "needs-explanation",
       "original_range": [
@@ -69590,8 +69436,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-impl-FileContent",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "impl-FileContent",
       "basis": "needs-explanation",
       "original_range": [
@@ -69601,8 +69447,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-impl-PartialEq-str-for-FileContent",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "impl-PartialEq<str> for FileContent",
       "basis": "needs-explanation",
       "original_range": [
@@ -69612,8 +69458,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-impl-PartialEq-str-for-FileContent-2",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "impl-PartialEq<&str> for FileContent",
       "basis": "needs-explanation",
       "original_range": [
@@ -69623,8 +69469,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-impl-std-fmt-Display-for-FileContent",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "impl-std::fmt::Display for FileContent",
       "basis": "needs-explanation",
       "original_range": [
@@ -69634,8 +69480,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-impl-std-fmt-Debug-for-FileContent",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "impl-std::fmt::Debug for FileContent",
       "basis": "needs-explanation",
       "original_range": [
@@ -69645,8 +69491,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-BinaryNode",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "BinaryNode",
       "basis": "existing-source-comment",
       "original_range": [
@@ -69656,8 +69502,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-impl-BinaryNode",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "impl-BinaryNode",
       "basis": "needs-explanation",
       "original_range": [
@@ -69667,8 +69513,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-impl-Node-for-BinaryNode",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "impl-Node for BinaryNode",
       "basis": "needs-explanation",
       "original_range": [
@@ -69678,8 +69524,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-StringNode",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "StringNode",
       "basis": "existing-source-comment",
       "original_range": [
@@ -69689,8 +69535,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-impl-StringNode",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "impl-StringNode",
       "basis": "needs-explanation",
       "original_range": [
@@ -69700,8 +69546,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-impl-Node-for-StringNode",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "impl-Node for StringNode",
       "basis": "needs-explanation",
       "original_range": [
@@ -69711,8 +69557,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-SpanNode",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "SpanNode",
       "basis": "existing-source-comment",
       "original_range": [
@@ -69722,8 +69568,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-impl-SpanNode",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "impl-SpanNode",
       "basis": "needs-explanation",
       "original_range": [
@@ -69733,8 +69579,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-impl-Node-for-SpanNode",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "impl-Node for SpanNode",
       "basis": "needs-explanation",
       "original_range": [
@@ -69744,8 +69590,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-SeparatorNode",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "SeparatorNode",
       "basis": "existing-source-comment",
       "original_range": [
@@ -69755,8 +69601,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-impl-SeparatorNode",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "impl-SeparatorNode",
       "basis": "needs-explanation",
       "original_range": [
@@ -69766,8 +69612,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-90c967a2b659-impl-Node-for-SeparatorNode",
-      "output": "crates/hick-flow/src/node.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/node.rs.md",
+      "output": "crates/hick-exec/src/node.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/node.rs.md",
       "symbol": "impl-Node for SeparatorNode",
       "basis": "needs-explanation",
       "original_range": [
@@ -69777,7 +69623,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-a790430ed0b2-ProvenanceSpan",
-      "output": "crates/hick-flow/src/provenance.rs",
+      "output": "crates/hick-exec/src/provenance.rs",
       "page": ".hickory-source/guarantees/lineage/agent-lineage-degrades-without-a-session/contract.md",
       "symbol": "ProvenanceSpan",
       "basis": "existing-source-comment",
@@ -69788,7 +69634,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-a790430ed0b2-ProvenanceMap",
-      "output": "crates/hick-flow/src/provenance.rs",
+      "output": "crates/hick-exec/src/provenance.rs",
       "page": ".hickory-source/guarantees/lineage/agent-lineage-degrades-without-a-session/contract.md",
       "symbol": "ProvenanceMap",
       "basis": "existing-source-comment",
@@ -69799,7 +69645,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-a790430ed0b2-impl-ProvenanceMap",
-      "output": "crates/hick-flow/src/provenance.rs",
+      "output": "crates/hick-exec/src/provenance.rs",
       "page": ".hickory-source/guarantees/lineage/agent-lineage-degrades-without-a-session/contract.md",
       "symbol": "impl-ProvenanceMap",
       "basis": "needs-explanation",
@@ -69810,7 +69656,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-a790430ed0b2-tests",
-      "output": "crates/hick-flow/src/provenance.rs",
+      "output": "crates/hick-exec/src/provenance.rs",
       "page": ".hickory-source/guarantees/lineage/agent-lineage-degrades-without-a-session/contract.md",
       "symbol": "tests",
       "basis": "needs-explanation",
@@ -69821,8 +69667,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-88934a253aef-TransformNode",
-      "output": "crates/hick-flow/src/transform.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/transform.rs.md",
+      "output": "crates/hick-exec/src/transform.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/transform.rs.md",
       "symbol": "TransformNode",
       "basis": "existing-source-comment",
       "original_range": [
@@ -69832,8 +69678,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-88934a253aef-impl-TransformNode-F",
-      "output": "crates/hick-flow/src/transform.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/transform.rs.md",
+      "output": "crates/hick-exec/src/transform.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/transform.rs.md",
       "symbol": "impl-TransformNode<F>",
       "basis": "needs-explanation",
       "original_range": [
@@ -69843,8 +69689,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-88934a253aef-impl-Node-for-TransformNode-F",
-      "output": "crates/hick-flow/src/transform.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/transform.rs.md",
+      "output": "crates/hick-exec/src/transform.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/transform.rs.md",
       "symbol": "impl-Node for TransformNode<F>",
       "basis": "needs-explanation",
       "original_range": [
@@ -69854,8 +69700,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-88934a253aef-TransformSegment",
-      "output": "crates/hick-flow/src/transform.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/transform.rs.md",
+      "output": "crates/hick-exec/src/transform.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/transform.rs.md",
       "symbol": "TransformSegment",
       "basis": "existing-source-comment",
       "original_range": [
@@ -69865,8 +69711,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-88934a253aef-TransformSegmentOrigin",
-      "output": "crates/hick-flow/src/transform.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/transform.rs.md",
+      "output": "crates/hick-exec/src/transform.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/transform.rs.md",
       "symbol": "TransformSegmentOrigin",
       "basis": "needs-explanation",
       "original_range": [
@@ -69876,8 +69722,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-88934a253aef-narrowed",
-      "output": "crates/hick-flow/src/transform.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/transform.rs.md",
+      "output": "crates/hick-exec/src/transform.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/transform.rs.md",
       "symbol": "narrowed",
       "basis": "existing-source-comment",
       "original_range": [
@@ -69887,8 +69733,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-88934a253aef-ProvenanceTransformNode",
-      "output": "crates/hick-flow/src/transform.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/transform.rs.md",
+      "output": "crates/hick-exec/src/transform.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/transform.rs.md",
       "symbol": "ProvenanceTransformNode",
       "basis": "existing-source-comment",
       "original_range": [
@@ -69898,8 +69744,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-88934a253aef-impl-ProvenanceTransformNode-F",
-      "output": "crates/hick-flow/src/transform.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/transform.rs.md",
+      "output": "crates/hick-exec/src/transform.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/transform.rs.md",
       "symbol": "impl-ProvenanceTransformNode<F>",
       "basis": "needs-explanation",
       "original_range": [
@@ -69909,8 +69755,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-88934a253aef-impl-Node-for-ProvenanceTransformNode-F",
-      "output": "crates/hick-flow/src/transform.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/transform.rs.md",
+      "output": "crates/hick-exec/src/transform.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/transform.rs.md",
       "symbol": "impl-Node for ProvenanceTransformNode<F>",
       "basis": "needs-explanation",
       "original_range": [
@@ -69920,8 +69766,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-88934a253aef-narrowing_tests",
-      "output": "crates/hick-flow/src/transform.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/src/transform.rs.md",
+      "output": "crates/hick-exec/src/transform.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/src/transform.rs.md",
       "symbol": "narrowing_tests",
       "basis": "needs-explanation",
       "original_range": [
@@ -69931,8 +69777,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-node_trace_new_has_empty_trace",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "node_trace_new_has_empty_trace",
       "basis": "needs-explanation",
       "original_range": [
@@ -69942,8 +69788,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-node_trace_add_to_trace_preserves_final_result",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "node_trace_add_to_trace_preserves_final_result",
       "basis": "needs-explanation",
       "original_range": [
@@ -69953,8 +69799,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-node_trace_transform_changes_final_result",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "node_trace_transform_changes_final_result",
       "basis": "needs-explanation",
       "original_range": [
@@ -69964,8 +69810,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-node_trace_accumulates_multiple_entries",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "node_trace_accumulates_multiple_entries",
       "basis": "needs-explanation",
       "original_range": [
@@ -69975,8 +69821,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-node_trace_clone_is_independent",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "node_trace_clone_is_independent",
       "basis": "needs-explanation",
       "original_range": [
@@ -69986,8 +69832,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-node_trace_transform_then_add_to_trace",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "node_trace_transform_then_add_to_trace",
       "basis": "needs-explanation",
       "original_range": [
@@ -69997,8 +69843,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-node_trace_new_final_result_is_correct_arc",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "node_trace_new_final_result_is_correct_arc",
       "basis": "needs-explanation",
       "original_range": [
@@ -70008,8 +69854,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-string_node_emits_value",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "string_node_emits_value",
       "basis": "needs-explanation",
       "original_range": [
@@ -70019,8 +69865,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-string_node_as_string_value",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "string_node_as_string_value",
       "basis": "needs-explanation",
       "original_range": [
@@ -70030,8 +69876,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-string_node_stream_completes",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "string_node_stream_completes",
       "basis": "needs-explanation",
       "original_range": [
@@ -70041,8 +69887,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-string_node_empty_string",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "string_node_empty_string",
       "basis": "needs-explanation",
       "original_range": [
@@ -70052,8 +69898,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-string_node_is_not_separator",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "string_node_is_not_separator",
       "basis": "needs-explanation",
       "original_range": [
@@ -70063,8 +69909,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-string_node_with_stable_id",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "string_node_with_stable_id",
       "basis": "needs-explanation",
       "original_range": [
@@ -70074,8 +69920,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-separator_node_is_separator",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "separator_node_is_separator",
       "basis": "needs-explanation",
       "original_range": [
@@ -70085,8 +69931,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-separator_node_wraps_value",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "separator_node_wraps_value",
       "basis": "needs-explanation",
       "original_range": [
@@ -70096,8 +69942,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-separator_node_adds_self_to_trace",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "separator_node_adds_self_to_trace",
       "basis": "needs-explanation",
       "original_range": [
@@ -70107,8 +69953,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-separator_node_as_string_value_is_none",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "separator_node_as_string_value_is_none",
       "basis": "needs-explanation",
       "original_range": [
@@ -70118,8 +69964,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-insertion_point_empty_produces_output",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "insertion_point_empty_produces_output",
       "basis": "needs-explanation",
       "original_range": [
@@ -70129,8 +69975,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-insertion_point_single_child",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "insertion_point_single_child",
       "basis": "needs-explanation",
       "original_range": [
@@ -70140,8 +69986,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-insertion_point_concatenates_children",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "insertion_point_concatenates_children",
       "basis": "needs-explanation",
       "original_range": [
@@ -70151,8 +69997,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-insertion_point_with_separator",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "insertion_point_with_separator",
       "basis": "needs-explanation",
       "original_range": [
@@ -70162,8 +70008,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-insertion_point_trim_leading_separator",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "insertion_point_trim_leading_separator",
       "basis": "needs-explanation",
       "original_range": [
@@ -70173,8 +70019,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-insertion_point_nested",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "insertion_point_nested",
       "basis": "needs-explanation",
       "original_range": [
@@ -70184,8 +70030,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-insertion_point_dynamic_add",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "insertion_point_dynamic_add",
       "basis": "needs-explanation",
       "original_range": [
@@ -70195,8 +70041,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-insertion_point_dynamic_remove",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "insertion_point_dynamic_remove",
       "basis": "needs-explanation",
       "original_range": [
@@ -70206,8 +70052,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-insertion_point_close_is_idempotent",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "insertion_point_close_is_idempotent",
       "basis": "needs-explanation",
       "original_range": [
@@ -70217,8 +70063,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-insertion_point_deeply_nested",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "insertion_point_deeply_nested",
       "basis": "needs-explanation",
       "original_range": [
@@ -70228,8 +70074,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-insertion_point_never_complete_stays_open",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "insertion_point_never_complete_stays_open",
       "basis": "needs-explanation",
       "original_range": [
@@ -70239,8 +70085,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-insertion_point_adds_self_to_trace",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "insertion_point_adds_self_to_trace",
       "basis": "needs-explanation",
       "original_range": [
@@ -70251,7 +70097,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-c959154fc401-dcl_single_source_emits",
       "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/streams.rs.md",
       "symbol": "dcl_single_source_emits",
       "basis": "needs-explanation",
       "original_range": [
@@ -70262,7 +70108,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-c959154fc401-dcl_two_sources_combine",
       "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/streams.rs.md",
       "symbol": "dcl_two_sources_combine",
       "basis": "needs-explanation",
       "original_range": [
@@ -70273,7 +70119,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-c959154fc401-dcl_completes_on_quiescence",
       "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/streams.rs.md",
       "symbol": "dcl_completes_on_quiescence",
       "basis": "needs-explanation",
       "original_range": [
@@ -70284,7 +70130,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-c959154fc401-dcl_remove_source",
       "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/streams.rs.md",
       "symbol": "dcl_remove_source",
       "basis": "needs-explanation",
       "original_range": [
@@ -70295,7 +70141,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-c959154fc401-dcl_ordering_preserved",
       "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/streams.rs.md",
       "symbol": "dcl_ordering_preserved",
       "basis": "needs-explanation",
       "original_range": [
@@ -70306,7 +70152,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-c959154fc401-dcl_shutdown_ends_stream",
       "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/streams.rs.md",
       "symbol": "dcl_shutdown_ends_stream",
       "basis": "needs-explanation",
       "original_range": [
@@ -70317,7 +70163,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-c959154fc401-dcl_multi_value_stream",
       "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/streams.rs.md",
       "symbol": "dcl_multi_value_stream",
       "basis": "needs-explanation",
       "original_range": [
@@ -70328,7 +70174,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-c959154fc401-dcl_identity_combiner",
       "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/streams.rs.md",
       "symbol": "dcl_identity_combiner",
       "basis": "needs-explanation",
       "original_range": [
@@ -70339,7 +70185,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-c959154fc401-dcl_add_source_after_stream_started",
       "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/streams.rs.md",
       "symbol": "dcl_add_source_after_stream_started",
       "basis": "needs-explanation",
       "original_range": [
@@ -70350,7 +70196,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-c959154fc401-dcl_three_sources",
       "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/streams.rs.md",
       "symbol": "dcl_three_sources",
       "basis": "needs-explanation",
       "original_range": [
@@ -70360,8 +70206,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-context_default_has_no_extensions",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "context_default_has_no_extensions",
       "basis": "needs-explanation",
       "original_range": [
@@ -70371,8 +70217,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-context_extension_roundtrip",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "context_extension_roundtrip",
       "basis": "needs-explanation",
       "original_range": [
@@ -70382,8 +70228,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-context_multiple_extension_types",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "context_multiple_extension_types",
       "basis": "needs-explanation",
       "original_range": [
@@ -70393,8 +70239,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-context_extension_overwrite",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "context_extension_overwrite",
       "basis": "needs-explanation",
       "original_range": [
@@ -70404,8 +70250,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-context_clone_preserves_extensions",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "context_clone_preserves_extensions",
       "basis": "needs-explanation",
       "original_range": [
@@ -70415,8 +70261,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-context_verbose_flag",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "context_verbose_flag",
       "basis": "needs-explanation",
       "original_range": [
@@ -70426,8 +70272,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-transform_uppercase",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "transform_uppercase",
       "basis": "needs-explanation",
       "original_range": [
@@ -70437,8 +70283,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-transform_replace",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "transform_replace",
       "basis": "needs-explanation",
       "original_range": [
@@ -70448,8 +70294,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-transform_records_in_trace",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "transform_records_in_trace",
       "basis": "needs-explanation",
       "original_range": [
@@ -70459,8 +70305,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-transform_nested",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "transform_nested",
       "basis": "needs-explanation",
       "original_range": [
@@ -70470,8 +70316,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-transform_identity",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "transform_identity",
       "basis": "needs-explanation",
       "original_range": [
@@ -70481,8 +70327,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-transform_empty_children",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "transform_empty_children",
       "basis": "needs-explanation",
       "original_range": [
@@ -70492,8 +70338,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-transform_with_separator",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "transform_with_separator",
       "basis": "needs-explanation",
       "original_range": [
@@ -70503,8 +70349,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-transform_multiple_children",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "transform_multiple_children",
       "basis": "needs-explanation",
       "original_range": [
@@ -70514,8 +70360,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-transform_label",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "transform_label",
       "basis": "needs-explanation",
       "original_range": [
@@ -70525,8 +70371,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-converge_single_string",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "converge_single_string",
       "basis": "needs-explanation",
       "original_range": [
@@ -70536,8 +70382,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-converge_concatenation",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "converge_concatenation",
       "basis": "needs-explanation",
       "original_range": [
@@ -70547,8 +70393,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-converge_with_separator",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "converge_with_separator",
       "basis": "needs-explanation",
       "original_range": [
@@ -70558,8 +70404,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-converge_nested",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "converge_nested",
       "basis": "needs-explanation",
       "original_range": [
@@ -70569,8 +70415,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-converge_with_transform",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "converge_with_transform",
       "basis": "needs-explanation",
       "original_range": [
@@ -70580,8 +70426,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-converge_empty",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "converge_empty",
       "basis": "needs-explanation",
       "original_range": [
@@ -70591,8 +70437,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-converge_separator_single_child",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "converge_separator_single_child",
       "basis": "needs-explanation",
       "original_range": [
@@ -70602,8 +70448,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-integration_full_document_tree",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "integration_full_document_tree",
       "basis": "needs-explanation",
       "original_range": [
@@ -70613,8 +70459,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-integration_transform_chain",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "integration_transform_chain",
       "basis": "needs-explanation",
       "original_range": [
@@ -70624,8 +70470,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-integration_deep_provenance",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "integration_deep_provenance",
       "basis": "needs-explanation",
       "original_range": [
@@ -70635,8 +70481,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-integration_concurrent_add_remove",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "integration_concurrent_add_remove",
       "basis": "needs-explanation",
       "original_range": [
@@ -70646,8 +70492,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-integration_context_extension_flow",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "integration_context_extension_flow",
       "basis": "needs-explanation",
       "original_range": [
@@ -70657,8 +70503,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-span_node_has_string_value",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "span_node_has_string_value",
       "basis": "needs-explanation",
       "original_range": [
@@ -70668,8 +70514,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-span_node_returns_source_origin",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "span_node_returns_source_origin",
       "basis": "needs-explanation",
       "original_range": [
@@ -70679,8 +70525,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-span_node_converges_like_string_node",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "span_node_converges_like_string_node",
       "basis": "needs-explanation",
       "original_range": [
@@ -70690,8 +70536,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-span_node_in_insertion_point",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "span_node_in_insertion_point",
       "basis": "needs-explanation",
       "original_range": [
@@ -70701,8 +70547,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-converge_with_provenance_tracks_span_nodes",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "converge_with_provenance_tracks_span_nodes",
       "basis": "needs-explanation",
       "original_range": [
@@ -70712,8 +70558,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-converge_with_provenance_plain_string_nodes_get_synthetic",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "converge_with_provenance_plain_string_nodes_get_synthetic",
       "basis": "needs-explanation",
       "original_range": [
@@ -70723,8 +70569,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "f-c959154fc401-converge_with_provenance_mixed_nodes",
-      "output": "crates/hick-flow/tests/flow_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/flow_tests.rs.md",
+      "output": "crates/hick-exec/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-exec/tests/flow_tests.rs.md",
       "symbol": "converge_with_provenance_mixed_nodes",
       "basis": "needs-explanation",
       "original_range": [
@@ -148147,6 +147993,13 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/apps/web/e2e/staticLanguage.spec.ts.md",
       "symbol": "Drive the static reader through captured language answers",
       "basis": "explained-decision"
+    },
+    {
+      "id": "stream-test-imports",
+      "output": "crates/hick-flow/tests/flow_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-flow/tests/streams.rs.md",
+      "symbol": "imports",
+      "basis": "explained stream-library test boundary"
     }
   ],
   "explanation_gaps": {
@@ -154906,10 +154759,10 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "DynamicCombineLatestStream",
       "impl-Stream for DynamicCombineLatestStream<TSource, TResult>"
     ],
-    "crates/hick-flow/src/context.rs": [
+    "crates/hick-exec/src/context.rs": [
       "impl-Context"
     ],
-    "crates/hick-flow/src/insertion_point.rs": [
+    "crates/hick-exec/src/insertion_point.rs": [
       "impl-Default for InsertionPoint",
       "impl-InsertionPoint",
       "impl-Node for InsertionPoint"
@@ -154929,7 +154782,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "use_declaration",
       "use_declaration"
     ],
-    "crates/hick-flow/src/node.rs": [
+    "crates/hick-exec/src/node.rs": [
       "BoxStream",
       "impl-NodeTrace",
       "impl-BinaryData",
@@ -154948,11 +154801,11 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "impl-SeparatorNode",
       "impl-Node for SeparatorNode"
     ],
-    "crates/hick-flow/src/provenance.rs": [
+    "crates/hick-exec/src/provenance.rs": [
       "impl-ProvenanceMap",
       "tests"
     ],
-    "crates/hick-flow/src/transform.rs": [
+    "crates/hick-exec/src/transform.rs": [
       "impl-TransformNode<F>",
       "impl-Node for TransformNode<F>",
       "TransformSegmentOrigin",

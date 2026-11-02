@@ -1,12 +1,15 @@
 <storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
-# Maintain crates/hick-flow/src/insertion_point.rs
+# Maintain crates/hick-exec/src/insertion_point.rs
 
 For: maintainers changing this mechanism and reviewing the contracts that depend on it.
 
-This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
+Document construction needs ordered children, separators and node traces.
+Build those semantics on DynamicCombineLatest rather than teaching the combiner
+about document nodes.
+Existing fragment-level explanation gaps remain recorded in the review ledger.
 
 <a id="output-6db450a31a6b"></a>
-## `crates/hick-flow/src/insertion_point.rs`
+## `crates/hick-exec/src/insertion_point.rs`
 
 <a id="f-6db450a31a6b-Operation"></a>
 ### `Operation`
@@ -280,10 +283,10 @@ impl Node for InsertionPoint {
 }
 </storycode:copy>
 
-### Assemble `crates/hick-flow/src/insertion_point.rs`
+### Assemble `crates/hick-exec/src/insertion_point.rs`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-flow/src/insertion_point.rs"><storycode:paste select="#f-6db450a31a6b-Operation"/><storycode:paste select="#f-6db450a31a6b-InsertionPoint"/><storycode:paste select="#f-6db450a31a6b-impl-Default-for-InsertionPoint"/><storycode:paste select="#f-6db450a31a6b-impl-InsertionPoint"/><storycode:paste select="#f-6db450a31a6b-impl-Node-for-InsertionPoint"/></storycode:file>
+<storycode:file path="crates/hick-exec/src/insertion_point.rs"><storycode:paste select="#f-6db450a31a6b-Operation"/><storycode:paste select="#f-6db450a31a6b-InsertionPoint"/><storycode:paste select="#f-6db450a31a6b-impl-Default-for-InsertionPoint"/><storycode:paste select="#f-6db450a31a6b-impl-InsertionPoint"/><storycode:paste select="#f-6db450a31a6b-impl-Node-for-InsertionPoint"/></storycode:file>
 
 </storycode:doc>

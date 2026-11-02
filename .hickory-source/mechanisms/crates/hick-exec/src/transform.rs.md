@@ -1,12 +1,14 @@
 <storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
-# Maintain crates/hick-flow/src/transform.rs
+# Maintain crates/hick-exec/src/transform.rs
 
 For: maintainers changing this mechanism and reviewing the contracts that depend on it.
 
-This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
+A document transformation must preserve or deliberately narrow byte origins.
+Keep those span rules in the document adapter; stream composition remains generic.
+Existing fragment-level explanation gaps remain recorded in the review ledger.
 
 <a id="output-88934a253aef"></a>
-## `crates/hick-flow/src/transform.rs`
+## `crates/hick-exec/src/transform.rs`
 
 Related contracts: [A Rewritten Link Keeps Its Paragraph Attached](../../../../guarantees/lineage/a-rewritten-link-keeps-its-paragraph-attached/contract.md), [Ingested Bytes Are Editable And Never Report As Yours](../../../../guarantees/lineage/ingested-bytes-are-not-yours/contract.md).
 
@@ -435,10 +437,10 @@ mod narrowing_tests {
 }
 </storycode:copy>
 
-### Assemble `crates/hick-flow/src/transform.rs`
+### Assemble `crates/hick-exec/src/transform.rs`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-flow/src/transform.rs"><storycode:paste select="#f-88934a253aef-TransformNode"/><storycode:paste select="#f-88934a253aef-impl-TransformNode-F"/><storycode:paste select="#f-88934a253aef-impl-Node-for-TransformNode-F"/><storycode:paste select="#f-88934a253aef-TransformSegment"/><storycode:paste select="#f-88934a253aef-TransformSegmentOrigin"/><storycode:paste select="#f-88934a253aef-narrowed"/><storycode:paste select="#f-88934a253aef-ProvenanceTransformNode"/><storycode:paste select="#f-88934a253aef-impl-ProvenanceTransformNode-F"/><storycode:paste select="#f-88934a253aef-impl-Node-for-ProvenanceTransformNode-F"/><storycode:paste select="#f-88934a253aef-narrowing_tests"/></storycode:file>
+<storycode:file path="crates/hick-exec/src/transform.rs"><storycode:paste select="#f-88934a253aef-TransformNode"/><storycode:paste select="#f-88934a253aef-impl-TransformNode-F"/><storycode:paste select="#f-88934a253aef-impl-Node-for-TransformNode-F"/><storycode:paste select="#f-88934a253aef-TransformSegment"/><storycode:paste select="#f-88934a253aef-TransformSegmentOrigin"/><storycode:paste select="#f-88934a253aef-narrowed"/><storycode:paste select="#f-88934a253aef-ProvenanceTransformNode"/><storycode:paste select="#f-88934a253aef-impl-ProvenanceTransformNode-F"/><storycode:paste select="#f-88934a253aef-impl-Node-for-ProvenanceTransformNode-F"/><storycode:paste select="#f-88934a253aef-narrowing_tests"/></storycode:file>
 
 </storycode:doc>

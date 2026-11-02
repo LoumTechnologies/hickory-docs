@@ -3199,9 +3199,12 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "hick-condition",
+ "hick-exec",
  "hick-flow",
  "hick-lang",
  "log",
+ "serde",
+ "serde_json",
  "thiserror 2.0.19",
  "tokio",
  "tokio-stream",
@@ -3220,13 +3223,7 @@ name = "hick-flow"
 version = "0.1.0"
 dependencies = [
  "futures",
- "hick-flow",
- "hick-lang",
- "log",
- "serde",
- "serde_json",
  "tokio",
- "tokio-stream",
  "tokio-util",
 ]
 
@@ -3249,7 +3246,7 @@ dependencies = [
  "anyhow",
  "async-stream",
  "futures",
- "hick-flow",
+ "hick-exec",
  "log",
  "quick-xml 0.37.5",
  "rusqlite",
@@ -3600,7 +3597,6 @@ dependencies = [
  "hick-coverage",
  "hick-dap",
  "hick-exec",
- "hick-flow",
  "hick-formula",
  "hick-lang",
  "hick-literate",
@@ -3754,7 +3750,7 @@ dependencies = [
 name = "hickory-lineage"
 version = "0.1.0"
 dependencies = [
- "hick-flow",
+ "hick-exec",
  "hick-lang",
  "hick-plugins",
  "serde",

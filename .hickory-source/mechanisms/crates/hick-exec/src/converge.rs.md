@@ -1,12 +1,14 @@
 <storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
-# Maintain crates/hick-flow/src/converge.rs
+# Maintain crates/hick-exec/src/converge.rs
 
 For: maintainers changing this mechanism and reviewing the contracts that depend on it.
 
-This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
+A document must turn its final node emission into text, binary files or byte
+origins. These output choices belong to hick-exec, not to stream coordination.
+Existing fragment-level explanation gaps remain recorded in the review ledger.
 
 <a id="output-ce4cf4d8baa9"></a>
-## `crates/hick-flow/src/converge.rs`
+## `crates/hick-exec/src/converge.rs`
 
 <a id="f-ce4cf4d8baa9-converge_to_string"></a>
 ### `converge_to_string`
@@ -173,10 +175,10 @@ pub async fn converge_with_provenance(
 }
 </storycode:copy>
 
-### Assemble `crates/hick-flow/src/converge.rs`
+### Assemble `crates/hick-exec/src/converge.rs`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-flow/src/converge.rs"><storycode:paste select="#f-ce4cf4d8baa9-converge_to_string"/><storycode:paste select="#f-ce4cf4d8baa9-converge"/><storycode:paste select="#f-ce4cf4d8baa9-converge_with_provenance"/></storycode:file>
+<storycode:file path="crates/hick-exec/src/converge.rs"><storycode:paste select="#f-ce4cf4d8baa9-converge_to_string"/><storycode:paste select="#f-ce4cf4d8baa9-converge"/><storycode:paste select="#f-ce4cf4d8baa9-converge_with_provenance"/></storycode:file>
 
 </storycode:doc>

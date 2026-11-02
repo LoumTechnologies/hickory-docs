@@ -1,12 +1,17 @@
 //! Execution engine for `.md` files.
 //!
-//! Ports `DynamicCombineLatest`, `Node`, `InsertionPoint`, and related types from
-//! HickoryDocs, and adds information-flow DAG construction and validation.
+//! Specializes hick-flow streams into document nodes, provenance and file values,
+//! and builds and validates the execution dependency graph.
 
 pub mod combine_latest;
+pub mod context;
+pub mod converge;
 pub mod dag;
+pub mod insertion_point;
 pub mod node;
+pub mod provenance;
 pub mod state;
+pub mod transform;
 pub mod volume;
 
 /// Combines multiple async streams, emitting the latest merged value whenever any source updates.
@@ -38,6 +43,11 @@ pub use dag::FlowDag;
 
 /// Type-erased pinned async `Stream` used throughout the node graph.
 pub use node::BoxStream;
+pub use node::{
+    BinaryData, BinaryNode, FileContent, NodeValue, ProvenanceMap, ProvenanceSpan,
+    ProvenanceTransformNode, SourceOrigin, SpanNode, TransformSegment, TransformSegmentOrigin,
+    converge, converge_with_provenance,
+};
 
 /// Per-evaluation context passed through the reactive node graph.
 pub use node::Context;

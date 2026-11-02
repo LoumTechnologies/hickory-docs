@@ -27,8 +27,8 @@
 //! - [`plugin::NamespaceHandler`] — trait for event-driven handlers keyed by
 //!   namespace URI.
 //! - [`plugin::NamespaceRegistry`] — registry mapping namespace URIs to handlers.
-//! - [`node_bridge::YrsElementNode`] — bridges a Yrs element into hick-flow's
-//!   reactive [`Node`](hick_flow::Node) system via `tokio::sync::watch`.
+//! - [`node_bridge::YrsElementNode`] — bridges a Yrs element into hick-exec's
+//!   reactive [`Node`](hick_exec::Node) system via `tokio::sync::watch`.
 //!
 //! # Example
 //!

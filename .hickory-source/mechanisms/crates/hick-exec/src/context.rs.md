@@ -1,12 +1,14 @@
 <storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
-# Maintain crates/hick-flow/src/context.rs
+# Maintain crates/hick-exec/src/context.rs
 
 For: maintainers changing this mechanism and reviewing the contracts that depend on it.
 
-This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
+The document graph passes evaluation state between nodes. Keep that state in
+hick-exec; the stream combiner needs only the typed values and closure it receives.
+Existing fragment-level explanation gaps remain recorded in the review ledger.
 
 <a id="output-752ff414d219"></a>
-## `crates/hick-flow/src/context.rs`
+## `crates/hick-exec/src/context.rs`
 
 <a id="f-752ff414d219-Context"></a>
 ### `Context`
@@ -14,14 +16,14 @@ This page owns the output construction and the explained fragments below. Source
 Execution context with type-erased extension map.
 `Context` is passed to every `Node::get_stream` call. Domain-specific state
 (e.g. `MultiDocumentState`) can be stored as an extension using the TypeMap
-pattern, keeping this crate free of domain dependencies.
+pattern, keeping application state out of the stream-combining algorithm.
 
 <storycode:copy id="f-752ff414d219-Context">
 //! Execution context with type-erased extension map.
 //!
 //! `Context` is passed to every `Node::get_stream` call. Domain-specific state
 //! (e.g. `MultiDocumentState`) can be stored as an extension using the TypeMap
-//! pattern, keeping this crate free of domain dependencies.
+//! pattern, keeping application state out of the stream-combining algorithm.
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -64,10 +66,10 @@ impl Context {
 }
 </storycode:copy>
 
-### Assemble `crates/hick-flow/src/context.rs`
+### Assemble `crates/hick-exec/src/context.rs`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-flow/src/context.rs"><storycode:paste select="#f-752ff414d219-Context"/><storycode:paste select="#f-752ff414d219-impl-Context"/></storycode:file>
+<storycode:file path="crates/hick-exec/src/context.rs"><storycode:paste select="#f-752ff414d219-Context"/><storycode:paste select="#f-752ff414d219-impl-Context"/></storycode:file>
 
 </storycode:doc>

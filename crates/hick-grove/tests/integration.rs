@@ -416,7 +416,7 @@ mod tasks_tests {
 #[tokio::test]
 async fn test_yrs_element_node_emits_snapshots() {
     use futures::StreamExt;
-    use hick_flow::{Context, Node};
+    use hick_exec::{Context, Node};
     use hick_grove::node_bridge::{ElementSnapshot, ElementSnapshotSender, YrsElementNode};
 
     let initial = ElementSnapshot {

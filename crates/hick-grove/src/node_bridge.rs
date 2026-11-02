@@ -1,7 +1,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use hick_flow::{BoxStream, Context, Node, NodeTrace, StringNode};
+use hick_exec::{BoxStream, Context, Node, NodeTrace, StringNode};
 use tokio::sync::watch;
 
 use crate::namespace::NamespaceUri;
@@ -40,7 +40,7 @@ impl ElementSnapshot {
     }
 }
 
-/// A hick-flow `Node` backed by a `tokio::sync::watch` channel.
+/// A hick-exec `Node` backed by a `tokio::sync::watch` channel.
 ///
 /// Each Yrs change pushes a new `ElementSnapshot` into the watch channel.
 /// `get_stream()` yields `NodeTrace` batches from the watch receiver,

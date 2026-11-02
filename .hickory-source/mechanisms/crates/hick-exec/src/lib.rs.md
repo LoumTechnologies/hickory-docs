@@ -18,28 +18,33 @@ HickoryDocs, and adds information-flow DAG construction and validation.
 <storycode:copy id="f-2f730ff897ea-combine_latest">
 //! Execution engine for `.md` files.
 //!
-//! Ports `DynamicCombineLatest`, `Node`, `InsertionPoint`, and related types from
-//! HickoryDocs, and adds information-flow DAG construction and validation.
+//! Specializes hick-flow streams into document nodes, provenance and file values,
+//! and builds and validates the execution dependency graph.
 
 pub mod combine_latest;
+pub mod context;
+pub mod converge;
 </storycode:copy>
 <a id="f-2f730ff897ea-dag"></a>
 ### `dag`
 
 <storycode:copy id="f-2f730ff897ea-dag">
 pub mod dag;
+pub mod insertion_point;
 </storycode:copy>
 <a id="f-2f730ff897ea-node"></a>
 ### `node`
 
 <storycode:copy id="f-2f730ff897ea-node">
 pub mod node;
+pub mod provenance;
 </storycode:copy>
 <a id="f-2f730ff897ea-state"></a>
 ### `state`
 
 <storycode:copy id="f-2f730ff897ea-state">
 pub mod state;
+pub mod transform;
 </storycode:copy>
 <a id="f-2f730ff897ea-volume"></a>
 ### `volume`
@@ -146,6 +151,11 @@ Type-erased pinned async `Stream` used throughout the node graph.
 <storycode:copy id="f-2f730ff897ea-use_declaration-10">
 /// Type-erased pinned async `Stream` used throughout the node graph.
 pub use node::BoxStream;
+pub use node::{
+    BinaryData, BinaryNode, FileContent, NodeValue, ProvenanceMap, ProvenanceSpan,
+    ProvenanceTransformNode, SourceOrigin, SpanNode, TransformSegment, TransformSegmentOrigin,
+    converge, converge_with_provenance,
+};
 
 </storycode:copy>
 <a id="f-2f730ff897ea-use_declaration-11"></a>

@@ -4159,10 +4159,10 @@ use text::{apply_exclusions, apply_substitutions_segmented, interpolate_path};
 <a id="f-e099e80d2a99-apply_substitutions_segmented_to_transform"></a>
 ### `apply_substitutions_segmented_to_transform`
 
-Bridge from `text::TransformSegment` to `hick_flow::TransformSegment`.
+Bridge from `text::TransformSegment` to `hick_exec::TransformSegment`.
 
 <storycode:copy id="f-e099e80d2a99-apply_substitutions_segmented_to_transform">
-/// Bridge from `text::TransformSegment` to `hick_flow::TransformSegment`.
+/// Bridge from `text::TransformSegment` to `hick_exec::TransformSegment`.
 pub(crate) fn apply_substitutions_segmented_to_transform(
     text: &str,
     state: &MultiDocumentState,

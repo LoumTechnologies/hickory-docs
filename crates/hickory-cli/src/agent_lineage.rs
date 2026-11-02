@@ -1,6 +1,6 @@
 //! Rendering lineage for agent-authored bytes.
 //!
-//! `SourceOrigin::Agent { session, turn }` (`hick-flow`) says *which session
+//! `SourceOrigin::Agent { session, turn }` (`hick-exec`) says *which session
 //! and turn* produced a byte, and deliberately says nothing about *who*.
 //! Authorship composes instead: lineage maps the byte to a document span, and
 //! `git blame` on that span gives the commit author — anchored in a commit,

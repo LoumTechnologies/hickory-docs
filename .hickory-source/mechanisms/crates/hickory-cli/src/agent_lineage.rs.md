@@ -14,7 +14,7 @@ Related contracts: [Agent-Authored Bytes Always Report Session, Turn, And A Git-
 ### `Authorship`
 
 Rendering lineage for agent-authored bytes.
-`SourceOrigin::Agent { session, turn }` (`hick-flow`) says *which session
+`SourceOrigin::Agent { session, turn }` (`hick-exec`) says *which session
 and turn* produced a byte, and deliberately says nothing about *who*.
 Authorship composes instead: lineage maps the byte to a document span, and
 `git blame` on that span gives the commit author — anchored in a commit,
@@ -34,7 +34,7 @@ Protects `docs/guarantees/lineage/agent-lineage-degrades-without-a-session.md`.
 <storycode:copy id="f-7b65c6db8d7c-Authorship">
 //! Rendering lineage for agent-authored bytes.
 //!
-//! `SourceOrigin::Agent { session, turn }` (`hick-flow`) says *which session
+//! `SourceOrigin::Agent { session, turn }` (`hick-exec`) says *which session
 //! and turn* produced a byte, and deliberately says nothing about *who*.
 //! Authorship composes instead: lineage maps the byte to a document span, and
 //! `git blame` on that span gives the commit author — anchored in a commit,

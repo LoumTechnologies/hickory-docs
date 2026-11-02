@@ -12,7 +12,7 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
 
-use hick_flow::{ProvenanceMap, ProvenanceSpan, SourceOrigin};
+use hick_exec::{ProvenanceMap, ProvenanceSpan, SourceOrigin};
 use hick_lang::SourceSpan;
 use hickory_cli::agent_lineage::{self, Authorship, Reasoning};
 

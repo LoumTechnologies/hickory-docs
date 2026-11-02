@@ -22,4 +22,10 @@ Follow the named module below to its maintained code, original rationale and rel
 - [`crates/hick-exec/src/node.rs`](src/node.rs.md)
 <storycode:include file="src/node.rs.md" />
 
+<storycode:include file="src/context.rs.md" />
+<storycode:include file="src/converge.rs.md" />
+<storycode:include file="src/insertion_point.rs.md" />
+<storycode:include file="src/transform.rs.md" />
+<storycode:include file="tests/flow_tests.rs.md" />
+
 </storycode:doc>
