@@ -7,24 +7,8 @@ For maintainers preserving immutable scaffold captures while editing authored ch
 
 One fingerprint covers a sorted set of paths and literal UTF-8 bytes. Length prefixes prevent a path/content boundary from producing the same digest. Reuse the original ingestion format so authentic captures keep their hashes.
 
-<storycode:copy id="immutable-scaffold-fingerprint">
-//! Captured scaffold files are an immutable, self-contained base for patches.
-use crate::{HickDocument, HickNode};
-use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+The tutorial builds this part in [the construction step](../../../../02-scaffolds.md#immutable-scaffold-fingerprint).
 
-/// Hash the captured paths and bytes, never a cache key or a generator command.
-pub fn scaffold_fingerprint(files: &BTreeMap<String, String>) -> String {
-    let mut hasher = Sha256::new();
-    for (path, content) in files {
-        hasher.update((path.len() as u64).to_le_bytes());
-        hasher.update(path.as_bytes());
-        hasher.update((content.len() as u64).to_le_bytes());
-        hasher.update(content.as_bytes());
-    }
-    format!("{:x}", hasher.finalize())
-}
-</storycode:copy>
 
 ## verify
 

@@ -99,4 +99,34 @@ Rust-toolchain bytes were unchanged. The selection was updated after that review
 and all seven existing focused publication tests plus the real selected-example
 publisher passed. The publisher's changed-input refusal remains active.
 
+## Build-tutorial narrative and document-only reader
+
+The six core chapters now teach the construction sequence rather than present a
+component tour. Sixteen existing implementation and test fragments moved into the
+steps that explain their decisions, retaining fragment IDs and output assembly.
+The ownership ledger records the new locations. The literate-source skill now
+requires this tutorial approach and the restrained hosted reading surface.
+
+The hosted reader keeps only a left files pane and breadcrumbs around the shared
+read-only document renderer. Its own prose links navigate the tutorial; Markdown
+link syntax and standalone fragment anchors render without changing source text.
+Code and literal examples remain verbatim. Six focused component and link tests,
+TypeScript checking, skill validation and the production site build passed during
+implementation. Chromium exercised in-document links, files, breadcrumbs, actual
+owned tutorial code, folded scaffolds, reload, fragment anchors and mobile layout;
+the local receipt is `target/dogfood/tutorial-reader-browser.json`.
+
+Output comparison against the starting commit preserves every generated Rust,
+native-host and code-model byte. Intentional output changes are the skill, hosted
+reader and tests, operator documentation and ownership metadata; the new link
+extension and its tests are added outputs. Complete reconstruction and comparison
+receipts are retained locally under `target/dogfood/tutorial-*`. Existing fragment
+explanation gaps remain explicit; the core tutorial does not claim that every
+historical asset or inherited module has been rewritten.
+
+The native inventory check found site build output and Python import caches.
+`project.md` now declares only those specific additional artifact exclusions;
+unrelated unconstructed files still refuse verification. Broad regressions and
+post-commit monitoring remain the maintainer's responsibility.
+
 </book:doc>

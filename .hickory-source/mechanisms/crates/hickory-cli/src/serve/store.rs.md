@@ -492,38 +492,8 @@ The selections below preserve the original byte order. Narrative reading order d
 
 Both direct saves and collaborative saves must preserve existing captures, even if a caller rewrites their hashes. Keep the generic atomic writer for arbitrary bytes; route Markdown writes through this narrower guard. Permit incomplete prose/source syntax around an intact capture so normal typing is not disabled.
 
-<storycode:copy id="immutable-scaffold-write-document">
-pub fn write_document(path: &Path, source: &str) -> Result<()> {
-    let previous = match std::fs::read_to_string(path) {
-        Ok(previous) => previous,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(error) => return Err(error.into()),
-    };
-    hick_lang::preserve_scaffolds(&previous, source).map_err(anyhow::Error::msg)?;
-    write_atomic(path, source.as_bytes())
-}
+The tutorial builds this part in [the construction step](../../../../../05-saving.md#immutable-scaffold-write-document).
 
-#[cfg(test)]
-#[test]
-fn immutable_scaffold_save_refuses_rehash_without_touching_disk() {
-    let root = tempfile::tempdir().unwrap();
-    let path = root.path().join("source.md");
-    let base =
-        "<hick:ingested sha256=\"base\"><hick:file path=\"x\">old</hick:file></hick:ingested>";
-    write_document(&path, base).unwrap();
-    let tampered = base.replace("old", "new").replace("base", "new-hash");
-    assert!(
-        write_document(&path, &tampered)
-            .unwrap_err()
-            .to_string()
-            .contains("Immutable")
-    );
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), base);
-    let with_prose = format!("{base}\n<hick:copy");
-    write_document(&path, &with_prose).unwrap();
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), with_prose);
-}
-</storycode:copy>
 
 <storycode:file path="crates/hickory-cli/src/serve/store.rs"><storycode:paste select="#f-60e6f71bfd5c-DocIndex"/><storycode:paste select="#f-60e6f71bfd5c-impl-DocIndex"/><storycode:paste select="#f-60e6f71bfd5c-doc_id"/><storycode:paste select="#f-60e6f71bfd5c-FileDocStore"/><storycode:paste select="#f-60e6f71bfd5c-impl-FileDocStore"/><storycode:paste select="#f-60e6f71bfd5c-impl-DocStore-for-FileDocStore"/><storycode:paste select="#f-60e6f71bfd5c-write_atomic"/><storycode:paste select="#f-60e6f71bfd5c-tests"/><storycode:paste select="#immutable-scaffold-write-document"/></storycode:file>
 

@@ -1,41 +1,74 @@
 <book:doc xmlns:book="http://www.hickorydocs.com/1.0">
-# Assemble the application and select its checks
+# 6. Assemble and check the application
 
-For engineers connecting the core engine to its user-facing hosts.
+We have the construction engine, native execution, editing and persistence.
+Now connect them to the entry points an engineer uses. Keep one shared language
+and project model beneath the command line, browser and desktop hosts.
 
-The same language and project model support the command line, browser and desktop.
-Finish construction at those boundaries, then select focused checks and distribution
-policy. The rest of each host remains in the component reference.
+## Give the tool one command-line entry
 
-## Start the application through hick
+Use Clap to parse the public `hick` interface. Keep the default launch behavior
+and explicit subcommands in the same parser, then delegate startup to the platform
+main-thread boundary. Repository-only dogfood checks stay in their own scripts.
 
-The binary parses the product command surface and dispatches into shared implementations. Repo-specific dogfood checks remain outside this command enum. Read a command's argument type beside its dispatch before changing defaults or execution behavior.
+<a id="f-5607f2721a2d-Cli"></a>
+<book:copy id="f-5607f2721a2d-Cli">
+#[derive(Parser)]
+#[command(
+    name = "hick",
+    version = main_thread::VERSION,
+    about = "Open Hickory Docs or run, test, and weave executable documents",
+    after_help = "Launch the editor: hick | hick . | hick notes.md\nUse hick open <path> for a path with the same name as a command."
+)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
 
+</book:copy>
+
+<a id="f-5607f2721a2d-main"></a>
+<book:copy id="f-5607f2721a2d-main">
+fn main() -> ExitCode {
+    main_thread::main_exit()
+}
+
+</book:copy>
+
+Add the subcommand dispatch and handlers in the CLI assembly:
 <book:include file="mechanisms/crates/hickory-cli/src/main.rs.md" />
 
-## Mount the shared browser application
+## Compose the editor in its two application hosts
 
-The browser host composes the document workspace and its application state. Document editing and generated-output editing use the shared components from the editing chapter rather than separate language implementations.
+Mount the shared document workspace in the browser application. Wrap that same
+application with Tauri for windows, OS events and the local engine lifecycle.
+The native host supplies platform behavior rather than a second parser or editor.
 
 <book:include file="mechanisms/apps/web/src/App.tsx.md" />
-
-## Host the same application on desktop
-
-The Tauri boundary owns native windows, OS events and the local engine lifecycle. It supplies host behavior around the shared web application, rather than a second editor or construction engine.
-
 <book:include file="mechanisms/apps/desktop/src-tauri/src/lib.rs.md" />
 
-## Select evidence beside the behavior
+## Build the complete construction and select its evidence
 
-The CI policy constructs its actual JSON input below. Check definitions remain
-beside the behavior they validate; selecting an ID does not establish a passing
-run. Follow the [release contracts](guarantees/release/index.md) when publishing
-a build. Broad regression execution and post-commit monitoring remain separate
-from this narrative-only refactor.
+Materialize the complete Markdown closure before building. These chapters teach
+the final implementation in dependency order; they do not claim that an isolated
+chapter is a separately compiling intermediate release. Run the focused witnesses
+where each decision was introduced, then verify the completed source/output graph.
 
+```sh
+python3 hickory-dogfood/tools/behavior.py generate
+python3 hickory-dogfood/tools/behavior.py check
+python3 hickory-dogfood/tools/behavior.py audit
+cargo build --locked -p hickory-cli --bin hick
+./target/debug/hick project verify project.md
+```
+
+Construct the opt-in CI policy beside the checks it selects. A selected check is
+not a passing receipt; keep result evidence separate from source reconstruction.
 <book:include file="ci.md" />
 
-Continue with the [component reference](mechanisms/index.md) for additional
-execution backends, language services, agents and integrations. The
-[construction entry](../project.md) provides the primary reading order.
+You have followed the core construction from workspace to application. Continue
+with the [remaining implementation layers](mechanisms/index.md), or use the
+[release contracts](guarantees/release/index.md) when distributing a build.
+The [explanation ledger](../hickory-dogfood/narrative-map.json) retains unresolved
+rationale in inherited modules; this tutorial does not claim those reviews are done.
 </book:doc>

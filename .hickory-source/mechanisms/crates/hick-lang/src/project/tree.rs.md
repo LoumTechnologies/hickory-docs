@@ -33,78 +33,36 @@ use std::{collections::BTreeMap, sync::Arc};
 
 Portable entry metadata. Symlink bytes are the exact UTF-8 target.
 
-<storycode:copy id="f-a485394d6759-EntryKind">
-/// Portable entry metadata. Symlink bytes are the exact UTF-8 target.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum EntryKind {
-    File,
-    Symlink,
-}
+The tutorial builds this part in [the construction step](../../../../../01-language.md#f-a485394d6759-EntryKind).
 
-</storycode:copy>
 <a id="f-a485394d6759-ByteOrigin"></a>
 ### `ByteOrigin`
 
 Each origin pairs a half-open output byte range with a source-document byte range. The lengths must agree for a literal reverse edit; these are byte positions, not editor character offsets.
 
-<storycode:copy id="f-a485394d6759-ByteOrigin">
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct ByteOrigin {
-    pub output: (usize, usize),
-    pub document: String,
-    pub source: (usize, usize),
-}
+The tutorial builds this part in [the construction step](../../../../../01-language.md#f-a485394d6759-ByteOrigin).
 
-</storycode:copy>
 <a id="f-a485394d6759-ProjectEntry"></a>
 ### `ProjectEntry`
 
 Keep bytes, file kind, executable metadata and origins in the same value. Equal visible text alone does not establish that two entries are the same output or have the same edit destinations.
 
-<storycode:copy id="f-a485394d6759-ProjectEntry">
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProjectEntry {
-    pub bytes: Arc<[u8]>,
-    pub kind: EntryKind,
-    pub executable: bool,
-    pub origins: Vec<ByteOrigin>,
-}
-</storycode:copy>
+The tutorial builds this part in [the construction step](../../../../../01-language.md#f-a485394d6759-ProjectEntry).
+
 <a id="f-a485394d6759-impl-ProjectEntry"></a>
 ### `impl-ProjectEntry`
 
 Output equality deliberately excludes origin coordinates: moving an authored fragment may change where an edit returns without changing the file produced. Include kind and executable status so an equal hash of visible bytes cannot hide a symlink or mode change.
 
-<storycode:copy id="f-a485394d6759-impl-ProjectEntry">
-impl ProjectEntry {
-    pub fn file(bytes: impl Into<Arc<[u8]>>) -> Self {
-        Self {
-            bytes: bytes.into(),
-            kind: EntryKind::File,
-            executable: false,
-            origins: vec![],
-        }
-    }
-    pub fn same_output(&self, other: &Self) -> bool {
-        self.bytes == other.bytes && self.kind == other.kind && self.executable == other.executable
-    }
-}
+The tutorial builds this part in [the construction step](../../../../../01-language.md#f-a485394d6759-impl-ProjectEntry).
 
-</storycode:copy>
 <a id="f-a485394d6759-ProjectTree"></a>
 ### `ProjectTree`
 
 Store entries by portable path and share their immutable values through `Arc`. A candidate tree can reuse unchanged entries without mutating the tree supplied to an operation.
 
-<storycode:copy id="f-a485394d6759-ProjectTree">
-/// Immutable entry sharing makes before/after snapshots cheap. There is no IO.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ProjectTree {
-    entries: BTreeMap<String, Arc<ProjectEntry>>,
-}
-</storycode:copy>
+The tutorial builds this part in [the construction step](../../../../../01-language.md#f-a485394d6759-ProjectTree).
+
 <a id="f-a485394d6759-impl-ProjectTree"></a>
 ### `impl-ProjectTree`
 

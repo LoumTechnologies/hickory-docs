@@ -1043,78 +1043,8 @@ This is the maintained test fragment from `crates/hick-literate/tests/project.rs
 
 Keep the scaffolder command and its captured two-file output in one document. An explicitly ordered patch changes the entry point while the manifest retains its ingested provenance. Compare the complete resulting tree with a direct construction of the same program; no generator, cache, Git base or second source document participates. A patch whose old line no longer matches must be refused. The retained command here is illustrative; the CLI ingestion witness separately executes a generator.
 
-<storycode:copy id="f-d5caa71df0d7-owned_ingest_is_editable_source_without_claiming_generator_execution">
-// Guarantee: docs/guarantees/literate-projects/markdown-constructs-the-complete-project.md
-#[tokio::test]
-async fn owned_scaffold_accepts_patches_without_generator_execution() {
-    // The command is retained as provenance, never executed during replay.
-    let source = format!(
-        r#"<hick:project/>
-<hick:exec id="scaffold" container="sdk">
-<hick:copy>cargo init --name seed --vcs none out</hick:copy>
-<hick:ingested sha256="{}">
-<hick:file id="owned" path="src/main.rs">
-fn main() {{}}
-</hick:file>
-<hick:file path="Cargo.toml">
-[package]
-name = "seed"
-version = "0.1.0"
-</hick:file>
-</hick:ingested>
-</hick:exec>
+The tutorial builds this part in [the construction step](../../../02-scaffolds.md#f-d5caa71df0d7-owned_ingest_is_editable_source_without_claiming_generator_execution).
 
-Give the first executable an observable greeting.
-<hick:patch id="greeting" after="scaffold">
---- a/src/main.rs
-+++ b/src/main.rs
-@@ -1 +1 @@
--fn main() {{}}
-+fn main() {{ println!("Hello, Hickory!"); }}
-</hick:patch>
-"#,
-        hick_lang::scaffold_fingerprint(&std::collections::BTreeMap::from([
-            ("src/main.rs".into(), "fn main() {}\n".into()),
-            (
-                "Cargo.toml".into(),
-                "[package]\nname = \"seed\"\nversion = \"0.1.0\"\n".into()
-            ),
-        ]))
-    );
-    let result = hick_literate::run_pipeline_weave(&[("project.md", &source)], &[], None)
-        .await
-        .unwrap();
-    assert!(result.transcripts.is_empty());
-    assert_eq!(
-        result.files["src/main.rs"].as_text(),
-        Some("fn main() { println!(\"Hello, Hickory!\"); }\n")
-    );
-    assert!(matches!(
-        result.provenance_maps["Cargo.toml"].spans()[0].origin,
-        hick_exec::node::SourceOrigin::Ingested { .. }
-    ));
-    // Compare complete trees, not just the changed entry point. Reconstruction
-    // before and after reorganizing the source must agree on all outputs.
-    let plain = "<hick:project/><hick:file path=\"src/main.rs\">fn main() { println!(\"Hello, Hickory!\"); }\n</hick:file><hick:file path=\"Cargo.toml\">[package]\nname = \"seed\"\nversion = \"0.1.0\"\n</hick:file>";
-    let before = hick_literate::run_pipeline_weave(&[("project.md", plain)], &[], None)
-        .await
-        .unwrap();
-    assert!(
-        before
-            .evaluated_project
-            .unwrap()
-            .new
-            .compare(&result.evaluated_project.unwrap().new)
-            .is_empty()
-    );
-    let invalid = source.replace("-fn main() {}", "-fn main() { changed(); }");
-    assert!(
-        hick_literate::run_pipeline_weave(&[("project.md", &invalid)], &[], None)
-            .await
-            .is_err()
-    );
-}
-</storycode:copy>
 
 ## Test the behavior: `fresh_git_free_folder_runs_the_markdown_closure`
 

@@ -47151,9 +47151,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-f3e0210e3ed7-expression_statement",
       "output": "apps/web/src/lsp/representationMapping.test.ts",
-      "page": ".hickory-source/mechanisms/apps/web/src/lsp/representationMapping.ts.md",
+      "page": ".hickory-source/04-editing.md",
       "symbol": "expression_statement",
-      "basis": "needs-explanation",
+      "basis": "explained-decision",
       "original_range": [
         284,
         1596
@@ -47195,9 +47195,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-237646581124-representationOffset",
       "output": "apps/web/src/lsp/representationMapping.ts",
-      "page": ".hickory-source/mechanisms/apps/web/src/lsp/representationMapping.ts.md",
+      "page": ".hickory-source/04-editing.md",
       "symbol": "representationOffset",
-      "basis": "needs-explanation",
+      "basis": "explained-decision",
       "original_range": [
         1474,
         2664
@@ -47206,9 +47206,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-237646581124-representationRange",
       "output": "apps/web/src/lsp/representationMapping.ts",
-      "page": ".hickory-source/mechanisms/apps/web/src/lsp/representationMapping.ts.md",
+      "page": ".hickory-source/04-editing.md",
       "symbol": "representationRange",
-      "basis": "existing-source-comment",
+      "basis": "explained-decision",
       "original_range": [
         2664,
         4124
@@ -75256,9 +75256,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-a485394d6759-EntryKind",
       "output": "crates/hick-lang/src/project/tree.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-lang/src/project/tree.rs.md",
+      "page": ".hickory-source/01-language.md",
       "symbol": "EntryKind",
-      "basis": "existing-source-comment",
+      "basis": "explained-decision",
       "original_range": [
         206,
         446
@@ -75267,9 +75267,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-a485394d6759-ByteOrigin",
       "output": "crates/hick-lang/src/project/tree.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-lang/src/project/tree.rs.md",
+      "page": ".hickory-source/01-language.md",
       "symbol": "ByteOrigin",
-      "basis": "reviewed-explanation",
+      "basis": "explained-decision",
       "original_range": [
         446,
         679
@@ -75278,9 +75278,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-a485394d6759-ProjectEntry",
       "output": "crates/hick-lang/src/project/tree.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-lang/src/project/tree.rs.md",
+      "page": ".hickory-source/01-language.md",
       "symbol": "ProjectEntry",
-      "basis": "reviewed-explanation",
+      "basis": "explained-decision",
       "original_range": [
         679,
         857
@@ -75289,9 +75289,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-a485394d6759-impl-ProjectEntry",
       "output": "crates/hick-lang/src/project/tree.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-lang/src/project/tree.rs.md",
+      "page": ".hickory-source/01-language.md",
       "symbol": "impl-ProjectEntry",
-      "basis": "needs-explanation",
+      "basis": "explained-decision",
       "original_range": [
         857,
         1254
@@ -75300,9 +75300,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-a485394d6759-ProjectTree",
       "output": "crates/hick-lang/src/project/tree.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-lang/src/project/tree.rs.md",
+      "page": ".hickory-source/01-language.md",
       "symbol": "ProjectTree",
-      "basis": "reviewed-explanation",
+      "basis": "explained-decision",
       "original_range": [
         1254,
         1459
@@ -75498,9 +75498,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-005c1e9344c7-inventory_checks_binary_modes_symlinks_and_portable_paths",
       "output": "crates/hick-lang/tests/project.rs",
-      "page": ".hickory-source/guarantees/literate-projects/complete-inventory-is-byte-exact/contract.md",
+      "page": ".hickory-source/01-language.md",
       "symbol": "inventory_checks_binary_modes_symlinks_and_portable_paths",
-      "basis": "needs-explanation",
+      "basis": "explained-decision",
       "original_range": [
         6262,
         7966
@@ -77423,9 +77423,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-e099e80d2a99-PreparedPipeline",
       "output": "crates/hick-literate/src/lib.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-literate/src/lib.rs.md",
+      "page": ".hickory-source/03-native.md",
       "symbol": "PreparedPipeline",
-      "basis": "existing-source-comment",
+      "basis": "explained-decision",
       "original_range": [
         12559,
         13852
@@ -83770,9 +83770,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-d5caa71df0d7-owned_ingest_is_editable_source_without_claiming_generator_execution",
       "output": "crates/hick-literate/tests/project.rs",
-      "page": ".hickory-source/guarantees/literate-projects/markdown-constructs-the-complete-project/contract.md",
+      "page": ".hickory-source/02-scaffolds.md",
       "symbol": "owned_scaffold_accepts_patches_without_generator_execution",
-      "basis": "reviewed-explanation",
+      "basis": "explained-decision",
       "original_range": [
         4483,
         5211
@@ -109983,9 +109983,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-5607f2721a2d-Cli",
       "output": "crates/hickory-cli/src/main.rs",
-      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/main.rs.md",
+      "page": ".hickory-source/06-application.md",
       "symbol": "Cli",
-      "basis": "needs-explanation",
+      "basis": "explained-decision",
       "original_range": [
         506,
         870
@@ -110401,9 +110401,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "f-5607f2721a2d-main",
       "output": "crates/hickory-cli/src/main.rs",
-      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/main.rs.md",
+      "page": ".hickory-source/06-application.md",
       "symbol": "main",
-      "basis": "needs-explanation",
+      "basis": "explained-decision",
       "original_range": [
         38875,
         38931
@@ -147891,7 +147891,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "immutable-scaffold-fingerprint",
       "output": "crates/hick-lang/src/scaffold.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-lang/src/scaffold.rs.md",
+      "page": ".hickory-source/02-scaffolds.md",
       "symbol": "fingerprint",
       "basis": "explained-decision",
       "original_range": null
@@ -147955,7 +147955,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "immutable-scaffold-write-document",
       "output": "crates/hickory-cli/src/serve/store.rs",
-      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/store.rs.md",
+      "page": ".hickory-source/05-saving.md",
       "symbol": "immutable-scaffold-write-document",
       "basis": "explained-decision",
       "original_range": null
@@ -147963,7 +147963,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     {
       "id": "immutable-scaffold-literal-replay-test",
       "output": "crates/hick-literate/tests/project.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-literate/tests/project.rs.md",
+      "page": ".hickory-source/03-native.md",
       "symbol": "immutable-scaffold-literal-replay-test",
       "basis": "explained-decision",
       "original_range": null
@@ -148045,6 +148045,22 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "output": "apps/web/src/embed/SourcePage.tsx",
       "page": ".hickory-source/mechanisms/apps/web/src/embed/SourcePage.tsx.md",
       "symbol": "reader",
+      "basis": "explained-decision",
+      "original_range": null
+    },
+    {
+      "id": "public-source-document-links",
+      "output": "apps/web/src/embed/sourceLinks.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/embed/sourceLinks.ts.md",
+      "symbol": "sourceLinks",
+      "basis": "explained-decision",
+      "original_range": null
+    },
+    {
+      "id": "public-source-document-links-tests",
+      "output": "apps/web/src/embed/sourceLinks.test.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/embed/sourceLinks.test.ts.md",
+      "symbol": "sourceLinks tests",
       "basis": "explained-decision",
       "original_range": null
     }

@@ -60,20 +60,8 @@ use hickory_cli::{
 <a id="f-5607f2721a2d-Cli"></a>
 ### `Cli`
 
-<storycode:copy id="f-5607f2721a2d-Cli">
-#[derive(Parser)]
-#[command(
-    name = "hick",
-    version = main_thread::VERSION,
-    about = "Open Hickory Docs or run, test, and weave executable documents",
-    after_help = "Launch the editor: hick | hick . | hick notes.md\nUse hick open <path> for a path with the same name as a command."
-)]
-struct Cli {
-    #[command(subcommand)]
-    command: Command,
-}
+The tutorial builds this part in [the construction step](../../../../06-application.md#f-5607f2721a2d-Cli).
 
-</storycode:copy>
 <a id="f-5607f2721a2d-Command"></a>
 ### `Command`
 
@@ -1205,12 +1193,8 @@ mod main_thread;
 <a id="f-5607f2721a2d-main"></a>
 ### `main`
 
-<storycode:copy id="f-5607f2721a2d-main">
-fn main() -> ExitCode {
-    main_thread::main_exit()
-}
+The tutorial builds this part in [the construction step](../../../../06-application.md#f-5607f2721a2d-main).
 
-</storycode:copy>
 <a id="f-5607f2721a2d-run"></a>
 ### `run`
 

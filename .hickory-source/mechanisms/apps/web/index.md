@@ -1174,4 +1174,6 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 - [Exercise source navigation and revision-bound loading](src/embed/SourcePage.test.tsx.md)
 <storycode:include file="src/embed/SourcePage.test.tsx.md" />
 
+<storycode:include file="src/embed/sourceLinks.ts.md" />
+<storycode:include file="src/embed/sourceLinks.test.ts.md" />
 </storycode:doc>

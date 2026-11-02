@@ -44,49 +44,15 @@ export function filePosition(source: string, file: RepresentedFile, offset: numb
 <a id="f-237646581124-representationOffset"></a>
 ### `representationOffset`
 
-<storycode:copy id="f-237646581124-representationOffset">
-export function representationOffset(source: string, file: RepresentedFile, position: LspPosition): number | null {
-  const at = charToByte(file.content, positionToUtf16(file.content, position));
-  const matches = file.provenance.filter(p => at >= p.start && at < p.end && ["literal", "paste", "ingested"].includes(p.origin.kind) && "span" in p.origin && p.origin.span && (!file.source_path || ("doc_path" in p.origin && p.origin.doc_path === file.source_path)) && p.end - p.start === p.origin.span[1] - p.origin.span[0]);
-  if (!matches.length && at === charToByte(file.content, file.content.length)) matches.push(...file.provenance.filter(p => p.end === at && ["literal", "paste", "ingested"].includes(p.origin.kind) && "span" in p.origin && p.origin.span && (!file.source_path || ("doc_path" in p.origin && p.origin.doc_path === file.source_path)) && p.end - p.start === p.origin.span[1] - p.origin.span[0]));
-  if (matches.length !== 1) return null;
-  const p = matches[0];
-  if (!("span" in p.origin) || !p.origin.span) return null;
-  const delta = at - p.start;
-  if (delta > p.origin.span[1] - p.origin.span[0]) return null;
-  return byteToChar(source, p.origin.span[0] + delta);
-}
+The tutorial builds this part in [the construction step](../../../../../04-editing.md#f-237646581124-representationOffset).
 
-</storycode:copy>
 <a id="f-237646581124-representationRange"></a>
 ### `representationRange`
 
 An edit can span fragments only when their source bytes are contiguous.
 
-<storycode:copy id="f-237646581124-representationRange">
-/** An edit can span fragments only when their source bytes are contiguous. */
-export function representationRange(source:string, file:RepresentedFile, range:{start:LspPosition;end:LspPosition}): {from:number;to:number}|null {
-  const start=charToByte(file.content,positionToUtf16(file.content,range.start));
-  const end=charToByte(file.content,positionToUtf16(file.content,range.end));
-  if (end<start) return null;
-  if (file.provenance.some(p => p.origin.kind === "ingested" &&
-    (start === end ? p.start <= start && start <= p.end : start < p.end && end > p.start))) return null;
-  if (start===end) { const from=representationOffset(source,file,range.start); return from===null?null:{from,to:from}; }
-  let at=start, first:number|null=null, previous:number|null=null;
-  for (const p of file.provenance) {
-    if(p.end<=at || p.start>=end) continue;
-    if(p.start>at || !["literal","paste","ingested"].includes(p.origin.kind) || !("span" in p.origin) || !p.origin.span || p.end-p.start!==p.origin.span[1]-p.origin.span[0] || (file.source_path && (!("doc_path" in p.origin)||p.origin.doc_path!==file.source_path))) return null;
-    const from=p.origin.span[0]+at-p.start;
-    if(previous!==null && previous!==from) return null;
-    if(first===null) first=from;
-    const until=Math.min(end,p.end); previous=from+until-at; at=until;
-    if(at===end) break;
-  }
-  if(at!==end || first===null || previous===null) return null;
-  const from=byteToChar(source,first),to=byteToChar(source,previous);
-  return source.slice(from,to)===file.content.slice(byteToChar(file.content,start),byteToChar(file.content,end))?{from,to}:null;
-}
-</storycode:copy>
+The tutorial builds this part in [the construction step](../../../../../04-editing.md#f-237646581124-representationRange).
+
 
 ### Assemble `apps/web/src/lsp/representationMapping.ts`
 
@@ -118,25 +84,8 @@ const bytes=(s:string)=>new TextEncoder().encode(s).length;
 <a id="f-f3e0210e3ed7-expression_statement"></a>
 ### `expression_statement`
 
-<storycode:copy id="f-f3e0210e3ed7-expression_statement">
-it("maps reordered literate fragments to real files, including Unicode and boundaries",()=>{
-  const first="é = 1\n", second="other = 2\n";
-  const source=`# Explain\n${second}# Earlier\n${first}`;
-  const a=source.indexOf(first), b=source.indexOf(second);
-  const file:RepresentedFile={path:"a.py",hash:"",content:first+second,provenance:[
-    {start:0,end:bytes(first),origin:{kind:"paste",doc_path:"virtual",span:[bytes(source.slice(0,a)),bytes(source.slice(0,a+first.length))]}},
-    {start:bytes(first),end:bytes(first+second),origin:{kind:"paste",doc_path:"virtual",span:[bytes(source.slice(0,b)),bytes(source.slice(0,b+second.length))]}}
-  ]};
-  expect(filePosition(source,file,a+2)).toEqual({line:0,character:2});
-  expect(filePosition(source,file,b)).toEqual({line:1,character:0});
-  expect(representationOffset(source,file,{line:1,character:0})).toBe(b);
-  expect(representationOffset(source,file,{line:0,character:2})).toBe(a+2);
-  expect(filePosition(source,file,0)).toBeNull();
-  expect(filePosition(source,{...file,source_path:"other-document"},a)).toBeNull();
-  expect(representationRange(source,file,{start:{line:0,character:0},end:{line:1,character:9}})).toBeNull();
-  expect(representationRange(source,file,{start:{line:0,character:0},end:{line:0,character:1}})).toEqual({from:a,to:a+1});
-});
-</storycode:copy>
+The tutorial builds this part in [the construction step](../../../../../04-editing.md#f-f3e0210e3ed7-expression_statement).
+
 <a id="f-f3e0210e3ed7-expression_statement-2"></a>
 ### `expression_statement`
 

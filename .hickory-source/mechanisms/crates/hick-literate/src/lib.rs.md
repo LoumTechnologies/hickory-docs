@@ -626,32 +626,8 @@ impl PipelineResult {
 Pipeline setup (shared between dry-run and live)
 Intermediate state after parsing, filtering, and collecting definitions.
 
-<storycode:copy id="f-e099e80d2a99-PreparedPipeline">
-// Pipeline setup (shared between dry-run and live)
+The tutorial builds this part in [the construction step](../../../../03-native.md#f-e099e80d2a99-PreparedPipeline).
 
-/// Intermediate state after parsing, filtering, and collecting definitions.
-struct PreparedPipeline<'a> {
-    documents: Vec<(&'a str, HickDocument)>,
-    state: Arc<MultiDocumentState>,
-    container_defs: HashMap<String, ContainerCapabilities>,
-    /// Image each container declares, so the executor is told which
-    /// environment to provide. Capabilities and images are collected from the
-    /// same tag but were not carried together.
-    container_images: HashMap<String, String>,
-    /// What each container's cells expect to find installed
-    /// (`<hick:needs bin="…" />`), checked before anything runs.
-    container_needs: std::collections::BTreeMap<String, Vec<crate::needs::Need>>,
-    /// Fork registrations: (from, to, additional_caps).
-    /// Needed by live pipeline to register forks with the executor.
-    fork_registrations: Vec<(String, String, Option<ContainerCapabilities>)>,
-    /// Volume declarations across every document, by volume name. Collected
-    /// here rather than in the live pipeline because their `<hick:allow>`
-    /// children are part of a container's capabilities, and capabilities are
-    /// minted into tokens here.
-    volumes: HashMap<String, hick_exec::volume::VolumeDeclaration>,
-}
-
-</storycode:copy>
 <a id="f-e099e80d2a99-declares_private"></a>
 ### `declares_private`
 

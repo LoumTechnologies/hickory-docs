@@ -30,45 +30,8 @@ This is the maintained test fragment from `crates/hick-lang/tests/project.rs`; i
 <a id="f-005c1e9344c7-inventory_checks_binary_modes_symlinks_and_portable_paths"></a>
 ### `inventory_checks_binary_modes_symlinks_and_portable_paths`
 
-<storycode:copy id="f-005c1e9344c7-inventory_checks_binary_modes_symlinks_and_portable_paths">
-// Guarantee: docs/guarantees/literate-projects/complete-inventory-is-byte-exact.md
-#[test]
-fn inventory_checks_binary_modes_symlinks_and_portable_paths() {
-    let project = generate("<hick:project exclude=\".git/ node_modules/\"/><hick:entry path=\"asset.bin\" encoding=\"hex\">00 ff 01</hick:entry><hick:entry path=\"link\" kind=\"symlink\">asset.bin</hick:entry><hick:file path=\"run.sh\" executable=\"true\">echo ok\n</hick:file>").unwrap();
-    let mut expected = project.new.clone();
-    expected
-        .insert("extra.lock", ProjectEntry::file(b"lock".to_vec()))
-        .unwrap();
-    let mut asset = expected.get("asset.bin").unwrap().as_ref().clone();
-    asset.bytes = vec![0, 254, 1].into();
-    expected.insert("asset.bin", asset).unwrap();
-    let mut script = expected.get("run.sh").unwrap().as_ref().clone();
-    script.executable = false;
-    expected.insert("run.sh", script).unwrap();
-    let differences = project.new.compare(&expected);
-    assert_eq!(
-        differences
-            .iter()
-            .map(|d| d.path.as_str())
-            .collect::<Vec<_>>(),
-        vec!["asset.bin", "extra.lock", "run.sh"]
-    );
-    assert!(!project.inventory.contains("project.md"));
-    assert!(!project.inventory.contains("node_modules/x"));
-    assert!(project.inventory.contains("migration.sql"));
-    for path in [
-        "../x", "/x", "x//y", "x\\y", "C:x", "NUL.txt", "x.", "x/../y", "é.rs",
-    ] {
-        assert!(validate_project_path(path).is_err());
-    }
-    let mut t = tree(&[("A", b"x")]);
-    assert!(t.insert("a", ProjectEntry::file(b"y".to_vec())).is_err());
-    assert!(
-        t.insert("A/child", ProjectEntry::file(b"y".to_vec()))
-            .is_err()
-    );
-}
-</storycode:copy>
+The tutorial builds this part in [the construction step](../../../01-language.md#f-005c1e9344c7-inventory_checks_binary_modes_symlinks_and_portable_paths).
+
 
 ## Test the behavior: `generated_paths_cannot_shadow_the_markdown_closure_on_another_platform`
 

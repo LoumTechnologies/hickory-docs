@@ -65332,6 +65332,12 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     "apps/web/src/embed/SourcePage.test.tsx": {
       "source": ".hickory-source/mechanisms/apps/web/src/embed/SourcePage.test.tsx.md"
+    },
+    "apps/web/src/embed/sourceLinks.ts": {
+      "source": ".hickory-source/mechanisms/apps/web/src/embed/sourceLinks.ts.md"
+    },
+    "apps/web/src/embed/sourceLinks.test.ts": {
+      "source": ".hickory-source/mechanisms/apps/web/src/embed/sourceLinks.test.ts.md"
     }
   },
   "evidence_records": [

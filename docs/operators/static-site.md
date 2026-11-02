@@ -74,9 +74,11 @@ DNS stack; inspect the plan to ensure a site repair does not change them.
 
 ## Read the maintained source publicly
 
-Open `https://hickorydocs.com/source.html`. The entry is `project.md`; chapter
-links and the source picker navigate the maintained `.hickory-source/` pages.
-The viewer uses Hickory's shared read-only document surface and folds captured
+Open `https://hickorydocs.com/source.html`. The entry is `project.md`; the document
+links, breadcrumbs and a left files pane navigate the maintained `.hickory-source/` pages.
+The documents teach how to build Hickory in construction order. The reader shows
+the rendered document without an additional introduction, statistics or picker.
+It uses Hickory's shared read-only document surface and folds captured
 scaffold files by default. It starts no local engine and runs no cells.
 
 `just site` exports only committed Markdown from `project.md` and

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { sha256 } from "../lib/reviews";
-import { decodeSource, decodeSourceIndex, relatedSources, SourcePage } from "./SourcePage";
+import { decodeSource, decodeSourceIndex, SourcePage } from "./SourcePage";
 vi.mock("./DocumentEmbed", () => ({ DocumentEmbed: ({ source, readOnly }: { source: string; readOnly: boolean }) => <pre data-testid="source" data-readonly={String(readOnly)}>{source}</pre> }));
 const revision = "a".repeat(40), page = '.hickory-source/01-language.md';
 async function fixture() {
@@ -12,21 +12,21 @@ async function fixture() {
   return { index, payloads };
 }
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); history.replaceState(null, "", "/"); });
-describe("public source publication", () => {
-  it("opens the entry and navigates to an actual read-only source chapter", async () => {
+describe("public tutorial reader", () => {
+  it("renders the document with files and breadcrumbs instead of a second introduction", async () => {
     const { index, payloads } = await fixture();
-    const fetcher = vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith("index.json") ? index : url.includes("/" + "0".repeat(64)) ? payloads[0] : payloads[1]), { status: 200 }));
-    vi.stubGlobal("fetch", fetcher); vi.stubGlobal("scrollTo", vi.fn());
+    const fetcher = vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith("index.json") ? index : payloads[0]), { status: 200 }));
+    vi.stubGlobal("fetch", fetcher);
     render(<SourcePage />);
     expect((await screen.findByTestId("source")).textContent).toContain("Build Hickory");
     expect(screen.getByTestId("source").getAttribute("data-readonly")).toBe("true");
-    fireEvent.click(screen.getByRole("link", { name: "Start at project.md" }));
-    expect(screen.getByTestId("source").textContent).toContain("Build Hickory");
-    fireEvent.click(screen.getByText(/Continue reading/));
-    fireEvent.click(screen.getByRole("link", { name: page }));
-    expect((await screen.findByTestId("source")).textContent).toContain("Construct the language");
-    expect(new URL(location.href).searchParams.get("path")).toBe(page);
-    expect(fetcher).toHaveBeenCalledTimes(3);
+    const files = screen.getByRole("navigation", { name: "Source files" });
+    expect(within(files).getByRole("link", { name: "project.md" }).getAttribute("aria-current")).toBe("page");
+    expect(within(files).getByRole("link", { name: "01-language.md" }).getAttribute("href")).toBe(`?path=${encodeURIComponent(page)}`);
+    expect(screen.getByRole("navigation", { name: "Breadcrumbs" }).textContent).toContain("project.md");
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "Related source pages" })).toBeNull();
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
   it("refuses a stale revision or changed bytes rather than rendering a mixed publication", async () => {
     const { index, payloads } = await fixture();
@@ -37,19 +37,23 @@ describe("public source publication", () => {
     expect(decodeSourceIndex({ ...index, documents: [...index.documents, { ...index.documents[1], path: ".hickory-source/icons/128x128@2x.png.md" }] }).documents).toHaveLength(3);
     expect(() => decodeSourceIndex({ ...index, documents: [{ ...index.documents[0], path: ".hickory-source/../private.md" }] })).toThrow("Invalid source document");
   });
-  it("resolves parent links and includes only within the published document inventory", async () => {
-    const { index } = await fixture();
-    expect(relatedSources('[Start](../project.md)\n[Private](../../sessions/private.md)\n[External](https://example.com/project.md)', page, index).map(doc => doc.path)).toEqual(["project.md"]);
-    expect(relatedSources('<book:include file=".hickory-source/01-language.md" />', "project.md", index).map(doc => doc.path)).toEqual([page]);
-  });
-  it("reports a missing deep link and allows returning to the entry", async () => {
+  it("opens a deep-linked chapter and expands its ancestor folders", async () => {
     const { index, payloads } = await fixture();
-    history.replaceState(null, "", "/source.html?path=missing.md");
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith("index.json") ? index : payloads[0]))));
-    vi.stubGlobal("scrollTo", vi.fn());
+    history.replaceState(null, "", `/source.html?path=${encodeURIComponent(page)}`);
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith("index.json") ? index : payloads[1]))));
     render(<SourcePage />);
-    expect((await screen.findByRole("alert")).textContent).toContain("not in the published source");
-    fireEvent.click(screen.getByRole("link", { name: "Start at project.md" }));
-    expect((await screen.findByTestId("source")).textContent).toContain("Build Hickory");
+    expect((await screen.findByTestId("source")).textContent).toContain("Construct the language");
+    const files = screen.getByRole("navigation", { name: "Source files" });
+    expect(within(files).getByRole("link", { name: "01-language.md" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("navigation", { name: "Breadcrumbs" }).textContent).toContain("01-language.md");
+  });
+  it("reports a missing deep link while retaining the files pane for recovery", async () => {
+    const { index } = await fixture();
+    history.replaceState(null, "", "/source.html?path=missing.md");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(index))));
+    render(<SourcePage />);
+    expect((await screen.findByRole("alert")).textContent).toContain("not published");
+    expect(within(screen.getByRole("navigation", { name: "Source files" })).getByRole("link", { name: "project.md" }).getAttribute("href")).toBe("?path=project.md");
+    expect(screen.queryByTestId("source")).toBeNull();
   });
 });
