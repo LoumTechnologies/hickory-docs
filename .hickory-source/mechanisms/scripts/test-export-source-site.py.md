@@ -58,6 +58,9 @@ class SourcePublicationTests(unittest.TestCase):
             for args in [('init', '-q'), ('config', 'user.email', 'test@example.invalid'), ('config', 'user.name', 'Test')]:
                 subprocess.check_call(['git', *args], cwd=root)
             source = '<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n😀\n<h:copy id="typed">\nconst count = 1;\n</h:copy>\n</h:doc>'
+            # Exceed the OS pipe buffer: a synchronous read of nonblocking
+            # subprocess stdin can fail with EAGAIN on a real publication.
+            source = source.replace('<h:copy', ('Public prose before the code.\n' * 12000) + '<h:copy', 1)
             (root / 'project.md').write_text(source)
             (root / '.hickory-source').mkdir()
             (root / '.hickory-source/chapter.md').write_text('# Chapter')
