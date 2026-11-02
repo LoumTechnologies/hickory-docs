@@ -148063,6 +148063,90 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "symbol": "sourceLinks tests",
       "basis": "explained-decision",
       "original_range": null
+    },
+    {
+      "id": "static-scripts-compile-source-highlights-mjs-0",
+      "output": "scripts/compile-source-highlights.mjs",
+      "page": ".hickory-source/mechanisms/scripts/compile-source-highlights.mjs.md",
+      "symbol": "Compile source colours with the editor grammar",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-scripts-capture-source-language-py-0",
+      "output": "scripts/capture-source-language.py",
+      "page": ".hickory-source/mechanisms/scripts/capture-source-language.py.md",
+      "symbol": "Capture finite language answers before hosting",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-scripts-capture-source-language-py-1",
+      "output": "scripts/capture-source-language.py",
+      "page": ".hickory-source/mechanisms/scripts/capture-source-language.py.md",
+      "symbol": "Capture finite language answers before hosting",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-apps-web-src-embed-staticLanguage-ts-0",
+      "output": "apps/web/src/embed/staticLanguage.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/embed/staticLanguage.ts.md",
+      "symbol": "Replay language knowledge without a server",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-apps-web-src-embed-staticLanguage-ts-1",
+      "output": "apps/web/src/embed/staticLanguage.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/embed/staticLanguage.ts.md",
+      "symbol": "Replay language knowledge without a server",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-apps-web-src-embed-staticLanguage-ts-2",
+      "output": "apps/web/src/embed/staticLanguage.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/embed/staticLanguage.ts.md",
+      "symbol": "Replay language knowledge without a server",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-apps-web-src-embed-staticLanguage-test-ts-0",
+      "output": "apps/web/src/embed/staticLanguage.test.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/embed/staticLanguage.test.ts.md",
+      "symbol": "Check immutable language replay",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-scripts-test-capture-source-language-py-0",
+      "output": "scripts/test-capture-source-language.py",
+      "page": ".hickory-source/mechanisms/scripts/test-capture-source-language.py.md",
+      "symbol": "Exercise the build-time stdio boundary",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-scripts-capture-source-models-py-0",
+      "output": "scripts/capture-source-models.py",
+      "page": ".hickory-source/mechanisms/scripts/capture-source-models.py.md",
+      "symbol": "Freeze language-specific code model graphs",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-scripts-capture-source-models-py-1",
+      "output": "scripts/capture-source-models.py",
+      "page": ".hickory-source/mechanisms/scripts/capture-source-models.py.md",
+      "symbol": "Freeze language-specific code model graphs",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-language-capture-readiness",
+      "output": "crates/hick-lsp/src/backend.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/backend.rs.md",
+      "symbol": "Await document preparation before freezing answers",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-apps-web-e2e-staticLanguage-spec-ts-0",
+      "output": "apps/web/e2e/staticLanguage.spec.ts",
+      "page": ".hickory-source/mechanisms/apps/web/e2e/staticLanguage.spec.ts.md",
+      "symbol": "Drive the static reader through captured language answers",
+      "basis": "explained-decision"
     }
   ],
   "explanation_gaps": {

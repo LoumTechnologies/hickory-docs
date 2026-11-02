@@ -2736,12 +2736,15 @@ Whether a URI names a hick document rather than a plain file it forwards
 whole. Bare documents are Markdown now, so their extension cannot decide:
 the namespace marker is the syntax boundary.
 
+The public sources bind prefixes such as `book` and `storycode`. A literal search for `<hick:` sends those programs to the Markdown server and freezes empty semantic answers. Ask the shared tolerant parser which prefix is active before choosing the Hickory pipeline, retaining incomplete-tag routing while the user types.
+
 <storycode:copy id="f-c936496a03c1-is_hick_document">
 /// Whether a URI names a hick document rather than a plain file it forwards
 /// whole. Bare documents are Markdown now, so their extension cannot decide:
 /// the namespace marker is the syntax boundary.
 fn is_hick_document(_uri: &Url, source: &str) -> bool {
-    source.contains("<hick:") // content, not extension: every document is `.md`
+    let prefix = hick_lang::structure(source).prefix;
+    source.contains(&format!("<{prefix}:"))
 }
 
 </storycode:copy>
@@ -2787,6 +2790,32 @@ mod tests;
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-lsp/src/backend.rs"><storycode:paste select="#f-c936496a03c1-diagnostic_context"/><storycode:paste select="#f-c936496a03c1-use_declaration"/><storycode:paste select="#f-c936496a03c1-captured"/><storycode:paste select="#f-c936496a03c1-use_declaration-2"/><storycode:paste select="#f-c936496a03c1-use_declaration-3"/><storycode:paste select="#f-c936496a03c1-use_declaration-4"/><storycode:paste select="#f-c936496a03c1-use_declaration-5"/><storycode:paste select="#f-c936496a03c1-use_declaration-6"/><storycode:paste select="#f-c936496a03c1-use_declaration-7"/><storycode:paste select="#f-c936496a03c1-use_declaration-8"/><storycode:paste select="#f-c936496a03c1-use_declaration-9"/><storycode:paste select="#f-c936496a03c1-use_declaration-10"/><storycode:paste select="#f-c936496a03c1-use_declaration-11"/><storycode:paste select="#f-c936496a03c1-use_declaration-12"/><storycode:paste select="#f-c936496a03c1-use_declaration-13"/><storycode:paste select="#f-c936496a03c1-use_declaration-14"/><storycode:paste select="#f-c936496a03c1-ChildDiagnosticsStore"/><storycode:paste select="#f-c936496a03c1-PreparedHierarchyItem"/><storycode:paste select="#f-c936496a03c1-uuid_ish"/><storycode:paste select="#f-c936496a03c1-HickBackend"/><storycode:paste select="#f-c936496a03c1-DocEntry"/><storycode:paste select="#f-c936496a03c1-VFileMapping"/><storycode:paste select="#f-c936496a03c1-impl-HickBackend"/><storycode:paste select="#f-c936496a03c1-StructuralKind"/><storycode:paste select="#f-c936496a03c1-drive_lowercased"/><storycode:paste select="#f-c936496a03c1-uri_key"/><storycode:paste select="#f-c936496a03c1-translate_edit_uris"/><storycode:paste select="#f-c936496a03c1-translate_bare_ranges"/><storycode:paste select="#f-c936496a03c1-MANIFESTS"/><storycode:paste select="#f-c936496a03c1-copy_manifests"/><storycode:paste select="#f-c936496a03c1-child_request_error"/><storycode:paste select="#f-c936496a03c1-handle_child_diagnostics"/><storycode:paste select="#f-c936496a03c1-impl-LanguageServer-for-HickBackend"/><storycode:paste select="#f-c936496a03c1-translate_edits"/><storycode:paste select="#f-c936496a03c1-reindent"/><storycode:paste select="#f-c936496a03c1-is_hick_document"/><storycode:paste select="#f-c936496a03c1-plain_language"/><storycode:paste select="#f-c936496a03c1-parse_error_location"/><storycode:paste select="#f-c936496a03c1-tests"/></storycode:file>
+
+## Await document preparation before freezing answers
+
+An ordinary `didOpen` notification has no reply. A publication client that immediately asks for hover can race parsing and child-server startup, freezing nulls even though the provider is installed. Add a request that runs the same read-only preparation and acknowledges completion. `processed` does not mean all asynchronous diagnostics have settled; `parsed` distinguishes a source parse failure from an accepted document. No editing or cell execution is introduced.
+
+<storycode:copy id="static-language-capture-readiness">
+impl HickBackend {
+    /// A build needs an acknowledgement that normal didOpen preparation finished.
+    /// Ordinary LSP notifications deliberately have no response to await.
+    pub async fn capture_document(
+        &self,
+        params: DidOpenTextDocumentParams,
+    ) -> Result<serde_json::Value> {
+        let uri = params.text_document.uri.clone();
+        self.did_open(params).await;
+        let documents = self.documents.read().await;
+        let parsed = documents
+            .get(&uri)
+            .is_some_and(|entry| entry.state.is_some());
+        let open_files = documents.get(&uri).map_or(0, |entry| entry.open_vfiles.len());
+        Ok(serde_json::json!({"processed": true, "parsed": parsed, "open_files": open_files}))
+    }
+}
+
+</storycode:copy>
+
+<storycode:file path="crates/hick-lsp/src/backend.rs"><storycode:paste select="#f-c936496a03c1-diagnostic_context"/><storycode:paste select="#f-c936496a03c1-use_declaration"/><storycode:paste select="#f-c936496a03c1-captured"/><storycode:paste select="#f-c936496a03c1-use_declaration-2"/><storycode:paste select="#f-c936496a03c1-use_declaration-3"/><storycode:paste select="#f-c936496a03c1-use_declaration-4"/><storycode:paste select="#f-c936496a03c1-use_declaration-5"/><storycode:paste select="#f-c936496a03c1-use_declaration-6"/><storycode:paste select="#f-c936496a03c1-use_declaration-7"/><storycode:paste select="#f-c936496a03c1-use_declaration-8"/><storycode:paste select="#f-c936496a03c1-use_declaration-9"/><storycode:paste select="#f-c936496a03c1-use_declaration-10"/><storycode:paste select="#f-c936496a03c1-use_declaration-11"/><storycode:paste select="#f-c936496a03c1-use_declaration-12"/><storycode:paste select="#f-c936496a03c1-use_declaration-13"/><storycode:paste select="#f-c936496a03c1-use_declaration-14"/><storycode:paste select="#f-c936496a03c1-ChildDiagnosticsStore"/><storycode:paste select="#f-c936496a03c1-PreparedHierarchyItem"/><storycode:paste select="#f-c936496a03c1-uuid_ish"/><storycode:paste select="#f-c936496a03c1-HickBackend"/><storycode:paste select="#f-c936496a03c1-DocEntry"/><storycode:paste select="#f-c936496a03c1-VFileMapping"/><storycode:paste select="#f-c936496a03c1-impl-HickBackend"/><storycode:paste select="#static-language-capture-readiness"/><storycode:paste select="#f-c936496a03c1-StructuralKind"/><storycode:paste select="#f-c936496a03c1-drive_lowercased"/><storycode:paste select="#f-c936496a03c1-uri_key"/><storycode:paste select="#f-c936496a03c1-translate_edit_uris"/><storycode:paste select="#f-c936496a03c1-translate_bare_ranges"/><storycode:paste select="#f-c936496a03c1-MANIFESTS"/><storycode:paste select="#f-c936496a03c1-copy_manifests"/><storycode:paste select="#f-c936496a03c1-child_request_error"/><storycode:paste select="#f-c936496a03c1-handle_child_diagnostics"/><storycode:paste select="#f-c936496a03c1-impl-LanguageServer-for-HickBackend"/><storycode:paste select="#f-c936496a03c1-translate_edits"/><storycode:paste select="#f-c936496a03c1-reindent"/><storycode:paste select="#f-c936496a03c1-is_hick_document"/><storycode:paste select="#f-c936496a03c1-plain_language"/><storycode:paste select="#f-c936496a03c1-parse_error_location"/><storycode:paste select="#f-c936496a03c1-tests"/></storycode:file>
 
 </storycode:doc>

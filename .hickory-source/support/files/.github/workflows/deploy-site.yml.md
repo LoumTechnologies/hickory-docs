@@ -8,6 +8,8 @@ Edit this entry to change the generated file. It has one constructor. References
 
 Captured SHA-256: `8da6b477f248e661ef4bd5b58f7aa8d54131957d7e3d18e5770fa1fa1fdd08e0`.
 
+The static source publication now runs a build-time language compiler. Build the local Hickory LSP binary before export; the deploy job explicitly installs pinned TypeScript and Rust analysis providers. Visitors receive only captured data, and the site remains independent of those build tools after publication. Other absent language providers remain unavailable rather than triggering installation during export.
+
 <book:entry path=".github/workflows/deploy-site.yml">
 # Publish the static marketing site to Cloudflare Pages.
 #
@@ -31,6 +33,12 @@ on:
       - "project.md"
       - ".hickory-source/**"
       - "scripts/export-source-site.py"
+      - "scripts/compile-source-highlights.mjs"
+      - "scripts/capture-source-language.py"
+      - "scripts/capture-source-models.py"
+      - "code-models/typescript/**"
+      - "crates/hick-lsp/**"
+      - "crates/hick-plugins/**"
       - "examples/ai-engineer-deadline.md"
       - "Cargo.lock"
       - "crates/hickory-cli/**"
@@ -90,6 +98,8 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@1.96.1
         if: ${{ !inputs.domains_only }}
+        with:
+          components: rust-analyzer
       - uses: Swatinem/rust-cache@v2
         if: ${{ !inputs.domains_only }}
       - name: Build the selected-spec runner
@@ -107,6 +117,12 @@ jobs:
           name: executable-spec-results-${{ github.sha }}
           path: apps/web/public/publications
           if-no-files-found: error
+
+      - name: Install pinned static-analysis providers
+        if: ${{ !inputs.domains_only }}
+        run: |
+          npm install --no-fund --no-audit --prefix "$RUNNER_TEMP/hickory-static-lsp" typescript-language-server@4.3.3 typescript@5.7.2
+          echo "$RUNNER_TEMP/hickory-static-lsp/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Build the site
         if: ${{ !inputs.domains_only }}

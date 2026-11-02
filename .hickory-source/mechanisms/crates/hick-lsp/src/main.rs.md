@@ -11,6 +11,8 @@ This page owns the output construction and the explained fragments below. Source
 <a id="f-c5b2404f1380-main"></a>
 ### `main`
 
+Register the publication acknowledgement on the stdio service. This keeps finite capture on the same document preparation path as live editing while giving the build an actual completion boundary.
+
 <storycode:copy id="f-c5b2404f1380-main">
 use tower_lsp::{LspService, Server};
 use tracing_subscriber::EnvFilter;
@@ -27,7 +29,9 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(backend::HickBackend::new);
+    let (service, socket) = LspService::build(backend::HickBackend::new)
+        .custom_method("hick/captureDocument", backend::HickBackend::capture_document)
+        .finish();
     Server::new(stdin, stdout, socket).serve(service).await;
 }
 </storycode:copy>

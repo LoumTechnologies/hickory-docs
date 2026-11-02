@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { sha256 } from "../lib/reviews";
 import { decodeSource, decodeSourceIndex, SourcePage } from "./SourcePage";
 vi.mock("./DocumentEmbed", () => ({ DocumentEmbed: ({ source, readOnly }: { source: string; readOnly: boolean }) => <pre data-testid="source" data-readonly={String(readOnly)}>{source}</pre> }));
@@ -36,6 +36,21 @@ describe("public tutorial reader", () => {
     expect(() => decodeSourceIndex({ ...index, documents: [...index.documents, index.documents[0]] })).toThrow("Invalid source document");
     expect(decodeSourceIndex({ ...index, documents: [...index.documents, { ...index.documents[1], path: ".hickory-source/icons/128x128@2x.png.md" }] }).documents).toHaveLength(3);
     expect(() => decodeSourceIndex({ ...index, documents: [{ ...index.documents[0], path: ".hickory-source/../private.md" }] })).toThrow("Invalid source document");
+  });
+  it("loads hash-bound code models only when their disclosure opens", async () => {
+    const { index, payloads } = await fixture();
+    const text = JSON.stringify({ language: "typescript", revision, graph: { data: { types: [{ name: "Widget" }], unresolved: [] } } });
+    const digest = await sha256(text);
+    const withModels = { ...index, models: [{ language: "typescript", sha256: digest, url: `models/${digest}.json` }] };
+    const fetcher = vi.fn(async (url: string) => new Response(url.includes("/models/") ? text : JSON.stringify(url.endsWith("index.json") ? withModels : payloads[0])));
+    vi.stubGlobal("fetch", fetcher);
+    render(<SourcePage />);
+    await screen.findByTestId("source");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByText("Captured code models"));
+    expect(await screen.findByText(/"Widget"/)).toBeTruthy();
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(() => decodeSourceIndex({ ...index, models: [{ ...withModels.models[0], url: "https://unselected.invalid/model.json" }] })).toThrow("code model artifact");
   });
   it("opens a deep-linked chapter and expands its ancestor folders", async () => {
     const { index, payloads } = await fixture();

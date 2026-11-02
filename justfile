@@ -113,7 +113,9 @@ site:
     # scripts/install.sh stays the single source.
     mkdir -p apps/web/public
     cp scripts/install.sh apps/web/public/install.sh
-    python3 scripts/export-source-site.py --output apps/web/public/source
+    npm ci --prefix code-models/typescript --no-fund --no-audit
+    cargo build --locked -p hick-lsp --bin hick-lsp
+    python3 scripts/export-source-site.py --output apps/web/public/source --lsp target/debug/hick-lsp --model typescript=code-models/typescript/hick-model-typescript
     cd apps/web
     HICKORY_SITE_ONLY=1 VITE_POSTHOG_KEY="$key" npm run build:site
     echo

@@ -285,6 +285,11 @@ fn a_markdown_note_with_hick_elements_uses_the_hick_pipeline() {
     let uri = Url::parse("file:///notes/today.md").unwrap();
     assert!(is_hick_document(&uri, "<hick:paste from=\"#test1\" />"));
     assert!(!is_hick_document(&uri, "# ordinary Markdown\n"));
+    assert!(is_hick_document(
+        &uri,
+        "<book:doc xmlns:book=\"http://www.hickorydocs.com/1.0\"><book:file path=\"a.ts\">const count = 1;</book:file></book:doc>"
+    ));
+    assert!(is_hick_document(&uri, "---\nprefix: code\n---\n<code:file path=\"a.py\">pass</code:file>"));
 }
 
 /// Real clangd deduplicates diagnostics for byte-identical changes. The

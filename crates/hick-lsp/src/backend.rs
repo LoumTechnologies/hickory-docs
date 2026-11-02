@@ -1082,6 +1082,24 @@ impl HickBackend {
     }
 }
 
+impl HickBackend {
+    /// A build needs an acknowledgement that normal didOpen preparation finished.
+    /// Ordinary LSP notifications deliberately have no response to await.
+    pub async fn capture_document(
+        &self,
+        params: DidOpenTextDocumentParams,
+    ) -> Result<serde_json::Value> {
+        let uri = params.text_document.uri.clone();
+        self.did_open(params).await;
+        let documents = self.documents.read().await;
+        let parsed = documents
+            .get(&uri)
+            .is_some_and(|entry| entry.state.is_some());
+        let open_files = documents.get(&uri).map_or(0, |entry| entry.open_vfiles.len());
+        Ok(serde_json::json!({"processed": true, "parsed": parsed, "open_files": open_files}))
+    }
+}
+
 /// Which structural answer to compute.
 #[derive(Debug, Clone, Copy)]
 enum StructuralKind {
@@ -2473,7 +2491,8 @@ fn reindent(text: &str, indent: usize, ends_at_column_zero: bool) -> String {
 /// whole. Bare documents are Markdown now, so their extension cannot decide:
 /// the namespace marker is the syntax boundary.
 fn is_hick_document(_uri: &Url, source: &str) -> bool {
-    source.contains("<hick:") // content, not extension: every document is `.md`
+    let prefix = hick_lang::structure(source).prefix;
+    source.contains(&format!("<{prefix}:"))
 }
 
 /// The language a plain file is in, by its name.

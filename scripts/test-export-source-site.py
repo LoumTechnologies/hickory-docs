@@ -44,6 +44,33 @@ class SourcePublicationTests(unittest.TestCase):
             for private in ['PRIVATE SESSION', 'PRIVATE CREDENTIAL', 'UNTRACKED NOTE', 'UNCOMMITTED EDIT']:
                 self.assertNotIn(private, published)
 
+    def test_compiled_highlights_follow_committed_cross_page_fragment_ownership(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for args in [('init', '-q'), ('config', 'user.email', 'test@example.invalid'), ('config', 'user.name', 'Test')]:
+                subprocess.check_call(['git', *args], cwd=root)
+            source = '<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n😀\n<h:copy id="typed">\nconst count = 1;\n</h:copy>\n</h:doc>'
+            (root / 'project.md').write_text(source)
+            (root / '.hickory-source').mkdir()
+            (root / '.hickory-source/chapter.md').write_text('# Chapter')
+            (root / 'hickory-dogfood').mkdir()
+            (root / 'hickory-dogfood/behavior-map.json').write_text(json.dumps({'constructors': {'src/a.ts': {'fragments': ['typed']}}}))
+            subprocess.check_call(['git', 'add', '.'], cwd=root)
+            subprocess.check_call(['git', 'commit', '-qm', 'Language fixture'], cwd=root)
+            (root / 'project.md').write_text('DIRTY SOURCE')
+            output = root / 'out'
+            manifest = exporter.export(root, output, compile_language=True)
+            document = next(doc for doc in manifest['documents'] if doc['path'] == 'project.md')
+            payload = json.loads((output / document['url']).read_text())
+            analysis = json.loads(payload['intelligence'])
+            self.assertEqual(payload['source'], source)
+            self.assertEqual(analysis['state'], 'unavailable')
+            self.assertIsNone(analysis['language'])
+            keyword = next(span for span in analysis['spans'] if span['class'] == 'tok-keyword')
+            self.assertEqual(source.encode('utf-16-le')[keyword['from']*2:keyword['to']*2].decode('utf-16-le'), 'const')
+            encoded = json.dumps(analysis, ensure_ascii=False, separators=(',', ':')).encode()
+            self.assertEqual(hashlib.sha256(encoded).hexdigest(), document['intelligence_sha256'])
+
     def test_missing_committed_entry_is_refused(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

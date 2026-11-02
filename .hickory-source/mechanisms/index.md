@@ -197,4 +197,18 @@ is included with that control; opening a document is not generation authority.
 <storycode:include file="apps/web/src/components/ProjectGeneration.tsx.md" />
 <storycode:include file="apps/web/src/components/ProjectGeneration.test.tsx.md" />
 
+<storycode:include file="scripts/compile-source-highlights.mjs.md" />
+
+<storycode:include file="scripts/capture-source-language.py.md" />
+
+<storycode:include file="apps/web/src/embed/staticLanguage.ts.md" />
+
+<storycode:include file="apps/web/src/embed/staticLanguage.test.ts.md" />
+
+<storycode:include file="scripts/test-capture-source-language.py.md" />
+
+<storycode:include file="scripts/capture-source-models.py.md" />
+
+<storycode:include file="apps/web/e2e/staticLanguage.spec.ts.md" />
+
 </storycode:doc>

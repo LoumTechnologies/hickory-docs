@@ -378,12 +378,19 @@ fn an_edit_that_cannot_be_mapped_withholds_the_whole_answer() {
 <a id="f-c123076e88e3-a_markdown_note_with_hick_elements_uses_the_hick_pipeline"></a>
 ### `a_markdown_note_with_hick_elements_uses_the_hick_pipeline`
 
+Check the routing boundary with ordinary Markdown, the default prefix, an XML namespace alias and a frontmatter alias. This prevents a publication containing rebound literate tags from silently being analysed as prose.
+
 <storycode:copy id="f-c123076e88e3-a_markdown_note_with_hick_elements_uses_the_hick_pipeline">
 #[test]
 fn a_markdown_note_with_hick_elements_uses_the_hick_pipeline() {
     let uri = Url::parse("file:///notes/today.md").unwrap();
     assert!(is_hick_document(&uri, "<hick:paste from=\"#test1\" />"));
     assert!(!is_hick_document(&uri, "# ordinary Markdown\n"));
+    assert!(is_hick_document(
+        &uri,
+        "<book:doc xmlns:book=\"http://www.hickorydocs.com/1.0\"><book:file path=\"a.ts\">const count = 1;</book:file></book:doc>"
+    ));
+    assert!(is_hick_document(&uri, "---\nprefix: code\n---\n<code:file path=\"a.py\">pass</code:file>"));
 }
 
 </storycode:copy>

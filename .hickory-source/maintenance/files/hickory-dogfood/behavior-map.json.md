@@ -45605,7 +45605,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-c936496a03c1-is_hick_document",
         "f-c936496a03c1-plain_language",
         "f-c936496a03c1-parse_error_location",
-        "f-c936496a03c1-tests"
+        "f-c936496a03c1-tests",
+        "static-language-capture-readiness"
       ],
       "anchor": "output-c936496a03c1",
       "narrative_owner": "mechanism:crates/hick-lsp"
@@ -65338,6 +65339,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     "apps/web/src/embed/sourceLinks.test.ts": {
       "source": ".hickory-source/mechanisms/apps/web/src/embed/sourceLinks.test.ts.md"
+    },
+    "scripts/compile-source-highlights.mjs": {
+      "source": ".hickory-source/mechanisms/scripts/compile-source-highlights.mjs.md"
+    },
+    "scripts/capture-source-language.py": {
+      "source": ".hickory-source/mechanisms/scripts/capture-source-language.py.md"
+    },
+    "apps/web/src/embed/staticLanguage.ts": {
+      "source": ".hickory-source/mechanisms/apps/web/src/embed/staticLanguage.ts.md"
+    },
+    "apps/web/src/embed/staticLanguage.test.ts": {
+      "source": ".hickory-source/mechanisms/apps/web/src/embed/staticLanguage.test.ts.md"
+    },
+    "scripts/test-capture-source-language.py": {
+      "source": ".hickory-source/mechanisms/scripts/test-capture-source-language.py.md"
+    },
+    "scripts/capture-source-models.py": {
+      "source": ".hickory-source/mechanisms/scripts/capture-source-models.py.md"
+    },
+    "apps/web/e2e/staticLanguage.spec.ts": {
+      "source": ".hickory-source/mechanisms/apps/web/e2e/staticLanguage.spec.ts.md"
     }
   },
   "evidence_records": [

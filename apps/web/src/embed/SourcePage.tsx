@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorView } from "@codemirror/view";
+import { decodeStaticLanguage, staticLanguageExtensions, staticSymbols } from "./staticLanguage";
+import type { StaticLanguage } from "./staticLanguage";
+import type { LspLocation } from "../lsp/client";
 import { sourceLinks } from "./sourceLinks";
 import { DocumentEmbed } from "./DocumentEmbed";
 import { ingestedFolds } from "../editor/folding";
@@ -8,8 +11,9 @@ import { UiLink, requestLinkNavigation } from "../components/UiLink";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import { useUiReading } from "../lib/uiReading";
 
-interface SourceDocument { path: string; title: string; sha256: string; url: string }
-interface SourceIndex { version: number; revision: string; entry: string; documents: SourceDocument[] }
+interface SourceDocument { path: string; title: string; sha256: string; url: string; intelligence_sha256?: string }
+interface SourceModel { language: string; sha256: string; url: string }
+interface SourceIndex { version: number; revision: string; entry: string; documents: SourceDocument[]; models?: SourceModel[] }
 const folds = [ingestedFolds()];
 const safePath = (path: string) => path === "project.md" || path.startsWith(".hickory-source/") && path.endsWith(".md") && !/[\\?#%\u0000-\u001f]/.test(path) && path.split("/").every(part => part !== "" && part !== "." && part !== "..");
 
@@ -20,8 +24,10 @@ export function decodeSourceIndex(value: unknown): SourceIndex {
   const paths = new Set<string>();
   for (const doc of index.documents) {
     if (!doc || typeof doc.path !== "string" || !safePath(doc.path) || paths.has(doc.path) || typeof doc.title !== "string" || !/^[a-f0-9]{64}$/.test(doc.sha256) || !/^documents\/[a-f0-9]{64}\.json$/.test(doc.url)) throw Error("Invalid source document");
+    if (doc.intelligence_sha256 !== undefined && !/^[a-f0-9]{64}$/.test(doc.intelligence_sha256)) throw Error("Invalid language artifact hash");
     paths.add(doc.path);
   }
+  if (index.models !== undefined && (!Array.isArray(index.models) || index.models.some(model => !model || !/^[a-z][a-z0-9_-]*$/.test(model.language) || !/^[a-f0-9]{64}$/.test(model.sha256) || model.url !== `models/${model.sha256}.json`))) throw Error("Invalid code model artifact");
   if (!paths.has(index.entry)) throw Error("Source entry is missing");
   return index;
 }
@@ -71,11 +77,40 @@ function SourceBreadcrumbs({ path, index }: { path: string; index: SourceIndex }
   })}</ol></nav>;
 }
 
+function CapturedModels({ index }: { index: SourceIndex }) {
+  const [open, setOpen] = useState(false);
+  const [models, setModels] = useState<unknown[] | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    setModels(null); setError("");
+    void Promise.all((index.models ?? []).map(async model => {
+      const response = await fetch(`./source/${model.url}`, { signal: controller.signal });
+      if (!response.ok) throw Error("Captured code model is unavailable");
+      const text = await response.text();
+      if (await sha256(text) !== model.sha256) throw Error("Captured code model hash differs");
+      const value = JSON.parse(text);
+      if (value.revision !== index.revision || value.language !== model.language) throw Error("Captured code model revision differs");
+      return value;
+    })).then(values => { if (!controller.signal.aborted) setModels(values); })
+      .catch(failure => { if (!controller.signal.aborted) setError(String(failure)); });
+    return () => controller.abort();
+  }, [open, index]);
+  return <details open={open} onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary>Captured code models</summary>
+    <p>Schema and finite type graph at this published revision. Unresolved bindings remain in the capture. New parameterized queries require a new build.</p>
+    {error ? <p role="alert">{error}</p> : models ? models.map((model, i) => <pre key={i}>{JSON.stringify(model, null, 2)}</pre>) : open && <p role="status">Loading captured code models…</p>}
+  </details>;
+}
+
 export function SourcePage() {
   const [index, setIndex] = useState<SourceIndex | null>(null);
   const path = new URL(location.href).searchParams.get("path") ?? "project.md";
   const [source, setSource] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [intelligence, setIntelligence] = useState<StaticLanguage | null>(null);
+  const [references, setReferences] = useState<LspLocation[]>([]);
   const view = useRef<EditorView | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -88,25 +123,47 @@ export function SourcePage() {
   }, []);
   useEffect(() => {
     if (!index) return;
+    setSource(null); setIntelligence(null); setReferences([]);
     const document = index.documents.find(doc => doc.path === path);
     if (!document) { setError("This page is not published. Choose a document in the files pane."); return; }
     const controller = new AbortController();
-    setSource(null); setError("");
+    setError("");
     void fetch(`./source/${document.url}`, { signal: controller.signal }).then(async response => {
       if (!response.ok) throw Error("This published source page is unavailable");
-      const text = await decodeSource(await response.json(), index, document);
-      if (!controller.signal.aborted) setSource(text);
+      const payload = await response.json();
+      const text = await decodeSource(payload, index, document);
+      const analysis = await decodeStaticLanguage(payload.intelligence, text, document.intelligence_sha256);
+      if (!controller.signal.aborted) { setIntelligence(analysis); setSource(text); }
     }).catch(failure => { if (!controller.signal.aborted) setError(String(failure)); });
     return () => controller.abort();
   }, [index, path]);
   const folders = useMemo(() => sourceFolders(index?.documents ?? []), [index]);
-  const extensions = useMemo(() => index ? [...folds, sourceLinks(path, index)] : folds, [index, path]);
+  function targetHref(target: LspLocation) {
+    if (!target.uri.startsWith("hick:///")) return null;
+    let targetPath: string;
+    try { targetPath = decodeURIComponent(target.uri.slice(8).split(/[?#]/)[0]); } catch { return null; }
+    if (!index?.documents.some(doc => doc.path === targetPath)) return null;
+    const { line, character } = target.range.start;
+    if (!Number.isInteger(line) || line < 0 || !Number.isInteger(character) || character < 0) return null;
+    return `?path=${encodeURIComponent(targetPath)}#L${line + 1}:${character}`;
+  }
+  const extensions = useMemo(() => index ? [...folds, sourceLinks(path, index),
+    ...(intelligence && source !== null ? staticLanguageExtensions(intelligence, source, path,
+      target => { const href = targetHref(target); if (href) void requestLinkNavigation(href); }, setReferences) : []),
+  ] : folds, [index, path, intelligence, source]);
   function revealAnchor(editor: EditorView) {
     let anchor: string;
     try { anchor = decodeURIComponent(location.hash.slice(1)); } catch { return; }
     if (!anchor) return;
     const text = editor.state.doc.toString();
-    let at = text.indexOf(`<a id="${anchor}">`);
+    const position = /^L([1-9][0-9]*):([0-9]+)$/.exec(anchor);
+    let at = -1;
+    if (position && Number(position[1]) <= editor.state.doc.lines) {
+      const line = editor.state.doc.line(Number(position[1]));
+      at = Math.min(line.to, line.from + Number(position[2]));
+      editor.dispatch({ selection: { anchor: at } });
+    }
+    if (at < 0) at = text.indexOf(`<a id="${anchor}">`);
     if (at < 0) {
       const heading = [...text.matchAll(/^#{1,6}\s+(.+)$/gm)].find(match => match[1].toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, "").trim().replace(/\s+/g, "-") === anchor);
       at = heading?.index ?? -1;
@@ -127,6 +184,19 @@ export function SourcePage() {
     <aside className="source-files"><nav aria-label="Source files"><SourceFiles folder={folders} current={path} /></nav></aside>
     <main className="source-document">
       {index && <SourceBreadcrumbs path={path} index={index} />}
+      {index?.models?.length ? <CapturedModels index={index} /> : null}
+      {intelligence && <details><summary>Published language information</summary>
+        <p>{intelligence.state === "captured" ? "Language answers captured at this revision. Missing provider answers are unavailable." : "Syntax highlighting compiled; semantic providers were unavailable for this publication."}</p>
+        <ul>{staticSymbols(intelligence).map((symbol, i) => {
+          const target = symbol.location ?? { uri: `hick:///${path}`, range: symbol.selectionRange ?? symbol.range };
+          const href = targetHref(target);
+          return <li key={i}>{href ? <UiLink href={href}>{symbol.name}</UiLink> : symbol.name}</li>;
+        })}</ul>
+      </details>}
+      {references.length > 0 && <aside aria-label="Captured references"><ul>{references.map((target, i) => {
+        const href = targetHref(target);
+        return <li key={i}>{href ? <UiLink href={href}>{target.uri.slice(8)}:{target.range.start.line + 1}</UiLink> : <span>Target outside published source</span>}</li>;
+      })}</ul></aside>}
       {error && <p role="alert">{error}</p>}
       {!error && source === null && <p role="status">Loading document…</p>}
       {source !== null && index && <DocumentEmbed key={path} path={path} source={source} revision={index.revision} readOnly extensions={extensions} onViewReady={editor => { view.current = editor; if (editor) revealAnchor(editor); }} />}
