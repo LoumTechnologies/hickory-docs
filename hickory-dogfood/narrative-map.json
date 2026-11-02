@@ -147959,6 +147959,86 @@
       "symbol": "immutable-scaffold-literal-replay-test",
       "basis": "explained-decision",
       "original_range": null
+    },
+    {
+      "id": "public-source-scripts-export-source-site-py",
+      "output": "scripts/export-source-site.py",
+      "page": ".hickory-source/mechanisms/scripts/export-source-site.py.md",
+      "symbol": "Publish the maintained Markdown at one committed revision",
+      "basis": "explained-decision",
+      "original_range": null
+    },
+    {
+      "id": "public-source-apps-web-src-embed-source-tsx",
+      "output": "apps/web/src/embed/source.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/embed/source.tsx.md",
+      "symbol": "Mount the static source browser",
+      "basis": "explained-decision",
+      "original_range": null
+    },
+    {
+      "id": "public-source-apps-web-src-embed-source-css",
+      "output": "apps/web/src/embed/source.css",
+      "page": ".hickory-source/mechanisms/apps/web/src/embed/source.css.md",
+      "symbol": "Keep source navigation readable beside code",
+      "basis": "explained-decision",
+      "original_range": null
+    },
+    {
+      "id": "public-source-apps-web-source-html",
+      "output": "apps/web/source.html",
+      "page": ".hickory-source/mechanisms/apps/web/source.html.md",
+      "symbol": "Serve the public source entry",
+      "basis": "explained-decision",
+      "original_range": null
+    },
+    {
+      "id": "public-source-scripts-test-export-source-site-py",
+      "output": "scripts/test-export-source-site.py",
+      "page": ".hickory-source/mechanisms/scripts/test-export-source-site.py.md",
+      "symbol": "Keep private and uncommitted bytes out of source publication",
+      "basis": "explained-decision",
+      "original_range": null
+    },
+    {
+      "id": "public-source-apps-web-src-embed-SourcePage-test-tsx",
+      "output": "apps/web/src/embed/SourcePage.test.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/embed/SourcePage.test.tsx.md",
+      "symbol": "Exercise source navigation and revision-bound loading",
+      "basis": "explained-decision",
+      "original_range": null
+    },
+    {
+      "id": "public-source-reader-boundaries",
+      "output": "apps/web/src/embed/SourcePage.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/embed/SourcePage.tsx.md",
+      "symbol": "boundaries",
+      "basis": "explained-decision",
+      "original_range": null
+    },
+    {
+      "id": "public-source-reader-identities",
+      "output": "apps/web/src/embed/SourcePage.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/embed/SourcePage.tsx.md",
+      "symbol": "identities",
+      "basis": "explained-decision",
+      "original_range": null
+    },
+    {
+      "id": "public-source-reader-navigation",
+      "output": "apps/web/src/embed/SourcePage.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/embed/SourcePage.tsx.md",
+      "symbol": "navigation",
+      "basis": "explained-decision",
+      "original_range": null
+    },
+    {
+      "id": "public-source-reader-reader",
+      "output": "apps/web/src/embed/SourcePage.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/embed/SourcePage.tsx.md",
+      "symbol": "reader",
+      "basis": "explained-decision",
+      "original_range": null
     }
   ],
   "explanation_gaps": {

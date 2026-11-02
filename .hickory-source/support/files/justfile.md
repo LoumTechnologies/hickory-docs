@@ -129,6 +129,7 @@ site:
     # scripts/install.sh stays the single source.
     mkdir -p apps/web/public
     cp scripts/install.sh apps/web/public/install.sh
+    python3 scripts/export-source-site.py --output apps/web/public/source
     cd apps/web
     HICKORY_SITE_ONLY=1 VITE_POSTHOG_KEY="$key" npm run build:site
     echo

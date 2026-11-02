@@ -1159,4 +1159,19 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 
 - [Exercise scaffold editing boundaries](src/editor/immutableScaffolds.test.ts.md)
 
+- [Read the public implementation through the shared editor](src/embed/SourcePage.tsx.md)
+<storycode:include file="src/embed/SourcePage.tsx.md" />
+
+- [Mount the static source browser](src/embed/source.tsx.md)
+<storycode:include file="src/embed/source.tsx.md" />
+
+- [Keep source navigation readable beside code](src/embed/source.css.md)
+<storycode:include file="src/embed/source.css.md" />
+
+- [Serve the public source entry](source.html.md)
+<storycode:include file="source.html.md" />
+
+- [Exercise source navigation and revision-bound loading](src/embed/SourcePage.test.tsx.md)
+<storycode:include file="src/embed/SourcePage.test.tsx.md" />
+
 </storycode:doc>

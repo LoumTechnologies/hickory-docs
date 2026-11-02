@@ -72,12 +72,31 @@ It prints and applies the same saved plan in one runner, so exhausted GitHub
 artifact storage cannot prevent repairing DNS. Email records are part of the
 DNS stack; inspect the plan to ensure a site repair does not change them.
 
+## Read the maintained source publicly
+
+Open `https://hickorydocs.com/source.html`. The entry is `project.md`; chapter
+links and the source picker navigate the maintained `.hickory-source/` pages.
+The viewer uses Hickory's shared read-only document surface and folds captured
+scaffold files by default. It starts no local engine and runs no cells.
+
+`just site` exports only committed Markdown from `project.md` and
+`.hickory-source/`, with an index and per-page hashes at `public/source/`.
+The displayed revision identifies those exact Git bytes, including during a
+dirty local preview. Untracked files, local sessions and credentials are excluded.
+`project.md` and maintained-source changes trigger **Deploy Site**, so narrative
+changes cannot silently leave the public source mirror stale.
+
+The existing selected executable-spec publications are separate. When their
+reviewed input hashes change, inspect the actual difference and rerun the focused
+publisher before updating the maintained selection. Never bypass that check merely
+to make a site deployment green.
+
 ## Public downloads
 
-The source repository is currently private. Its GitHub release links and the
-existing GitHub-based installer cannot serve strangers. The homepage says
-public downloads are coming soon until a public binary distribution is chosen.
-Changing source visibility is not required to publish binaries.
+The source repository is public. The homepage links to its GitHub releases and
+the existing GitHub-based installer. Keep the download copy consistent with the
+actual published release assets; publishing the static source browser does not
+build or release a new downloadable application.
 
 If records were recreated in the Cloudflare dashboard, the ordinary plan may
 try to create duplicates. The workflow's explicit recovery option discovers

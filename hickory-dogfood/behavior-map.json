@@ -65303,6 +65303,27 @@
     },
     "apps/web/src/editor/immutableScaffolds.test.ts": {
       "source": ".hickory-source/mechanisms/apps/web/src/editor/immutableScaffolds.test.ts.md"
+    },
+    "scripts/export-source-site.py": {
+      "source": ".hickory-source/mechanisms/scripts/export-source-site.py.md"
+    },
+    "apps/web/src/embed/SourcePage.tsx": {
+      "source": ".hickory-source/mechanisms/apps/web/src/embed/SourcePage.tsx.md"
+    },
+    "apps/web/src/embed/source.tsx": {
+      "source": ".hickory-source/mechanisms/apps/web/src/embed/source.tsx.md"
+    },
+    "apps/web/src/embed/source.css": {
+      "source": ".hickory-source/mechanisms/apps/web/src/embed/source.css.md"
+    },
+    "apps/web/source.html": {
+      "source": ".hickory-source/mechanisms/apps/web/source.html.md"
+    },
+    "scripts/test-export-source-site.py": {
+      "source": ".hickory-source/mechanisms/scripts/test-export-source-site.py.md"
+    },
+    "apps/web/src/embed/SourcePage.test.tsx": {
+      "source": ".hickory-source/mechanisms/apps/web/src/embed/SourcePage.test.tsx.md"
     }
   },
   "evidence_records": [

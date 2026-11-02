@@ -75,4 +75,28 @@ its changed-reference popup was not driven against a paid-provider browser sessi
 - [Engineer-first refactor and exact output comparison](engineer-first-refactor.md).
 <book:include file="engineer-first-refactor.md" />
 
+## Public maintained-source browser
+
+The static site now builds a committed Markdown source mirror rooted at
+`project.md` and serves it through the shared read-only Hickory document surface
+at `/source.html`. Maintained-source changes trigger that deployment. The source
+export tests prove that dirty files, untracked notes, sessions and environment
+files cannot enter the committed publication; four focused component tests cover
+navigation, read-only embedding, missing-page recovery, legitimate asset filenames,
+path traversal refusal and mixed-revision/hash refusal. TypeScript checking and
+the production site build passed during implementation.
+
+The focused Chromium walkthrough opens the entry, follows the workspace chapter,
+checks read-only state and default scaffold folding, reloads the deep link and
+checks the mobile viewport. Local screenshots and the receipt are under
+`target/dogfood/public-source-*`. These checks concern the static source browser,
+not broad application regression coverage.
+
+The previously failed site deployment refused a stale reviewed `Cargo.lock`
+identity. Inspection against its reviewed revision found only the existing `fs2`
+and `similar` dependencies newly listed for `hick-project-env`; example and
+Rust-toolchain bytes were unchanged. The selection was updated after that review,
+and all seven existing focused publication tests plus the real selected-example
+publisher passed. The publisher's changed-input refusal remains active.
+
 </book:doc>

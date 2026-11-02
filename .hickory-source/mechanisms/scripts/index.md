@@ -56,4 +56,10 @@ Follow the named module below to its maintained code, original rationale and rel
 <storycode:include file="generate-api.py.md" />
 - [Review complexity scorecard](review-complexity.py.md)
 <storycode:include file="review-complexity.py.md" />
+- [Publish the maintained Markdown at one committed revision](export-source-site.py.md)
+<storycode:include file="export-source-site.py.md" />
+
+- [Keep private and uncommitted bytes out of source publication](test-export-source-site.py.md)
+<storycode:include file="test-export-source-site.py.md" />
+
 </storycode:doc>
