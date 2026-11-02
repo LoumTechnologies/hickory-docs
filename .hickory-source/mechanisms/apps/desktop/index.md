@@ -18,7 +18,6 @@ Wrap the shared engine and web interface in the native desktop host; keep host l
 - [`apps/desktop/src-tauri/src/launch_path.rs`](src-tauri/src/launch_path.rs.md)
 <storycode:include file="src-tauri/src/launch_path.rs.md" />
 - [`apps/desktop/src-tauri/src/lib.rs`](src-tauri/src/lib.rs.md)
-<storycode:include file="src-tauri/src/lib.rs.md" />
 - [`apps/desktop/src-tauri/src/main.rs`](src-tauri/src/main.rs.md)
 <storycode:include file="src-tauri/src/main.rs.md" />
 - [`apps/desktop/src-tauri/src/recent.rs`](src-tauri/src/recent.rs.md)

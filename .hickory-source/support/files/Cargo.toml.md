@@ -1,104 +1,163 @@
 <book:doc xmlns:book="http://www.hickorydocs.com/1.0">
-# Cargo.toml
+# Start the Rust workspace
 
-For: maintainers changing this file and reviewers tracing the related behavioral requirements.
+We are building an editor and command-line tool whose Markdown documents construct
+programs, execute selected cells and preserve where their bytes came from. Start
+with Cargo's package scaffold, then turn that package into the workspace that
+lets the same language engine run natively and in the browser.
 
-Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
+## Capture Cargo's small starting point
 
+This command was executed with Cargo and ingested with the rebuilt `hick`. Only
+the generated manifest is copied into the output volume: Cargo's temporary library
+is scaffolding machinery, not an implementation of Hickory. The capture below is
+inline and hash checked. Hickory folds its file by default; ordinary reconstruction
+replays the bytes without invoking Cargo or needing the original scratch directory.
 
-Captured SHA-256: `d075f4ddfa66c05690a76d090de5aba203e7a3fdc12ce8297691644591f18c23`.
-
-<book:entry path="Cargo.toml">
-[workspace]
-resolver = "3"
-members = [
-    "crates/hick-coverage",
-    "crates/hick-profile",
-    "crates/hick-case",
-    "crates/hick-context-protocol",
-    "crates/hick-context-store",
-    "crates/hick-classify",
-    "crates/hick-condition",
-    "crates/hick-exec",
-    "crates/hick-feature",
-    "crates/hick-flow",
-    "crates/hick-formula",
-    "crates/hick-plugins",
-    "crates/hick-grove",
-    "crates/hick-handlers",
-    "crates/hick-lang",
-    "crates/hick-lang-wasm",
-    "crates/hick-blocks",
-    "crates/hick-dap",
-    "crates/hick-observe",
-    "crates/hick-lsp",
-    "crates/hick-project-env",
-    "crates/hick-structure",
-    "crates/hick-transcript",
-    "crates/hick-term",
-    "crates/hick-merge",
-    "crates/hick-secrets",
-    "crates/hick-sink",
-    "crates/hick-store",
-    "crates/hick-token",
-    "crates/hick-xml",
-    "crates/hick-literate",
-    "crates/hick-search",
-    "crates/hickory-executor",
-    "crates/hickory-agent",
-    "crates/hickory-executor-canopy",
-    "crates/hickory-executor-docker",
-    "crates/hickory-executor-sandbox",
-    "crates/hickory-cli",
-    "crates/hickory-collab",
-    "crates/hickory-broker",
-    "crates/hickory-fleet",
-    "crates/hickory-peer",
-    "crates/hickory-lineage",
-    "crates/hickory-workspace",
-]
-# editors/zed-hick is a standalone wasm extension crate built by Zed's
-# toolchain, not part of this workspace.
-exclude = ["editors/zed-hick"]
-
-[workspace.package]
+<book:container name="workspace-sdk" />
+<book:volume name="workspace-seed" output="." />
+<book:exec id="workspace-scaffold" container="workspace-sdk" mount="workspace-seed:out">
+cargo init --lib --name hickory_docs --vcs none --edition 2024 seed
+mkdir -p out
+cp seed/Cargo.toml out/Cargo.toml
+<book:ingested from="#workspace-scaffold" sha256="310815fd2d9170ac6829c68d32eba56fa8591cd83ed0551f3b0a1d0d06c86e49" at="2026-11-02" files="1" skipped="0">
+<book:file path="Cargo.toml">
+[package]
+name = "hickory_docs"
+version = "0.1.0"
 edition = "2024"
-publish = false
-license = "GPL-3.0-or-later"
-repository = "https://github.com/LoumTechnologies/hickory-docs"
 
-[workspace.dependencies]
-hick-lang = { version = "0.1", path = "crates/hick-lang" }
-hick-transcript = { version = "0.1", path = "crates/hick-transcript" }
-hick-exec = { version = "0.1", path = "crates/hick-exec" }
-hick-blocks = { version = "0.1", path = "crates/hick-blocks" }
+[dependencies]
+</book:file>
+</book:ingested>
+</book:exec>
 
-# Settings for the binaries people download. `cargo build` and CI's test run
-# use the dev profile, so the inner loop is unaffected.
-# Debug builds carry line tables rather than full debug info.
-#
-# This workspace links ~50 integration-test binaries for `hickory-cli` alone,
-# each pulling the whole crate graph. With full `debuginfo=2` that made the
-# LINKER exhaust memory on a 31 GB machine once the peer channel's QUIC stack
-# joined the graph — reported as `linking with cc failed`, which reads like a
-# toolchain problem and is not one. It is also the same pressure CI already
-# works around by reclaiming runner disk before the build.
-#
-# Line tables keep file-and-line in every backtrace and panic, which is what a
-# test failure actually needs; what is given up is stepping through locals in
-# a debugger, and `debug = 2` in a scratch profile buys that back when
-# somebody wants it.
-[profile.dev]
-debug = "line-tables-only"
+## Replace the package with shared components
 
-[profile.release]
-# Debug symbols are a large share of an unstripped binary, and nobody
-# debugging a downloaded release has the matching source checkout anyway.
-strip = true
-# Whole-program optimization across crate boundaries: this is a 23-crate
-# workspace, so most inlining opportunities are cross-crate.
-lto = "thin"
-codegen-units = 1
-</book:entry>
+The first authored change removes the root package and creates a virtual workspace.
+The pure language crate supplies parsing and construction to native consumers and
+the Wasm adapter. Native execution, the CLI and collaboration live in separate
+crates so the browser does not inherit process or filesystem dependencies.
 
+The manifest also centralizes edition and licensing and keeps Zed's separately
+built Wasm extension outside the workspace. Development line tables control linker
+memory pressure; release stripping and thin LTO control distributed binary size.
+Those comments remain in the generated file, where ordinary Cargo users need them.
+
+The patch names its captured predecessor. A changed scaffold fails exact context
+matching instead of silently changing the workspace. Add a member in this authored
+patch; do not edit or rehash the captured package.
+
+<book:patch id="compose-hickory-workspace" after="workspace-scaffold">
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -1,6 +1,90 @@
+-[package]
+-name = "hickory_docs"
+-version = "0.1.0"
+-edition = "2024"
+-
+-[dependencies]
++[workspace]
++resolver = "3"
++members = [
++    "crates/hick-coverage",
++    "crates/hick-profile",
++    "crates/hick-case",
++    "crates/hick-context-protocol",
++    "crates/hick-context-store",
++    "crates/hick-classify",
++    "crates/hick-condition",
++    "crates/hick-exec",
++    "crates/hick-feature",
++    "crates/hick-flow",
++    "crates/hick-formula",
++    "crates/hick-plugins",
++    "crates/hick-grove",
++    "crates/hick-handlers",
++    "crates/hick-lang",
++    "crates/hick-lang-wasm",
++    "crates/hick-blocks",
++    "crates/hick-dap",
++    "crates/hick-observe",
++    "crates/hick-lsp",
++    "crates/hick-project-env",
++    "crates/hick-structure",
++    "crates/hick-transcript",
++    "crates/hick-term",
++    "crates/hick-merge",
++    "crates/hick-secrets",
++    "crates/hick-sink",
++    "crates/hick-store",
++    "crates/hick-token",
++    "crates/hick-xml",
++    "crates/hick-literate",
++    "crates/hick-search",
++    "crates/hickory-executor",
++    "crates/hickory-agent",
++    "crates/hickory-executor-canopy",
++    "crates/hickory-executor-docker",
++    "crates/hickory-executor-sandbox",
++    "crates/hickory-cli",
++    "crates/hickory-collab",
++    "crates/hickory-broker",
++    "crates/hickory-fleet",
++    "crates/hickory-peer",
++    "crates/hickory-lineage",
++    "crates/hickory-workspace",
++]
++# editors/zed-hick is a standalone wasm extension crate built by Zed's
++# toolchain, not part of this workspace.
++exclude = ["editors/zed-hick"]
++
++[workspace.package]
++edition = "2024"
++publish = false
++license = "GPL-3.0-or-later"
++repository = "https://github.com/LoumTechnologies/hickory-docs"
++
++[workspace.dependencies]
++hick-lang = { version = "0.1", path = "crates/hick-lang" }
++hick-transcript = { version = "0.1", path = "crates/hick-transcript" }
++hick-exec = { version = "0.1", path = "crates/hick-exec" }
++hick-blocks = { version = "0.1", path = "crates/hick-blocks" }
++
++# Settings for the binaries people download. `cargo build` and CI's test run
++# use the dev profile, so the inner loop is unaffected.
++# Debug builds carry line tables rather than full debug info.
++#
++# This workspace links ~50 integration-test binaries for `hickory-cli` alone,
++# each pulling the whole crate graph. With full `debuginfo=2` that made the
++# LINKER exhaust memory on a 31 GB machine once the peer channel's QUIC stack
++# joined the graph — reported as `linking with cc failed`, which reads like a
++# toolchain problem and is not one. It is also the same pressure CI already
++# works around by reclaiming runner disk before the build.
++#
++# Line tables keep file-and-line in every backtrace and panic, which is what a
++# test failure actually needs; what is given up is stepping through locals in
++# a debugger, and `debug = 2` in a scratch profile buys that back when
++# somebody wants it.
++[profile.dev]
++debug = "line-tables-only"
++
++[profile.release]
++# Debug symbols are a large share of an unstripped binary, and nobody
++# debugging a downloaded release has the matching source checkout anyway.
++strip = true
++# Whole-program optimization across crate boundaries: this is a 23-crate
++# workspace, so most inlining opportunities are cross-crate.
++lto = "thin"
++codegen-units = 1
+</book:patch>
+
+Build the tool after materializing the complete source graph:
+
+```sh
+cargo build --locked -p hickory-cli --bin hick
+```
+
+This is a construction story for today's workspace, not a claim to reproduce its
+historical sequence of commits. The [exact replay contract](../../guarantees/literate-projects/replay-is-exact-and-atomic/contract.md)
+constrains patch behavior; the [scaffold chapter](../../02-scaffolds.md)
+shows its implementation and focused refusal tests.
 </book:doc>

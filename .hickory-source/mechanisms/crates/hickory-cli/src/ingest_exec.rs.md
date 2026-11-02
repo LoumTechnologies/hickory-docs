@@ -1,9 +1,9 @@
 <storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
-# Maintain crates/hickory-cli/src/ingest_exec.rs
+# Turn a scaffolder run into an inline base
 
-For: maintainers changing this mechanism and reviewing the contracts that depend on it.
+For engineers changing this behavior and its focused safety checks.
 
-This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
+Ingestion crosses from a tool run into maintained Markdown once. Preserve the selected run's exact filtered bytes, then prove the updated document reproduces them before accepting the source write. The authored changes that follow belong in patches. Remaining fragment-level explanation gaps are recorded in the review ledger.
 
 <a id="output-4e4b92369bcd"></a>
 ## `crates/hickory-cli/src/ingest_exec.rs`

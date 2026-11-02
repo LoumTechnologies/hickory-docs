@@ -1,9 +1,9 @@
 <storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
-# Maintain crates/hick-lang/src/project/tree.rs
+# Represent an exact project output
 
-For: maintainers changing this mechanism and reviewing the contracts that depend on it.
+For engineers changing this behavior and its focused safety checks.
 
-This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
+Keep portable output identity separate from source coordinates. The tree below is pure data: validation and comparison perform no filesystem writes. Start here when a refactor appears textually equal but differs in inventory, kind or executable status. Remaining fragment-level explanation gaps are recorded in the review ledger.
 
 <a id="output-a485394d6759"></a>
 ## `crates/hick-lang/src/project/tree.rs`
@@ -75,6 +75,8 @@ pub struct ProjectEntry {
 <a id="f-a485394d6759-impl-ProjectEntry"></a>
 ### `impl-ProjectEntry`
 
+Output equality deliberately excludes origin coordinates: moving an authored fragment may change where an edit returns without changing the file produced. Include kind and executable status so an equal hash of visible bytes cannot hide a symlink or mode change.
+
 <storycode:copy id="f-a485394d6759-impl-ProjectEntry">
 impl ProjectEntry {
     pub fn file(bytes: impl Into<Arc<[u8]>>) -> Self {
@@ -105,6 +107,8 @@ pub struct ProjectTree {
 </storycode:copy>
 <a id="f-a485394d6759-impl-ProjectTree"></a>
 ### `impl-ProjectTree`
+
+Validate the portable path, origin range lengths and directory collisions before inserting an entry. Comparison reports missing, extra and changed entries in sorted path order; an unchanged candidate must have none of those differences.
 
 <storycode:copy id="f-a485394d6759-impl-ProjectTree">
 impl ProjectTree {
@@ -167,6 +171,8 @@ impl ProjectTree {
 </storycode:copy>
 <a id="f-a485394d6759-DifferenceKind"></a>
 ### `DifferenceKind`
+
+Keep absence distinct from a changed entry so verification can report the full inventory mismatch rather than silently treating a deletion as an empty file.
 
 <storycode:copy id="f-a485394d6759-DifferenceKind">
 #[derive(Debug, Clone, PartialEq, Eq)]

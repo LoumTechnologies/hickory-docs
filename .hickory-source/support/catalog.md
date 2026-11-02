@@ -552,7 +552,6 @@ Implementation and test narratives are in [the mechanism index](../mechanisms/in
 - [`Cargo.lock`](files/Cargo.lock.md)
 <storycode:include file="files/Cargo.lock.md" />
 - [`Cargo.toml`](files/Cargo.toml.md)
-<storycode:include file="files/Cargo.toml.md" />
 - [`LICENSE`](files/LICENSE.md)
 <storycode:include file="files/LICENSE.md" />
 - [`PORTING-TO-CSHARP.md`](files/PORTING-TO-CSHARP.md.md)

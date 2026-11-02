@@ -20,7 +20,6 @@ Follow the named module below to its maintained code, original rationale and rel
 - [`crates/hick-literate/src/expect.rs`](src/expect.rs.md)
 <storycode:include file="src/expect.rs.md" />
 - [`crates/hick-literate/src/lib.rs`](src/lib.rs.md)
-<storycode:include file="src/lib.rs.md" />
 - [`crates/hick-literate/src/lib/tests/tests.rs`](src/lib/tests/tests.rs.md)
 <storycode:include file="src/lib/tests/tests.rs.md" />
 - [`crates/hick-literate/src/links.rs`](src/links.rs.md)
@@ -58,7 +57,6 @@ Follow the named module below to its maintained code, original rationale and rel
 - [`crates/hick-literate/tests/pipeline_tests.rs`](tests/pipeline_tests.rs.md)
 <storycode:include file="tests/pipeline_tests.rs.md" />
 - [`crates/hick-literate/tests/project.rs`](tests/project.rs.md)
-<storycode:include file="tests/project.rs.md" />
 - [`crates/hick-literate/tests/security_tests.rs`](tests/security_tests.rs.md)
 <storycode:include file="tests/security_tests.rs.md" />
 - [`crates/hick-literate/tests/support/authorization.rs`](tests/support/authorization.rs.md)

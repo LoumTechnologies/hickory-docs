@@ -72,4 +72,7 @@ its changed-reference popup was not driven against a paid-provider browser sessi
 - [Historical human-code benchmark](historical-code-2026-11-01.md)
 <book:include file="historical-code-2026-11-01.md" />
 
+- [Engineer-first refactor and exact output comparison](engineer-first-refactor.md).
+<book:include file="engineer-first-refactor.md" />
+
 </book:doc>

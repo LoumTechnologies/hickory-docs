@@ -31,7 +31,6 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="playwright.embed.config.ts.md" />
 - [`apps/web/src/App.test.tsx`](src/App.tsx.md#output-65ac24c24624)
 - [`apps/web/src/App.tsx`](src/App.tsx.md)
-<storycode:include file="src/App.tsx.md" />
 - [`apps/web/src/analytics/attribution.ts`](src/analytics/attribution.ts.md)
 <storycode:include file="src/analytics/attribution.ts.md" />
 - [`apps/web/src/analytics/events.ts`](src/analytics/events.ts.md)
@@ -183,7 +182,6 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 - [`apps/web/src/components/NotebookOutputs.tsx`](src/components/NotebookOutputs.tsx.md)
 <storycode:include file="src/components/NotebookOutputs.tsx.md" />
 - [`apps/web/src/components/OutputEditorPane.tsx`](src/components/OutputEditorPane.tsx.md)
-<storycode:include file="src/components/OutputEditorPane.tsx.md" />
 - [`apps/web/src/components/OutputTree.tsx`](src/components/OutputTree.tsx.md)
 <storycode:include file="src/components/OutputTree.tsx.md" />
 - [`apps/web/src/components/PlainFileActions.tsx`](src/components/PlainFileActions.tsx.md)
@@ -385,7 +383,6 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 - [`apps/web/src/editor/DocumentEditor.test.tsx`](src/editor/DocumentEditor.test.tsx.md)
 <storycode:include file="src/editor/DocumentEditor.test.tsx.md" />
 - [`apps/web/src/editor/DocumentEditor.tsx`](src/editor/DocumentEditor.tsx.md)
-<storycode:include file="src/editor/DocumentEditor.tsx.md" />
 - [`apps/web/src/editor/EditorRuler.test.tsx`](src/editor/EditorRuler.tsx.md#output-a0ab5d3c94e1)
 - [`apps/web/src/editor/EditorRuler.tsx`](src/editor/EditorRuler.tsx.md)
 <storycode:include file="src/editor/EditorRuler.tsx.md" />
@@ -799,7 +796,6 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="src/lsp/positions.ts.md" />
 - [`apps/web/src/lsp/representationMapping.test.ts`](src/lsp/representationMapping.ts.md#output-f3e0210e3ed7)
 - [`apps/web/src/lsp/representationMapping.ts`](src/lsp/representationMapping.ts.md)
-<storycode:include file="src/lsp/representationMapping.ts.md" />
 - [`apps/web/src/lsp/semanticTokens.test.ts`](src/lsp/semanticTokens.ts.md#output-ba579175e4ee)
 - [`apps/web/src/lsp/semanticTokens.ts`](src/lsp/semanticTokens.ts.md)
 <storycode:include file="src/lsp/semanticTokens.ts.md" />
@@ -1160,9 +1156,7 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 - [`generatedApi.ts`](src/api/generatedApi.ts.md)
 <storycode:include file="src/api/generatedApi.ts.md" />
 - [Protect captured scaffold bytes in editors](src/editor/immutableScaffolds.ts.md)
-<storycode:include file="src/editor/immutableScaffolds.ts.md" />
 
 - [Exercise scaffold editing boundaries](src/editor/immutableScaffolds.test.ts.md)
-<storycode:include file="src/editor/immutableScaffolds.test.ts.md" />
 
 </storycode:doc>

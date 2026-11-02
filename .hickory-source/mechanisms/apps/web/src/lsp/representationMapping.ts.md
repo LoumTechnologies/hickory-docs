@@ -1,9 +1,9 @@
 <storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
-# Maintain apps/web/src/lsp/representationMapping.ts
+# Translate navigation and edits through provenance
 
-For: maintainers changing this mechanism and reviewing the contracts that depend on it.
+For engineers changing this behavior and its focused safety checks.
 
-This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
+Generated-file positions and Markdown positions are different coordinate spaces. Map only ranges justified by provenance, and keep navigation permission separate from editing permission: an ingested byte has a location but is not authored source. Remaining fragment-level explanation gaps are recorded in the review ledger.
 
 <a id="output-237646581124"></a>
 ## `apps/web/src/lsp/representationMapping.ts`

@@ -1,9 +1,9 @@
 <storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
-# Maintain crates/hick-lang/src/project/evaluate.rs
+# Evaluate declared construction, not ambient files
 
-For: maintainers changing this mechanism and reviewing the contracts that depend on it.
+For engineers changing this behavior and its focused safety checks.
 
-This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
+Read the declared Markdown closure, collect named fragments and evaluate operations against explicit predecessor states. The source story may be reordered without making execution order implicit. Invalid or unsupported construction must fail before callers treat a partial tree as complete. Remaining fragment-level explanation gaps are recorded in the review ledger.
 
 <a id="output-4957ad4b2f9a"></a>
 ## `crates/hick-lang/src/project/evaluate.rs`

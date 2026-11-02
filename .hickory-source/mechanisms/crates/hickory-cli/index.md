@@ -80,7 +80,6 @@ Follow the named module below to its maintained code, original rationale and rel
 - [`crates/hickory-cli/src/ingest/tests.rs`](src/ingest/tests.rs.md)
 <storycode:include file="src/ingest/tests.rs.md" />
 - [`crates/hickory-cli/src/ingest_exec.rs`](src/ingest_exec.rs.md)
-<storycode:include file="src/ingest_exec.rs.md" />
 - [`crates/hickory-cli/src/ingest_recording.rs`](src/ingest_recording.rs.md)
 <storycode:include file="src/ingest_recording.rs.md" />
 - [`crates/hickory-cli/src/init.rs`](src/init.rs.md)
@@ -96,7 +95,6 @@ Follow the named module below to its maintained code, original rationale and rel
 - [`crates/hickory-cli/src/lib_tests.rs`](src/lib_tests.rs.md)
 <storycode:include file="src/lib_tests.rs.md" />
 - [`crates/hickory-cli/src/main.rs`](src/main.rs.md)
-<storycode:include file="src/main.rs.md" />
 - [`crates/hickory-cli/src/main_thread.rs`](src/main_thread.rs.md)
 <storycode:include file="src/main_thread.rs.md" />
 - [`crates/hickory-cli/src/mcp.rs`](src/mcp.rs.md)
@@ -214,7 +212,6 @@ Follow the named module below to its maintained code, original rationale and rel
 - [`crates/hickory-cli/src/serve/merged_write.rs`](src/serve/merged_write.rs.md)
 <storycode:include file="src/serve/merged_write.rs.md" />
 - [`crates/hickory-cli/src/serve/mod.rs`](src/serve/mod.rs.md)
-<storycode:include file="src/serve/mod.rs.md" />
 - [`crates/hickory-cli/src/serve/native_projects.rs`](src/serve/native_projects.rs.md)
 <storycode:include file="src/serve/native_projects.rs.md" />
 - [`crates/hickory-cli/src/serve/output_resolution.rs`](src/serve/output_resolution.rs.md)
@@ -260,7 +257,6 @@ Follow the named module below to its maintained code, original rationale and rel
 - [`crates/hickory-cli/src/serve/socket.rs`](src/serve/socket.rs.md)
 <storycode:include file="src/serve/socket.rs.md" />
 - [`crates/hickory-cli/src/serve/store.rs`](src/serve/store.rs.md)
-<storycode:include file="src/serve/store.rs.md" />
 - [`crates/hickory-cli/src/serve/story.rs`](src/serve/story.rs.md)
 <storycode:include file="src/serve/story.rs.md" />
 - [`crates/hickory-cli/src/serve/terminal.rs`](src/serve/terminal.rs.md)
@@ -330,7 +326,6 @@ Follow the named module below to its maintained code, original rationale and rel
 - [`crates/hickory-cli/tests/ingest.rs`](tests/ingest.rs.md)
 <storycode:include file="tests/ingest.rs.md" />
 - [`crates/hickory-cli/tests/ingest_scaffold.rs`](tests/ingest_scaffold.rs.md)
-<storycode:include file="tests/ingest_scaffold.rs.md" />
 - [`crates/hickory-cli/tests/init_tests.rs`](tests/init_tests.rs.md)
 <storycode:include file="tests/init_tests.rs.md" />
 - [`crates/hickory-cli/tests/literate_agent_projects.rs`](tests/literate_agent_projects.rs.md)

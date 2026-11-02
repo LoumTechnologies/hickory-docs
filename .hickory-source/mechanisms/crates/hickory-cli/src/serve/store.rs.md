@@ -1,9 +1,9 @@
 <storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
-# Maintain crates/hickory-cli/src/serve/store.rs
+# Publish source only after its captures survive
 
-For: maintainers changing this mechanism and reviewing the contracts that depend on it.
+For engineers changing this behavior and its focused safety checks.
 
-This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
+The shared store is the final disk boundary for local and collaborative saves. Check immutable captures against the old source before atomically publishing a replacement; reject the whole save when its base changed. Remaining fragment-level explanation gaps are recorded in the review ledger.
 
 <a id="output-60e6f71bfd5c"></a>
 ## `crates/hickory-cli/src/serve/store.rs`

@@ -16,21 +16,17 @@ Turn declared document constructions into immutable project trees, retaining byt
 - [`crates/hick-lang/src/project/coordinates.rs`](src/project/coordinates.rs.md)
 <storycode:include file="src/project/coordinates.rs.md" />
 - [`crates/hick-lang/src/project/evaluate.rs`](src/project/evaluate.rs.md)
-<storycode:include file="src/project/evaluate.rs.md" />
 - [`crates/hick-lang/src/project/mod.rs`](src/project/mod.rs.md)
 <storycode:include file="src/project/mod.rs.md" />
 - [`crates/hick-lang/src/project/snapshot.rs`](src/project/snapshot.rs.md)
 <storycode:include file="src/project/snapshot.rs.md" />
 - [`crates/hick-lang/src/project/tree.rs`](src/project/tree.rs.md)
-<storycode:include file="src/project/tree.rs.md" />
 - [`crates/hick-lang/src/recording.rs`](src/recording.rs.md)
 <storycode:include file="src/recording.rs.md" />
 - [`crates/hick-lang/tests/project.rs`](tests/project.rs.md)
-<storycode:include file="tests/project.rs.md" />
 - [`crates/hick-lang/tests/project_debug.rs`](tests/project_debug.rs.md)
 <storycode:include file="tests/project_debug.rs.md" />
 
 - [Verify the immutable scaffold base](src/scaffold.rs.md)
-<storycode:include file="src/scaffold.rs.md" />
 
 </storycode:doc>
