@@ -186,7 +186,7 @@ export function SourcePage() {
       {index && <SourceBreadcrumbs path={path} index={index} />}
       {index?.models?.length ? <CapturedModels index={index} /> : null}
       {intelligence && <details><summary>Published language information</summary>
-        <p>{intelligence.state === "captured" ? "Language answers captured at this revision. Missing provider answers are unavailable." : "Syntax highlighting compiled; semantic providers were unavailable for this publication."}</p>
+        <p>{intelligence.state === "captured" ? "Language answers captured at this revision. Missing provider answers are unavailable." : (intelligence.reason ?? "Syntax highlighting compiled; semantic analysis is unavailable for this page.")}</p>
         <ul>{staticSymbols(intelligence).map((symbol, i) => {
           const target = symbol.location ?? { uri: `hick:///${path}`, range: symbol.selectionRange ?? symbol.range };
           const href = targetHref(target);

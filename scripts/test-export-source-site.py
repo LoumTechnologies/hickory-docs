@@ -77,6 +77,26 @@ class SourcePublicationTests(unittest.TestCase):
             encoded = json.dumps(analysis, ensure_ascii=False, separators=(',', ':')).encode()
             self.assertEqual(hashlib.sha256(encoded).hexdigest(), document['intelligence_sha256'])
 
+    def test_plain_fences_keep_colours_without_a_workspace_language_scan(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for args in [('init', '-q'), ('config', 'user.email', 'test@example.invalid'), ('config', 'user.name', 'Test')]:
+                subprocess.check_call(['git', *args], cwd=root)
+            (root / 'project.md').write_text('<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n```ts\nconst count = 1;\n```\n</h:doc>')
+            (root / '.hickory-source').mkdir()
+            (root / '.hickory-source/chapter.md').write_text('# Chapter')
+            (root / 'hickory-dogfood').mkdir()
+            (root / 'hickory-dogfood/behavior-map.json').write_text('{"constructors":{}}')
+            subprocess.check_call(['git', 'add', '.'], cwd=root)
+            subprocess.check_call(['git', 'commit', '-qm', 'Prose fixture'], cwd=root)
+            output = root / 'out'
+            manifest = exporter.export(root, output, compile_language=True, lsp_command=['/nonexistent-language-server'])
+            document = next(doc for doc in manifest['documents'] if doc['path'] == 'project.md')
+            analysis = json.loads(json.loads((output / document['url']).read_text())['intelligence'])
+            self.assertTrue(analysis['packed_spans']['data'])
+            self.assertEqual(analysis['state'], 'unavailable')
+            self.assertIn('no code ranges', analysis['reason'])
+
     def test_missing_committed_entry_is_refused(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

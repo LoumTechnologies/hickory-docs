@@ -37,17 +37,18 @@ try {
     for (const block of structure.blocks) {
       const inferred = languages.get(block.attrs.id);
       const lang = languageForBlock(structure, block) ?? (block.name === "entry" && block.attrs.encoding !== "base64" ? languageFromPath(block.attrs.path) : null) ?? (inferred?.size === 1 ? [...inferred][0] : null);
-      if (lang) for (const [from, to] of codeRangesOf(structure, block)) ranges.push({ from, to, lang });
+      if (lang) for (const [from, to] of codeRangesOf(structure, block)) ranges.push({ from, to, lang, semantic: true });
     }
     for (const fence of proseCodeFences(structure, text)) {
       const from = text.indexOf('\n', fence.from) + 1;
-      if (from > 0) ranges.push({ from, to: from + fence.body.length, lang: fence.info.split(/\s/)[0] });
+      if (from > 0) ranges.push({ from, to: from + fence.body.length, lang: fence.info.split(/\s/)[0], semantic: false });
     }
     const spans = [], positions = new Map();
     for (const range of ranges) {
       const code = text.slice(range.from, range.to);
       const tokens = highlightCode(code, range.lang);
       for (const span of tokens) spans.push({ from: range.from + span.from, to: range.from + span.to, class: span.cls });
+      if (!range.semantic) continue;
       // Capture once per identifier occurrence, in UTF-16 source coordinates.
       let tokenIndex = 0;
       for (const match of code.matchAll(/[\p{L}_$][\p{L}\p{N}_$]*/gu)) {
@@ -66,7 +67,7 @@ try {
       }
       occurrence.position = { line, character: occurrence.from - lineStart };
     }
-    output[document.path] = { spans, positions: occurrences };
+    output[document.path] = { spans, positions: occurrences, semantic: ranges.some(range => range.semantic) };
   }
   process.stdout.write(JSON.stringify(output));
 } finally { await server.close(); }

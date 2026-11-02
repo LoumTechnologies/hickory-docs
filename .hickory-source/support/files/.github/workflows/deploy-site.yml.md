@@ -128,6 +128,7 @@ jobs:
         if: ${{ !inputs.domains_only }}
         env:
           POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
+          HICKORY_STATIC_CAPTURE_WORKERS: "4"
         run: |
           just site
 

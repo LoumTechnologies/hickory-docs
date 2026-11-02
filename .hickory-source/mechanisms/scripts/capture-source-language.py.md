@@ -1,11 +1,13 @@
 <static:doc xmlns:static="http://www.hickorydocs.com/1.0">
 # Capture finite language answers before hosting
 
-The static host cannot ask new semantic questions. During the build, speak ordinary Content-Length JSON-RPC to an explicitly selected local language server. Keep diagnostics while awaiting responses, answer configuration requests without inheriting user settings, and bound each wait. A stalled or truncated stream fails the build instead of publishing an apparently complete capture.
+The static host cannot ask new semantic questions. During the build, speak ordinary Content-Length JSON-RPC to an explicitly selected local language server. Keep diagnostics while awaiting responses, answer configuration requests without inheriting user settings, and bound each wait. A stalled or closed stream raises an explicit error. The page capture records it as unavailable; configuration and malformed-protocol errors still fail the build.
 
 <static:copy id="static-scripts-capture-source-language-py-0">
 """Finite build-time LSP capture; no sockets or server process reach the site."""
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import sys
 from pathlib import Path
 import queue
 import os
@@ -70,9 +72,9 @@ class CaptureServer:
             try:
                 message = self.messages.get(timeout=max(0, deadline - time.monotonic()))
             except queue.Empty:
-                # A timeout may leave the server processing old work. Abort the
-                # build rather than label a partial capture as a finished one.
-                raise TimeoutError('Static language capture timed out') from None
+                # A timeout may leave the server processing old work. Retire this
+                # page capture and report unavailability instead of a finished snapshot.
+                raise TimeoutError('Static language capture timed out: '+', '.join(dict.fromkeys(method for method, _params in requests))) from None
             if isinstance(message, Exception):
                 raise message
             if message.get('method') == 'textDocument/publishDiagnostics':
@@ -116,6 +118,8 @@ class CaptureServer:
 
 </static:copy>
 
+Plain prose fences receive grammar colours but have no generated-source endpoint to query. Skip the language server for pages containing only those examples; in particular, do not ask for a workspace-wide symbol scan while publishing the project entry’s prose. Capture independent pages in a bounded worker pool, and retire each page’s whole process group before reusing a worker. A timed-out or closed provider produces an explicit page-level reason and no apparently complete semantic answers.
+
 The acknowledgement also reports opened provider files. When none were opened, retain Hickory’s own diagnostics and explicitly mark semantic analysis unavailable instead of issuing thousands of empty identifier requests, especially for raw metadata entries.
 
 Each document gets a fresh dispatcher, and shutdown retires the entire process group, including child providers. Hickory stages a distinct project root per document; keeping one dispatcher for thousands of pages would accumulate thousands of language-server processes.
@@ -124,7 +128,7 @@ Now open the exact selected Markdown in an isolated temporary root and ask the r
 
 <static:copy id="static-scripts-capture-source-language-py-1">
 
-def capture(documents, plans, command):
+def capture(documents, plans, command, *, workers=1, request_timeout=120):
     # Only selected committed Markdown enters the analysis workspace. In
     # particular this never mounts the publisher's dirty checkout or secrets.
     with tempfile.TemporaryDirectory(prefix='hickory-static-language-') as temporary:
@@ -133,16 +137,20 @@ def capture(documents, plans, command):
             path = root / document['path']
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(document['source'])
-        results = {}
-        for document in documents:
-            server = CaptureServer(command, root)
+        if not 1 <= workers <= 4:
+            raise ValueError('Static capture workers must be between 1 and 4')
+        def capture_one(document):
+            path, source = document['path'], document['source']
+            if not plans[path].get('semantic', True):
+                return path, dict(capabilities={}, queries={}, occurrences=[], diagnostics=[], provider_count=0,
+                    unavailable_reason='This page has no code ranges addressable by the language service.')
+            server = CaptureServer(command, root, timeout=request_timeout)
             try:
                 initialized = server.request('initialize', dict(processId=None, rootUri=root.as_uri(), capabilities={}))
                 if initialized['state'] != 'captured':
                     raise ValueError('Static language server could not initialize')
                 capabilities = initialized['result'].get('capabilities', {})
                 server.send('initialized', {})
-                path, source = document['path'], document['source']
                 uri = (root / path).as_uri()
                 prepared = server.request('hick/captureDocument', dict(textDocument=dict(uri=uri, languageId='markdown', version=1, text=source)))
                 if prepared['state'] != 'captured' or not (prepared.get('result') or {}).get('processed'):
@@ -152,8 +160,7 @@ def capture(documents, plans, command):
                 result = dict(capabilities=capabilities, queries={}, occurrences=[], provider_count=provider_count)
                 if provider_count == 0:
                     result['diagnostics'] = server.diagnostics.get(uri, [])
-                    results[path] = result
-                    continue
+                    return path, result
                 for method in ['documentSymbol', 'semanticTokens/full', 'foldingRange', 'inlayHint']:
                     params = dict(base)
                     if method == 'inlayHint':
@@ -180,10 +187,27 @@ def capture(documents, plans, command):
                 # URI normalization removes ephemeral build paths. Unpublished
                 # targets remain unopenable at the viewer's allowlist boundary.
                 encoded = json.dumps(result).replace(root.as_uri() + '/', 'hick:///')
-                results[path] = json.loads(encoded)
+                result = json.loads(encoded)
                 server.send('textDocument/didClose', dict(textDocument=dict(uri=uri)))
+                return path, result
+            except (TimeoutError, EOFError, BrokenPipeError) as error:
+                reason = f'Language analysis unavailable for {path}: {error}'
+                print(reason, file=sys.stderr, flush=True)
+                return path, dict(capabilities={}, queries={}, occurrences=[], diagnostics=server.diagnostics.get((root / path).as_uri(), []),
+                    provider_count=0, unavailable_reason=reason)
             finally:
                 server.close()
+        results = {}
+        pool = ThreadPoolExecutor(max_workers=workers)
+        try:
+            pending = [pool.submit(capture_one, document) for document in documents]
+            for future in as_completed(pending):
+                path, result = future.result()
+                results[path] = result
+                if len(documents) >= 50 and (len(results) % 50 == 0 or len(results) == len(documents)):
+                    print(f'Static language capture: {len(results)}/{len(documents)} pages', file=sys.stderr, flush=True)
+        finally:
+            pool.shutdown(wait=True, cancel_futures=True)
         return results
 </static:copy>
 

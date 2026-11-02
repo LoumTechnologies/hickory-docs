@@ -98,6 +98,34 @@ class LanguageCaptureTests(unittest.TestCase):
             finally:
                 server.close()
 
+    def test_parallel_pages_keep_their_protocols_and_results_isolated(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            peer = Path(temporary) / 'peer.py'
+            peer.write_text(PEER)
+            documents = [dict(path=path, source='count') for path in ['project.md', '.hickory-source/chapter.md']]
+            plans = {document['path']: {'positions': [{'from': 0, 'to': 5, 'position': dict(line=0, character=0)}]} for document in documents}
+            results = capture_language.capture(documents, plans, [sys.executable, str(peer)], workers=2)
+            self.assertEqual(set(results), {'project.md', '.hickory-source/chapter.md'})
+            for result in results.values():
+                self.assertEqual(result['occurrences'][0]['hover']['result']['contents'], 'number')
+
+    def test_prose_only_pages_do_not_start_a_language_server(self):
+        result = capture_language.capture([dict(path='project.md', source='A prose example')],
+            {'project.md': {'semantic': False, 'positions': []}}, ['/nonexistent-language-server'])['project.md']
+        self.assertEqual(result['provider_count'], 0)
+        self.assertIn('no code ranges', result['unavailable_reason'])
+
+    def test_timed_out_provider_is_explicitly_unavailable_for_its_page(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            peer = Path(temporary) / 'peer.py'
+            peer.write_text(PEER.replace("    result=None", "    if method=='textDocument/documentSymbol':\n        import time; time.sleep(2)\n    result=None"))
+            result = capture_language.capture([dict(path='project.md', source='count')],
+                {'project.md': {'positions': []}}, [sys.executable, str(peer)], request_timeout=0.5)['project.md']
+            self.assertEqual(result['provider_count'], 0)
+            self.assertEqual(result['queries'], {})
+            self.assertEqual(result['occurrences'], [])
+            self.assertIn('documentSymbol', result['unavailable_reason'])
+
     def test_closed_server_fails_instead_of_publishing_partial_answers(self):
         with tempfile.TemporaryDirectory() as temporary:
             server = capture_language.CaptureServer([sys.executable, '-c', 'pass'], temporary, timeout=1)

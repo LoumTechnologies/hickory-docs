@@ -16,6 +16,7 @@ import hashlib
 import io
 import importlib.util
 import shutil
+import os
 import json
 from pathlib import Path
 import re
@@ -59,14 +60,14 @@ def export(root, destination, revision='HEAD', *, compile_language=False, lsp_co
             spec = importlib.util.spec_from_file_location('source_language', Path(__file__).with_name('capture-source-language.py'))
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-            captures = module.capture(payloads, plans, lsp_command)
+            captures = module.capture(payloads, plans, lsp_command, workers=int(os.environ.get('HICKORY_STATIC_CAPTURE_WORKERS', '1')))
         for payload, document in zip(payloads, documents):
             spans = plans[payload['path']]['spans']
             classes = list(dict.fromkeys(span['class'] for span in spans))
             class_ids = {name: index for index, name in enumerate(classes)}
             packed = [value for span in spans for value in (span['from'], span['to']-span['from'], class_ids[span['class']])]
             intelligence = dict(version=1, source_hash=document['sha256'], spans=[], packed_spans=dict(classes=classes, data=packed),
-                language=captures.get(payload['path']), state='captured' if captures.get(payload['path'], {}).get('provider_count', 0) else 'unavailable')
+                reason=captures.get(payload['path'], {}).get('unavailable_reason'), language=captures.get(payload['path']), state='captured' if captures.get(payload['path'], {}).get('provider_count', 0) else 'unavailable')
             encoded = json.dumps(intelligence, ensure_ascii=False, separators=(',', ':'))
             payload['intelligence'] = encoded
             document['intelligence_sha256'] = hashlib.sha256(encoded.encode()).hexdigest()

@@ -7,6 +7,8 @@ The static host supplies committed Markdown to `DocumentEmbed` in read-only mode
 
 The public read-only surface compiles syntax colours and replays captured hover documentation, signatures, definitions, references, diagnostics, symbols, inlay hints, cursor highlights and folding. Ctrl/Cmd-click opens a captured definition; add Shift for references. Definitions outside the published Markdown allowlist remain unavailable. Captured code models retain each provider’s schema and a type graph expanded to four levels; required-argument operations and cycles are not evaluated in the browser.
 
+A provider deadline or closed stream marks only that page’s semantic capture unavailable, with an explicit reason; its compiled grammar colours remain. Prose-only pages never trigger a whole-project language scan.
+
 These are finite provider answers, not a claim of feature parity with a running workspace. The deployed job installs Rust and TypeScript LSP providers and the TypeScript code model. Other languages still receive supported grammar colours, but their semantic answers depend on separately installed providers. Analysis can retain unresolved dependencies; a captured null does not prove the program has no symbols or references. Debugger state, new queries and source-changing actions require the live application.
 
 ## Verify the published language boundary
@@ -233,7 +235,7 @@ export function SourcePage() {
       {index && <SourceBreadcrumbs path={path} index={index} />}
       {index?.models?.length ? <CapturedModels index={index} /> : null}
       {intelligence && <details><summary>Published language information</summary>
-        <p>{intelligence.state === "captured" ? "Language answers captured at this revision. Missing provider answers are unavailable." : "Syntax highlighting compiled; semantic providers were unavailable for this publication."}</p>
+        <p>{intelligence.state === "captured" ? "Language answers captured at this revision. Missing provider answers are unavailable." : (intelligence.reason ?? "Syntax highlighting compiled; semantic analysis is unavailable for this page.")}</p>
         <ul>{staticSymbols(intelligence).map((symbol, i) => {
           const target = symbol.location ?? { uri: `hick:///${path}`, range: symbol.selectionRange ?? symbol.range };
           const href = targetHref(target);

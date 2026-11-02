@@ -15,6 +15,7 @@ type Answer = { state: "captured"; result: unknown } | { state: "unavailable"; c
 interface Occurrence { from: number; to: number; position: LspPosition; [method: string]: unknown }
 export interface StaticLanguage {
   version: 1; source_hash: string; state: "captured" | "unavailable";
+  reason?: string | null;
   spans: { from: number; to: number; class: string }[];
   language: { capabilities: ServerCapabilities; queries: Record<string, Answer>; occurrences: Occurrence[]; diagnostics: LspDiagnostic[] } | null;
 }
@@ -34,10 +35,10 @@ export async function decodeStaticLanguage(value: unknown, source: string, expec
       if (index < 0 || index >= packed.classes.length) throw Error("Invalid packed token class");
       spans.push({ from, to: from + length, class: packed.classes[index] });
     }
-    data = { version: data.version, source_hash: data.source_hash, state: data.state, language: data.language, spans };
+    data = { version: data.version, source_hash: data.source_hash, state: data.state, reason: data.reason, language: data.language, spans };
   }
   const span = (item: { from: number; to: number }) => Number.isInteger(item.from) && Number.isInteger(item.to) && item.from >= 0 && item.to > item.from && item.to <= source.length;
-  if (!data || data.version !== 1 || data.source_hash !== await sha256(source) || !["captured", "unavailable"].includes(data.state) || !Array.isArray(data.spans) || data.spans.some(item => !span(item) || !/^(tok-[\w-]+)( tok-[\w-]+)*$/.test(item.class))) throw Error("Invalid static language data");
+  if (!data || data.version !== 1 || data.source_hash !== await sha256(source) || !["captured", "unavailable"].includes(data.state) || (data.reason != null && typeof data.reason !== "string") || !Array.isArray(data.spans) || data.spans.some(item => !span(item) || !/^(tok-[\w-]+)( tok-[\w-]+)*$/.test(item.class))) throw Error("Invalid static language data");
   if (data.language && (!Array.isArray(data.language.occurrences) || data.language.occurrences.some(item => !span(item)) || !Array.isArray(data.language.diagnostics) || !data.language.queries || !data.language.capabilities)) throw Error("Invalid static language capture");
   return data;
 }
