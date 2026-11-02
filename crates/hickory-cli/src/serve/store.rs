@@ -260,8 +260,7 @@ impl DocStore for FileDocStore {
         // rename: a host whose editor is watching this file must never see a
         // half-written document, and a crash mid-save must not truncate their
         // work to nothing.
-        write_atomic(&path, source.as_bytes())
-            .with_context(|| format!("writing {}", path.display()))?;
+        write_document(&path, source).with_context(|| format!("writing {}", path.display()))?;
         if let Ok(mut m) = self.last_saved.lock() {
             m.insert(key.clone(), source.to_string());
         }
@@ -278,7 +277,6 @@ impl DocStore for FileDocStore {
         Ok(())
     }
 }
-
 /// Write `bytes` to `path` via a sibling temp file and a rename.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     use std::io::Write as _;
@@ -417,4 +415,34 @@ mod tests {
             .unwrap_err();
         assert!(err.to_string().contains("no document with id"), "{err}");
     }
+}
+pub fn write_document(path: &Path, source: &str) -> Result<()> {
+    let previous = match std::fs::read_to_string(path) {
+        Ok(previous) => previous,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(error.into()),
+    };
+    hick_lang::preserve_scaffolds(&previous, source).map_err(anyhow::Error::msg)?;
+    write_atomic(path, source.as_bytes())
+}
+
+#[cfg(test)]
+#[test]
+fn immutable_scaffold_save_refuses_rehash_without_touching_disk() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("source.md");
+    let base =
+        "<hick:ingested sha256=\"base\"><hick:file path=\"x\">old</hick:file></hick:ingested>";
+    write_document(&path, base).unwrap();
+    let tampered = base.replace("old", "new").replace("base", "new-hash");
+    assert!(
+        write_document(&path, &tampered)
+            .unwrap_err()
+            .to_string()
+            .contains("Immutable")
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), base);
+    let with_prose = format!("{base}\n<hick:copy");
+    write_document(&path, &with_prose).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), with_prose);
 }

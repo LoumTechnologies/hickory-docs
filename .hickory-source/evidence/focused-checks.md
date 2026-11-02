@@ -1,6 +1,9 @@
 <book:doc xmlns:book="http://www.hickorydocs.com/1.0">
 # Inspect the checks that actually ran
 
+- [Engineer-first dogfooding readiness](engineer-first-readiness.md).
+<book:include file="engineer-first-readiness.md" />
+
 For: reviewers distinguishing executed witnesses from retained requirements and historical verification claims.
 
 Seventeen focused witnesses passed against the integrated generated source on 2026-10-25: eight Rust checks and nine Vitest assertions. Each invocation was required to execute exactly one named passing case. Other cases in the same frontend file were skipped, not reported as covered.

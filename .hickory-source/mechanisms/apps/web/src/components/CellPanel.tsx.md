@@ -62,7 +62,7 @@ function IngestedChip({ ingested }: { ingested: NonNullable<ExecBlock["ingested"
   return (
     <span
       className="cell-ingested"
-      data-tip={`ingested${ingested.at ? ` on ${ingested.at}` : ""} · run ${short}${skippedNote} — these bytes came from that run, not from this document's author`}
+      data-tip={`ingested${ingested.at ? ` on ${ingested.at}` : ""} · run ${short}${skippedNote} — read-only scaffold base; author changes in a patch. These bytes came from that run, not from this document's author`}
     >
       ⎘ ingested{ingested.files ? ` · ${ingested.files} ${fileWord}` : ""}
     </span>

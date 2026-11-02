@@ -20,7 +20,7 @@ needs whatever its cells invoke to be installed locally.
 | `text-tools-tour.md` | nothing beyond a POSIX shell (`sort`, `awk`, `wc`, `tr`) | The core loop: cells, pinned expectations, weaving |
 | `bootstrap-ci.md` | `python3` (standard library only) | A small statistical paper that computes its own figure and verifies its own numbers |
 | `grand-tour.md` | `python3` with `polars`, the `duckdb` CLI; optionally `Rscript` with `ggplot2` | Literate weaving with lineage, polyglot cells, generated interactive artifacts, feature gates |
-| `scaffolded-service.md` | nothing beyond a POSIX shell | Owning what a generator wrote: `hick ingest --from`, the gitignore as the filter, and editing bytes you did not type |
+| `scaffolded-service.md` | nothing beyond a POSIX shell | Owning what a generator wrote: `hick ingest --from`, the gitignore as the filter, and patching an immutable captured base |
 | `architecture-that-draws-itself.md` | `hick` itself on the PATH | A diagram that fails when it lies: `hick diagram` deduces the topology (AI-free), an expect pins it, and a `renderer="graph"` diagram derives its picture from the pinned fragment |
 
 Start here — it works everywhere:
@@ -32,7 +32,8 @@ hick test examples/text-tools-tour.md
 
 `scaffolded-service.md` is the one to read if you have ever run
 `dotnet new` or `npm create` and then had to change four lines in what it
-wrote. Its `service/` tree is committed output like everything else here, and
+wrote. Its `service/` tree is reconstructed from an immutable base and an
+explained patch, and
 the `<hick:ingested>` block in it was written by:
 
 ```sh

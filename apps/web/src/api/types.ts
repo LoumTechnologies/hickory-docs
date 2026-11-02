@@ -152,8 +152,8 @@ export type ProvenanceOrigin =
       span: [number, number];
     }
   // Bytes a tool outside the document wrote, ingested into it (`hick ingest
-  // --from`). Present, byte-precise and therefore EDITABLE — that is the
-  // point — but never `literal`, because "you wrote this" and "this arrived
+  // --from`). Byte-precise for navigation, but an immutable scaffold base,
+  // never an edit destination or `literal`, because "you wrote this" and "this arrived
   // from that run" are different claims and drawing them alike is the lie
   // this origin exists to prevent. `run` is the `<hick:ingested sha256=>`
   // fingerprint: one run, N files.

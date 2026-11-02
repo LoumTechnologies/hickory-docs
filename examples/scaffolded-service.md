@@ -1,47 +1,22 @@
-<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="scaffolded-service.md">
-# Owning what a scaffolder wrote
+# Start with the scaffold; explain the changes
 
-`dotnet new webapi` writes forty files nobody typed, and the interesting work
-is changing four lines across three of them. That leaves two bad options and
-one good one.
+A scaffolder can write forty files while the interesting work changes four lines.
+Keep its exact output in this document, folded by default in Hickory, then explain
+an authored patch above that immutable base. A clone reconstructs the result
+without rerunning the scaffolder or borrowing a transcript cache.
 
-**Paste the scaffold in** and the document becomes a silent snapshot: the next
-SDK writes a different `Program.cs`, and the document keeps generating last
-year's while claiming to be what the generator produces.
+## Capture the starting point once
 
-**Leave it out** and the scaffold is a step in a README, so the document no
-longer describes the program it claims to build.
-
-**Ingest it.** The generator's output becomes ordinary `hick:file` bytes inside
-the document, marked with the run that produced them. Your four lines are then
-ordinary edits, `hick lineage` reports the rest as *ingested* rather than as
-text you wrote, and a clone rebuilds the whole tree without running the
-generator at all.
-
-This document does that, with a generator small enough to read.
+This small shell generator stands in for `cargo init`, `npm create` or `dotnet new`.
+When authoring a fresh document, write its volume and command first, run
+`hick ingest --from '#scaffold' scaffolded-service.md`, then add the project
+construction and patches shown below. Ingestion is one-shot; rerunning a
+scaffolder to replace an existing base is deferred.
 
 <hick:container name="gen" image="alpine:3.20" />
-
-## The volume the generator writes into
-
-`output="service"` means the volume's contents land under `service/`, and they
-keep landing there after the ingest — an ingest must not rearrange the tree it
-was asked to preserve.
-
 <hick:volume name="project" output="service" />
-
-## The generator
-
-A real one would be `npm create`, `cargo new`, or `dotnet new`. This one writes
-the same *shape*: a few source files, plus a directory of dependencies that no
-document should ever own.
-
-The command lives in a `hick:copy` child rather than as loose text in the cell.
-That is not decoration: once forty file bodies sit beside it, nothing would
-mark which bytes get run.
-
-<hick:exec container="gen" mount="project:out">
+<hick:exec id="scaffold-base" container="gen" mount="project:out">
 <hick:copy id="scaffold">
 mkdir -p out/src out/node_modules/left-pad
 printf '{\n  "name": "greeter",\n  "version": "0.1.0",\n  "main": "src/index.js"\n}\n' > out/package.json
@@ -50,97 +25,67 @@ printf '# greeter\n\nGenerated. Do not edit by hand.\n' > out/README.md
 printf 'module.exports = function () {};\n' > out/node_modules/left-pad/index.js
 ls out
 </hick:copy>
-<hick:expect match="exact">README.md
-node_modules
-package.json
-src
-</hick:expect>
 <hick:ingested from="#scaffold" sha256="5826f56b23bcfcb25b1af1071b3ecfbbd92c24f36bae26a1473bbefc6fc05243" at="2026-08-24" files="3" skipped="1">
-<hick:file path="service/README.md"># greeter
+<hick:file path="service/README.md">
+# greeter
 
 Generated. Do not edit by hand.
 </hick:file>
-<hick:file path="service/package.json">{
-  "name": "greeter",
-  "version": "0.1.0",
-  "main": "src/index.js"
-}
-</hick:file>
-<hick:file path="service/src/index.js">export function greet(who) {
-  if (!who) throw new TypeError("greet needs somebody to greet");
-  return "hello, " + who;
-}
-</hick:file>
-</hick:ingested>
-<hick:ingested key="d465fadaeedc3d60d9a94c7d44ba5339837b4851d06faec8e51c5ec384eadbb9" sha256="0f12803b81433090ab2fdc15f50d457207585b55435537f0d508ee08091ea97e" at="2026-09-03">
-README.md
-node_modules
-package.json
-src
-</hick:ingested></hick:exec>
-
-## What ingest did with it
-
-The block below was written by:
-
-<hick:copy id="how">hick ingest --from '#scaffold' examples/scaffolded-service.md</hick:copy>
-
-Three things about it are worth reading rather than skimming.
-
-**`node_modules/` is not in it.** The repository's own `.gitignore` is the
-filter — no new configuration, and it is what you already meant. A scaffolder
-writes build output beside source, and a document that owns the source must
-not carry the derived bytes. The count is recorded as `skipped=`.
-
-**`sha256=` is the recorded base.** Running `hick ingest --from` again is a
-three-way merge, not a second block: the bytes as they were ingested are the
-base, the fresh run is theirs, and this document — including anything you
-changed — is ours. The base is recovered from the commit that introduced that
-fingerprint, because a hash verifies bytes rather than reconstructing them.
-
-**The nesting is `exec > ingested > file`.** Never `exec > file`, because
-`file > exec` already means the opposite — *run this, paste the output here* —
-and the same two tags meaning inverse things by order would be unreadable.
-
-
-## And now your four lines
-
-Everything above is somebody else's. The edit below is not — it is an ordinary
-change to ordinary document bytes, and it needs no new grammar, no anchors, and
-no patch file.
-
-The `TypeError` line in `service/src/index.js` above is not the generator's.
-Open that file in any editor, change it further, and the change lands back here
-byte-exactly — through the same reverse edit any generated file gets, because
-these really are document bytes and not a patch.
-
-**One thing to be accurate about**, since it is the sort of claim that would
-otherwise be believed: `hick lineage service/src/index.js` reports the *whole*
-file as `ingested`, including that line. Everything inside the block carries
-the run's fingerprint, so what the report distinguishes is **this arrived from
-that command** versus **somebody here typed this** — at the granularity of the
-block, not of the line.
-
-Telling your bytes from the generator's *within* the block would need the base
-to compare against, and the base is not in this document: it is the version of
-this file at the commit that introduced `sha256=`. Git holds it, which is the
-same division of labour a re-ingest already relies on — but the weave does not
-consult git, so the ribbon cannot either. Naming that limit is better than a
-report that quietly guesses.
-
-<hick:exec container="gen" mount="project:out">
-cat out/package.json
-<hick:expect match="exact">{
-  "name": "greeter",
-  "version": "0.1.0",
-  "main": "src/index.js"
-}
-</hick:expect>
-<hick:ingested key="6a1f8a900d0eee3185f86c5555c022122d04a8282fb9ae4816cf9a171f582e51" sha256="cd91811ea65e567c6367fd0690c7d011060b07e42dd2bbb0fe5b13cd5f597bfc" at="2026-09-03">
+<hick:file path="service/package.json">
 {
   "name": "greeter",
   "version": "0.1.0",
   "main": "src/index.js"
 }
-</hick:ingested></hick:exec>
+</hick:file>
+<hick:file path="service/src/index.js">
+export function greet(who) {
+  return "hello, " + who;
+}
+</hick:file>
+</hick:ingested>
+</hick:exec>
+
+The capture contains the three source files, with `node_modules/` omitted by the
+repository's ignore policy. Its `sha256` covers sorted paths and their exact
+bytes. Reconstruction refuses a changed path or byte. Hickory lets you unfold
+and read these files, but edits belong in the patch below. The content hash is
+an integrity check, not a signature authenticating a hostile edit to both data
+and hash.
+
+## Reject a greeting without a recipient
+
+The scaffold accepts an empty recipient. Add a failure explicitly, preserving
+the original capture. Declaring the predecessor makes the patch's input exact;
+changed context fails rather than applying at a guessed offset.
+
+<hick:project exclude="README.md agent-audit-evaluation/ ai-engineer-deadline.md ai-engineer-meeting.vtt ai-engineer-private-deadline.md ai-transform.md analysis.py architecture-that-draws-itself.md bootstrap-ci.md bootstrap-histogram.svg deadline.js demo/ diagram-f16290a0.svg grand-tour.md launch-demo.md messages/ planned-messages.md python-profile/ receipts/ regression-explorer.html security-authorization/ text-tools-tour.md" />
+<hick:patch id="require-recipient" after="scaffold-base">
+--- a/service/src/index.js
++++ b/service/src/index.js
+@@ -1,3 +1,4 @@
+ export function greet(who) {
++  if (!who) throw new TypeError("greet needs somebody to greet");
+   return "hello, " + who;
+ }
+</hick:patch>
+
+This is the maintained implementation change. It remains editable independently
+of the base. Untouched output keeps its ingested provenance; the inserted check
+points to the authored patch.
+
+The project inventory explicitly excludes the neighboring demonstrations in this
+checkout; those exclusions are harmless when this file is copied on its own.
+
+## Reconstruct the result
+
+Copy this one Markdown file into an empty directory, then run:
+
+```sh
+hick project materialize scaffolded-service.md
+hick project verify scaffolded-service.md
+```
+
+These commands replay the captured base and patch; they do not execute the
+scaffolder. File, directory and whole-capture folds change only presentation.
 </hick:doc>

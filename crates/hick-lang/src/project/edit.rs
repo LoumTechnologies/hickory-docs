@@ -57,12 +57,11 @@ pub fn reverse_project_edit(
     let bom = usize::from(destination.starts_with('\u{feff}')) * 3;
     if doc.all_tags().iter().any(|tag| {
         tag.name == "ingested"
-            && tag.get_attribute("key").is_some()
             && tag.source_span.is_some_and(|s| s.end + bom <= start)
             && tag.close_span.is_some_and(|s| end <= s.start + bom)
     }) {
         return Err(format!(
-            "Generator output in {} is synthetic; edit its cell command and re-record instead",
+            "Captured output in {} is immutable/synthetic; edit an authored patch instead",
             origin.document
         ));
     }
@@ -133,7 +132,6 @@ pub fn reverse_project_edit(
     })?;
     Ok(candidate)
 }
-
 /// Regenerate one authored patch against its recorded local input. This changes
 /// only the candidate Markdown; downstream construction is re-evaluated and an
 /// invalid later hunk returns its error before any host writes can occur.

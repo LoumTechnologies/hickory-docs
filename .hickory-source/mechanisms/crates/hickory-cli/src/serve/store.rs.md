@@ -314,8 +314,7 @@ impl DocStore for FileDocStore {
         // rename: a host whose editor is watching this file must never see a
         // half-written document, and a crash mid-save must not truncate their
         // work to nothing.
-        write_atomic(&path, source.as_bytes())
-            .with_context(|| format!("writing {}", path.display()))?;
+        write_document(&path, source).with_context(|| format!("writing {}", path.display()))?;
         if let Ok(mut m) = self.last_saved.lock() {
             m.insert(key.clone(), source.to_string());
         }
@@ -332,7 +331,6 @@ impl DocStore for FileDocStore {
         Ok(())
     }
 }
-
 </storycode:copy>
 <a id="f-60e6f71bfd5c-write_atomic"></a>
 ### `write_atomic`
@@ -490,6 +488,43 @@ mod tests {
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/src/serve/store.rs"><storycode:paste select="#f-60e6f71bfd5c-DocIndex"/><storycode:paste select="#f-60e6f71bfd5c-impl-DocIndex"/><storycode:paste select="#f-60e6f71bfd5c-doc_id"/><storycode:paste select="#f-60e6f71bfd5c-FileDocStore"/><storycode:paste select="#f-60e6f71bfd5c-impl-FileDocStore"/><storycode:paste select="#f-60e6f71bfd5c-impl-DocStore-for-FileDocStore"/><storycode:paste select="#f-60e6f71bfd5c-write_atomic"/><storycode:paste select="#f-60e6f71bfd5c-tests"/></storycode:file>
+## immutable scaffold write document
+
+Both direct saves and collaborative saves must preserve existing captures, even if a caller rewrites their hashes. Keep the generic atomic writer for arbitrary bytes; route Markdown writes through this narrower guard. Permit incomplete prose/source syntax around an intact capture so normal typing is not disabled.
+
+<storycode:copy id="immutable-scaffold-write-document">
+pub fn write_document(path: &Path, source: &str) -> Result<()> {
+    let previous = match std::fs::read_to_string(path) {
+        Ok(previous) => previous,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(error.into()),
+    };
+    hick_lang::preserve_scaffolds(&previous, source).map_err(anyhow::Error::msg)?;
+    write_atomic(path, source.as_bytes())
+}
+
+#[cfg(test)]
+#[test]
+fn immutable_scaffold_save_refuses_rehash_without_touching_disk() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("source.md");
+    let base =
+        "<hick:ingested sha256=\"base\"><hick:file path=\"x\">old</hick:file></hick:ingested>";
+    write_document(&path, base).unwrap();
+    let tampered = base.replace("old", "new").replace("base", "new-hash");
+    assert!(
+        write_document(&path, &tampered)
+            .unwrap_err()
+            .to_string()
+            .contains("Immutable")
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), base);
+    let with_prose = format!("{base}\n<hick:copy");
+    write_document(&path, &with_prose).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), with_prose);
+}
+</storycode:copy>
+
+<storycode:file path="crates/hickory-cli/src/serve/store.rs"><storycode:paste select="#f-60e6f71bfd5c-DocIndex"/><storycode:paste select="#f-60e6f71bfd5c-impl-DocIndex"/><storycode:paste select="#f-60e6f71bfd5c-doc_id"/><storycode:paste select="#f-60e6f71bfd5c-FileDocStore"/><storycode:paste select="#f-60e6f71bfd5c-impl-FileDocStore"/><storycode:paste select="#f-60e6f71bfd5c-impl-DocStore-for-FileDocStore"/><storycode:paste select="#f-60e6f71bfd5c-write_atomic"/><storycode:paste select="#f-60e6f71bfd5c-tests"/><storycode:paste select="#immutable-scaffold-write-document"/></storycode:file>
 
 </storycode:doc>

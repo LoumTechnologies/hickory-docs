@@ -1,3 +1,4 @@
+import { immutableScaffolds } from "./immutableScaffolds";
 import { performanceInline } from "../performance/inline";
 import { coverageGutter } from "../coverage/gutter";
 import { replaceCapturedBlock } from "./replaceCapturedBlock";
@@ -503,6 +504,7 @@ export function DocumentEditor({
           sessionWorkFolds(),
           // A scaffold opens as a tree: one line per ingested file.
           ingestedFolds(),
+          immutableScaffolds(),
           yCollab(ytext, awareness),
           ...(placeholderText ? [placeholder(placeholderText)] : []),
           ...(lspExtensions ?? []),

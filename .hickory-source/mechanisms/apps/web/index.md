@@ -1159,4 +1159,10 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="src/api/routes.ts.md" />
 - [`generatedApi.ts`](src/api/generatedApi.ts.md)
 <storycode:include file="src/api/generatedApi.ts.md" />
+- [Protect captured scaffold bytes in editors](src/editor/immutableScaffolds.ts.md)
+<storycode:include file="src/editor/immutableScaffolds.ts.md" />
+
+- [Exercise scaffold editing boundaries](src/editor/immutableScaffolds.test.ts.md)
+<storycode:include file="src/editor/immutableScaffolds.test.ts.md" />
+
 </storycode:doc>

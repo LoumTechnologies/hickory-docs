@@ -6140,7 +6140,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/guarantees/authoring/ingest-owns-what-a-scaffolder-wrote/contract.md",
       "domain": "authoring",
       "title": "A Scaffolder's Output Becomes Bytes The Document Owns, Or The Ingest Is Refused",
-      "disposition": "retained-requirement",
+      "disposition": "reconciled-requirement",
       "review": "not verified",
       "references": [
         "crates/hick-exec/src/dag.rs",
@@ -6155,7 +6155,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "unresolved_references": [],
       "flags": [],
       "tests": [],
-      "decision": "Retain the existing requirement without inferring new intent. Separate evidence history and retain follow-up paragraphs for review; no new implementation verification is claimed.",
+      "decision": "Captured scaffold output is immutable and hash-checked; authored patches remain editable. Earlier editable-base wording is historical.",
       "reason": null,
       "owned": [],
       "annotations": [
@@ -14954,8 +14954,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "origin": "docs/guarantees/lineage/ingested-bytes-are-not-yours.md",
       "page": ".hickory-source/guarantees/lineage/ingested-bytes-are-not-yours/contract.md",
       "domain": "lineage",
-      "title": "Ingested Bytes Are Editable And Never Report As Yours",
-      "disposition": "retained-requirement",
+      "title": "Scaffold provenance remains navigable while its base stays immutable",
+      "disposition": "reconciled-requirement",
       "review": "not verified",
       "references": [
         "apps/web/src/api/types.ts",
@@ -14974,7 +14974,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "unresolved_references": [],
       "flags": [],
       "tests": [],
-      "decision": "Retain the existing requirement without inferring new intent. Separate evidence history and retain follow-up paragraphs for review; no new implementation verification is claimed.",
+      "decision": "Captured scaffold output is immutable and hash-checked; authored patches remain editable. Earlier editable-base wording is historical.",
       "reason": null,
       "owned": [],
       "annotations": [
@@ -15556,7 +15556,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
         },
         {
           "file": "crates/hick-literate/tests/project.rs",
-          "name": "owned_ingest_is_editable_source_without_claiming_generator_execution",
+          "name": "owned_scaffold_accepts_patches_without_generator_execution",
           "basis": "nearby Rust function after guarantee-path annotation; not a semantic coverage claim"
         },
         {
@@ -65302,6 +65302,15 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "generation-dialog-preview-test",
         "generation-dialog-refusal-test"
       ]
+    },
+    "crates/hick-lang/src/scaffold.rs": {
+      "source": ".hickory-source/mechanisms/crates/hick-lang/src/scaffold.rs.md"
+    },
+    "apps/web/src/editor/immutableScaffolds.ts": {
+      "source": ".hickory-source/mechanisms/apps/web/src/editor/immutableScaffolds.ts.md"
+    },
+    "apps/web/src/editor/immutableScaffolds.test.ts": {
+      "source": ".hickory-source/mechanisms/apps/web/src/editor/immutableScaffolds.test.ts.md"
     }
   },
   "evidence_records": [

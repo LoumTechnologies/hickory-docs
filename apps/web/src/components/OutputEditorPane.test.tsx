@@ -29,3 +29,21 @@ it("keeps reading-only output immutable and sends agent edits through an explici
   expect(view.state.doc.toString()).toBe("new captured source");
   expect(local).toHaveBeenCalledOnce();
 });
+it("keeps ingested output locked while patch text and refreshed provenance remain usable", async () => {
+  const local = vi.fn();
+  const captured = { start: 6, end: 10, origin: { kind: "ingested" as const, doc_path: "p.md", span: [0, 4] as [number, number], run: "capture" } };
+  const file = { path: "main.rs", language: "rust", content: "patch\nbase", provenance: [captured] };
+  const ui = render(<OutputEditorPane file={file} onLocalEdit={local} />);
+  const view = EditorView.findFromDOM(document.querySelector<HTMLElement>(".cm-editor")!)!;
+  act(() => { view.dispatch({ changes: { from: 6, to: 10, insert: "wrong" }, userEvent: "input" }); });
+  expect(view.state.doc.toString()).toBe(file.content); expect(local).not.toHaveBeenCalled();
+  act(() => { view.dispatch({ changes: { from: 0, to: 5, insert: "authored patch" }, userEvent: "input" }); });
+  expect(local).toHaveBeenCalledWith("authored patch\nbase");
+  const at = view.state.doc.toString().indexOf("base");
+  act(() => { view.dispatch({ changes: { from: at, to: at + 4, insert: "wrong" }, userEvent: "input" }); });
+  expect(local).toHaveBeenCalledOnce();
+  ui.rerender(<OutputEditorPane file={{ ...file, content: "patch\nfresh", provenance: [{ ...captured, end: 11 }] }} onLocalEdit={local} />);
+  expect(view.state.doc.toString()).toBe("patch\nfresh");
+  act(() => { view.dispatch({ changes: { from: 6, to: 11, insert: "wrong" }, userEvent: "input" }); });
+  expect(view.state.doc.toString()).toBe("patch\nfresh"); expect(local).toHaveBeenCalledOnce();
+});

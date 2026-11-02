@@ -16,7 +16,7 @@ Start with the byte range being traced, then inspect mapping, ambiguity and refu
 - [An Included Span Names Its Own File, And An Edit Through It Lands There](included-spans-name-their-own-file/contract.md) — retained-requirement.
 - [An Unwatched Edit Leaves Its Correspondence Behind Before It Is Committed](an-unwatched-edit-is-repaired-not-refused/contract.md) — retained-requirement.
 - [Authorship display accepts non-Git providers](authorship-display-accepts-non-git-providers/contract.md) — retained-requirement.
-- [Ingested Bytes Are Editable And Never Report As Yours](ingested-bytes-are-not-yours/contract.md) — retained-requirement.
+- [Scaffold provenance remains navigable while its base stays immutable](ingested-bytes-are-not-yours/contract.md) — reconciled-requirement.
 - [Replay Recomputes Exact Lineage At Any Commit, And Names Its One Limit](replay-recomputes-lineage-at-a-commit/contract.md) — retained-requirement.
 - [The Blame Column Is Optional And Honest](the-blame-column-is-optional-and-honest/contract.md) — retained-requirement.
 - [Three Provenances Are Drawn Apart, And Any Subset Can Be Shown](three-provenances-are-drawn-apart/contract.md) — retained-requirement.

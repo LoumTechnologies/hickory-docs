@@ -91,7 +91,6 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
 use hick_lang::{HickDocument, HickNode, HickTag};
-use sha2::{Digest, Sha256};
 
 use crate::{CacheMode, ExecutorChoice, RunMode, run_doc, run_doc_subset};
 
@@ -109,7 +108,6 @@ pub struct IngestExecOutcome {
     /// path they had.
     pub skipped: Vec<String>,
 }
-
 </storycode:copy>
 <a id="f-4e4b92369bcd-locate_exec"></a>
 ### `locate_exec`
@@ -295,8 +293,8 @@ The element
 The fingerprint recorded as `sha256=`: one run, N files.
 Over the bytes the DOCUMENT now holds, path by path in sorted order, each
 length-prefixed so no rearrangement of names and contents collides. That
-is the base a re-ingest merges against, and it has to be the set the
-document contains for the three-way merge to have a real base.
+pins the immutable base checked before replay. Authored changes belong
+in patches; replacing the captured base by rerunning is deferred.
 
 <storycode:copy id="f-4e4b92369bcd-run_fingerprint">
 // ---------------------------------------------------------------------------
@@ -307,19 +305,11 @@ document contains for the three-way merge to have a real base.
 ///
 /// Over the bytes the DOCUMENT now holds, path by path in sorted order, each
 /// length-prefixed so no rearrangement of names and contents collides. That
-/// is the base a re-ingest merges against, and it has to be the set the
-/// document contains for the three-way merge to have a real base.
+/// pins the immutable base checked before replay. Authored changes belong
+/// in patches; replacing the captured base by rerunning is deferred.
 pub fn run_fingerprint(files: &BTreeMap<String, String>) -> String {
-    let mut hasher = Sha256::new();
-    for (path, content) in files {
-        hasher.update((path.len() as u64).to_le_bytes());
-        hasher.update(path.as_bytes());
-        hasher.update((content.len() as u64).to_le_bytes());
-        hasher.update(content.as_bytes());
-    }
-    format!("{:x}", hasher.finalize())
+    hick_lang::scaffold_fingerprint(files)
 }
-
 </storycode:copy>
 <a id="f-4e4b92369bcd-ingested_block"></a>
 ### `ingested_block`
@@ -461,6 +451,8 @@ fn existing_ingest(exec: &HickTag) -> Option<(String, String)> {
 The command
 Ingest the output volume of the cell `selector` names into `doc`.
 
+Executable fences have parser-owned opening and closing spans, rather than an XML closing tag. Ingestion expands the selected fence into an explicit cell because its captured files need structured children. Keep the normalized attributes and command bytes, then apply the same weave-and-compare gate as native cells. A literal Hick tag in a raw fenced command must be refused before running: expansion would otherwise reinterpret it as structure. This changes representation, not the generated files, and introduces no sidecar.
+
 <storycode:copy id="f-4e4b92369bcd-ingest_from_exec">
 // ---------------------------------------------------------------------------
 // The command
@@ -501,12 +493,47 @@ pub async fn ingest_from_exec(
         .source_span
         .map(|s| s.end)
         .context("that cell has no recorded source span, so there is nowhere to write inside it")?;
-    let insert_at = element_content_end(&source, open_end, &prefix, "exec").with_context(|| {
-        format!(
-            "could not find the closing </{prefix}:exec> for the cell at line {}",
-            exec.source_line
-        )
-    })?;
+    let open_span = exec.source_span.unwrap();
+    let opening = source[open_span.start..open_end].trim_start();
+    let fenced = opening.starts_with("```") || opening.starts_with("~~~");
+    let fence_expansion = if fenced {
+        let close = exec
+            .close_span
+            .context("executable fence has no closing span")?;
+        let command = &source[open_end..close.start];
+        // A fence is raw text. Refuse to turn its literal Hick markup into
+        // executable structure when expanding it into a cell with children.
+        if command.contains(&format!("<{prefix}:")) || command.contains(&format!("</{prefix}:")) {
+            bail!(
+                "cannot expand a fenced command containing {prefix}: markup; nothing was changed"
+            );
+        }
+        let mut attributes = String::new();
+        for (name, value) in &exec.attributes {
+            // Fence classification metadata is not a native exec attribute.
+            if matches!(name.as_str(), "language" | "exec") {
+                continue;
+            }
+            let quote = if value.contains('"') { '\'' } else { '"' };
+            if value.contains(quote) {
+                bail!("cannot preserve fenced attribute {name}; nothing was changed");
+            }
+            attributes.push_str(&format!(" {name}={quote}{value}{quote}"));
+        }
+        Some((close, attributes))
+    } else {
+        None
+    };
+    let insert_at = if let Some((close, _)) = &fence_expansion {
+        close.start
+    } else {
+        element_content_end(&source, open_end, &prefix, "exec").with_context(|| {
+            format!(
+                "could not find the closing </{prefix}:exec> for the cell at line {}",
+                exec.source_line
+            )
+        })?
+    };
 
     // Run only the target cell and its real dependencies, not the whole
     // document — a cell being authored BEFORE the rest of the document that
@@ -651,7 +678,17 @@ pub async fn ingest_from_exec(
     let block = ingested_block(&prefix, &from, &fingerprint, today, &text, skipped.len());
 
     let mut next = source.clone();
-    next.insert_str(insert_at, &block);
+    if let Some((close, attributes)) = fence_expansion {
+        // Files cannot become children of a raw Markdown fence. Expand only
+        // this cell; retain its attributes, command bytes and source id.
+        let command = &source[open_end..insert_at];
+        let expanded = format!(
+            "<{prefix}:exec{attributes}>\n<{prefix}:copy>\n{command}</{prefix}:copy>\n{block}</{prefix}:exec>\n"
+        );
+        next.replace_range(open_span.start..close.end, &expanded);
+    } else {
+        next.insert_str(insert_at, &block);
+    }
     // A machine writing your source, and one of the writers that had no way
     // back at all. Recorded before the write, so the document immediately
     // before an ingest is one command away.

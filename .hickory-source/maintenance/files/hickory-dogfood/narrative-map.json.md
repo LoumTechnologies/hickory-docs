@@ -83771,8 +83771,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "id": "f-d5caa71df0d7-owned_ingest_is_editable_source_without_claiming_generator_execution",
       "output": "crates/hick-literate/tests/project.rs",
       "page": ".hickory-source/guarantees/literate-projects/markdown-constructs-the-complete-project/contract.md",
-      "symbol": "owned_ingest_is_editable_source_without_claiming_generator_execution",
-      "basis": "needs-explanation",
+      "symbol": "owned_scaffold_accepts_patches_without_generator_execution",
+      "basis": "reviewed-explanation",
       "original_range": [
         4483,
         5211
@@ -107884,7 +107884,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "output": "crates/hickory-cli/src/ingest_exec.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/ingest_exec.rs.md",
       "symbol": "ingest_from_exec",
-      "basis": "existing-source-comment",
+      "basis": "reviewed-explanation",
       "original_range": [
         13365,
         24488
@@ -131589,7 +131589,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "output": "crates/hickory-cli/tests/ingest_scaffold.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/tests/ingest_scaffold.rs.md",
       "symbol": "the_ingested_document_produces_the_scaffold_from_a_clone",
-      "basis": "needs-explanation",
+      "basis": "reviewed-explanation",
       "original_range": [
         5569,
         6517
@@ -147887,6 +147887,86 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/guarantees/authoring/the-editor-does-not-wait-for-workspace-preparation/contract.md",
       "symbol": "detaching_generation_leaves_observers_read_only",
       "basis": "explained-decision"
+    },
+    {
+      "id": "immutable-scaffold-fingerprint",
+      "output": "crates/hick-lang/src/scaffold.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lang/src/scaffold.rs.md",
+      "symbol": "fingerprint",
+      "basis": "explained-decision",
+      "original_range": null
+    },
+    {
+      "id": "immutable-scaffold-verify",
+      "output": "crates/hick-lang/src/scaffold.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lang/src/scaffold.rs.md",
+      "symbol": "verify",
+      "basis": "explained-decision",
+      "original_range": null
+    },
+    {
+      "id": "immutable-scaffold-preserve",
+      "output": "crates/hick-lang/src/scaffold.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lang/src/scaffold.rs.md",
+      "symbol": "preserve",
+      "basis": "explained-decision",
+      "original_range": null
+    },
+    {
+      "id": "immutable-scaffold-tests",
+      "output": "crates/hick-lang/src/scaffold.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lang/src/scaffold.rs.md",
+      "symbol": "tests",
+      "basis": "explained-decision",
+      "original_range": null
+    },
+    {
+      "id": "immutable-scaffold-document-lock",
+      "output": "apps/web/src/editor/immutableScaffolds.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/immutableScaffolds.ts.md",
+      "symbol": "document-lock",
+      "basis": "explained-decision",
+      "original_range": null
+    },
+    {
+      "id": "immutable-scaffold-output-lock",
+      "output": "apps/web/src/editor/immutableScaffolds.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/immutableScaffolds.ts.md",
+      "symbol": "output-lock",
+      "basis": "explained-decision",
+      "original_range": null
+    },
+    {
+      "id": "immutable-scaffold-editor-tests",
+      "output": "apps/web/src/editor/immutableScaffolds.test.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/immutableScaffolds.test.ts.md",
+      "symbol": "editor-tests",
+      "basis": "explained-decision",
+      "original_range": null
+    },
+    {
+      "id": "immutable-scaffold-output-component-test",
+      "output": "apps/web/src/components/OutputEditorPane.test.tsx",
+      "page": ".hickory-source/guarantees/agent/ui-action-dispatch/implementation/apps/web/src/components/OutputEditorPane.test.tsx.md",
+      "symbol": "immutable-output-pane",
+      "basis": "explained-decision",
+      "original_range": null
+    },
+    {
+      "id": "immutable-scaffold-write-document",
+      "output": "crates/hickory-cli/src/serve/store.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/store.rs.md",
+      "symbol": "immutable-scaffold-write-document",
+      "basis": "explained-decision",
+      "original_range": null
+    },
+    {
+      "id": "immutable-scaffold-literal-replay-test",
+      "output": "crates/hick-literate/tests/project.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-literate/tests/project.rs.md",
+      "symbol": "immutable-scaffold-literal-replay-test",
+      "basis": "explained-decision",
+      "original_range": null
     }
   ],
   "explanation_gaps": {

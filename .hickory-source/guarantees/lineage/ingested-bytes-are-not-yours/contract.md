@@ -1,15 +1,11 @@
 <storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
-# Ingested Bytes Are Editable And Never Report As Yours
+# Scaffold provenance remains navigable while its base stays immutable
 
-For: Authors editing generated text and reviewers tracing a result to its source.
+For: engineers tracing generated code and editing the authored changes above a scaffold.
 
-Given generated output whose bytes came from an `<hick:ingested>` block, when
-a reader asks for its lineage, then every such byte reports
-`kind: "ingested"` carrying the document span AND the run fingerprint — never
-`literal`, which would say a person here typed a scaffolder's forty files, and
-never `synthetic`, which would make the bytes uneditable.
+Captured scaffold bytes report `kind: "ingested"` with their document span and run fingerprint. The location remains navigable, but it is not an edit destination. Document views, generated-output views, source saves and reverse editing refuse to change the captured base or its hash. Put authored changes in an explicitly ordered patch instead; inserted patch bytes remain editable and retain their own source origins.
 
-The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
+This supersedes the earlier editable-base requirement. The preserved detail below is historical wherever it permits editing ingested scaffold bytes; it remains useful evidence of the earlier design, not a current exception. The shared [integrity mechanism](../../../mechanisms/crates/hick-lang/src/scaffold.rs.md) validates the output hash before reconstruction, and the [editor guard](../../../mechanisms/apps/web/src/editor/immutableScaffolds.ts.md) protects the base without hiding its provenance.
 
 ## Read the detailed requirements
 
@@ -18,7 +14,7 @@ The existing requirement is retained. Its original detail is below; implementati
 
 Earlier wording and all later notes remain in [the preserved original](../../../support/files/docs/guarantees/lineage/ingested-bytes-are-not-yours.md.md). The paragraph ledger records their exact ranges and dispositions.
 
-Requirement decision: Retain the existing requirement without inferring new intent. Separate evidence history and retain follow-up paragraphs for review; no new implementation verification is claimed.
+Requirement decision: Supersede editable scaffold bases with immutable, hash-checked captures and authored patches. Retain earlier paragraphs as historical evidence.
 
 Implementation review: not verified. Executed checks and human judgment are recorded separately. Source and test changes stale earlier evidence.
 

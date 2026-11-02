@@ -145,35 +145,83 @@ fn ingesting_outside_a_git_repository_warns_that_gitignore_was_never_consulted()
 
 #[test]
 fn the_ingested_document_produces_the_scaffold_from_a_clone() {
-    // The whole point of ingest over a `from=` into the transcript cache:
-    // the base survives a clone, so a weave — no execution at all — writes
-    // the scaffolder's files.
-    let dir = tempfile::tempdir().unwrap();
-    repo(dir.path(), "obj/\n");
-    let doc = dir.path().join("app.md");
-    std::fs::write(&doc, doc_source()).unwrap();
-    assert!(
-        hick()
+    // Each spelling must ingest once, then reconstruct from the Markdown
+    // alone. The destination has neither the generator's run nor its Git repo.
+    for fence in [None, Some("```"), Some("~~~~")] {
+        let dir = tempfile::tempdir().unwrap();
+        repo(dir.path(), "obj/\n");
+        let doc = dir.path().join("app.md");
+        let mut source = doc_source();
+        if let Some(marker) = fence {
+            source = source
+                .replace(
+                    "<hick:exec container=\"sdk\" mount=\"project:out\">\n<hick:copy id=\"scaffold\">",
+                    &format!("{marker}sh exec=\"true\" container=\"sdk\" mount=\"project:out\" id=\"scaffold\""),
+                )
+                .replace("</hick:copy>\n</hick:exec>", marker);
+        }
+        if fence.is_some() && !cfg!(windows) {
+            let unsafe_source =
+                source.replace("mkdir -p out/obj", "printf '<hick:file>'; mkdir -p out/obj");
+            std::fs::write(&doc, &unsafe_source).unwrap();
+            let refused = hick()
+                .args(["ingest", "--from", "#scaffold"])
+                .arg(&doc)
+                .output()
+                .unwrap();
+            assert!(!refused.status.success());
+            assert!(String::from_utf8_lossy(&refused.stderr).contains("cannot expand"));
+            assert_eq!(std::fs::read_to_string(&doc).unwrap(), unsafe_source);
+            assert!(!dir.path().join("app").exists());
+        }
+        std::fs::write(&doc, source).unwrap();
+        let ingest = hick()
             .args(["ingest", "--from", "#scaffold"])
             .arg(&doc)
             .output()
-            .expect("run hick")
-            .status
-            .success()
-    );
+            .expect("run hick");
+        assert!(
+            ingest.status.success(),
+            "{:?}: {}",
+            fence,
+            String::from_utf8_lossy(&ingest.stderr)
+        );
 
-    let out = hick().arg("weave").arg(&doc).output().expect("run hick");
-    assert!(
-        out.status.success(),
-        "weave failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert_eq!(
-        std::fs::read_to_string(dir.path().join("app/main.txt")).unwrap(),
-        "hello\n"
-    );
+        let clone = tempfile::tempdir().unwrap();
+        let cloned_doc = clone.path().join("app.md");
+        std::fs::copy(&doc, &cloned_doc).unwrap();
+        let out = hick()
+            .arg("weave")
+            .arg(&cloned_doc)
+            .output()
+            .expect("run hick");
+        assert!(
+            out.status.success(),
+            "weave failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(
+            std::fs::read(clone.path().join("app/main.txt")).unwrap(),
+            b"hello\n"
+        );
+        assert_eq!(
+            std::fs::read(clone.path().join("app/lib.txt")).unwrap(),
+            b"lib\n"
+        );
+        assert!(!clone.path().join("app/obj/build.log").exists());
+        let captured = std::fs::read_to_string(&cloned_doc).unwrap();
+        let tampered = captured.replace("hello\n</hick:file>", "tampered\n</hick:file>");
+        assert_ne!(captured, tampered);
+        std::fs::write(&cloned_doc, &tampered).unwrap();
+        let refused = hick().arg("weave").arg(&cloned_doc).output().unwrap();
+        assert!(!refused.status.success());
+        assert!(String::from_utf8_lossy(&refused.stderr).contains("hash mismatch"));
+        assert_eq!(
+            std::fs::read(clone.path().join("app/main.txt")).unwrap(),
+            b"hello\n"
+        );
+    }
 }
-
 #[test]
 fn an_ingested_body_starts_on_its_own_line_without_changing_a_byte() {
     // Legibility, and it costs the file nothing: the break that ends the open
@@ -222,8 +270,8 @@ fn an_ingested_body_starts_on_its_own_line_without_changing_a_byte() {
 fn ingested_bytes_report_their_run_rather_than_reading_as_yours() {
     // Marking a scaffolder's files `literal` would make forty files of
     // somebody else's code claim to be text you wrote; marking them `exec`
-    // would make them synthetic and kill the reverse edit on the very bytes
-    // you most want to edit.
+    // would lose the captured location. Navigation remains byte-precise,
+    // while authored changes now belong in a patch above the immutable base.
     let dir = tempfile::tempdir().unwrap();
     repo(dir.path(), "obj/\n");
     let doc = dir.path().join("app.md");
@@ -254,7 +302,6 @@ fn ingested_bytes_report_their_run_rather_than_reading_as_yours() {
     assert!(!stdout.contains("literal"), "{stdout}");
     assert!(stdout.contains("run "), "{stdout}");
 }
-
 #[test]
 fn a_second_ingest_is_refused_and_names_the_recorded_base() {
     let dir = tempfile::tempdir().unwrap();

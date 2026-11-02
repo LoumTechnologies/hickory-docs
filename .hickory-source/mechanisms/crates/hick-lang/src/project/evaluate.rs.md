@@ -377,6 +377,7 @@ fn visit(
         .get(path)
         .ok_or_else(|| format!("Markdown closure missing {path}"))?;
     let doc = parse(source).map_err(|e| format!("{path}: {e}"))?;
+    crate::validate_scaffolds(&doc).map_err(|e| format!("{path}: {e}"))?;
     let bom = usize::from(source.starts_with('\u{feff}')) * 3;
     visiting.insert(path.to_owned());
     for existing in &inventory.documents {

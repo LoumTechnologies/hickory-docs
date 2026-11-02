@@ -6,11 +6,17 @@ For: Authors editing executable documents and the files those documents produce.
 Given an `<hick:exec>` cell whose command is wrapped in a `<hick:copy id=…>`
 child and which mounts a volume declared with `output=`, when `hick ingest
 --from '#id' <doc>.md` runs, then the cell's output volume is written into
-the document as ordinary `<hick:file>` blocks inside an `<hick:ingested>`
+the document as immutable literal `<hick:file>` blocks inside an `<hick:ingested>`
 element recording the run — and the document is verified to weave those exact
 bytes before the ingest is accepted.
 
-The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
+An executable Markdown fence may also carry the selected cell id and output-volume mount. On ingestion, expand that fence into an explicit cell so its captured files become structured children. Preserve the command and runtime attributes, discard fence-only classification attributes, and apply the same byte comparison before accepting the document. Refuse literal Hick markup that expansion would reinterpret before executing the cell. Native cells keep their existing representation.
+
+The focused CLI witness covers both fence markers and single-document replay; see [the readiness comparison](../../../evidence/engineer-first-readiness.md). This amendment does not renew the broader historical ingestion evidence.
+
+The capture's `sha256` is recomputed from its sorted paths and exact UTF-8 bytes before execution, replay or project verification. Invalid/missing hashes, changed files and nonliteral construction inside the base are refused. Hickory's source and output editors, source-save paths and reverse-edit paths preserve it; authored changes use patches outside the capture. A content hash detects a mismatch, not a hostile external rewrite of both data and hash. No sidecar or earlier Git revision is needed to validate it. Refreshing an existing scaffold remains deferred.
+
+The earlier editable-base wording in retained detail is historical and superseded by this requirement. Other existing requirements are retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
 
 ## Read the detailed requirements
 

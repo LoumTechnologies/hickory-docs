@@ -813,6 +813,7 @@ fn prepare_pipeline<'a>(
         // that a transcript spliced in from another file is derived too. The
         // file on disk keeps only the raw block; this is the projection over it
         // (`docs/specs/freeform/ingest.md`).
+        hick_lang::validate_scaffolds(&doc).map_err(anyhow::Error::msg)?;
         hick_transcript::expand(&mut doc);
 
         info!("Parsed {name}: {} top-level nodes", doc.nodes.len());
@@ -979,7 +980,6 @@ fn prepare_pipeline<'a>(
         volumes,
     })
 }
-
 </storycode:copy>
 <a id="f-e099e80d2a99-create_tag_registry"></a>
 ### `create_tag_registry`
@@ -1486,7 +1486,11 @@ fn add_file_output_for(
     span_files: &[Arc<str>],
 ) {
     let raw_path = tag_attr(tag, "path").unwrap_or_default();
-    let path = interpolate_path(&raw_path, state);
+    let path = if ingested.is_some() {
+        raw_path
+    } else {
+        interpolate_path(&raw_path, state)
+    };
     let raw_ip = Arc::new(InsertionPoint::new());
 
     process_file_children(
@@ -1503,6 +1507,11 @@ fn add_file_output_for(
 
     raw_ip.close();
 
+    if ingested.is_some() {
+        state.add_file_output(path, raw_ip);
+        return;
+    }
+
     let subs_state = state.clone();
     let transform: Arc<dyn Node> = Arc::new(ProvenanceTransformNode::new(
         raw_ip,
@@ -1515,7 +1524,6 @@ fn add_file_output_for(
     file_ip.close();
     state.add_file_output(path, file_ip);
 }
-
 </storycode:copy>
 <a id="f-e099e80d2a99-seed_input_volumes"></a>
 ### `seed_input_volumes`
@@ -2361,11 +2369,11 @@ fn reprepare_document(name: &str, state: &MultiDocumentState) -> Result<HickDocu
     }
     hick_lang::resolve_includes(&mut doc, base_dir, &mut seen)
         .map_err(|e| anyhow::anyhow!("include error in {name}: {e}"))?;
+    hick_lang::validate_scaffolds(&doc).map_err(anyhow::Error::msg)?;
     scan_and_register_vars(&doc.nodes, state);
     filter_conditionals(&mut doc.nodes, state);
     Ok(doc)
 }
-
 </storycode:copy>
 <a id="f-e099e80d2a99-REPLAY_DIR"></a>
 ### `REPLAY_DIR`
@@ -4312,7 +4320,7 @@ fn process_file_children(
                     .as_ref()
                     .and_then(|s| ctx.file_of_span(s).map(|f| (s, f)))
                 {
-                    // Ingested bytes are editable but not authored here.
+                    // Ingested bytes retain provenance but are an immutable base.
                     let origin = match ingested {
                         Some(run) => SourceOrigin::Ingested {
                             file,
@@ -4368,7 +4376,6 @@ fn process_file_children(
         }
     }
 }
-
 </storycode:copy>
 <a id="f-e099e80d2a99-paste_indent_before"></a>
 ### `paste_indent_before`

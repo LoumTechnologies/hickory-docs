@@ -13,6 +13,8 @@ directory of two or more files folds to `Controllers/ · 4 files, 96 lines`,
 and none of it is a second rendering: the fold headers are the document's own
 bytes and the document is unchanged.
 
+Captured file bodies remain readable and copyable when unfolded, but the base and its hash are read-only. Authored changes belong in an ordered patch outside the capture. Folding itself changes neither the source nor its integrity hash.
+
 The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
 
 ## Read the detailed requirements

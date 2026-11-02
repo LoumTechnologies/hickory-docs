@@ -38,6 +38,8 @@ for an unclassified filesystem edit.
 Read the [capture mechanism and focused witnesses](output-capture.md).
 <storycode:include file="output-capture.md" />
 
+Captured scaffold origins are read-only even when a byte span is precise. An authored patch may consume the captured base, and reverse editing its inserted text regenerates that patch and rechecks downstream construction. Hash verification happens before evaluation; source preservation also refuses deleting or re-hashing a capture through an editor save.
+
 ## Implementation
 
 <a id="output-1fd16b1e6cf1"></a>
@@ -110,12 +112,11 @@ pub fn reverse_project_edit(
     let bom = usize::from(destination.starts_with('\u{feff}')) * 3;
     if doc.all_tags().iter().any(|tag| {
         tag.name == "ingested"
-            && tag.get_attribute("key").is_some()
             && tag.source_span.is_some_and(|s| s.end + bom <= start)
             && tag.close_span.is_some_and(|s| end <= s.start + bom)
     }) {
         return Err(format!(
-            "Generator output in {} is synthetic; edit its cell command and re-record instead",
+            "Captured output in {} is immutable/synthetic; edit an authored patch instead",
             origin.document
         ));
     }
@@ -186,7 +187,6 @@ pub fn reverse_project_edit(
     })?;
     Ok(candidate)
 }
-
 </storycode:copy>
 <a id="f-1fd16b1e6cf1-regenerate_patch"></a>
 ### `regenerate_patch`

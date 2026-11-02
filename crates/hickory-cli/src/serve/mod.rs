@@ -371,7 +371,7 @@ impl LocalState {
             detail,
             &[(path.clone(), source.as_bytes().to_vec())],
         );
-        store::write_atomic(&path, source.as_bytes())
+        store::write_document(&path, source)
             .map_err(|e| ApiError::internal(format!("writing {}: {e:#}", path.display())))
     }
 
@@ -426,7 +426,7 @@ impl LocalState {
             Some(doc_path.to_string()),
             &[(path.clone(), source.as_bytes().to_vec())],
         );
-        store::write_atomic(&path, source.as_bytes())
+        store::write_document(&path, source)
             .map_err(|e| ApiError::internal(format!("writing {}: {e:#}", path.display())))
     }
 
@@ -468,7 +468,6 @@ impl LocalState {
             .map_err(|e| ApiError::unprocessable(format!("{e:#}")))
     }
 }
-
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------

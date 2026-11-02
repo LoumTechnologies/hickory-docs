@@ -110,19 +110,73 @@ async fn kept_generator_replay_uses_shared_fingerprint_formatting_expectations_a
 
 // Guarantee: docs/guarantees/literate-projects/markdown-constructs-the-complete-project.md
 #[tokio::test]
-async fn owned_ingest_is_editable_source_without_claiming_generator_execution() {
+async fn owned_scaffold_accepts_patches_without_generator_execution() {
+    // The command is retained as provenance, never executed during replay.
     let source = format!(
-        "<hick:project/><hick:exec container=\"sdk\"><hick:ingested sha256=\"{}\"><hick:file id=\"owned\" path=\"app.ts\">x\n</hick:file></hick:ingested></hick:exec>",
-        "a".repeat(64)
+        r#"<hick:project/>
+<hick:exec id="scaffold" container="sdk">
+<hick:copy>cargo init --name seed --vcs none out</hick:copy>
+<hick:ingested sha256="{}">
+<hick:file id="owned" path="src/main.rs">
+fn main() {{}}
+</hick:file>
+<hick:file path="Cargo.toml">
+[package]
+name = "seed"
+version = "0.1.0"
+</hick:file>
+</hick:ingested>
+</hick:exec>
+
+Give the first executable an observable greeting.
+<hick:patch id="greeting" after="scaffold">
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1 +1 @@
+-fn main() {{}}
++fn main() {{ println!("Hello, Hickory!"); }}
+</hick:patch>
+"#,
+        hick_lang::scaffold_fingerprint(&std::collections::BTreeMap::from([
+            ("src/main.rs".into(), "fn main() {}\n".into()),
+            (
+                "Cargo.toml".into(),
+                "[package]\nname = \"seed\"\nversion = \"0.1.0\"\n".into()
+            ),
+        ]))
     );
     let result = hick_literate::run_pipeline_weave(&[("project.md", &source)], &[], None)
         .await
         .unwrap();
     assert!(result.transcripts.is_empty());
+    assert_eq!(
+        result.files["src/main.rs"].as_text(),
+        Some("fn main() { println!(\"Hello, Hickory!\"); }\n")
+    );
     assert!(matches!(
-        result.provenance_maps["app.ts"].spans()[0].origin,
+        result.provenance_maps["Cargo.toml"].spans()[0].origin,
         hick_exec::node::SourceOrigin::Ingested { .. }
     ));
+    // Compare complete trees, not just the changed entry point. Reconstruction
+    // before and after reorganizing the source must agree on all outputs.
+    let plain = "<hick:project/><hick:file path=\"src/main.rs\">fn main() { println!(\"Hello, Hickory!\"); }\n</hick:file><hick:file path=\"Cargo.toml\">[package]\nname = \"seed\"\nversion = \"0.1.0\"\n</hick:file>";
+    let before = hick_literate::run_pipeline_weave(&[("project.md", plain)], &[], None)
+        .await
+        .unwrap();
+    assert!(
+        before
+            .evaluated_project
+            .unwrap()
+            .new
+            .compare(&result.evaluated_project.unwrap().new)
+            .is_empty()
+    );
+    let invalid = source.replace("-fn main() {}", "-fn main() { changed(); }");
+    assert!(
+        hick_literate::run_pipeline_weave(&[("project.md", &invalid)], &[], None)
+            .await
+            .is_err()
+    );
 }
 // Guarantee: docs/guarantees/literate-projects/complete-inventory-is-byte-exact.md
 #[test]
@@ -142,4 +196,37 @@ fn a_refactor_baseline_cannot_follow_mutating_binary_temp_files() {
     );
     std::fs::remove_file(path).unwrap();
     assert!(hick_literate::equiv::compare_outputs(&baseline, &baseline).is_empty());
+}
+#[tokio::test]
+async fn standalone_scaffold_replay_keeps_literal_paths_and_bytes() {
+    let path = "{{name}}.txt";
+    let content = "\u{feff}FavoriteApp λ\r\n";
+    let hash = hick_lang::scaffold_fingerprint(&std::collections::BTreeMap::from([(
+        path.into(),
+        content.into(),
+    )]));
+    let source = format!(
+        r#"<hick:var name="name">changed</hick:var>
+<hick:substitute name="app" pattern="FavoriteApp" value="Modified" />
+<hick:container name="sdk" />
+<hick:exec container="sdk">
+<hick:copy>echo retained</hick:copy>
+<hick:ingested sha256="{hash}">
+<hick:file path="{path}">
+{content}</hick:file>
+</hick:ingested>
+</hick:exec>
+"#
+    );
+    let result = hick_literate::run_pipeline_weave(&[("standalone.md", &source)], &[], None)
+        .await
+        .unwrap();
+    assert_eq!(result.files.len(), 1);
+    assert_eq!(result.files[path].as_text(), Some(content));
+    let tampered = source.replace("FavoriteApp", "WrongBase");
+    let error = hick_literate::run_pipeline_weave(&[("standalone.md", &tampered)], &[], None)
+        .await
+        .err()
+        .unwrap();
+    assert!(error.to_string().contains("hash mismatch"));
 }

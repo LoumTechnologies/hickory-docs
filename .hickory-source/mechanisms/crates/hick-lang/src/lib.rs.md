@@ -31,6 +31,8 @@ This literal construction preserves embedded document syntax and exact file byte
 //! element. For example, `<h:doc xmlns:h="http://www.hickorydocs.com/1.0">`
 //! uses prefix `h`, while `<hick:doc xmlns:hick="...">` uses prefix `hick`.
 use std::fmt;
+mod scaffold;
+pub use scaffold::{preserve_scaffolds, scaffold_fingerprint, validate_scaffolds};
 mod recording;
 pub use recording::{
     ExecShow, agent_cache_key, exec_cache_key, inputs_digest, render_transcript_entry,
@@ -786,6 +788,7 @@ pub fn resolve_includes(
     base_dir: &std::path::Path,
     seen: &mut std::collections::HashSet<std::path::PathBuf>,
 ) -> Result<(), ParseError> {
+    validate_scaffolds(doc).map_err(|message| ParseError::Syntax { line: 1, message })?;
     let mut merged: std::collections::HashSet<std::path::PathBuf> =
         std::collections::HashSet::new();
     let mut span_files: Vec<String> = std::mem::take(&mut doc.span_files);
@@ -1174,6 +1177,11 @@ fn resolve_includes_in_nodes(
                         message: format!("cannot read '{}': {e}", canonical.display()),
                     })?;
                 let mut included_doc = parse(&source)?;
+                // Validate literal captures before includes can replace their children.
+                validate_scaffolds(&included_doc).map_err(|message| ParseError::Syntax {
+                    line: tag.source_line,
+                    message,
+                })?;
 
                 // Recursively resolve includes in the included doc, sharing
                 // the outer span-file table so a nested splice's ids are

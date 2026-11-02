@@ -104,8 +104,8 @@ pub enum Origin {
         span: (usize, usize),
     },
     /// Bytes a tool outside this document wrote, ingested into it and now
-    /// held as ordinary document text. Byte-precise and therefore editable —
-    /// that is the whole point — but never drawn or blamed as `literal`,
+    /// held as immutable document text. Byte-precise for navigation, but never
+    /// an edit destination or drawn or blamed as `literal`,
     /// because "you wrote this" and "this arrived on that day from that run"
     /// are different claims. `run` is the `<hick:ingested sha256=…>`
     /// fingerprint: one run, N files.
@@ -116,7 +116,6 @@ pub enum Origin {
     },
     Synthetic,
 }
-
 </storycode:copy>
 <a id="f-bc43b0352ff3-impl-Origin"></a>
 ### `impl-Origin`
@@ -157,13 +156,12 @@ impl Origin {
             // their source span; exec/variable/substitution values are
             // derived, so they are never produced with spans today (see
             // `from_provenance_map`) and would not be editable anyway.
-            Origin::Literal { doc_path, span }
-            | Origin::Paste { doc_path, span }
-            // Ingested bytes ARE bytes of the document, so an edit to them
-            // lands in the `.md` through the path that already exists. This
-            // is the property `from=`-into-a-gitignored-transcript could not
-            // have had, and the reason ingest is the mechanism.
-            | Origin::Ingested { doc_path, span, .. } => Some((doc_path, span.0, span.1)),
+            Origin::Literal { doc_path, span } | Origin::Paste { doc_path, span } => {
+                Some((doc_path, span.0, span.1))
+            }
+            // Location/provenance remains available, but a scaffold is the
+            // immutable base of an authored patch, never its edit destination.
+            Origin::Ingested { .. } => None,
             // An agent writes through `edit_doc`, so its bytes are in the
             // document and editable — but only when a byte-precise span was
             // recorded. Without one it behaves like any other derived value.
@@ -176,7 +174,6 @@ impl Origin {
         }
     }
 }
-
 </storycode:copy>
 <a id="f-bc43b0352ff3-from_provenance_map"></a>
 ### `from_provenance_map`
@@ -651,11 +648,11 @@ pub fn apply_source_edits(
             }
             content.replace_range(e.span.0..e.span.1, &e.text);
         }
+        hick_lang::preserve_scaffolds(src, &content).map_err(LineageError::InvalidEdit)?;
         result.insert(doc_path.to_string(), content);
     }
     Ok(result)
 }
-
 </storycode:copy>
 <a id="f-bc43b0352ff3-use_declaration"></a>
 ### `use_declaration`
@@ -849,7 +846,7 @@ mod tests {
 
     /// docs/guarantees/lineage/ingested-bytes-are-not-yours.md
     #[test]
-    fn ingested_bytes_are_editable_and_never_report_as_literal() {
+    fn ingested_bytes_are_read_only_and_never_report_as_literal() {
         let mut map = ProvenanceMap::new();
         map.push(ProvenanceSpan {
             output_start: 0,
@@ -882,10 +879,8 @@ mod tests {
                 run: "9f2cdeadbeef".into(),
             }
         );
-        // Editable: an edit to a scaffolded file lands in the `.md` through
-        // the path that already exists. This is what a `from=` pointing at a
-        // captured exec could never have.
-        assert_eq!(p[0].origin.source(), Some(("app.md", 100, 105)));
+        // Preserve navigation while refusing reverse edits into the base.
+        assert_eq!(p[0].origin.source(), None);
         assert_eq!(p[0].origin.location(), Some(("app.md", 100, 105)));
         assert_eq!(p[1].origin, Origin::Synthetic);
 
@@ -907,7 +902,7 @@ mod tests {
 
     /// docs/guarantees/lineage/ingested-bytes-are-not-yours.md
     #[test]
-    fn an_edit_to_ingested_bytes_maps_back_to_the_document() {
+    fn an_edit_to_ingested_bytes_is_refused() {
         let mut map = ProvenanceMap::new();
         map.push(ProvenanceSpan {
             output_start: 0,
@@ -919,20 +914,18 @@ mod tests {
             },
         });
         let p = from_provenance_map(&map);
-        let edits = map_edits(
-            "hello world",
-            &[OutputEdit {
-                start: 6,
-                end: 11,
-                text: "there".into(),
-            }],
-            &p,
-        )
-        .expect("ingested bytes are the document's own");
-        assert_eq!(edits.len(), 1);
-        assert_eq!(edits[0].doc_path, "app.md");
-        assert_eq!(edits[0].span, (306, 311));
-        assert_eq!(edits[0].text, "there");
+        assert!(
+            map_edits(
+                "hello world",
+                &[OutputEdit {
+                    start: 6,
+                    end: 11,
+                    text: "there".into()
+                }],
+                &p,
+            )
+            .is_err()
+        );
     }
 
     #[test]

@@ -16,6 +16,7 @@ Related contracts: [Keep divergent output until an explicit decision names the w
 ### `HighlightRange`
 
 <storycode:copy id="f-2571b0682164-HighlightRange">
+import { immutableScaffoldOutput, capturedOutputRanges, setScaffoldOutputRanges } from "../editor/immutableScaffolds";
 import { performanceInline } from "../performance/inline";
 import { coverageGutter } from "../coverage/gutter";
 import { useEditorEditing } from "../editor/useEditorEditing";
@@ -205,7 +206,7 @@ export function OutputEditorPane({
           to: b,
           // Three states, not two: derived-and-uneditable, yours, and
           // somebody else's that you may nonetheless edit. Ingested bytes
-          // are editable like literal ones and must not READ like them.
+          // remain navigable but are locked; authored patch spans stay editable.
           cls:
             p.origin.kind === "synthetic"
               ? "cm-prov-synthetic"
@@ -245,6 +246,7 @@ export function OutputEditorPane({
           editorChrome("code"),
           access.current.of([EditorState.readOnly.of(!canEdit), EditorView.editable.of(canEdit)]),
           EditorState.transactionFilter.of(tr => !onLocalEditRef.current && tr.docChanged && tr.annotation(Transaction.userEvent) ? [] : tr),
+          immutableScaffoldOutput(capturedOutputRanges(initial)),
           highlightField,
           // The fading mark on text a re-weave just changed.
           changeFlashField,
@@ -382,7 +384,9 @@ export function OutputEditorPane({
     const view = viewRef.current;
     if (!view || file === syncedFileRef.current) return;
     syncedFileRef.current = file;
+    view.dispatch({ effects: setScaffoldOutputRanges.of([]) });
     syncAndFlash(view, file.content);
+    view.dispatch({ effects: setScaffoldOutputRanges.of(capturedOutputRanges(file)) });
     // Whether or not the text moved, the buffer now equals the server's
     // last-woven copy, which is exactly what `file.provenance` indexes.
     changesRef.current = null;

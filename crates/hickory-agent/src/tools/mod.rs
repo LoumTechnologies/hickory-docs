@@ -287,6 +287,9 @@ impl EditSession {
         };
         let mut new_source = source.clone();
         new_source.replace_range(edit.start..edit.end, &edit.text);
+        if let Err(e) = hick_lang::preserve_scaffolds(&source, &new_source) {
+            return ToolOutcome::err(NAME, e);
+        }
 
         if let Err(e) = hick_lang::parse(&new_source) {
             return ToolOutcome::err(
@@ -735,6 +738,9 @@ impl EditSession {
 
         let mut new_source = self.source.clone();
         new_source.replace_range(edit.start..edit.end, &edit.text);
+        if let Err(e) = hick_lang::preserve_scaffolds(&self.source, &new_source) {
+            return ToolOutcome::err(NAME, e);
+        }
 
         if let Err(e) = hick_lang::parse(&new_source) {
             return ToolOutcome::err(
@@ -778,7 +784,6 @@ impl EditSession {
         .with_wrote(wrote)
     }
 }
-
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------

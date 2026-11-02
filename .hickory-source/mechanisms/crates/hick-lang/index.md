@@ -30,4 +30,7 @@ Turn declared document constructions into immutable project trees, retaining byt
 - [`crates/hick-lang/tests/project_debug.rs`](tests/project_debug.rs.md)
 <storycode:include file="tests/project_debug.rs.md" />
 
+- [Verify the immutable scaffold base](src/scaffold.rs.md)
+<storycode:include file="src/scaffold.rs.md" />
+
 </storycode:doc>

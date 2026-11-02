@@ -32,6 +32,8 @@ export function representationRange(source:string, file:RepresentedFile, range:{
   const start=charToByte(file.content,positionToUtf16(file.content,range.start));
   const end=charToByte(file.content,positionToUtf16(file.content,range.end));
   if (end<start) return null;
+  if (file.provenance.some(p => p.origin.kind === "ingested" &&
+    (start === end ? p.start <= start && start <= p.end : start < p.end && end > p.start))) return null;
   if (start===end) { const from=representationOffset(source,file,range.start); return from===null?null:{from,to:from}; }
   let at=start, first:number|null=null, previous:number|null=null;
   for (const p of file.provenance) {
