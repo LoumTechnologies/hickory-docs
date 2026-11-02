@@ -2009,4 +2009,5 @@ Implementation and test narratives are in [the mechanism index](../mechanisms/in
 - [`work/navigation-prototype/spatial-navigation.html`](files/work/navigation-prototype/spatial-navigation.html.md)
 <storycode:include file="files/work/navigation-prototype/spatial-navigation.html.md" />
 
+<storycode:include file="files/.instructions/simple-composable-design.md.md" />
 </storycode:doc>

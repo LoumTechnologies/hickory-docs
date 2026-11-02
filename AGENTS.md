@@ -21,3 +21,5 @@ assets and embedded document syntax. Shared code lives under named mechanisms.
 Use `behavior.py locate <output-path>` to find its construction and every fragment.
 A narrative owner is not proof of adequate explanation: inspect the explicit gaps
 in `hickory-dogfood/narrative-map.json` and do not invent coverage or guarantees.
+
+@.instructions/simple-composable-design.md

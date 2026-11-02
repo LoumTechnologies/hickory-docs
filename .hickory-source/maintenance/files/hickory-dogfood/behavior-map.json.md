@@ -65360,6 +65360,13 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     "apps/web/e2e/staticLanguage.spec.ts": {
       "source": ".hickory-source/mechanisms/apps/web/e2e/staticLanguage.spec.ts.md"
+    },
+    ".instructions/simple-composable-design.md": {
+      "source": ".hickory-source/support/files/.instructions/simple-composable-design.md.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "sha256": "d792fbed4625157a691df5c204e97e97fe45965ccf2375591006850e0a95dc86"
     }
   },
   "evidence_records": [
