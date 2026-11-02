@@ -247,7 +247,7 @@ export function diagnosticsAt(
 <storycode:copy id="f-0f1f50575dc9-hoverText">
 // --- hover ------------------------------------------------------------------
 
-function hoverText(contents: unknown): string {
+export function hoverText(contents: unknown): string {
   if (contents == null) return "";
   if (typeof contents === "string") return contents;
   if (Array.isArray(contents)) return contents.map(hoverText).filter(Boolean).join("\n\n");

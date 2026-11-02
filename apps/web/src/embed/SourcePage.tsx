@@ -3,6 +3,8 @@ import { EditorView } from "@codemirror/view";
 import { decodeStaticLanguage, staticLanguageExtensions, staticSymbols } from "./staticLanguage";
 import type { StaticLanguage } from "./staticLanguage";
 import type { LspLocation } from "../lsp/client";
+import type { SymbolInspection } from "../lsp/symbolInspection";
+import { renderHoverMarkdown } from "../lsp/hoverMarkdown";
 import { artifactText } from "./staticArtifacts";
 import { sourceLinks } from "./sourceLinks";
 import { DocumentEmbed } from "./DocumentEmbed";
@@ -109,6 +111,12 @@ function CapturedModels({ index }: { index: SourceIndex }) {
   </details>;
 }
 
+function InspectionDocumentation({ text }: { text: string }) {
+  const content = useRef<HTMLDivElement>(null);
+  useEffect(() => { content.current?.replaceChildren(renderHoverMarkdown(text)); }, [text]);
+  return <div ref={content} className="symbol-documentation" />;
+}
+
 export function SourcePage() {
   const [index, setIndex] = useState<SourceIndex | null>(null);
   const path = new URL(location.href).searchParams.get("path") ?? index?.entry ?? "project.md";
@@ -116,7 +124,15 @@ export function SourcePage() {
   const [error, setError] = useState("");
   const [intelligence, setIntelligence] = useState<StaticLanguage | null>(null);
   const [references, setReferences] = useState<LspLocation[]>([]);
+  const [inspection, setInspection] = useState<SymbolInspection | null>(null);
+  const [filesOpen, setFilesOpen] = useState(false);
+  const inspector = useRef<HTMLElement>(null);
+  useEffect(() => { if (inspection) inspector.current?.focus({ preventScroll: true }); }, [inspection]);
   const view = useRef<EditorView | null>(null);
+  useEffect(() => {
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") { if (inspector.current?.contains(document.activeElement)) view.current?.focus(); setInspection(null); setFilesOpen(false); } };
+    addEventListener("keydown", close); return () => removeEventListener("keydown", close);
+  }, []);
   useEffect(() => {
     const controller = new AbortController();
     void fetch("./source/index.json", { signal: controller.signal }).then(async response => {
@@ -128,7 +144,7 @@ export function SourcePage() {
   }, []);
   useEffect(() => {
     if (!index) return;
-    setSource(null); setIntelligence(null); setReferences([]);
+    setSource(null); setIntelligence(null); setReferences([]); setInspection(null); setFilesOpen(false);
     const document = index.documents.find(doc => doc.path === path);
     if (!document) { setError("This page is not published. Choose a document in the files pane."); return; }
     const controller = new AbortController();
@@ -154,7 +170,7 @@ export function SourcePage() {
   }
   const extensions = useMemo(() => index ? [...folds, sourceLinks(path, index),
     ...(intelligence && source !== null ? staticLanguageExtensions(intelligence, source, path,
-      target => { const href = targetHref(target); if (href) void requestLinkNavigation(href); }, setReferences) : []),
+      target => { const href = targetHref(target); if (href) void requestLinkNavigation(href); }, setReferences, setInspection) : []),
   ] : folds, [index, path, intelligence, source]);
   function revealAnchor(editor: EditorView) {
     let anchor: string;
@@ -186,11 +202,13 @@ export function SourcePage() {
     return requestLinkNavigation(`?path=${encodeURIComponent(args.path as string)}`);
   } } }]);
   return <div className="source-browser" data-revision={index?.revision}>
-    <aside className="source-files"><nav aria-label="Source files"><SourceFiles folder={folders} current={path} /></nav></aside>
-    <main className="source-document">
+    <button className="source-files-toggle" aria-expanded={filesOpen} aria-controls="source-files" onClick={() => setFilesOpen(open => !open)}>Files</button>
+    <aside id="source-files" className={`source-files${filesOpen ? " is-open" : ""}`}><nav aria-label="Source files"><SourceFiles folder={folders} current={path} /></nav></aside>
+    <main className={`source-document${inspection ? " has-inspector" : ""}`}>
       {index && <SourceBreadcrumbs path={path} index={index} />}
       {index?.models?.length ? <CapturedModels index={index} /> : null}
       {intelligence && <details><summary>Published language information</summary>
+        <p>Tap a code symbol to inspect it. With a keyboard, place the cursor on a symbol and press Alt+Enter. Ctrl/Cmd-click opens its definition; add Shift for references.</p>
         <p>{intelligence.state === "captured" ? "Language answers captured at this revision. Missing provider answers are unavailable." : (intelligence.reason ?? "Syntax highlighting compiled; semantic analysis is unavailable for this page.")}</p>
         <ul>{staticSymbols(intelligence).map((symbol, i) => {
           const target = symbol.location ?? { uri: `hick:///${path}`, range: symbol.selectionRange ?? symbol.range };
@@ -202,6 +220,19 @@ export function SourcePage() {
         const href = targetHref(target);
         return <li key={i}>{href ? <UiLink href={href}>{target.uri.slice(8)}:{target.range.start.line + 1}</UiLink> : <span>Target outside published source</span>}</li>;
       })}</ul></aside>}
+      {inspection && <aside ref={inspector} tabIndex={-1} className="source-inspector" aria-label="Symbol inspector">
+        <header><strong>{inspection.label}</strong><button onClick={() => { setInspection(null); view.current?.focus(); }} aria-label="Close symbol inspector">Close</button></header>
+        {inspection.documentation ? <InspectionDocumentation text={inspection.documentation} /> : <p>No documentation available for this symbol.</p>}
+        {inspection.unavailable.length > 0 && <p>{inspection.unavailable.join(", ")} unavailable at this revision.</p>}
+        <details><summary>Definitions ({inspection.definitions.length})</summary><ul>{inspection.definitions.map((target, i) => {
+          const href = targetHref(target);
+          return <li key={i}>{href ? <UiLink href={href} onClick={() => setInspection(null)}>{target.uri.slice(8)}:{target.range.start.line + 1}</UiLink> : "Target outside published source"}</li>;
+        })}</ul></details>
+        <details><summary>References ({inspection.references.length})</summary><ul>{inspection.references.map((target, i) => {
+          const href = targetHref(target);
+          return <li key={i}>{href ? <UiLink href={href} onClick={() => setInspection(null)}>{target.uri.slice(8)}:{target.range.start.line + 1}</UiLink> : "Target outside published source"}</li>;
+        })}</ul></details>
+      </aside>}
       {error && <p role="alert">{error}</p>}
       {!error && source === null && <p role="status">Loading document…</p>}
       {source !== null && index && <DocumentEmbed key={path} path={path} source={source} revision={index.revision} readOnly extensions={extensions} onViewReady={editor => { view.current = editor; if (editor) revealAnchor(editor); }} />}

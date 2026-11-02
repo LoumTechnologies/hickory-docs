@@ -65439,6 +65439,12 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "static-apps-web-src-embed-staticArtifacts-test-ts-0"
       ]
+    },
+    "apps/web/src/lsp/symbolInspection.ts": {
+      "source": ".hickory-source/mechanisms/apps/web/src/lsp/symbolInspection.ts.md"
+    },
+    "apps/web/src/lsp/symbolInspection.test.ts": {
+      "source": ".hickory-source/mechanisms/apps/web/src/lsp/symbolInspection.test.ts.md"
     }
   },
   "evidence_records": [

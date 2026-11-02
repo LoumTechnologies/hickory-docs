@@ -161,7 +161,7 @@ export function diagnosticsAt(
 
 // --- hover ------------------------------------------------------------------
 
-function hoverText(contents: unknown): string {
+export function hoverText(contents: unknown): string {
   if (contents == null) return "";
   if (typeof contents === "string") return contents;
   if (Array.isArray(contents)) return contents.map(hoverText).filter(Boolean).join("\n\n");

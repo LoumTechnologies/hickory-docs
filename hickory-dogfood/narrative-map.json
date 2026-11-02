@@ -148118,6 +148118,20 @@
       "page": ".hickory-source/mechanisms/scripts/capture-source-models.py.md",
       "symbol": "frozen model workspace",
       "basis": "explained-decision"
+    },
+    {
+      "id": "static-apps-web-src-lsp-symbolInspection-ts-0",
+      "output": "apps/web/src/lsp/symbolInspection.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/lsp/symbolInspection.ts.md",
+      "symbol": "Inspect a symbol with touch or a keyboard",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-apps-web-src-lsp-symbolInspection-test-ts-0",
+      "output": "apps/web/src/lsp/symbolInspection.test.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/lsp/symbolInspection.test.ts.md",
+      "symbol": "Keep touch inspection answers bound to the current gesture",
+      "basis": "explained-decision"
     }
   ],
   "explanation_gaps": {

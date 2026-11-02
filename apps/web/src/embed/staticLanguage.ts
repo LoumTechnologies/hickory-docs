@@ -1,3 +1,5 @@
+import { symbolInspection } from "../lsp/symbolInspection";
+import type { SymbolInspection } from "../lsp/symbolInspection";
 import type { Extension } from "@codemirror/state";
 import { EditorView, ViewPlugin, Decoration } from "@codemirror/view";
 import { foldService } from "@codemirror/language";
@@ -106,7 +108,7 @@ export function staticLanguageClient(data: StaticLanguage, source: string, path 
 
 /** Only read-only layers are installed; the live editing feature bundle is absent. */
 export function staticLanguageExtensions(data: StaticLanguage, source: string, path: string,
-  navigate: (target: LspLocation) => void, references: (targets: LspLocation[]) => void): Extension[] {
+  navigate: (target: LspLocation) => void, references: (targets: LspLocation[]) => void, inspect?: (value: SymbolInspection) => void): Extension[] {
   const client = staticLanguageClient(data, source, path);
   const coordinates = sourceCoordinates(source);
   const offset = (position: LspPosition) => coordinates.view(coordinates.raw(position));
@@ -121,9 +123,18 @@ export function staticLanguageExtensions(data: StaticLanguage, source: string, p
   const hints = result<InlayHint[]>(language?.queries.inlayHint, []);
   const folds = result<FoldingRange[]>(language?.queries.foldingRange, []);
   return [
+    EditorView.contentAttributes.of({ tabindex: "0" }),
     EditorView.decorations.of(marks), semanticTokenField, inlayHintField, highlightField,
     EditorView.theme({ ".cm-lsp-inlay": { opacity: "0.6", fontStyle: "italic", fontSize: "0.9em", padding: "0 0.15em" }, ".cm-lsp-highlight": { background: "var(--lsp-highlight, #6988a440)" } }),
     ...lspSupport({ client, uri: `hick:///${path}`, positionAt: at => utf16ToPosition(coordinates.normalized, at), onNavigate: navigate, onReferences: references }),
+    ...(inspect ? [symbolInspection({ client,
+      targetAt: at => {
+        const position = utf16ToPosition(coordinates.normalized, at);
+        const raw = coordinates.raw(position);
+        return language?.occurrences.some(item => raw >= item.from && raw < item.to)
+          ? { uri: `hick:///${path}`, position } : null;
+      }, onInspect: inspect,
+    })] : []),
     foldService.of((_state, from, to) => {
       const fold = folds.find(item => offset({ line: item.startLine, character: item.startCharacter ?? 0 }) >= from && offset({ line: item.startLine, character: item.startCharacter ?? 0 }) <= to);
       if (!fold) return null;

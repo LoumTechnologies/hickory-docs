@@ -101,7 +101,7 @@ test-static-source:
     python3 scripts/test-map-source-index.py
     python3 scripts/test-capture-source-language.py
     HICKORY_EXPORT_HICK="$PWD/target/debug/hick" python3 scripts/test-export-source-site.py
-    npm --prefix apps/web test -- src/embed/staticLanguage.test.ts src/embed/SourcePage.test.tsx src/embed/staticArtifacts.test.ts src/embed/sourceLinks.test.ts
+    npm --prefix apps/web test -- src/lsp/symbolInspection.test.ts src/embed/staticLanguage.test.ts src/embed/SourcePage.test.tsx src/embed/staticArtifacts.test.ts src/embed/sourceLinks.test.ts
 
 # Build the static marketing site into apps/web/dist-site — no server, no accounts,
 # no billing. Deploy the directory anywhere that serves files.
