@@ -15,6 +15,10 @@ Related contracts: [The File Menu Preserves The Originating Window](../../../../
 <a id="f-c66b482f3cc6-useFolderPane"></a>
 ### `useFolderPane`
 
+Wait for hydration before adding Files so restoration cannot overwrite it. Even a
+restored layout that omitted Files must show the newly opened folder. Add it once
+without taking editor focus; subsequent manual closing remains possible.
+
 <storycode:copy id="f-c66b482f3cc6-useFolderPane">
 import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { api } from "../api/client";
@@ -35,7 +39,6 @@ export function useFolderPane(
     if (folderOpen === false) openedByDefault.current = false;
     if (!hydrated || folderOpen !== true || openedByDefault.current) return;
     openedByDefault.current = true;
-    if (restored) return;
     // Wait for restoration, then add Files without taking editor focus.
     // Apply the default once so closing the pane remains a person's choice.
     setLayout((current) => treePane(current) ? current : withTree(current, tab("tree", "folder", "Files")));
@@ -196,13 +199,13 @@ it("adds the first folder's Files pane while preserving existing editor tabs", a
 ### `expression_statement`
 
 <storycode:copy id="f-c29616a4a7b1-expression_statement-7">
-it("keeps Files closed when the stored layout left it closed", async () => {
+it("adds Files even when the stored layout left it closed", async () => {
   const { result } = renderHook(() => {
     const [layout, setLayout] = useState(initialWorkspace);
     useFolderPane(true, true, layout, setLayout, vi.fn(), vi.fn(), true);
     return layout;
   });
-  expect(panes(result.current.root).flatMap(pane => pane.tabs)).toEqual([]);
+  await waitFor(() => expect(panes(result.current.root).flatMap(pane => pane.tabs).map(entry => entry.kind)).toEqual(["tree"]));
 });
 </storycode:copy>
 

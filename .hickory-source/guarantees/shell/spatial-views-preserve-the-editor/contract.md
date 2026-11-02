@@ -8,10 +8,14 @@ drawers; left defaults on and right defaults off. An enabled drawer appears only
 when it has content: a populated Files browser, a relationship to the focused
 view, a pending review, or an explicitly pinned view. Unrelated open tabs alone
 do not create drawer content. Empty drawers have no handle and reserve no space.
-Populated drawers start collapsed and reserve no space. Opening overlays the
+Opening a folder always reveals Files in a pinned left drawer, even for an empty
+folder or a restored layout that hid Files. This opening action enables the left
+drawer and resets its dragged offset. Other populated drawers start collapsed and
+reserve no space. Opening overlays the
 editor below its tabs; pinning reserves space beside it. Overlay dismissal by
 Escape, close, or a click outside preserves editor buffers and selections.
-Drawer pins persist per folder; transient open state does not.
+Drawer pins persist per folder; reopening a folder pins Files on the left again.
+Transient open state does not persist.
 
 The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
 

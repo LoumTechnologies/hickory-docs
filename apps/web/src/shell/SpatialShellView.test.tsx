@@ -6,7 +6,7 @@ import { EditorView, lineNumbers } from "@codemirror/view";
 import { history, undo } from "@codemirror/commands";
 import { search, SearchQuery, setSearchQuery } from "@codemirror/search";
 import { emptyPane, open, tab, type Layout, type Tab } from "./layout";
-import type { SpatialState } from "./spatialLayout";
+import { readSpatialState, type SpatialState } from "./spatialLayout";
 import { SpatialShellView } from "./SpatialShellView";
 import { saveFilesWindows } from "../lib/filesWindows";
 import { saveSpatialSides } from "../lib/spatialSides";
@@ -150,6 +150,29 @@ it("opens related content as an overlay, reserves space only when pinned, and ke
   await waitFor(() => expect(related.hidden).toBe(true));
   ui.rerender(<Harness />);
   expect(ui.queryByRole("button", { name: /Show .* drawer/ })).toBeNull();
+});
+
+it("pins opened folders on the left after hydration, including empty and previously hidden folders", async () => {
+  saveSpatialSides({ left: false, right: true });
+  const pane = emptyPane();
+  const layout: Layout = { root: { ...pane, tabs: [tab("document", "main.md"), tab("tree", "folder")], active: 0 }, focus: pane.id };
+  const props = { layout, onLayout: () => {}, sources: [], files: [], links: [], hasFiles: false, render: (entry: Tab) => <Buffer entry={entry} /> };
+  const scene: SpatialState = { ...readSpatialState(null), drawerPins: { left: false, right: true }, drawerOffsets: { left: { x: 100, y: 80 } } };
+  function Folder({ root, hydrated }: { root: string; hydrated: boolean }) {
+    const [state, setState] = useState(scene);
+    return <><output data-testid="folder-scene">{JSON.stringify(state)}</output><SpatialShellView {...props} folderRoot={root} spatialState={state} onSpatialState={setState} spatialHydrated={hydrated} /></>;
+  }
+  const ui = render(<Folder root="/empty" hydrated={false} />);
+  expect(ui.queryByRole("button", { name: "Unpin left drawer" })).toBeNull();
+  ui.rerender(<Folder root="/empty" hydrated />);
+  await waitFor(() => expect(ui.getByRole("button", { name: "Unpin left drawer" })).toBeTruthy());
+  expect(ui.container.querySelector<HTMLElement>('[data-spatial-files=left]')!.hidden).toBe(false);
+  expect(JSON.parse(ui.getByTestId("folder-scene").textContent!)).toMatchObject({ drawerPins: { left: true, right: true }, drawerOffsets: { left: { x: 0, y: 0 } } });
+  fireEvent.click(ui.getByRole("button", { name: "Unpin left drawer" }));
+  ui.rerender(<Folder root="/empty" hydrated />);
+  expect(ui.getByRole("button", { name: "Pin left drawer" })).toBeTruthy();
+  ui.rerender(<Folder root="/another" hydrated />);
+  await waitFor(() => expect(ui.getByRole("button", { name: "Unpin left drawer" })).toBeTruthy());
 });
 
 it("keeps Files collapsed, restores drawer pins, and respects the independent side settings", async () => {

@@ -7,7 +7,8 @@ Given a folder previously opened in Hickory Docs,
 when it is opened again,
 then its open documents, files, active view, pane arrangement, spatial tiles,
 drawer pins and widths, prose measures, table sizes and tab zoom return.
-Files stays closed if the remembered arrangement left it closed.
+Opening a folder reveals Files pinned on the left, overriding a remembered
+closed Files pane or unpinned left drawer.
 A fresh folder uses the normal introductory defaults.
 
 The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.

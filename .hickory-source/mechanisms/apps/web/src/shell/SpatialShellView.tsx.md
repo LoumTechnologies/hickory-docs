@@ -30,7 +30,7 @@ import { onRevealLine } from "../lib/revealLine";
 import { samePath } from "../lib/paths";
 import { useFilesWindows } from "../lib/filesWindows";
 import { useFilesParallax } from "../lib/filesParallax";
-import { useSpatialSides } from "../lib/spatialSides";
+import { saveSpatialSides, useSpatialSides } from "../lib/spatialSides";
 import { OPEN_READING, readingStatus, useReadingsVersion } from "../lib/readingViews";
 import { closeTab, focus, panes, split, type Pane, type Tab } from "./layout";
 import { useShellKeys, type ShellViewProps } from "./ShellView";
@@ -92,6 +92,12 @@ const paneId = (entry: Entry) => `spatial-pane-${entry.tab?.id ?? encodeURICompo
 <a id="f-64456f67b44e-SpatialShellView"></a>
 ### `SpatialShellView`
 
+Opening a folder overrides a collapsed or disabled left drawer after hydration and
+the Files tab arrive. Pinning reserves editor space, and clearing the left offset
+returns a previously dragged drawer to the left edge. Apply this once per opened
+root so later unpinning remains a user choice. An empty opened folder still has a
+Files browser: its empty state is useful confirmation that the folder opened.
+
 The Files header omits viewport hidden-row counters. Ordinary scrolling remains
 available without permanent up/down text competing with the pane title.
 
@@ -148,7 +154,7 @@ export function SpatialShellView(props: Props) {
   const relations = spatialRelations(props.sources, props.files, props.links);
   const pending = new Set(entries.filter(entry => entry.tab?.kind === "tool" && entry.tab.target.startsWith("reading:") && readingStatus(entry.tab.target.slice(8)) === "pending").map(entry => entry.key));
   const contextual = filesWindows ? drawerContent(entries, center, relations, scene.views, pending, entries.filter(entry => entry.key === center?.key || tiledKeys.has(entry.key))).filter(entry => !tiledKeys.has(entry.key)) : [];
-  const files = { left: !!trees[0] && (!!(props.hasFiles ?? trees.length) || requestedFiles.left), right: !!trees[1] && (!!(props.hasFiles ?? trees.length) || requestedFiles.right) };
+  const files = { left: !!trees[0] && (!!props.folderRoot || !!(props.hasFiles ?? trees.length) || requestedFiles.left), right: !!trees[1] && (!!(props.hasFiles ?? trees.length) || requestedFiles.right) };
   const contexts = { left: contextual.some(entry => entry.side === "left"), right: contextual.some(entry => entry.side === "right") };
   const available = { left: sides.left && (files.left || contexts.left), right: sides.right && (files.right || contexts.right) };
   const pinned = scene.drawerPins ?? { left: false, right: false };
@@ -205,6 +211,16 @@ export function SpatialShellView(props: Props) {
     setScene(current => ({ ...current, ...(!inDrawer ? { center: entry.key, stack: current.center && current.center !== entry.key ? [...current.stack, current.center].slice(-24) : current.stack } : {}), views: { ...current.views, [entry.key]: { ...current.views[entry.key], side: entry.side, expanded: true } } }));
   }), [controller]);
   useEffect(() => { setDrawerOpen({ left: false, right: false }); setRequestedFiles({ left: false, right: false }); }, [center?.key, props.folderRoot]);
+  const openedFolder = useRef<string | undefined>();
+  useEffect(() => {
+    if (!props.folderRoot) { openedFolder.current = undefined; return; }
+    // Restoration and the Files tab must be ready before applying the opening default.
+    if (props.spatialHydrated === false || !trees.length || openedFolder.current === props.folderRoot) return;
+    openedFolder.current = props.folderRoot;
+    saveSpatialSides({ ...sides, left: true });
+    setScene(current => ({ ...current, drawerPins: { ...(current.drawerPins ?? { left: false, right: false }), left: true },
+      drawerOffsets: { ...current.drawerOffsets, left: { x: 0, y: 0 } } }));
+  }, [props.folderRoot, props.spatialHydrated, trees.length, setScene]);
   const focusKey = `${layout.focus}:${entries.find(entry => entry.pane?.id === layout.focus)?.key ?? "tree"}`;
   const previousFocus = useRef(focusKey);
   useEffect(() => {
@@ -506,7 +522,7 @@ import { EditorView, lineNumbers } from "@codemirror/view";
 import { history, undo } from "@codemirror/commands";
 import { search, SearchQuery, setSearchQuery } from "@codemirror/search";
 import { emptyPane, open, tab, type Layout, type Tab } from "./layout";
-import type { SpatialState } from "./spatialLayout";
+import { readSpatialState, type SpatialState } from "./spatialLayout";
 import { SpatialShellView } from "./SpatialShellView";
 import { saveFilesWindows } from "../lib/filesWindows";
 import { saveSpatialSides } from "../lib/spatialSides";
@@ -711,6 +727,29 @@ it("opens related content as an overlay, reserves space only when pinned, and ke
 ### `expression_statement`
 
 <storycode:copy id="f-57fb3ab47480-expression_statement-9">
+it("pins opened folders on the left after hydration, including empty and previously hidden folders", async () => {
+  saveSpatialSides({ left: false, right: true });
+  const pane = emptyPane();
+  const layout: Layout = { root: { ...pane, tabs: [tab("document", "main.md"), tab("tree", "folder")], active: 0 }, focus: pane.id };
+  const props = { layout, onLayout: () => {}, sources: [], files: [], links: [], hasFiles: false, render: (entry: Tab) => <Buffer entry={entry} /> };
+  const scene: SpatialState = { ...readSpatialState(null), drawerPins: { left: false, right: true }, drawerOffsets: { left: { x: 100, y: 80 } } };
+  function Folder({ root, hydrated }: { root: string; hydrated: boolean }) {
+    const [state, setState] = useState(scene);
+    return <><output data-testid="folder-scene">{JSON.stringify(state)}</output><SpatialShellView {...props} folderRoot={root} spatialState={state} onSpatialState={setState} spatialHydrated={hydrated} /></>;
+  }
+  const ui = render(<Folder root="/empty" hydrated={false} />);
+  expect(ui.queryByRole("button", { name: "Unpin left drawer" })).toBeNull();
+  ui.rerender(<Folder root="/empty" hydrated />);
+  await waitFor(() => expect(ui.getByRole("button", { name: "Unpin left drawer" })).toBeTruthy());
+  expect(ui.container.querySelector<HTMLElement>('[data-spatial-files=left]')!.hidden).toBe(false);
+  expect(JSON.parse(ui.getByTestId("folder-scene").textContent!)).toMatchObject({ drawerPins: { left: true, right: true }, drawerOffsets: { left: { x: 0, y: 0 } } });
+  fireEvent.click(ui.getByRole("button", { name: "Unpin left drawer" }));
+  ui.rerender(<Folder root="/empty" hydrated />);
+  expect(ui.getByRole("button", { name: "Pin left drawer" })).toBeTruthy();
+  ui.rerender(<Folder root="/another" hydrated />);
+  await waitFor(() => expect(ui.getByRole("button", { name: "Unpin left drawer" })).toBeTruthy());
+});
+
 it("keeps Files collapsed, restores drawer pins, and respects the independent side settings", async () => {
   const ui = render(<Harness files />);
   expect(ui.container.querySelector<HTMLElement>('[data-spatial-files=left]')!.hidden).toBe(true);
@@ -732,6 +771,11 @@ it("keeps Files collapsed, restores drawer pins, and respects the independent si
 </storycode:copy>
 <a id="f-57fb3ab47480-expression_statement-10"></a>
 ### `expression_statement`
+
+The folder-opening witness starts with a hidden left side and an offset drawer.
+It waits for hydration, checks the empty Files browser and pin reset, then checks
+that manual unpinning lasts until another folder opens. The following legacy
+witness exercises drawer controls without a folder-opening event.
 
 <storycode:copy id="f-57fb3ab47480-expression_statement-10">
 it("centers a revealed file when its context side is hidden", async () => {

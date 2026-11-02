@@ -17,7 +17,6 @@ export function useFolderPane(
     if (folderOpen === false) openedByDefault.current = false;
     if (!hydrated || folderOpen !== true || openedByDefault.current) return;
     openedByDefault.current = true;
-    if (restored) return;
     // Wait for restoration, then add Files without taking editor focus.
     // Apply the default once so closing the pane remains a person's choice.
     setLayout((current) => treePane(current) ? current : withTree(current, tab("tree", "folder", "Files")));

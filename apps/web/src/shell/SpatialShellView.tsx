@@ -12,7 +12,7 @@ import { onRevealLine } from "../lib/revealLine";
 import { samePath } from "../lib/paths";
 import { useFilesWindows } from "../lib/filesWindows";
 import { useFilesParallax } from "../lib/filesParallax";
-import { useSpatialSides } from "../lib/spatialSides";
+import { saveSpatialSides, useSpatialSides } from "../lib/spatialSides";
 import { OPEN_READING, readingStatus, useReadingsVersion } from "../lib/readingViews";
 import { closeTab, focus, panes, split, type Pane, type Tab } from "./layout";
 import { useShellKeys, type ShellViewProps } from "./ShellView";
@@ -83,7 +83,7 @@ export function SpatialShellView(props: Props) {
   const relations = spatialRelations(props.sources, props.files, props.links);
   const pending = new Set(entries.filter(entry => entry.tab?.kind === "tool" && entry.tab.target.startsWith("reading:") && readingStatus(entry.tab.target.slice(8)) === "pending").map(entry => entry.key));
   const contextual = filesWindows ? drawerContent(entries, center, relations, scene.views, pending, entries.filter(entry => entry.key === center?.key || tiledKeys.has(entry.key))).filter(entry => !tiledKeys.has(entry.key)) : [];
-  const files = { left: !!trees[0] && (!!(props.hasFiles ?? trees.length) || requestedFiles.left), right: !!trees[1] && (!!(props.hasFiles ?? trees.length) || requestedFiles.right) };
+  const files = { left: !!trees[0] && (!!props.folderRoot || !!(props.hasFiles ?? trees.length) || requestedFiles.left), right: !!trees[1] && (!!(props.hasFiles ?? trees.length) || requestedFiles.right) };
   const contexts = { left: contextual.some(entry => entry.side === "left"), right: contextual.some(entry => entry.side === "right") };
   const available = { left: sides.left && (files.left || contexts.left), right: sides.right && (files.right || contexts.right) };
   const pinned = scene.drawerPins ?? { left: false, right: false };
@@ -140,6 +140,16 @@ export function SpatialShellView(props: Props) {
     setScene(current => ({ ...current, ...(!inDrawer ? { center: entry.key, stack: current.center && current.center !== entry.key ? [...current.stack, current.center].slice(-24) : current.stack } : {}), views: { ...current.views, [entry.key]: { ...current.views[entry.key], side: entry.side, expanded: true } } }));
   }), [controller]);
   useEffect(() => { setDrawerOpen({ left: false, right: false }); setRequestedFiles({ left: false, right: false }); }, [center?.key, props.folderRoot]);
+  const openedFolder = useRef<string | undefined>();
+  useEffect(() => {
+    if (!props.folderRoot) { openedFolder.current = undefined; return; }
+    // Restoration and the Files tab must be ready before applying the opening default.
+    if (props.spatialHydrated === false || !trees.length || openedFolder.current === props.folderRoot) return;
+    openedFolder.current = props.folderRoot;
+    saveSpatialSides({ ...sides, left: true });
+    setScene(current => ({ ...current, drawerPins: { ...(current.drawerPins ?? { left: false, right: false }), left: true },
+      drawerOffsets: { ...current.drawerOffsets, left: { x: 0, y: 0 } } }));
+  }, [props.folderRoot, props.spatialHydrated, trees.length, setScene]);
   const focusKey = `${layout.focus}:${entries.find(entry => entry.pane?.id === layout.focus)?.key ?? "tree"}`;
   const previousFocus = useRef(focusKey);
   useEffect(() => {

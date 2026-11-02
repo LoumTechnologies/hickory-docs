@@ -59,11 +59,11 @@ it("adds the first folder's Files pane while preserving existing editor tabs", a
   expect(panes(result.current.root).flatMap(pane => pane.tabs).filter(tab => tab.kind !== "tree").map(tab => tab.id)).toEqual(before);
 });
 
-it("keeps Files closed when the stored layout left it closed", async () => {
+it("adds Files even when the stored layout left it closed", async () => {
   const { result } = renderHook(() => {
     const [layout, setLayout] = useState(initialWorkspace);
     useFolderPane(true, true, layout, setLayout, vi.fn(), vi.fn(), true);
     return layout;
   });
-  expect(panes(result.current.root).flatMap(pane => pane.tabs)).toEqual([]);
+  await waitFor(() => expect(panes(result.current.root).flatMap(pane => pane.tabs).map(entry => entry.kind)).toEqual(["tree"]));
 });
