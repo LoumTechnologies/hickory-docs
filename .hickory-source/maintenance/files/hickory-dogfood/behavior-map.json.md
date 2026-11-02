@@ -65451,6 +65451,15 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     "apps/web/src/editor/paragraphReading.test.ts": {
       "source": ".hickory-source/mechanisms/apps/web/src/editor/paragraphReading.test.ts.md"
+    },
+    "apps/web/src/editor/filesystemTreeFolding.ts": {
+      "source": ".hickory-source/mechanisms/apps/web/src/editor/filesystemTreeFolding.ts.md"
+    },
+    "apps/web/src/embed/SourceFileTree.tsx": {
+      "source": ".hickory-source/mechanisms/apps/web/src/embed/SourceFileTree.tsx.md"
+    },
+    "apps/web/src/embed/SourceFileTree.test.tsx": {
+      "source": ".hickory-source/mechanisms/apps/web/src/embed/SourceFileTree.test.tsx.md"
     }
   },
   "evidence_records": [

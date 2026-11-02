@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
 
-async function publishedFixture(page: Page) {
+async function publishedFixture(page: Page, extraPaths: string[] = []) {
   const source = '<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n# A published program\n<h:file path="a.ts">\nexport const count = 1;\ncount;\n</h:file>\n' + 'Readable prose must wrap inside the phone viewport without clipping. '.repeat(6) + '\nThis continuation belongs to the same paragraph. ' + 'More flowing prose. '.repeat(12) + '\n<h:file path="long.ts">\n// ' + 'long_identifier_'.repeat(40) + '\n</h:file>\n</h:doc>\n';
   const offset = source.lastIndexOf("count;"), declaration = source.indexOf("count =");
   const position = (at: number) => ({ line: source.slice(0, at).split("\n").length - 1, character: at - source.lastIndexOf("\n", at - 1) - 1 });
@@ -15,18 +15,24 @@ async function publishedFixture(page: Page) {
   ] } };
   const revision = "a".repeat(40), url = `documents/${"b".repeat(64)}.json.gz`;
   const document = { path: "book.md", title: "A program", sha256: hash(source), url, intelligence_sha256: hash(JSON.stringify(intelligence)) };
+  const documents = [document, ...extraPaths.map(path => ({ ...document, path, title: path, url: `documents/${hash(path)}.json.gz` }))];
   const requests: string[] = [];
   page.on("request", request => { if (/^\/api(?:\/|$)|^\/ws(?:\/|$)/.test(new URL(request.url()).pathname)) requests.push(request.url()); });
-  await page.route("**/source/index.json", route => route.fulfill({ json: { version: 1, revision, entry: "book.md", documents: [document] } }));
-  await page.route(`**/source/${url}`, route => route.fulfill({ contentType: "application/gzip", body: gzipSync(JSON.stringify({ path: "book.md", revision, source, intelligence })) }));
+  await page.route("**/source/index.json", route => route.fulfill({ json: { version: 1, revision, entry: "book.md", documents, models: [{ language: "typescript", sha256: "c".repeat(64), url: `models/${"c".repeat(64)}.json.gz` }] } }));
+  await page.route("**/source/documents/*.json.gz", route => {
+    const selected = documents.find(doc => new URL(route.request().url()).pathname.endsWith(doc.url));
+    return selected ? route.fulfill({ contentType: "application/gzip", body: gzipSync(JSON.stringify({ path: selected.path, revision, source, intelligence })) }) : route.abort();
+  });
   await page.goto("/source.html");
   return { range, requests };
 }
 
 test("static source replays colours, hover and definition without a backend", async ({ page }) => {
   const { range, requests } = await publishedFixture(page);
-  const content = page.locator(".cm-content");
+  const content = page.locator(".source-document .cm-content");
   await expect(content).toHaveAttribute("contenteditable", "false");
+  await expect(page.getByText("Captured code models", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Published language information", { exact: true })).toHaveCount(0);
   await expect(content.locator(".tok-keyword").filter({ hasText: "const" }).first()).toBeVisible();
   const token = content.locator(".tok-variableName").filter({ hasText: "count" }).last();
   await token.hover();
@@ -43,11 +49,29 @@ test("static source replays colours, hover and definition without a backend", as
   expect(requests).toEqual([]);
 });
 
+test("files stay compact and remember folders across document navigation", async ({ page }) => {
+  await publishedFixture(page, ["docs/guide.md", "docs/deep/chapter.md", ...Array.from({ length: 500 }, (_, i) => `generated/chapter-${String(i).padStart(3, "0")}.md`)]);
+  const files = page.getByRole("navigation", { name: "Source files" });
+  const folder = (path: string) => files.locator(`.source-tree-directory[data-source-path="${path}"]`);
+  await expect(files.locator(".cm-content")).toHaveAttribute("contenteditable", "false");
+  await folder("generated").click();
+  await folder("docs").click();
+  await expect(files.getByRole("link", { name: "guide.md", exact: true })).toBeVisible();
+  // Hundreds of paths stay in the buffer, with only nearby rows mounted.
+  expect(await files.locator(".cm-line").count()).toBeLessThan(200);
+  await files.getByRole("link", { name: "guide.md", exact: true }).click();
+  await expect(page).toHaveURL(/path=docs%2Fguide.md/);
+  await expect(files.getByRole("link", { name: "guide.md", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(folder("generated")).toBeVisible();
+  await expect(folder("generated").locator(".cm-foldPlaceholder")).toHaveCount(0);
+  await expect(page.locator(".source-document .cm-content")).toHaveAttribute("contenteditable", "false");
+});
+
 test("reader follows device appearance on load and when it changes", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" });
   await page.addInitScript(() => localStorage.setItem("hickory.theme", "dark"));
   await publishedFixture(page);
-  const content = page.locator(".cm-content");
+  const content = page.locator(".source-document .cm-content");
   await expect(content).toBeVisible();
   const colours = () => page.evaluate(() => {
     const style = (selector: string) => getComputedStyle(document.querySelector(selector)!);
@@ -80,7 +104,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 568 }
     test.use({ viewport, hasTouch: true, isMobile: true });
     test("tap inspects, navigation stays reachable, drag and cancellation do not inspect", async ({ page }, testInfo) => {
       const { range, requests } = await publishedFixture(page);
-      const content = page.locator(".cm-content");
+      const content = page.locator(".source-document .cm-content");
       const token = content.locator(".tok-variableName").filter({ hasText: "count" }).last();
       await expect(token).toBeVisible();
       const prose = content.locator(".cm-line").filter({ hasText: "Readable prose must wrap" });

@@ -243,4 +243,10 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="apps/web/src/editor/paragraphReading.test.ts.md" />
 
+<storycode:include file="apps/web/src/editor/filesystemTreeFolding.ts.md" />
+
+<storycode:include file="apps/web/src/embed/SourceFileTree.tsx.md" />
+
+<storycode:include file="apps/web/src/embed/SourceFileTree.test.tsx.md" />
+
 </storycode:doc>

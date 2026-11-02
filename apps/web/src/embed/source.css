@@ -1,11 +1,16 @@
 .source-browser { display: grid; grid-template-columns: 17rem minmax(0, 1fr); min-height: 100vh; }
-.source-files { position: sticky; top: 0; height: 100vh; overflow: auto; padding: 1.5rem .75rem; border-right: 1px solid color-mix(in srgb, currentColor 12%, transparent); font-size: .85rem; }
-.source-files ul { list-style: none; padding: 0 0 0 .8rem; margin: .25rem 0; }
-.source-files nav > ul { padding-left: 0; }
-.source-files li { margin: .2rem 0; }
-.source-files a { display: block; padding: .2rem .35rem; border-radius: .2rem; text-decoration: none; overflow-wrap: anywhere; }
-.source-files a[aria-current="page"] { background: color-mix(in srgb, currentColor 12%, transparent); font-weight: 600; }
-.source-files summary { padding: .2rem 0; cursor: pointer; overflow-wrap: anywhere; }
+.source-files { position: sticky; top: 0; height: 100dvh; box-sizing: border-box; padding: .5rem .25rem; border-right: 1px solid var(--border); }
+.source-files nav, .source-tree, .source-tree .cm-editor { height: 100%; }
+.source-tree .cm-scroller { overflow: auto; font-size: .8rem; }
+.source-tree .cm-line { white-space: pre; line-height: 1.65; }
+.source-tree a { color: inherit; text-decoration: none; }
+.source-tree a:hover { text-decoration: underline; }
+.source-tree .source-tree-directory { color: var(--fg-muted); cursor: pointer; }
+.source-tree .source-tree-current { background: var(--select-bg); color: var(--fg); }
+.source-tree .cm-gutterElement { cursor: pointer; }
+@media (pointer: coarse) {
+  .source-tree .cm-line, .source-tree .cm-gutterElement { line-height: 44px; }
+}
 .source-document { min-width: 0; padding: 1.25rem clamp(1rem, 4vw, 4rem) 4rem; }
 .source-breadcrumbs { font-size: .8rem; opacity: .75; margin-bottom: 1.5rem; }
 .source-breadcrumbs ol { display: flex; flex-wrap: wrap; align-items: baseline; gap: .35rem; list-style: none; padding: 0; margin: 0; }
@@ -46,9 +51,8 @@
 @media (max-width: 700px) {
   .source-browser { display: block; }
   .source-files-toggle { display: block; position: sticky; top: 0; z-index: 20; min-height: 44px; padding: .5rem 1rem; margin: .5rem; background: Canvas; color: CanvasText; border: 1px solid; border-radius: .35rem; }
-  .source-files { display: none; position: static; height: auto; max-height: 60dvh; padding: .5rem; border-right: 0; border-bottom: 1px solid; font-size: .9rem; }
+  .source-files { display: none; position: static; height: 60dvh; max-height: 60dvh; padding: .5rem; border-right: 0; border-bottom: 1px solid; font-size: .9rem; }
   .source-files.is-open { display: block; }
-  .source-files a, .source-files summary { min-height: 44px; padding: .6rem .35rem; box-sizing: border-box; }
   .source-document { padding: 1rem .75rem 3rem; }
   .source-inspector { right: 0; bottom: 0; width: 100%; max-height: 45dvh; box-sizing: border-box; border-radius: .75rem .75rem 0 0; padding: .75rem .75rem max(.75rem, env(safe-area-inset-bottom)); }
 }

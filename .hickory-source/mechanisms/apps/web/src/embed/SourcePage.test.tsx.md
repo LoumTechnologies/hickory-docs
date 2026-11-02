@@ -22,7 +22,7 @@ async function fixture() {
   const payloads = sources.map((source, i) => ({ source, path: documents[i].path, revision }));
   return { index, payloads };
 }
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); history.replaceState(null, "", "/"); });
+afterEach(() => { cleanup(); sessionStorage.clear(); vi.unstubAllGlobals(); history.replaceState(null, "", "/"); });
 describe("public tutorial reader", () => {
   it("renders the document with files and breadcrumbs instead of a second introduction", async () => {
     const { index, payloads } = await fixture();
@@ -33,6 +33,7 @@ describe("public tutorial reader", () => {
     expect(screen.getByTestId("source").getAttribute("data-readonly")).toBe("true");
     const files = screen.getByRole("navigation", { name: "Source files" });
     expect(within(files).getByRole("link", { name: "project.md" }).getAttribute("aria-current")).toBe("page");
+    fireEvent.click(within(files).getByText(".hickory-source/"));
     expect(within(files).getByRole("link", { name: "01-language.md" }).getAttribute("href")).toBe(`?path=${encodeURIComponent(page)}`);
     expect(screen.getByRole("navigation", { name: "Breadcrumbs" }).textContent).toContain("project.md");
     expect(screen.queryByRole("combobox")).toBeNull();
@@ -59,19 +60,22 @@ describe("public tutorial reader", () => {
     expect(decodeSourceIndex({ ...index, documents: [...index.documents, { ...index.documents[1], path: ".hickory-source/icons/128x128@2x.png.md" }] }).documents).toHaveLength(3);
     expect(() => decodeSourceIndex({ ...index, documents: [{ ...index.documents[0], path: ".hickory-source/../private.md" }] })).toThrow("Invalid source document");
   });
-  it("loads hash-bound code models only when their disclosure opens", async () => {
+  it("keeps export metadata out of the reading view while loading language facts", async () => {
     const { index, payloads } = await fixture();
-    const text = JSON.stringify({ language: "typescript", revision, graph: { data: { types: [{ name: "Widget" }], unresolved: [] } } });
-    const digest = await sha256(text);
+    const digest = "c".repeat(64);
     const withModels = { ...index, models: [{ language: "typescript", sha256: digest, url: `models/${digest}.json.gz` }] };
-    const fetcher = vi.fn(async (url: string) => new Response(url.includes("/models/") ? await gzip(text) : JSON.stringify(url.endsWith("index.json") ? withModels : payloads[0])));
+    const intelligence = { version: 1, source_hash: index.documents[0].sha256, state: "captured", spans: [],
+      language: { capabilities: {}, queries: {}, diagnostics: [], occurrences: [] } };
+    const document = { ...index.documents[0], intelligence_sha256: await sha256(JSON.stringify(intelligence)) };
+    const published = { ...withModels, documents: [document, index.documents[1]] };
+    const fetcher = vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith("index.json") ? published : { ...payloads[0], intelligence })));
     vi.stubGlobal("fetch", fetcher);
     render(<SourcePage />);
     await screen.findByTestId("source");
+    expect(screen.queryByText("Captured code models")).toBeNull();
+    expect(screen.queryByText("Published language information")).toBeNull();
+    expect(screen.getByRole("main").querySelector("details")).toBeNull();
     expect(fetcher).toHaveBeenCalledTimes(2);
-    fireEvent.click(screen.getByText("Captured code models"));
-    expect(await screen.findByText(/"Widget"/)).toBeTruthy();
-    expect(fetcher).toHaveBeenCalledTimes(3);
     expect(() => decodeSourceIndex({ ...index, models: [{ ...withModels.models[0], url: "https://unselected.invalid/model.json" }] })).toThrow("code model artifact");
   });
   it("opens a deep-linked chapter and expands its ancestor folders", async () => {

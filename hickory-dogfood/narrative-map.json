@@ -148146,6 +148146,34 @@
       "page": ".hickory-source/mechanisms/apps/web/src/editor/paragraphReading.test.ts.md",
       "symbol": "Keep paragraph reading separate from source bytes",
       "basis": "explained-decision"
+    },
+    {
+      "id": "static-apps-web-src-editor-filesystemTreeFolding-ts-0",
+      "output": "apps/web/src/editor/filesystemTreeFolding.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/filesystemTreeFolding.ts.md",
+      "symbol": "Fold an indented filesystem buffer",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-apps-web-src-embed-SourceFileTree-tsx-0",
+      "output": "apps/web/src/embed/SourceFileTree.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/embed/SourceFileTree.tsx.md",
+      "symbol": "Browse published files with the app\u2019s compact file buffer",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-apps-web-src-embed-SourceFileTree-tsx-1",
+      "output": "apps/web/src/embed/SourceFileTree.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/embed/SourceFileTree.tsx.md",
+      "symbol": "Browse published files with the app\u2019s compact file buffer",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "static-apps-web-src-embed-SourceFileTree-test-tsx-0",
+      "output": "apps/web/src/embed/SourceFileTree.test.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/embed/SourceFileTree.test.tsx.md",
+      "symbol": "Keep the published file buffer compact and read only",
+      "basis": "explained-decision"
     }
   ],
   "explanation_gaps": {

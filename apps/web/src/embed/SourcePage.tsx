@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorView } from "@codemirror/view";
-import { decodeStaticLanguage, staticLanguageExtensions, staticSymbols } from "./staticLanguage";
+import { decodeStaticLanguage, staticLanguageExtensions } from "./staticLanguage";
 import type { StaticLanguage } from "./staticLanguage";
 import type { LspLocation } from "../lsp/client";
 import type { SymbolInspection } from "../lsp/symbolInspection";
 import { renderHoverMarkdown } from "../lsp/hoverMarkdown";
 import { artifactText } from "./staticArtifacts";
 import { sourceLinks } from "./sourceLinks";
+import { SourceFileTree } from "./SourceFileTree";
 import { DocumentEmbed } from "./DocumentEmbed";
 import { paragraphReading } from "../editor/paragraphReading";
 import { ingestedFolds } from "../editor/folding";
@@ -46,36 +47,6 @@ export async function decodeSource(value: unknown, index: SourceIndex, document:
   return data.source;
 }
 
-interface SourceFolder { name: string; path: string; folders: SourceFolder[]; files: SourceDocument[] }
-
-function sourceFolders(documents: SourceDocument[]): SourceFolder {
-  const root: SourceFolder = { name: "", path: "", folders: [], files: [] };
-  for (const doc of documents) {
-    const parts = doc.path.split("/"); parts.pop();
-    let folder = root;
-    for (const name of parts) {
-      const path = folder.path ? `${folder.path}/${name}` : name;
-      let child = folder.folders.find(item => item.path === path);
-      if (!child) { child = { name, path, folders: [], files: [] }; folder.folders.push(child); }
-      folder = child;
-    }
-    folder.files.push(doc);
-  }
-  return root;
-}
-
-function SourceFiles({ folder, current }: { folder: SourceFolder; current: string }) {
-  return <ul>{folder.files.map(doc => <li key={doc.path}><UiLink href={`?path=${encodeURIComponent(doc.path)}`} aria-current={current === doc.path ? "page" : undefined} title={doc.title}>{doc.path.split("/").at(-1)!}</UiLink></li>)}
-    {folder.folders.map(child => <SourceDirectory key={child.path} folder={child} current={current} />)}</ul>;
-}
-
-function SourceDirectory({ folder, current }: { folder: SourceFolder; current: string }) {
-  const selected = current.startsWith(`${folder.path}/`);
-  const [open, setOpen] = useState(selected || folder.path === ".hickory-source");
-  useEffect(() => { if (selected) setOpen(true); }, [current, selected]);
-  return <li><details open={open} onToggle={event => setOpen(event.currentTarget.open)}><summary>{folder.name}</summary>{open && <SourceFiles folder={folder} current={current} />}</details></li>;
-}
-
 function SourceBreadcrumbs({ path, index }: { path: string; index: SourceIndex }) {
   const parts = path.split("/");
   return <nav className="source-breadcrumbs" aria-label="Breadcrumbs"><ol><li><UiLink href={`?path=${encodeURIComponent(index.entry)}`} title={`Published revision ${index.revision}`}>{index.documents.find(doc => doc.path === index.entry)?.title ?? index.entry}</UiLink></li>{parts.map((part, i) => {
@@ -83,33 +54,6 @@ function SourceBreadcrumbs({ path, index }: { path: string; index: SourceIndex }
     const owner = index.documents.find(doc => doc.path === `${folder}/index.md` || doc.path === `${folder}/catalog.md`);
     return <li key={folder}>{i === parts.length - 1 ? <span aria-current="page">{part}</span> : owner ? <UiLink href={`?path=${encodeURIComponent(owner.path)}`}>{part}</UiLink> : <span>{part}</span>}</li>;
   })}</ol></nav>;
-}
-
-function CapturedModels({ index }: { index: SourceIndex }) {
-  const [open, setOpen] = useState(false);
-  const [models, setModels] = useState<unknown[] | null>(null);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    if (!open) return;
-    const controller = new AbortController();
-    setModels(null); setError("");
-    void Promise.all((index.models ?? []).map(async model => {
-      const response = await fetch(`./source/${model.url}`, { signal: controller.signal });
-      if (!response.ok) throw Error("Captured code model is unavailable");
-      const text = await artifactText(response);
-      if (await sha256(text) !== model.sha256) throw Error("Captured code model hash differs");
-      const value = JSON.parse(text);
-      if (value.revision !== index.revision || value.language !== model.language) throw Error("Captured code model revision differs");
-      return value;
-    })).then(values => { if (!controller.signal.aborted) setModels(values); })
-      .catch(failure => { if (!controller.signal.aborted) setError(String(failure)); });
-    return () => controller.abort();
-  }, [open, index]);
-  return <details open={open} onToggle={event => setOpen(event.currentTarget.open)}>
-    <summary>Captured code models</summary>
-    <p>Schema and finite type graph at this published revision. Unresolved bindings remain in the capture. New parameterized queries require a new build.</p>
-    {error ? <p role="alert">{error}</p> : models ? models.map((model, i) => <pre key={i}>{JSON.stringify(model, null, 2)}</pre>) : open && <p role="status">Loading captured code models…</p>}
-  </details>;
 }
 
 function InspectionDocumentation({ text }: { text: string }) {
@@ -159,7 +103,7 @@ export function SourcePage() {
     }).catch(failure => { if (!controller.signal.aborted) setError(String(failure)); });
     return () => controller.abort();
   }, [index, path]);
-  const folders = useMemo(() => sourceFolders(index?.documents ?? []), [index]);
+  const paths = useMemo(() => index?.documents.map(doc => doc.path) ?? [], [index]);
   function targetHref(target: LspLocation) {
     if (!target.uri.startsWith("hick:///")) return null;
     let targetPath: string;
@@ -204,19 +148,9 @@ export function SourcePage() {
   } } }]);
   return <div className="source-browser" data-revision={index?.revision}>
     <button className="source-files-toggle" aria-expanded={filesOpen} aria-controls="source-files" onClick={() => setFilesOpen(open => !open)}>Files</button>
-    <aside id="source-files" className={`source-files${filesOpen ? " is-open" : ""}`}><nav aria-label="Source files"><SourceFiles folder={folders} current={path} /></nav></aside>
+    <aside id="source-files" className={`source-files${filesOpen ? " is-open" : ""}`}><nav aria-label="Source files"><SourceFileTree paths={paths} current={path} identity={index?.source_url ?? index?.entry ?? "source"} onOpen={target => { void requestLinkNavigation(`?path=${encodeURIComponent(target)}`); }} /></nav></aside>
     <main className={`source-document${inspection ? " has-inspector" : ""}`}>
       {index && <SourceBreadcrumbs path={path} index={index} />}
-      {index?.models?.length ? <CapturedModels index={index} /> : null}
-      {intelligence && <details><summary>Published language information</summary>
-        <p>Tap a code symbol to inspect it. With a keyboard, place the cursor on a symbol and press Alt+Enter. Ctrl/Cmd-click opens its definition; add Shift for references.</p>
-        <p>{intelligence.state === "captured" ? "Language answers captured at this revision. Missing provider answers are unavailable." : (intelligence.reason ?? "Syntax highlighting compiled; semantic analysis is unavailable for this page.")}</p>
-        <ul>{staticSymbols(intelligence).map((symbol, i) => {
-          const target = symbol.location ?? { uri: `hick:///${path}`, range: symbol.selectionRange ?? symbol.range };
-          const href = targetHref(target);
-          return <li key={i}>{href ? <UiLink href={href}>{symbol.name}</UiLink> : symbol.name}</li>;
-        })}</ul>
-      </details>}
       {references.length > 0 && <aside aria-label="Captured references"><ul>{references.map((target, i) => {
         const href = targetHref(target);
         return <li key={i}>{href ? <UiLink href={href}>{target.uri.slice(8)}:{target.range.start.line + 1}</UiLink> : <span>Target outside published source</span>}</li>;

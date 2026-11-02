@@ -8,12 +8,13 @@ import { prepareEditorChanges } from "../editor/textInput";
 import { ChangePreview } from "../components/ChangePreview";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { codeFolding, foldEffect, foldable, foldGutter, foldService } from "@codemirror/language";
+import { foldEffect, foldable } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
 import { Decoration, EditorView, highlightActiveLine, keymap, lineNumbers } from "@codemirror/view";
 
 import { api } from "../api/client";
 import type { FileNode } from "../api/types";
+import { filesystemTreeFolding } from "../editor/filesystemTreeFolding";
 import { editorChrome, paneSearch } from "../editor/chrome";
 import { multipleCursors } from "../editor/multiCursor";
 import {
@@ -166,21 +167,7 @@ export function FilesystemTreeEditor({
               }).range(state.doc.line(index + 1).from)] : [];
             }));
           }),
-          codeFolding(),
-          foldGutter(),
-          foldService.of((state, from) => {
-            const line = state.doc.lineAt(from);
-            const spaces = line.text.length - line.text.trimStart().length;
-            if (!line.text.trimEnd().endsWith("/")) return null;
-            let end = line.to;
-            for (let number = line.number + 1; number <= state.doc.lines; number += 1) {
-              const child = state.doc.line(number);
-              const childSpaces = child.text.length - child.text.trimStart().length;
-              if (child.text.trim() && childSpaces <= spaces) break;
-              end = child.to;
-            }
-            return end > line.to ? { from: line.to, to: end } : null;
-          }),
+          filesystemTreeFolding(),
           keymap.of([
             { key: "Mod-s", run: () => { save.current(); return true; } },
             ...defaultKeymap,
