@@ -1,6 +1,6 @@
 // Guarantee: docs/guarantees/agent/scoped-reading-surfaces-share-native-actions.md
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, fireEvent } from "@testing-library/react";
+import { act, cleanup, render, screen, fireEvent } from "@testing-library/react";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
@@ -64,6 +64,50 @@ describe("the ruler's margin marker", () => {
 });
 
 describe("where column zero is", () => {
+  it("observes the content and ruler when a pane changes their geometry", () => {
+    const observe = vi.fn(), disconnect = vi.fn();
+    let resized = () => {};
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: () => void) { resized = callback; }
+      observe = observe;
+      disconnect = disconnect;
+    });
+    const live = view();
+    let left = 100;
+    live.contentDOM.getBoundingClientRect = () => ({ left, width: 600 }) as DOMRect;
+    Object.defineProperty(live, "defaultCharacterWidth", { value: 8, configurable: true });
+    live.requestMeasure = (<T,>(request: { read: (v: EditorView) => T; write?: (measure: T, v: EditorView) => void }) => request?.write?.(request.read(live), live)) as typeof live.requestMeasure;
+    const rendered = render(<EditorRuler view={live} column={80} onColumn={() => {}} />);
+    expect(observe).toHaveBeenCalledWith(live.contentDOM);
+    expect(observe).toHaveBeenCalledWith(screen.getByTestId("editor-ruler"));
+    left = 150;
+    // Deliver the same notification a content/gutter resize produces.
+    act(() => resized());
+    expect(screen.getByRole("slider").style.left).toBe("790px");
+    rendered.unmount();
+    expect(disconnect).toHaveBeenCalled();
+    live.destroy();
+    vi.unstubAllGlobals();
+  });
+
+  it("remeasures published font metrics without an outer pane resize", async () => {
+    const { act } = await import("@testing-library/react");
+    const live = view();
+    live.contentDOM.style.paddingLeft = "20px";
+    live.contentDOM.getBoundingClientRect = () => ({ left: 100, width: 600 }) as DOMRect;
+    Object.defineProperty(live, "defaultCharacterWidth", { value: 8, configurable: true });
+    live.requestMeasure = (<T,>(request: { read: (v: EditorView) => T; write?: (measure: T, v: EditorView) => void }) => request?.write?.(request.read(live), live)) as typeof live.requestMeasure;
+    const rendered = render(<EditorRuler view={live} column={80} onColumn={() => {}} />);
+    expect(screen.getByRole("slider").style.left).toBe("760px");
+    await act(async () => {
+      Object.defineProperty(live, "defaultCharacterWidth", { value: 10, configurable: true });
+      live.dom.style.setProperty("--prose-wrap", "800px");
+    });
+    expect(screen.getByRole("slider").style.left).toBe("920px");
+    rendered.unmount();
+    live.destroy();
+  });
+
   it("measures from the inside of the content padding, where the text starts", () => {
     // The bug this exists to stop: `.cm-content` carries `--cm-pad-x` of
     // padding and the dotted margin line is drawn from the inside of it, so a
@@ -89,6 +133,10 @@ describe("where column zero is", () => {
 
     // 100 (content) + 40 (padding) + 80 × 8 = 780, not 740.
     expect(screen.getByRole("slider").style.left).toBe("780px");
+    // Sideways scrolling moves the guide even when the pane stays the same size.
+    content.getBoundingClientRect = () => ({ left: 60, width: 600 }) as DOMRect;
+    fireEvent.scroll(live.scrollDOM);
+    expect(screen.getByRole("slider").style.left).toBe("740px");
     live.destroy();
   });
 });

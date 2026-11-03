@@ -164,12 +164,22 @@ export const EditorRuler = memo(function EditorRuler({
     if (!view) return;
     measure();
     window.addEventListener("resize", measure);
+    view.scrollDOM.addEventListener("scroll", measure);
     const observer =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
     observer?.observe(view.dom);
+    observer?.observe(view.contentDOM);
+    if (rulerRef.current) observer?.observe(rulerRef.current);
+    const gutters = view.dom.querySelector(".cm-gutters");
+    if (gutters) observer?.observe(gutters);
+    // proseWrap publishes --prose-wrap after CodeMirror measures a new font.
+    const styleObserver = new MutationObserver(measure);
+    styleObserver.observe(view.dom, { attributes: true, attributeFilter: ["style"] });
     return () => {
       window.removeEventListener("resize", measure);
+      view.scrollDOM.removeEventListener("scroll", measure);
       observer?.disconnect();
+      styleObserver.disconnect();
     };
   }, [view, measure]);
 
