@@ -23,6 +23,8 @@ pub enum ProjectCommand {
     },
     /// Write generated files, preserving unincorporated external edits.
     Materialize(OutputInput),
+    /// Adopt an already consistent checkout without rewriting source or outputs.
+    Sync(OutputInput),
     /// Capture external edits without changing their conceptual source owner.
     Capture {
         #[command(flatten)]
@@ -106,14 +108,20 @@ pub async fn run(args: ProjectArgs) -> Result<ExitCode> {
             return Ok(ExitCode::SUCCESS);
         }
         ProjectCommand::Materialize(input) => {
-            let context = hick_project_env::generation::GenerationContext::capture(&input.root, &input.entry)
-                .map_err(anyhow::Error::msg)?;
+            let context =
+                hick_project_env::generation::GenerationContext::capture(&input.root, &input.entry)
+                    .map_err(anyhow::Error::msg)?;
             let revision = context.plan().revision;
             let paths = context.publish(&revision).map_err(anyhow::Error::msg)?;
             println!(
                 "Materialized {} outputs and recorded their baseline.",
                 paths.len()
             );
+            return Ok(ExitCode::SUCCESS);
+        }
+        ProjectCommand::Sync(input) => {
+            pending::sync(&input.root, &input.entry).map_err(anyhow::Error::msg)?;
+            println!("Synchronized the journal with exact current source/output bytes.");
             return Ok(ExitCode::SUCCESS);
         }
         ProjectCommand::Capture { input, paths } => {

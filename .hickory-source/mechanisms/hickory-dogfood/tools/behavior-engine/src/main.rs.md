@@ -19,12 +19,13 @@ use std::path::PathBuf;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let action = args.next().ok_or(
-        "expected generate, baseline, check, inspect, capture, edits, accept or new-patch",
+        "expected generate, baseline, sync, check, inspect, capture, edits, accept or new-patch",
     )?;
     if !matches!(
         action.as_str(),
         "generate"
             | "baseline"
+            | "sync"
             | "check"
             | "inspect"
             | "capture"
@@ -33,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             | "new-patch"
     ) {
         return Err(
-            "expected generate, baseline, check, inspect, capture, edits, accept or new-patch"
+            "expected generate, baseline, sync, check, inspect, capture, edits, accept or new-patch"
                 .into(),
         );
     }
@@ -48,6 +49,11 @@ Read durable captures before loading the current project. An invalid source edit
 
 <storycode:copy id="engine-capture-actions">
     match action.as_str() {
+        "sync" if rest.is_empty() => {
+            pending::sync(&root, "project.md")?;
+            println!("Synchronized the journal with exact current source/output bytes.");
+            return Ok(());
+        }
         "capture" => {
             if let Some(c) = pending::capture(&root, "project.md", &rest)? {
                 println!("Pending {}: {}", c.id, c.paths.join(", "));

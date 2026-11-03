@@ -8,7 +8,10 @@ This page owns the output construction and the explained fragments below. Source
 <a id="output-876c076817b4"></a>
 ## `scripts/dev.sh`
 
-This literal construction preserves embedded document syntax and exact file bytes. Its internal reasoning boundaries still need editorial review.
+This literal construction preserves embedded syntax. After building the current
+CLI, dev selects the tracked hooks and installs the staged project verifier with
+that executable. Repeating setup refreshes clone-local paths without requiring a
+separate manual hook step. Other internal reasoning boundaries still need review.
 
 <storycode:entry path="scripts/dev.sh" executable="true">
 #!/usr/bin/env bash
@@ -146,11 +149,6 @@ if [ "$(uname -s)" = "Linux" ] && command -v pkg-config >/dev/null 2>&1; then
 fi
 [ "$missing" -eq 0 ] || exit 1
 
-# One-time, idempotent: nobody has a separate "install the hook" step.
-if [ "$(git config --get core.hooksPath || true)" != ".githooks" ]; then
-  git config core.hooksPath .githooks
-fi
-
 mkdir -p "$RUN_DIR"
 
 # Reinstall when the lockfile is newer than what is installed, not only when
@@ -177,6 +175,11 @@ npm --prefix apps/web run build
 echo "Building hick (no-op if it is already current)…"
 cargo build --quiet --bin hick
 export HICK="$PWD/target/debug/hick"
+
+# Selecting the tracked hooks alone leaves pre-commit without its verifier.
+# Refresh the executable and entry configuration after the CLI build succeeds.
+git config --local core.hooksPath .githooks
+"$HICK" project install-hook project.md
 
 # Every run, not only the first. The seed is idempotent and knows the
 # difference between a file you edited and a file that is merely old, so

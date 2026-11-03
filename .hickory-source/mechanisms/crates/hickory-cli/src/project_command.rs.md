@@ -38,6 +38,8 @@ published bytes and refuses to replace externally changed products. `capture`
 and `edits` retain and expose those changes without assigning ownership.
 `new-patch` authors an explicitly chosen concept; `accept` validates an amended,
 split, or newly patched arrangement before acknowledging the capture.
+`sync` is an explicit post-pull operation: it verifies the complete current disk
+against current source and adopts that baseline without writing any product.
 
 <storycode:copy id="f-3d5623416448-ProjectCommand">
 #[derive(Subcommand)]
@@ -54,6 +56,8 @@ pub enum ProjectCommand {
     },
     /// Write generated files, preserving unincorporated external edits.
     Materialize(OutputInput),
+    /// Adopt an already consistent checkout without rewriting source or outputs.
+    Sync(OutputInput),
     /// Capture external edits without changing their conceptual source owner.
     Capture {
         #[command(flatten)]
@@ -152,14 +156,20 @@ pub async fn run(args: ProjectArgs) -> Result<ExitCode> {
             return Ok(ExitCode::SUCCESS);
         }
         ProjectCommand::Materialize(input) => {
-            let context = hick_project_env::generation::GenerationContext::capture(&input.root, &input.entry)
-                .map_err(anyhow::Error::msg)?;
+            let context =
+                hick_project_env::generation::GenerationContext::capture(&input.root, &input.entry)
+                    .map_err(anyhow::Error::msg)?;
             let revision = context.plan().revision;
             let paths = context.publish(&revision).map_err(anyhow::Error::msg)?;
             println!(
                 "Materialized {} outputs and recorded their baseline.",
                 paths.len()
             );
+            return Ok(ExitCode::SUCCESS);
+        }
+        ProjectCommand::Sync(input) => {
+            pending::sync(&input.root, &input.entry).map_err(anyhow::Error::msg)?;
+            println!("Synchronized the journal with exact current source/output bytes.");
             return Ok(ExitCode::SUCCESS);
         }
         ProjectCommand::Capture { input, paths } => {

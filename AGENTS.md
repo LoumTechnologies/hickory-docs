@@ -2,6 +2,20 @@ Post-commit checks are very thorough. Do not watch the logs; it uses too many to
 
 Only run focused behavior and safety tests; leave broad regression tests and all regression-check status monitoring to the user.
 
+Before editing, verify this checkout's Git hooks: `git config --get core.hooksPath`
+must resolve to `.githooks`, `hickory.projectEntry` must be `project.md`, and
+`hickory.projectVerifier` must name an existing executable. Both `.githooks/pre-commit`
+and `.githooks/post-commit` must be executable. Run `just literate-bootstrap` to
+build the tools and install missing configuration. Recheck before committing;
+never bypass a failing hook. Tracked hook files alone do not install hooks.
+
+After pulling or switching revisions, before source edits, run `just literate-sync`.
+It adopts the local journal only when current source exactly reconstructs disk,
+including new/deleted outputs and file metadata. It preserves capture history.
+If it refuses, inspect `behavior.py edits` and reconcile actual differences;
+do not delete the journal, ignore captures, or accept an arbitrary old capture.
+The hook checks staged consistency; it does not synchronize journal metadata.
+
 Maintain code and tests in the owning entries under `.hickory-source/`, starting
 from `project.md`. `hickory-dogfood/behavior-map.json` maps output paths to source
 pages. Regenerate with `python3 hickory-dogfood/tools/behavior.py generate`, then

@@ -867,10 +867,21 @@ test-context-store:
     cargo test -p hickory-agent --lib tools::read_file::tests
     cargo test -p hickory-cli --lib serve::acp::read_receipt::
 
-# Bootstrap the native adapter from this repository's generated Rust source.
-literate-bootstrap:
+# Prepare the literate toolchain and Git gates, then adopt an exact checkout.
+literate-bootstrap: _literate-engine
+    cargo build --locked -p hickory-cli --bin hick
+    git config --local core.hooksPath .githooks
+    ./target/debug/hick project install-hook project.md
+    python3 hickory-dogfood/tools/behavior.py sync
+
+# After pulling, adopt matching source/output bytes without generating files.
+# Distinct from generation: mismatches refuse without rewriting any product.
+literate-sync: _literate-engine
+    python3 hickory-dogfood/tools/behavior.py sync
+
+# Rebuild after pulls so synchronization never uses an obsolete adapter.
+_literate-engine:
     CARGO_TARGET_DIR="{{justfile_directory()}}/target/dogfood" cargo build --locked --release --manifest-path hickory-dogfood/tools/behavior-engine/Cargo.toml
-    python3 hickory-dogfood/tools/behavior.py baseline
 
 # Materialize the application and maintenance outputs from maintained Markdown.
 literate-generate:

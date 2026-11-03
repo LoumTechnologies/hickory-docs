@@ -17,13 +17,29 @@ links the actual patch implementation and two named witnesses.
 
 ## Block commits with inconsistent staged source and outputs
 
-From this repository's root, install the project-only gate:
+From this repository's root, prepare the literate toolchain and activate both
+tracked Git hooks:
 
 ```sh
-cargo build --locked -p hickory-cli --bin hick
-git config --local core.hooksPath .githooks
-./target/debug/hick project install-hook project.md
+just literate-bootstrap
 ```
+
+This builds the native adapter and CLI, sets `core.hooksPath` to `.githooks`,
+installs the staged verifier with an absolute executable path and `project.md`,
+and synchronizes an exact checkout. `just dev` also installs the verifier after
+building its CLI. Git does not activate tracked hook files on clone or pull.
+Before committing, check:
+
+```sh
+git config --get core.hooksPath
+git config --get hickory.projectEntry
+test -x "$(git config --get hickory.projectVerifier)"
+test -x .githooks/pre-commit
+test -x .githooks/post-commit
+```
+
+The first two values must be `.githooks` and `project.md`. A missing verifier or
+hook is a setup failure; rerun bootstrap rather than bypassing the gate.
 
 For another repository with an installed CLI, run `hick project install-hook`
 (the entry defaults to `project.md`). Pass a different Git-root-relative entry
@@ -53,10 +69,29 @@ dependencies. Run from the repository root:
 just literate-bootstrap
 ```
 
-Bootstrap records an agreeing source/output baseline without rewriting products.
+Bootstrap installs the hooks and explicitly adopts an agreeing source/output baseline without rewriting products.
 Run it before the first edit in a fresh checkout. If products already differ and
 no baseline exists, preserve and reconcile those differences first; Hickory will
 not guess whether they came from a source edit or an external tool.
+
+After pulling or switching revisions, synchronize the journal **before editing**:
+
+```sh
+just literate-sync
+```
+
+A pull replaces source and generated products together but does not update the
+ignored local journal. The recipe rebuilds the adapter first so a pulled toolchain
+change cannot leave synchronization running an old executable. Sync checks exact
+bytes, kinds and portable modes across
+old and current output paths, automatically including new constructions. It
+archives pending disk observations through explicit acceptance and updates the
+baseline. It writes no source or output. Repeating it on an agreeing tree is safe.
+Missing outputs, leftover removed outputs and unmatched local edits refuse the
+operation without clearing observations. Mounted edits must be incorporated
+separately. Inspect pending edits and reconcile any refusal; never delete the
+journal to make generation pass. Other declared projects use
+`hick project sync project.md --root ROOT`.
 
 1. Read the contract's outcome, review status, evidence and exclusions.
 2. Edit the actual `copy` fragment beside its explanation. `file`/`paste`

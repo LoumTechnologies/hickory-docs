@@ -506,6 +506,56 @@ pub fn materialize(
     store.write("baseline.json", &desired)?;
     Ok(written)
 }
+/// Explicitly adopt an already consistent source/output checkout, as after a pull.
+/// This writes journal metadata only; ordinary generation still requires acceptance.
+pub fn sync(root: &Path, entry: &str) -> Result<()> {
+    let root = io(root.canonicalize())?;
+    let current_sources = sources(&root, entry)?;
+    let generated = evaluate_project(entry, &current_sources, &ProjectTree::default())?.new;
+    let desired = Snapshot::new(current_sources.clone(), &generated);
+    let store = Store::open(&root, entry)?;
+    let pending = store.captures()?;
+    // A mounted edit may never have reached disk. Do not archive it just because
+    // the unrelated disk happens to agree with the source.
+    if pending.iter().any(|c| c.virtual_output) {
+        return Err(
+            "mounted output edits remain pending; incorporate them explicitly before syncing"
+                .into(),
+        );
+    }
+    let before: Snapshot = if store.folder.join("baseline.json").exists() {
+        store.read("baseline.json")?
+    } else {
+        desired.clone()
+    };
+    // Include newly constructed paths AND formerly constructed paths: a pulled
+    // deletion must not hide a leftover local file. Read bytes, kinds and modes.
+    let mut extra: Vec<_> = desired.entries.keys().cloned().collect();
+    // Explicit captures may contain new files outside the old baseline and the
+    // current construction. Those are local work too, not disposable history.
+    extra.extend(
+        pending
+            .iter()
+            .flat_map(|capture| capture.paths.iter().cloned()),
+    );
+    let after = before.disk(&root, &extra)?;
+    let differences = generated.compare(&after.tree()?);
+    if let Some(difference) = differences.first() {
+        return Err(format!(
+            "source/output mismatch at {}; sync refused without changing outputs or pending observations",
+            difference.path
+        ));
+    }
+    if sources(&root, entry)? != current_sources {
+        return Err("source changed during synchronization".into());
+    }
+    if let Some(capture) = store.capture(entry, before, after)? {
+        accept_from_store(&store, entry, &capture.id, &current_sources, &generated)?;
+    } else {
+        store.write("baseline.json", &desired)?;
+    }
+    Ok(())
+}
 /// Accept an authored arrangement, including amendments or a split among concepts.
 /// Exact whole-project reconstruction and current disk bytes must both match the
 /// chosen capture. All earlier captures remain archived, never silently discarded.
@@ -525,6 +575,15 @@ pub fn accept_evaluated(
     generated: &ProjectTree,
 ) -> Result<()> {
     let store = Store::open(root, entry)?;
+    accept_from_store(&store, entry, id, current_sources, generated)
+}
+fn accept_from_store(
+    store: &Store,
+    entry: &str,
+    id: &str,
+    current_sources: &BTreeMap<String, String>,
+    generated: &ProjectTree,
+) -> Result<()> {
     let captures = store.captures()?;
     let capture = captures
         .iter()
@@ -843,208 +902,5 @@ pub fn new_patch(
     Ok(())
 }
 #[cfg(test)]
-mod tests {
-    use super::*;
-    fn setup() -> (tempfile::TempDir, BTreeMap<String, String>, ProjectTree) {
-        let root = tempfile::tempdir().unwrap();
-        let source = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project/><h:file id=\"base\" path=\"app.py\">print('hello')\n</h:file></h:doc>";
-        fs::write(root.path().join("project.md"), source).unwrap();
-        let sources = sources(root.path(), "project.md").unwrap();
-        let tree = evaluate_project("project.md", &sources, &ProjectTree::default())
-            .unwrap()
-            .new;
-        materialize(root.path(), "project.md", &sources, &tree).unwrap();
-        (root, sources, tree)
-    }
-    #[test]
-    fn external_edits_are_durable_pending_and_block_generation_until_explicit_incorporation() {
-        let (root, original, tree) = setup();
-        fs::write(root.path().join("app.py"), "print('redacted')\n").unwrap();
-        let error = materialize(root.path(), "project.md", &original, &tree).unwrap_err();
-        assert!(error.contains("pending output"));
-        assert_eq!(sources(root.path(), "project.md").unwrap(), original);
-        assert_eq!(
-            fs::read_to_string(root.path().join("app.py")).unwrap(),
-            "print('redacted')\n"
-        );
-        let pending = status(root.path(), "project.md").unwrap();
-        assert_eq!(pending.len(), 1);
-        let id = &pending[0].id;
-        assert!(
-            pending[0]
-                .patch
-                .as_ref()
-                .unwrap()
-                .contains("+print('redacted')")
-        );
-        assert_eq!(
-            capture(root.path(), "project.md", &[]).unwrap().unwrap().id,
-            *id
-        );
-        assert!(
-            accept(root.path(), "project.md", id)
-                .unwrap_err()
-                .contains("does not reproduce")
-        );
-        new_patch(
-            root.path(),
-            "project.md",
-            id,
-            "privacy.md",
-            "redact",
-            "Avoid disclosing the original greeting.",
-        )
-        .unwrap();
-        assert!(status(root.path(), "project.md").unwrap().len() == 1);
-        assert!(
-            fs::read_to_string(root.path().join("project.md"))
-                .unwrap()
-                .contains("print('hello')")
-        );
-        let concept = fs::read_to_string(root.path().join("privacy.md")).unwrap();
-        assert!(concept.contains("after=\"base\""));
-        accept(root.path(), "project.md", id).unwrap();
-        assert!(status(root.path(), "project.md").unwrap().is_empty());
-        let authored = sources(root.path(), "project.md").unwrap();
-        let output = evaluate_project("project.md", &authored, &ProjectTree::default())
-            .unwrap()
-            .new;
-        materialize(root.path(), "project.md", &authored, &output).unwrap();
-    }
-    #[test]
-    fn moved_source_and_later_output_edits_cannot_be_implicitly_acknowledged() {
-        let (root, original, tree) = setup();
-        fs::write(root.path().join("app.py"), "print('first')\n").unwrap();
-        let first = capture(root.path(), "project.md", &[]).unwrap().unwrap();
-        fs::write(
-            root.path().join("project.md"),
-            original["project.md"].replace("hello", "first"),
-        )
-        .unwrap();
-        assert!(
-            new_patch(
-                root.path(),
-                "project.md",
-                &first.id,
-                "concept.md",
-                "change",
-                "Reason"
-            )
-            .unwrap_err()
-            .contains("source changed")
-        );
-        let edited_sources = sources(root.path(), "project.md").unwrap();
-        let edited_tree = evaluate_project("project.md", &edited_sources, &ProjectTree::default())
-            .unwrap()
-            .new;
-        assert!(materialize(root.path(), "project.md", &edited_sources, &edited_tree).is_err());
-        fs::write(root.path().join("app.py"), "print('second')\n").unwrap();
-        assert!(
-            accept(root.path(), "project.md", &first.id)
-                .unwrap_err()
-                .contains("output changed")
-        );
-        assert_eq!(status(root.path(), "project.md").unwrap().len(), 1);
-        assert!(
-            tree.get("app.py")
-                .unwrap()
-                .bytes
-                .starts_with(b"print('hello')")
-        );
-    }
-    #[test]
-    fn an_amended_or_split_arrangement_is_accepted_only_for_the_complete_capture() {
-        let (root, original, _) = setup();
-        fs::write(root.path().join("app.py"), "print('new')\n").unwrap();
-        fs::write(root.path().join("helper.py"), "value = 1\n").unwrap();
-        let edit = capture(root.path(), "project.md", &["helper.py".into()])
-            .unwrap()
-            .unwrap();
-        let amended = original["project.md"].replace("hello", "new");
-        fs::write(root.path().join("project.md"), &amended).unwrap();
-        assert!(accept(root.path(), "project.md", &edit.id).is_err());
-        let split = amended.replace("</h:doc>", "<h:include file=\"helper.md\"/></h:doc>");
-        fs::write(root.path().join("project.md"), split).unwrap();
-        fs::write(root.path().join("helper.md"),"<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:file path=\"helper.py\">value = 1\n</h:file></h:doc>").unwrap();
-        accept(root.path(), "project.md", &edit.id).unwrap();
-    }
-    #[test]
-    fn binary_and_deleted_outputs_are_preserved_without_inventing_text_patches() {
-        let (root, _, _) = setup();
-        fs::write(root.path().join("app.py"), [0xff, 0x00]).unwrap();
-        let edit = capture(root.path(), "project.md", &[]).unwrap().unwrap();
-        assert!(edit.patch.is_none());
-        assert!(edit.patch_error.unwrap().contains("binary"));
-        assert_eq!(status(root.path(), "project.md").unwrap().len(), 1);
-        fs::remove_file(root.path().join("app.py")).unwrap();
-        let deletion = capture(root.path(), "project.md", &[]).unwrap().unwrap();
-        assert!(deletion.patch.unwrap().contains("+++ /dev/null"));
-        assert!(accept(root.path(), "project.md", &deletion.id).is_err());
-        assert!(!root.path().join("app.py").exists());
-    }
-    #[test]
-    fn virtual_captures_preserve_unmaterialized_products_without_claiming_disk_writes() {
-        let (root, source, tree) = setup();
-        let mut before = tree.clone();
-        before
-            .insert("virtual.txt", ProjectEntry::file(b"not on disk\n".to_vec()))
-            .unwrap();
-        let mut after = before.clone();
-        after
-            .insert("app.py", ProjectEntry::file(b"print('mounted')\n".to_vec()))
-            .unwrap();
-        let capture = capture_virtual(root.path(), "project.md", &source, &before, &after).unwrap();
-        assert!(!root.path().join("virtual.txt").exists());
-        fs::write(root.path().join("app.py"), "print('mounted')\n").unwrap();
-        let overlay = overlay(root.path(), "project.md").unwrap();
-        assert_eq!(
-            overlay["app.py"].as_deref(),
-            Some(b"print('mounted')\n".as_slice())
-        );
-        // A supplied weave must still match the whole virtual result.
-        assert!(accept_evaluated(root.path(), "project.md", &capture.id, &source, &tree).is_err());
-        accept_evaluated(root.path(), "project.md", &capture.id, &source, &after).unwrap();
-        assert!(status(root.path(), "project.md").unwrap().is_empty());
-        assert!(!root.path().join("virtual.txt").exists());
-    }
-    #[test]
-    fn reverting_disk_still_requires_explicit_acceptance_and_preserves_history() {
-        let (root, source, tree) = setup();
-        fs::write(root.path().join("app.py"), "changed\n").unwrap();
-        let changed = capture(root.path(), "project.md", &[]).unwrap().unwrap();
-        fs::write(root.path().join("app.py"), "print('hello')\n").unwrap();
-        let reverted = capture(root.path(), "project.md", &[]).unwrap().unwrap();
-        assert_ne!(changed.id, reverted.id);
-        assert!(reverted.paths.is_empty());
-        assert!(materialize(root.path(), "project.md", &source, &tree).is_err());
-        accept(root.path(), "project.md", &reverted.id).unwrap();
-        assert!(status(root.path(), "project.md").unwrap().is_empty());
-    }
-    #[cfg(unix)]
-    #[test]
-    fn capture_and_publication_refuse_symlink_ancestors_and_unknown_preexisting_outputs() {
-        let (root, sources, tree) = setup();
-        let outside = tempfile::tempdir().unwrap();
-        let other = tempfile::tempdir().unwrap();
-        fs::write(other.path().join("app.py"), "unrelated work").unwrap();
-        assert!(
-            materialize(other.path(), "project.md", &sources, &tree)
-                .unwrap_err()
-                .contains("no recorded baseline")
-        );
-        assert_eq!(
-            fs::read_to_string(other.path().join("app.py")).unwrap(),
-            "unrelated work"
-        );
-        std::os::unix::fs::symlink(outside.path(), root.path().join("linked")).unwrap();
-        assert!(capture(root.path(), "project.md", &["linked/secret".into()]).is_err());
-        fs::rename(
-            root.path().join(".hick-journal"),
-            root.path().join("journal-backup"),
-        )
-        .unwrap();
-        std::os::unix::fs::symlink(outside.path(), root.path().join(".hick-journal")).unwrap();
-        assert!(status(root.path(), "project.md").is_err());
-        assert!(!outside.path().join("output-edits").exists());
-    }
-}
+#[path = "pending_tests.rs"]
+mod tests;

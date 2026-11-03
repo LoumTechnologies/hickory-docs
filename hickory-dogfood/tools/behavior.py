@@ -121,6 +121,7 @@ def main():
     commands=parser.add_subparsers(dest='command',required=True)
     commands.add_parser('audit')
     commands.add_parser('generate')
+    commands.add_parser('sync',help='Adopt an exact source/output checkout after a pull without rewriting products')
     commands.add_parser('baseline',help='Record an agreeing source/output baseline without rewriting products')
     commands.add_parser('check')
     capture=commands.add_parser('capture',help='Capture external output edits without changing concept owners')
@@ -139,7 +140,7 @@ def main():
     test=commands.add_parser('test');test.add_argument('guarantee');test.add_argument('--execute',action='store_true')
     args=parser.parse_args()
     if args.command=='audit':return audit()
-    if args.command in ('generate','baseline','check','capture','edits','accept','new-patch'):
+    if args.command in ('generate','baseline','sync','check','capture','edits','accept','new-patch'):
         engine=ROOT/'target/dogfood/release/hickory-behavior-engine'
         if not engine.is_file():raise ValueError('Build hickory-dogfood/tools/behavior-engine with the command in docs/developers/literate-workflow.md first.')
         extra=[]

@@ -133,11 +133,6 @@ if [ "$(uname -s)" = "Linux" ] && command -v pkg-config >/dev/null 2>&1; then
 fi
 [ "$missing" -eq 0 ] || exit 1
 
-# One-time, idempotent: nobody has a separate "install the hook" step.
-if [ "$(git config --get core.hooksPath || true)" != ".githooks" ]; then
-  git config core.hooksPath .githooks
-fi
-
 mkdir -p "$RUN_DIR"
 
 # Reinstall when the lockfile is newer than what is installed, not only when
@@ -164,6 +159,11 @@ npm --prefix apps/web run build
 echo "Building hick (no-op if it is already current)…"
 cargo build --quiet --bin hick
 export HICK="$PWD/target/debug/hick"
+
+# Selecting the tracked hooks alone leaves pre-commit without its verifier.
+# Refresh the executable and entry configuration after the CLI build succeeds.
+git config --local core.hooksPath .githooks
+"$HICK" project install-hook project.md
 
 # Every run, not only the first. The seed is idempotent and knows the
 # difference between a file you edited and a file that is merely old, so

@@ -64554,14 +64554,7 @@
         "output-capture-watcher",
         "output-capture-mounted",
         "output-concept-proposal",
-        "output-capture-tests",
-        "output-test-external-edits-are-durable-pending-and-block-generation-until-explicit-incorporation",
-        "output-test-moved-source-and-later-output-edits-cannot-be-implicitly-acknowledged",
-        "output-test-an-amended-or-split-arrangement-is-accepted-only-for-the-complete-capture",
-        "output-test-binary-and-deleted-outputs-are-preserved-without-inventing-text-patches",
-        "output-test-virtual-captures-preserve-unmaterialized-products-without-claiming-disk-writes",
-        "output-test-reverting-disk-still-requires-explicit-acceptance-and-preserves-history",
-        "output-test-capture-and-publication-refuse-symlink-ancestors-and-unknown-preexisting-outputs"
+        "output-capture-test-module"
       ],
       "narrative_owner": "literate-projects/patch-edits-revalidate-downstream-construction.md"
     },
@@ -65619,6 +65612,26 @@
       "used_by": [],
       "role": "history-and-guidance",
       "construction": "literal"
+    },
+    "crates/hick-project-env/src/pending_tests.rs": {
+      "source": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "owner": "literate-projects/patch-edits-revalidate-downstream-construction.md",
+      "used_by": [
+        "literate-projects/patch-edits-revalidate-downstream-construction.md"
+      ],
+      "role": "test",
+      "construction": "fragments",
+      "fragments": [
+        "output-capture-tests",
+        "output-test-external-edits-are-durable-pending-and-block-generation-until-explicit-incorporation",
+        "output-test-moved-source-and-later-output-edits-cannot-be-implicitly-acknowledged",
+        "output-test-an-amended-or-split-arrangement-is-accepted-only-for-the-complete-capture",
+        "output-test-binary-and-deleted-outputs-are-preserved-without-inventing-text-patches",
+        "output-test-virtual-captures-preserve-unmaterialized-products-without-claiming-disk-writes",
+        "output-test-reverting-disk-still-requires-explicit-acceptance-and-preserves-history",
+        "output-test-capture-and-publication-refuse-symlink-ancestors-and-unknown-preexisting-outputs"
+      ],
+      "narrative_owner": "literate-projects/patch-edits-revalidate-downstream-construction.md"
     }
   },
   "evidence_records": [

@@ -10,7 +10,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
   "format": 1,
   "starting_revision": "9461830eeee3b5c7f8cfe9c45edf3c1cdd060350",
   "policy": "Narrative ownership is separate from semantic verification. Existing source comments are retained explanation candidates; undocumented declarations remain explicit review work.",
-  "code_outputs": 1844,
+  "code_outputs": 1845,
   "relocated_annotated_tests": 184,
   "fragments": [
     {
@@ -147106,56 +147106,56 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "output-capture-tests",
-      "output": "crates/hick-project-env/src/pending.rs",
+      "output": "crates/hick-project-env/src/pending_tests.rs",
       "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
       "symbol": "Prepare an ordinary-tool fixture",
       "basis": "reviewed-explanation"
     },
     {
       "id": "output-test-external-edits-are-durable-pending-and-block-generation-until-explicit-incorporation",
-      "output": "crates/hick-project-env/src/pending.rs",
+      "output": "crates/hick-project-env/src/pending_tests.rs",
       "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
       "symbol": "external edits are durable pending and block generation until explicit incorporation",
       "basis": "reviewed-explanation"
     },
     {
       "id": "output-test-moved-source-and-later-output-edits-cannot-be-implicitly-acknowledged",
-      "output": "crates/hick-project-env/src/pending.rs",
+      "output": "crates/hick-project-env/src/pending_tests.rs",
       "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
       "symbol": "moved source and later output edits cannot be implicitly acknowledged",
       "basis": "reviewed-explanation"
     },
     {
       "id": "output-test-an-amended-or-split-arrangement-is-accepted-only-for-the-complete-capture",
-      "output": "crates/hick-project-env/src/pending.rs",
+      "output": "crates/hick-project-env/src/pending_tests.rs",
       "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
       "symbol": "an amended or split arrangement is accepted only for the complete capture",
       "basis": "reviewed-explanation"
     },
     {
       "id": "output-test-binary-and-deleted-outputs-are-preserved-without-inventing-text-patches",
-      "output": "crates/hick-project-env/src/pending.rs",
+      "output": "crates/hick-project-env/src/pending_tests.rs",
       "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
       "symbol": "binary and deleted outputs are preserved without inventing text patches",
       "basis": "reviewed-explanation"
     },
     {
       "id": "output-test-virtual-captures-preserve-unmaterialized-products-without-claiming-disk-writes",
-      "output": "crates/hick-project-env/src/pending.rs",
+      "output": "crates/hick-project-env/src/pending_tests.rs",
       "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
       "symbol": "virtual captures preserve unmaterialized products without claiming disk writes",
       "basis": "reviewed-explanation"
     },
     {
       "id": "output-test-reverting-disk-still-requires-explicit-acceptance-and-preserves-history",
-      "output": "crates/hick-project-env/src/pending.rs",
+      "output": "crates/hick-project-env/src/pending_tests.rs",
       "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
       "symbol": "reverting disk still requires explicit acceptance and preserves history",
       "basis": "reviewed-explanation"
     },
     {
       "id": "output-test-capture-and-publication-refuse-symlink-ancestors-and-unknown-preexisting-outputs",
-      "output": "crates/hick-project-env/src/pending.rs",
+      "output": "crates/hick-project-env/src/pending_tests.rs",
       "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
       "symbol": "capture and publication refuse symlink ancestors and unknown preexisting outputs",
       "basis": "reviewed-explanation"
@@ -148322,6 +148322,13 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/apps/web/src/editor/hickDoc.ts.md",
       "symbol": "Recognize the editor YAML boundary",
       "basis": "explained-decision"
+    },
+    {
+      "id": "output-capture-test-module",
+      "output": "crates/hick-project-env/src/pending.rs",
+      "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
+      "symbol": "Load focused journal witnesses",
+      "basis": "reviewed-explanation"
     }
   ],
   "explanation_gaps": {
@@ -161203,7 +161210,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
   "summary": {
     "needs-explanation": 9386,
     "existing-source-comment": 3899,
-    "reviewed-explanation": 67
+    "reviewed-explanation": 68
   },
   "paired_test_modules": [
     {
