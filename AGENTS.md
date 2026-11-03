@@ -23,3 +23,18 @@ A narrative owner is not proof of adequate explanation: inspect the explicit gap
 in `hickory-dogfood/narrative-map.json` and do not invent coverage or guarantees.
 
 @.instructions/simple-composable-design.md
+@.instructions/config-and-environments.md
+@.instructions/continuous-delivery-downloadable.md
+@.instructions/continuous-integration.md
+@.instructions/dev-environment.md
+@.instructions/documentation-layout.md
+@.instructions/framework-agnostic-system-tests.md
+@.instructions/github-issues.md
+@.instructions/just.md
+@.instructions/one-man-team.md
+@.instructions/pre-commit-ci-parity.md
+@.instructions/pre-launch.md
+@.instructions/semble.md
+@.instructions/specification-levels.md
+@.instructions/third-party-integration-mocking.md
+@.instructions/user-facing-errors.md

@@ -3,16 +3,14 @@ skills:
   - implement-dev-environment
 ---
 
-# Framework-Agnostic System Tests
+Always maintain a comprehensive system test suite that is agnostic to the tech stack used to implement the app. The purpose of this system test suite is to be able to rewrite the entire app in a different tech stack without changing a single line of system test code. System tests must interact with the app the same way a real client would: real HTTP requests, real browser automation. System tests must never depend on the web framework's own in-process test harness (e.g., Django's `LiveServerTest` is an anti-pattern for these system tests).
 
-- **System and integration tests drive the app the same way a real client
-  would** — real HTTP requests, real browser automation — and must never
-  depend on the web framework's own in-process test harness (e.g. Django's
-  `LiveServerTestCase`, a framework-specific test client that bypasses the
-  network).
-- The goal: the app could be reimplemented in a different language or
-  framework without changing a single line of these tests. If a test
-  imports anything from the app framework, it isn't a system test anymore.
-- **Unit tests are exempt** — they're expected to be rewritten on a
-  framework or language change, and are allowed to use framework-specific
-  test utilities.
+Every requirement must be codified in a system test if at all possible; if not possible, you must notify me. All changes to requirements should include a change to system tests; if they do not, that is a shortcoming of the system test suite which must be remedied; notify me about this as well.
+
+Maintain an abstraction layer between the system test suite and the app code that abstracts tech stack-specific details away from the system test suite. Rewriting the app may require rewriting this abstraction layer.
+
+If the app has multiple frontends or APIs with the same functionality, this abstraction layer should provide an interface to the systems tests with a separate implementation for each, so the same exact system test can run against each frontend or API by changing out which abstraction layer implementation it uses.
+
+These system tests must be implemented in an appropriate programming language that is not part of the tech stack. This helps avoid accidental dependencies between the app implementation and the system tests.
+
+System tests should be grouped together such that there are as few groups as possible and it is not possible for there to be any order in which the system tests within a group can be executed that could cause flakiness. Groups should be run in sequence in CI and pre-commit hooks.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Audience First Literate Docs"
+  short_description: "Index shared code through audience-specific views"
+  default_prompt: "Use $audience-first-literate-docs to index source code through audience-specific literate views, adding reusable readings for likely recurring work and checking that each view preserves its backing code."
