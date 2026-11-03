@@ -45,15 +45,36 @@ describe("paragraph unwrapping", () => {
     expect(reflow(output)).toBe(output);
   });
 
-  it("preserves explicit breaks, lists, quotes, tables, code, HTML and YAML", () => {
+  it.each([
+    ["- item\n  continuation\n- next", "- item continuation\n- next"],
+    ["1. first\n   continuation\n2. second", "1. first continuation\n2. second"],
+    ["- [x] task\n  continues\n  - nested\n    text", "- [x] task continues\n  - nested text"],
+    ["- first\n  continues\n\n  second paragraph\n  continues", "- first continues\n\n  second paragraph continues"],
+    ["> quote\n> continues\n>\n> next\n> paragraph", "> quote continues\n>\n> next paragraph"],
+    ["> > deep\n> > quote\n> > - item\n> >   text", "> > deep quote\n> > - item text"],
+    ["> - quoted\n>   list\n>   lazy", "> - quoted list lazy"],
+    ["- lazy\ncontinuation", "- lazy continuation"],
+    ["Title\ncontinued\n---", "Title continued\n---"],
+    ["> Title\n> continued\n> ===", "> Title continued\n> ==="],
+    ["- hard  \n  break\n  soft", "- hard  \n  break soft"],
+    ["> hard\\\n> break\n> soft", "> hard\\\n> break soft"],
+    ["- a > literal\n  continues", "- a > literal continues"],
+  ])("reflows prose leaves while retaining structure: %s", (input, output) => {
+    expect(reflow(input)).toBe(output);
+    expect(reflow(output)).toBe(output);
+  });
+
+  it("preserves explicit breaks, tables, code, HTML and YAML", () => {
     const input = [
       "---\nsummary: |\n  first line\n  second line\n---",
       "First  \nsecond\\\nthird",
-      "- item\n  continuation\n- next item",
-      "> quote\n> continuation",
       "a | b\n--- | ---\nx | y\nz | w",
       "```md\ncode paragraph\ncontinues\n```",
       "    indented code\n    more code",
+      "- item\n\n      indented code\n      more code",
+      "> ```md\n> code\n> stays\n> ```",
+      "- Text with `multi\n  line code`.",
+      "> Text [link\n> text](url).",
       "<div>\nHTML content\nmore content\n</div>",
       "Text with `multi\nline code`.",
       "Text [link\ntext](url).",

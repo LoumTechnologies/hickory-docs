@@ -1,7 +1,7 @@
 <static:doc xmlns:static="http://www.hickorydocs.com/1.0">
 # Read source-wrapped prose as flowing paragraphs
 
-The editable document already uses `paragraphUnwrapChanges` to find ordinary Markdown soft breaks while excluding code payloads, tags, lists, explicit hard breaks and other byte-sensitive structures. The static reader must make the same reading decision without applying those edits: hashes, language facts and anchors refer to the original source. Turn the planned joins into replacement decorations instead. Supply them directly from a state field because replacing a newline changes CodeMirror's height map; a viewport plugin cannot safely do that. Each visible space conceals only the selected newline and continuation indentation. The document and all offsets stay unchanged.
+The editable document already uses `paragraphUnwrapChanges` to find Markdown prose soft breaks, including lists, quotes and setext headings, while excluding code payloads, tags, explicit hard breaks and other byte-sensitive structures. The static reader must make the same reading decision without applying those edits: hashes, language facts and anchors refer to the original source. Turn the planned joins into replacement decorations instead. Supply them directly from a state field because replacing a newline changes CodeMirror's height map; a viewport plugin cannot safely do that. Each visible space conceals only the selected newline and continuation indentation. The document and all offsets stay unchanged.
 
 <static:copy id="static-apps-web-src-editor-paragraphReading-ts-0">
 import { ChangeSet, StateField, type Extension, type Range } from "@codemirror/state";

@@ -5,7 +5,9 @@ For: Authors editing executable documents and the files those documents produce.
 
 Given an editable document in the Document view, when it opens, receives source
 from the live room, or receives pasted or dropped text, then ordinary Markdown
-paragraphs have their soft line breaks replaced with spaces. The editor wraps
+paragraphs, including bullet, numbered and task list items and blockquotes, have
+their soft line breaks replaced with spaces. Multiline setext heading text also
+reflows while its underline stays on a separate line. The editor wraps
 the resulting paragraph visually at the ruler's measure.
 
 The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
@@ -19,7 +21,13 @@ Earlier wording and all later notes remain in [the preserved original](../../../
 
 Requirement decision: Retain the existing requirement without inferring new intent. Separate evidence history and retain follow-up paragraphs for review; no new implementation verification is claimed.
 
-Implementation review: not verified. Executed checks and human judgment are recorded separately. Source and test changes stale earlier evidence.
+Focused verification (2026-11-03): `vitest run
+src/editor/unwrapParagraphs.test.ts src/editor/paragraphReading.test.ts` from
+`apps/web` passed all 21 tests. These exercise prose joins, nested list and quote
+structure, task items, heading underlines, byte-sensitive exclusions and editor
+lifecycle behavior. Source/output `check` and ownership `audit` passed. This is
+focused automated evidence; broad regressions and human visual acceptance have
+not been run for this extension.
 
 
 ## Read the retained requirement detail
@@ -85,6 +93,11 @@ function editor(doc: string, readOnly = false, onOpen = true) {
 <a id="f-df418326657a-expression_statement-2"></a>
 ### `expression_statement`
 
+Exercise nested containers, lazy continuations and headings alongside the
+byte-preservation cases. Checking each result twice catches joins that change
+Markdown structure on a subsequent sync. The editor checks below separately
+verify that the shared planner still respects preferences, Undo and Enter.
+
 <storycode:copy id="f-df418326657a-expression_statement-2">
 describe("paragraph unwrapping", () => {
   it("keeps seeded Untitled bytes clean through sync, then reflows a real paste", async () => {
@@ -107,15 +120,36 @@ describe("paragraph unwrapping", () => {
     expect(reflow(output)).toBe(output);
   });
 
-  it("preserves explicit breaks, lists, quotes, tables, code, HTML and YAML", () => {
+  it.each([
+    ["- item\n  continuation\n- next", "- item continuation\n- next"],
+    ["1. first\n   continuation\n2. second", "1. first continuation\n2. second"],
+    ["- [x] task\n  continues\n  - nested\n    text", "- [x] task continues\n  - nested text"],
+    ["- first\n  continues\n\n  second paragraph\n  continues", "- first continues\n\n  second paragraph continues"],
+    ["> quote\n> continues\n>\n> next\n> paragraph", "> quote continues\n>\n> next paragraph"],
+    ["> > deep\n> > quote\n> > - item\n> >   text", "> > deep quote\n> > - item text"],
+    ["> - quoted\n>   list\n>   lazy", "> - quoted list lazy"],
+    ["- lazy\ncontinuation", "- lazy continuation"],
+    ["Title\ncontinued\n---", "Title continued\n---"],
+    ["> Title\n> continued\n> ===", "> Title continued\n> ==="],
+    ["- hard  \n  break\n  soft", "- hard  \n  break soft"],
+    ["> hard\\\n> break\n> soft", "> hard\\\n> break soft"],
+    ["- a > literal\n  continues", "- a > literal continues"],
+  ])("reflows prose leaves while retaining structure: %s", (input, output) => {
+    expect(reflow(input)).toBe(output);
+    expect(reflow(output)).toBe(output);
+  });
+
+  it("preserves explicit breaks, tables, code, HTML and YAML", () => {
     const input = [
       "---\nsummary: |\n  first line\n  second line\n---",
       "First  \nsecond\\\nthird",
-      "- item\n  continuation\n- next item",
-      "> quote\n> continuation",
       "a | b\n--- | ---\nx | y\nz | w",
       "```md\ncode paragraph\ncontinues\n```",
       "    indented code\n    more code",
+      "- item\n\n      indented code\n      more code",
+      "> ```md\n> code\n> stays\n> ```",
+      "- Text with `multi\n  line code`.",
+      "> Text [link\n> text](url).",
       "<div>\nHTML content\nmore content\n</div>",
       "Text with `multi\nline code`.",
       "Text [link\ntext](url).",
@@ -189,6 +223,15 @@ Related contracts: [Markdown Paragraphs Unwrap By Default](contract.md).
 <a id="f-e98ba828b293-paragraphUnwrapChanges"></a>
 ### `paragraphUnwrapChanges`
 
+Let the Markdown parser identify prose leaves rather than requiring a paragraph
+at the document root. This admits nested lists, task items and quotes without
+joining separate items or crossing blank paragraphs. Setext headings have the
+same prose need, but their underline must remain on its own line. Record parsed
+quote and header marks so continuation prefixes can be removed without mistaking
+a literal `>` in prose for structure. Keep byte-sensitive payload exclusions and
+explicit hard breaks ahead of every join; the editor and static reader share
+these decisions.
+
 <storycode:copy id="f-e98ba828b293-paragraphUnwrapChanges">
 import { markdownLanguage } from "@codemirror/lang-markdown";
 import { isolateHistory } from "@codemirror/commands";
@@ -197,7 +240,7 @@ import { ViewPlugin, type EditorView, type ViewUpdate } from "@codemirror/view";
 import { loadUnwrapParagraphs } from "../lib/unwrapParagraphs";
 import { parseHickDoc, verbatimRanges } from "./hickDoc";
 
-/** Join Markdown soft breaks only in ordinary paragraphs. Hickory's own
+/** Join Markdown soft breaks in prose leaves, including lists and quotes. Hickory's own
  * parser supplies the byte-preserving payload and tag boundaries. */
 export function paragraphUnwrapChanges(source: string): ChangeSpec[] {
   const structure = parseHickDoc(source);
@@ -218,10 +261,16 @@ export function paragraphUnwrapChanges(source: string): ChangeSpec[] {
     for (let i = from; i < to; i++) if (chars[i] !== "\n") chars[i] = " ";
   }
   const changes: ChangeSpec[] = [];
-  markdownLanguage.parser.parse(chars.join("")).iterate({
+  const tree = markdownLanguage.parser.parse(chars.join(""));
+  const quoteMarks = new Set<number>();
+  const headingUnderlines = new Set<number>();
+  tree.iterate({ enter(node) {
+    if (node.name === "QuoteMark") quoteMarks.add(node.from);
+    if (node.name === "HeaderMark") headingUnderlines.add(source.lastIndexOf("\n", node.from));
+  } });
+  tree.iterate({
     enter(node) {
-      // Lists and quotes have structural line prefixes; leave those intact.
-      if (node.name !== "Paragraph" || node.node.parent?.name !== "Document") return;
+      if (!["Paragraph", "Task", "SetextHeading1", "SetextHeading2"].includes(node.name)) return;
       if (excluded.some(([from, to]) => from < node.to && to > node.from)) return false;
       const paragraph = source.slice(node.from, node.to);
       // Multi-line inline code, links and HTML can depend on their bytes.
@@ -238,8 +287,15 @@ export function paragraphUnwrapChanges(source: string): ChangeSpec[] {
         // Two trailing spaces or an odd run of backslashes is an explicit
         // Markdown hard break, and must keep its newline.
         const slashes = /\\+$/.exec(before)?.[0].length ?? 0;
-        if (/ {2,}$/.test(before) || slashes % 2 === 1) continue;
-        changes.push({ from: node.from + match.index, to: node.from + match.index + match[0].length, insert: " " });
+        if (/ {2,}$/.test(before) || slashes % 2 === 1 ||
+            headingUnderlines.has(node.from + match.index)) continue;
+        let to = node.from + match.index + match[0].length;
+        // Only consume parser-confirmed quote prefixes, including nested quotes.
+        while (quoteMarks.has(to)) {
+          to++;
+          while (source[to] === " " || source[to] === "\t") to++;
+        }
+        changes.push({ from: node.from + match.index, to, insert: " " });
       }
       return false;
     },

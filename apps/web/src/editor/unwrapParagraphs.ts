@@ -5,7 +5,7 @@ import { ViewPlugin, type EditorView, type ViewUpdate } from "@codemirror/view";
 import { loadUnwrapParagraphs } from "../lib/unwrapParagraphs";
 import { parseHickDoc, verbatimRanges } from "./hickDoc";
 
-/** Join Markdown soft breaks only in ordinary paragraphs. Hickory's own
+/** Join Markdown soft breaks in prose leaves, including lists and quotes. Hickory's own
  * parser supplies the byte-preserving payload and tag boundaries. */
 export function paragraphUnwrapChanges(source: string): ChangeSpec[] {
   const structure = parseHickDoc(source);
@@ -26,10 +26,16 @@ export function paragraphUnwrapChanges(source: string): ChangeSpec[] {
     for (let i = from; i < to; i++) if (chars[i] !== "\n") chars[i] = " ";
   }
   const changes: ChangeSpec[] = [];
-  markdownLanguage.parser.parse(chars.join("")).iterate({
+  const tree = markdownLanguage.parser.parse(chars.join(""));
+  const quoteMarks = new Set<number>();
+  const headingUnderlines = new Set<number>();
+  tree.iterate({ enter(node) {
+    if (node.name === "QuoteMark") quoteMarks.add(node.from);
+    if (node.name === "HeaderMark") headingUnderlines.add(source.lastIndexOf("\n", node.from));
+  } });
+  tree.iterate({
     enter(node) {
-      // Lists and quotes have structural line prefixes; leave those intact.
-      if (node.name !== "Paragraph" || node.node.parent?.name !== "Document") return;
+      if (!["Paragraph", "Task", "SetextHeading1", "SetextHeading2"].includes(node.name)) return;
       if (excluded.some(([from, to]) => from < node.to && to > node.from)) return false;
       const paragraph = source.slice(node.from, node.to);
       // Multi-line inline code, links and HTML can depend on their bytes.
@@ -46,8 +52,15 @@ export function paragraphUnwrapChanges(source: string): ChangeSpec[] {
         // Two trailing spaces or an odd run of backslashes is an explicit
         // Markdown hard break, and must keep its newline.
         const slashes = /\\+$/.exec(before)?.[0].length ?? 0;
-        if (/ {2,}$/.test(before) || slashes % 2 === 1) continue;
-        changes.push({ from: node.from + match.index, to: node.from + match.index + match[0].length, insert: " " });
+        if (/ {2,}$/.test(before) || slashes % 2 === 1 ||
+            headingUnderlines.has(node.from + match.index)) continue;
+        let to = node.from + match.index + match[0].length;
+        // Only consume parser-confirmed quote prefixes, including nested quotes.
+        while (quoteMarks.has(to)) {
+          to++;
+          while (source[to] === " " || source[to] === "\t") to++;
+        }
+        changes.push({ from: node.from + match.index, to, insert: " " });
       }
       return false;
     },
