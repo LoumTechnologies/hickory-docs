@@ -88,7 +88,32 @@ const classOf = (r: Range<Decoration>) =>
 <a id="f-59145de2de8b-expression_statement"></a>
 ### `expression_statement`
 
+Frontmatter is YAML rather than prose. This witness checks a malformed flow
+sequence still receives YAML colours, its comment is not drawn as a heading,
+and decorations leave the source intact.
+
 <storycode:copy id="f-59145de2de8b-expression_statement">
+it("colours YAML frontmatter and keeps its comments out of Markdown prose", async () => {
+  const { Decoration } = await import("@codemirror/view");
+  const { yamlFrontmatter, parseHickDoc } = await import("./hickDoc");
+  const { fenceHighlightRanges } = await import("./markdownFences");
+  const source = "\uFEFF---\r\n# metadata comment\r\ntitle: [broken\r\n...\r\n# Visible heading\n";
+  const metadata = yamlFrontmatter(source)!;
+  expect(source.slice(metadata.from, metadata.to)).toBe("# metadata comment\r\ntitle: [broken\r\n");
+  const structure = parseHickDoc(source);
+  expect(structure.headings.map(h => source.slice(h.markTo, h.to))).toEqual(["Visible heading"]);
+  const state = EditorState.create({ doc: source });
+  const original = state.doc.toString();
+  const drawnMetadata = yamlFrontmatter(original)!;
+  const ranges = fenceHighlightRanges(state, structure, [{ from: 0, to: source.length }], cls => Decoration.mark({ class: cls }));
+  expect(ranges.length).toBeGreaterThan(0);
+  expect(ranges.every(range => range.from >= drawnMetadata.from && range.to <= drawnMetadata.to)).toBe(true);
+  expect(state.doc.toString()).toBe(original);
+  expect(yamlFrontmatter("# Body\n---\na: b\n---\n")).toBeNull();
+  expect(yamlFrontmatter("---\na: b\n")).toBeNull();
+});
+
+
 describe("markdownStyling — parseMarkdownProse", () => {
   it("finds headings with their level and dimmed `#` mark range", () => {
     const src = "# Title\n\nprose\n\n### Deep\n";
@@ -281,6 +306,11 @@ describe("cursor-aware horizontal rules", () => {
     state = state.update({ changes: { from: 6, to: 7, insert: "x" } }).state;
     expect(rules(state)).toEqual([]);
   });
+  it("keeps YAML delimiters literal when the cursor is in prose", () => {
+    const src = "---\ntitle: hello\n\n---\n\nbody";
+    const state = EditorState.create({ doc: src, selection: { anchor: src.length }, extensions: horizontalRuleStyling() });
+    expect(rules(state)).toEqual([]);
+  });
   it("leaves fences, payloads, four-space code and heading underlines literal", () => {
     const src = "text\n---\n\n```\n---\n```\n\n    ---\n\n---\n";
     const from = src.lastIndexOf("---");
@@ -351,7 +381,7 @@ import { EditorState, StateField } from "@codemirror/state";
 import type { Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
-import { scanMarkdownProse } from "./hickDoc";
+import { scanMarkdownProse, yamlFrontmatter } from "./hickDoc";
 import type { Heading, InlineMark, QuoteLine, TaskItem } from "./hickDoc";
 
 // One Decoration instance per class, shared by both editors so the CSS in
@@ -578,7 +608,7 @@ literal dashes before editing. A transparent line with an overlaid border keeps
 native click and arrow-key positioning; it never replaces document bytes. The
 border uses the same pixel measure as the wrap ruler. Blank-separated dash rules
 are rendered; a dash underline immediately after prose remains a Setext heading.
-Fences and executable payloads are excluded by both editor integrations.
+Fences, YAML frontmatter delimiters and executable payloads are excluded by both editor integrations.
 
 <storycode:copy id="f-432a956d4c21-markdownStyling">
 /**
@@ -596,7 +626,8 @@ export function horizontalRuleStyling(
 ): Extension {
   const build = (state: EditorState): DecorationSet => {
     const text = state.doc.toString();
-    const blocked = [...fencedCodeRanges(text), ...excluded(state)];
+    const metadata = yamlFrontmatter(text);
+    const blocked = [...fencedCodeRanges(text), ...excluded(state), ...(metadata ? [[0, metadata.end] as const] : [])];
     const active = new Set(state.selection.ranges.map((r) => state.doc.lineAt(r.head).number));
     const ranges: Range<Decoration>[] = [];
     for (let n = 1; n <= state.doc.lines; n++) {

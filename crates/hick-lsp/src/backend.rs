@@ -110,6 +110,60 @@ struct VFileMapping {
 }
 
 impl HickBackend {
+    /// Editor-only projection; never a generated project output.
+    fn frontmatter_file(
+        source: &str,
+        files: &[crate::virtual_file::VirtualFile],
+    ) -> Option<crate::virtual_file::VirtualFile> {
+        use crate::virtual_file::{VirtualFile, VirtualSegment};
+        let input = source.strip_prefix('\u{feff}').unwrap_or(source);
+        let opening = input.find('\n')? + 1;
+        if input[..opening].trim_end_matches(['\r', '\n', ' ', '\t']) != "---" {
+            return None;
+        }
+        let mut end = opening;
+        let mut closed = false;
+        for line in input[opening..].split_inclusive('\n') {
+            if matches!(
+                line.trim_end_matches(['\r', '\n', ' ', '\t']),
+                "---" | "..."
+            ) {
+                closed = true;
+                break;
+            }
+            end += line.len();
+        }
+        if !closed {
+            return None;
+        }
+        let mut path = ".hickory-frontmatter.yaml".to_string();
+        while files.iter().any(|file| file.path == path) {
+            path.insert(0, '_');
+        }
+        Some(VirtualFile {
+            path,
+            language_id: Some("yaml"),
+            segments: vec![
+                VirtualSegment {
+                    text: input[opening..end].into(),
+                    source_span: None,
+                    source_line: 2,
+                    source_column: 0,
+                },
+                VirtualSegment {
+                    // YAML errors and whole-body edits may end at EOF. Map the
+                    // zero-width boundary immediately before the closing marker.
+                    text: String::new(),
+                    source_span: None,
+                    source_line: input[..end].bytes().filter(|b| *b == b'\n').count() + 1,
+                    source_column: 0,
+                },
+            ],
+        })
+    }
+}
+
+impl HickBackend {
     pub fn new(client: Client) -> Self {
         let (notification_tx, notification_rx) = mpsc::unbounded_channel();
 
@@ -180,6 +234,7 @@ impl HickBackend {
         // A file that is not a document is not woven: it is its own virtual
         // file, and its language server is asked about it by its real name.
         if !is_hick_document(hick_uri, source) {
+            self.close_vfiles_for(hick_uri, &[hick_uri.clone()]).await;
             self.process_plain_file(hick_uri, source).await;
             return;
         }
@@ -229,8 +284,13 @@ impl HickBackend {
             }
         };
 
-        let new_vfile_uris: Vec<Url> = state
+        let frontmatter = Self::frontmatter_file(source, &state.virtual_files);
+        let service_files: Vec<_> = state
             .virtual_files
+            .iter()
+            .chain(frontmatter.iter())
+            .collect();
+        let new_vfile_uris: Vec<Url> = service_files
             .iter()
             .map(|vf| self.vfile_uri(hick_uri, &vf.path))
             .collect();
@@ -302,8 +362,8 @@ impl HickBackend {
         } else {
             copy_manifests(&self.staging, hick_uri);
         }
-        for vf in &state.virtual_files {
-            if state.evaluated_project.is_some() {
+        for vf in &service_files {
+            if state.evaluated_project.is_some() && state.project_maps.contains_key(&vf.path) {
                 continue;
             }
             if let Err(error) = self.staging.write_vfile(hick_uri, &vf.path, &vf.content()) {
@@ -314,7 +374,7 @@ impl HickBackend {
         // 6. For each virtual file with a known language, forward to child LSP.
         let mut new_open_vfiles = Vec::new();
 
-        for vf in &state.virtual_files {
+        for vf in &service_files {
             tracing::debug!(path = %vf.path, language_id = ?vf.language_id, "processing virtual file");
 
             let lang_id = match vf.language_id {
@@ -329,7 +389,7 @@ impl HickBackend {
             }
 
             let vf_uri = self.vfile_uri(hick_uri, &vf.path);
-            let content = if state.evaluated_project.is_some() {
+            let content = if state.project_maps.contains_key(&vf.path) {
                 vf.written_content()
             } else {
                 vf.content()
@@ -2489,10 +2549,13 @@ fn reindent(text: &str, indent: usize, ends_at_column_zero: bool) -> String {
 
 /// Whether a URI names a hick document rather than a plain file it forwards
 /// whole. Bare documents are Markdown now, so their extension cannot decide:
-/// the namespace marker is the syntax boundary.
-fn is_hick_document(_uri: &Url, source: &str) -> bool {
+/// the namespace marker or a leading YAML metadata block needs projection.
+fn is_hick_document(uri: &Url, source: &str) -> bool {
     let prefix = hick_lang::structure(source).prefix;
     source.contains(&format!("<{prefix}:"))
+        || ((uri.path().to_ascii_lowercase().ends_with(".md")
+            || uri.path().to_ascii_lowercase().ends_with(".markdown"))
+            && HickBackend::frontmatter_file(source, &[]).is_some())
 }
 
 /// The language a plain file is in, by its name.

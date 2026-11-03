@@ -148166,14 +148166,14 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "id": "static-apps-web-src-embed-SourceFileTree-tsx-0",
       "output": "apps/web/src/embed/SourceFileTree.tsx",
       "page": ".hickory-source/mechanisms/apps/web/src/embed/SourceFileTree.tsx.md",
-      "symbol": "Browse published files with the app\u2019s compact file buffer",
+      "symbol": "Browse published files with the app’s compact file buffer",
       "basis": "explained-decision"
     },
     {
       "id": "static-apps-web-src-embed-SourceFileTree-tsx-1",
       "output": "apps/web/src/embed/SourceFileTree.tsx",
       "page": ".hickory-source/mechanisms/apps/web/src/embed/SourceFileTree.tsx.md",
-      "symbol": "Browse published files with the app\u2019s compact file buffer",
+      "symbol": "Browse published files with the app’s compact file buffer",
       "basis": "explained-decision"
     },
     {
@@ -148308,6 +148308,20 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
       "symbol": "feature-experiments-FeatureExperiments.test-0",
       "basis": "authored-explanation"
+    },
+    {
+      "id": "yaml-frontmatter-projection",
+      "output": "crates/hick-lsp/src/backend.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/backend.rs.md",
+      "symbol": "Project YAML frontmatter into language services",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "yaml-frontmatter-boundary",
+      "output": "apps/web/src/editor/hickDoc.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/hickDoc.ts.md",
+      "symbol": "Recognize the editor YAML boundary",
+      "basis": "explained-decision"
     }
   ],
   "explanation_gaps": {

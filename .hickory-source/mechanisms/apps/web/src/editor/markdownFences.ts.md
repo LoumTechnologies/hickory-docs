@@ -28,7 +28,7 @@ are Hick structure; fences are Markdown prose with a code-shaped display.
 import type { EditorState, Range } from "@codemirror/state";
 import { Decoration } from "@codemirror/view";
 import { highlightCode } from "./embedded";
-import { proseCodeFences } from "./hickDoc";
+import { proseCodeFences, yamlFrontmatter } from "./hickDoc";
 import type { HickDocStructure } from "./hickDoc";
 
 const line = Decoration.line({ class: "cm-fence-line" });
@@ -94,6 +94,10 @@ export function fenceLayoutRanges(
 
 Syntax-colour known fence languages; unknown tags still retain the frame.
 
+Colour the metadata body with the existing YAML grammar, using absolute editor
+offsets and visible ranges just like fenced code. Delimiters and prose stay out
+of the YAML parser; decorations preserve every authored byte.
+
 <storycode:copy id="f-94d646a3c2f6-fenceHighlightRanges">
 /** Syntax-colour known fence languages; unknown tags still retain the frame. */
 export function fenceHighlightRanges(
@@ -104,6 +108,12 @@ export function fenceHighlightRanges(
 ): Range<Decoration>[] {
   const ranges: Range<Decoration>[] = [];
   const doc = state.doc;
+  const metadata = yamlFrontmatter(doc.toString());
+  if (metadata && visible.some(({ from, to }) => metadata.to >= from && metadata.from <= to)) {
+    for (const span of highlightCode(doc.sliceString(metadata.from, metadata.to), "yaml")) {
+      ranges.push(mark(span.cls).range(metadata.from + span.from, metadata.from + span.to));
+    }
+  }
   for (const fence of proseCodeFences(structure, doc.toString())) {
     if (!visible.some(({ from, to }) => fence.to >= from && fence.from <= to)) continue;
     const language = fence.info.split(/\s+/, 1)[0];

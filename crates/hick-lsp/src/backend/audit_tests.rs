@@ -3,6 +3,134 @@ use crate::virtual_file::VirtualSegment;
 use hick_lang::SourceSpan;
 
 #[test]
+fn frontmatter_yaml_maps_features_and_whole_body_formatting() {
+    let source = "\u{feff}---\r\ntitle: [broken\r\n# metadata comment\r\n...\r\n# Prose\n";
+    let vf = HickBackend::frontmatter_file(source, &[]).unwrap();
+    assert_eq!(vf.language_id, Some("yaml"));
+    assert_eq!(vf.content(), "title: [broken\r\n# metadata comment\r\n");
+    let map = PositionMap::build(&vf.segments);
+    assert_eq!(map.to_source(0, 8), Some((1, 8)));
+    assert_eq!(map.to_virtual(1, 8), Some((0, 8)));
+    assert_eq!(map.to_virtual(4, 0), None);
+    let edits = translate_edits(
+        &serde_json::json!([{
+            "range": {"start": {"line": 0, "character": 0}, "end": {"line": 2, "character": 0}},
+            "newText": "title: fixed\r\n# metadata comment\r\n"
+        }]),
+        &map,
+    )
+    .unwrap();
+    assert_eq!(
+        edits[0].range,
+        Range::new(Position::new(1, 0), Position::new(3, 0))
+    );
+    assert_eq!(edits[0].new_text, "title: fixed\r\n# metadata comment\r\n");
+    let other = HickBackend::frontmatter_file(source, &[vf.clone()]).unwrap();
+    assert_ne!(other.path, vf.path);
+    assert!(HickBackend::frontmatter_file("# Body\n---\na: b\n---\n", &[]).is_none());
+    assert!(HickBackend::frontmatter_file("---\na: b\n", &[]).is_none());
+    assert_eq!(
+        HickBackend::frontmatter_file("---\n---\n", &[])
+            .unwrap()
+            .content(),
+        ""
+    );
+}
+
+/// Run explicitly with yaml-language-server on PATH: exercises the actual
+/// child protocol, translated diagnostics, formatter and provider retirement.
+#[tokio::test]
+#[ignore = "requires yaml-language-server on PATH"]
+async fn real_yaml_frontmatter_diagnostics_formatting_and_removal() {
+    let directory = tempfile::tempdir().unwrap();
+    let uri = Url::from_file_path(directory.path().join("notes.md")).unwrap();
+    let (service, _socket) = tower_lsp::LspService::new(HickBackend::new);
+    let backend = service.inner();
+    backend.spawn_notification_handler();
+    let broken = "---\ntitle: [broken\n---\n# Prose\n";
+    assert!(is_hick_document(&uri, broken));
+    backend.process_document(&uri, broken).await;
+    tokio::time::timeout(std::time::Duration::from_secs(15), async {
+        loop {
+            if backend
+                .child_diagnostics
+                .read()
+                .await
+                .get(&uri)
+                .is_some_and(|files| {
+                    files
+                        .values()
+                        .flatten()
+                        .any(|diag| diag.severity == Some(DiagnosticSeverity::ERROR))
+                })
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("YAML syntax errors must reach Markdown diagnostics");
+    assert_eq!(
+        backend
+            .virtual_target(&uri, Position::new(1, 3))
+            .await
+            .unwrap()
+            .1,
+        "yaml"
+    );
+    assert!(
+        backend
+            .virtual_target(&uri, Position::new(3, 0))
+            .await
+            .is_none()
+    );
+    let valid = "---\ntitle:   hello\nitems: [a,b]\n---\n# Prose\n";
+    backend.process_document(&uri, valid).await;
+    let edits = backend
+        .formatting(
+            serde_json::from_value(serde_json::json!({
+                "textDocument": {"uri": uri}, "options": {"tabSize": 2, "insertSpaces": true}
+            }))
+            .unwrap(),
+        )
+        .await
+        .unwrap()
+        .expect("real YAML formatter must return edits");
+    assert!(!edits.is_empty());
+    assert!(
+        edits
+            .iter()
+            .all(|edit| edit.range.start.line >= 1 && edit.range.end.line <= 3)
+    );
+    assert!(
+        edits
+            .iter()
+            .any(|edit| edit.new_text.contains("title: hello"))
+    );
+    backend.process_document(&uri, "# Prose\n").await;
+    assert!(
+        !backend
+            .vfile_index
+            .read()
+            .await
+            .values()
+            .any(|mapping| mapping.hick_uri == uri && mapping.language_id == "yaml")
+    );
+    assert!(
+        !backend
+            .child_diagnostics
+            .read()
+            .await
+            .get(&uri)
+            .is_some_and(|files| files
+                .values()
+                .flatten()
+                .any(|diag| diag.source.as_deref() == Some("YAML")))
+    );
+}
+
+#[test]
 fn provider_rename_refusal_is_an_error_instead_of_no_changes() {
     let error = child_request_error(crate::child_lsp::ChildLspError::JsonRpc {
         code: -32001,
@@ -14,7 +142,6 @@ fn provider_rename_refusal_is_an_error_instead_of_no_changes() {
     );
     assert!(error.message.contains("Index results do not match"));
 }
-
 #[test]
 fn code_actions_keep_exact_child_diagnostic_identity_and_coordinates() {
     let diagnostic = serde_json::json!({"range":{"start":{"line":0,"character":22},"end":{"line":0,"character":23}},"code":"expected_semi_after_stmt","message":"Expected semicolon","source":"clang","data":{"provider-token":17}});

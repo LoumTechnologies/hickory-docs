@@ -15,6 +15,32 @@ default.
 
 The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
 
+## Format YAML frontmatter in Markdown
+
+A leading YAML block delimited by `---` and `---` or `...` receives YAML
+syntax colours and the YAML language server's diagnostics, completion and hover.
+Format document and format on save apply its formatter edits to the metadata
+body, preserving the delimiters and following prose. Invalid YAML remains
+available to the provider so syntax errors can be underlined. This editor
+projection does not change Hickory's configuration parser or generate a YAML
+project output. An unmatched opening rule remains Markdown.
+
+The existing YAML provider must be available as `yaml-language-server --stdio`.
+Schema-specific suggestions and hover depend on the schema supplied to that
+provider; this change does not infer a schema for arbitrary metadata.
+
+Construct the [editor-only provider projection](../../../mechanisms/crates/hick-lsp/src/backend.rs.md)
+and the [YAML display boundary](../../../mechanisms/apps/web/src/editor/hickDoc.ts.md).
+The [focused provider witnesses](../../../mechanisms/crates/hick-lsp/src/backend/audit_tests.rs.md)
+check coordinate mapping and a real YAML server's diagnostics, formatting and
+retirement; the [prose witness](../../authoring/markdown-quotes-and-task-lists-are-read-as-prose/contract.md)
+checks YAML colours without interpreting metadata comments as headings.
+
+Focused verification on 2026-11-03: the frontmatter mapping unit test, the explicit
+`real_yaml_frontmatter_diagnostics_formatting_and_removal` integration test with
+`yaml-language-server` on PATH, and `markdownStyling.test.ts` passed. These checks
+do not renew the unrelated historical requirements below.
+
 ## Read the detailed requirements
 
 - [Requirements 1](requirements/01.md)

@@ -284,6 +284,15 @@ function scanInline(
   scan(EM_RE, "em", 1);
 }
 
+export function yamlFrontmatter(text: string): { from: number; to: number; end: number } | null {
+  const opening = /^(?:\uFEFF)?---[ \t]*\r?\n/.exec(text);
+  if (!opening) return null;
+  const from = opening[0].length;
+  const closing = /^(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/m.exec(text.slice(from));
+  return closing ? { from, to: from + closing.index, end: from + closing.index + closing[0].length } : null;
+}
+
+
 /**
  * The markdown prose scan: headings + inline marks over every line that is
  * not inside a `verbatim` range. Shared between the .md document parse
@@ -300,7 +309,8 @@ export function scanMarkdownProse(
   const inline: InlineMark[] = [];
   const quotes: QuoteLine[] = [];
   const tasks: TaskItem[] = [];
-  let lineFrom = 0;
+  const metadata = yamlFrontmatter(text);
+  let lineFrom = metadata?.end ?? 0;
   while (lineFrom <= text.length) {
     let lineTo = text.indexOf("\n", lineFrom);
     if (lineTo < 0) lineTo = text.length;

@@ -461,6 +461,28 @@ not inside a `verbatim` range. Shared between the .md document parse
 plain-markdown styling used by the output panes (see markdownStyling.ts),
 which passes fenced-code ranges as verbatim and no tag ranges.
 
+Metadata comments and scalar markers must not become Markdown headings or
+emphasis. Recognize a leading delimiter pair before scanning prose, without
+requiring valid YAML: highlighting and provider diagnostics must survive syntax
+errors. The editor recognizes this presentation boundary independently of the
+compiler's smaller configuration subset. Match the LSP projection's BOM, CRLF
+and closing-marker rules, and leave an unmatched horizontal rule as prose.
+
+<storycode:copy id="yaml-frontmatter-boundary">
+export function yamlFrontmatter(text: string): { from: number; to: number; end: number } | null {
+  const opening = /^(?:\uFEFF)?---[ \t]*\r?\n/.exec(text);
+  if (!opening) return null;
+  const from = opening[0].length;
+  const closing = /^(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/m.exec(text.slice(from));
+  return closing ? { from, to: from + closing.index, end: from + closing.index + closing[0].length } : null;
+}
+
+
+</storycode:copy>
+
+Start prose after the complete metadata block so YAML comments, scalar markers
+and collection items cannot become Markdown headings, emphasis or task lists.
+
 <storycode:copy id="f-c2f7bc821e36-scanMarkdownProse">
 /**
  * The markdown prose scan: headings + inline marks over every line that is
@@ -478,7 +500,8 @@ export function scanMarkdownProse(
   const inline: InlineMark[] = [];
   const quotes: QuoteLine[] = [];
   const tasks: TaskItem[] = [];
-  let lineFrom = 0;
+  const metadata = yamlFrontmatter(text);
+  let lineFrom = metadata?.end ?? 0;
   while (lineFrom <= text.length) {
     let lineTo = text.indexOf("\n", lineFrom);
     if (lineTo < 0) lineTo = text.length;
@@ -1033,6 +1056,6 @@ export function expectRangeOf(
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/editor/hickDoc.ts"><storycode:paste select="#f-c2f7bc821e36-HickTag"/><storycode:paste select="#f-c2f7bc821e36-HickBlock"/><storycode:paste select="#f-c2f7bc821e36-Heading"/><storycode:paste select="#f-c2f7bc821e36-QuoteLine"/><storycode:paste select="#f-c2f7bc821e36-TaskItem"/><storycode:paste select="#f-c2f7bc821e36-InlineMark"/><storycode:paste select="#f-c2f7bc821e36-HickDocStructure"/><storycode:paste select="#f-c2f7bc821e36-byteToUnit"/><storycode:paste select="#f-c2f7bc821e36-attrNameRanges"/><storycode:paste select="#f-c2f7bc821e36-parseStructure"/><storycode:paste select="#f-c2f7bc821e36-PROSE_CONTAINERS"/><storycode:paste select="#f-c2f7bc821e36-verbatimRanges"/><storycode:paste select="#f-c2f7bc821e36-inRanges"/><storycode:paste select="#f-c2f7bc821e36-HEADING_RE"/><storycode:paste select="#f-c2f7bc821e36-QUOTE_RE"/><storycode:paste select="#f-c2f7bc821e36-TASK_RE"/><storycode:paste select="#f-c2f7bc821e36-CODE_RE"/><storycode:paste select="#f-c2f7bc821e36-STRONG_RE"/><storycode:paste select="#f-c2f7bc821e36-EM_RE"/><storycode:paste select="#f-c2f7bc821e36-scanInline"/><storycode:paste select="#f-c2f7bc821e36-scanMarkdownProse"/><storycode:paste select="#f-c2f7bc821e36-parseHickDoc"/><storycode:paste select="#f-c2f7bc821e36-execBlocksOf"/><storycode:paste select="#f-c2f7bc821e36-ProseFence"/><storycode:paste select="#f-c2f7bc821e36-scanProseFences"/><storycode:paste select="#f-c2f7bc821e36-proseFences"/><storycode:paste select="#f-c2f7bc821e36-proseCodeFences"/><storycode:paste select="#f-c2f7bc821e36-fileBlocksOf"/><storycode:paste select="#f-c2f7bc821e36-containerNamesOf"/><storycode:paste select="#f-c2f7bc821e36-containerBlocksOf"/><storycode:paste select="#f-c2f7bc821e36-accessRulesOf"/><storycode:paste select="#f-c2f7bc821e36-blocksNamed"/><storycode:paste select="#f-c2f7bc821e36-fragmentBlocksOf"/><storycode:paste select="#f-c2f7bc821e36-PICTURE_EXTENSIONS"/><storycode:paste select="#f-c2f7bc821e36-isPicturePath"/><storycode:paste select="#f-c2f7bc821e36-pictureBlocksOf"/><storycode:paste select="#f-c2f7bc821e36-whenBlocksOf"/><storycode:paste select="#f-c2f7bc821e36-selectorMatches"/><storycode:paste select="#f-c2f7bc821e36-resolvePasteTarget"/><storycode:paste select="#f-c2f7bc821e36-within"/><storycode:paste select="#f-c2f7bc821e36-codeRangesOf"/><storycode:paste select="#f-c2f7bc821e36-languageForBlock"/><storycode:paste select="#f-c2f7bc821e36-expectRangeOf"/></storycode:file>
+<storycode:file path="apps/web/src/editor/hickDoc.ts"><storycode:paste select="#f-c2f7bc821e36-HickTag"/><storycode:paste select="#f-c2f7bc821e36-HickBlock"/><storycode:paste select="#f-c2f7bc821e36-Heading"/><storycode:paste select="#f-c2f7bc821e36-QuoteLine"/><storycode:paste select="#f-c2f7bc821e36-TaskItem"/><storycode:paste select="#f-c2f7bc821e36-InlineMark"/><storycode:paste select="#f-c2f7bc821e36-HickDocStructure"/><storycode:paste select="#f-c2f7bc821e36-byteToUnit"/><storycode:paste select="#f-c2f7bc821e36-attrNameRanges"/><storycode:paste select="#f-c2f7bc821e36-parseStructure"/><storycode:paste select="#f-c2f7bc821e36-PROSE_CONTAINERS"/><storycode:paste select="#f-c2f7bc821e36-verbatimRanges"/><storycode:paste select="#f-c2f7bc821e36-inRanges"/><storycode:paste select="#f-c2f7bc821e36-HEADING_RE"/><storycode:paste select="#f-c2f7bc821e36-QUOTE_RE"/><storycode:paste select="#f-c2f7bc821e36-TASK_RE"/><storycode:paste select="#f-c2f7bc821e36-CODE_RE"/><storycode:paste select="#f-c2f7bc821e36-STRONG_RE"/><storycode:paste select="#f-c2f7bc821e36-EM_RE"/><storycode:paste select="#f-c2f7bc821e36-scanInline"/><storycode:paste select="#yaml-frontmatter-boundary"/><storycode:paste select="#f-c2f7bc821e36-scanMarkdownProse"/><storycode:paste select="#f-c2f7bc821e36-parseHickDoc"/><storycode:paste select="#f-c2f7bc821e36-execBlocksOf"/><storycode:paste select="#f-c2f7bc821e36-ProseFence"/><storycode:paste select="#f-c2f7bc821e36-scanProseFences"/><storycode:paste select="#f-c2f7bc821e36-proseFences"/><storycode:paste select="#f-c2f7bc821e36-proseCodeFences"/><storycode:paste select="#f-c2f7bc821e36-fileBlocksOf"/><storycode:paste select="#f-c2f7bc821e36-containerNamesOf"/><storycode:paste select="#f-c2f7bc821e36-containerBlocksOf"/><storycode:paste select="#f-c2f7bc821e36-accessRulesOf"/><storycode:paste select="#f-c2f7bc821e36-blocksNamed"/><storycode:paste select="#f-c2f7bc821e36-fragmentBlocksOf"/><storycode:paste select="#f-c2f7bc821e36-PICTURE_EXTENSIONS"/><storycode:paste select="#f-c2f7bc821e36-isPicturePath"/><storycode:paste select="#f-c2f7bc821e36-pictureBlocksOf"/><storycode:paste select="#f-c2f7bc821e36-whenBlocksOf"/><storycode:paste select="#f-c2f7bc821e36-selectorMatches"/><storycode:paste select="#f-c2f7bc821e36-resolvePasteTarget"/><storycode:paste select="#f-c2f7bc821e36-within"/><storycode:paste select="#f-c2f7bc821e36-codeRangesOf"/><storycode:paste select="#f-c2f7bc821e36-languageForBlock"/><storycode:paste select="#f-c2f7bc821e36-expectRangeOf"/></storycode:file>
 
 </storycode:doc>

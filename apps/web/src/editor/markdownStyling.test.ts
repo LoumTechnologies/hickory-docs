@@ -14,6 +14,27 @@ import {
 const classOf = (r: Range<Decoration>) =>
   (r.value.spec as { class?: string }).class ?? "";
 
+it("colours YAML frontmatter and keeps its comments out of Markdown prose", async () => {
+  const { Decoration } = await import("@codemirror/view");
+  const { yamlFrontmatter, parseHickDoc } = await import("./hickDoc");
+  const { fenceHighlightRanges } = await import("./markdownFences");
+  const source = "\uFEFF---\r\n# metadata comment\r\ntitle: [broken\r\n...\r\n# Visible heading\n";
+  const metadata = yamlFrontmatter(source)!;
+  expect(source.slice(metadata.from, metadata.to)).toBe("# metadata comment\r\ntitle: [broken\r\n");
+  const structure = parseHickDoc(source);
+  expect(structure.headings.map(h => source.slice(h.markTo, h.to))).toEqual(["Visible heading"]);
+  const state = EditorState.create({ doc: source });
+  const original = state.doc.toString();
+  const drawnMetadata = yamlFrontmatter(original)!;
+  const ranges = fenceHighlightRanges(state, structure, [{ from: 0, to: source.length }], cls => Decoration.mark({ class: cls }));
+  expect(ranges.length).toBeGreaterThan(0);
+  expect(ranges.every(range => range.from >= drawnMetadata.from && range.to <= drawnMetadata.to)).toBe(true);
+  expect(state.doc.toString()).toBe(original);
+  expect(yamlFrontmatter("# Body\n---\na: b\n---\n")).toBeNull();
+  expect(yamlFrontmatter("---\na: b\n")).toBeNull();
+});
+
+
 describe("markdownStyling — parseMarkdownProse", () => {
   it("finds headings with their level and dimmed `#` mark range", () => {
     const src = "# Title\n\nprose\n\n### Deep\n";
@@ -179,6 +200,11 @@ describe("cursor-aware horizontal rules", () => {
     state = state.update({ selection: { anchor: 0 } }).state;
     expect(rules(state)).toEqual([6]);
     state = state.update({ changes: { from: 6, to: 7, insert: "x" } }).state;
+    expect(rules(state)).toEqual([]);
+  });
+  it("keeps YAML delimiters literal when the cursor is in prose", () => {
+    const src = "---\ntitle: hello\n\n---\n\nbody";
+    const state = EditorState.create({ doc: src, selection: { anchor: src.length }, extensions: horizontalRuleStyling() });
     expect(rules(state)).toEqual([]);
   });
   it("leaves fences, payloads, four-space code and heading underlines literal", () => {

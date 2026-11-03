@@ -17,7 +17,7 @@ import { EditorState, StateField } from "@codemirror/state";
 import type { Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
-import { scanMarkdownProse } from "./hickDoc";
+import { scanMarkdownProse, yamlFrontmatter } from "./hickDoc";
 import type { Heading, InlineMark, QuoteLine, TaskItem } from "./hickDoc";
 
 // One Decoration instance per class, shared by both editors so the CSS in
@@ -159,7 +159,8 @@ export function horizontalRuleStyling(
 ): Extension {
   const build = (state: EditorState): DecorationSet => {
     const text = state.doc.toString();
-    const blocked = [...fencedCodeRanges(text), ...excluded(state)];
+    const metadata = yamlFrontmatter(text);
+    const blocked = [...fencedCodeRanges(text), ...excluded(state), ...(metadata ? [[0, metadata.end] as const] : [])];
     const active = new Set(state.selection.ranges.map((r) => state.doc.lineAt(r.head).number));
     const ranges: Range<Decoration>[] = [];
     for (let n = 1; n <= state.doc.lines; n++) {
