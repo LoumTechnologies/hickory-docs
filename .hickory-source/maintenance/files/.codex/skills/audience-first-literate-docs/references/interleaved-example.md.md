@@ -1,11 +1,13 @@
-<maintain:doc xmlns:maintain="http://www.hickorydocs.com/1.0">
-# Maintain .codex/skills/audience-first-literate-docs/assets/interleaved-example.md
+<guidance:doc xmlns:guidance="http://www.hickorydocs.com/1.0">
+# Maintain .codex/skills/audience-first-literate-docs/references/interleaved-example.md
 
-For: maintainers locating this exact input or preserving the migration evidence.
+For maintainers updating the repository’s agent guidance.
 
-The entry below owns this output. Its metadata is separate from semantic verification.
+This literal entry preserves the skill refresh committed in `efbe277f`. Keeping the
+installed guidance in the declared source makes regeneration reproduce the same
+instructions. Embedded Markdown and Hickory examples remain literal payload.
 
-<maintain:entry path=".codex/skills/audience-first-literate-docs/assets/interleaved-example.md">
+<guidance:entry path=".codex/skills/audience-first-literate-docs/references/interleaved-example.md">
 <lit:doc xmlns:lit="http://www.hickorydocs.com/1.0">
 # Refuse a request that exceeds the remaining quota
 
@@ -72,5 +74,5 @@ directory. This command is a procedure for the maintainer; this document contain
 no execution cell and does not claim those tests ran merely because it was read.
 
 </lit:doc>
-</maintain:entry>
-</maintain:doc>
+</guidance:entry>
+</guidance:doc>

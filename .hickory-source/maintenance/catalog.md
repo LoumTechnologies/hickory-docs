@@ -70,8 +70,6 @@ Implementation and test narratives are in [the mechanism index](../mechanisms/in
 - [`.codex/skills/audience-first-literate-docs/agents/openai.yaml`](files/.codex/skills/audience-first-literate-docs/agents/openai.yaml.md)
 <storycode:include file="files/.codex/skills/audience-first-literate-docs/agents/openai.yaml.md" />
 
-- [`.codex/skills/audience-first-literate-docs/assets/interleaved-example.md`](files/.codex/skills/audience-first-literate-docs/assets/interleaved-example.md.md)
-<storycode:include file="files/.codex/skills/audience-first-literate-docs/assets/interleaved-example.md.md" />
 
 - [`hickory-dogfood/reorganization-before.json`](files/hickory-dogfood/reorganization-before.json.md)
 <storycode:include file="files/hickory-dogfood/reorganization-before.json.md" />
@@ -84,5 +82,71 @@ Implementation and test narratives are in [the mechanism index](../mechanisms/in
 
 - [`hickory-dogfood/CODEMODEL-PILOT.md`](files/hickory-dogfood/CODEMODEL-PILOT.md.md)
 <storycode:include file="files/hickory-dogfood/CODEMODEL-PILOT.md.md" />
+
+- [`.claude/skills/audience-first-literate-docs/SKILL.md`](files/.claude/skills/audience-first-literate-docs/SKILL.md.md)
+<storycode:include file="files/.claude/skills/audience-first-literate-docs/SKILL.md.md" />
+
+- [`.claude/skills/audience-first-literate-docs/agents/openai.yaml`](files/.claude/skills/audience-first-literate-docs/agents/openai.yaml.md)
+<storycode:include file="files/.claude/skills/audience-first-literate-docs/agents/openai.yaml.md" />
+
+- [`.claude/skills/audience-first-literate-docs/references/feature-measurements.md`](files/.claude/skills/audience-first-literate-docs/references/feature-measurements.md.md)
+<storycode:include file="files/.claude/skills/audience-first-literate-docs/references/feature-measurements.md.md" />
+
+- [`.claude/skills/audience-first-literate-docs/references/hickory-self-hosting.md`](files/.claude/skills/audience-first-literate-docs/references/hickory-self-hosting.md.md)
+<storycode:include file="files/.claude/skills/audience-first-literate-docs/references/hickory-self-hosting.md.md" />
+
+- [`.claude/skills/audience-first-literate-docs/references/interleaved-example.md`](files/.claude/skills/audience-first-literate-docs/references/interleaved-example.md.md)
+<storycode:include file="files/.claude/skills/audience-first-literate-docs/references/interleaved-example.md.md" />
+
+- [`.claude/skills/implement-just-interface/SKILL.md`](files/.claude/skills/implement-just-interface/SKILL.md.md)
+<storycode:include file="files/.claude/skills/implement-just-interface/SKILL.md.md" />
+
+- [`.codex/skills/audience-first-literate-docs/references/feature-measurements.md`](files/.codex/skills/audience-first-literate-docs/references/feature-measurements.md.md)
+<storycode:include file="files/.codex/skills/audience-first-literate-docs/references/feature-measurements.md.md" />
+
+- [`.codex/skills/audience-first-literate-docs/references/hickory-self-hosting.md`](files/.codex/skills/audience-first-literate-docs/references/hickory-self-hosting.md.md)
+<storycode:include file="files/.codex/skills/audience-first-literate-docs/references/hickory-self-hosting.md.md" />
+
+- [`.codex/skills/audience-first-literate-docs/references/interleaved-example.md`](files/.codex/skills/audience-first-literate-docs/references/interleaved-example.md.md)
+<storycode:include file="files/.codex/skills/audience-first-literate-docs/references/interleaved-example.md.md" />
+
+- [`.codex/skills/implement-just-interface/SKILL.md`](files/.codex/skills/implement-just-interface/SKILL.md.md)
+<storycode:include file="files/.codex/skills/implement-just-interface/SKILL.md.md" />
+
+- [`.grok/skills/audience-first-literate-docs/SKILL.md`](files/.grok/skills/audience-first-literate-docs/SKILL.md.md)
+<storycode:include file="files/.grok/skills/audience-first-literate-docs/SKILL.md.md" />
+
+- [`.grok/skills/audience-first-literate-docs/agents/openai.yaml`](files/.grok/skills/audience-first-literate-docs/agents/openai.yaml.md)
+<storycode:include file="files/.grok/skills/audience-first-literate-docs/agents/openai.yaml.md" />
+
+- [`.grok/skills/audience-first-literate-docs/references/feature-measurements.md`](files/.grok/skills/audience-first-literate-docs/references/feature-measurements.md.md)
+<storycode:include file="files/.grok/skills/audience-first-literate-docs/references/feature-measurements.md.md" />
+
+- [`.grok/skills/audience-first-literate-docs/references/hickory-self-hosting.md`](files/.grok/skills/audience-first-literate-docs/references/hickory-self-hosting.md.md)
+<storycode:include file="files/.grok/skills/audience-first-literate-docs/references/hickory-self-hosting.md.md" />
+
+- [`.grok/skills/audience-first-literate-docs/references/interleaved-example.md`](files/.grok/skills/audience-first-literate-docs/references/interleaved-example.md.md)
+<storycode:include file="files/.grok/skills/audience-first-literate-docs/references/interleaved-example.md.md" />
+
+- [`.grok/skills/implement-just-interface/SKILL.md`](files/.grok/skills/implement-just-interface/SKILL.md.md)
+<storycode:include file="files/.grok/skills/implement-just-interface/SKILL.md.md" />
+
+- [`.skills/audience-first-literate-docs/SKILL.md`](files/.skills/audience-first-literate-docs/SKILL.md.md)
+<storycode:include file="files/.skills/audience-first-literate-docs/SKILL.md.md" />
+
+- [`.skills/audience-first-literate-docs/agents/openai.yaml`](files/.skills/audience-first-literate-docs/agents/openai.yaml.md)
+<storycode:include file="files/.skills/audience-first-literate-docs/agents/openai.yaml.md" />
+
+- [`.skills/audience-first-literate-docs/references/feature-measurements.md`](files/.skills/audience-first-literate-docs/references/feature-measurements.md.md)
+<storycode:include file="files/.skills/audience-first-literate-docs/references/feature-measurements.md.md" />
+
+- [`.skills/audience-first-literate-docs/references/hickory-self-hosting.md`](files/.skills/audience-first-literate-docs/references/hickory-self-hosting.md.md)
+<storycode:include file="files/.skills/audience-first-literate-docs/references/hickory-self-hosting.md.md" />
+
+- [`.skills/audience-first-literate-docs/references/interleaved-example.md`](files/.skills/audience-first-literate-docs/references/interleaved-example.md.md)
+<storycode:include file="files/.skills/audience-first-literate-docs/references/interleaved-example.md.md" />
+
+- [`.skills/implement-just-interface/SKILL.md`](files/.skills/implement-just-interface/SKILL.md.md)
+<storycode:include file="files/.skills/implement-just-interface/SKILL.md.md" />
 
 </storycode:doc>

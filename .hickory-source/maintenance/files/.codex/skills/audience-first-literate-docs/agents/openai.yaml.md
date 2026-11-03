@@ -8,7 +8,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
 <maintain:entry path=".codex/skills/audience-first-literate-docs/agents/openai.yaml">
 interface:
   display_name: "Audience First Literate Docs"
-  short_description: "Interleave explanations, implementation, and tests"
-  default_prompt: "Use $audience-first-literate-docs to write or maintain Hickory source with explanations beside the implementation and tests they explain."
+  short_description: "Index shared code through audience-specific views"
+  default_prompt: "Use $audience-first-literate-docs to index source code through audience-specific literate views, adding reusable readings for likely recurring work and checking that each view preserves its backing code."
 </maintain:entry>
 </maintain:doc>

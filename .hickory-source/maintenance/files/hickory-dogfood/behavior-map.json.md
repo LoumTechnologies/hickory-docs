@@ -64159,13 +64159,6 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "role": "history-and-guidance",
       "construction": "literal"
     },
-    ".codex/skills/audience-first-literate-docs/assets/interleaved-example.md": {
-      "source": ".hickory-source/maintenance/files/.codex/skills/audience-first-literate-docs/assets/interleaved-example.md.md",
-      "owner": "maintenance",
-      "used_by": [],
-      "role": "history-and-guidance",
-      "construction": "literal"
-    },
     "hickory-dogfood/reorganization-before.json": {
       "source": ".hickory-source/maintenance/files/hickory-dogfood/reorganization-before.json.md",
       "owner": "maintenance",
@@ -65480,6 +65473,160 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "source": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
       "kind": "file",
       "executable": false
+    },
+    ".claude/skills/audience-first-literate-docs/SKILL.md": {
+      "source": ".hickory-source/maintenance/files/.claude/skills/audience-first-literate-docs/SKILL.md.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
+    },
+    ".claude/skills/audience-first-literate-docs/agents/openai.yaml": {
+      "source": ".hickory-source/maintenance/files/.claude/skills/audience-first-literate-docs/agents/openai.yaml.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
+    },
+    ".claude/skills/audience-first-literate-docs/references/feature-measurements.md": {
+      "source": ".hickory-source/maintenance/files/.claude/skills/audience-first-literate-docs/references/feature-measurements.md.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
+    },
+    ".claude/skills/audience-first-literate-docs/references/hickory-self-hosting.md": {
+      "source": ".hickory-source/maintenance/files/.claude/skills/audience-first-literate-docs/references/hickory-self-hosting.md.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
+    },
+    ".claude/skills/audience-first-literate-docs/references/interleaved-example.md": {
+      "source": ".hickory-source/maintenance/files/.claude/skills/audience-first-literate-docs/references/interleaved-example.md.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
+    },
+    ".claude/skills/implement-just-interface/SKILL.md": {
+      "source": ".hickory-source/maintenance/files/.claude/skills/implement-just-interface/SKILL.md.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
+    },
+    ".codex/skills/audience-first-literate-docs/references/feature-measurements.md": {
+      "source": ".hickory-source/maintenance/files/.codex/skills/audience-first-literate-docs/references/feature-measurements.md.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
+    },
+    ".codex/skills/audience-first-literate-docs/references/hickory-self-hosting.md": {
+      "source": ".hickory-source/maintenance/files/.codex/skills/audience-first-literate-docs/references/hickory-self-hosting.md.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
+    },
+    ".codex/skills/audience-first-literate-docs/references/interleaved-example.md": {
+      "source": ".hickory-source/maintenance/files/.codex/skills/audience-first-literate-docs/references/interleaved-example.md.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
+    },
+    ".codex/skills/implement-just-interface/SKILL.md": {
+      "source": ".hickory-source/maintenance/files/.codex/skills/implement-just-interface/SKILL.md.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
+    },
+    ".grok/skills/audience-first-literate-docs/SKILL.md": {
+      "source": ".hickory-source/maintenance/files/.grok/skills/audience-first-literate-docs/SKILL.md.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
+    },
+    ".grok/skills/audience-first-literate-docs/agents/openai.yaml": {
+      "source": ".hickory-source/maintenance/files/.grok/skills/audience-first-literate-docs/agents/openai.yaml.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
+    },
+    ".grok/skills/audience-first-literate-docs/references/feature-measurements.md": {
+      "source": ".hickory-source/maintenance/files/.grok/skills/audience-first-literate-docs/references/feature-measurements.md.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
+    },
+    ".grok/skills/audience-first-literate-docs/references/hickory-self-hosting.md": {
+      "source": ".hickory-source/maintenance/files/.grok/skills/audience-first-literate-docs/references/hickory-self-hosting.md.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
+    },
+    ".grok/skills/audience-first-literate-docs/references/interleaved-example.md": {
+      "source": ".hickory-source/maintenance/files/.grok/skills/audience-first-literate-docs/references/interleaved-example.md.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
+    },
+    ".grok/skills/implement-just-interface/SKILL.md": {
+      "source": ".hickory-source/maintenance/files/.grok/skills/implement-just-interface/SKILL.md.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
+    },
+    ".skills/audience-first-literate-docs/SKILL.md": {
+      "source": ".hickory-source/maintenance/files/.skills/audience-first-literate-docs/SKILL.md.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
+    },
+    ".skills/audience-first-literate-docs/agents/openai.yaml": {
+      "source": ".hickory-source/maintenance/files/.skills/audience-first-literate-docs/agents/openai.yaml.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
+    },
+    ".skills/audience-first-literate-docs/references/feature-measurements.md": {
+      "source": ".hickory-source/maintenance/files/.skills/audience-first-literate-docs/references/feature-measurements.md.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
+    },
+    ".skills/audience-first-literate-docs/references/hickory-self-hosting.md": {
+      "source": ".hickory-source/maintenance/files/.skills/audience-first-literate-docs/references/hickory-self-hosting.md.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
+    },
+    ".skills/audience-first-literate-docs/references/interleaved-example.md": {
+      "source": ".hickory-source/maintenance/files/.skills/audience-first-literate-docs/references/interleaved-example.md.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
+    },
+    ".skills/implement-just-interface/SKILL.md": {
+      "source": ".hickory-source/maintenance/files/.skills/implement-just-interface/SKILL.md.md",
+      "owner": "maintenance",
+      "used_by": [],
+      "role": "history-and-guidance",
+      "construction": "literal"
     }
   },
   "evidence_records": [

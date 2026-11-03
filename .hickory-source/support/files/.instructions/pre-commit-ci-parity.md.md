@@ -3,10 +3,10 @@
 
 For: maintainers changing this file and reviewers tracing the related behavioral requirements.
 
-This is preserved output from the original capture. Current requirement dispositions are in the integrated guarantee pages.
+This literal entry preserves the committed repository guidance, including the skill refresh in `efbe277f`. Edit this owner when the guidance changes; regeneration must retain the exact payload.
 
 
-Captured SHA-256: `f01d4b4dae6caf3661573ec09b6479627916243d4678730b71e94a817cc829f1`.
+Current payload SHA-256: `411f5543d370b7a5c72a3a0508bee63eb69dcf555ac81490d4c68cc269655723`.
 
 <book:entry path=".instructions/pre-commit-ci-parity.md">
 ---
@@ -14,15 +14,9 @@ skills:
   - implement-dev-environment
 ---
 
-# Local Checks / CI Parity And Selective Checks
+It should never be the case that CI fails but the pre-commit hook passed.
 
-**2026-10-17 amendment:** Repository checks run through blocking `just checks`.
-`post-commit` launches it detached; no pre-commit or pre-push check may block Git.
-A dirty working tree has an unassociated result; clean runs use a detached
-worktree and record the exact commit. The older gate wording below applies to
-check coverage, not permission to block a Git operation. Local execution does
-not require GitHub Actions. Existing release workflows are separate.
-
+# Pre-Commit / CI Parity And Selective Checks
 
 - **Pre-commit hooks must be at least as strict as CI.** It must never be
   possible to pass hooks, push, and then have CI fail on something a hook
@@ -41,6 +35,12 @@ not require GitHub Actions. Existing release workflows are separate.
   signal**, fixed the same way — tighten the hook, don't just note it.
 - **Flaky tests are treated as defects and fixed immediately**, not
   retried, quarantined-and-forgotten, or tolerated as background noise.
+
+
+
+
+
+Pre-commit hooks 
 </book:entry>
 
 </book:doc>

@@ -3,10 +3,10 @@
 
 For: maintainers changing this file and reviewers tracing the related behavioral requirements.
 
-This is preserved output from the original capture. Current requirement dispositions are in the integrated guarantee pages.
+This literal entry preserves the committed repository guidance, including the skill refresh in `efbe277f`. Edit this owner when the guidance changes; regeneration must retain the exact payload.
 
 
-Captured SHA-256: `6757eba97b7a578228f2d84aa0c956cb111fcec0b9f23b24c82641269c916da2`.
+Current payload SHA-256: `2c59365a9fedb1c175c61c0b6f5fa483ea6855f46a0edd8fdfcf5320924a7be6`.
 
 <book:entry path=".skills/scaffold-new-project/SKILL.md">
 ---
@@ -36,7 +36,7 @@ repos (a license service, an auth service, an internal API) serve other products
 rather than customers. They still need the full delivery and infrastructure
 skeleton, but they have no funnel to instrument and nothing to validate, so
 PostHog, `experiments.toml`, and the landing page do not apply — set
-`posthog = false` and say why in the repo's `CLAUDE.md` rather than scaffolding
+`posthog = false` and say why in the repo's `AGENTS.md` rather than scaffolding
 empty analytics. Their cost is portfolio overhead: give them their own
 `portfolio.toml` and DO projects so it stays attributable, and record which
 products they serve.
@@ -45,7 +45,7 @@ products they serve.
 
 1. Settle the language and stack once:
    - Ask the user which primary language to use if it is not obvious, then
-     record it in the project-level `CLAUDE.md`/agent instructions. Standalone
+     record it in the project-level `AGENTS.md`. Standalone
      scripts are written in this language from then on (see the `just`
      instruction module).
    - Record other standing choices there too: framework, database, auth
@@ -172,12 +172,14 @@ products they serve.
 
 ## Guardrails
 
+- Never create `CLAUDE.md`; use `AGENTS.md` for project instructions. An
+  existing `CLAUDE.md` can receive includes as needed.
 - Do not scaffold full-tier infrastructure for an unvalidated idea; that is the
   main source of idle portfolio cost. Graduation is a deliberate step.
 - Do not create new vendor accounts when a shared portfolio account exists;
   new fixed fees need explicit user approval.
 - Conventions here are defaults, not law: when the user overrides one, record
-  the override in the project's `CLAUDE.md` so future sessions stop re-asking.
+  the override in the project's `AGENTS.md` so future sessions stop re-asking.
 </book:entry>
 
 </book:doc>

@@ -11,22 +11,24 @@ skills:
   - guarantee-maintainer
 ---
 
-# Maintain the current behavioral contracts
+# Specs and guarantees
 
-For agents changing a Hickory requirement or its implementation.
+Maintain two levels of specs:
 
-Start from `project.md` and open its owning contract under
-`.hickory-source/guarantees/`. Edit the contract and the linked implementation/test
-entries together. Regenerate the ordinary working files before focused tests.
+- High-level, freeform English specs live in `docs/specs/freeform/`.
+- Strict behavioral guarantees live in `docs/guarantees/`.
 
-The generated `docs/guarantees/` and `docs/specs/freeform/` files preserve the
-pre-migration specifications. Their amendments and verification notes are
-historical inputs; the linked contract pages record current dispositions and
-remaining review work. New product promises belong in the canonical contract
-pages, with independent evidence and unresolved caveats kept visible.
+Each guarantee gets its own Markdown file with a header, the guarantee text, a
+horizontal rule, and the latest LLM verification notes. Organize guarantee files
+into subdirectories when useful. Verification notes must reference concrete
+files, functions, modules, tests, and caveats so the implementation can be found
+quickly.
 
-Keep LLM review, executed checks and human acceptance separate. Name the relevant
-contract in tests. Follow `docs/developers/literate-workflow.md` for generation,
-source/output checks and recovery.
+When implementing ticketry tickets or making behavior changes, add, update, or
+remove guarantees as needed. Prefer tests for guarantees whenever practical. Any
+test that exists to protect one or more guarantees must include a comment naming
+the guarantee file path or paths. If a guarantee cannot be fully protected by
+tests yet, say that in the guarantee's verification notes and explain what still
+requires LLM review.
 </maint:entry>
 </maint:doc>
