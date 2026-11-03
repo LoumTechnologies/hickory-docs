@@ -1,6 +1,6 @@
 // Guarantee: docs/guarantees/authoring/markdown-tables-use-the-table-editor.md
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MarkdownTable } from "./MarkdownTable";
 import { markdownCells, markdownRows, writeMarkdownTable } from "../lib/markdownTable";
 import { markdownTableBlocks } from "../editor/markdownTables";
@@ -33,7 +33,7 @@ describe("Markdown tables", () => {
     expect(onLayout).toHaveBeenLastCalledWith(expect.objectContaining({ fitProse: false, widths: { "0": 134 } }));
   });
 
-  it("honors remembered widths and the gear setting in both directions", () => {
+  it("honors remembered widths and the gear setting in both directions", async () => {
     const onLayout = vi.fn();
     const { container } = render(<MarkdownTable source={source} layout={{ widths: { "0": 200 } }} onLayout={onLayout} />);
     expect(container.querySelector(".table-panel--fit-prose")).toBeNull();
@@ -42,6 +42,7 @@ describe("Markdown tables", () => {
     fireEvent.click(toggle);
     expect(container.querySelector(".table-panel--fit-prose")).not.toBeNull();
     expect(onLayout).toHaveBeenLastCalledWith(expect.objectContaining({ fitProse: true }));
+    await waitFor(() => expect((toggle as HTMLInputElement).disabled).toBe(false));
     fireEvent.click(toggle);
     expect(container.querySelector(".table-panel--fit-prose")).toBeNull();
     expect(onLayout).toHaveBeenLastCalledWith(expect.objectContaining({ fitProse: false }));

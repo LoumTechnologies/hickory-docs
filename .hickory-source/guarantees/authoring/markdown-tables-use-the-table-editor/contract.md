@@ -29,6 +29,14 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ## Implementation
 
+We already adapt Markdown rows into the CSV grid and serialize edits back into
+pipe syntax. Keep that shared surface: the document-editor witness below checks
+that an edit follows a table moved by prose, preserves alignment, and participates
+in ordinary undo before revealing source. The settings witness waits for the
+shared checkbox callback to finish before toggling again; a pending control
+cannot accept a second click.
+
+
 <a id="output-66a333e642b4"></a>
 ## `apps/web/src/components/MarkdownTable.test.tsx`
 
@@ -42,7 +50,7 @@ Related contracts: [Markdown tables use the table editor](contract.md).
 <storycode:copy id="f-66a333e642b4-source">
 // Guarantee: docs/guarantees/authoring/markdown-tables-use-the-table-editor.md
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MarkdownTable } from "./MarkdownTable";
 import { markdownCells, markdownRows, writeMarkdownTable } from "../lib/markdownTable";
 import { markdownTableBlocks } from "../editor/markdownTables";
@@ -85,7 +93,7 @@ describe("Markdown tables", () => {
     expect(onLayout).toHaveBeenLastCalledWith(expect.objectContaining({ fitProse: false, widths: { "0": 134 } }));
   });
 
-  it("honors remembered widths and the gear setting in both directions", () => {
+  it("honors remembered widths and the gear setting in both directions", async () => {
     const onLayout = vi.fn();
     const { container } = render(<MarkdownTable source={source} layout={{ widths: { "0": 200 } }} onLayout={onLayout} />);
     expect(container.querySelector(".table-panel--fit-prose")).toBeNull();
@@ -94,6 +102,7 @@ describe("Markdown tables", () => {
     fireEvent.click(toggle);
     expect(container.querySelector(".table-panel--fit-prose")).not.toBeNull();
     expect(onLayout).toHaveBeenLastCalledWith(expect.objectContaining({ fitProse: true }));
+    await waitFor(() => expect((toggle as HTMLInputElement).disabled).toBe(false));
     fireEvent.click(toggle);
     expect(container.querySelector(".table-panel--fit-prose")).toBeNull();
     expect(onLayout).toHaveBeenLastCalledWith(expect.objectContaining({ fitProse: false }));
@@ -178,6 +187,7 @@ import { EditorView } from "@codemirror/view";
 import { DocumentEditor } from "./DocumentEditor";
 import { LocalRealtime } from "../api/realtime";
 import { showBlockSource } from "./rendered";
+import { undo } from "@codemirror/commands";
 
 afterEach(cleanup);
 
@@ -211,10 +221,31 @@ it("opens a Markdown table as a grid, keeps edits after prose moves it, and reve
   fireEvent.keyDown(header, { key: 'Enter' });
   await waitFor(() => expect(view.state.doc.toString()).toContain('| Region | Count |'));
   expect(screen.getByTestId('table-panel')).toBeTruthy();
-  const at = view.state.doc.toString().indexOf('| Region');
+  // The shared grid commits a document transaction, so ordinary editor undo
+  // restores the header without losing the table viewer.
+  expect(undo(view)).toBe(true);
+  await waitFor(() => expect(view.state.doc.toString()).toContain('| Name | Count |'));
+  expect(view.state.doc.toString()).toBe('# Notes\n' + source.replace('120', '121'));
+  expect(screen.getByTestId('table-panel')).toBeTruthy();
+  const at = view.state.doc.toString().indexOf('| Name');
   view.dispatch({ effects: showBlockSource.of(at) });
   await waitFor(() => expect(screen.queryByTestId('table-panel')).toBeNull());
-  expect(container.querySelector('.cm-content')?.textContent).toContain('| Region | Count |');
+  expect(container.querySelector('.cm-content')?.textContent).toContain('| Name | Count |');
+});
+
+it("keeps the Markdown grid viewable without accepting edits in a read-only document", async () => {
+  const source = '| Name | Count |\n| --- | --- |\n| North | 120 |';
+  const onChange = vi.fn();
+  const { container } = render(<DocumentEditor docId="markdown-readonly" initialSource={source}
+    realtime={new LocalRealtime()} execBlocks={[]} runningCells={new Set()}
+    readOnly onRunCell={() => undefined} onChange={onChange} />);
+  await waitFor(() => expect(screen.getByTestId("table-panel")).toBeTruthy());
+  onChange.mockClear(); // Initial room hydration reports the unchanged source.
+  fireEvent.doubleClick(screen.getByText('120'));
+  expect((screen.getByRole('textbox', { name: 'Cell contents' }) as HTMLInputElement).disabled).toBe(true);
+  const view = EditorView.findFromDOM(container.querySelector('.cm-editor')!)!;
+  expect(view.state.doc.toString()).toBe(source);
+  expect(onChange).not.toHaveBeenCalled();
 });
 </storycode:copy>
 

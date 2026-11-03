@@ -5,6 +5,7 @@ import { EditorView } from "@codemirror/view";
 import { DocumentEditor } from "./DocumentEditor";
 import { LocalRealtime } from "../api/realtime";
 import { showBlockSource } from "./rendered";
+import { undo } from "@codemirror/commands";
 
 afterEach(cleanup);
 
@@ -33,8 +34,29 @@ it("opens a Markdown table as a grid, keeps edits after prose moves it, and reve
   fireEvent.keyDown(header, { key: 'Enter' });
   await waitFor(() => expect(view.state.doc.toString()).toContain('| Region | Count |'));
   expect(screen.getByTestId('table-panel')).toBeTruthy();
-  const at = view.state.doc.toString().indexOf('| Region');
+  // The shared grid commits a document transaction, so ordinary editor undo
+  // restores the header without losing the table viewer.
+  expect(undo(view)).toBe(true);
+  await waitFor(() => expect(view.state.doc.toString()).toContain('| Name | Count |'));
+  expect(view.state.doc.toString()).toBe('# Notes\n' + source.replace('120', '121'));
+  expect(screen.getByTestId('table-panel')).toBeTruthy();
+  const at = view.state.doc.toString().indexOf('| Name');
   view.dispatch({ effects: showBlockSource.of(at) });
   await waitFor(() => expect(screen.queryByTestId('table-panel')).toBeNull());
-  expect(container.querySelector('.cm-content')?.textContent).toContain('| Region | Count |');
+  expect(container.querySelector('.cm-content')?.textContent).toContain('| Name | Count |');
+});
+
+it("keeps the Markdown grid viewable without accepting edits in a read-only document", async () => {
+  const source = '| Name | Count |\n| --- | --- |\n| North | 120 |';
+  const onChange = vi.fn();
+  const { container } = render(<DocumentEditor docId="markdown-readonly" initialSource={source}
+    realtime={new LocalRealtime()} execBlocks={[]} runningCells={new Set()}
+    readOnly onRunCell={() => undefined} onChange={onChange} />);
+  await waitFor(() => expect(screen.getByTestId("table-panel")).toBeTruthy());
+  onChange.mockClear(); // Initial room hydration reports the unchanged source.
+  fireEvent.doubleClick(screen.getByText('120'));
+  expect((screen.getByRole('textbox', { name: 'Cell contents' }) as HTMLInputElement).disabled).toBe(true);
+  const view = EditorView.findFromDOM(container.querySelector('.cm-editor')!)!;
+  expect(view.state.doc.toString()).toBe(source);
+  expect(onChange).not.toHaveBeenCalled();
 });
