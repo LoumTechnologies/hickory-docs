@@ -22,6 +22,7 @@ import { UiCheckbox } from "./UiCheckbox";
 import { ContextUpdates } from "./ContextUpdates";
 import { registerInvestigationConversation } from "../lib/reviewInvestigations";
 import { AgentProject } from "./AgentProject";
+import { FeatureExperiments } from "./FeatureExperiments";
 import { AgentChanges } from "./AgentChanges";
 import { acpApi } from "../api/acp";
 import type { AgentChange } from "../api/acp";
@@ -440,6 +441,12 @@ export function deepestFrom(turns: AgentTurn[], from: string): string {
 <a id="f-57557cac78c8-ChatDock"></a>
 ### `ChatDock`
 
+The feature-measurement component owns human opt-in and correctness review.
+The dock keeps the selected interventions and includes them only when sending
+to Codex. An unchecked control omits the optional experiment entirely. Results
+are collected through the native ACP route; the UI does not launch another
+benchmark process or merge trial edits into the primary conversation.
+
 The header identifies the selected provider/model or ACP adapter without adding a
 configuration row. Empty conversations start with the response editor itself.
 Context comparisons live in the gutter only when a retained reference differs;
@@ -484,6 +491,9 @@ export function ChatDock({
   const [showCollapsedLineage, setShowCollapsedLineage] = useState(loadCollapsedLineage);
   const [backend, setBackend] = useState(preferredAgent);
   const [sending, setSending] = useState(false);
+  const [experimentFeatures, setExperimentFeatures] = useState<string[]>([]);
+  const [activeExperimentFeatures, setActiveExperimentFeatures] = useState<string[]>([]);
+  useEffect(() => { if (!running) setActiveExperimentFeatures([]); }, [running]);
   const sendingRef = useRef(false);
   const earlyEvents = useRef<RunWsMessage[]>([]);
   const [provider, setProvider] = useState("");
@@ -655,15 +665,15 @@ export function ChatDock({
       // The visible tip is the parent: rewinding is just selecting an earlier
       // turn before sending. The model control rides along exactly as shown:
       // an emptied model input clears back to the provider's default.
-      const { session_id } = await api.agent(
-        docId,
-        text,
-        tip,
-        provider || undefined,
-        provider ? model.trim() : undefined,
-        backend,
-        ...(getContext ? [await getContext()] as const : []),
-      );
+      const requestArgs: Parameters<typeof api.agent> = [
+        docId, text, tip, provider || undefined,
+        provider ? model.trim() : undefined, backend,
+      ];
+      if (getContext) requestArgs[6] = await getContext();
+      if (backend === "codex" && experimentFeatures.length) requestArgs[7] = { features: experimentFeatures };
+      const { session_id } = await api.agent(...requestArgs);
+      setActiveExperimentFeatures(backend === "codex" ? experimentFeatures : []);
+      setExperimentFeatures([]);
       setRunning(session_id);
       runningRef.current = session_id;
       recovery.accepted(investigation ? { ...submitted, revision: -1 } : submitted, session_id);
@@ -790,6 +800,7 @@ export function ChatDock({
         </FeatureSettings>}
       </header>
       {!collapsed && <AcpControls doc={docId} backend={backend} running={running !== null} control={acp} settingsOpen={false} showTools={false} />}
+      {!collapsed && <FeatureExperiments doc={docId} backend={backend} running={running !== null || sending || acp.busy} features={experimentFeatures} activeFeatures={activeExperimentFeatures} onFeatures={setExperimentFeatures} onUpdate={async () => { const result = await acp.install(); if (result.error) throw new Error(result.error); if (result.superseded) throw new Error("Agent selection changed; inspect the installed adapter before retrying"); }} />}
 
       {!collapsed && (
         <div className="chat-log" ref={logRef}>
@@ -999,6 +1010,27 @@ describe("switching agents", () => {
     vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [...agents, { id: "custom", name: "My agent", command: "my-acp", args: [], available: true }] });
     fireEvent.click(screen.getByRole("button", { name: "Refresh agents" }));
     await screen.findByRole("option", { name: "My agent (ACP)" });
+  });
+  // Contract: .hickory-source/guarantees/agent/feature-experiments/contract.md
+  it("measures only the request explicitly opted in by the human", async () => {
+    localStorage.setItem("hickory.agent", "codex");
+    vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [{ id:"codex", name:"Codex", command:"codex-acp", args:[], available:true }] });
+    vi.mocked(acpApi.connect).mockResolvedValue({ backend:"codex", ready:true });
+    vi.mocked(acpApi.state).mockResolvedValue({ backend:"codex", ready:true });
+    vi.mocked(api.agentTurns).mockResolvedValue({ turns:[], backend:"codex", provider:"anthropic", model:"", totals:{ usd:0, input:0, output:0, cache_read:0, cache_write:0 } });
+    vi.mocked(api.agent).mockResolvedValue({ session_id:"measured-request" });
+    const realtime = { onRunEvent: () => () => undefined } as unknown as Realtime;
+    render(<ChatDock docId="measured" realtime={realtime} onAgentFinished={() => undefined} />);
+    const checkbox = await screen.findByRole("checkbox", { name:"Measure this request with and without Hickory features" }) as HTMLInputElement;
+    await waitFor(() => expect(checkbox.disabled).toBe(false));
+    await act(async () => fireEvent.click(checkbox));
+    expect(checkbox.checked).toBe(true);
+    await typeResponse("Implement the quota rule");
+    await waitFor(() => expect((screen.getByRole("button", { name:"Send" }) as HTMLButtonElement).disabled).toBe(false));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name:"Send" })));
+    await waitFor(() => expect(vi.mocked(api.agent).mock.calls.at(-1)?.[7]).toEqual({ features:["literate-indexes"] }));
+    expect(vi.mocked(api.agent).mock.calls.at(-1)?.[1]).toBe("Implement the quota rule");
+    expect(checkbox.checked).toBe(false);
   });
   // Guarantee: docs/guarantees/agent/python-execution-has-two-boundaries.md
   it("selects Python without ACP login, retains model choice and hydrates its backend", async () => {

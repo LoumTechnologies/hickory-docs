@@ -30,6 +30,7 @@ pub(super) mod config;
 
 <storycode:copy id="f-fa77fc3f176f-edits">
 pub(crate) mod edits;
+pub(super) mod experiments;
 </storycode:copy>
 <a id="f-fa77fc3f176f-mcp"></a>
 ### `mcp`
@@ -217,7 +218,7 @@ pub async fn install(
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
     let package = match id.as_str() {
-        "codex" => "@agentclientprotocol/codex-acp@2.0.1",
+        "codex" => "@agentclientprotocol/codex-acp@2.5.0",
         "claude" => "@agentclientprotocol/claude-agent-acp@0.81.2",
         _ => {
             return Err(ApiError::bad_request(
@@ -560,6 +561,12 @@ pub async fn permission(
 <a id="f-fa77fc3f176f-start_turn"></a>
 ### `start_turn`
 
+An optional comparison plan freezes inputs before the ordinary turn writes.
+After normal changeset capture completes, run that plan with the same stop flag
+and retain the primary result separately. The ordinary request has no comparison
+plan by default, so it starts no additional ACP process. A failed primary request
+cancels the queued comparisons instead of spending on retries.
+
 <storycode:copy id="f-fa77fc3f176f-start_turn">
 pub async fn start_turn(
     state: LocalState,
@@ -591,6 +598,22 @@ pub async fn start_turn(
         .to_string();
     let turn_id = format!("{:016x}", super::rand_id());
     let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let experiment = match body.experiment.clone() {
+        Some(options) => Some(
+            experiments::prepare(
+                &state,
+                &doc_id,
+                &turn_id,
+                &prompt,
+                options,
+                &body.context,
+                &client,
+            )
+            .await
+            .map_err(error)?,
+        ),
+        None => None,
+    };
     {
         let mut map = state.agent.turns.lock().unwrap();
         let turns = map.entry(doc_id.clone()).or_default();
@@ -708,6 +731,7 @@ pub async fn start_turn(
     };
     let run_id = turn_id.clone();
     tokio::spawn(async move {
+        let primary_started = std::time::Instant::now();
         let _annotation_gate = state.agent.annotations_gate.read().await;
         let mut outcome = client
             .prompt(
@@ -715,7 +739,7 @@ pub async fn start_turn(
                 body.parent_id.as_deref(),
                 &prompt,
                 &context,
-                cancel,
+                cancel.clone(),
             )
             .await;
         match project_capture {
@@ -760,6 +784,19 @@ pub async fn start_turn(
                 outcome = Err(anyhow::anyhow!(
                     "The final artifact became stale or could not be recorded at turn completion. Its writes remain captured."
                 ));
+            }
+        }
+        if let Some(mut plan) = experiment {
+            plan.record["primary"] = json!({"status":if outcome.is_ok() {"completed"} else {"error"},"answer":outcome.as_ref().ok(),"error":outcome.as_ref().err().map(|e|format!("{e:#}")),"wall_seconds":primary_started.elapsed().as_secs_f64(),"observed":client.last_observation.lock().unwrap().clone(),"scope":"Ordinary continuing conversation; not a fresh comparison arm"});
+            state.rooms.publish_run_event(&doc_id, &json!({"run_id":run_id,"exec_id":"agent","event":{"kind":"token","data":"\n\n[Measuring selected features in separate Codex ACP working copies…]\n"}})).await;
+            if outcome.is_err() {
+                cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            if let Err(error) = experiments::execute(&state, plan, cancel.clone()).await {
+                let _ = client.record.lock().await.context(
+                    "feature-experiment-error",
+                    &json!({"turn":run_id,"error":format!("{error:#}")}),
+                );
             }
         }
         // Late MCP requests must not submit against a completed turn.

@@ -404,10 +404,18 @@ pub fn prior_turns_of(turns: &[TurnRecord], tip: Option<&str>) -> Vec<PriorTurn>
 <a id="f-2ce16640df92-AgentRequest"></a>
 ### `AgentRequest`
 
+The optional experiment field belongs to Send, rather than global agent
+configuration: extra runs require an explicit request. Dispatch refuses this
+field for non-Codex backends. The experiment module validates feature selection
+and captures evidence; the ordinary turn and changeset protocol stay authoritative
+for the requested implementation.
+
 <storycode:copy id="f-2ce16640df92-AgentRequest">
 /// Body of `POST /api/docs/:id/agent`.
 #[derive(Deserialize)]
 pub struct AgentRequest {
+    #[serde(default)]
+    pub experiment: Option<super::acp::experiments::Options>,
     #[serde(default)]
     pub backend: Option<String>,
     pub prompt: String,
@@ -460,6 +468,11 @@ pub async fn start_turn(
             .cloned()
             .unwrap_or_else(|| "python".into())
     });
+    if body.experiment.is_some() && backend != "codex" {
+        return Err(ApiError::bad_request(
+            "Feature measurement currently requires Codex ACP.",
+        ));
+    }
     if backend == "builtin" {
         return Err(ApiError::bad_request(
             "The Rust agent was removed. Select Hickory Python or an ACP agent.",

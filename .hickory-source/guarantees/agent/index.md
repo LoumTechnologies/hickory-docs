@@ -107,4 +107,8 @@ Follow a proposed change from context selection through review, application and 
 <book:include file="unsent-responses-survive-restart/contract.md" />
 <book:include file="verify-covers-the-whole-editable-set/contract.md" />
 
+
+- [Measure features during ordinary Codex ACP requests](feature-experiments/contract.md).
+<book:include file="feature-experiments/contract.md" />
+
 </book:doc>

@@ -35,6 +35,7 @@ struct Bridge {
     workspace_gate: Arc<Mutex<()>>,
     edits: Arc<super::edits::Edits>,
     changeset: Arc<Mutex<Option<crate::changeset::Contract>>>,
+    disabled_tools: Arc<Mutex<std::collections::HashSet<String>>>,
 }
 
 </storycode:copy>
@@ -47,6 +48,7 @@ pub struct Host {
     pub url: String,
     pub edits: Arc<super::edits::Edits>,
     pub changeset: Arc<Mutex<Option<crate::changeset::Contract>>>,
+    pub disabled_tools: Arc<Mutex<std::collections::HashSet<String>>>,
     record: Arc<Mutex<Record>>,
     workspace_gate: Arc<Mutex<()>>,
     task: tokio::task::JoinHandle<()>,
@@ -88,6 +90,7 @@ impl Host {
             *edits.mode.lock().unwrap() = mode;
         }
         let changeset = Arc::new(Mutex::new(None));
+        let disabled_tools = Arc::new(Mutex::new(std::collections::HashSet::new()));
         let ui_window = Arc::new(Mutex::new(None));
         let bridge = Bridge {
             ui_window: ui_window.clone(),
@@ -100,6 +103,7 @@ impl Host {
             record: record.clone(),
             workspace_gate: workspace_gate.clone(),
             changeset: changeset.clone(),
+            disabled_tools: disabled_tools.clone(),
             edits: edits.clone(),
         };
         let token = format!(
@@ -123,6 +127,7 @@ impl Host {
             changeset,
             record,
             workspace_gate,
+            disabled_tools,
         })
     }
 }
@@ -140,6 +145,9 @@ async fn exchange(State(bridge): State<Bridge>, Json(message): Json<Value>) -> i
     let params = message.get("params").cloned().unwrap_or(json!({}));
     let name = params["name"].as_str().unwrap_or("");
     let args = &params["arguments"];
+    if method == "tools/call" && bridge.disabled_tools.lock().await.contains(name) {
+        return tool_error(id, "This feature is disabled for this comparison arm.");
+    }
     if method == "tools/call" && matches!(name, "ui_observe" | "ui_act" | "ui_cancel") {
         let window = bridge.ui_window.lock().await.clone();
         let session = bridge.record.lock().await.path.clone();
@@ -342,6 +350,12 @@ async fn exchange(State(bridge): State<Bridge>, Json(message): Json<Value>) -> i
         tools.extend(super::super::representation_tools::catalogue());
         tools.extend(super::edits::catalogue());
         tools.extend(super::super::ui_actions::catalogue());
+        let disabled = bridge.disabled_tools.lock().await;
+        tools.retain(|tool| {
+            !tool["name"]
+                .as_str()
+                .is_some_and(|name| disabled.contains(name))
+        });
     }
     if let Err(e) = super::workspace::finish(&bridge.context, snapshots).await {
         result = Err((

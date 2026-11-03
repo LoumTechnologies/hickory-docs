@@ -10,7 +10,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
   "format": 1,
   "starting_revision": "9461830eeee3b5c7f8cfe9c45edf3c1cdd060350",
   "policy": "Narrative ownership is separate from semantic verification. Existing source comments are retained explanation candidates; undocumented declarations remain explicit review work.",
-  "code_outputs": 1840,
+  "code_outputs": 1844,
   "relocated_annotated_tests": 184,
   "fragments": [
     {
@@ -148196,6 +148196,118 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/guarantees/agent/ui-action-dispatch/implementation/apps/web/src/components/MergeView.test.tsx.md",
       "symbol": "disk change safety tests",
       "basis": "explained-decision"
+    },
+    {
+      "id": "feature-experiments-experiments-0",
+      "output": "crates/hickory-cli/src/serve/acp/experiments.rs",
+      "page": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
+      "symbol": "feature-experiments-experiments-0",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "feature-experiments-experiments-1",
+      "output": "crates/hickory-cli/src/serve/acp/experiments.rs",
+      "page": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
+      "symbol": "feature-experiments-experiments-1",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "feature-experiments-experiments-2",
+      "output": "crates/hickory-cli/src/serve/acp/experiments.rs",
+      "page": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
+      "symbol": "feature-experiments-experiments-2",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "feature-experiments-experiments-3",
+      "output": "crates/hickory-cli/src/serve/acp/experiments.rs",
+      "page": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
+      "symbol": "feature-experiments-experiments-3",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "feature-experiments-experiments-4",
+      "output": "crates/hickory-cli/src/serve/acp/experiments.rs",
+      "page": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
+      "symbol": "feature-experiments-experiments-4",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "feature-experiments-experiments-5",
+      "output": "crates/hickory-cli/src/serve/acp/experiments.rs",
+      "page": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
+      "symbol": "feature-experiments-experiments-5",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "feature-experiments-experiments-6",
+      "output": "crates/hickory-cli/src/serve/acp/experiments.rs",
+      "page": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
+      "symbol": "feature-experiments-experiments-6",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "feature-experiments-experiments-7",
+      "output": "crates/hickory-cli/src/serve/acp/experiments.rs",
+      "page": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
+      "symbol": "feature-experiments-experiments-7",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "feature-experiments-experiments-8",
+      "output": "crates/hickory-cli/src/serve/acp/experiments.rs",
+      "page": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
+      "symbol": "feature-experiments-experiments-8",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "feature-experiments-experiments-9",
+      "output": "crates/hickory-cli/src/serve/acp/experiments.rs",
+      "page": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
+      "symbol": "feature-experiments-experiments-9",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "feature-experiments-experiments-10",
+      "output": "crates/hickory-cli/src/serve/acp/experiments.rs",
+      "page": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
+      "symbol": "feature-experiments-experiments-10",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "feature-experiments-FeatureExperiments-0",
+      "output": "apps/web/src/components/FeatureExperiments.tsx",
+      "page": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
+      "symbol": "feature-experiments-FeatureExperiments-0",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "feature-experiments-FeatureExperiments-1",
+      "output": "apps/web/src/components/FeatureExperiments.tsx",
+      "page": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
+      "symbol": "feature-experiments-FeatureExperiments-1",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "feature-experiments-experiments-11",
+      "output": "crates/hickory-cli/src/serve/acp/experiments.rs",
+      "page": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
+      "symbol": "feature-experiments-experiments-11",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "feature-experiments-feature_experiments-0",
+      "output": "crates/hickory-cli/tests/feature_experiments.rs",
+      "page": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
+      "symbol": "feature-experiments-feature_experiments-0",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "feature-experiments-FeatureExperiments-test-0",
+      "output": "apps/web/src/components/FeatureExperiments.test.tsx",
+      "page": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
+      "symbol": "feature-experiments-FeatureExperiments.test-0",
+      "basis": "authored-explanation"
     }
   ],
   "explanation_gaps": {

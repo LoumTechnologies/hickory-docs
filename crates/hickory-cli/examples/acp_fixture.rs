@@ -91,6 +91,39 @@ async fn main() {
                     .lines()
                     .next()
                     .unwrap();
+                if prompt == "measure-request" {
+                    let source =
+                        std::fs::read_to_string(std::path::Path::new(&cwd).join("app.txt"))
+                            .unwrap();
+                    let client = reqwest::Client::new();
+                    let tools: Value = client
+                        .post(&bridge)
+                        .json(&json!({"jsonrpc":"2.0","id":91,"method":"tools/list","params":{}}))
+                        .send()
+                        .await
+                        .unwrap()
+                        .json()
+                        .await
+                        .unwrap();
+                    let lineage = tools["result"]["tools"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|t| t["name"] == "read_output");
+                    let direct: Value = client.post(&bridge).json(&json!({"jsonrpc":"2.0","id":92,"method":"tools/call","params":{"name":"read_output","arguments":{}}})).send().await.unwrap().json().await.unwrap();
+                    let answer = json!({"starting_source":source,"has_index":std::path::Path::new(&cwd).join("project.md").exists(),"has_lineage":lineage,"direct_disabled_refusal":direct.to_string().contains("disabled for this comparison")});
+                    std::fs::write(
+                        std::path::Path::new(&cwd).join("app.txt"),
+                        "primary or trial edit\n",
+                    )
+                    .unwrap();
+                    update(
+                        json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":answer.to_string()}}),
+                    );
+                    update(json!({"sessionUpdate":"usage_update","used":1234,"size":100000}));
+                    result(id, json!({"stopReason":"end_turn"}));
+                    continue;
+                }
                 if changesets
                     && (prompt.starts_with("contract-")
                         || prompt.starts_with("Hickory changeset not accepted"))

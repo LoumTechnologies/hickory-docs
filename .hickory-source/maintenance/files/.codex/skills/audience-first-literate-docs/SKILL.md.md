@@ -123,6 +123,27 @@ the unresolved ownership and what needs inspection. Do not hide it in an
 unexplained support bucket, delete it on that evidence alone, or claim the whole
 codebase is explained after processing only some files.
 
+## Offer reusable readings and measure their value
+
+One authoritative construction can support multiple audience-specific literate
+views. Treat each view as an explained index into shared maintained code, with
+exact provenance and separate reading order. Add a discoverable view when the
+same investigation or maintenance task is likely to recur; extend a suitable
+existing reading first. Do not duplicate independently maintained implementations.
+Check each view against its declared backing files at the same revision, and
+refresh explanations when code changes. Reconstruction equality is separate from
+correct prose or evidence that the view helps its audience.
+
+Use Hickory's ordinary Codex ACP request flow to collect performance evidence.
+The human opts in through **Measure this request with and without Hickory
+features** and selects interventions before Send. The normal implementation is
+primary; paired extra runs use frozen inputs in separate working copies. Do not
+silently enable extra requests or build an independent benchmark runner instead.
+Inspect retained trial edits and focused checks before recording correctness.
+Preserve failed runs, negative savings and unavailable metrics; context occupancy
+is not token spend. A repeated-task index is a candidate improvement, not proof
+of one. The current measurement contract is linked from the agent contract index.
+
 ## Preserve the maintained source
 
 Edit owning Markdown constructions, not generated files alone. In a reorganizing

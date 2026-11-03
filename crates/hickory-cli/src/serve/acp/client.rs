@@ -38,6 +38,9 @@ pub struct Client {
     pub operation: AsyncMutex<()>,
     pub closed: std::sync::atomic::AtomicBool,
     pub last_turn: Mutex<Option<String>>,
+    pub experiment: std::sync::atomic::AtomicBool,
+    pub experiment_permission_denied: std::sync::atomic::AtomicBool,
+    pub last_observation: Mutex<Value>,
     worker: Mutex<Option<tokio::task::JoinHandle<()>>>,
     pub host: mcp::Host,
     pub filesystem: Option<super::super::workspace_fs::Mount>,
@@ -122,6 +125,9 @@ impl Client {
             operation: AsyncMutex::new(()),
             closed: false.into(),
             last_turn: Mutex::new(None),
+            experiment: false.into(),
+            experiment_permission_denied: false.into(),
+            last_observation: Mutex::new(json!({})),
             worker: Mutex::new(None),
             host,
             filesystem,
@@ -374,6 +380,7 @@ impl Client {
             || outcome
                 .as_ref()
                 .is_ok_and(|r| r["stopReason"] == "cancelled");
+        *self.last_observation.lock().unwrap() = json!({"prompt_response":outcome.as_ref().ok(),"tool_calls":active.tool_order.len(),"scope":"Fresh session final prompt response; adapter-managed operations opaque"});
         let error = outcome.as_ref().err().map(|e| format!("{e:#}"));
         record.context("acp-turn-status", &json!({"turn":turn,"status":if stopped {"stopped"} else if error.is_some() {"error"} else {"ok"},"error":error,"sessionId":session,"messageId":active.message_id}))?;
         *self.last_turn.lock().unwrap() = Some(turn.into());
@@ -634,6 +641,11 @@ impl Client {
                     self.host.changeset_call(tool, params).await
                 }
                 "session/request_permission" => {
+                    if self.experiment.load(std::sync::atomic::Ordering::Relaxed) {
+                        self.experiment_permission_denied
+                            .store(true, std::sync::atomic::Ordering::Relaxed);
+                        return Ok(json!({"outcome":{"outcome":"cancelled"}}));
+                    }
                     let key = format!("{:016x}", super::super::rand_id());
                     let (tx, rx) = oneshot::channel();
                     let view =

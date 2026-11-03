@@ -4,6 +4,7 @@ import { UiCheckbox } from "./UiCheckbox";
 import { ContextUpdates } from "./ContextUpdates";
 import { registerInvestigationConversation } from "../lib/reviewInvestigations";
 import { AgentProject } from "./AgentProject";
+import { FeatureExperiments } from "./FeatureExperiments";
 import { AgentChanges } from "./AgentChanges";
 import { acpApi } from "../api/acp";
 import type { AgentChange } from "../api/acp";
@@ -307,6 +308,9 @@ export function ChatDock({
   const [showCollapsedLineage, setShowCollapsedLineage] = useState(loadCollapsedLineage);
   const [backend, setBackend] = useState(preferredAgent);
   const [sending, setSending] = useState(false);
+  const [experimentFeatures, setExperimentFeatures] = useState<string[]>([]);
+  const [activeExperimentFeatures, setActiveExperimentFeatures] = useState<string[]>([]);
+  useEffect(() => { if (!running) setActiveExperimentFeatures([]); }, [running]);
   const sendingRef = useRef(false);
   const earlyEvents = useRef<RunWsMessage[]>([]);
   const [provider, setProvider] = useState("");
@@ -478,15 +482,15 @@ export function ChatDock({
       // The visible tip is the parent: rewinding is just selecting an earlier
       // turn before sending. The model control rides along exactly as shown:
       // an emptied model input clears back to the provider's default.
-      const { session_id } = await api.agent(
-        docId,
-        text,
-        tip,
-        provider || undefined,
-        provider ? model.trim() : undefined,
-        backend,
-        ...(getContext ? [await getContext()] as const : []),
-      );
+      const requestArgs: Parameters<typeof api.agent> = [
+        docId, text, tip, provider || undefined,
+        provider ? model.trim() : undefined, backend,
+      ];
+      if (getContext) requestArgs[6] = await getContext();
+      if (backend === "codex" && experimentFeatures.length) requestArgs[7] = { features: experimentFeatures };
+      const { session_id } = await api.agent(...requestArgs);
+      setActiveExperimentFeatures(backend === "codex" ? experimentFeatures : []);
+      setExperimentFeatures([]);
       setRunning(session_id);
       runningRef.current = session_id;
       recovery.accepted(investigation ? { ...submitted, revision: -1 } : submitted, session_id);
@@ -613,6 +617,7 @@ export function ChatDock({
         </FeatureSettings>}
       </header>
       {!collapsed && <AcpControls doc={docId} backend={backend} running={running !== null} control={acp} settingsOpen={false} showTools={false} />}
+      {!collapsed && <FeatureExperiments doc={docId} backend={backend} running={running !== null || sending || acp.busy} features={experimentFeatures} activeFeatures={activeExperimentFeatures} onFeatures={setExperimentFeatures} onUpdate={async () => { const result = await acp.install(); if (result.error) throw new Error(result.error); if (result.superseded) throw new Error("Agent selection changed; inspect the installed adapter before retrying"); }} />}
 
       {!collapsed && (
         <div className="chat-log" ref={logRef}>

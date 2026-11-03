@@ -1173,6 +1173,11 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/docs/{id}/run", post(api::run_doc))
         .route("/docs/{id}/check", post(api::check_doc))
         .merge(python_agent::routes())
+        .route("/feature-experiments", get(acp::experiments::list))
+        .route(
+            "/feature-experiments/{id}/review",
+            post(acp::experiments::review),
+        )
         .route("/agents", get(acp::catalogue).put(acp::save_commands))
         .route("/agents/{id}/install", post(acp::install))
         .route(

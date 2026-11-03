@@ -76,6 +76,27 @@ describe("switching agents", () => {
     fireEvent.click(screen.getByRole("button", { name: "Refresh agents" }));
     await screen.findByRole("option", { name: "My agent (ACP)" });
   });
+  // Contract: .hickory-source/guarantees/agent/feature-experiments/contract.md
+  it("measures only the request explicitly opted in by the human", async () => {
+    localStorage.setItem("hickory.agent", "codex");
+    vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [{ id:"codex", name:"Codex", command:"codex-acp", args:[], available:true }] });
+    vi.mocked(acpApi.connect).mockResolvedValue({ backend:"codex", ready:true });
+    vi.mocked(acpApi.state).mockResolvedValue({ backend:"codex", ready:true });
+    vi.mocked(api.agentTurns).mockResolvedValue({ turns:[], backend:"codex", provider:"anthropic", model:"", totals:{ usd:0, input:0, output:0, cache_read:0, cache_write:0 } });
+    vi.mocked(api.agent).mockResolvedValue({ session_id:"measured-request" });
+    const realtime = { onRunEvent: () => () => undefined } as unknown as Realtime;
+    render(<ChatDock docId="measured" realtime={realtime} onAgentFinished={() => undefined} />);
+    const checkbox = await screen.findByRole("checkbox", { name:"Measure this request with and without Hickory features" }) as HTMLInputElement;
+    await waitFor(() => expect(checkbox.disabled).toBe(false));
+    await act(async () => fireEvent.click(checkbox));
+    expect(checkbox.checked).toBe(true);
+    await typeResponse("Implement the quota rule");
+    await waitFor(() => expect((screen.getByRole("button", { name:"Send" }) as HTMLButtonElement).disabled).toBe(false));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name:"Send" })));
+    await waitFor(() => expect(vi.mocked(api.agent).mock.calls.at(-1)?.[7]).toEqual({ features:["literate-indexes"] }));
+    expect(vi.mocked(api.agent).mock.calls.at(-1)?.[1]).toBe("Implement the quota rule");
+    expect(checkbox.checked).toBe(false);
+  });
   // Guarantee: docs/guarantees/agent/python-execution-has-two-boundaries.md
   it("selects Python without ACP login, retains model choice and hydrates its backend", async () => {
     vi.mocked(acpApi.connect).mockClear();

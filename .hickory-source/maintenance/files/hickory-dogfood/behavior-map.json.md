@@ -65460,6 +65460,26 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     "apps/web/src/embed/SourceFileTree.test.tsx": {
       "source": ".hickory-source/mechanisms/apps/web/src/embed/SourceFileTree.test.tsx.md"
+    },
+    "crates/hickory-cli/src/serve/acp/experiments.rs": {
+      "source": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
+      "kind": "file",
+      "executable": false
+    },
+    "apps/web/src/components/FeatureExperiments.tsx": {
+      "source": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
+      "kind": "file",
+      "executable": false
+    },
+    "crates/hickory-cli/tests/feature_experiments.rs": {
+      "source": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
+      "kind": "file",
+      "executable": false
+    },
+    "apps/web/src/components/FeatureExperiments.test.tsx": {
+      "source": ".hickory-source/guarantees/agent/feature-experiments/contract.md",
+      "kind": "file",
+      "executable": false
     }
   },
   "evidence_records": [

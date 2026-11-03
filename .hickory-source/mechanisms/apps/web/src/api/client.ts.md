@@ -491,10 +491,12 @@ export const api = {
     model?: string,
     backend?: string,
     context?: AgentEditorContext,
+    experiment?: { features: string[]; timeout_seconds?: number },
   ) =>
     request<{ session_id: string }>("POST", `/api/docs/${docId}/agent`, {
       backend,
       context,
+      ...(experiment ? { experiment } : {}),
       prompt,
       parent_id: parentId ?? null,
       ...(provider !== undefined ? { provider } : {}),

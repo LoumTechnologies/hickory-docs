@@ -360,6 +360,14 @@ refresh DOC *ARGS:
     set -a; [ -f .env ] && source .env; set +a
     cargo run -q -p hickory-cli -- refresh {{DOC}} {{ARGS}}
 
+# Focused in-app feature measurement witnesses; no paid provider or broad regression.
+test-feature-measurements:
+    cargo build --offline --locked --release -p hickory-cli --example acp_fixture
+    cargo test --offline --locked --release -p hickory-cli --lib serve::acp::experiments::tests
+    cargo test --offline --locked --release -p hickory-cli --test feature_experiments
+    cd apps/web && npm test -- src/components/FeatureExperiments.test.tsx --maxWorkers=2
+    cd apps/web && npm test -- src/components/ChatDock.test.tsx --testNamePattern "detects adapters|measures only" --maxWorkers=2
+
 # Regenerate experiments/token-economics/report.md from the raw run JSONL.
 tokens-report:
     cargo run -q -p hickory-agent --bin token_economics -- report
