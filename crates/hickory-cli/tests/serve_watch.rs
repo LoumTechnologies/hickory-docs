@@ -88,31 +88,74 @@ async fn a_generated_file_edit_is_preserved_without_automatic_amendment() {
     assert_eq!(std::fs::read_to_string(root.join("demo.md")).unwrap(), DOC);
     guard.shutdown().await;
 }
-/// An external edit to a document reconciles into its live room, so the
-/// editor buffer follows the file instead of clobbering it on the next
-/// persist.
+/// Disk observation must not replace a live buffer before the reader chooses.
 #[tokio::test]
 async fn an_external_doc_edit_reaches_the_live_room() {
     let (state, guard, root, _dir) = start(true).await;
-    assert!(!root.join("greet.rs").exists());
-
     let (id, _) = state.index.sole().expect("one document");
     let room = state.rooms.get_or_create(&id).await.expect("room opens");
-    assert!(room.text().await.contains("hello"));
-
+    let before = room.text().await;
     let updated = DOC.replace("# Demo", "# Demo, renamed outside the app");
     std::fs::write(root.join("demo.md"), &updated).unwrap();
+    // Exercise the same observer directly: no arbitrary wait can prove that
+    // a background replacement will never arrive.
+    let woven = hickory_cli::up::state::WovenState::default();
+    hickory_cli::serve::watch::reconcile_rooms(&state, &root, &woven).await;
+    assert_eq!(room.text().await, before);
+    assert_eq!(
+        std::fs::read_to_string(root.join("demo.md")).unwrap(),
+        updated
+    );
 
-    eventually("the room follows the file", || {
-        // `text()` is async; sample through a blocking handle each poll.
-        let room = room.clone();
-        futures::executor::block_on(async { room.text().await.contains("renamed outside") })
-    })
-    .await;
-
+    // The same conditional operation powers reload and merge: neither stale
+    // disk observations nor stale live buffers authorize a replacement.
+    use axum::{
+        Json,
+        extract::{Path, State},
+    };
+    use hickory_cli::serve::api::{SaveDoc, SaveDocExpected, put_doc};
+    for (live, disk) in [
+        (before.clone(), "stale disk".to_string()),
+        ("stale buffer".to_string(), updated.clone()),
+    ] {
+        assert!(
+            put_doc(
+                State(state.clone()),
+                Path(id.clone()),
+                Json(SaveDoc {
+                    source: "merged".to_string(),
+                    expected: Some(SaveDocExpected { source: live, disk }),
+                })
+            )
+            .await
+            .is_err()
+        );
+        assert_eq!(room.text().await, before);
+        assert_eq!(
+            std::fs::read_to_string(root.join("demo.md")).unwrap(),
+            updated
+        );
+    }
+    let _ = put_doc(
+        State(state.clone()),
+        Path(id.clone()),
+        Json(SaveDoc {
+            source: "merged".to_string(),
+            expected: Some(SaveDocExpected {
+                source: before,
+                disk: updated,
+            }),
+        }),
+    )
+    .await
+    .expect("reviewed merge applies");
+    assert_eq!(room.text().await, "merged");
+    assert_eq!(
+        std::fs::read_to_string(root.join("demo.md")).unwrap(),
+        "merged"
+    );
     guard.shutdown().await;
 }
-
 /// The rooms' own persist is not an external edit: reconciling it back in
 /// would revert keystrokes typed since. The store's echo test is what the
 /// watcher consults.

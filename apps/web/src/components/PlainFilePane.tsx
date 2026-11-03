@@ -65,12 +65,10 @@ import { blameGutter } from "../editor/blameGutter";
 import { useBlame } from "../editor/useBlame";
 import { claimReveal, onRevealLine } from "../lib/revealLine";
 import { wrapGutterMarkers } from "../editor/wrapGutter";
-import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
 import { createPlainSaver, type PlainSaveState } from "../lib/plainFileSave";
 import { draftDisposition, useDraftKeeper } from "../lib/drafts";
 import { onFlushSaves } from "../lib/flushSaves";
-import { MergeView } from "./MergeView";
-import { DivergedBanner } from "./DivergedBanner";
+import { DiskChangeNotice, MergeView } from "./MergeView";
 import { DebugStrip } from "../debug/DebugStrip";
 import { usePausedElsewhere } from "../lib/pausedElsewhere";
 import { debugEditor, debugStateEffects, revealLine } from "../debug/cmDebug";
@@ -637,29 +635,6 @@ export function PlainFilePane({
     [saver],
   );
 
-  // External changes: refetch on window focus and on the files-changed
-  // announcement — unless this pane's own edits are still unsent, in which
-  // case the disk copy predates them and adopting it would eat keystrokes.
-  // (Their save will 409 against the moved disk, which is the conflict
-  // banner's moment, not this one.)
-  useEffect(() => {
-    const refresh = () => {
-      if (!viewRef.current || saver.hasPendingEdits()) return;
-      api.file(path).then(
-        (fresh) => {
-          if (fresh.hash !== fileRef.current?.hash) adoptDiskCopy(fresh);
-        },
-        () => {}, // deleted or unreadable now; the buffer stays as evidence
-      );
-    };
-    window.addEventListener("focus", refresh);
-    window.addEventListener(FILES_CHANGED_EVENT, refresh);
-    return () => {
-      window.removeEventListener("focus", refresh);
-      window.removeEventListener(FILES_CHANGED_EVENT, refresh);
-    };
-  }, [path, saver, adoptDiskCopy]);
-
   // Adopt this file into a literate document. The server proves the new
   // document weaves these exact bytes before writing anything, so a success
   // changes ownership and not one byte of content; a refusal (binary,
@@ -674,24 +649,6 @@ export function PlainFilePane({
     } catch (e) { setAdoptError(e instanceof Error ? e.message : String(e)); throw e; }
     finally { setAdopting(false); }
   }, [path]);
-
-  const overwrite = useCallback(() => saver.resolve("overwrite"), [saver]);
-
-  /** The third answer to a conflict, and the one that does not throw work
-   * away: three-way merge the buffer against the disk, over the bytes this
-   * session started from. */
-  const openMerge = useCallback(async () => {
-    const view = viewRef.current;
-    if (!view) throw new Error("The file editor is closed");
-    const captured = view.state.doc;
-    const ours = captured.toString(), base = saver.baseContent();
-    try {
-      const fresh = await api.file(path);
-      if (viewRef.current !== view || !view.dom.isConnected || view.state.doc !== captured) throw new Error("The buffer changed while opening its merge. Try again with the current buffer.");
-      setMerge({ bufferAtOpen: ours, base, ours, theirs: fresh.content, oursLabel: "Your unsaved changes", theirsLabel: "The file on disk" });
-      return { merge_opened: true, accepted: false };
-    } catch (e) { setSaveState({ kind: "error", message: e instanceof Error ? e.message : String(e) }); throw e; }
-  }, [saver, path]);
 
   /** The merged text becomes the buffer, and the file is reloaded first so
    * the save that follows rides on the hash the disk actually has. */
@@ -714,16 +671,6 @@ export function PlainFilePane({
     },
     [saver, path, adoptDiskCopy, putInBuffer],
   );
-  const reload = useCallback(async () => {
-    const view = viewRef.current, captured = view?.state.doc;
-    try {
-      const fresh = await api.file(path);
-      if (!view?.dom.isConnected || viewRef.current !== view || view.state.doc !== captured) throw new Error("The buffer changed while reloading. Its new edits were kept.");
-      saver.resolve("reload"); adoptDiskCopy(fresh);
-      return { reloaded: true, path, hash: fresh.hash };
-    } catch (e) { setSaveState({ kind: "error", message: e instanceof Error ? e.message : String(e) }); throw e; }
-  }, [path, saver, adoptDiskCopy]);
-
   const launchProfile = async (choose=false) => {
     const source=viewRef.current?.state.doc.toString();
     if(source===undefined || !await saver.flushNow())return;
@@ -768,23 +715,12 @@ export function PlainFilePane({
           Could not adopt {path}: {adoptError}
         </div>
       )}
-      {saveState.kind === "conflict" && (
-        // The same surface a diverged generated file gets, with the same
-        // three ways out. Here "mine" is the buffer and "theirs" is the
-        // disk, because it was another program that wrote the file.
-        <DivergedBanner
-          what={path}
-          sourceRevision={() => [fileRef.current?.hash, viewRef.current?.state.doc.toString(), saveState]}
-          reason="Another program wrote the file while you were editing; your text is still in this buffer, unsaved."
-          mine="your unsaved text"
-          theirs="the file on disk"
-          onKeepMine={overwrite}
-          keepLabel="Overwrite disk with this buffer" keepEffect="Writes your unsaved text over the file on disk."
-          onTakeTheirs={reload}
-          takeLabel="Reload from disk" takeEffect="Replaces this buffer with the disk version and discards its unsaved edits."
-          onMerge={openMerge}
-        />
-      )}
+      {file && <DiskChangeNotice key={path} path={path} base={saver.baseContent()} source={liveText ?? file.content}
+        read={async () => { const disk = await api.file(path); return { ...disk, source: disk.content }; }}
+        apply={(disk, text) => {
+          saver.resolve("reload"); adoptDiskCopy(disk);
+          if (text !== disk.content) putInBuffer(text);
+        }} />}
       {saveState.kind === "error" && (
         <div className="banner banner-fail" role="alert">
           Could not save {path}: {saveState.message}

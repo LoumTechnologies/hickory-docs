@@ -148182,6 +148182,20 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/apps/web/src/embed/SourceFileTree.test.tsx.md",
       "symbol": "Keep the published file buffer compact and read only",
       "basis": "explained-decision"
+    },
+    {
+      "id": "disk-change-choice",
+      "output": "apps/web/src/components/MergeView.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/components/MergeView.tsx.md",
+      "symbol": "DiskChangeNotice",
+      "basis": "explained-decision"
+    },
+    {
+      "id": "disk-change-safety-tests",
+      "output": "apps/web/src/components/MergeView.test.tsx",
+      "page": ".hickory-source/guarantees/agent/ui-action-dispatch/implementation/apps/web/src/components/MergeView.test.tsx.md",
+      "symbol": "disk change safety tests",
+      "basis": "explained-decision"
     }
   ],
   "explanation_gaps": {

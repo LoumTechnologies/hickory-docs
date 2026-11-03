@@ -291,12 +291,24 @@ impl FileDocStore {
 <a id="f-60e6f71bfd5c-impl-DocStore-for-FileDocStore"></a>
 ### `impl-DocStore for FileDocStore`
 
+Remember the disk text when a room opens. Before a debounced room save, compare
+that baseline with disk: an external rewrite must survive until an explicit
+reload, merge or save chooses new bytes. Equality with the requested text is
+also safe, because an explicit source-aware operation may already have saved it.
+
+
 <storycode:copy id="f-60e6f71bfd5c-impl-DocStore-for-FileDocStore">
 #[async_trait]
 impl DocStore for FileDocStore {
     async fn load_source(&self, key: &DocKey) -> Result<String> {
         let path = self.source_path(key)?;
-        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))
+        let source = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        self.last_saved
+            .lock()
+            .unwrap()
+            .insert(key.clone(), source.clone());
+        Ok(source)
     }
 
     async fn load_crdt(&self, key: &DocKey) -> Result<Option<Vec<u8>>> {
@@ -310,6 +322,15 @@ impl DocStore for FileDocStore {
 
     async fn save(&self, key: &DocKey, source: &str, crdt: &[u8]) -> Result<()> {
         let path = self.source_path(key)?;
+        // A pending room persist is not permission to overwrite external work.
+        // Explicit Save/reload/merge writes reconcile their own source first.
+        let disk = std::fs::read_to_string(&path)?;
+        if let Some(base) = self.last_saved.lock().unwrap().get(key) {
+            anyhow::ensure!(
+                disk == *base || disk == source,
+                "document changed on disk; reload or merge before saving"
+            );
+        }
         // Write the document through a temp file in the same directory and
         // rename: a host whose editor is watching this file must never see a
         // half-written document, and a crash mid-save must not truncate their
@@ -467,6 +488,24 @@ mod tests {
             .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
             .collect();
         assert!(!names.iter().any(|n| n.contains("tmp")), "{names:?}");
+    }
+
+    #[tokio::test]
+    async fn pending_room_saves_preserve_external_disk_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("demo.md");
+        std::fs::write(&path, "base").unwrap();
+        let index = Arc::new(DocIndex::scan(dir.path()).unwrap());
+        let key = index.add("demo.md");
+        let store = FileDocStore::new(index);
+        assert_eq!(store.load_source(&key).await.unwrap(), "base");
+        std::fs::write(&path, "external").unwrap();
+        assert!(store.save(&key, "unsaved buffer", b"").await.is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "external");
+        // An explicit reload/save acknowledges the current source first.
+        store.save(&key, "external", b"").await.unwrap();
+        store.save(&key, "later edit", b"").await.unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "later edit");
     }
 
     #[tokio::test]

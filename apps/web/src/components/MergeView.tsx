@@ -1,5 +1,8 @@
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import type { UiCommand } from "../lib/uiActions";
+import { LocalRealtime } from "../api/realtime";
+import type { EditorView } from "@codemirror/view";
+const LiterateEditor = lazy(() => import("../editor/DocumentEditor").then(module => ({ default: module.DocumentEditor })));
 // The merge, as something to read and answer.
 //
 // It opens whenever two versions of one file both have changes worth keeping:
@@ -26,7 +29,7 @@ import type { UiCommand } from "../lib/uiActions";
 // conflicts read as OUR text (see `mergedText`), so the reader's own unsaved
 // work never disappears off the screen while they think.
 
-import { useId, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import {
   conflictCount,
@@ -38,6 +41,7 @@ import {
 } from "../lib/merge";
 
 export interface MergeViewProps {
+  literate?: boolean;
   /** What is being merged, for the heading. */
   path: string;
   /** The common ancestor. Empty string means there is none, and the merge
@@ -78,6 +82,7 @@ function MergeController({
   onAccept,
   onCancel,
   sourceCurrent,
+  literate = false,
 }: MergeViewProps) {
   // A base of "" is genuinely "no common ancestor", not "the ancestor was an
   // empty file" — a draft with no file behind it stores it that way. The
@@ -93,9 +98,11 @@ function MergeController({
   const total = conflictCount(regions);
   const auto = regions.filter((r) => r.kind === "resolved").length;
   const answered = [...answers.keys()].length;
-  const text = mergedText(regions, answers);
+  const [edited, setEdited] = useState<string | null>(null);
+  const text = edited ?? mergedText(regions, answers);
 
   const answer = (index: number, choice: Resolution) => {
+    setEdited(null);
     setAnswers((current) => {
       const next = new Map(current);
       // Choosing the same answer again clears it, which is the only way back
@@ -175,6 +182,9 @@ function MergeController({
         })}
       </div>
 
+      {literate && <Suspense fallback={<p role="status">Opening literate merge editor…</p>}>
+        <LiterateMergePreview path={path} source={text} onChange={setEdited} readOnly={busy || !current()} />
+      </Suspense>}
       {error && <p role="alert">{error}</p>}
       <footer className="merge-view__actions">
         <button type="button" className="btn" disabled={busy} onClick={() => human("cancel")}>
@@ -293,4 +303,120 @@ function MergeRegionRow({
       </div>
     </div>
   );
+}
+function LiterateMergePreview({ path, source, onChange, readOnly }: {
+  path: string; source: string; onChange: (text: string) => void; readOnly: boolean;
+}) {
+  const realtime = useMemo(() => new LocalRealtime(), []);
+  const [view, setView] = useState<EditorView | null>(null);
+  useEffect(() => {
+    if (view && view.state.doc.toString() !== source) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: source } });
+  }, [view, source]);
+  useEffect(() => () => realtime.close(), [realtime]);
+  return <section aria-label="Literate merge result"><h3>Edit merged result</h3>
+    <p>Choose regions first, then edit the result. Changing a region choice resets manual edits in this preview.</p>
+    <LiterateEditor docId={`disk-merge:${path}`} initialSource={source} realtime={realtime}
+      execBlocks={[]} runningCells={new Set()} onRunCell={() => {}} readOnly={readOnly}
+      onViewReady={setView} onChange={onChange} />
+  </section>;
+}
+
+export function DiskChangeNotice<T extends { source: string }>({ path, base, source, read, apply }: {
+  path: string; base: string; source: string;
+  read: () => Promise<T>;
+  apply: (disk: T, text: string) => void | Promise<void>;
+}) {
+  const current = useRef({ base, source, read, apply });
+  current.current = { base, source, read, apply };
+  const [pending, setPending] = useState<T | null>(null);
+  const [merge, setMerge] = useState<{ base: string; ours: string; disk: T } | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [automatic, setAutomatic] = useState(() => {
+    try { return localStorage.getItem("hickory.reload-unmodified") === "true"; } catch { return false; }
+  });
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const ignored = useRef<string | null>(null);
+  const applying = useRef(false);
+  const accept = async (disk: T, text: string, expected: string) => {
+    if (applying.current) return false;
+    applying.current = true; setBusy(true); setError("");
+    try {
+      const fresh = await current.current.read();
+      if (!mounted.current) return false;
+      if (fresh.source !== disk.source) { setPending(fresh); setMerge(null); throw new Error("The file changed again. Review its latest version."); }
+      if (current.current.source !== expected) throw new Error("Your buffer changed. Its newer edits were kept; choose again.");
+      await current.current.apply(fresh, text);
+      ignored.current = null; setPending(null); setMerge(null);
+      return true;
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); return false; }
+    finally { applying.current = false; setBusy(false); }
+  };
+  const acceptRef = useRef(accept); acceptRef.current = accept;
+  useEffect(() => {
+    let live = true, reading = false;
+    const check = async () => {
+      if (reading || applying.current) return;
+      reading = true;
+      try {
+        const disk = await current.current.read();
+        if (!live) return;
+        const now = current.current;
+        if (disk.source === now.base || disk.source === now.source) { setPending(null); return; }
+        if (disk.source === ignored.current) return;
+        setPending(disk);
+        let auto = automatic;
+        try { auto = localStorage.getItem("hickory.reload-unmodified") === "true"; } catch { /* Per-view fallback. */ }
+        if (auto && now.source === now.base) void acceptRef.current(disk, disk.source, now.source);
+      } catch { /* Unreadable files never replace a surviving buffer. */ }
+      finally { reading = false; }
+    };
+    const run = () => { void check(); };
+    const timer = setInterval(run, 2000);
+    window.addEventListener("focus", run);
+    window.addEventListener("hickory:files-changed", run);
+    run();
+    return () => { live = false; clearInterval(timer); window.removeEventListener("focus", run); window.removeEventListener("hickory:files-changed", run); };
+  }, [path, automatic]);
+  const parent = `disk-change:${useId()}`;
+  const revision = useUiRevision(() => [path, current.current.base, current.current.source, pending?.source, ignored.current, busy, automatic, !!merge]);
+  const invoke = useUiCommands((["reload", "ignore", "merge", "automatic", "review"] as const).map((operation): { key: string; command: UiCommand } => ({ key: `${parent}:${operation}`, command: {
+    parent, subject: path,
+    label: ({ reload: "Reload disk version and discard unsaved buffer", ignore: "Ignore disk changes without writing", merge: "Open literate merge editor", automatic: "Set safe automatic reload preference", review: "Review ignored disk changes" })[operation],
+    parameters: operation === "automatic" ? { enabled: { type: "boolean" as const } } : {},
+    prerequisites: ["Current disk observation and buffer; reload discards unsaved edits; merge acceptance uses a fresh disk read"],
+    read: () => ({ revision: revision(), enabled: !applying.current && (operation === "automatic" ? true : operation === "review" ? ignored.current !== null : !!pending && !merge), reason: "Disk choice changed or application pending" }),
+    execute: async args => {
+      if (operation === "automatic") {
+        const enabled = args.enabled === true; setAutomatic(enabled);
+        try { localStorage.setItem("hickory.reload-unmodified", String(enabled)); } catch { /* Per-view preference. */ }
+      } else if (operation === "review") {
+        const disk = await current.current.read();
+        if (!mounted.current) return { status: "unavailable", reason: "Disk view closed" };
+        ignored.current = null; setPending(disk);
+      } else if (!pending) return { status: "unavailable", reason: "Disk observation changed" };
+      else if (operation === "reload") {
+        if (!await accept(pending, pending.source, current.current.source)) return { status: "unavailable", reason: "Reload refused stale disk or buffer; inspect the notice" };
+      } else if (operation === "ignore") { ignored.current = pending.source; setPending(null); setError(""); }
+      else if (operation === "merge") setMerge({ base: current.current.base, ours: current.current.source, disk: pending });
+      return { status: "completed", value: { operation, scope: "Disk choice handler completed; ignore writes nothing; save and verification depend on the owning editor" } };
+    },
+  } })));
+  const human = (operation: string, args: Parameters<typeof invoke>[1] = {}) => { void invoke(`${parent}:${operation}`, args).catch(e => setError(e instanceof Error ? e.message : String(e))); };
+  const preference = <label><input type="checkbox" checked={automatic} onChange={event => human("automatic", { enabled: event.target.checked })} />Always reload when no unsaved changes would be lost</label>;
+  if (!pending) return ignored.current === null ? (automatic ? preference : null) : <p role="status">Disk changes ignored. Your buffer was kept. <button type="button" className="btn" onClick={() => human("review")}>Review disk changes</button></p>;
+  const dirty = source !== base;
+  return <section className="banner" aria-label={`Disk changes for ${path}`}>
+    <p role="status">{path} changed on disk.{dirty ? " Reloading will discard your unsaved changes." : " You can reload without losing changes."}</p>
+    {error && <p role="alert">{error}</p>}
+    {merge ? <MergeView literate path={path} base={merge.base} ours={merge.ours} theirs={merge.disk.source}
+      sourceCurrent={() => current.current.source === merge.ours && !applying.current}
+      onAccept={text => accept(merge.disk, text, merge.ours)} onCancel={() => setMerge(null)} /> : <>
+      <button type="button" className="btn" disabled={busy} onClick={() => human("ignore")}>Ignore disk changes</button>
+      <button type="button" className="btn" disabled={busy} onClick={() => human("reload")}>{dirty ? "Reload and discard unsaved changes" : "Reload from disk"}</button>
+      {dirty ? <button type="button" className="btn" disabled={busy} onClick={() => human("merge")}>Merge changes</button> :
+        preference}
+    </>}
+  </section>;
 }

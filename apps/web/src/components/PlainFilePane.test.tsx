@@ -404,13 +404,15 @@ it("keeps newer buffer edits when an explicit disk reload returns late", async (
   await waitFor(() => expect(document.querySelector(".cm-content")?.textContent).toContain("two"));
   const editor = EditorView.findFromDOM(document.querySelector<HTMLElement>(".cm-editor")!)!;
   act(() => { editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: "FIRST EDIT" }, userEvent: "input" }); });
-  await screen.findByRole("button", { name: "Reload from disk" });
+  vi.mocked(api.file).mockResolvedValue({ path: "notes.md", language: "markdown", content: "new disk", hash: "new-disk-hash" });
+  fireEvent(window, new Event("hickory:files-changed"));
+  await screen.findByRole("button", { name: "Reload and discard unsaved changes" });
   let finish!: (value: Awaited<ReturnType<typeof api.file>>) => void;
   vi.mocked(api.file).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
-  fireEvent.click(screen.getByRole("button", { name: "Reload from disk" }));
+  fireEvent.click(screen.getByRole("button", { name: "Reload and discard unsaved changes" }));
   act(() => { editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: "NEWER EDIT" }, userEvent: "input" }); });
   await act(async () => { finish({ path: "notes.md", language: "markdown", content: "new disk", hash: "new-disk-hash" }); });
-  await screen.findByText(/new edits were kept/);
+  await screen.findByText(/newer edits were kept/);
   expect(editor.state.doc.toString()).toBe("NEWER EDIT");
 });
 
@@ -443,6 +445,7 @@ it("agent editor input uses the existing guarded plain-file autosave pipeline", 
   render(<UiActionContext.Provider value={registry}><PlainFilePane path="notes.md" /></UiActionContext.Provider>);
   await waitFor(() => expect(document.querySelector(".cm-content")?.textContent).toContain("two"));
   const actions = () => registry.groups().groups.flatMap(g => registry.observe(g).actions);
+  await waitFor(() => expect(actions().some(a => a.label === "Replace file editor range")).toBe(true));
   const replace = actions().find(a => a.label === "Replace file editor range")!;
   let result: unknown;
   await act(async () => { result = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: replace.handle, arguments: { from: 4, to: 7, text: "AGENT" }, request_id: "input" }); });

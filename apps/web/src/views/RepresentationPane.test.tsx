@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { api } from "../api/client";
 import { representations, type Representation } from "../api/representations";
 import { viewBuffers } from "../lib/viewBuffers";
 import { UiActions } from "../lib/uiActions";
@@ -27,6 +28,32 @@ async function mount() {
 // Guarantees: docs/guarantees/authoring/saved-means-the-displayed-bytes-reached-the-file.md;
 // docs/guarantees/lenses/a-view-declares-where-edits-land.md.
 describe("saving a working representation", () => {
+  it("does not recompile an arrangement when its backing bytes are unchanged", async () => {
+    vi.spyOn(api, "file").mockResolvedValue({ path: "code.py", content: "old", hash: "file-hash", language: "python" });
+    const refresh = vi.spyOn(representations, "refresh");
+    await mount();
+    await act(async () => {});
+    fireEvent(window, new Event("focus"));
+    await act(async () => {});
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("merges unsaved text against a changed backing file before saving the current revision", async () => {
+    const disk = vi.spyOn(api, "file").mockResolvedValue({ path: "code.py", content: "old", hash: "file-hash", language: "python" });
+    vi.spyOn(representations, "refresh").mockResolvedValue(record("disk", "r2"));
+    const edit = vi.spyOn(representations, "edit").mockResolvedValue(record("mine", "r3"));
+    const { editor } = await mount();
+    fireEvent.change(editor, { target: { value: "mine" } });
+    disk.mockResolvedValue({ path: "code.py", content: "disk", hash: "new-file-hash", language: "python" });
+    fireEvent(window, new Event("focus"));
+    fireEvent.click(await screen.findByRole("button", { name: "Merge changes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Accept, keeping mine where undecided" }));
+    await waitFor(() => expect(screen.queryByTestId("merge-view")).toBeNull());
+    expect(edit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(edit).toHaveBeenCalledWith("v", "r2", "mine"));
+  });
+
   it("keeps later typing unsaved when an earlier save completes", async () => {
     let complete!: (record: Representation) => void;
     const edit = vi.spyOn(representations, "edit").mockImplementation(() => new Promise(done => { complete = done; }));

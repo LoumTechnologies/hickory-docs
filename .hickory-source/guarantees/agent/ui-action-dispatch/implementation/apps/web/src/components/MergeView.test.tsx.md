@@ -21,10 +21,11 @@ import { UiActionContext } from "../lib/uiActionBridge";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
-import { MergeView } from "./MergeView";
+import { DiskChangeNotice, MergeView } from "./MergeView";
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
 });
 
 </storycode:copy>
@@ -194,10 +195,102 @@ it("retires old answers when the merge inputs are replaced", () => {
 });
 </storycode:copy>
 
+### Verify the disk decision boundary
+
+These focused UI checks demonstrate the clean reload, persistent preference,
+ignore-without-writing and dirty merge paths. Deferred reads also prove that
+new disk bytes, later typing and a closed view refuse the original replacement.
+They do not establish end-to-end native watcher delivery.
+
+<storycode:copy id="disk-change-safety-tests">
+describe("disk change choices", () => {
+  const mount = (source = "base", apply = vi.fn(), read = vi.fn().mockResolvedValue({ source: "disk" })) => {
+    const props = { path: "code.md", base: "base", source, read, apply };
+    return { ...render(<DiskChangeNotice {...props} />), props, read, apply };
+  };
+  it("announces a clean change without applying it until reload", async () => {
+    const { apply } = mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Reload from disk" }));
+    await act(async () => {});
+    expect(apply).toHaveBeenCalledWith({ source: "disk" }, "disk");
+  });
+  it("ignores a disk version without applying or saving anything", async () => {
+    const { apply } = mount("unsaved");
+    fireEvent.click(await screen.findByRole("button", { name: "Ignore disk changes" }));
+    fireEvent(window, new Event("focus"));
+    await act(async () => {});
+    expect(screen.queryByRole("button", { name: "Merge changes" })).toBeNull();
+    expect(apply).not.toHaveBeenCalled();
+  });
+  it("persists safe reload preference and automatically reloads a clean buffer", async () => {
+    const { apply } = mount();
+    fireEvent.click(await screen.findByRole("checkbox"));
+    await act(async () => {});
+    expect(localStorage.getItem("hickory.reload-unmodified")).toBe("true");
+    expect(apply).toHaveBeenCalledWith({ source: "disk" }, "disk");
+  });
+  it("never auto reloads an unsaved buffer", async () => {
+    localStorage.setItem("hickory.reload-unmodified", "true");
+    const { apply } = mount("unsaved");
+    expect(await screen.findByRole("button", { name: "Reload and discard unsaved changes" })).toBeTruthy();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(apply).not.toHaveBeenCalled();
+  });
+  it("offers the existing three-way merge and preserves undecided local text", async () => {
+    const { apply } = mount("unsaved");
+    fireEvent.click(await screen.findByRole("button", { name: "Merge changes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Accept, keeping mine where undecided" }));
+    await act(async () => {});
+    expect(apply).toHaveBeenCalledWith({ source: "disk" }, "unsaved");
+  });
+  it("accepts free edits made in the literate merge result", async () => {
+    const { apply } = mount("unsaved");
+    fireEvent.click(await screen.findByRole("button", { name: "Merge changes" }));
+    const preview = await screen.findByRole("region", { name: "Literate merge result" }, { timeout: 10000 });
+    const { EditorView } = await import("@codemirror/view");
+    const editor = EditorView.findFromDOM(preview.querySelector<HTMLElement>(".cm-editor")!)!;
+    await act(async () => {});
+    act(() => { editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: "reviewed result" }, userEvent: "input" }); });
+    fireEvent.click(screen.getByRole("button", { name: "Accept, keeping mine where undecided" }));
+    await act(async () => {});
+    expect(apply).toHaveBeenCalledWith({ source: "disk" }, "reviewed result");
+  }, 15000);
+  it("refuses a reload when disk changes again", async () => {
+    const { read, apply } = mount("unsaved");
+    await screen.findByRole("button", { name: "Reload and discard unsaved changes" });
+    read.mockResolvedValue({ source: "new disk" });
+    fireEvent.click(screen.getByRole("button", { name: "Reload and discard unsaved changes" }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "The file changed again. Review its latest version.");
+    expect(apply).not.toHaveBeenCalled();
+  });
+  it("keeps typing that arrives while reload is reading disk", async () => {
+    const { read, apply, rerender, props } = mount();
+    await screen.findByRole("button", { name: "Reload from disk" });
+    let finish!: (disk: { source: string }) => void;
+    read.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "Reload from disk" }));
+    rerender(<DiskChangeNotice {...props} source="new typing" />);
+    await act(async () => finish({ source: "disk" }));
+    expect(apply).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("newer edits were kept");
+  });
+  it("does not apply an in-flight reload after closing its view", async () => {
+    const { read, apply, unmount } = mount();
+    await screen.findByRole("button", { name: "Reload from disk" });
+    let finish!: (disk: { source: string }) => void;
+    read.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "Reload from disk" }));
+    unmount();
+    await act(async () => finish({ source: "disk" }));
+    expect(apply).not.toHaveBeenCalled();
+  });
+});
+</storycode:copy>
+
 ### Assemble `apps/web/src/components/MergeView.test.tsx`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/components/MergeView.test.tsx"><storycode:paste select="#f-8d7ee66b0e18-expression_statement"/><storycode:paste select="#f-8d7ee66b0e18-view"/><storycode:paste select="#f-8d7ee66b0e18-expression_statement-2"/><storycode:paste select="#f-8d7ee66b0e18-expression_statement-3"/><storycode:paste select="#f-8d7ee66b0e18-expression_statement-4"/><storycode:paste select="#f-8d7ee66b0e18-expression_statement-5"/><storycode:paste select="#f-8d7ee66b0e18-expression_statement-6"/><storycode:paste select="#f-8d7ee66b0e18-expression_statement-7"/></storycode:file>
+<storycode:file path="apps/web/src/components/MergeView.test.tsx"><storycode:paste select="#f-8d7ee66b0e18-expression_statement"/><storycode:paste select="#f-8d7ee66b0e18-view"/><storycode:paste select="#f-8d7ee66b0e18-expression_statement-2"/><storycode:paste select="#f-8d7ee66b0e18-expression_statement-3"/><storycode:paste select="#f-8d7ee66b0e18-expression_statement-4"/><storycode:paste select="#f-8d7ee66b0e18-expression_statement-5"/><storycode:paste select="#f-8d7ee66b0e18-expression_statement-6"/><storycode:paste select="#f-8d7ee66b0e18-expression_statement-7"/><storycode:paste select="#disk-change-safety-tests"/></storycode:file>
 
 </storycode:doc>

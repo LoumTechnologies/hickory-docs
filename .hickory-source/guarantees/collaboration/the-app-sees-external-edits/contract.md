@@ -3,7 +3,7 @@
 
 For: Engineers using local sessions or pairing their own machines.
 
-External source saves reconcile into the live editor. New Markdown files are
+External source saves are announced without replacing the live editor. New Markdown files are
 indexed and openable without restarting. Observation neither generates outputs nor
 amends source after an external output edit; those bytes remain intact until an
 explicit source-aware edit or project incorporation/generation action.
@@ -13,6 +13,28 @@ old implicit weave/reverse policy. Its retained details below are historical;
 they do not authorize publication by the opening watcher.
 
 The earlier requirement is retained as history. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
+
+Requirement change (2026-11-03, user-directed): offer reload and a persistent
+safe auto-reload checkbox for clean buffers. With unsaved edits, offer ignore
+without a disk write, discard-and-reload, or the existing merge editor. Re-check
+both sides before applying. Disk observation alone never replaces an open room.
+
+## Focused verification (2026-11-03)
+
+The four frontend witnesses `MergeView.test.tsx`, `PlainFilePane.test.tsx`,
+`RepresentationPane.test.tsx` and `useDocumentPersistence.test.tsx` passed all
+55 tests. They cover clean reload, the persistent preference, dirty ignore,
+literate merge editing, later typing, a second disk edit and a closed view.
+The representation witness also checks that unchanged backing bytes do not
+recompile the arrangement, and that a merge saves against the new disk revision.
+
+`cargo test -p hickory-cli --lib serve::store::tests::` passed six focused
+persistence/index tests. The focused `serve_watch` witness
+`an_external_doc_edit_reaches_the_live_room` passed: despite its retained name,
+it now asserts that observation preserves the live room, stale disk and room
+snapshots refuse replacement, and a current reviewed merge updates both sides.
+TypeScript checking, source/output agreement and the ownership audit passed.
+These checks do not establish native UI acceptance or broad regression readiness.
 
 ## Read the detailed requirements
 
@@ -171,36 +193,78 @@ async fn a_generated_file_edit_is_preserved_without_automatic_amendment() {
 <a id="f-9de73ad7ae6f-an_external_doc_edit_reaches_the_live_room"></a>
 ### `an_external_doc_edit_reaches_the_live_room`
 
-An external edit to a document reconciles into its live room, so the
-editor buffer follows the file instead of clobbering it on the next
-persist.
+Announce an external disk edit while preserving the room text. The frontend
+chooses whether to reload, ignore or merge; observation cannot choose for it.
 
 <storycode:copy id="f-9de73ad7ae6f-an_external_doc_edit_reaches_the_live_room">
-/// An external edit to a document reconciles into its live room, so the
-/// editor buffer follows the file instead of clobbering it on the next
-/// persist.
+/// Disk observation must not replace a live buffer before the reader chooses.
 #[tokio::test]
 async fn an_external_doc_edit_reaches_the_live_room() {
     let (state, guard, root, _dir) = start(true).await;
-    assert!(!root.join("greet.rs").exists());
-
     let (id, _) = state.index.sole().expect("one document");
     let room = state.rooms.get_or_create(&id).await.expect("room opens");
-    assert!(room.text().await.contains("hello"));
-
+    let before = room.text().await;
     let updated = DOC.replace("# Demo", "# Demo, renamed outside the app");
     std::fs::write(root.join("demo.md"), &updated).unwrap();
+    // Exercise the same observer directly: no arbitrary wait can prove that
+    // a background replacement will never arrive.
+    let woven = hickory_cli::up::state::WovenState::default();
+    hickory_cli::serve::watch::reconcile_rooms(&state, &root, &woven).await;
+    assert_eq!(room.text().await, before);
+    assert_eq!(
+        std::fs::read_to_string(root.join("demo.md")).unwrap(),
+        updated
+    );
 
-    eventually("the room follows the file", || {
-        // `text()` is async; sample through a blocking handle each poll.
-        let room = room.clone();
-        futures::executor::block_on(async { room.text().await.contains("renamed outside") })
-    })
-    .await;
-
+    // The same conditional operation powers reload and merge: neither stale
+    // disk observations nor stale live buffers authorize a replacement.
+    use axum::{
+        Json,
+        extract::{Path, State},
+    };
+    use hickory_cli::serve::api::{SaveDoc, SaveDocExpected, put_doc};
+    for (live, disk) in [
+        (before.clone(), "stale disk".to_string()),
+        ("stale buffer".to_string(), updated.clone()),
+    ] {
+        assert!(
+            put_doc(
+                State(state.clone()),
+                Path(id.clone()),
+                Json(SaveDoc {
+                    source: "merged".to_string(),
+                    expected: Some(SaveDocExpected { source: live, disk }),
+                })
+            )
+            .await
+            .is_err()
+        );
+        assert_eq!(room.text().await, before);
+        assert_eq!(
+            std::fs::read_to_string(root.join("demo.md")).unwrap(),
+            updated
+        );
+    }
+    let _ = put_doc(
+        State(state.clone()),
+        Path(id.clone()),
+        Json(SaveDoc {
+            source: "merged".to_string(),
+            expected: Some(SaveDocExpected {
+                source: before,
+                disk: updated,
+            }),
+        }),
+    )
+    .await
+    .expect("reviewed merge applies");
+    assert_eq!(room.text().await, "merged");
+    assert_eq!(
+        std::fs::read_to_string(root.join("demo.md")).unwrap(),
+        "merged"
+    );
     guard.shutdown().await;
 }
-
 </storycode:copy>
 <a id="f-9de73ad7ae6f-the_stores_own_persist_is_recognised_as_an_echo"></a>
 ### `the_stores_own_persist_is_recognised_as_an_echo`

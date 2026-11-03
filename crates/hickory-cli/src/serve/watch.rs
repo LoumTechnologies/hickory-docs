@@ -1,6 +1,6 @@
 //! Read-only filesystem observation beside the editor rooms.
 //!
-//! Index new documents and reconcile external source saves. Neither startup,
+//! Index new documents and announce external source saves. Neither startup,
 //! discovery, output edits nor refresh commands mint generation authority.
 //! Publication belongs to the explicit root/entry generation action.
 //! The caller owns directory coordination; this observer takes no second lock.
@@ -152,7 +152,7 @@ async fn run_loop(
         // restart. Observation never generates outputs.
         for path in &batch { discover_changed_path(&state, path, state.folder_open); }
 
-        // Source saves and discovery events only reconcile editor rooms.
+        // Source saves and discovery events only notify editor rooms.
         reconcile_rooms(&state, &root, &woven).await;
         publish_held(&state, &root, &woven);
         notify_files_changed(&state, &root, &woven, &mut output_marks).await;
@@ -231,13 +231,10 @@ pub(crate) async fn notify_files_changed(
     }
 }
 
-/// Push every watched document's on-disk text into its live room.
-///
-/// `apply_external_source` no-ops when the room already holds the text, so
-/// this is cheap for the common case and exactly right for the two that
-/// matter: a document rewritten by a reverse edit, and a document changed
-/// under the app by another program.
-pub(crate) async fn reconcile_rooms(state: &LocalState, root: &PathBuf, _woven: &WovenState) {
+/// Announce external disk edits without changing the live editor room.
+/// Explicit source-aware operations reconcile their own rooms; observation
+/// leaves the reader free to ignore, reload or merge the saved source.
+pub async fn reconcile_rooms(state: &LocalState, root: &PathBuf, _woven: &WovenState) {
     for doc in state
         .index
         .entries()
@@ -262,7 +259,17 @@ pub(crate) async fn reconcile_rooms(state: &LocalState, root: &PathBuf, _woven: 
             if state.store.was_own_write(&id, &source) {
                 continue;
             }
-            state.rooms.apply_external_source(&id, &source).await;
+            // The client reads the saved source and offers reload/ignore/merge.
+            // Applying it to the room here would erase the user's choice.
+            state
+                .rooms
+                .publish_run_event(
+                    &id,
+                    &serde_json::json!({
+                        "files_changed": true, "doc": id
+                    }),
+                )
+                .await;
         }
     }
 }

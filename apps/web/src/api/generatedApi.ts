@@ -8,7 +8,7 @@ export function generatedApi(request: typeof Request) { return {
   projectDocs: (projectId: Parameters<ApiRoutes["projectDocs"]>[0]) => request<Response<"projectDocs">>("GET", "/api/projects/" + projectId + "/docs"),
   createDoc: (projectId: Parameters<ApiRoutes["createDoc"]>[0], path: Parameters<ApiRoutes["createDoc"]>[1], source: Parameters<ApiRoutes["createDoc"]>[2]) => request<Response<"createDoc">>("POST", "/api/projects/" + projectId + "/docs", { path, source }),
   doc: (id: Parameters<ApiRoutes["doc"]>[0]) => request<Response<"doc">>("GET", "/api/docs/" + id + ""),
-  saveDoc: (id: Parameters<ApiRoutes["saveDoc"]>[0], source: Parameters<ApiRoutes["saveDoc"]>[1]) => request<Response<"saveDoc">>("PUT", "/api/docs/" + id + "", { source }),
+  saveDoc: (id: Parameters<ApiRoutes["saveDoc"]>[0], source: Parameters<ApiRoutes["saveDoc"]>[1], expected?: Parameters<ApiRoutes["saveDoc"]>[2]) => request<Response<"saveDoc">>("PUT", "/api/docs/" + id + "", { source, expected }),
 /** The open folder's file tree: directories first, alphabetical. */
   files: () => request<Response<"files">>("GET", "/api/files"),
 /** GitHub objects rooted in this checkout. Authentication remains in the

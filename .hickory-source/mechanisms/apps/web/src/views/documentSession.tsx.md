@@ -365,6 +365,7 @@ export interface DocSession {
   menuSave: () => Promise<boolean>;
   menuSaveAs: () => void;
   discardUnsaved: () => Promise<void>;
+  adoptDiskSource: (source: string, text: string, expected: string) => Promise<void>;
 }
 
 </storycode:copy>
@@ -515,6 +516,11 @@ export const DocSessionHost = memo(function DocSessionHost({
 </storycode:copy>
 <a id="f-bfb59577f48b-useDocumentSession"></a>
 ### `useDocumentSession`
+
+Keep disk adoption explicit: the tab offers reload or merge before this session
+updates its shared room. The saved-source acknowledgement still describes bytes
+on disk; external observations cannot silently replace a live buffer.
+
 
 The session itself (moved, near-verbatim, from views/DocumentView.tsx)
 
@@ -1149,6 +1155,21 @@ function useDocumentSession(
     setDocEditor(view);
   }, [docId]);
 
+  const adoptDiskSource = useCallback(async (source: string, text: string, expected: string) => {
+    const before = editorRef.current?.state.doc.toString() ?? liveSourceRef.current;
+    if (before !== expected) throw new Error("The buffer changed; its newer edits were kept. Choose again.");
+    const restored = await api.saveDoc(docId, text, { source: before, disk: source });
+    setDoc(restored); setSavedSource(text);
+    const view = editorRef.current;
+    const latest = view?.state.doc.toString() ?? liveSourceRef.current;
+    // The guarded room replacement may already have reached this view. Any
+    // other newer text belongs to typing after the request and stays dirty.
+    const next = latest === before || latest === text ? text : latest;
+    setDirtySource(next);
+    if (view && view.state.doc.toString() !== next) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next } });
+    void refreshRender(next);
+  }, [docId, refreshRender]);
+
   const clearReferences = useCallback(() => setReferences(null), []);
 
   const execBlocks = useMemo(
@@ -1209,6 +1230,7 @@ function useDocumentSession(
     menuSave,
     menuSaveAs,
     discardUnsaved,
+    adoptDiskSource,
   };
 }
 </storycode:copy>

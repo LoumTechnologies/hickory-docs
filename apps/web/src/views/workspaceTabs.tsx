@@ -1,3 +1,4 @@
+import { DiskChangeNotice } from "../components/MergeView";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import { useUiReading } from "../lib/uiReading";
 import { observationSourceChanged } from "../debug/observations";
@@ -180,6 +181,8 @@ export function DocTabBody({
         baseline={baseline}
         syncState={session.syncState}
       />
+      <DiskChangeNotice key={docId} path={doc.path} base={session.savedSource ?? doc.source} source={session.liveSource}
+        read={() => api.doc(docId)} apply={(disk, text) => session.adoptDiskSource(disk.source, text, session.liveSource)} />
       {session.banner && <ActionNotice kind={session.banner.kind} retry={session.banner.retry}>{session.banner.text}</ActionNotice>}
       {session.renderError && <ActionNotice kind="fail" retry={{ label: "Retry rendering", run: session.refresh }}>Could not render {doc.path}. Editing and saving remain available. {session.renderError}</ActionNotice>}
       {session.syncState === "failed" && session.banner?.retry?.label !== "Retry Save" && <ActionNotice kind="fail" retry={{ label: "Retry Save", run: () => { void session.menuSave(); } }}>Saving could not be confirmed. Your text is still in this editor.</ActionNotice>}

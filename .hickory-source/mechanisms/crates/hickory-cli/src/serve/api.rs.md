@@ -516,11 +516,25 @@ pub async fn get_doc(
 #[derive(Deserialize)]
 pub struct SaveDoc {
     pub source: String,
+    pub expected: Option<SaveDocExpected>,
+}
+
+#[derive(Deserialize)]
+pub struct SaveDocExpected {
+    pub source: String,
+    pub disk: String,
 }
 
 </storycode:copy>
 <a id="f-e71b04ae5298-put_doc"></a>
 ### `put_doc`
+
+A reload or merge names both the observed disk text and the live room text.
+Acquire the engine write guard, then use the room's conditional replacement to
+check both before saving. Keystrokes arriving during validation refuse the
+replacement. External programs do not share this lock; the final read is a
+staleness guard rather than a filesystem transaction.
+
 
 `PUT /api/docs/:id` — write the file, and tell the live room.
 
@@ -531,13 +545,39 @@ pub async fn put_doc(
     Path(id): Path<String>,
     Json(body): Json<SaveDoc>,
 ) -> ApiResult<Json<Value>> {
+    if let Some(expected) = body.expected {
+        return crate::engine::writes::during(&state.writes, async {
+            let replaced = state
+                .rooms
+                .replace_source_if_current(&id, &expected.source, &body.source, || {
+                    anyhow::ensure!(
+                        state
+                            .read_source(&id)
+                            .map_err(|error| anyhow::anyhow!(error.detail().to_string()))?
+                            == expected.disk,
+                        "The file changed again on disk; review it before reloading or merging"
+                    );
+                    state
+                        .write_source(&id, &body.source)
+                        .map_err(|error| anyhow::anyhow!(error.detail().to_string()))
+                })
+                .await
+                .map_err(ApiError::from)?;
+            if !replaced {
+                return Err(ApiError::conflict(
+                    "The live buffer changed; its newer edits were kept",
+                ));
+            }
+            Ok(Json(doc_json(&state, &id)?))
+        })
+        .await;
+    }
     state.write_source(&id, &body.source)?;
     // A room holding the pre-save text would write it straight back over this
     // on its next debounce.
     state.rooms.apply_external_source(&id, &body.source).await;
     Ok(Json(doc_json(&state, &id)?))
 }
-
 </storycode:copy>
 <a id="f-e71b04ae5298-elements"></a>
 ### `elements`

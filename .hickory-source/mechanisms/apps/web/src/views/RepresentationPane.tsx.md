@@ -16,6 +16,8 @@ Related contracts: [A literate view writes through to ordinary source](../../../
 ### `noCells`
 
 <storycode:copy id="f-cd66c1c2250e-noCells">
+import { api } from "../api/client";
+import { DiskChangeNotice } from "../components/MergeView";
 import { useUiReading } from "../lib/uiReading";
 import { registerDebugSurface, preferDebugSurface, representedFrameOffset } from "../debug/preferredDebugLocation";
 import { PaneHeaderContent } from "../shell/PaneHeader";
@@ -59,9 +61,17 @@ const message = (error: unknown) => error instanceof Error ? error.message : Str
 <a id="f-cd66c1c2250e-RepresentationPane"></a>
 ### `RepresentationPane`
 
+Read the backing files separately from the working arrangement. Offer a choice
+when they change; accepting a merge advances the saved baseline to disk and
+leaves the merged arrangement dirty until Save. Ignore writes neither side.
+Compare saved file bytes before refreshing the arrangement: a polling timer must
+not recompile a large literate view every two seconds when its files are unchanged.
+
+
 <storycode:copy id="f-cd66c1c2250e-RepresentationPane">
 export function RepresentationPane({ id, initialBase = "", initialTarget = "", bufferId = id }: { id: string; initialBase?: string; initialTarget?: string; bufferId?: string }) {
   const [record, setRecord] = useState<Representation | null>(null);
+  const observedDisk = useRef<Representation | null>(null);
   const [source, setSource] = useState("");
   const [mappedSource, setMappedSource] = useState("");
   const [files, setFiles] = useState<Representation["files"]>([]);
@@ -89,6 +99,7 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
   const dirty = !!record && source !== record.source && (!comparison || comparison.editable);
   const accept = useCallback((next: Representation) => {
     if (ownerRef.current !== owner || next.id !== id) return;
+    observedDisk.current = next;
     setRecord(next); setFiles(next.files); setMappedSource(next.source);
     const text = buffers.get(id) ?? next.source;
     current.current = { ...current.current, record: next, source: text, mappedSource: next.source, files: next.files };
@@ -116,7 +127,7 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
     } catch (e) { refreshResult.current = { status: "unavailable", reason: message(e) }; if (ownerRef.current === owner && mounted.current) setNotice(message(e)); return false; }
     finally { if (ownerRef.current === owner) { current.current.busy = false; if (mounted.current) setBusy(false); } }
   }, [id, accept, owner]);
-  useEffect(() => { const run = () => { void refresh(); }; window.addEventListener(FILES_CHANGED_EVENT, run); window.addEventListener("focus", run); return () => { window.removeEventListener(FILES_CHANGED_EVENT, run); window.removeEventListener("focus", run); }; }, [refresh]);
+
   useEffect(() => {
     if (!record || comparison?.target) return;
     let live = true;
@@ -227,6 +238,29 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
         save={async () => { await save(); return saveResult.current; }} refresh={async () => { await refresh(); return refreshResult.current; }}
         discard={discard} toggleAgent={() => setAgent(v => !v)} onNotice={setNotice} />
     </div></PaneHeaderContent>
+    {!comparison && <DiskChangeNotice key={id} path={record.files.map(file => file.path).join(", ") || id} base={record.source} source={source}
+      read={async () => {
+        const cached = observedDisk.current ?? record;
+        // Most polls should only observe bytes, not recompile the literate
+        // arrangement. Cache the last observed disk version even if ignored.
+        if (cached.backing.kind === "document") {
+          const disk = await api.doc(cached.backing.doc_id);
+          if (disk.source === cached.source) return cached;
+        } else {
+          const files = await Promise.all(cached.files.map(file => api.file(file.path)));
+          if (files.every((file, index) => file.content === cached.files[index].content)) return cached;
+        }
+        const disk = await representations.refresh(id);
+        observedDisk.current = disk;
+        return disk;
+      }} apply={(disk, text) => {
+        buffers.delete(id); accept(disk);
+        if (text !== disk.source) {
+          buffers.set(id, text); current.current.source = text; setSource(text);
+          const view = viewRef.current;
+          if (view && view.state.doc.toString() !== text) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
+        }
+      }} />}
     {dirty && !historical && <ChangePreview heading="Review changes before saving" collapsible effects="Save writes these edits to the targets named above. This view has no recovery draft; closing without saving discards its edits.">
       <DocumentComparison id={`${id}:preview`} path="arrangement.md" before={record.source} after={source} />
       {files.filter(file => file.content !== record.files.find(base => base.path === file.path)?.content).map(file => <section key={file.path}><strong>{file.path}</strong>
@@ -291,6 +325,7 @@ Related contracts: [Explicit UI action dispatch checks scope, state, policy and 
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { api } from "../api/client";
 import { representations, type Representation } from "../api/representations";
 import { viewBuffers } from "../lib/viewBuffers";
 import { UiActions } from "../lib/uiActions";
@@ -347,6 +382,32 @@ async function mount() {
 // Guarantees: docs/guarantees/authoring/saved-means-the-displayed-bytes-reached-the-file.md;
 // docs/guarantees/lenses/a-view-declares-where-edits-land.md.
 describe("saving a working representation", () => {
+  it("does not recompile an arrangement when its backing bytes are unchanged", async () => {
+    vi.spyOn(api, "file").mockResolvedValue({ path: "code.py", content: "old", hash: "file-hash", language: "python" });
+    const refresh = vi.spyOn(representations, "refresh");
+    await mount();
+    await act(async () => {});
+    fireEvent(window, new Event("focus"));
+    await act(async () => {});
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("merges unsaved text against a changed backing file before saving the current revision", async () => {
+    const disk = vi.spyOn(api, "file").mockResolvedValue({ path: "code.py", content: "old", hash: "file-hash", language: "python" });
+    vi.spyOn(representations, "refresh").mockResolvedValue(record("disk", "r2"));
+    const edit = vi.spyOn(representations, "edit").mockResolvedValue(record("mine", "r3"));
+    const { editor } = await mount();
+    fireEvent.change(editor, { target: { value: "mine" } });
+    disk.mockResolvedValue({ path: "code.py", content: "disk", hash: "new-file-hash", language: "python" });
+    fireEvent(window, new Event("focus"));
+    fireEvent.click(await screen.findByRole("button", { name: "Merge changes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Accept, keeping mine where undecided" }));
+    await waitFor(() => expect(screen.queryByTestId("merge-view")).toBeNull());
+    expect(edit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(edit).toHaveBeenCalledWith("v", "r2", "mine"));
+  });
+
   it("keeps later typing unsaved when an earlier save completes", async () => {
     let complete!: (record: Representation) => void;
     const edit = vi.spyOn(representations, "edit").mockImplementation(() => new Promise(done => { complete = done; }));

@@ -38,7 +38,7 @@ component. Non-path parameters become JSON fields unless a body name is explicit
   projectDocs(projectId: string): GET<"/api/projects/{projectId}/docs", Types.DocSummary[]>;
   createDoc(projectId: string, path: string, source: string): POST<"/api/projects/{projectId}/docs", Types.Doc>;
   doc(id: string): GET<"/api/docs/{id}", Types.Doc>;
-  saveDoc(id: string, source: string): PUT<"/api/docs/{id}", Types.Doc>;
+  saveDoc(id: string, source: string, expected?: { source: string; disk: string }): PUT<"/api/docs/{id}", Types.Doc>;
 /** The open folder's file tree: directories first, alphabetical. */
   files(): GET<"/api/files", Types.FilesResponse>;
 /** GitHub objects rooted in this checkout. Authentication remains in the
