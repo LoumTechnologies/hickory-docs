@@ -2887,10 +2887,7 @@ name = "hick-flow"
 version = "0.1.0"
 dependencies = [
  "futures",
- "hick-lang",
- "log",
  "tokio",
- "tokio-stream",
  "tokio-util",
 ]
 
@@ -3370,7 +3367,7 @@ dependencies = [
 name = "hickory-lineage"
 version = "0.1.0"
 dependencies = [
- "hick-flow",
+ "hick-exec",
  "hick-lang",
  "hick-plugins",
  "serde",

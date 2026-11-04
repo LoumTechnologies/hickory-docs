@@ -1,0 +1,169 @@
+{
+  "kind": "sol-reactive-v4-main-analysis",
+  "source_run": "target/prediction-gate-reactive-main-20261103-214715",
+  "validation": {
+    "bench.py_matches_frozen_snapshot": true,
+    "bench.py_current_unchanged": true,
+    "reactive_cases.py_matches_frozen_snapshot": true,
+    "reactive_cases.py_current_unchanged": true,
+    "codex_backend.py_matches_frozen_snapshot": true,
+    "codex_backend.py_current_unchanged": true,
+    "gate_binary_matches": true,
+    "all_scheduled_sessions_recorded": true,
+    "all_pairs_complete": true,
+    "no_infrastructure_failures": true,
+    "model_context_has_no_host_only_fields": true,
+    "all_submit_proposals_scored_on_12_heldout_cases": true,
+    "no_native_tool_activity_or_unknown_errors": true,
+    "50_completed_cli_turns": true
+  },
+  "arms": {
+    "baseline": {
+      "input_tokens": 236672,
+      "cached_input_tokens": 70272,
+      "output_tokens": 14903,
+      "elapsed_seconds": 458.09590108599986,
+      "estimated_credits": 12.221429999999996,
+      "blocked_saves": 0,
+      "incorrect_predictions": 0,
+      "retries": 0,
+      "regressions": 0,
+      "correct_code_blocked": 0,
+      "cli_turn_attempts": 24,
+      "sessions": 24,
+      "first_correct": 24,
+      "final_correct": 24,
+      "completed": 24,
+      "abandoned": 0,
+      "total_tokens": 251575,
+      "uncached_rate_normalized_credits": 15.55935
+    },
+    "gate": {
+      "input_tokens": 260021,
+      "cached_input_tokens": 46848,
+      "output_tokens": 27082,
+      "elapsed_seconds": 759.2081019130001,
+      "estimated_credits": 17.54627,
+      "blocked_saves": 2,
+      "incorrect_predictions": 2,
+      "retries": 0,
+      "regressions": 0,
+      "correct_code_blocked": 2,
+      "cli_turn_attempts": 26,
+      "sessions": 24,
+      "first_correct": 24,
+      "final_correct": 22,
+      "completed": 22,
+      "abandoned": 2,
+      "total_tokens": 287103,
+      "uncached_rate_normalized_credits": 19.77155
+    }
+  },
+  "predefined_analysis": {
+    "pairs": 24,
+    "wins": 0,
+    "losses": 2,
+    "paired_risk_difference": -0.08333333333333333,
+    "paired_bootstrap_95": [
+      -0.20833333333333334,
+      0.0
+    ],
+    "exact_mcnemar_p": 0.5,
+    "simulated": false,
+    "per_task": {
+      "dcl-queued-quiescence": {
+        "baseline": {
+          "n": 4,
+          "final_correct": 4,
+          "failures": 0
+        },
+        "gate": {
+          "n": 4,
+          "final_correct": 4,
+          "failures": 0
+        }
+      },
+      "dcl-readiness-retention": {
+        "baseline": {
+          "n": 4,
+          "final_correct": 4,
+          "failures": 0
+        },
+        "gate": {
+          "n": 4,
+          "final_correct": 4,
+          "failures": 0
+        }
+      },
+      "livelinq-distinct-ownership": {
+        "baseline": {
+          "n": 4,
+          "final_correct": 4,
+          "failures": 0
+        },
+        "gate": {
+          "n": 4,
+          "final_correct": 2,
+          "failures": 0
+        }
+      },
+      "livelinq-flatten-alias-offsets": {
+        "baseline": {
+          "n": 4,
+          "final_correct": 4,
+          "failures": 0
+        },
+        "gate": {
+          "n": 4,
+          "final_correct": 4,
+          "failures": 0
+        }
+      },
+      "livelinq-index-sensitive-filter": {
+        "baseline": {
+          "n": 4,
+          "final_correct": 4,
+          "failures": 0
+        },
+        "gate": {
+          "n": 4,
+          "final_correct": 4,
+          "failures": 0
+        }
+      },
+      "livelinq-persistent-groups": {
+        "baseline": {
+          "n": 4,
+          "final_correct": 4,
+          "failures": 0
+        },
+        "gate": {
+          "n": 4,
+          "final_correct": 4,
+          "failures": 0
+        }
+      }
+    },
+    "admitted_proposals": 48,
+    "primary_outcome_available": true,
+    "conclusion": "inconclusive; not evidence of no benefit"
+  },
+  "raw_records_sha256": "d4c45a9e78e04516dcccdd2f822d04800c55bc977b3e19ef8338e1cff1a26529",
+  "limitations": [
+    "Six fixed task variants; two share DCL code",
+    "Python semantic extractions, not native runtime tests",
+    "All initial proposals correct: no erroneous-code detection sensitivity estimate",
+    "Both false blocks occur in one task variant",
+    "CLI internal provider call counts opaque",
+    "Credit estimates are not actual account debits and caching differs",
+    "Inference across new task populations is not established"
+  ],
+  "primary_outcome": "final accepted implementation passes every held-out case",
+  "success_criterion_met": false,
+  "rate_assumptions_credits_per_million": {
+    "input": 50,
+    "cached_input": 2.5,
+    "output": 250
+  },
+  "frozen_source_snapshot": "target/prediction-gate-reactive-v4-source/snapshot.json"
+}
