@@ -152,6 +152,535 @@ pub async fn run_output_with_environment(
     )
 }
 
+/// Captured multi-file observations reuse the private ledger. This is a host API,
+/// not an agent-controlled command runner or an OS isolation guarantee.
+pub mod project_observation {
+    use super::*;
+    use hick_observe::prediction::digest;
+    use std::{collections::BTreeMap, time::Duration};
+
+    pub struct Capture {
+        archive: Vec<u8>,
+        fingerprints: BTreeMap<String, String>,
+        source: String,
+        plan: String,
+        image: String,
+        command: String,
+        timeout: Duration,
+    }
+
+    impl Capture {
+        /// Evaluate only supplied source bytes; never read a live working tree.
+        /// The trusted host owns the command and its result normalization policy.
+        pub fn new(
+            entry: &str,
+            sources: &BTreeMap<String, String>,
+            image: &str,
+            command: &str,
+            timeout: Duration,
+        ) -> Result<Self> {
+            ensure!(
+                !image.is_empty()
+                    && image.len() <= 4096
+                    && !command.is_empty()
+                    && command.len() <= 65536
+            );
+            ensure!(timeout > Duration::ZERO && timeout <= Duration::from_secs(600));
+            ensure!(
+                sources.len() <= 1024
+                    && sources.values().map(String::len).sum::<usize>() <= 16 * 1024 * 1024
+            );
+            let evaluated =
+                hick_lang::evaluate_project(entry, sources, &hick_lang::ProjectTree::default())
+                    .map_err(|_| anyhow::anyhow!("Captured project construction unavailable"))?;
+            // Cached exec/agent results cannot masquerade as fresh construction.
+            ensure!(
+                evaluated.recordings.is_empty(),
+                "Recorded construction is not admitted"
+            );
+            let mut archive = tar::Builder::new(Vec::new());
+            let mut total = 0usize;
+            let mut fingerprints = BTreeMap::new();
+            ensure!(evaluated.new.entries().len() <= 4096);
+            for (path, file) in evaluated.new.entries() {
+                ensure!(
+                    file.kind == hick_lang::EntryKind::File,
+                    "Only regular files are admitted"
+                );
+                ensure!(!path.starts_with(hick_lang::EDITOR_BUFFER_PREFIX));
+                ensure!(
+                    !path.is_empty()
+                        && !path.contains('\\')
+                        && !path.contains(':')
+                        && path
+                            .split('/')
+                            .all(|p| !p.is_empty() && p != "." && p != "..")
+                );
+                total = total
+                    .checked_add(file.bytes.len())
+                    .ok_or_else(|| anyhow::anyhow!("Project too large"))?;
+                ensure!(total <= 32 * 1024 * 1024);
+                fingerprints.insert(
+                    path.clone(),
+                    digest(&serde_json::json!({
+                    "bytes":file.bytes.as_ref(), "executable":file.executable}))?,
+                );
+                let mut header = tar::Header::new_gnu();
+                header.set_size(file.bytes.len() as u64);
+                header.set_mode(if file.executable { 0o755 } else { 0o644 });
+                header.set_cksum();
+                archive.append_data(&mut header, path, file.bytes.as_ref())?;
+            }
+            let source = digest(&serde_json::json!({"entry":entry,"sources":sources}))?;
+            let plan = digest(&serde_json::json!({"image":image,"command":command,
+                "timeout_ns":timeout.as_nanos().to_string(),"adapter":"captured-project-json-v1"}))?;
+            Ok(Self {
+                archive: archive.into_inner()?,
+                fingerprints,
+                source,
+                plan,
+                image: image.into(),
+                command: command.into(),
+                timeout,
+            })
+        }
+        /// Fingerprints bind bytes and executable metadata, not just filenames.
+        pub fn fingerprints(&self) -> &BTreeMap<String, String> {
+            &self.fingerprints
+        }
+        /// Pin host-owned observers/configuration through candidate repairs.
+        /// A missing or modified protected output refuses before execution.
+        pub fn protect(mut self, protected: &BTreeMap<String, String>) -> Result<Self> {
+            ensure!(
+                protected
+                    .iter()
+                    .all(|(path, hash)| self.fingerprints.get(path) == Some(hash)),
+                "Protected observation artifact changed"
+            );
+            self.plan = digest(&serde_json::json!({"plan":self.plan,"protected":protected}))?;
+            Ok(self)
+        }
+        pub fn identity(&self, inputs: String, environment: BTreeMap<String, String>) -> Identity {
+            Identity {
+                source: self.source.clone(),
+                inputs,
+                dependencies: BTreeMap::from([("observation-plan".into(), self.plan.clone())]),
+                environment,
+            }
+        }
+        pub fn target(&self) -> Target {
+            Target::Output {
+                execution: format!("captured-project-json-v1:{}", self.plan),
+            }
+        }
+        /// `probe` must measure the actual executor runtime, not caller claims.
+        /// The host must isolate all answer-bearing channels and own the executor
+        /// exclusively. LocalExecutor is useful for trusted tests only. Probes
+        /// before/after execution cannot detect transient runtime replacement.
+        pub async fn run<F>(
+            &self,
+            ledger: &Ledger,
+            request: &SealedRequest,
+            executor: Arc<dyn Executor>,
+            probe: F,
+        ) -> Result<ManagedOutput>
+        where
+            F: Fn() -> Result<BTreeMap<String, String>>,
+        {
+            ensure!(
+                request.target == self.target()
+                    && request.identity.source == self.source
+                    && request.identity.dependencies
+                        == BTreeMap::from([("observation-plan".into(), self.plan.clone())]),
+                "Captured project identity changed"
+            );
+            ensure!(
+                matches!(
+                    executor.script_platform(),
+                    hickory_executor::ScriptPlatform::Posix
+                ),
+                "Captured project command requires a POSIX executor"
+            );
+            ensure!(
+                !request.identity.environment.is_empty(),
+                "Runtime identity is required"
+            );
+            let before = probe().map_err(|_| anyhow::anyhow!("Private runtime unavailable"))?;
+            ensure!(
+                before == request.identity.environment,
+                "Private runtime changed"
+            );
+            let gate = match gate::admit(
+                ledger,
+                &request.seal,
+                &request.request_id,
+                &request.identity,
+                &request.actor,
+                &request.target,
+            )? {
+                gate::Admission::Existing(result) => return Ok(result),
+                gate::Admission::Fresh(gate) => gate,
+            };
+            if !executor.transcripts().is_empty() {
+                return gate.unavailable();
+            }
+            let observation = async {
+                executor
+                    .ensure_started("private-project", &self.image)
+                    .await?;
+                executor
+                    .inject_volume("private-project", "project", &self.archive)
+                    .await?;
+                let command = format!("cd project && (\n{}\n)", self.command);
+                let output = executor
+                    .execute_with_options(
+                        "private-project",
+                        &command,
+                        None,
+                        hickory_executor::ExecOptions {
+                            timeout: Some(self.timeout),
+                        },
+                    )
+                    .await?;
+                ensure!(output.len() <= 1024 * 1024);
+                let actual: serde_json::Value = serde_json::from_str(&output)?;
+                ensure!(probe()? == before);
+                Ok::<_, anyhow::Error>(actual)
+            }
+            .await;
+            match observation {
+                Ok(actual) => gate.finish(
+                    actual,
+                    serde_json::json!({
+                    "adapter":"captured-project-json-v1","source":self.source,"plan":self.plan,
+                    "transcripts":executor.transcripts()}),
+                    true,
+                ),
+                Err(_) => gate.unavailable(),
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use hick_observe::prediction::*;
+        use hickory_executor::LocalExecutor;
+        fn capture(value: u8) -> Capture {
+            let source = format!(
+                r#"<h:doc xmlns:h="http://www.hickorydocs.com/1.0">
+<h:project />
+<h:file path="value.py">VALUE = {value}
+</h:file>
+<h:file path="main.py">from value import VALUE
+print(VALUE)
+</h:file>
+</h:doc>"#
+            );
+            Capture::new(
+                "project.md",
+                &BTreeMap::from([("project.md".into(), source)]),
+                "host-python",
+                "python3 main.py",
+                Duration::from_secs(10),
+            )
+            .unwrap()
+        }
+        fn env() -> Result<BTreeMap<String, String>> {
+            Ok(BTreeMap::from([(
+                "test-host".into(),
+                digest(&"trusted-local-fixture")?,
+            )]))
+        }
+        fn request(c: &Capture, ledger: &Ledger) -> SealedRequest {
+            let actor = Actor {
+                kind: "agent".into(),
+                id: "fixture".into(),
+            };
+            let identity = c.identity(digest(&serde_json::json!([])).unwrap(), env().unwrap());
+            let target = c.target();
+            let seal = ledger
+                .seal(
+                    ledger.history(None).unwrap().generation,
+                    Seal {
+                        scenario: Scenario {
+                            family: "project-observation-test".into(),
+                            inputs: serde_json::json!([]),
+                            requirement_reference: "value equals 7".into(),
+                            requirement: Predicate::Equals(serde_json::json!(7)),
+                            identity_known: false,
+                        },
+                        identity: identity.clone(),
+                        target: target.clone(),
+                        predicted: Predicate::Equals(serde_json::json!(7)),
+                        rationale: "module imports captured value".into(),
+                    },
+                    actor.clone(),
+                )
+                .unwrap();
+            SealedRequest {
+                seal: seal.id,
+                request_id: "first".into(),
+                actor,
+                identity,
+                target,
+            }
+        }
+        #[tokio::test]
+        async fn multi_file_private_observation_and_retry() {
+            let dir = tempfile::tempdir().unwrap();
+            let ledger = Ledger::open(dir.path()).unwrap();
+            let c = capture(7);
+            let r = request(&c, &ledger);
+            let result = c
+                .run(&ledger, &r, Arc::new(LocalExecutor::new().unwrap()), env)
+                .await
+                .unwrap();
+            assert_eq!(result.summary.prediction_matched, Some(true));
+            assert_eq!(result.summary.original_requirement_satisfied, Some(true));
+            let json = serde_json::to_value(&result).unwrap();
+            assert!(json.get("actual").is_none());
+            assert!(json.get("transcripts").is_none());
+            let fresh = Arc::new(LocalExecutor::new().unwrap());
+            let retry = c.run(&ledger, &r, fresh.clone(), env).await.unwrap();
+            assert!(!retry.dispatched);
+            assert!(fresh.transcripts().is_empty());
+        }
+        #[tokio::test]
+        async fn changed_project_or_runtime_is_refused_before_dispatch() {
+            let dir = tempfile::tempdir().unwrap();
+            let ledger = Ledger::open(dir.path()).unwrap();
+            let c = capture(7);
+            let r = request(&c, &ledger);
+            for changed in [false, true] {
+                let e = Arc::new(LocalExecutor::new().unwrap());
+                let other = capture(if changed { 8 } else { 7 });
+                assert!(
+                    other
+                        .run(&ledger, &r, e.clone(), || if changed {
+                            env()
+                        } else {
+                            Ok(BTreeMap::new())
+                        })
+                        .await
+                        .is_err()
+                );
+                assert!(e.transcripts().is_empty());
+            }
+        }
+        #[tokio::test]
+        async fn timeout_cannot_become_prediction_credit() {
+            let dir = tempfile::tempdir().unwrap();
+            let ledger = Ledger::open(dir.path()).unwrap();
+            let mut c = capture(7);
+            c.command = "sleep 2; printf 7".into();
+            c.timeout = Duration::from_millis(20);
+            c.plan = digest(&"timeout-fixture").unwrap();
+            let r = request(&c, &ledger);
+            let result = c
+                .run(&ledger, &r, Arc::new(LocalExecutor::new().unwrap()), env)
+                .await
+                .unwrap();
+            assert_ne!(result.summary.prediction_matched, Some(true));
+            assert_ne!(result.summary.original_requirement_satisfied, Some(true));
+        }
+        #[tokio::test]
+        async fn changed_observation_plan_is_refused() {
+            let dir = tempfile::tempdir().unwrap();
+            let ledger = Ledger::open(dir.path()).unwrap();
+            let c = capture(7);
+            let r = request(&c, &ledger);
+            let mut changed = capture(7);
+            changed.plan = digest(&"other-plan").unwrap();
+            let e = Arc::new(LocalExecutor::new().unwrap());
+            assert!(changed.run(&ledger, &r, e.clone(), env).await.is_err());
+            assert!(e.transcripts().is_empty());
+        }
+        #[tokio::test]
+        async fn runtime_drift_after_execution_is_unknown() {
+            let dir = tempfile::tempdir().unwrap();
+            let ledger = Ledger::open(dir.path()).unwrap();
+            let c = capture(7);
+            let r = request(&c, &ledger);
+            let calls = std::cell::Cell::new(0);
+            let result = c
+                .run(&ledger, &r, Arc::new(LocalExecutor::new().unwrap()), || {
+                    calls.set(calls.get() + 1);
+                    if calls.get() == 1 {
+                        env()
+                    } else {
+                        Ok(BTreeMap::new())
+                    }
+                })
+                .await
+                .unwrap();
+            assert_ne!(result.summary.original_requirement_satisfied, Some(true));
+        }
+        #[tokio::test]
+        async fn failed_command_with_valid_json_is_unknown() {
+            let dir = tempfile::tempdir().unwrap();
+            let ledger = Ledger::open(dir.path()).unwrap();
+            let mut c = capture(7);
+            c.command = "printf 7; exit 1".into();
+            c.plan = digest(&"nonzero-fixture").unwrap();
+            let r = request(&c, &ledger);
+            let result = c
+                .run(&ledger, &r, Arc::new(LocalExecutor::new().unwrap()), env)
+                .await
+                .unwrap();
+            assert_ne!(result.summary.original_requirement_satisfied, Some(true));
+        }
+        #[tokio::test]
+        async fn correctly_predicted_defect_still_fails_requirement() {
+            let dir = tempfile::tempdir().unwrap();
+            let ledger = Ledger::open(dir.path()).unwrap();
+            let c = capture(8);
+            let actor = Actor {
+                kind: "agent".into(),
+                id: "fixture".into(),
+            };
+            let identity = c.identity(digest(&serde_json::json!([])).unwrap(), env().unwrap());
+            let target = c.target();
+            let seal = ledger
+                .seal(
+                    ledger.history(None).unwrap().generation,
+                    Seal {
+                        scenario: Scenario {
+                            family: "predicted-defect".into(),
+                            inputs: serde_json::json!([]),
+                            requirement_reference: "value equals 7".into(),
+                            requirement: Predicate::Equals(serde_json::json!(7)),
+                            identity_known: false,
+                        },
+                        identity: identity.clone(),
+                        target: target.clone(),
+                        predicted: Predicate::Equals(serde_json::json!(8)),
+                        rationale: "captured defect returns eight".into(),
+                    },
+                    actor.clone(),
+                )
+                .unwrap();
+            let r = SealedRequest {
+                seal: seal.id,
+                request_id: "defect".into(),
+                actor,
+                identity,
+                target,
+            };
+            let result = c
+                .run(&ledger, &r, Arc::new(LocalExecutor::new().unwrap()), env)
+                .await
+                .unwrap();
+            assert_eq!(result.summary.prediction_matched, Some(true));
+            assert_eq!(result.summary.original_requirement_satisfied, Some(false));
+        }
+        // An exposed fixture exercises integration, never first-attempt cognition.
+        #[tokio::test]
+        #[ignore = "requires HICKORY_PROOFS_PLAYGROUND, Lean, Java and TLC_JAR"]
+        async fn real_proofs_playground_through_private_ledger() {
+            let root =
+                std::path::PathBuf::from(std::env::var("HICKORY_PROOFS_PLAYGROUND").unwrap());
+            let sources = BTreeMap::from([(
+                "project.md".into(),
+                std::fs::read_to_string(root.join("project.md")).unwrap(),
+            )]);
+            let command = "python3 explore.py > observation.json && python3 -c 'import json; print(json.dumps(json.load(open(\"observation.json\"))[\"accepted\"]))'";
+            let c = Capture::new(
+                "project.md",
+                &sources,
+                "trusted-host",
+                command,
+                Duration::from_secs(120),
+            )
+            .unwrap();
+            let probe = || -> Result<BTreeMap<String, String>> {
+                let mut out = BTreeMap::new();
+                for (name, program, args) in [
+                    ("lean", "lean", vec!["--version"]),
+                    ("java", "java", vec!["-version"]),
+                    ("python", "python3", vec!["--version"]),
+                ] {
+                    let result = std::process::Command::new(program)
+                        .args(args)
+                        .current_dir(&root)
+                        .output()?;
+                    ensure!(result.status.success());
+                    out.insert(
+                        name.into(),
+                        digest(&serde_json::json!([result.stdout, result.stderr]))?,
+                    );
+                }
+                let jar = std::fs::read(std::env::var("TLC_JAR")?)?;
+                use sha2::{Digest, Sha256};
+                out.insert("tlc-jar".into(), format!("{:x}", Sha256::digest(jar)));
+                Ok(out)
+            };
+            let dir = tempfile::tempdir().unwrap();
+            let ledger = Ledger::open(dir.path()).unwrap();
+            let actor = Actor {
+                kind: "agent".into(),
+                id: "exposed-fixture".into(),
+            };
+            let identity = c.identity(digest(&serde_json::json!([])).unwrap(), probe().unwrap());
+            let target = c.target();
+            let seal = ledger
+                .seal(
+                    ledger.history(None).unwrap().generation,
+                    Seal {
+                        scenario: Scenario {
+                            family: "public-vault-witnesses".into(),
+                            inputs: serde_json::json!([]),
+                            requirement_reference: "all public witnesses accepted".into(),
+                            requirement: Predicate::Equals(serde_json::json!(true)),
+                            identity_known: false,
+                        },
+                        identity: identity.clone(),
+                        target: target.clone(),
+                        predicted: Predicate::Equals(serde_json::json!(true)),
+                        rationale: "previously observed fixture; no independent prediction credit"
+                            .into(),
+                    },
+                    actor.clone(),
+                )
+                .unwrap();
+            let r = SealedRequest {
+                seal: seal.id,
+                request_id: "public-fixture".into(),
+                actor,
+                identity,
+                target,
+            };
+            let started = std::time::Instant::now();
+            let result = c
+                .run(&ledger, &r, Arc::new(LocalExecutor::new().unwrap()), probe)
+                .await
+                .unwrap();
+            println!(
+                "playground private observation: {} seconds; {}",
+                started.elapsed().as_secs_f64(),
+                serde_json::to_string(&result).unwrap()
+            );
+            assert_eq!(result.summary.prediction_matched, Some(true));
+            assert_eq!(result.summary.original_requirement_satisfied, Some(true));
+        }
+        #[tokio::test]
+        async fn invalid_json_is_unknown_not_a_successful_prediction() {
+            let dir = tempfile::tempdir().unwrap();
+            let ledger = Ledger::open(dir.path()).unwrap();
+            let mut c = capture(7);
+            c.command = "printf 'not-json'".into();
+            // Host fixture mutation before sealing; production fields are private.
+            c.plan = digest(&"invalid-json-fixture").unwrap();
+            let r = request(&c, &ledger);
+            let result = c
+                .run(&ledger, &r, Arc::new(LocalExecutor::new().unwrap()), env)
+                .await
+                .unwrap();
+            assert_ne!(result.summary.prediction_matched, Some(true));
+            assert_ne!(result.summary.original_requirement_satisfied, Some(true));
+        }
+    }
+}
 /// Exact target ID includes the output decoding semantics. Renaming the cell
 /// cannot reset the scenario's ledger history.
 pub fn output_target(container: &str, line: usize, encoding: OutputEncoding) -> Target {

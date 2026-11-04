@@ -148158,14 +148158,14 @@
       "id": "static-apps-web-src-embed-SourceFileTree-tsx-0",
       "output": "apps/web/src/embed/SourceFileTree.tsx",
       "page": ".hickory-source/mechanisms/apps/web/src/embed/SourceFileTree.tsx.md",
-      "symbol": "Browse published files with the app’s compact file buffer",
+      "symbol": "Browse published files with the app\u2019s compact file buffer",
       "basis": "explained-decision"
     },
     {
       "id": "static-apps-web-src-embed-SourceFileTree-tsx-1",
       "output": "apps/web/src/embed/SourceFileTree.tsx",
       "page": ".hickory-source/mechanisms/apps/web/src/embed/SourceFileTree.tsx.md",
-      "symbol": "Browse published files with the app’s compact file buffer",
+      "symbol": "Browse published files with the app\u2019s compact file buffer",
       "basis": "explained-decision"
     },
     {
@@ -148327,6 +148327,41 @@
       "output": "scripts/test-subscription-codex.py",
       "page": ".hickory-source/mechanisms/scripts/test-subscription-codex.py.md",
       "symbol": "Native HTTP subscription fixture",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "captured-project-types",
+      "output": "crates/hick-literate/src/prediction.rs",
+      "page": ".hickory-source/guarantees/verification/predictions-precede-managed-observation/implementation/crates/hick-literate/src/prediction.rs.md",
+      "symbol": "Capture source instead of consulting the live tree",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "captured-project-construction",
+      "output": "crates/hick-literate/src/prediction.rs",
+      "page": ".hickory-source/guarantees/verification/predictions-precede-managed-observation/implementation/crates/hick-literate/src/prediction.rs.md",
+      "symbol": "Construct a bounded regular-file archive",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "captured-project-identities",
+      "output": "crates/hick-literate/src/prediction.rs",
+      "page": ".hickory-source/guarantees/verification/predictions-precede-managed-observation/implementation/crates/hick-literate/src/prediction.rs.md",
+      "symbol": "Bind the observation and protect its checker",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "captured-project-execution",
+      "output": "crates/hick-literate/src/prediction.rs",
+      "page": ".hickory-source/guarantees/verification/predictions-precede-managed-observation/implementation/crates/hick-literate/src/prediction.rs.md",
+      "symbol": "Admit before observing and settle without revealing",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "captured-project-witnesses",
+      "output": "crates/hick-literate/src/prediction.rs",
+      "page": ".hickory-source/guarantees/verification/predictions-precede-managed-observation/implementation/crates/hick-literate/src/prediction.rs.md",
+      "symbol": "Challenge the host boundary with real execution",
       "basis": "authored-explanation"
     }
   ],

@@ -201,7 +201,7 @@ impl EditSession {
     /// Re-weave from the in-memory source, refreshing files and provenance.
     async fn reweave(&mut self) -> Result<()> {
         if self.prediction.is_some() {
-            prediction::private_source(&self.source)?;
+            self.validate_prediction_source()?;
             self.weave = WeaveState {
                 files: HashMap::new(),
                 provenance: HashMap::new(),
