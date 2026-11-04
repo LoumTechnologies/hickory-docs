@@ -60,6 +60,8 @@ model it ran on. `usd` is null when any turn's model has no known price.
 /** Session-wide spend across a document's turns, each turn priced on the
  * model it ran on. `usd` is null when any turn's model has no known price. */
 export interface AgentTotals {
+  subscription?: boolean;
+  mixed?: boolean;
   usd: number | null;
   input: number;
   output: number;

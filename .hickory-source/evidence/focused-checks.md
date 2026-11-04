@@ -129,4 +129,43 @@ The native inventory check found site build output and Python import caches.
 unrelated unconstructed files still refuse verification. Broad regressions and
 post-commit monitoring remain the maintainer's responsibility.
 
+
+## 2026-11-03: subscription Codex model transport
+
+The built-in Python loop now accepts `codex-subscription` model inference. This
+is separate from the external Codex ACP harness. Authentication uses supported
+Codex account RPC and CLI status; no credential files are read into Hickory.
+Native execution and integration tools are disabled, unexpected native items
+are refused, and the macOS process boundary denies workspace content
+and child commands, and only explicit API-provider selection can change billing.
+Retained subscription turns restore the same provider across engine restart.
+
+Executed focused witnesses:
+
+- `cargo test --offline --locked -p hickory-cli --lib serve::codex_subscription::tests -- --nocapture`: ten fixtures passed, covering account modes, startup warnings, token accounting, process exit, cancellation, tool rejection, actual sandbox denials and provider selection with an API key present.
+- `HICKORY_AGENT_TEST_PYTHON=…/apps/agent/.venv/bin/python cargo test --offline --locked -p hickory-cli --test python_agent -- --nocapture`: all nine real confined-worker safety checks passed. A pre-existing test selected the context JSON sidecar by directory order; it now selects the Markdown record explicitly and retains the same refusal assertions.
+- `cargo test --offline --locked -p hickory-cli --test prediction_http native_run_route_uses_private_gate_and_alternate_http_surfaces_refuse_without_answers -- --exact`: the existing prediction-gate HTTP witness passed.
+- `npm exec vitest run src/components/ConversationModelChoice.test.tsx src/components/ChatDock.test.tsx`: 37 UI fixtures passed. `npm run typecheck` also passed.
+- `python3 scripts/test-subscription-codex.py --engine target/debug/examples/python_agent_ui_fixture --python-runtime apps/agent/.venv/bin/python`: native HTTP selection, signed-out status, supported sign-in request, original authentication failure, one attempted authentication check, unknown charges and selection retained across restart passed. Its fake Codex never starts inference or calls a paid provider.
+
+The HTTP witness exposed an error-masking problem: duplicate worker delivery
+requests replaced the original sign-in error with a generic uncertain-delivery
+message. The delivery cache now replays the original success or failure without
+making another inference request.
+
+The working tree's normal `behavior.py generate` is blocked by existing pending
+captures, and its `check` first reports the pre-existing desktop `Cargo.lock`
+difference. Those unrelated products and captures were preserved. Generation and
+checking of this feature's construction ran in an isolated source closure; full
+source-only snapshot reconstruction and ownership audit were also checked. This
+does not reconcile the unrelated working-tree drift.
+
+No live account login, inference, exhausted allowance or credit consumption was
+exercised. A packaged desktop browser callback, an existing real login, a reviewed
+live edit, Stop, expired credentials and actual network/limit failures remain live
+verification. The initial transport refuses non-macOS inference, captured images
+and private predictor inference. Unknown counters and credit balances stay
+unknown. Broad regressions and post-commit status monitoring remain with the
+maintainer (`just checks-status`, or `gh run list` / `gh run view RUN_ID`).
+
 </book:doc>

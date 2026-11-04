@@ -83,7 +83,10 @@ impl RuntimeLimits {
             "HICKORY_AGENT_INSTRUCTION_PROFILE must be full or focused"
         );
         let layout = lookup("HICKORY_AGENT_CONTEXT_LAYOUT").unwrap_or_else(|| "structured".into());
-        ensure!(matches!(layout.as_str(), "structured" | "interleaved"), "HICKORY_AGENT_CONTEXT_LAYOUT must be structured or interleaved");
+        ensure!(
+            matches!(layout.as_str(), "structured" | "interleaved"),
+            "HICKORY_AGENT_CONTEXT_LAYOUT must be structured or interleaved"
+        );
         Ok(Self {
             context_layout: layout,
             instruction_profile: profile,
@@ -94,7 +97,6 @@ impl RuntimeLimits {
         })
     }
 }
-
 </storycode:copy>
 <a id="f-609d98dd1fad-Conversation"></a>
 ### `Conversation`
@@ -131,7 +133,6 @@ pub struct Outcome {
     pub usage: Usage,
     pub artifact: Option<crate::changeset::Artifact>,
 }
-
 </storycode:copy>
 <a id="f-609d98dd1fad-Proposal"></a>
 ### `Proposal`
@@ -147,7 +148,6 @@ pub struct Proposal {
     pub revision: Option<String>,
     pub sources: Vec<Value>,
 }
-
 </storycode:copy>
 <a id="f-609d98dd1fad-Review"></a>
 ### `Review`
@@ -187,7 +187,6 @@ pub trait Review: Send {
         vec![]
     }
 }
-
 </storycode:copy>
 <a id="f-609d98dd1fad-EditorHead"></a>
 ### `EditorHead`
@@ -247,7 +246,6 @@ impl Review for TerminalReview {
             .context("Terminal review ended without a decision")?
     }
 }
-
 </storycode:copy>
 <a id="f-609d98dd1fad-append"></a>
 ### `append`
@@ -403,6 +401,12 @@ struct HostEditorBuffer {
 <a id="f-609d98dd1fad-Host"></a>
 ### `Host`
 
+Cache successful and failed inference deliveries separately from unconfirmed
+attempts. A worker retry with the same request identity receives the original
+result or original actionable error; it never makes another provider request.
+This prevents a signed-out error from being hidden behind a generic duplicate
+request message. A changed payload with the same identity still conflicts.
+
 <storycode:copy id="f-609d98dd1fad-Host">
 struct Host<'a> {
     config: &'a Config,
@@ -414,7 +418,8 @@ struct Host<'a> {
     private_failure: Option<PrivateFailure>,
     require_private_verification: bool,
     context_store: hick_context_store::host::Service,
-    deliveries: std::collections::BTreeMap<String, (String, Option<Value>)>,
+    deliveries:
+        std::collections::BTreeMap<String, (String, Option<std::result::Result<Value, String>>)>,
     active_delivery: Option<Value>,
     session: PathBuf,
     turns: usize,
@@ -428,7 +433,6 @@ struct Host<'a> {
     usage: Usage,
     on_event: &'a mut (dyn FnMut(AgentEvent) + Send),
 }
-
 </storycode:copy>
 <a id="f-609d98dd1fad-host"></a>
 ### `host`
@@ -447,7 +451,6 @@ mod private;
 
 <storycode:copy id="f-609d98dd1fad-use_declaration">
 pub use private::Failure as PrivateFailure;
-
 </storycode:copy>
 <a id="f-609d98dd1fad-ChildGuard"></a>
 ### `ChildGuard`
@@ -473,7 +476,6 @@ impl Drop for ChildGuard {
         let _ = self.child.start_kill();
     }
 }
-
 </storycode:copy>
 <a id="f-609d98dd1fad-run"></a>
 ### `run`
@@ -513,7 +515,6 @@ pub async fn run(
     println!("{}", outcome.summary);
     Ok(outcome.session)
 }
-
 </storycode:copy>
 <a id="f-609d98dd1fad-run_conversation"></a>
 ### `run_conversation`
@@ -957,7 +958,6 @@ pub async fn run_conversation(
         usage: host.usage,
     })
 }
-
 </storycode:copy>
 <a id="f-609d98dd1fad-probe"></a>
 ### `probe`
@@ -1001,7 +1001,6 @@ pub async fn probe(python: &Path) -> Result<()> {
     );
     Ok(())
 }
-
 </storycode:copy>
 <a id="f-609d98dd1fad-observation_capability_tests"></a>
 ### `observation_capability_tests`

@@ -1,4 +1,6 @@
-import { useId } from "react";
+import { useEffect, useId, useState } from "react";
+import { request } from "../api/client";
+import type { UiOutcome } from "../lib/uiActions";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 
 /** Mounted only in the feature's actual settings disclosure. */
@@ -19,6 +21,45 @@ export function ConversationModelChoice({ scope, provider, model, disabled, prov
       {provider !== "" && !providers.some(p => p.id === provider) && <option value={provider}>{provider}</option>}
       {providers.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
     </select>
+    {provider === "codex-subscription" && <SubscriptionSignIn disabled={disabled} />}
     <input aria-label="Model" value={model} disabled={disabled} placeholder={defaultModel || "default model"} data-tip="Model id for the next turn — leave empty for the provider's default" onChange={e => onModel(e.target.value)} />
+  </span>;
+}
+type SubscriptionStatus = { ready: boolean; auth_url?: string; error?: string | null };
+function SubscriptionSignIn({ disabled }: { disabled: boolean }) {
+  const parent = `subscription-auth:${useId()}`;
+  const [status, setStatus] = useState<SubscriptionStatus | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const revision = useUiRevision(() => [status, error, busy, disabled]);
+  useEffect(() => {
+    let current = true;
+    request<SubscriptionStatus>("GET", "/api/agents/codex-subscription").then(value => {
+      if (current) setStatus(value);
+    }).catch(reason => { if (current) setError(String(reason)); });
+    return () => { current = false; };
+  }, []);
+  const invoke = useUiCommands([false, true].map(login => ({ key: `${parent}:${login}`, command: {
+    label: login ? "Sign in to Codex with ChatGPT" : "Check Codex sign-in", parent, subject: parent,
+    parameters: {}, prerequisites: login ? ["The human completes ChatGPT sign-in"] : [],
+    read: () => ({ revision: revision(), enabled: !busy && !disabled }),
+    execute: async (_args, actor): Promise<UiOutcome> => {
+      if (login && actor.kind === "agent") return { status: "requires_input", request: parent, reason: "A human must sign in with ChatGPT" };
+      setBusy(true); setError("");
+      try {
+        const result = await request<SubscriptionStatus>(login ? "POST" : "GET", "/api/agents/codex-subscription");
+        setStatus(result);
+        return { status: "completed", value: { ready: result.ready, billing: "chatgpt_subscription" } };
+      } catch (reason) { setError(String(reason)); return { status: "unavailable", reason: String(reason) }; }
+      finally { setBusy(false); }
+    },
+  } })));
+  return <span role="group" aria-label="Codex subscription sign-in">
+    <span>{status?.ready ? "ChatGPT sign-in ready" : "Sign in with ChatGPT to use your Codex allowance and available credits."}</span>
+    <span>Subscription usage; API charges, credit costs and remaining balance are not estimated. No API fallback or automatic credit purchases.</span>
+    {(error || status?.error) && <span role="alert">{error || status?.error} Check your connection and Codex installation, then retry.</span>}
+    <button disabled={disabled || busy} onClick={() => void invoke(`${parent}:true`, {})}>{status?.ready ? "Sign in again with ChatGPT" : "Sign in with ChatGPT"}</button>
+    {status?.auth_url && <a href={status.auth_url} target="_blank" rel="noreferrer">Continue ChatGPT sign-in</a>}
+    <button disabled={disabled || busy} onClick={() => void invoke(`${parent}:false`, {})}>Check sign-in</button>
   </span>;
 }

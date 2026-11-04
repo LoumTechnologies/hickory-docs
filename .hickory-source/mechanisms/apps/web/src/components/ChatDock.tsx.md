@@ -15,6 +15,11 @@ Related contracts: [A Missing Key Degrades to a Note, Never a Crash](../../../..
 <a id="f-57557cac78c8-PROVIDERS"></a>
 ### `PROVIDERS`
 
+The subscription entry is a provider of model text for Hickory Python. Keeping
+it in this selector avoids routing built-in requests through the separate ACP
+harness and its broader native permissions. Changing providers clears an old
+model override so a Claude id is not accidentally sent to Codex.
+
 <storycode:copy id="f-57557cac78c8-PROVIDERS">
 import { useConversationActions } from "./uiConversationActions";
 import { ConversationModelChoice } from "./ConversationModelChoice";
@@ -63,6 +68,7 @@ export const PROVIDERS: { id: string; label: string; defaultModel: string }[] =
   [
     { id: "anthropic", label: "Anthropic", defaultModel: "claude-sonnet-5" },
     { id: "openai", label: "OpenAI", defaultModel: "gpt-5" },
+    { id: "codex-subscription", label: "Codex — ChatGPT subscription", defaultModel: "gpt-6.1-sol" },
     { id: "deepseek", label: "DeepSeek", defaultModel: "deepseek-chat" },
     { id: "grok", label: "xAI (Grok)", defaultModel: "grok-4" },
     { id: "openrouter", label: "OpenRouter", defaultModel: "openrouter/auto" },
@@ -140,6 +146,9 @@ e.g. "$0.0342 · in 12.4k · out 3.1k · cache 78%".
 /** The dock header's one-line spend summary,
  * e.g. "$0.0342 · in 12.4k · out 3.1k · cache 78%". */
 export function statsLine(t: AgentTotals): string {
+  if (t.subscription) return t.input + t.output + t.cache_read > 0
+    ? `${t.mixed ? "Mixed subscription/API" : "Subscription"} · reported in ${formatTokens(t.input)} · out ${formatTokens(t.output)} · cache read ${formatTokens(t.cache_read)} · credit cost/balance unknown`
+    : "Subscription · token usage unknown · credit cost/balance unknown";
   const rate = cacheHitRate(t.input, t.cache_read);
   const cache = rate === null ? "cache —" : `cache ${Math.round(rate * 100)}%`;
   return [
@@ -159,6 +168,7 @@ The tooltip behind the stats line: all four counters, uncompacted.
 <storycode:copy id="f-57557cac78c8-statsTooltip">
 /** The tooltip behind the stats line: all four counters, uncompacted. */
 export function statsTooltip(t: AgentTotals): string {
+  if (t.subscription) return "Reported tokens only; totals may be incomplete. Subscription usage is separate from API charges. Cache writes, reasoning tokens, provider call counts, credit cost and balance are unknown. Hickory never switches billing or purchases credits.";
   const n = (v: number) => v.toLocaleString("en-US");
   return [
     `cost ${formatUsd(t.usd)}`,
@@ -708,7 +718,7 @@ export function ChatDock({
       // starts "agent not available" when no provider key is in the
       // environment (serve/agent.rs::start_turn); that is a configuration
       // fact, not a failure to report as a red error.
-      if (/agent not (configured|available)/i.test(message))
+      if (provider !== "codex-subscription" && /agent not (configured|available)/i.test(message))
         setUnavailable(true);
       else setError(message);
     } finally { sendingRef.current = false; setSending(false); earlyEvents.current = []; }
@@ -761,7 +771,7 @@ export function ChatDock({
             {turns.length === 1 ? "" : "s"} on this branch
           </span>
         )}
-        {totals && hasUsage(totals) && (
+        {totals && (hasUsage(totals) || totals.subscription) && (
           <span className="chat-stats muted" data-tip={statsTooltip(totals)}>
             {statsLine(totals)}
           </span>
@@ -787,7 +797,7 @@ export function ChatDock({
           </button>
         )}
         {!collapsed && <FeatureSettings label="Agent settings" owner={docId}>
-        {backend === "python" && <ConversationModelChoice scope={`${docId}:${tip ?? "root"}:${selectedSession ?? "new"}`} provider={provider} model={model} disabled={running !== null || sending} providers={PROVIDERS} defaultModel={defaultModelFor(provider)} onProvider={setProvider} onModel={setModel} />}
+        {backend === "python" && <ConversationModelChoice scope={`${docId}:${tip ?? "root"}:${selectedSession ?? "new"}`} provider={provider} model={model} disabled={running !== null || sending} providers={PROVIDERS} defaultModel={defaultModelFor(provider)} onProvider={next => { setProvider(next); setModel(""); setUnavailable(false); setError(null); }} onModel={setModel} />}
       <AgentPicker scope={`${docId}:${tip ?? "root"}:${selectedSession ?? "new"}`} backend={backend} agents={acp.agents} disabled={running !== null || sending} detecting={acp.detecting} error={acp.catalogueError}
         onRefresh={() => acp.refreshAgents()} onChange={next => {
           rememberAgent(next); setBackend(next); setTip(null); setUnavailable(false); setError(null); setNote(null);
@@ -859,7 +869,7 @@ export function ChatDock({
       {recovery.error && <p className="chat-note error" role="status">{recovery.error}</p>}
       {unavailable && (
         <p className="chat-note muted">
-          The agent needs a provider API key. Add one in <a href="#/settings">Settings</a>, then try again.
+          {provider === "codex-subscription" ? "Open Agent settings, sign in with ChatGPT, then retry. No API billing fallback was attempted." : <>The agent needs a provider API key. Add one in <a href="#/settings">Settings</a>, then try again.</>}
         </p>
       )}
       {note && <p className="chat-note muted">{note}</p>}
@@ -964,6 +974,15 @@ import type { Realtime } from "../api/realtime";
 
 <storycode:copy id="f-e7bd6d898a44-expression_statement-3">
 afterEach(() => { localStorage.clear(); });
+
+it("labels subscription totals without API dollar estimates or invented missing counters", () => {
+  const usage = { subscription:true, usd:null, input:80, output:9, cache_read:40, cache_write:0 };
+  expect(statsLine(usage)).toContain("Subscription · reported in 80 · out 9 · cache read 40");
+  expect(statsLine(usage)).toContain("credit cost/balance unknown");
+  expect(statsLine({ ...usage, input:0, output:0, cache_read:0 })).toContain("token usage unknown");
+  expect(statsLine(usage)).not.toContain("$");
+});
+
 
 </storycode:copy>
 <a id="f-e7bd6d898a44-expression_statement-4"></a>
@@ -1266,6 +1285,21 @@ describe("the dock's model control and stats line", () => {
       />,
     );
   }
+
+  it("routes the subscription option through Python and clears the prior API model", async () => {
+    vi.mocked(api.agentTurns).mockResolvedValue(listing());
+    vi.mocked(api.agent).mockClear().mockResolvedValue({ session_id: "subscription" });
+    dock();
+    fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
+    await waitFor(() => expect((screen.getByLabelText("Provider") as HTMLSelectElement).value).toBe("anthropic"));
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "claude-custom" } });
+    fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "codex-subscription" } });
+    expect((screen.getByLabelText("Model") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("Model") as HTMLInputElement).placeholder).toBe("gpt-6.1-sol");
+    await typeResponse("Use subscription Codex");
+    fireEvent.click(screen.getByText("Send"));
+    await waitFor(() => expect(api.agent).toHaveBeenCalledWith("d1", "Use subscription Codex", null, "codex-subscription", "", "python"));
+  });
 
   it("hydrates the provider select from the server's resolved default and posts the chosen values", async () => {
     vi.mocked(api.agentTurns).mockResolvedValue(listing());

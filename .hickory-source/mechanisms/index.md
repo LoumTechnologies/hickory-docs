@@ -249,4 +249,10 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="apps/web/src/embed/SourceFileTree.test.tsx.md" />
 
+<storycode:include file="apps/web/src/components/ConversationModelChoice.test.tsx.md" />
+
+<storycode:include file="crates/hickory-cli/src/serve/codex_subscription.rs.md" />
+
+<storycode:include file="scripts/test-subscription-codex.py.md" />
+
 </storycode:doc>

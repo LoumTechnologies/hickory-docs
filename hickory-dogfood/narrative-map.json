@@ -148321,6 +148321,13 @@
       "page": ".hickory-source/guarantees/literate-projects/patch-edits-revalidate-downstream-construction/output-capture.md",
       "symbol": "Load focused journal witnesses",
       "basis": "reviewed-explanation"
+    },
+    {
+      "id": "subscription-b48a54c8-0",
+      "output": "scripts/test-subscription-codex.py",
+      "page": ".hickory-source/mechanisms/scripts/test-subscription-codex.py.md",
+      "symbol": "Native HTTP subscription fixture",
+      "basis": "authored-explanation"
     }
   ],
   "explanation_gaps": {
