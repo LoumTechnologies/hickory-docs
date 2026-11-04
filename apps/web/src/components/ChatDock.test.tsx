@@ -311,19 +311,19 @@ describe("the dock's model control and stats line", () => {
     );
   }
 
-  it("routes the subscription option through Python and clears the prior API model", async () => {
+  it.each([["codex-subscription", "gpt-6.1-sol"], ["grok-subscription", "grok-build"]])("routes %s through Python and clears the prior API model", async (subscription, defaultModel) => {
     vi.mocked(api.agentTurns).mockResolvedValue(listing());
     vi.mocked(api.agent).mockClear().mockResolvedValue({ session_id: "subscription" });
     dock();
     fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
     await waitFor(() => expect((screen.getByLabelText("Provider") as HTMLSelectElement).value).toBe("anthropic"));
     fireEvent.change(screen.getByLabelText("Model"), { target: { value: "claude-custom" } });
-    fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "codex-subscription" } });
+    fireEvent.change(screen.getByLabelText("Provider"), { target: { value: subscription } });
     expect((screen.getByLabelText("Model") as HTMLInputElement).value).toBe("");
-    expect((screen.getByLabelText("Model") as HTMLInputElement).placeholder).toBe("gpt-6.1-sol");
+    expect((screen.getByLabelText("Model") as HTMLInputElement).placeholder).toBe(defaultModel);
     await typeResponse("Use subscription Codex");
     fireEvent.click(screen.getByText("Send"));
-    await waitFor(() => expect(api.agent).toHaveBeenCalledWith("d1", "Use subscription Codex", null, "codex-subscription", "", "python"));
+    await waitFor(() => expect(api.agent).toHaveBeenCalledWith("d1", "Use subscription Codex", null, subscription, "", "python"));
   });
 
   it("hydrates the provider select from the server's resolved default and posts the chosen values", async () => {

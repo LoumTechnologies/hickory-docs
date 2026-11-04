@@ -47,6 +47,47 @@ and [sign-in controls](../../../mechanisms/apps/web/src/components/ConversationM
 Live sign-in, real account entitlement, exhausted limits and consumption of existing
 credits still require live verification; fixture success does not establish them.
 
+## Choose subscription-backed Grok
+
+In **Agent settings**, select **Hickory Python**, then **Grok — subscription**.
+Install Grok Build CLI 1.0.64 or later on macOS. Existing native Grok sign-in is
+reused when its supported cached session method is available. Otherwise choose
+**Sign in with Grok**, complete the native CLI browser flow, then **Check sign-in**.
+If the browser does not open, run `grok login` in a terminal and check again.
+Leave **Model** empty for `grok-build`; only first-party `grok-` model ids qualify.
+A subscription that includes Grok Build and its existing allowance/credits is
+required; Hickory cannot determine entitlement or remaining balance.
+
+Grok provides model responses to the same Hickory Python loop. It does not run
+native editing, shell, web, MCP, hooks, skills or subagents. The shared macOS
+confinement, Hickory review and ordinary prediction gates still apply. Private
+prediction inference, image input and managed `/etc/grok/` configurations are
+currently refused. A credential refresh that requires creating a sibling file can
+also require running native `grok login` again. No OAuth tokens or auth-file
+contents enter Hickory application code.
+
+The native subscription-only policy is pinned before startup, and discovered
+API-key authentication fails closed. Neither errors nor an empty provider field
+can trigger API billing. There are no credit-purchase operations. Reported input,
+output and cache buckets are disjoint; incomplete counters stay unknown. Native
+API-price estimates are ignored. See the [Grok transport and fixture checks](../../../mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md).
+Live CLI startup, tool-free inference, browser sign-in, subscription entitlement,
+expired-session refresh, exhausted limits and actual consumption of existing
+credits remain unverified.
+
+## Claude subscriptions use the native Claude Agent route
+
+The existing **Claude Agent** ACP integration is a separate native agent choice.
+Anthropic permits users to sign into the unmodified Claude Code binary with their
+own subscription, but requires prior approval for third-party products offering
+Claude.ai login or subscription rate limits through an SDK-backed integration.
+See [Anthropic's integration guidance](https://code.claude.com/docs/en/agent-sdk/overview)
+and [native hosting guidance](https://code.claude.com/docs/en/legal-and-compliance).
+Until Hickory has that approval, no built-in Claude subscription model backend is
+offered. The existing API-key provider and native ACP agent keep their established
+permissions; the native agent must not be described as sharing the built-in
+Python agent's tool restrictions.
+
 ## Read the detailed requirements
 
 - [Requirements 1](requirements/01.md)

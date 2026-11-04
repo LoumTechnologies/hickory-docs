@@ -66,6 +66,9 @@ See `docs/specs/freeform/local-only.md`.
 //! See `docs/specs/freeform/local-only.md`.
 
 mod codex_subscription;
+mod grok_subscription;
+mod subscription;
+mod subscription_process;
 pub mod acp;
 </storycode:copy>
 <a id="f-09ea558208cd-agent"></a>
@@ -1175,6 +1178,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/docs/{id}/check", post(api::check_doc))
         .merge(python_agent::routes())
         .merge(codex_subscription::routes())
+        .merge(grok_subscription::routes())
         .route("/feature-experiments", get(acp::experiments::list))
         .route(
             "/feature-experiments/{id}/review",

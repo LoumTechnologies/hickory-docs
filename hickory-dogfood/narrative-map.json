@@ -148363,6 +148363,97 @@
       "page": ".hickory-source/guarantees/verification/predictions-precede-managed-observation/implementation/crates/hick-literate/src/prediction.rs.md",
       "symbol": "Challenge the host boundary with real execution",
       "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-01257a753e-0",
+      "output": "crates/hickory-cli/src/serve/subscription_process.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/subscription_process.rs.md",
+      "symbol": "Keep native model transports outside the workspace",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-01257a753e-1",
+      "output": "crates/hickory-cli/src/serve/subscription_process.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/subscription_process.rs.md",
+      "symbol": "Bound output and kill the complete process group",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-27f033727e-0",
+      "output": "crates/hickory-cli/src/serve/grok_subscription.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
+      "symbol": "Route model responses through the existing agent loop",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-27f033727e-1",
+      "output": "crates/hickory-cli/src/serve/grok_subscription.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
+      "symbol": "Pin subscription billing before native startup",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-27f033727e-2",
+      "output": "crates/hickory-cli/src/serve/grok_subscription.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
+      "symbol": "Refuse discovered native capabilities",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-27f033727e-3",
+      "output": "crates/hickory-cli/src/serve/grok_subscription.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
+      "symbol": "Reuse only the supported cached session method",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-27f033727e-4",
+      "output": "crates/hickory-cli/src/serve/grok_subscription.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
+      "symbol": "Admit a single completed response and reported counters",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-27f033727e-5",
+      "output": "crates/hickory-cli/src/serve/grok_subscription.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
+      "symbol": "Keep Hickory tools, image limits and cancellation authoritative",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-27f033727e-6",
+      "output": "crates/hickory-cli/src/serve/grok_subscription.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
+      "symbol": "Let the human start native browser sign-in",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-069ce56f7f-0",
+      "output": "crates/hickory-cli/src/serve/subscription.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/subscription.rs.md",
+      "symbol": "Keep billing explicit through selection and restart",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-f8a2709db7-0",
+      "output": "crates/hickory-cli/src/serve/grok_subscription/tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription/tests.rs.md",
+      "symbol": "Reject unsafe configuration and unknown accounting",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-f8a2709db7-1",
+      "output": "crates/hickory-cli/src/serve/grok_subscription/tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription/tests.rs.md",
+      "symbol": "Exercise authentication, process failure and cancellation without an account",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-7d0ca7abc8-0",
+      "output": "scripts/test-subscription-grok.py",
+      "page": ".hickory-source/mechanisms/scripts/test-subscription-grok.py.md",
+      "symbol": "Exercise native confinement and the built-in worker without paid requests",
+      "basis": "authored-explanation"
     }
   ],
   "explanation_gaps": {

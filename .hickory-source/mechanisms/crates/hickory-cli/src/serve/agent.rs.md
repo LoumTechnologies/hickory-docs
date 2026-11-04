@@ -63,7 +63,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use hickory_agent::{
     DEFAULT_ANTHROPIC_MODEL, LlmClient, PriorTurn, ProviderSelection, Usage, client_for_with_store,
-    cost_usd, resolve_selector_with_store,
+    resolve_selector_with_store,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -127,6 +127,7 @@ pub struct AgentHub {
     pub(super) reviews: Mutex<HashMap<String, Arc<super::agent_review::ReviewQueue>>>,
     pub(super) acp: super::acp::Hub,
     pub(super) subscription: super::codex_subscription::Hub,
+    pub(super) grok_subscription: super::grok_subscription::Hub,
     /// Turn tree per document id, in creation order (the dock treats the
     /// last element as the default tip).
     pub(super) turns: Mutex<HashMap<String, Vec<TurnRecord>>>,
@@ -159,11 +160,14 @@ impl AgentHub {
             return Ok(llm);
         }
         let choice = self.selection_of(doc);
-        if choice.provider.as_deref() == Some(super::codex_subscription::SELECTOR) {
-            return Ok(Arc::new(super::codex_subscription::Client::new(
-                state,
-                choice.model.as_deref(),
-            )?));
+        if choice
+            .provider
+            .as_deref()
+            .is_some_and(super::subscription::is_subscription)
+        {
+            return super::subscription::select_client(state, &choice, None)
+                .map(|(client, _, _)| client)
+                .map_err(|e| anyhow::anyhow!("{}", e.detail()));
         }
         let keys = state.keys.store.read().unwrap().clone();
         let provider = resolve_selector_with_store(choice.provider.as_deref(), &keys)?;
@@ -223,7 +227,7 @@ impl AgentHub {
                 });
             }
         }
-        if let Some(choice) = super::codex_subscription::retained_choice(&turns) {
+        if let Some(choice) = super::subscription::retained_choice(&turns) {
             self.selection
                 .lock()
                 .unwrap()
@@ -255,7 +259,7 @@ impl AgentHub {
             Ok((answer, usage)) => {
                 turn.answer = Some(answer);
                 turn.usage =
-                    if turn.provider == super::codex_subscription::SELECTOR && usage.is_zero() {
+                    if super::subscription::is_subscription(&turn.provider) && usage.is_zero() {
                         None
                     } else {
                         Some(usage)
@@ -306,7 +310,10 @@ impl AgentHub {
         let sel = map.entry(doc_id.to_string()).or_default();
         if let Some(p) = provider.filter(|p| {
             !p.trim().is_empty()
-                || sel.provider.as_deref() != Some(super::codex_subscription::SELECTOR)
+                || !sel
+                    .provider
+                    .as_deref()
+                    .is_some_and(super::subscription::is_subscription)
         }) {
             sel.provider = Some(p.trim().to_string()).filter(|s| !s.is_empty());
         }
@@ -340,8 +347,8 @@ vendor's `MODEL` environment override then its built-in default.
 /// constructors: Anthropic's alias constant, and each OpenAI-compatible
 /// vendor's `MODEL` environment override then its built-in default.
 fn default_model_for(selector: &str) -> String {
-    if selector == super::codex_subscription::SELECTOR {
-        return super::codex_subscription::DEFAULT_MODEL.into();
+    if let Some(model) = super::subscription::default_model(selector) {
+        return model.into();
     }
     match ProviderSelection::parse(selector) {
         Some(ProviderSelection::Compatible(p)) => std::env::var(p.model_env())
@@ -365,23 +372,7 @@ unknown, never silently understated.
 /// the summed USD cost. The cost is `None` when any usage-bearing turn ran
 /// on a model with no known price — an unknown price makes the *total*
 /// unknown, never silently understated.
-pub fn totals_of(turns: &[TurnRecord]) -> (Usage, Option<f64>) {
-    let mut total = Usage::default();
-    let mut usd = 0.0;
-    let mut known = !turns.iter().any(|t| {
-        t.provider.starts_with("acp:") || t.provider == super::codex_subscription::SELECTOR
-    });
-    for turn in turns {
-        let Some(usage) = &turn.usage else { continue };
-        total.add(usage);
-        match cost_usd(&turn.model, usage) {
-            Some(cost) => usd += cost,
-            None if usage.is_zero() => {}
-            None => known = false,
-        }
-    }
-    (total, known.then_some(usd))
-}
+pub use super::subscription::totals_of;
 </storycode:copy>
 <a id="f-2ce16640df92-prior_turns_of"></a>
 ### `prior_turns_of`
@@ -531,14 +522,13 @@ pub async fn start_turn(
     if let Some(p) = body.provider.as_deref().map(str::trim)
         && !p.is_empty()
         && ProviderSelection::parse(p).is_none()
-        && p != super::codex_subscription::SELECTOR
+        && !super::subscription::is_subscription(p)
     {
         return Err(ApiError::bad_request(format!(
             "unknown provider {p:?} — choose one of: {}",
             format!(
-                "{}, {}",
-                ProviderSelection::ALL.join(", "),
-                super::codex_subscription::SELECTOR
+                "{}, codex-subscription, grok-subscription",
+                ProviderSelection::ALL.join(", ")
             )
         )));
     }
@@ -918,8 +908,9 @@ pub async fn list_turns(State(state): State<LocalState>, Path(id): Path<String>)
         "provider": provider,
         "model": model,
         "totals": {
-            "subscription": turns.iter().any(|t| t.provider == super::codex_subscription::SELECTOR),
-            "mixed": turns.iter().any(|t| !t.provider.starts_with("acp:") && t.provider != super::codex_subscription::SELECTOR),
+            "subscription": turns.iter().any(|t| super::subscription::is_subscription(&t.provider)),
+            "mixed": turns.iter().any(|t| !t.provider.starts_with("acp:") && !super::subscription::is_subscription(&t.provider)),
+            "cache_write_available": turns.iter().any(|t| t.provider == super::grok_subscription::SELECTOR && t.usage.is_some()),
             "usd": usd,
             "input": total.input_tokens,
             "output": total.output_tokens,
@@ -1096,8 +1087,12 @@ pub(super) fn selected_client_with_limit(
     max_output_tokens: Option<u32>,
     json_action: bool,
 ) -> ApiResult<(Arc<dyn LlmClient>, String, String)> {
-    if selection.provider.as_deref() == Some(super::codex_subscription::SELECTOR) {
-        return super::codex_subscription::select_client(state, selection, max_output_tokens);
+    if selection
+        .provider
+        .as_deref()
+        .is_some_and(super::subscription::is_subscription)
+    {
+        return super::subscription::select_client(state, selection, max_output_tokens);
     }
     let mut provider_name = selection.provider.clone();
     let llm: Arc<dyn LlmClient> = {

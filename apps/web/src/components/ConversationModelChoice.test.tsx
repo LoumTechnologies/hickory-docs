@@ -7,7 +7,7 @@ import { UiActions } from "../lib/uiActions";
 import { UiActionContext } from "../lib/uiActionBridge";
 vi.mock("../api/client", () => ({ request: vi.fn() }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
-const providers = [{ id: "openai", label: "OpenAI" }, { id: "codex-subscription", label: "Codex — ChatGPT subscription" }];
+const providers = [{ id: "openai", label: "OpenAI" }, { id: "grok-subscription", label: "Grok — subscription" }, { id: "codex-subscription", label: "Codex — ChatGPT subscription" }];
 function Picker() {
   const [provider, setProvider] = useState("openai");
   return <ConversationModelChoice scope="fixture" provider={provider} model="" disabled={false} providers={providers} defaultModel="" onProvider={setProvider} onModel={() => {}} />;
@@ -64,6 +64,37 @@ it("requires a human to start authentication through an agent UI action", async 
   const action = registry.groups().groups.flatMap(group => registry.observe(group,64).actions).find(a => a.label === "Sign in to Codex with ChatGPT")!;
   await act(async () => {
     expect(await registry.act(registry.scope, { id:"python:fixture", kind:"agent" }, { handle:action.handle, arguments:{}, request_id:"login" })).toMatchObject({ outcome:{ status:"requires_input" } });
+  });
+  expect(request).toHaveBeenCalledTimes(1);
+});
+it("starts Grok native sign-in only explicitly and clears state when changing subscriptions", async () => {
+  vi.mocked(request).mockResolvedValue({ ready: false });
+  render(<Picker />);
+  const picker = screen.getByRole("combobox", { name:"Provider" });
+  fireEvent.change(picker, { target:{ value:"grok-subscription" } });
+  await waitFor(() => expect(request).toHaveBeenCalledWith("GET", "/api/agents/grok-subscription"));
+  expect(request).not.toHaveBeenCalledWith("POST", expect.anything());
+  vi.mocked(request).mockResolvedValueOnce({ ready:false, login_pending:true });
+  fireEvent.click(screen.getByRole("button", { name:"Sign in with Grok" }));
+  expect(await screen.findByText(/Complete Grok sign-in in your browser/)).toBeTruthy();
+  expect(request).toHaveBeenCalledWith("POST", "/api/agents/grok-subscription");
+  vi.mocked(request).mockResolvedValueOnce({ ready:true });
+  fireEvent.click(screen.getByRole("button", { name:"Check sign-in" }));
+  expect(await screen.findByText("Grok sign-in ready")).toBeTruthy();
+  vi.mocked(request).mockRejectedValueOnce(new Error("Network unavailable"));
+  fireEvent.change(picker, { target:{ value:"codex-subscription" } });
+  expect(screen.queryByText("Grok sign-in ready")).toBeNull();
+  expect((await screen.findByRole("alert")).textContent).toContain("Codex installation");
+});
+it("requires a human to start Grok authentication through the UI action surface", async () => {
+  vi.mocked(request).mockResolvedValue({ ready:false });
+  const registry = new UiActions({ workspace:"fixture", window:"grok-test" }, () => true, async () => {});
+  render(<UiActionContext.Provider value={registry}><Picker /></UiActionContext.Provider>);
+  fireEvent.change(screen.getByRole("combobox", { name:"Provider" }), { target:{ value:"grok-subscription" } });
+  await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+  const action = registry.groups().groups.flatMap(group => registry.observe(group,64).actions).find(a => a.label === "Sign in to Grok with Grok")!;
+  await act(async () => {
+    expect(await registry.act(registry.scope, { id:"python:fixture",kind:"agent" }, { handle:action.handle,arguments:{},request_id:"login" })).toMatchObject({ outcome:{status:"requires_input"} });
   });
   expect(request).toHaveBeenCalledTimes(1);
 });
