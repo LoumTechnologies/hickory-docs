@@ -273,6 +273,65 @@ pub mod project_observation {
                 execution: format!("captured-project-json-v1:{}", self.plan),
             }
         }
+        /// Explicit unsealed observation for a host-selected audience. Record exposure
+        /// before dispatch, including failed runs, so later seals cannot claim an
+        /// unobserved first attempt. The host owns audience routing: held-out values
+        /// must never be returned to an agent, and use a host actor.
+        pub async fn observe_unsealed<F>(
+            &self,
+            ledger: &Ledger,
+            scenario: &hick_observe::prediction::Scenario,
+            actor: Actor,
+            identity: &Identity,
+            executor: Arc<dyn Executor>,
+            probe: F,
+        ) -> Result<serde_json::Value>
+        where
+            F: Fn() -> Result<BTreeMap<String, String>>,
+        {
+            let before = probe()?;
+            ensure!(*identity == self.identity(digest(&scenario.inputs)?, before.clone()));
+            ensure!(!before.is_empty() && executor.transcripts().is_empty());
+            ensure!(matches!(
+                executor.script_platform(),
+                hickory_executor::ScriptPlatform::Posix
+            ));
+            ledger.observe(scenario, identity.clone(), actor, "captured-project-public")?;
+            self.execute_observation(executor, &probe, before).await
+        }
+
+        async fn execute_observation<F>(
+            &self,
+            executor: Arc<dyn Executor>,
+            probe: &F,
+            before: BTreeMap<String, String>,
+        ) -> Result<serde_json::Value>
+        where
+            F: Fn() -> Result<BTreeMap<String, String>>,
+        {
+            executor
+                .ensure_started("private-project", &self.image)
+                .await?;
+            executor
+                .inject_volume("private-project", "project", &self.archive)
+                .await?;
+            let command = format!("cd project && (\n{}\n)", self.command);
+            let output = executor
+                .execute_with_options(
+                    "private-project",
+                    &command,
+                    None,
+                    hickory_executor::ExecOptions {
+                        timeout: Some(self.timeout),
+                    },
+                )
+                .await?;
+            ensure!(output.len() <= 1024 * 1024);
+            let actual: serde_json::Value = serde_json::from_str(&output)?;
+            ensure!(probe()? == before);
+            Ok(actual)
+        }
+
         /// `probe` must measure the actual executor runtime, not caller claims.
         /// The host must isolate all answer-bearing channels and own the executor
         /// exclusively. LocalExecutor is useful for trusted tests only. Probes
@@ -324,30 +383,9 @@ pub mod project_observation {
             if !executor.transcripts().is_empty() {
                 return gate.unavailable();
             }
-            let observation = async {
-                executor
-                    .ensure_started("private-project", &self.image)
-                    .await?;
-                executor
-                    .inject_volume("private-project", "project", &self.archive)
-                    .await?;
-                let command = format!("cd project && (\n{}\n)", self.command);
-                let output = executor
-                    .execute_with_options(
-                        "private-project",
-                        &command,
-                        None,
-                        hickory_executor::ExecOptions {
-                            timeout: Some(self.timeout),
-                        },
-                    )
-                    .await?;
-                ensure!(output.len() <= 1024 * 1024);
-                let actual: serde_json::Value = serde_json::from_str(&output)?;
-                ensure!(probe()? == before);
-                Ok::<_, anyhow::Error>(actual)
-            }
-            .await;
+            let observation = self
+                .execute_observation(executor.clone(), &probe, before)
+                .await;
             match observation {
                 Ok(actual) => gate.finish(
                     actual,
@@ -426,6 +464,71 @@ print(VALUE)
                 target,
             }
         }
+        #[tokio::test]
+        async fn public_observation_records_exposure_without_a_synthetic_seal() {
+            let dir = tempfile::tempdir().unwrap();
+            let ledger = Ledger::open(dir.path()).unwrap();
+            let c = capture(7);
+            let actor = Actor {
+                kind: "agent".into(),
+                id: "fixture".into(),
+            };
+            let scenario = Scenario {
+                family: "project-observation-test".into(),
+                inputs: serde_json::json!([]),
+                requirement_reference: "value equals 7".into(),
+                requirement: Predicate::Equals(serde_json::json!(7)),
+                identity_known: true,
+            };
+            let identity = c.identity(digest(&scenario.inputs).unwrap(), env().unwrap());
+            let value = c
+                .observe_unsealed(
+                    &ledger,
+                    &scenario,
+                    actor.clone(),
+                    &identity,
+                    Arc::new(LocalExecutor::new().unwrap()),
+                    env,
+                )
+                .await
+                .unwrap();
+            assert_eq!(value, serde_json::json!(7));
+            let history = ledger.history(None).unwrap();
+            assert_eq!(history.generation, 1);
+            assert!(history.attempts.is_empty());
+            let seal = ledger
+                .seal(
+                    history.generation,
+                    Seal {
+                        scenario,
+                        identity: identity.clone(),
+                        target: c.target(),
+                        predicted: Predicate::Equals(serde_json::json!(7)),
+                        rationale: "already seen".into(),
+                    },
+                    actor.clone(),
+                )
+                .unwrap();
+            let output = c
+                .run(
+                    &ledger,
+                    &SealedRequest {
+                        seal: seal.id,
+                        request_id: "after-public".into(),
+                        actor,
+                        identity,
+                        target: c.target(),
+                    },
+                    Arc::new(LocalExecutor::new().unwrap()),
+                    env,
+                )
+                .await
+                .unwrap();
+            // An unsealed exposure conservatively makes later origin unknown.
+            assert_eq!(output.summary.classification, Classification::Unknown);
+            assert!(!output.summary.current_certification);
+        }
+
         #[tokio::test]
         async fn multi_file_private_observation_and_retry() {
             let dir = tempfile::tempdir().unwrap();
@@ -580,10 +683,12 @@ print(VALUE)
         async fn real_proofs_playground_through_private_ledger() {
             let root =
                 std::path::PathBuf::from(std::env::var("HICKORY_PROOFS_PLAYGROUND").unwrap());
-            let sources = BTreeMap::from([(
-                "project.md".into(),
-                std::fs::read_to_string(root.join("project.md")).unwrap(),
-            )]);
+            // The playground now includes the runner chapter and lockfile.
+            // Capture the declared closure instead of assuming a single page.
+            let sources = hick_lang::load_project_sources("project.md", &|name| {
+                std::fs::read_to_string(root.join(name)).map_err(|e| e.to_string())
+            })
+            .unwrap();
             let command = "python3 explore.py > observation.json && python3 -c 'import json; print(json.dumps(json.load(open(\"observation.json\"))[\"accepted\"]))'";
             let c = Capture::new(
                 "project.md",
