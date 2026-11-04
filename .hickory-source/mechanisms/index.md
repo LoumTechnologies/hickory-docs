@@ -265,4 +265,8 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="scripts/test-subscription-grok.py.md" />
 
+## Build web apps with explicit C# request decisions
+
+<storycode:include file="explicit-web-experiment.md" />
+
 </storycode:doc>

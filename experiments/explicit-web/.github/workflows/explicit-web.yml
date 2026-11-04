@@ -1,0 +1,53 @@
+name: Explicit Web focused checks
+on:
+  push:
+    branches: [master]
+    paths: ['experiments/explicit-web/**', '.hickory-source/mechanisms/explicit-web/**', '.github/workflows/explicit-web.yml', 'Core/**', 'Data/**', 'Security/**', 'Hosting/**', 'Server/**', 'Baseline/**', 'Checks/**', 'tests/**', 'tools/**']
+  pull_request:
+    paths: ['experiments/explicit-web/**', '.hickory-source/mechanisms/explicit-web/**', '.github/workflows/explicit-web.yml', 'Core/**', 'Data/**', 'Security/**', 'Hosting/**', 'Server/**', 'Baseline/**', 'Checks/**', 'tests/**', 'tools/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.4xx'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Expose Python's bundled SQLite on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: 'Join-Path $env:pythonLocation "DLLs" | Out-File -FilePath $env:GITHUB_PATH -Append'
+      - name: Run the same focused contract as the local hook
+        run: python -c "import pathlib,subprocess,sys; p=pathlib.Path('experiments/explicit-web'); p=p if p.is_dir() else pathlib.Path('.'); subprocess.run([sys.executable,str(p/'tools/ci.py')],check=True)"
+      - name: Build unstable library packages
+        if: github.event_name == 'push'
+        run: python -c "import pathlib,subprocess; p=pathlib.Path('experiments/explicit-web'); p=p if p.is_dir() else pathlib.Path('.'); [subprocess.run(['dotnet','pack',str(p/n/(n+'.csproj')),'-c','Release','-p:PackageVersion=0.1.0-unstable.${{ github.run_number }}','-o',str(p/'target/packages'),'-m:1'],check=True) for n in ['Core','Data','Security','Hosting']]"
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push'
+        with:
+          name: explicit-web-unstable-${{ matrix.os }}
+          path: '**/target/packages/*.nupkg'
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.4xx'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -c "import pathlib,subprocess,sys; p=pathlib.Path('experiments/explicit-web'); p=p if p.is_dir() else pathlib.Path('.'); subprocess.run([sys.executable,str(p/'tools/ci.py'),'--browser'],check=True)"

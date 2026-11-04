@@ -65739,6 +65739,948 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "subscription-v2-7d0ca7abc8-0"
       ],
       "narrative_owner": "mechanism:subscription-transports"
+    },
+    ".github/workflows/explicit-web.yml": {
+      "source": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "20480ba8b897e25a3eefe479357266db87ed5c22191f9e1b3cdf90c7de4a6324",
+      "construction": "fragments",
+      "fragments": [
+        "ew-workflow"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Core/Core.csproj": {
+      "source": ".hickory-source/mechanisms/explicit-web/core.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "e556811c3b9bd396c44aed8a6929fe28c17ba9da0078392e497b892bb2454bc4",
+      "construction": "fragments",
+      "fragments": [
+        "ew-Core-Core-csproj"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Core/Result.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/core.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "c7549ce85be8abb361601967b627b9db9b8134961dcafa41275258913e6a4d03",
+      "construction": "fragments",
+      "fragments": [
+        "ew-result"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Core/Request.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/core.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "1762314f3b7eaf234197d0222a4d9389fa00c2b031c405070d0069b6b9bad8f7",
+      "construction": "fragments",
+      "fragments": [
+        "ew-request"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Core/Html.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/core.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "884a2f8d2df1cc553606cbfe0a331c6a713f23a2125f046271d713bc74894898",
+      "construction": "fragments",
+      "fragments": [
+        "ew-html"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Core/Response.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/core.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "ffe196482be27fae118508c8d350bb3c8bc0262a879acb7ef6d191598cabda55",
+      "construction": "fragments",
+      "fragments": [
+        "ew-response"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Core/Routes.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/core.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "380a67b901bb831cbef94d33e06e274b4bb5453e5d40d1222c3949784cc1623a",
+      "construction": "fragments",
+      "fragments": [
+        "ew-routes"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Data/Data.csproj": {
+      "source": ".hickory-source/mechanisms/explicit-web/data.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "b92cb2922dd90dcebb780fd2511d8e013b5360355831f39a9cdc2a4787adc71c",
+      "construction": "fragments",
+      "fragments": [
+        "ew-Data-Data-csproj"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Data/Database.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/data.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "573b07fd64664468acd59d86b8ea22c51bbffea7060ad60b71184d71ade5d02b",
+      "construction": "fragments",
+      "fragments": [
+        "ew-database"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Security/Security.csproj": {
+      "source": ".hickory-source/mechanisms/explicit-web/security.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "4b42fcf2d3605f4f0f9153569dfe763c1020cba1b3ff553415045ebe59f827db",
+      "construction": "fragments",
+      "fragments": [
+        "ew-Security-Security-csproj"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Security/Identity.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/security.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "0ce60cc7e38f8c2fd28346eda91d30a62e228c8baeccaa96d73144fd8839f38c",
+      "construction": "fragments",
+      "fragments": [
+        "ew-identity-values"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Security/Sessions.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/security.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "23c102d9f914f81c5d9cb1f2c3daa435c6ee3d7f57e21d3d28c295485bf99890",
+      "construction": "fragments",
+      "fragments": [
+        "ew-session-checks"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Security/Accounts.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/security.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "451f72771c635f5200a4af039b2451b1da0799d5be607058c5ece0987f1e2780",
+      "construction": "fragments",
+      "fragments": [
+        "ew-account-transitions"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Security/RateLimit.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/security.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "740a40a2c2784253501383dda352845eac637ed65903f216e27cd250e294cb4f",
+      "construction": "fragments",
+      "fragments": [
+        "ew-rate-limit"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Core/Cors.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/core.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "2d3c932a6b783e4c134740b923d929755716f4f59090de7d2a96c30344773fbb",
+      "construction": "fragments",
+      "fragments": [
+        "ew-cors"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Core/Assets.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/core.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "baf210ef529ce3edf0873471a3fa4b4b038bc8e21c53c0b40ad2ba486ed51fd9",
+      "construction": "fragments",
+      "fragments": [
+        "ew-assets"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Hosting/Hosting.csproj": {
+      "source": ".hickory-source/mechanisms/explicit-web/hosting.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "18125f6e2f35b87e2211d9a4c397524353244e51ff613ce03098608c9747d56e",
+      "construction": "fragments",
+      "fragments": [
+        "ew-Hosting-Hosting-csproj"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Hosting/Server.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/hosting.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "904da40f3f783c5edddfa2a43bafb654dd1a7b3eab3e6f8652f37ea29d42b517",
+      "construction": "fragments",
+      "fragments": [
+        "ew-server-lifetime",
+        "ew-server-request"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Server/Server.csproj": {
+      "source": ".hickory-source/mechanisms/explicit-web/application.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "826457efb9585c8b65df847670bb4b0e862782803ac3a354484aa6d3bca0f786",
+      "construction": "fragments",
+      "fragments": [
+        "ew-Server-Server-csproj"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Server/Tasks.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/application.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "bdec9f15eb0ec53aa54104966c564f074f8b523d9ee838cf3da994b465889833",
+      "construction": "fragments",
+      "fragments": [
+        "ew-task-values"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Server/Schema.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/application.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "fa4d0c099a64ea1f8b11e9fb0b3446f1de7d7b6ca1f972e9d0b26fbf59874a5f",
+      "construction": "fragments",
+      "fragments": [
+        "ew-app-schema"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Server/Pages.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/application.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "3a3ca6c9c548a573765aff50c673dc298d3989fde95fb3f5ad4ea44fd9f54faa",
+      "construction": "fragments",
+      "fragments": [
+        "ew-pages-layout",
+        "ew-task-pages",
+        "ew-error-pages"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Server/Application.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/application.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "2a5628a667f88b06fe97f3cfc2d5323c2d405967350de3dc0c61d898fd8ee149",
+      "construction": "fragments",
+      "fragments": [
+        "ew-app-request-path"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Server/Api.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/application.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "2a5db5fbfa448d5e293cc30a327bf61a94320035f71fd46024e2614664e8b10a",
+      "construction": "fragments",
+      "fragments": [
+        "ew-api-endpoints"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Server/Forms.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/application.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "bda22fca761e2bd57537c4698259f42608fd50d01c8655bf62dc7e8c8db0413f",
+      "construction": "fragments",
+      "fragments": [
+        "ew-form-endpoints"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Server/Settings.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/application.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "d016fd4a28233b3aceaf526a7be0f0c2e948b2697d33b89e48723e6ba5a7b34d",
+      "construction": "fragments",
+      "fragments": [
+        "ew-settings"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Server/Program.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/application.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "040bb4d17e64e0787455b4a33a14bacf02fb75d68d8064e8c969a159285221dd",
+      "construction": "fragments",
+      "fragments": [
+        "ew-startup"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/global.json": {
+      "source": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "47a316c0a4ade4b1b6c79201cad720c2fbe41744713f1ccf25107988073c2a6d",
+      "construction": "fragments",
+      "fragments": [
+        "ew-sdk"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Data/Native.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/data.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "5c311cd8047e4d33f9b85a501cf96feecb1d32bc32a68c82e04dc9079a532e08",
+      "construction": "fragments",
+      "fragments": [
+        "ew-sqlite-abi",
+        "ew-sqlite-connection",
+        "ew-sqlite-statement",
+        "ew-sqlite-row"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/tests/support.py": {
+      "source": ".hickory-source/mechanisms/explicit-web/acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "359817b9a85b545379fdf867be5648881afc43b9033a7751e201c5c53d925282",
+      "construction": "fragments",
+      "fragments": [
+        "ew-test-launcher"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/tests/test_app.py": {
+      "source": ".hickory-source/mechanisms/explicit-web/acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "fff8eb8d76102c658f3558dd0e18e3ebc8040044adab05f2217a82129c61fdda",
+      "construction": "fragments",
+      "fragments": [
+        "ew-http-acceptance"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/test_http.py": {
+      "source": ".hickory-source/mechanisms/explicit-web/acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "1a837f53837ea7076f21c71b6f50bfb225714bf8ee530215e2a2828d55e8c917",
+      "construction": "fragments",
+      "fragments": [
+        "ew-test-entry"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Hosting/PipelineServer.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/comparison.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "1737e923d345c20910d22e07e3151bbc733841946bf49649880a7c4077bbf2ba",
+      "construction": "fragments",
+      "fragments": [
+        "ew-pipeline-control"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Baseline/Baseline.csproj": {
+      "source": ".hickory-source/mechanisms/explicit-web/comparison.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "c16a3e8822a5a9f798b7c4e18b47625087339c122fa45a30e2d31491745dfba0",
+      "construction": "fragments",
+      "fragments": [
+        "ew-Baseline-Baseline-csproj"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Server/Bootstrap.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/application.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "bc6fbea78af7d84563b8421f1ce470545756e31b210290ddb6d68068de720002",
+      "construction": "fragments",
+      "fragments": [
+        "ew-compose-host"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Baseline/Program.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/comparison.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "07bc33b59005232f4a2a4d10bc5db4e541ebe10092fc55ca5786922c811b9061",
+      "construction": "fragments",
+      "fragments": [
+        "ew-baseline-entry"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/tests/browser.cjs": {
+      "source": ".hickory-source/mechanisms/explicit-web/acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "cb9d48c7b2ad291c52bdaff65deafc466002edde266dc6d196896167ced35f19",
+      "construction": "fragments",
+      "fragments": [
+        "ew-browser-flow"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/tests/browser.py": {
+      "source": ".hickory-source/mechanisms/explicit-web/acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "b73430b8df58fcc2c35f0240b6435b412b8d3fc910feb174deb52c564970056e",
+      "construction": "fragments",
+      "fragments": [
+        "ew-browser-launcher"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/evaluation/compiler_matrix.py": {
+      "source": ".hickory-source/mechanisms/explicit-web/evaluation.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "fa7742c82b06d92b6f42123e8a71b597cb1b47f143ab243776e3bfaedf2da387",
+      "construction": "fragments",
+      "fragments": [
+        "ew-compiler-matrix"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Checks/Checks.csproj": {
+      "source": ".hickory-source/mechanisms/explicit-web/acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "09a6989bf24c12ab787a697eceeba97765d7d3cc9008c5f4dd7ce2d9c0548e27",
+      "construction": "fragments",
+      "fragments": [
+        "ew-Checks-Checks-csproj"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Checks/Program.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "288170435a6f89c98ebeaf0fbb3951ed8354c542c83c0b3507b920644858ed52",
+      "construction": "fragments",
+      "fragments": [
+        "ew-runtime-safety"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/evaluation/host_benchmark.py": {
+      "source": ".hickory-source/mechanisms/explicit-web/evaluation.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "6c4671a903e9a7fad7b43f82b8d1eab6a4526f0dbaf6c98e4cc38d4bbd014b94",
+      "construction": "fragments",
+      "fragments": [
+        "ew-host-benchmark"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Security/IdentitySchema.cs": {
+      "source": ".hickory-source/mechanisms/explicit-web/security.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "995f156f6b762fe5310d4b985cfe3aa08fe14887c112e94acd7e026c18457947",
+      "construction": "fragments",
+      "fragments": [
+        "ew-identity-schema"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/README.md": {
+      "source": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "6829df2a05c68d2475266d39dcbb9dbc3cb77b732406847477bb247b4639f10b",
+      "construction": "fragments",
+      "fragments": [
+        "ew-readme"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/docs/developers/quickstart.md": {
+      "source": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "7872f641fb54f2ddb7cd5f326296d89337ca16f2461cf61c7a2f275c65952b47",
+      "construction": "fragments",
+      "fragments": [
+        "ew-quickstart"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/docs/developers/another-app.md": {
+      "source": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "f1db80886dfd6341144b7e43ba8959f994adaeca846017ac6db275d21337993c",
+      "construction": "fragments",
+      "fragments": [
+        "ew-another-app"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/docs/guarantees/basic-app.md": {
+      "source": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "72c11d53aebe225c6ab84be819b5e3152acdede64ff21aa75c8891d317db334b",
+      "construction": "fragments",
+      "fragments": [
+        "ew-basic-app-contract"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Directory.Build.props": {
+      "source": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "d4673d0d17e5493cce90e9d46b98c87fe3f14b9a3903d42df892a5603ad6b568",
+      "construction": "fragments",
+      "fragments": [
+        "ew-build-budget"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/tools/dev.py": {
+      "source": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "590fc5eefcafcc295bb08ea7e6c1e1bea469d8b359353364d65a1a0fbbb5ee23",
+      "construction": "fragments",
+      "fragments": [
+        "ew-local-launcher"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/tools/export.py": {
+      "source": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "7904c5db38f3aaf7a298437450883f196fdf146100e5bd5eb5a2b9fe8cf90ffc",
+      "construction": "fragments",
+      "fragments": [
+        "ew-export-project"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/.gitignore": {
+      "source": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "5c8e2ca8f30c2ded481c7ff61b4ae717b3013099df47b43e5c7fd466e7db7687",
+      "construction": "fragments",
+      "fragments": [
+        "ew-local-state"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/docs/developers/target-audience.md": {
+      "source": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "b3e45ce7655c17cf12229039edaf4e56553e0363fd33a5ab378a67f8bc681047",
+      "construction": "fragments",
+      "fragments": [
+        "ew-developer-audience"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/docs/developers/evaluation.md": {
+      "source": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "5e00e95d14ce762d169dfa160ab9b1828cf0178e1c31900a5f71ce13a76a8d2f",
+      "construction": "fragments",
+      "fragments": [
+        "ew-evaluation-protocol"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/tools/check.py": {
+      "source": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "ce99903cadcf638913748132978351f28ce57143a477bcc18896325cfcb3ae8a",
+      "construction": "fragments",
+      "fragments": [
+        "ew-focused-checks"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/tools/ci.py": {
+      "source": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "b2d94e2663d41b988c34f93fc946162aaacbf40f69040071d5322ddf56818f26",
+      "construction": "fragments",
+      "fragments": [
+        "ew-ci-entry"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/tests/package.json": {
+      "source": ".hickory-source/mechanisms/explicit-web/acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "bfd54e58e9d3656cbcea3bf3e8ecbc2df588fd7db75a88b1111b62cacb914d21",
+      "construction": "fragments",
+      "fragments": [
+        "ew-browser-package"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/tests/package-lock.json": {
+      "source": ".hickory-source/mechanisms/explicit-web/acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "aed21bce9ff51e2eec61950da0fa0a36afce82a4b5c102bac1f6cb7a002ca0cf",
+      "construction": "fragments",
+      "fragments": [
+        "ew-browser-lock"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/.github/workflows/explicit-web.yml": {
+      "source": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "20480ba8b897e25a3eefe479357266db87ed5c22191f9e1b3cdf90c7de4a6324",
+      "construction": "fragments",
+      "fragments": [
+        "ew-workflow"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/.githooks/pre-commit": {
+      "source": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "76ab9924de571ca70209ca889f4b200c1e13f56f528a28c2be6a1abe83f6ca1c",
+      "construction": "fragments",
+      "fragments": [
+        "ew-opt-in-hook"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/tests/test_transport.py": {
+      "source": ".hickory-source/mechanisms/explicit-web/acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "fbd4c13bc315f94eb5e5d6bfe0819133808b858453e224fd001de2fe371288f0",
+      "construction": "fragments",
+      "fragments": [
+        "ew-transport-refusals"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/justfile": {
+      "source": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "d9ce35a1fc19730f53df9e9af5366e079952ac3290c86db9ea24741666b79553",
+      "construction": "fragments",
+      "fragments": [
+        "ew-task-interface"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Core/packages.lock.json": {
+      "source": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "a29c6aa8cfb81874ff8bb78dc369d7416f28c9b8cc47e99592bfc019b20c41eb",
+      "construction": "fragments",
+      "fragments": [
+        "ew-lock-core"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Data/packages.lock.json": {
+      "source": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "ad48738a41e05324b643a44dd0eada4d64c046ad287996cfa1dc1cfb1af4df17",
+      "construction": "fragments",
+      "fragments": [
+        "ew-lock-data"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Security/packages.lock.json": {
+      "source": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "45e460ef5820e4b2c27e27435b96136ea6a39d3b7cdd4cbc8b1cc203f6651f31",
+      "construction": "fragments",
+      "fragments": [
+        "ew-lock-security"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Hosting/packages.lock.json": {
+      "source": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "ad48738a41e05324b643a44dd0eada4d64c046ad287996cfa1dc1cfb1af4df17",
+      "construction": "fragments",
+      "fragments": [
+        "ew-lock-hosting"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Server/packages.lock.json": {
+      "source": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "5af91a97930dc01b4545c3f66fb1297e14165acc368f660b88a7fae8d787d0f5",
+      "construction": "fragments",
+      "fragments": [
+        "ew-lock-server"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Baseline/packages.lock.json": {
+      "source": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "f0997ab700b8cf149bcd056ed31f73a704d2bd705401aee8cba9302ab3ffd6e9",
+      "construction": "fragments",
+      "fragments": [
+        "ew-lock-baseline"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/Checks/packages.lock.json": {
+      "source": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "f0997ab700b8cf149bcd056ed31f73a704d2bd705401aee8cba9302ab3ffd6e9",
+      "construction": "fragments",
+      "fragments": [
+        "ew-lock-checks"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/evidence/compiler-final.json": {
+      "source": ".hickory-source/mechanisms/explicit-web/evidence.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "ec1a49f488caf5cd2e4e8a531c6db91e99d7e7ce35548c43f502a1ff38b68b7a",
+      "construction": "fragments",
+      "fragments": [
+        "ew-receipt-compiler-final-json"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/evidence/hosts-initial.json": {
+      "source": ".hickory-source/mechanisms/explicit-web/evidence.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "48dbaf9d10aa55f6a87f2bd8fb0149b12aa3e37b6fad70b1d5260bc14630a33e",
+      "construction": "fragments",
+      "fragments": [
+        "ew-receipt-hosts-initial-json"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/evidence/hosts-final.json": {
+      "source": ".hickory-source/mechanisms/explicit-web/evidence.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "1c282a64420c7310c35cdce96aa5979d445f8229beb3b8d027c8716ab7892afd",
+      "construction": "fragments",
+      "fragments": [
+        "ew-receipt-hosts-final-json"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/explicit-web/docs/developers/results.md": {
+      "source": ".hickory-source/mechanisms/explicit-web/evidence.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "dbf9594db4347181259ea8eec9eea08e35ddff6e413fb8050b62ac24132d4a0a",
+      "construction": "fragments",
+      "fragments": [
+        "ew-observed-results"
+      ],
+      "anchor": "explicit-web",
+      "narrative_owner": "mechanism:explicit-web"
     }
   },
   "evidence_records": [

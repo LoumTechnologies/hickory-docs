@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "ExplicitWeb.Core": {
+        "type": "Project"
+      },
+      "ExplicitWeb.Data": {
+        "type": "Project",
+        "dependencies": {
+          "ExplicitWeb.Core": "[1.0.0, )"
+        }
+      },
+      "ExplicitWeb.Hosting": {
+        "type": "Project",
+        "dependencies": {
+          "ExplicitWeb.Core": "[1.0.0, )"
+        }
+      },
+      "ExplicitWeb.Security": {
+        "type": "Project",
+        "dependencies": {
+          "ExplicitWeb.Core": "[1.0.0, )",
+          "ExplicitWeb.Data": "[1.0.0, )"
+        }
+      }
+    }
+  }
+}
