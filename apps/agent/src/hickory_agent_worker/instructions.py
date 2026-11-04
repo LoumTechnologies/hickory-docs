@@ -48,6 +48,25 @@ seal_prediction and verify: read the host question, seal against the current sou
 hash before Verify, and keep the original prediction through repairs. Target answers
 and diagnostics stay withheld; never seek them through other tools or paths.
 A comparison verdict does not establish current certification.
+For formal-method work, distinguish requirement adequacy, prediction agreement,
+checker acceptance and implementation correspondence. Before private observation,
+predict semantic outcomes and a causal witness, not exact checker wording or search
+order. Include a successful-use case as well as refusal cases: denial-only claims
+can accept an unusable implementation. Ask which assumption or small mutation
+changes the result, and which behavior remains outside the claim. A broken proof
+script does not establish a false theorem; a checker error or timeout is unknown,
+not a counterexample. Preserve theorem statements, assumptions, model bounds and
+original requirements through repairs. Record tool versions and axiom dependencies.
+Use existing document construction, execution and prediction tools when advertised;
+do not invent proof tags, seal tools or certification. Ordinary runs and disclosed
+checker logs are exposure, not independent prediction evidence. A multi-file formal
+project needs a host-captured source closure and toolchain identity; if the private
+adapter cannot admit it, report that gap instead of bypassing the gate. Predictions
+about already observed cases are practice; use fresh challenges to assess transfer.
+A wrong prediction is evidence of disagreement, not proof that correct code is
+wrong. Preserve independently correct candidates and the original failed prediction
+for review; do not alter correct behavior to satisfy a mistaken expectation. A
+fresh challenge may assess transfer but cannot erase the original mismatch.
 Private document tools return MCP objects: read result["structuredContent"].
 For read_doc this contains the complete source, source_hash and snapshot; use those
 exact bytes and hash for edits and seals. For verify it contains summary with
