@@ -1,0 +1,152 @@
+{
+  "status": "completed scheduled Luna main retry; includes model protocol failures; no provider failures",
+  "source_run": "target/prediction-gate-reactive-luna-main-retry-20261104-060132",
+  "pilots_pooled": false,
+  "interrupted_attempt_pooled": false,
+  "completed_cli_turns": 65,
+  "provider_refusals": 0,
+  "response_format_failures": 5,
+  "arms": {
+    "baseline": {
+      "input_tokens": 315210,
+      "cached_input_tokens": 152192,
+      "output_tokens": 13569,
+      "cli_turn_attempts": 28,
+      "elapsed_seconds": 416.7514683300001,
+      "blocked_saves": 0,
+      "incorrect_predictions": 0,
+      "correct_code_blocked": 0,
+      "regressions": 0,
+      "retries": 1,
+      "completed": 17,
+      "abandoned": 7,
+      "first_attempt_correct": 16,
+      "final_correct": 16,
+      "sessions": 24,
+      "protocol_failures": 1,
+      "estimated_credits": 0.6152055
+    },
+    "gate": {
+      "input_tokens": 375055,
+      "cached_input_tokens": 176512,
+      "output_tokens": 17411,
+      "cli_turn_attempts": 37,
+      "elapsed_seconds": 531.5406121269998,
+      "blocked_saves": 15,
+      "incorrect_predictions": 13,
+      "correct_code_blocked": 14,
+      "regressions": 0,
+      "retries": 0,
+      "completed": 1,
+      "abandoned": 23,
+      "first_attempt_correct": 15,
+      "final_correct": 1,
+      "sessions": 24,
+      "protocol_failures": 4,
+      "estimated_credits": 0.758123
+    }
+  },
+  "analysis": {
+    "pairs": 24,
+    "wins": 0,
+    "losses": 15,
+    "paired_risk_difference": -0.625,
+    "paired_bootstrap_95": [
+      -0.7916666666666666,
+      -0.4166666666666667
+    ],
+    "exact_mcnemar_p": 6.103515625e-05,
+    "simulated": false,
+    "per_task": {
+      "dcl-queued-quiescence": {
+        "baseline": {
+          "n": 4,
+          "final_correct": 2,
+          "failures": 1
+        },
+        "gate": {
+          "n": 4,
+          "final_correct": 0,
+          "failures": 1
+        }
+      },
+      "dcl-readiness-retention": {
+        "baseline": {
+          "n": 4,
+          "final_correct": 4,
+          "failures": 0
+        },
+        "gate": {
+          "n": 4,
+          "final_correct": 0,
+          "failures": 0
+        }
+      },
+      "livelinq-distinct-ownership": {
+        "baseline": {
+          "n": 4,
+          "final_correct": 4,
+          "failures": 0
+        },
+        "gate": {
+          "n": 4,
+          "final_correct": 0,
+          "failures": 1
+        }
+      },
+      "livelinq-flatten-alias-offsets": {
+        "baseline": {
+          "n": 4,
+          "final_correct": 1,
+          "failures": 0
+        },
+        "gate": {
+          "n": 4,
+          "final_correct": 0,
+          "failures": 0
+        }
+      },
+      "livelinq-index-sensitive-filter": {
+        "baseline": {
+          "n": 4,
+          "final_correct": 4,
+          "failures": 0
+        },
+        "gate": {
+          "n": 4,
+          "final_correct": 0,
+          "failures": 2
+        }
+      },
+      "livelinq-persistent-groups": {
+        "baseline": {
+          "n": 4,
+          "final_correct": 1,
+          "failures": 0
+        },
+        "gate": {
+          "n": 4,
+          "final_correct": 1,
+          "failures": 0
+        }
+      }
+    },
+    "admitted_proposals": 37,
+    "primary_outcome_available": true,
+    "conclusion": "inconclusive; not evidence of no benefit"
+  },
+  "records_sha256": "d1a5dd81afd5030aa6d6ab22900d57a0d45c525165b52a2614c99c7c600a1493",
+  "credit_rates_per_million_tokens": {
+    "input": 2.5,
+    "cached_input": 0.25,
+    "output": 12.5
+  },
+  "limitations": [
+    "Exploratory follow-up chosen after Sol ceiling results.",
+    "Six fixed semantic task variants, two share an algorithm; repeats do not establish task-population generality.",
+    "Five model response-format failures retained in intention-to-treat results; no provider refusals.",
+    "14 correct-code refusals comprise 12 evaluated prediction mismatches and 2 missing prediction fields.",
+    "Raw report generic inconclusive label does not interpret the observed negative effect; predefined positive success criterion failed.",
+    "Performance does not prove or disprove possession of a mental model."
+  ]
+}

@@ -1307,4 +1307,341 @@ leaving broader effectiveness and cognitive explanations unresolved.
 }
 </reactive:entry>
 
+
+## Preserve the negative result and a continuation record
+
+The blog draft serves engineers considering prediction requirements for coding agents.
+It separates accepted-state outcomes from initial code correctness, model response failures
+from provider interruptions, and observed behavior from explanations of its cause.
+The continuation record preserves decisions and evidence paths without claiming to export
+the conversation verbatim. The combined JSON retains the Luna analysis alongside the
+linked Sol report. These artifacts do not change the frozen benchmark.
+
+<reactive:entry path="experiments/prediction-gate/blog-post.md">
+# I asked an AI to predict its code before accepting it. The gate rejected correct fixes.
+
+I had a plausible idea for an AI coding guardrail: before accepting a change, require the AI to predict what its code will do. Run the code privately, compare the result with the committed prediction, and refuse the change when they disagree.
+
+The hope was that predicting execution would force a more careful read of the code. An AI that could produce a convincing patch but could not follow its consequences might catch its own mistake before the change was accepted.
+
+I tested that idea in Hickory Docs. On a small, frozen benchmark, it did not improve accepted-task correctness. With the stronger model, it blocked two correct implementations. With the cheaper model, it refused fourteen correct implementations and accepted only one task out of twenty-four.
+
+This is a record of the mechanism we tested, what happened, and what the experiment leaves unanswered.
+
+## What the guardrail actually does
+
+The implementation is more specific than “the AI cannot save until it understands.” Source editing and verified publication are separate operations. Hickory's source-editing tool can write a document before prediction verification; private verification and later certification govern a different boundary. Calling this a universal save barrier would overstate it.
+
+For the experiment, a submitted candidate counted as saved only when the gate accepted it. The AI had to provide its code, an explanation, and an exact JSON prediction of the outputs for two public input traces. The host committed that prediction before executing the candidate privately. Acceptance required both agreement with the prediction and satisfaction of the original public requirements. The original prediction remained fixed through subsequent revisions.
+
+The model saw the behavioral contract and public inputs, so the expected behavior could be derived from its instructions. It could not see the held-out tests or their answers. Its explanation was recorded but not graded. A persuasive explanation could not compensate for a wrong structured prediction.
+
+The production ledger supports several kinds of predicates. This experiment exercised exact output equality. Its findings apply to that demanding policy; they should not automatically be attributed to every possible prediction gate.
+
+The implementation review and code links are in the [experiment README](README.md). The relevant mechanisms include [private verification](../../crates/hickory-agent/src/tools/prediction.rs), the [prediction ledger](../../crates/hick-observe/src/prediction.rs), and the [source-editing tools](../../crates/hickory-agent/src/tools/mod.rs).
+
+## A comparison we could reproduce
+
+We first checked the harness with explicitly simulated responses, then ran live pilots. Simulated results were plumbing checks, not evidence for the hypothesis. After freezing the reactive benchmark, we ran a main comparison using `gpt-6.1-sol` at low reasoning effort. Its initial patches were all correct, so we subsequently chose `gpt-6-luna`, also at low effort, as an exploratory follow-up.
+
+There were six task variants, four repetitions of each, and two conditions per model: 48 sessions for Sol and 48 for Luna. Execution order was randomized. Sessions were independent and used isolated candidates and ledgers. Within each model, starting code, task contracts, tool access and resource limits were the same except for the gate.
+
+The baseline could use ordinary public test feedback. Both conditions had up to six calls and six minutes per session, along with the same context, answer-size and execution limits. We retained initial patches, predictions, checks, feedback, revisions and final patches. This let us distinguish initially better code from changes made after feedback.
+
+The tasks covered dynamic combination of event streams, flattening aliased collections with changing offsets, persistent groups, distinct-value ownership, and filters whose predicates depend on an item's index. They included removal, disposal, empty collections, retained state, callback ordering and interactions between functions. The kernels were Python semantic extractions informed by Hickory's `DynamicCombineLatest` and my LiveLinq code. They were not tests of native C# or Tokio scheduling, races or wakers.
+
+Each task had two public traces used by the gate and twelve separate held-out traces used only by the evaluator. The primary outcome was the proportion of final accepted implementations passing every held-out case. We also scored first proposals, counted refusals and failures, and recorded tokens, CLI turns and elapsed time.
+
+Before the live reactive runs, we defined success as an improvement of at least ten percentage points with a paired bootstrap 95% lower bound above zero. We did not change the tasks or that criterion after seeing the outcomes. The [frozen plan](reactive-plan.md) documents the protocol and exclusions.
+
+## What happened
+
+| Model | Condition | Correct first proposals / sessions | Final accepted correct |
+|---|---|---:|---:|
+| Sol | Baseline | 24/24 | 24/24 |
+| Sol | Prediction gate | 24/24 | 22/24 |
+| Luna | Baseline | 16/24 | 16/24 |
+| Luna | Prediction gate | 15/24 | 1/24 |
+
+For Sol, all 48 first proposals passed every held-out test. The gate blocked two correct implementations because their predictions were wrong. Both sessions then stopped without an accepted save. The final difference was −8.3 percentage points, with a paired bootstrap 95% interval from −20.8 to zero and an exact McNemar p-value of .50. This run exposed two concrete acceptance failures, but it was too small and too close to a ceiling to establish general harm.
+
+Luna produced more coding errors and a much larger acceptance gap. Baseline accepted seventeen tasks, sixteen of which were correct on every held-out case. The gate accepted one task, which was correct.
+
+The gate recorded fifteen blocked saves. Twelve were correct implementations whose committed predictions mismatched execution. One was an incorrect implementation with a mismatching prediction. Two more correct candidates omitted the required prediction field and were refused before a ledger comparison. These last two count as workflow failures, not evaluated prediction mismatches.
+
+Six Luna gate sessions and three baseline sessions immediately finished without proposing code. The records do not establish why. Five sessions had response-format failures: three malformed JSON responses and the two missing predictions. We retained these outcomes rather than repairing or excluding them after the fact.
+
+Luna's final difference was −62.5 percentage points, with a paired bootstrap 95% interval from −79.2 to −41.7 and an exact McNemar p-value of approximately .000061. There were fifteen pairs favoring baseline and none favoring the gate. This is evidence of worse accepted-task performance on these fixed tasks under this workflow. It is not a population estimate for arbitrary coding tasks.
+
+Neither model met the predefined positive success criterion. We keep their results separate rather than pooling them into one effect.
+
+One earlier Luna main attempt hit the subscription usage limit. We preserved it as an interrupted run and reran the entire comparison in a fresh directory. Its outcomes and both models' pilots are excluded from these main results. All 65 CLI turns in the completed Luna retry finished without provider refusals.
+
+## A correct explanation, correct code, and a wrong prediction
+
+One Sol failure concerned the final subscription list in the distinct-ownership task. After a sequence of attachments and detachments, only `z` should remain subscribed.
+
+The code returned the correct result and passed all twelve held-out cases. The accompanying explanation also said that only `z` remained. But the structured prediction included both `y` and `z`.
+
+The host therefore reported that the original requirement was satisfied but the prediction did not match. The fix was not accepted.
+
+That discrepancy is observable. Its internal cause is not. It could reflect a transcription error, incomplete reasoning, or another failure. The explanation alone cannot settle which. What we can say is that the gate turned a discrepancy in the prediction artifact into rejection of correct code.
+
+## Why I think this happened
+
+My strongest interpretation is that we added a difficult second task without materially improving the first one.
+
+Producing an exact trace means keeping event ordering, intermediate snapshots, group identities and subscription state consistent across a large JSON response. That requires execution reasoning, but it also requires accurate bookkeeping and serialization. Every extra field creates another way to reject a candidate that implements the contract correctly.
+
+The initial-code numbers matter here. Luna started with sixteen correct proposals in baseline and fifteen under the gate. Its large final gap arose chiefly at acceptance. The results do not show a corresponding improvement in initial coding from asking for predictions.
+
+The immutable prediction also creates a recovery problem. If the original requirement demands output A and the sealed prediction demands a different output B, no revision can satisfy both exact equality checks. Feedback cannot repair that contradiction without a policy change. Some sessions stopped after receiving a mismatch; the policy itself had left no successful code revision available.
+
+Those are explanations of this workflow's behavior, not proof about the models' internal understanding. The broader idea that making predictions can improve reasoning remains separable from this particular refusal policy.
+
+## The extra work had a cost
+
+| Model | Total tokens, baseline → gate | Elapsed time, baseline → gate |
+|---|---:|---:|
+| Sol | 251,575 → 287,103 | 7.6 → 12.7 minutes |
+| Luna | 328,779 → 392,466 | 6.9 → 8.9 minutes |
+
+These totals cover all sessions in each condition, including failed responses. Sol's gate used 14.1% more tokens and 65.7% more elapsed time. Luna's gate used 19.4% more tokens and 27.5% more elapsed time. CLI turns increased from 24 to 26 for Sol and from 28 to 37 for Luna. Provider-internal call counts were unavailable.
+
+Using the recorded standard rates and cached-token counts, estimated subscription usage was 12.22 versus 17.55 credits for Sol and 0.615 versus 0.758 credits for Luna. These are usage estimates, not account billing receipts.
+
+## What I would not claim
+
+There were only six fixed task variants, and two shared the same underlying stream-combination kernel. Repeating them adds observations of model behavior; it does not add new algorithms. The bootstrap intervals and paired tests describe these observations under their statistical assumptions, not uncertainty over the whole space of software work. Luna was an exploratory follow-up chosen after seeing Sol's ceiling performance.
+
+We also have little evidence about the gate's ability to filter incorrect code. Sol submitted none. Luna had only one admitted incorrect gate proposal, which was blocked. No false acceptance was observed, but that is a very small opportunity to observe one.
+
+Known contracts and recurring public examples can reward reproducing expected answers, whether or not the model accurately follows a changed implementation. Broad predicates can be satisfied with limited reasoning. Conversely, exact large traces can penalize bookkeeping errors. Passing either kind of check would demonstrate behavior, not prove possession of a mental model.
+
+The held-out checks measured these deterministic semantics. They did not measure native concurrency, asymptotic performance, maintainability or production reliability.
+
+## What I am keeping from the idea
+
+I would separate two questions in any future experiment: does committing a prediction improve the initial implementation, and does refusing acceptance based on that prediction improve the final result?
+
+Possible changes include smaller targeted predictions or a recovery policy that allows a new commitment after feedback. Those would be new interventions, requiring a newly frozen experiment. We have not tested them here.
+
+For this implementation, the result is negative: the prediction requirement did not deliver the predefined improvement, and correct-code refusals dominated the cheaper model's outcome. That is worth recording before changing the mechanism or moving on.
+
+The [Sol report](sol-results.md), [continuation record](session-notes.md), and [combined machine-readable review](comparison-results.json) preserve the evidence and its limitations. The [benchmark README](README.md) and [protocol](reactive-plan.md) document reproduction. Raw local trial paths are listed in the continuation record; they must accompany any public evidence release because `target/` artifacts are not a durable public archive.
+</reactive:entry>
+
+<reactive:entry path="experiments/prediction-gate/session-notes.md">
+# Continue the prediction-gate evaluation
+
+Saved November 4, 2026. This is a continuation summary, not a verbatim chat export. The user asked to preserve this thread and write a blog post recording an idea that did not pan out. The draft is [blog-post.md](blog-post.md); nothing has been published.
+
+## Objective and decisions
+
+Evaluate Hickory's existing prediction-before-verification mechanism against the same coding workflow without it. Preserve initial reasoning, feedback and revisions; separate public gate checks from evaluator-only held-out tests. Do not infer an internal mental model from behavioral performance.
+
+The original three-task smoke suite was too easy. The user requested complexity based on nloum/LiveLinq, explicitly disregarding ComposableCollections, and identified DynamicCombineLatest in this repository. The frozen reactive-v4 suite has six deterministic Python semantic variants. This does not test native C#/Rust concurrency. See [reactive-plan.md](reactive-plan.md) and [README.md](README.md) for implementation, provenance, resource limits and reproduction.
+
+Within-model conditions use identical starting code, instructions, tools and limits except the gate. Four repetitions × six variants × two conditions = 48 sessions per model. Primary outcome: accepted final program passes every held-out case. Positive success criterion: at least +10 percentage points and a paired-bootstrap lower 95% bound above zero. Keep pilots and simulated plumbing checks separate. Luna is an exploratory follow-up chosen after seeing Sol's ceiling results.
+
+## Main conclusions
+
+Sol baseline: first 24/24, final 24/24. Sol gate: first 24/24, final 22/24. Two correct-code prediction mismatches prevented acceptance. Difference −8.3 points, paired-bootstrap 95% interval [−20.8, 0], exact McNemar p=.50.
+
+Luna baseline: first 16/24, final 16/24, 17 completed tasks. Luna gate: first 15/24, final 1/24, one completed task. Fourteen correct candidates were refused: twelve ledger prediction mismatches and two missing prediction fields. One incorrect candidate was also blocked. Five sessions had model response-format failures, retained in results. All 65 CLI turns completed with no provider refusals. Difference −62.5 points, interval [−79.2, −41.7], exact p=.0000610. No regressions recorded. Fixed variants and exploratory model selection limit generalization; do not pool model effects.
+
+Mechanistic interpretation: exact large JSON traces add bookkeeping failure opportunities; immutable wrong predictions can conflict irreparably with the original requirement. This is an interpretation, not a diagnosis of the model's internal reasoning. Sol's distinct-ownership failure is a useful example: correct code and rationale said only z subscribed; structured prediction included y and z. Correct code was blocked. Production source editing can occur before verification; the mechanism is not a universal save barrier.
+
+## Evidence locations
+
+All paths below are relative to the repository root `/Users/family/Documents/src/hickory-docs`.
+
+- Frozen pre-live source: `target/prediction-gate-reactive-v4-source/snapshot.json` and adjacent copies.
+- Sol main: `target/prediction-gate-reactive-main-20261103-214715/`.
+- Sol review: `target/prediction-gate-reactive-main-review-20261103-214715/review.json`.
+- Sol evidence ZIP: `target/prediction-gate-sol-reactive-v4-evidence.zip`.
+- Sol maintained report: `experiments/prediction-gate/sol-results.md` and `.json`.
+- Luna pilot: `target/prediction-gate-reactive-luna-pilot-20261104-050751/` (not pooled).
+- Interrupted Luna main: `target/prediction-gate-reactive-luna-main-20261104-053143/`; diagnosis in `target/prediction-gate-reactive-luna-main-review-20261104-053143/review.json`. Thirty-nine quota refusals; exclude as interrupted, retain as failure evidence.
+- Completed Luna main: `target/prediction-gate-reactive-luna-main-retry-20261104-060132/`.
+- Combined review: `target/prediction-gate-reactive-comparison-review-20261104/results.md` and `review.json`. Maintained copy: [comparison-results.json](comparison-results.json).
+- Each live directory contains `manifest.json`, `records.jsonl`, `analysis.json`, `results.md`, per-session patches and ledger receipts, and `transport/` CLI receipts.
+
+The combined review's raw-record SHA256 identifies the Luna retry. Manifests match frozen runner, fixtures and transport. Treat the raw generated report's generic “inconclusive” label cautiously: Luna shows a substantial negative effect on these fixed tasks. It is neither equivalence nor a general claim that prediction never helps.
+
+`target/` is local and disposable. Retain the evidence archive outside cleanup before publishing or moving machines. A public post should link a durable, reviewed archive, not claim these paths are public downloads. Do not include credentials, personal CLI configuration or authentication files in a public release.
+
+## Resume commands and constraints
+
+Original main command (fresh output path required):
+
+```sh
+python3 experiments/prediction-gate/bench.py \
+  --live --backend codex --suite reactive \
+  --model gpt-6-luna --reasoning low --repeats 4 \
+  --out "target/prediction-gate-reactive-luna-main-$(date +%Y%m%d-%H%M%S)"
+```
+
+The signed-in Codex backend uses subscription allowance, with no API fallback. Usage estimates can differ from billing. Running from this agent's shell previously failed managed-preferences initialization; successful live runs were launched by the user in Terminal. Do not repeat paid runs merely to polish prose.
+
+Do not modify the frozen benchmark to improve a condition's result. A recovery policy, targeted predictions or another model/effort setting constitutes a separate follow-up. Candidate next experiment: isolate prediction's effect on initial patch correctness from the acceptance policy's effect on final correctness. This is proposed, not executed or approved as paid work.
+
+Follow AGENTS.md: maintained changes belong in `.hickory-source/`, regenerate/check/audit, focused tests only. The reactive owner is `.hickory-source/mechanisms/prediction-gate-reactive-benchmark.md`. Preserve unrelated working changes. No broad regression monitoring, commits or publication were requested.
+</reactive:entry>
+
+<reactive:entry path="experiments/prediction-gate/comparison-results.json">
+{
+  "status": "completed scheduled Luna main retry; includes model protocol failures; no provider failures",
+  "source_run": "target/prediction-gate-reactive-luna-main-retry-20261104-060132",
+  "pilots_pooled": false,
+  "interrupted_attempt_pooled": false,
+  "completed_cli_turns": 65,
+  "provider_refusals": 0,
+  "response_format_failures": 5,
+  "arms": {
+    "baseline": {
+      "input_tokens": 315210,
+      "cached_input_tokens": 152192,
+      "output_tokens": 13569,
+      "cli_turn_attempts": 28,
+      "elapsed_seconds": 416.7514683300001,
+      "blocked_saves": 0,
+      "incorrect_predictions": 0,
+      "correct_code_blocked": 0,
+      "regressions": 0,
+      "retries": 1,
+      "completed": 17,
+      "abandoned": 7,
+      "first_attempt_correct": 16,
+      "final_correct": 16,
+      "sessions": 24,
+      "protocol_failures": 1,
+      "estimated_credits": 0.6152055
+    },
+    "gate": {
+      "input_tokens": 375055,
+      "cached_input_tokens": 176512,
+      "output_tokens": 17411,
+      "cli_turn_attempts": 37,
+      "elapsed_seconds": 531.5406121269998,
+      "blocked_saves": 15,
+      "incorrect_predictions": 13,
+      "correct_code_blocked": 14,
+      "regressions": 0,
+      "retries": 0,
+      "completed": 1,
+      "abandoned": 23,
+      "first_attempt_correct": 15,
+      "final_correct": 1,
+      "sessions": 24,
+      "protocol_failures": 4,
+      "estimated_credits": 0.758123
+    }
+  },
+  "analysis": {
+    "pairs": 24,
+    "wins": 0,
+    "losses": 15,
+    "paired_risk_difference": -0.625,
+    "paired_bootstrap_95": [
+      -0.7916666666666666,
+      -0.4166666666666667
+    ],
+    "exact_mcnemar_p": 6.103515625e-05,
+    "simulated": false,
+    "per_task": {
+      "dcl-queued-quiescence": {
+        "baseline": {
+          "n": 4,
+          "final_correct": 2,
+          "failures": 1
+        },
+        "gate": {
+          "n": 4,
+          "final_correct": 0,
+          "failures": 1
+        }
+      },
+      "dcl-readiness-retention": {
+        "baseline": {
+          "n": 4,
+          "final_correct": 4,
+          "failures": 0
+        },
+        "gate": {
+          "n": 4,
+          "final_correct": 0,
+          "failures": 0
+        }
+      },
+      "livelinq-distinct-ownership": {
+        "baseline": {
+          "n": 4,
+          "final_correct": 4,
+          "failures": 0
+        },
+        "gate": {
+          "n": 4,
+          "final_correct": 0,
+          "failures": 1
+        }
+      },
+      "livelinq-flatten-alias-offsets": {
+        "baseline": {
+          "n": 4,
+          "final_correct": 1,
+          "failures": 0
+        },
+        "gate": {
+          "n": 4,
+          "final_correct": 0,
+          "failures": 0
+        }
+      },
+      "livelinq-index-sensitive-filter": {
+        "baseline": {
+          "n": 4,
+          "final_correct": 4,
+          "failures": 0
+        },
+        "gate": {
+          "n": 4,
+          "final_correct": 0,
+          "failures": 2
+        }
+      },
+      "livelinq-persistent-groups": {
+        "baseline": {
+          "n": 4,
+          "final_correct": 1,
+          "failures": 0
+        },
+        "gate": {
+          "n": 4,
+          "final_correct": 1,
+          "failures": 0
+        }
+      }
+    },
+    "admitted_proposals": 37,
+    "primary_outcome_available": true,
+    "conclusion": "inconclusive; not evidence of no benefit"
+  },
+  "records_sha256": "d1a5dd81afd5030aa6d6ab22900d57a0d45c525165b52a2614c99c7c600a1493",
+  "credit_rates_per_million_tokens": {
+    "input": 2.5,
+    "cached_input": 0.25,
+    "output": 12.5
+  },
+  "limitations": [
+    "Exploratory follow-up chosen after Sol ceiling results.",
+    "Six fixed semantic task variants, two share an algorithm; repeats do not establish task-population generality.",
+    "Five model response-format failures retained in intention-to-treat results; no provider refusals.",
+    "14 correct-code refusals comprise 12 evaluated prediction mismatches and 2 missing prediction fields.",
+    "Raw report generic inconclusive label does not interpret the observed negative effect; predefined positive success criterion failed.",
+    "Performance does not prove or disprove possession of a mental model."
+  ]
+}
+</reactive:entry>
+
 </reactive:doc>
