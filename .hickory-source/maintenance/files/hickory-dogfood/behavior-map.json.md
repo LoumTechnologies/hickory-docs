@@ -8720,7 +8720,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "origin": "docs/guarantees/collaboration/one-road-out-with-a-toll-booth.md",
       "page": ".hickory-source/guarantees/collaboration/one-road-out-with-a-toll-booth/contract.md",
       "domain": "collaboration",
-      "title": "One Road Out, With A Toll Booth On It \u2014 Never An Airgap",
+      "title": "One Road Out, With A Toll Booth On It — Never An Airgap",
       "disposition": "retained-requirement",
       "review": "not verified",
       "references": [
@@ -9420,7 +9420,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "origin": "docs/guarantees/debugging/an-adapter-that-listens-is-connected-to.md",
       "page": ".hickory-source/guarantees/debugging/an-adapter-that-listens-is-connected-to/contract.md",
       "domain": "debugging",
-      "title": "Use the adapter\u2019s transport and the current measured language support",
+      "title": "Use the adapter’s transport and the current measured language support",
       "disposition": "reconciled-requirement",
       "review": "not verified",
       "references": [
@@ -14491,7 +14491,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "origin": "docs/guarantees/lineage/a-refactor-records-what-it-moved.md",
       "page": ".hickory-source/guarantees/lineage/a-refactor-records-what-it-moved/contract.md",
       "domain": "lineage",
-      "title": "A Refactor Records What It Moved \u2014 Byte-Exactly, And Only When Continuity Is On",
+      "title": "A Refactor Records What It Moved — Byte-Exactly, And Only When Continuity Is On",
       "disposition": "retained-requirement",
       "review": "not verified",
       "references": [
@@ -14661,7 +14661,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "origin": "docs/guarantees/lineage/agent-lineage-degrades-without-a-session.md",
       "page": ".hickory-source/guarantees/lineage/agent-lineage-degrades-without-a-session/contract.md",
       "domain": "lineage",
-      "title": "Agent-Authored Bytes Always Report Session, Turn, And A Git-Derived Author \u2014 Even When The Session Cannot Be Read",
+      "title": "Agent-Authored Bytes Always Report Session, Turn, And A Git-Derived Author — Even When The Session Cannot Be Read",
       "disposition": "retained-requirement",
       "review": "not verified",
       "references": [
@@ -65628,6 +65628,148 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "role": "history-and-guidance",
       "construction": "literal"
     },
+    "experiments/prediction-gate/bench.py": {
+      "source": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "e090db87d14a375f2377484f950cd1e3cf9fd42ca507fb91261c20983148d275",
+      "construction": "fragments",
+      "fragments": [
+        "prediction-experiment-bench-py-0",
+        "prediction-experiment-bench-py-1",
+        "prediction-experiment-bench-py-2",
+        "prediction-experiment-bench-py-3",
+        "prediction-experiment-bench-py-4",
+        "prediction-experiment-bench-py-5",
+        "prediction-experiment-bench-py-6",
+        "prediction-experiment-bench-py-7"
+      ],
+      "anchor": "prediction-experiment",
+      "narrative_owner": "mechanism:prediction-experiment"
+    },
+    "experiments/prediction-gate/cases.py": {
+      "source": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "66763b7bcaba4d97c792e6d099c41665ac8e0763811724a621c3a65c7d7c429f",
+      "construction": "fragments",
+      "fragments": [
+        "prediction-experiment-cases-py-0"
+      ],
+      "anchor": "prediction-experiment",
+      "narrative_owner": "mechanism:prediction-experiment"
+    },
+    "experiments/prediction-gate/test_bench.py": {
+      "source": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "e04ea18cb8a3344f81ddc91d39434d45da21bef5e94df24ed469845890d27767",
+      "construction": "fragments",
+      "fragments": [
+        "prediction-experiment-test_bench-py-0"
+      ],
+      "anchor": "prediction-experiment",
+      "narrative_owner": "mechanism:prediction-experiment"
+    },
+    "crates/hick-literate/examples/prediction_bench.rs": {
+      "source": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "28841aa033dd2f9bc58a4512fc107bd30a76258f4bba3faa136bbf60bf8759cb",
+      "construction": "fragments",
+      "fragments": [
+        "prediction-experiment-bridge-rs-0",
+        "prediction-experiment-bridge-rs-1"
+      ],
+      "anchor": "prediction-experiment",
+      "narrative_owner": "mechanism:prediction-experiment"
+    },
+    "experiments/prediction-gate/README.md": {
+      "source": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "b4ae983ed560c096b76e8cf388b5f1cbefb399d262e1185cc2500f5f14a90844",
+      "construction": "literal",
+      "fragments": [],
+      "anchor": "prediction-experiment",
+      "narrative_owner": "mechanism:prediction-experiment"
+    },
+    "experiments/prediction-gate/codex_backend.py": {
+      "source": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "aceaa88778473033b901bc144294175f6c8b151e82bbe86cde5a2ce304c86ab1",
+      "construction": "fragments",
+      "fragments": [
+        "prediction-experiment-codex_backend-py-0",
+        "prediction-experiment-codex_backend-py-1",
+        "prediction-experiment-codex_backend-py-2",
+        "prediction-experiment-codex_backend-py-3",
+        "prediction-experiment-codex_backend-py-4"
+      ],
+      "anchor": "prediction-experiment",
+      "narrative_owner": "mechanism:prediction-experiment"
+    },
+    "experiments/prediction-gate/reactive_cases.py": {
+      "source": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "fd682226b4548bc7aa2d65907c161a1e389dc4be5c582ee356f5f558119bbb1a",
+      "construction": "fragments",
+      "fragments": [
+        "prediction-reactive-prelude",
+        "prediction-reactive-dcl-kernel",
+        "prediction-reactive-flatten-kernel",
+        "prediction-reactive-groups-kernel",
+        "prediction-reactive-union-kernel",
+        "prediction-reactive-where-kernel",
+        "prediction-reactive-dcl-oracle",
+        "prediction-reactive-flatten-oracle",
+        "prediction-reactive-groups-oracle",
+        "prediction-reactive-union-oracle",
+        "prediction-reactive-where-oracle",
+        "prediction-reactive-dcl-traces",
+        "prediction-reactive-flatten-traces",
+        "prediction-reactive-groups-traces",
+        "prediction-reactive-union-traces",
+        "prediction-reactive-where-traces",
+        "prediction-reactive-contracts",
+        "prediction-reactive-population"
+      ],
+      "anchor": "reactive-benchmark",
+      "narrative_owner": "mechanism:prediction-reactive-benchmark"
+    },
+    "experiments/prediction-gate/test_reactive.py": {
+      "source": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "a463f48f58a204dbd60b645af213b406b3862d3c22173f72063022e6399c8b73",
+      "construction": "fragments",
+      "fragments": [
+        "prediction-reactive-integrity"
+      ],
+      "anchor": "reactive-benchmark",
+      "narrative_owner": "mechanism:prediction-reactive-benchmark"
+    },
+    "experiments/prediction-gate/reactive-plan.md": {
+      "source": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment",
+      "sha256": "e2adafda6476e824987ebd33e6c7bd1f056f8dfa447907567388599faef3756a",
+      "construction": "literal",
+      "fragments": [],
+      "anchor": "reactive-benchmark",
+      "narrative_owner": "mechanism:prediction-reactive-benchmark"
+    },
     "crates/hickory-cli/src/serve/codex_subscription.rs": {
       "source": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/codex_subscription.rs.md",
       "owner": "shared",
@@ -65653,80 +65795,6 @@ The entry below owns this output. Its metadata is separate from semantic verific
       ],
       "narrative_owner": "mechanism:subscription-codex"
     },
-    "scripts/test-subscription-codex.py": {
-      "source": ".hickory-source/mechanisms/scripts/test-subscription-codex.py.md",
-      "owner": "shared",
-      "used_by": [],
-      "role": "implementation",
-      "construction": "fragments",
-      "fragments": [
-        "subscription-b48a54c8-0"
-      ],
-      "narrative_owner": "mechanism:subscription-codex"
-    },
-    "crates/hickory-cli/src/serve/grok_subscription.rs": {
-      "source": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
-      "owner": "shared",
-      "used_by": [],
-      "role": "implementation",
-      "construction": "fragments",
-      "fragments": [
-        "subscription-v2-27f033727e-0",
-        "subscription-v2-27f033727e-1",
-        "subscription-v2-27f033727e-2",
-        "subscription-v2-27f033727e-3",
-        "subscription-v2-27f033727e-4",
-        "subscription-v2-27f033727e-5",
-        "subscription-v2-27f033727e-6"
-      ],
-      "narrative_owner": "mechanism:subscription-transports"
-    },
-    "crates/hickory-cli/src/serve/grok_subscription/tests.rs": {
-      "source": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription/tests.rs.md",
-      "owner": "shared",
-      "used_by": [],
-      "role": "implementation",
-      "construction": "fragments",
-      "fragments": [
-        "subscription-v2-f8a2709db7-0",
-        "subscription-v2-f8a2709db7-1"
-      ],
-      "narrative_owner": "mechanism:subscription-transports"
-    },
-    "crates/hickory-cli/src/serve/subscription.rs": {
-      "source": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/subscription.rs.md",
-      "owner": "shared",
-      "used_by": [],
-      "role": "implementation",
-      "construction": "fragments",
-      "fragments": [
-        "subscription-v2-069ce56f7f-0"
-      ],
-      "narrative_owner": "mechanism:subscription-transports"
-    },
-    "crates/hickory-cli/src/serve/subscription_process.rs": {
-      "source": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/subscription_process.rs.md",
-      "owner": "shared",
-      "used_by": [],
-      "role": "implementation",
-      "construction": "fragments",
-      "fragments": [
-        "subscription-v2-01257a753e-0",
-        "subscription-v2-01257a753e-1"
-      ],
-      "narrative_owner": "mechanism:subscription-transports"
-    },
-    "scripts/test-subscription-grok.py": {
-      "source": ".hickory-source/mechanisms/scripts/test-subscription-grok.py.md",
-      "owner": "shared",
-      "used_by": [],
-      "role": "implementation",
-      "construction": "fragments",
-      "fragments": [
-        "subscription-v2-7d0ca7abc8-0"
-      ],
-      "narrative_owner": "mechanism:subscription-transports"
-    },
     ".github/workflows/explicit-web.yml": {
       "source": ".hickory-source/mechanisms/explicit-web/setup.md",
       "owner": "shared",
@@ -65739,6 +65807,17 @@ The entry below owns this output. Its metadata is separate from semantic verific
       ],
       "anchor": "explicit-web",
       "narrative_owner": "mechanism:explicit-web"
+    },
+    "scripts/test-subscription-codex.py": {
+      "source": ".hickory-source/mechanisms/scripts/test-subscription-codex.py.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "subscription-b48a54c8-0"
+      ],
+      "narrative_owner": "mechanism:subscription-codex"
     },
     "experiments/explicit-web/Core/Core.csproj": {
       "source": ".hickory-source/mechanisms/explicit-web/core.md",
@@ -66668,6 +66747,91 @@ The entry below owns this output. Its metadata is separate from semantic verific
       ],
       "anchor": "explicit-web",
       "narrative_owner": "mechanism:explicit-web"
+    },
+    "experiments/prediction-gate/sol-results.md": {
+      "source": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "sha256": "c42ef3cc7e36d29db980f97e01473139ae95aa18883e0b3d38b309936be2e474",
+      "construction": "literal",
+      "fragments": [],
+      "anchor": "sol-results",
+      "narrative_owner": "mechanism:prediction-reactive-benchmark"
+    },
+    "experiments/prediction-gate/sol-results.json": {
+      "source": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "experiment-evidence",
+      "sha256": "ef455ad4eef5a8d104c0de035637788def544dc08a8bce624a14f54bfe4cf302",
+      "construction": "literal",
+      "fragments": [],
+      "anchor": "sol-results",
+      "narrative_owner": "mechanism:prediction-reactive-benchmark"
+    },
+    "crates/hickory-cli/src/serve/subscription_process.rs": {
+      "source": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/subscription_process.rs.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "subscription-v2-01257a753e-0",
+        "subscription-v2-01257a753e-1"
+      ],
+      "narrative_owner": "mechanism:subscription-transports"
+    },
+    "crates/hickory-cli/src/serve/grok_subscription.rs": {
+      "source": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "subscription-v2-27f033727e-0",
+        "subscription-v2-27f033727e-1",
+        "subscription-v2-27f033727e-2",
+        "subscription-v2-27f033727e-3",
+        "subscription-v2-27f033727e-4",
+        "subscription-v2-27f033727e-5",
+        "subscription-v2-27f033727e-6"
+      ],
+      "narrative_owner": "mechanism:subscription-transports"
+    },
+    "crates/hickory-cli/src/serve/subscription.rs": {
+      "source": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/subscription.rs.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "subscription-v2-069ce56f7f-0"
+      ],
+      "narrative_owner": "mechanism:subscription-transports"
+    },
+    "crates/hickory-cli/src/serve/grok_subscription/tests.rs": {
+      "source": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription/tests.rs.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "subscription-v2-f8a2709db7-0",
+        "subscription-v2-f8a2709db7-1"
+      ],
+      "narrative_owner": "mechanism:subscription-transports"
+    },
+    "scripts/test-subscription-grok.py": {
+      "source": ".hickory-source/mechanisms/scripts/test-subscription-grok.py.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "subscription-v2-7d0ca7abc8-0"
+      ],
+      "narrative_owner": "mechanism:subscription-transports"
     }
   },
   "evidence_records": [

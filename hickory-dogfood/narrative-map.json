@@ -148316,136 +148316,262 @@
       "basis": "explained-decision"
     },
     {
+      "id": "prediction-experiment-bench-py-0",
+      "output": "experiments/prediction-gate/bench.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "symbol": "Bound candidate observations before exposing any model tools",
+      "basis": "explained-experiment-boundary"
+    },
+    {
+      "id": "prediction-experiment-bench-py-1",
+      "output": "experiments/prediction-gate/bench.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "symbol": "Keep the question and executable wrapper under host control",
+      "basis": "explained-experiment-boundary"
+    },
+    {
+      "id": "prediction-experiment-bench-py-2",
+      "output": "experiments/prediction-gate/bench.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "symbol": "Send only public context to fresh provider conversations",
+      "basis": "explained-experiment-boundary"
+    },
+    {
+      "id": "prediction-experiment-bench-py-3",
+      "output": "experiments/prediction-gate/bench.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "symbol": "Start an isolated arm with the same budgets",
+      "basis": "explained-experiment-boundary"
+    },
+    {
+      "id": "prediction-experiment-bench-py-4",
+      "output": "experiments/prediction-gate/bench.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "symbol": "Commit before observing, and retain rejected proposals",
+      "basis": "explained-experiment-boundary"
+    },
+    {
+      "id": "prediction-experiment-bench-py-5",
+      "output": "experiments/prediction-gate/bench.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "symbol": "Score first and accepted final implementations separately",
+      "basis": "explained-experiment-boundary"
+    },
+    {
+      "id": "prediction-experiment-bench-py-6",
+      "output": "experiments/prediction-gate/bench.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "symbol": "Retain every paired outcome in the analysis",
+      "basis": "explained-experiment-boundary"
+    },
+    {
+      "id": "prediction-experiment-bench-py-7",
+      "output": "experiments/prediction-gate/bench.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "symbol": "Freeze settings and refuse overwriting prior evidence",
+      "basis": "explained-experiment-boundary"
+    },
+    {
+      "id": "prediction-experiment-cases-py-0",
+      "output": "experiments/prediction-gate/cases.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "symbol": "Freeze the fixtures before live trials",
+      "basis": "explained-experiment-boundary"
+    },
+    {
+      "id": "prediction-experiment-test_bench-py-0",
+      "output": "experiments/prediction-gate/test_bench.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "symbol": "Check the fixture oracles and the real production gate",
+      "basis": "explained-experiment-boundary"
+    },
+    {
+      "id": "prediction-experiment-bridge-rs-0",
+      "output": "crates/hick-literate/examples/prediction_bench.rs",
+      "page": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "symbol": "Use the existing runner rather than reimplementing the gate",
+      "basis": "explained-experiment-boundary"
+    },
+    {
+      "id": "prediction-experiment-bridge-rs-1",
+      "output": "crates/hick-literate/examples/prediction_bench.rs",
+      "page": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "symbol": "Seal once, then dispatch and request promotion",
+      "basis": "explained-experiment-boundary"
+    },
+    {
+      "id": "prediction-experiment-codex_backend-py-0",
+      "output": "experiments/prediction-gate/codex_backend.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "symbol": "Keep authentication in Codex and deny held-out file reads",
+      "basis": "explained-experiment-boundary"
+    },
+    {
+      "id": "prediction-experiment-codex_backend-py-1",
+      "output": "experiments/prediction-gate/codex_backend.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "symbol": "Make both conditions use the same confined Codex configuration",
+      "basis": "explained-experiment-boundary"
+    },
+    {
+      "id": "prediction-experiment-codex_backend-py-2",
+      "output": "experiments/prediction-gate/codex_backend.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "symbol": "Reject tool activity and qualify usage counters",
+      "basis": "explained-experiment-boundary"
+    },
+    {
+      "id": "prediction-experiment-codex_backend-py-3",
+      "output": "experiments/prediction-gate/codex_backend.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "symbol": "Preserve transport receipts and terminate timed-out turns",
+      "basis": "explained-experiment-boundary"
+    },
+    {
+      "id": "prediction-experiment-codex_backend-py-4",
+      "output": "experiments/prediction-gate/codex_backend.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-experiment.md",
+      "symbol": "Require the existing ChatGPT sign-in before a paid turn",
+      "basis": "explained-experiment-boundary"
+    },
+    {
+      "id": "prediction-reactive-prelude",
+      "output": "experiments/prediction-gate/reactive_cases.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "symbol": "Keep generation and oracle code evaluator-only",
+      "basis": "explained-reactive-boundary"
+    },
+    {
+      "id": "prediction-reactive-dcl-kernel",
+      "output": "experiments/prediction-gate/reactive_cases.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "symbol": "Separate membership, readiness and retained values",
+      "basis": "explained-reactive-boundary"
+    },
+    {
+      "id": "prediction-reactive-flatten-kernel",
+      "output": "experiments/prediction-gate/reactive_cases.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "symbol": "Recompute offsets for each alias callback",
+      "basis": "explained-reactive-boundary"
+    },
+    {
+      "id": "prediction-reactive-groups-kernel",
+      "output": "experiments/prediction-gate/reactive_cases.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "symbol": "Retain group identity after the last member leaves",
+      "basis": "explained-reactive-boundary"
+    },
+    {
+      "id": "prediction-reactive-union-kernel",
+      "output": "experiments/prediction-gate/reactive_cases.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "symbol": "Count owners rather than distinct source names",
+      "basis": "explained-reactive-boundary"
+    },
+    {
+      "id": "prediction-reactive-where-kernel",
+      "output": "experiments/prediction-gate/reactive_cases.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "symbol": "Propagate index shifts through a composed predicate",
+      "basis": "explained-reactive-boundary"
+    },
+    {
+      "id": "prediction-reactive-dcl-oracle",
+      "output": "experiments/prediction-gate/reactive_cases.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "symbol": "Compute DCL expectations with a separate state representation",
+      "basis": "explained-reactive-boundary"
+    },
+    {
+      "id": "prediction-reactive-flatten-oracle",
+      "output": "experiments/prediction-gate/reactive_cases.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "symbol": "Recompute the reference flattened view",
+      "basis": "explained-reactive-boundary"
+    },
+    {
+      "id": "prediction-reactive-groups-oracle",
+      "output": "experiments/prediction-gate/reactive_cases.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "symbol": "Derive group membership from source identities",
+      "basis": "explained-reactive-boundary"
+    },
+    {
+      "id": "prediction-reactive-union-oracle",
+      "output": "experiments/prediction-gate/reactive_cases.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "symbol": "Recompute the reference union from current owners",
+      "basis": "explained-reactive-boundary"
+    },
+    {
+      "id": "prediction-reactive-where-oracle",
+      "output": "experiments/prediction-gate/reactive_cases.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "symbol": "Recompute index-sensitive visibility and canonical edits",
+      "basis": "explained-reactive-boundary"
+    },
+    {
+      "id": "prediction-reactive-dcl-traces",
+      "output": "experiments/prediction-gate/reactive_cases.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "symbol": "Generate finite mailbox histories",
+      "basis": "explained-reactive-boundary"
+    },
+    {
+      "id": "prediction-reactive-flatten-traces",
+      "output": "experiments/prediction-gate/reactive_cases.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "symbol": "Keep range-edit inputs valid while stressing aliases",
+      "basis": "explained-reactive-boundary"
+    },
+    {
+      "id": "prediction-reactive-groups-traces",
+      "output": "experiments/prediction-gate/reactive_cases.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "symbol": "Exercise repeated identities and key changes",
+      "basis": "explained-reactive-boundary"
+    },
+    {
+      "id": "prediction-reactive-union-traces",
+      "output": "experiments/prediction-gate/reactive_cases.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "symbol": "Exercise overlapping owners and reattachment",
+      "basis": "explained-reactive-boundary"
+    },
+    {
+      "id": "prediction-reactive-where-traces",
+      "output": "experiments/prediction-gate/reactive_cases.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "symbol": "Exercise long index-shift histories",
+      "basis": "explained-reactive-boundary"
+    },
+    {
+      "id": "prediction-reactive-contracts",
+      "output": "experiments/prediction-gate/reactive_cases.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "symbol": "Make the extracted contracts explicit",
+      "basis": "explained-reactive-boundary"
+    },
+    {
+      "id": "prediction-reactive-population",
+      "output": "experiments/prediction-gate/reactive_cases.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "symbol": "Freeze six fault-injected tasks and separate public/held-out inputs",
+      "basis": "explained-reactive-boundary"
+    },
+    {
+      "id": "prediction-reactive-integrity",
+      "output": "experiments/prediction-gate/test_reactive.py",
+      "page": ".hickory-source/mechanisms/prediction-gate-reactive-benchmark.md",
+      "symbol": "Fix observable anchors independently of either algorithm",
+      "basis": "explained-reactive-boundary"
+    },
+    {
       "id": "subscription-b48a54c8-0",
       "output": "scripts/test-subscription-codex.py",
       "page": ".hickory-source/mechanisms/scripts/test-subscription-codex.py.md",
       "symbol": "Native HTTP subscription fixture",
-      "basis": "authored-explanation"
-    },
-    {
-      "id": "captured-project-types",
-      "output": "crates/hick-literate/src/prediction.rs",
-      "page": ".hickory-source/guarantees/verification/predictions-precede-managed-observation/implementation/crates/hick-literate/src/prediction.rs.md",
-      "symbol": "Capture source instead of consulting the live tree",
-      "basis": "authored-explanation"
-    },
-    {
-      "id": "captured-project-construction",
-      "output": "crates/hick-literate/src/prediction.rs",
-      "page": ".hickory-source/guarantees/verification/predictions-precede-managed-observation/implementation/crates/hick-literate/src/prediction.rs.md",
-      "symbol": "Construct a bounded regular-file archive",
-      "basis": "authored-explanation"
-    },
-    {
-      "id": "captured-project-identities",
-      "output": "crates/hick-literate/src/prediction.rs",
-      "page": ".hickory-source/guarantees/verification/predictions-precede-managed-observation/implementation/crates/hick-literate/src/prediction.rs.md",
-      "symbol": "Bind the observation and protect its checker",
-      "basis": "authored-explanation"
-    },
-    {
-      "id": "captured-project-execution",
-      "output": "crates/hick-literate/src/prediction.rs",
-      "page": ".hickory-source/guarantees/verification/predictions-precede-managed-observation/implementation/crates/hick-literate/src/prediction.rs.md",
-      "symbol": "Admit before observing and settle without revealing",
-      "basis": "authored-explanation"
-    },
-    {
-      "id": "captured-project-witnesses",
-      "output": "crates/hick-literate/src/prediction.rs",
-      "page": ".hickory-source/guarantees/verification/predictions-precede-managed-observation/implementation/crates/hick-literate/src/prediction.rs.md",
-      "symbol": "Challenge the host boundary with real execution",
-      "basis": "authored-explanation"
-    },
-    {
-      "id": "subscription-v2-01257a753e-0",
-      "output": "crates/hickory-cli/src/serve/subscription_process.rs",
-      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/subscription_process.rs.md",
-      "symbol": "Keep native model transports outside the workspace",
-      "basis": "authored-explanation"
-    },
-    {
-      "id": "subscription-v2-01257a753e-1",
-      "output": "crates/hickory-cli/src/serve/subscription_process.rs",
-      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/subscription_process.rs.md",
-      "symbol": "Bound output and kill the complete process group",
-      "basis": "authored-explanation"
-    },
-    {
-      "id": "subscription-v2-27f033727e-0",
-      "output": "crates/hickory-cli/src/serve/grok_subscription.rs",
-      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
-      "symbol": "Route model responses through the existing agent loop",
-      "basis": "authored-explanation"
-    },
-    {
-      "id": "subscription-v2-27f033727e-1",
-      "output": "crates/hickory-cli/src/serve/grok_subscription.rs",
-      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
-      "symbol": "Pin subscription billing before native startup",
-      "basis": "authored-explanation"
-    },
-    {
-      "id": "subscription-v2-27f033727e-2",
-      "output": "crates/hickory-cli/src/serve/grok_subscription.rs",
-      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
-      "symbol": "Refuse discovered native capabilities",
-      "basis": "authored-explanation"
-    },
-    {
-      "id": "subscription-v2-27f033727e-3",
-      "output": "crates/hickory-cli/src/serve/grok_subscription.rs",
-      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
-      "symbol": "Reuse only the supported cached session method",
-      "basis": "authored-explanation"
-    },
-    {
-      "id": "subscription-v2-27f033727e-4",
-      "output": "crates/hickory-cli/src/serve/grok_subscription.rs",
-      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
-      "symbol": "Admit a single completed response and reported counters",
-      "basis": "authored-explanation"
-    },
-    {
-      "id": "subscription-v2-27f033727e-5",
-      "output": "crates/hickory-cli/src/serve/grok_subscription.rs",
-      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
-      "symbol": "Keep Hickory tools, image limits and cancellation authoritative",
-      "basis": "authored-explanation"
-    },
-    {
-      "id": "subscription-v2-27f033727e-6",
-      "output": "crates/hickory-cli/src/serve/grok_subscription.rs",
-      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
-      "symbol": "Let the human start native browser sign-in",
-      "basis": "authored-explanation"
-    },
-    {
-      "id": "subscription-v2-069ce56f7f-0",
-      "output": "crates/hickory-cli/src/serve/subscription.rs",
-      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/subscription.rs.md",
-      "symbol": "Keep billing explicit through selection and restart",
-      "basis": "authored-explanation"
-    },
-    {
-      "id": "subscription-v2-f8a2709db7-0",
-      "output": "crates/hickory-cli/src/serve/grok_subscription/tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription/tests.rs.md",
-      "symbol": "Reject unsafe configuration and unknown accounting",
-      "basis": "authored-explanation"
-    },
-    {
-      "id": "subscription-v2-f8a2709db7-1",
-      "output": "crates/hickory-cli/src/serve/grok_subscription/tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription/tests.rs.md",
-      "symbol": "Exercise authentication, process failure and cancellation without an account",
-      "basis": "authored-explanation"
-    },
-    {
-      "id": "subscription-v2-7d0ca7abc8-0",
-      "output": "scripts/test-subscription-grok.py",
-      "page": ".hickory-source/mechanisms/scripts/test-subscription-grok.py.md",
-      "symbol": "Exercise native confinement and the built-in worker without paid requests",
       "basis": "authored-explanation"
     },
     {
@@ -149294,6 +149420,132 @@
         0,
         3990
       ]
+    },
+    {
+      "id": "subscription-v2-01257a753e-0",
+      "output": "crates/hickory-cli/src/serve/subscription_process.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/subscription_process.rs.md",
+      "symbol": "Keep native model transports outside the workspace",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-01257a753e-1",
+      "output": "crates/hickory-cli/src/serve/subscription_process.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/subscription_process.rs.md",
+      "symbol": "Bound output and kill the complete process group",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-27f033727e-0",
+      "output": "crates/hickory-cli/src/serve/grok_subscription.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
+      "symbol": "Route model responses through the existing agent loop",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-27f033727e-1",
+      "output": "crates/hickory-cli/src/serve/grok_subscription.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
+      "symbol": "Pin subscription billing before native startup",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-27f033727e-2",
+      "output": "crates/hickory-cli/src/serve/grok_subscription.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
+      "symbol": "Refuse discovered native capabilities",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-27f033727e-3",
+      "output": "crates/hickory-cli/src/serve/grok_subscription.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
+      "symbol": "Reuse only the supported cached session method",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-27f033727e-4",
+      "output": "crates/hickory-cli/src/serve/grok_subscription.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
+      "symbol": "Admit a single completed response and reported counters",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-27f033727e-5",
+      "output": "crates/hickory-cli/src/serve/grok_subscription.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
+      "symbol": "Keep Hickory tools, image limits and cancellation authoritative",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-27f033727e-6",
+      "output": "crates/hickory-cli/src/serve/grok_subscription.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
+      "symbol": "Let the human start native browser sign-in",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-069ce56f7f-0",
+      "output": "crates/hickory-cli/src/serve/subscription.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/subscription.rs.md",
+      "symbol": "Keep billing explicit through selection and restart",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-f8a2709db7-0",
+      "output": "crates/hickory-cli/src/serve/grok_subscription/tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription/tests.rs.md",
+      "symbol": "Reject unsafe configuration and unknown accounting",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-f8a2709db7-1",
+      "output": "crates/hickory-cli/src/serve/grok_subscription/tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription/tests.rs.md",
+      "symbol": "Exercise authentication, process failure and cancellation without an account",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "subscription-v2-7d0ca7abc8-0",
+      "output": "scripts/test-subscription-grok.py",
+      "page": ".hickory-source/mechanisms/scripts/test-subscription-grok.py.md",
+      "symbol": "Exercise native confinement and the built-in worker without paid requests",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "captured-project-types",
+      "output": "crates/hick-literate/src/prediction.rs",
+      "page": ".hickory-source/guarantees/verification/predictions-precede-managed-observation/implementation/crates/hick-literate/src/prediction.rs.md",
+      "symbol": "Capture source instead of consulting the live tree",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "captured-project-construction",
+      "output": "crates/hick-literate/src/prediction.rs",
+      "page": ".hickory-source/guarantees/verification/predictions-precede-managed-observation/implementation/crates/hick-literate/src/prediction.rs.md",
+      "symbol": "Construct a bounded regular-file archive",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "captured-project-identities",
+      "output": "crates/hick-literate/src/prediction.rs",
+      "page": ".hickory-source/guarantees/verification/predictions-precede-managed-observation/implementation/crates/hick-literate/src/prediction.rs.md",
+      "symbol": "Bind the observation and protect its checker",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "captured-project-execution",
+      "output": "crates/hick-literate/src/prediction.rs",
+      "page": ".hickory-source/guarantees/verification/predictions-precede-managed-observation/implementation/crates/hick-literate/src/prediction.rs.md",
+      "symbol": "Admit before observing and settle without revealing",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "captured-project-witnesses",
+      "output": "crates/hick-literate/src/prediction.rs",
+      "page": ".hickory-source/guarantees/verification/predictions-precede-managed-observation/implementation/crates/hick-literate/src/prediction.rs.md",
+      "symbol": "Challenge the host boundary with real execution",
+      "basis": "authored-explanation"
     }
   ],
   "explanation_gaps": {

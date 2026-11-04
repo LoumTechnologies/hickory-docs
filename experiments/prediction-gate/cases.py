@@ -1,0 +1,18 @@
+"""Frozen v1 fixtures. Host-only: never send this module to the model."""
+TASKS = [
+    dict(id="deadline", instruction="Fix run(durations, budget): use one total nonnegative budget across retries. Each duration consumes min(duration, remaining); stop at zero. Return elapsed. Preserve empty inputs and short work. Inputs are nonnegative integers.",
+         start="def allowance(budget, elapsed):\n    return budget\ndef run(durations, budget):\n    elapsed = 0\n    for duration in durations:\n        elapsed += min(duration, allowance(budget, elapsed))\n    return elapsed\n",
+         solution="def allowance(budget, elapsed):\n    return max(0, budget - elapsed)\ndef run(durations, budget):\n    elapsed = 0\n    for duration in durations:\n        elapsed += min(duration, allowance(budget, elapsed))\n    return elapsed\n",
+         public=[[[[80,80],100],100],[[[],100],0]],
+         hidden=[[[[20,30],100],50],[[[100,1],100],100],[[[1,2],0],0],[[[0,4,9],7],7]], regression=[0,2]),
+    dict(id="inventory", instruction="Fix run(stock, operations). operations are [item, quantity] reservations. reserve must reject missing/insufficient stock without mutation, accept exact stock, subtract on success. Return [acceptance booleans, final stock]. Work on a copy of stock. Quantities are positive integers.",
+         start="def reserve(stock, item, quantity):\n    stock[item] = stock.get(item, 0) - quantity\n    return stock[item] >= 0\ndef run(stock, operations):\n    stock = stock.copy()\n    accepted = [reserve(stock, item, quantity) for item, quantity in operations]\n    return [accepted, stock]\n",
+         solution="def reserve(stock, item, quantity):\n    if stock.get(item, 0) < quantity:\n        return False\n    stock[item] -= quantity\n    return True\ndef run(stock, operations):\n    stock = stock.copy()\n    accepted = [reserve(stock, item, quantity) for item, quantity in operations]\n    return [accepted, stock]\n",
+         public=[[[{"a":3},[["a",4],["a",3]]],[[False,True],{"a":0}]]],
+         hidden=[[[{},[["x",1]]],[[False],{}]],[[{"a":2,"b":5},[["a",1],["a",2],["b",5]]],[[True,False,True],{"a":1,"b":0}]],[[{"a":2},[]],[[],{"a":2}]],[[{"a":2},[["a",2]]],[[True],{"a":0}]]], regression=[2,3]),
+    dict(id="cache", instruction="Fix run(events, ttl). events are [time,key,value]; value=None means get, otherwise put. Return [get results, remaining sorted keys]. Cache entries expire at time >= insertion+ttl. get and final cleanup must agree; a put replaces the expiry. Times are nondecreasing integers, ttl nonnegative; values are integers. Missing get returns None.",
+         start="def live(entry, now):\n    return entry[1] >= now\ndef run(events, ttl):\n    cache = {}\n    out = []\n    now = 0\n    for now, key, value in events:\n        if value is not None:\n            cache[key] = [value, now + ttl]\n        else:\n            entry = cache.get(key)\n            out.append(entry[0] if entry and live(entry, now) else None)\n    return [out, sorted(key for key in cache if live(cache[key], now))]\n",
+         solution="def live(entry, now):\n    return entry[1] > now\ndef run(events, ttl):\n    cache = {}\n    out = []\n    now = 0\n    for now, key, value in events:\n        if value is not None:\n            cache[key] = [value, now + ttl]\n        else:\n            entry = cache.get(key)\n            out.append(entry[0] if entry and live(entry, now) else None)\n    return [out, sorted(key for key in cache if live(cache[key], now))]\n",
+         public=[[[[[0,"a",7],[5,"a",None]],5],[[None],[]]]],
+         hidden=[[[[[0,"a",7],[4,"a",None]],5],[[7],["a"]]],[[[[0,"a",7],[3,"a",8],[5,"a",None]],5],[[8],["a"]]],[[[[0,"a",7],[0,"a",None]],0],[[None],[]]],[[[],5],[[],[]]]], regression=[0,1,3]),
+]

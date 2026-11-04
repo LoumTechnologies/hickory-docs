@@ -5,6 +5,10 @@ For: maintainers changing this file and reviewers tracing the related behavioral
 
 Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
 
+The desktop lockfile follows the workspace manifests: `hick-flow` retains only
+its stream primitives, while `hickory-lineage` depends on `hick-exec` for execution.
+Keep these local-package dependency lists aligned when Cargo refreshes the lock.
+
 
 Captured SHA-256: `79c8e799087511a3a4a9703dc8d45ac7173f5e26ef79d2713c9870b7a19920ba`.
 
@@ -2898,10 +2902,7 @@ name = "hick-flow"
 version = "0.1.0"
 dependencies = [
  "futures",
- "hick-lang",
- "log",
  "tokio",
- "tokio-stream",
  "tokio-util",
 ]
 
@@ -3381,7 +3382,7 @@ dependencies = [
 name = "hickory-lineage"
 version = "0.1.0"
 dependencies = [
- "hick-flow",
+ "hick-exec",
  "hick-lang",
  "hick-plugins",
  "serde",

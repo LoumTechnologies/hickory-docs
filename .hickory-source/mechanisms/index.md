@@ -249,24 +249,33 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="apps/web/src/embed/SourceFileTree.test.tsx.md" />
 
-<storycode:include file="apps/web/src/components/ConversationModelChoice.test.tsx.md" />
+## Evaluate the private output prediction gate
+
+[Experiment construction](prediction-gate-experiment.md) owns the frozen fixtures, host adapter and integrity witnesses.
+<storycode:include file="prediction-gate-experiment.md" />
+
+
+[Reactive algorithm benchmark](prediction-gate-reactive-benchmark.md) adds the separately versioned LiveLinq and DCL trace tasks.
+<storycode:include file="prediction-gate-reactive-benchmark.md" />
+
+## Experiment with explicit C# HTTP decisions
+
+<storycode:include file="explicit-web-experiment.md" />
 
 <storycode:include file="crates/hickory-cli/src/serve/codex_subscription.rs.md" />
 
+<storycode:include file="apps/web/src/components/ConversationModelChoice.test.tsx.md" />
+
 <storycode:include file="scripts/test-subscription-codex.py.md" />
-
-<storycode:include file="crates/hickory-cli/src/serve/grok_subscription.rs.md" />
-
-<storycode:include file="crates/hickory-cli/src/serve/grok_subscription/tests.rs.md" />
-
-<storycode:include file="crates/hickory-cli/src/serve/subscription.rs.md" />
 
 <storycode:include file="crates/hickory-cli/src/serve/subscription_process.rs.md" />
 
+<storycode:include file="crates/hickory-cli/src/serve/grok_subscription.rs.md" />
+
+<storycode:include file="crates/hickory-cli/src/serve/subscription.rs.md" />
+
+<storycode:include file="crates/hickory-cli/src/serve/grok_subscription/tests.rs.md" />
+
 <storycode:include file="scripts/test-subscription-grok.py.md" />
-
-## Build web apps with explicit C# request decisions
-
-<storycode:include file="explicit-web-experiment.md" />
 
 </storycode:doc>
