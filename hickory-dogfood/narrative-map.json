@@ -148447,6 +148447,853 @@
       "page": ".hickory-source/mechanisms/scripts/test-subscription-grok.py.md",
       "symbol": "Exercise native confinement and the built-in worker without paid requests",
       "basis": "authored-explanation"
+    },
+    {
+      "id": "ew-Core-Core-csproj",
+      "output": "experiments/explicit-web/Core/Core.csproj",
+      "page": ".hickory-source/mechanisms/explicit-web/core.md",
+      "symbol": "ew-Core-Core-csproj",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        449
+      ]
+    },
+    {
+      "id": "ew-result",
+      "output": "experiments/explicit-web/Core/Result.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/core.md",
+      "symbol": "ew-result",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        793
+      ]
+    },
+    {
+      "id": "ew-request",
+      "output": "experiments/explicit-web/Core/Request.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/core.md",
+      "symbol": "ew-request",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        3380
+      ]
+    },
+    {
+      "id": "ew-html",
+      "output": "experiments/explicit-web/Core/Html.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/core.md",
+      "symbol": "ew-html",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        1319
+      ]
+    },
+    {
+      "id": "ew-response",
+      "output": "experiments/explicit-web/Core/Response.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/core.md",
+      "symbol": "ew-response",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        2245
+      ]
+    },
+    {
+      "id": "ew-routes",
+      "output": "experiments/explicit-web/Core/Routes.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/core.md",
+      "symbol": "ew-routes",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        2407
+      ]
+    },
+    {
+      "id": "ew-Data-Data-csproj",
+      "output": "experiments/explicit-web/Data/Data.csproj",
+      "page": ".hickory-source/mechanisms/explicit-web/data.md",
+      "symbol": "ew-Data-Data-csproj",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        499
+      ]
+    },
+    {
+      "id": "ew-database",
+      "output": "experiments/explicit-web/Data/Database.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/data.md",
+      "symbol": "ew-database",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        3055
+      ]
+    },
+    {
+      "id": "ew-Security-Security-csproj",
+      "output": "experiments/explicit-web/Security/Security.csproj",
+      "page": ".hickory-source/mechanisms/explicit-web/security.md",
+      "symbol": "ew-Security-Security-csproj",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        553
+      ]
+    },
+    {
+      "id": "ew-identity-values",
+      "output": "experiments/explicit-web/Security/Identity.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/security.md",
+      "symbol": "ew-identity-values",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        1805
+      ]
+    },
+    {
+      "id": "ew-session-checks",
+      "output": "experiments/explicit-web/Security/Sessions.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/security.md",
+      "symbol": "ew-session-checks",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        4040
+      ]
+    },
+    {
+      "id": "ew-account-transitions",
+      "output": "experiments/explicit-web/Security/Accounts.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/security.md",
+      "symbol": "ew-account-transitions",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        2524
+      ]
+    },
+    {
+      "id": "ew-rate-limit",
+      "output": "experiments/explicit-web/Security/RateLimit.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/security.md",
+      "symbol": "ew-rate-limit",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        1141
+      ]
+    },
+    {
+      "id": "ew-cors",
+      "output": "experiments/explicit-web/Core/Cors.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/core.md",
+      "symbol": "ew-cors",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        3757
+      ]
+    },
+    {
+      "id": "ew-assets",
+      "output": "experiments/explicit-web/Core/Assets.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/core.md",
+      "symbol": "ew-assets",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        926
+      ]
+    },
+    {
+      "id": "ew-Hosting-Hosting-csproj",
+      "output": "experiments/explicit-web/Hosting/Hosting.csproj",
+      "page": ".hickory-source/mechanisms/explicit-web/hosting.md",
+      "symbol": "ew-Hosting-Hosting-csproj",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        559
+      ]
+    },
+    {
+      "id": "ew-server-lifetime",
+      "output": "experiments/explicit-web/Hosting/Server.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/hosting.md",
+      "symbol": "ew-server-lifetime",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        2183
+      ]
+    },
+    {
+      "id": "ew-server-request",
+      "output": "experiments/explicit-web/Hosting/Server.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/hosting.md",
+      "symbol": "ew-server-request",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        3368
+      ]
+    },
+    {
+      "id": "ew-Server-Server-csproj",
+      "output": "experiments/explicit-web/Server/Server.csproj",
+      "page": ".hickory-source/mechanisms/explicit-web/application.md",
+      "symbol": "ew-Server-Server-csproj",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        628
+      ]
+    },
+    {
+      "id": "ew-task-values",
+      "output": "experiments/explicit-web/Server/Tasks.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/application.md",
+      "symbol": "ew-task-values",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        3021
+      ]
+    },
+    {
+      "id": "ew-app-schema",
+      "output": "experiments/explicit-web/Server/Schema.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/application.md",
+      "symbol": "ew-app-schema",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        450
+      ]
+    },
+    {
+      "id": "ew-pages-layout",
+      "output": "experiments/explicit-web/Server/Pages.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/application.md",
+      "symbol": "ew-pages-layout",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        1907
+      ]
+    },
+    {
+      "id": "ew-task-pages",
+      "output": "experiments/explicit-web/Server/Pages.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/application.md",
+      "symbol": "ew-task-pages",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        1763
+      ]
+    },
+    {
+      "id": "ew-error-pages",
+      "output": "experiments/explicit-web/Server/Pages.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/application.md",
+      "symbol": "ew-error-pages",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        1636
+      ]
+    },
+    {
+      "id": "ew-app-request-path",
+      "output": "experiments/explicit-web/Server/Application.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/application.md",
+      "symbol": "ew-app-request-path",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        4885
+      ]
+    },
+    {
+      "id": "ew-api-endpoints",
+      "output": "experiments/explicit-web/Server/Api.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/application.md",
+      "symbol": "ew-api-endpoints",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        1968
+      ]
+    },
+    {
+      "id": "ew-form-endpoints",
+      "output": "experiments/explicit-web/Server/Forms.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/application.md",
+      "symbol": "ew-form-endpoints",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        1754
+      ]
+    },
+    {
+      "id": "ew-settings",
+      "output": "experiments/explicit-web/Server/Settings.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/application.md",
+      "symbol": "ew-settings",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        2253
+      ]
+    },
+    {
+      "id": "ew-startup",
+      "output": "experiments/explicit-web/Server/Program.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/application.md",
+      "symbol": "ew-startup",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        43
+      ]
+    },
+    {
+      "id": "ew-sdk",
+      "output": "experiments/explicit-web/global.json",
+      "page": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "symbol": "ew-sdk",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        59
+      ]
+    },
+    {
+      "id": "ew-sqlite-abi",
+      "output": "experiments/explicit-web/Data/Native.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/data.md",
+      "symbol": "ew-sqlite-abi",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        3091
+      ]
+    },
+    {
+      "id": "ew-sqlite-connection",
+      "output": "experiments/explicit-web/Data/Native.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/data.md",
+      "symbol": "ew-sqlite-connection",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        824
+      ]
+    },
+    {
+      "id": "ew-sqlite-statement",
+      "output": "experiments/explicit-web/Data/Native.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/data.md",
+      "symbol": "ew-sqlite-statement",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        1655
+      ]
+    },
+    {
+      "id": "ew-sqlite-row",
+      "output": "experiments/explicit-web/Data/Native.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/data.md",
+      "symbol": "ew-sqlite-row",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        1686
+      ]
+    },
+    {
+      "id": "ew-test-launcher",
+      "output": "experiments/explicit-web/tests/support.py",
+      "page": ".hickory-source/mechanisms/explicit-web/acceptance.md",
+      "symbol": "ew-test-launcher",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        3975
+      ]
+    },
+    {
+      "id": "ew-http-acceptance",
+      "output": "experiments/explicit-web/tests/test_app.py",
+      "page": ".hickory-source/mechanisms/explicit-web/acceptance.md",
+      "symbol": "ew-http-acceptance",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        7924
+      ]
+    },
+    {
+      "id": "ew-test-entry",
+      "output": "experiments/explicit-web/test_http.py",
+      "page": ".hickory-source/mechanisms/explicit-web/acceptance.md",
+      "symbol": "ew-test-entry",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        245
+      ]
+    },
+    {
+      "id": "ew-pipeline-control",
+      "output": "experiments/explicit-web/Hosting/PipelineServer.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/comparison.md",
+      "symbol": "ew-pipeline-control",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        1573
+      ]
+    },
+    {
+      "id": "ew-Baseline-Baseline-csproj",
+      "output": "experiments/explicit-web/Baseline/Baseline.csproj",
+      "page": ".hickory-source/mechanisms/explicit-web/comparison.md",
+      "symbol": "ew-Baseline-Baseline-csproj",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        468
+      ]
+    },
+    {
+      "id": "ew-compose-host",
+      "output": "experiments/explicit-web/Server/Bootstrap.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/application.md",
+      "symbol": "ew-compose-host",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        1518
+      ]
+    },
+    {
+      "id": "ew-baseline-entry",
+      "output": "experiments/explicit-web/Baseline/Program.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/comparison.md",
+      "symbol": "ew-baseline-entry",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        42
+      ]
+    },
+    {
+      "id": "ew-browser-flow",
+      "output": "experiments/explicit-web/tests/browser.cjs",
+      "page": ".hickory-source/mechanisms/explicit-web/acceptance.md",
+      "symbol": "ew-browser-flow",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        2247
+      ]
+    },
+    {
+      "id": "ew-browser-launcher",
+      "output": "experiments/explicit-web/tests/browser.py",
+      "page": ".hickory-source/mechanisms/explicit-web/acceptance.md",
+      "symbol": "ew-browser-launcher",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        770
+      ]
+    },
+    {
+      "id": "ew-compiler-matrix",
+      "output": "experiments/explicit-web/evaluation/compiler_matrix.py",
+      "page": ".hickory-source/mechanisms/explicit-web/evaluation.md",
+      "symbol": "ew-compiler-matrix",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        6174
+      ]
+    },
+    {
+      "id": "ew-Checks-Checks-csproj",
+      "output": "experiments/explicit-web/Checks/Checks.csproj",
+      "page": ".hickory-source/mechanisms/explicit-web/acceptance.md",
+      "symbol": "ew-Checks-Checks-csproj",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        492
+      ]
+    },
+    {
+      "id": "ew-runtime-safety",
+      "output": "experiments/explicit-web/Checks/Program.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/acceptance.md",
+      "symbol": "ew-runtime-safety",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        4313
+      ]
+    },
+    {
+      "id": "ew-host-benchmark",
+      "output": "experiments/explicit-web/evaluation/host_benchmark.py",
+      "page": ".hickory-source/mechanisms/explicit-web/evaluation.md",
+      "symbol": "ew-host-benchmark",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        4948
+      ]
+    },
+    {
+      "id": "ew-identity-schema",
+      "output": "experiments/explicit-web/Security/IdentitySchema.cs",
+      "page": ".hickory-source/mechanisms/explicit-web/security.md",
+      "symbol": "ew-identity-schema",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        457
+      ]
+    },
+    {
+      "id": "ew-readme",
+      "output": "experiments/explicit-web/README.md",
+      "page": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "symbol": "ew-readme",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        2442
+      ]
+    },
+    {
+      "id": "ew-quickstart",
+      "output": "experiments/explicit-web/docs/developers/quickstart.md",
+      "page": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "symbol": "ew-quickstart",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        4668
+      ]
+    },
+    {
+      "id": "ew-another-app",
+      "output": "experiments/explicit-web/docs/developers/another-app.md",
+      "page": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "symbol": "ew-another-app",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        2712
+      ]
+    },
+    {
+      "id": "ew-basic-app-contract",
+      "output": "experiments/explicit-web/docs/guarantees/basic-app.md",
+      "page": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "symbol": "ew-basic-app-contract",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        3546
+      ]
+    },
+    {
+      "id": "ew-build-budget",
+      "output": "experiments/explicit-web/Directory.Build.props",
+      "page": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "symbol": "ew-build-budget",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        144
+      ]
+    },
+    {
+      "id": "ew-local-launcher",
+      "output": "experiments/explicit-web/tools/dev.py",
+      "page": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "symbol": "ew-local-launcher",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        2638
+      ]
+    },
+    {
+      "id": "ew-export-project",
+      "output": "experiments/explicit-web/tools/export.py",
+      "page": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "symbol": "ew-export-project",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        1875
+      ]
+    },
+    {
+      "id": "ew-local-state",
+      "output": "experiments/explicit-web/.gitignore",
+      "page": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "symbol": "ew-local-state",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        58
+      ]
+    },
+    {
+      "id": "ew-developer-audience",
+      "output": "experiments/explicit-web/docs/developers/target-audience.md",
+      "page": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "symbol": "ew-developer-audience",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        337
+      ]
+    },
+    {
+      "id": "ew-evaluation-protocol",
+      "output": "experiments/explicit-web/docs/developers/evaluation.md",
+      "page": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "symbol": "ew-evaluation-protocol",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        3903
+      ]
+    },
+    {
+      "id": "ew-focused-checks",
+      "output": "experiments/explicit-web/tools/check.py",
+      "page": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "symbol": "ew-focused-checks",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        797
+      ]
+    },
+    {
+      "id": "ew-ci-entry",
+      "output": "experiments/explicit-web/tools/ci.py",
+      "page": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "symbol": "ew-ci-entry",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        1259
+      ]
+    },
+    {
+      "id": "ew-browser-package",
+      "output": "experiments/explicit-web/tests/package.json",
+      "page": ".hickory-source/mechanisms/explicit-web/acceptance.md",
+      "symbol": "ew-browser-package",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        102
+      ]
+    },
+    {
+      "id": "ew-browser-lock",
+      "output": "experiments/explicit-web/tests/package-lock.json",
+      "page": ".hickory-source/mechanisms/explicit-web/acceptance.md",
+      "symbol": "ew-browser-lock",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        1670
+      ]
+    },
+    {
+      "id": "ew-workflow",
+      "output": "experiments/explicit-web/.github/workflows/explicit-web.yml",
+      "page": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "symbol": "ew-workflow",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        2678
+      ]
+    },
+    {
+      "id": "ew-opt-in-hook",
+      "output": "experiments/explicit-web/.githooks/pre-commit",
+      "page": ".hickory-source/mechanisms/explicit-web/guide.md",
+      "symbol": "ew-opt-in-hook",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        101
+      ]
+    },
+    {
+      "id": "ew-transport-refusals",
+      "output": "experiments/explicit-web/tests/test_transport.py",
+      "page": ".hickory-source/mechanisms/explicit-web/acceptance.md",
+      "symbol": "ew-transport-refusals",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        1317
+      ]
+    },
+    {
+      "id": "ew-task-interface",
+      "output": "experiments/explicit-web/justfile",
+      "page": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "symbol": "ew-task-interface",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        1402
+      ]
+    },
+    {
+      "id": "ew-lock-core",
+      "output": "experiments/explicit-web/Core/packages.lock.json",
+      "page": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "symbol": "ew-lock-core",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        61
+      ]
+    },
+    {
+      "id": "ew-lock-data",
+      "output": "experiments/explicit-web/Data/packages.lock.json",
+      "page": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "symbol": "ew-lock-data",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        128
+      ]
+    },
+    {
+      "id": "ew-lock-security",
+      "output": "experiments/explicit-web/Security/packages.lock.json",
+      "page": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "symbol": "ew-lock-security",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        270
+      ]
+    },
+    {
+      "id": "ew-lock-hosting",
+      "output": "experiments/explicit-web/Hosting/packages.lock.json",
+      "page": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "symbol": "ew-lock-hosting",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        128
+      ]
+    },
+    {
+      "id": "ew-lock-server",
+      "output": "experiments/explicit-web/Server/packages.lock.json",
+      "page": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "symbol": "ew-lock-server",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        604
+      ]
+    },
+    {
+      "id": "ew-lock-baseline",
+      "output": "experiments/explicit-web/Baseline/packages.lock.json",
+      "page": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "symbol": "ew-lock-baseline",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        872
+      ]
+    },
+    {
+      "id": "ew-lock-checks",
+      "output": "experiments/explicit-web/Checks/packages.lock.json",
+      "page": ".hickory-source/mechanisms/explicit-web/setup.md",
+      "symbol": "ew-lock-checks",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        872
+      ]
+    },
+    {
+      "id": "ew-receipt-compiler-final-json",
+      "output": "experiments/explicit-web/evidence/compiler-final.json",
+      "page": ".hickory-source/mechanisms/explicit-web/evidence.md",
+      "symbol": "ew-receipt-compiler-final-json",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        7023
+      ]
+    },
+    {
+      "id": "ew-receipt-hosts-initial-json",
+      "output": "experiments/explicit-web/evidence/hosts-initial.json",
+      "page": ".hickory-source/mechanisms/explicit-web/evidence.md",
+      "symbol": "ew-receipt-hosts-initial-json",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        151585
+      ]
+    },
+    {
+      "id": "ew-receipt-hosts-final-json",
+      "output": "experiments/explicit-web/evidence/hosts-final.json",
+      "page": ".hickory-source/mechanisms/explicit-web/evidence.md",
+      "symbol": "ew-receipt-hosts-final-json",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        151818
+      ]
+    },
+    {
+      "id": "ew-observed-results",
+      "output": "experiments/explicit-web/docs/developers/results.md",
+      "page": ".hickory-source/mechanisms/explicit-web/evidence.md",
+      "symbol": "ew-observed-results",
+      "basis": "explanation-inspected",
+      "original_range": [
+        0,
+        3990
+      ]
     }
   ],
   "explanation_gaps": {

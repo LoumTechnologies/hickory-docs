@@ -1,0 +1,36 @@
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
+
+# Show commands without building or launching.
+default:
+    just --list
+
+# Restore the locked .NET project graph; browser dependencies are optional.
+devenv:
+    dotnet restore Checks/Checks.csproj --locked-mode --disable-parallel
+    dotnet restore Baseline/Baseline.csproj --locked-mode --disable-parallel
+
+# Run the reference app on an allocated local port; Ctrl+C stops its server.
+dev:
+    python3 tools/dev.py
+
+# Check file-size limits, Python syntax and the C# build.
+check:
+    python3 tools/check.py
+
+# Run focused runtime, HTTP and compiler witnesses; excludes browser provisioning.
+test:
+    python3 tools/ci.py
+
+# Run actual browser forms; requires Node, Playwright and a browser.
+e2e:
+    python3 tests/browser.py
+
+# All local gates, including the separately provisioned browser witness.
+ci: test e2e
+
+# Produce the framework's four unstable NuGet packages without publishing.
+build:
+    dotnet pack Core/Core.csproj -c Release -p:PackageVersion=0.1.0-unstable.local -o target/packages -m:1
+    dotnet pack Data/Data.csproj -c Release -p:PackageVersion=0.1.0-unstable.local -o target/packages -m:1
+    dotnet pack Security/Security.csproj -c Release -p:PackageVersion=0.1.0-unstable.local -o target/packages -m:1
+    dotnet pack Hosting/Hosting.csproj -c Release -p:PackageVersion=0.1.0-unstable.local -o target/packages -m:1

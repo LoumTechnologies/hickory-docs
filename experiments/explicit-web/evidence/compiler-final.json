@@ -1,0 +1,158 @@
+{
+  "source_sha256": {
+    "Core/Html.cs": "884a2f8d2df1cc553606cbfe0a331c6a713f23a2125f046271d713bc74894898",
+    "Core/Request.cs": "1762314f3b7eaf234197d0222a4d9389fa00c2b031c405070d0069b6b9bad8f7",
+    "Core/Response.cs": "ffe196482be27fae118508c8d350bb3c8bc0262a879acb7ef6d191598cabda55",
+    "Core/Cors.cs": "2d3c932a6b783e4c134740b923d929755716f4f59090de7d2a96c30344773fbb",
+    "Core/Routes.cs": "380a67b901bb831cbef94d33e06e274b4bb5453e5d40d1222c3949784cc1623a",
+    "Core/Result.cs": "c7549ce85be8abb361601967b627b9db9b8134961dcafa41275258913e6a4d03",
+    "Core/Assets.cs": "baf210ef529ce3edf0873471a3fa4b4b038bc8e21c53c0b40ad2ba486ed51fd9",
+    "Security/RateLimit.cs": "740a40a2c2784253501383dda352845eac637ed65903f216e27cd250e294cb4f",
+    "Security/Sessions.cs": "23c102d9f914f81c5d9cb1f2c3daa435c6ee3d7f57e21d3d28c295485bf99890",
+    "Security/Accounts.cs": "451f72771c635f5200a4af039b2451b1da0799d5be607058c5ece0987f1e2780",
+    "Security/Identity.cs": "0ce60cc7e38f8c2fd28346eda91d30a62e228c8baeccaa96d73144fd8839f38c",
+    "Security/IdentitySchema.cs": "995f156f6b762fe5310d4b985cfe3aa08fe14887c112e94acd7e026c18457947",
+    "Checks/Program.cs": "288170435a6f89c98ebeaf0fbb3951ed8354c542c83c0b3507b920644858ed52",
+    "Baseline/Program.cs": "07bc33b59005232f4a2a4d10bc5db4e541ebe10092fc55ca5786922c811b9061",
+    "Server/Bootstrap.cs": "bc6fbea78af7d84563b8421f1ce470545756e31b210290ddb6d68068de720002",
+    "Server/Tasks.cs": "bdec9f15eb0ec53aa54104966c564f074f8b523d9ee838cf3da994b465889833",
+    "Server/Schema.cs": "fa4d0c099a64ea1f8b11e9fb0b3446f1de7d7b6ca1f972e9d0b26fbf59874a5f",
+    "Server/Application.cs": "2a5628a667f88b06fe97f3cfc2d5323c2d405967350de3dc0c61d898fd8ee149",
+    "Server/Api.cs": "2a5db5fbfa448d5e293cc30a327bf61a94320035f71fd46024e2614664e8b10a",
+    "Server/Forms.cs": "bda22fca761e2bd57537c4698259f42608fd50d01c8655bf62dc7e8c8db0413f",
+    "Server/Pages.cs": "3a3ca6c9c548a573765aff50c673dc298d3989fde95fb3f5ad4ea44fd9f54faa",
+    "Server/Settings.cs": "d016fd4a28233b3aceaf526a7be0f0c2e948b2697d33b89e48723e6ba5a7b34d",
+    "Server/Program.cs": "040bb4d17e64e0787455b4a33a14bacf02fb75d68d8064e8c969a159285221dd",
+    "Hosting/PipelineServer.cs": "1737e923d345c20910d22e07e3151bbc733841946bf49649880a7c4077bbf2ba",
+    "Hosting/Server.cs": "904da40f3f783c5edddfa2a43bafb654dd1a7b3eab3e6f8652f37ea29d42b517",
+    "Data/Database.cs": "573b07fd64664468acd59d86b8ea22c51bbffea7060ad60b71184d71ade5d02b",
+    "Data/Native.cs": "5c311cd8047e4d33f9b85a501cf96feecb1d32bc32a68c82e04dc9079a532e08"
+  },
+  "sdk": "10.0.401",
+  "kind": "selected_api_constraint_witnesses",
+  "machine": "macOS-26.6-arm64-arm-64bit",
+  "python": "3.9.6",
+  "cases": [
+    {
+      "name": "raw_html",
+      "expected_diagnostic": "CS1503",
+      "typed_rejected": true,
+      "untyped_compiled": true,
+      "typed_seconds": 0.6514693750000002,
+      "untyped_seconds": 0.6160697920000002,
+      "fixture_sha256": "c7d3593cc75a9110ebb99016b078680378cce97d572df00b1096fac2c24fb05b"
+    },
+    {
+      "name": "open_redirect",
+      "expected_diagnostic": "CS1503",
+      "typed_rejected": true,
+      "untyped_compiled": true,
+      "typed_seconds": 0.599173875,
+      "untyped_seconds": 0.623651583,
+      "fixture_sha256": "47ea7822acc4e0d52d1afdc9ad29e524d57c5327d7585c10b5f9f6cc1a95721d"
+    },
+    {
+      "name": "unvalidated_title",
+      "expected_diagnostic": "CS1503",
+      "typed_rejected": true,
+      "untyped_compiled": true,
+      "typed_seconds": 0.6143546250000007,
+      "untyped_seconds": 0.6021015410000006,
+      "fixture_sha256": "6fa507c11fe918af089b6ac1f4eda3ee3b05cf7c27859eef9a4c9e3ab3468f0d"
+    },
+    {
+      "name": "missing_identity",
+      "expected_diagnostic": "CS1503",
+      "typed_rejected": true,
+      "untyped_compiled": true,
+      "typed_seconds": 0.6155472089999998,
+      "untyped_seconds": 0.605555334,
+      "fixture_sha256": "bb526e731f7b65f273655665b71926f8aecdb3cd532685f20b13af3306f337eb"
+    },
+    {
+      "name": "missing_mutation_authority",
+      "expected_diagnostic": "CS1503",
+      "typed_rejected": true,
+      "untyped_compiled": true,
+      "typed_seconds": 0.6041767079999998,
+      "untyped_seconds": 0.7042705829999996,
+      "fixture_sha256": "147c50924c2fdd296ee9f51c0c67fb9a59bc1de5ee365578b80157cde25852f6"
+    },
+    {
+      "name": "forged_permit",
+      "expected_diagnostic": "CS1729",
+      "typed_rejected": true,
+      "untyped_compiled": true,
+      "typed_seconds": 0.5990437919999998,
+      "untyped_seconds": 0.6041430409999986,
+      "fixture_sha256": "3fe7d6afea15983fef19c4dbb637401800491b9b40077543a306b49103d7f0fe"
+    },
+    {
+      "name": "missing_csrf_on_login",
+      "expected_diagnostic": "CS7036",
+      "typed_rejected": true,
+      "untyped_compiled": true,
+      "typed_seconds": 0.6536281250000009,
+      "untyped_seconds": 0.7645893340000001,
+      "fixture_sha256": "6af0809590262a6d3609c46314896e6e08ccb601b677304955e24295898c05af"
+    },
+    {
+      "name": "wrong_route_parameter",
+      "expected_diagnostic": "CS1503",
+      "typed_rejected": true,
+      "untyped_compiled": true,
+      "typed_seconds": 1.138383417,
+      "untyped_seconds": 0.7996549589999997,
+      "fixture_sha256": "453c8357b400ca3aee01241317b2cdcc74222aae1aa3f0fe59a7e82324bd37a1"
+    },
+    {
+      "name": "preformatted_sql",
+      "expected_diagnostic": "CS1503",
+      "typed_rejected": true,
+      "untyped_compiled": true,
+      "typed_seconds": 0.6231568339999995,
+      "untyped_seconds": 0.7085339580000003,
+      "fixture_sha256": "c210c063de7032b22179cdefe1044db61fe61da927643511726348d0d49f99c1"
+    },
+    {
+      "name": "unchecked_transport_response",
+      "expected_diagnostic": "CS0029",
+      "typed_rejected": true,
+      "untyped_compiled": true,
+      "typed_seconds": 0.6762908750000012,
+      "untyped_seconds": 0.6628641670000004,
+      "fixture_sha256": "2fff827e8028ce4becef4689e72bf16dc8803dc35c7910b87d0f584268cc0ddf"
+    },
+    {
+      "name": "forged_html",
+      "expected_diagnostic": "CS1729",
+      "typed_rejected": true,
+      "untyped_compiled": true,
+      "typed_seconds": 0.6427162079999995,
+      "untyped_seconds": 0.6676220829999995,
+      "fixture_sha256": "ddac490b7bbcb449f8c3dda74b51fa60f5b3484f7e3b7467a7677e9467577b4d"
+    },
+    {
+      "name": "unhandled_validation_result",
+      "expected_diagnostic": "CS1061",
+      "typed_rejected": true,
+      "untyped_compiled": true,
+      "typed_seconds": 0.6350233749999994,
+      "untyped_seconds": 0.6480306670000004,
+      "fixture_sha256": "fb77d54d61ee45913b196baf951848e46e90d25a5482f64bd9f0a69af03ce75a"
+    }
+  ],
+  "surviving_controls": [
+    {
+      "name": "deliberate_null_suppression",
+      "compiled": true,
+      "seconds": 0.6769825420000011
+    },
+    {
+      "name": "incorrect_cors_policy",
+      "compiled": true,
+      "seconds": 0.6510086669999993
+    }
+  ],
+  "limitation": "Selected API-level fixtures versus an untyped control, not production bug frequency, a full competing framework, or AI productivity."
+}

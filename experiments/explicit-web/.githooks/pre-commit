@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+cd "$(git rev-parse --show-toplevel)"
+python3 tools/ci.py
+python3 tests/browser.py
