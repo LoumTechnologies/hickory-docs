@@ -148314,6 +148314,13 @@
       "page": ".hickory-source/mechanisms/apps/web/src/editor/hickDoc.ts.md",
       "symbol": "Recognize the editor YAML boundary",
       "basis": "explained-decision"
+    },
+    {
+      "id": "subscription-b48a54c8-0",
+      "output": "scripts/test-subscription-codex.py",
+      "page": ".hickory-source/mechanisms/scripts/test-subscription-codex.py.md",
+      "symbol": "Native HTTP subscription fixture",
+      "basis": "authored-explanation"
     }
   ],
   "explanation_gaps": {

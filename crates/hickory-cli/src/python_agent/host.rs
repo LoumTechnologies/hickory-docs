@@ -384,7 +384,8 @@ impl Host<'_> {
                     ensure!(old == &fingerprint, "idempotency_conflict");
                     return result
                         .clone()
-                        .context("Request already attempted; delivery may be uncertain");
+                        .context("Request already attempted; delivery may be uncertain")?
+                        .map_err(anyhow::Error::msg);
                 }
                 ensure!(
                     bundle.request.branch == self.turn_id.as_deref().unwrap_or("standalone"),
@@ -442,6 +443,7 @@ impl Host<'_> {
                     let mut stream = self.client.complete_stream(messages).await?;
                     let mut raw = String::new();
                     let mut usage = Usage::default();
+                    let mut usage_reported = false;
                     let mut reasoning = String::new();
                     let mut finish_reason = None;
                     while let Some(chunk) = stream.next().await {
@@ -468,10 +470,11 @@ impl Host<'_> {
                             (self.on_event)(AgentEvent::Token { data: chunk.delta });
                         }
                         if let Some(value) = chunk.usage {
+                            usage_reported = true;
                             usage.add(&value);
                         }
                     }
-                    Ok::<_, anyhow::Error>((raw, usage, reasoning, finish_reason))
+                    Ok::<_, anyhow::Error>((raw, usage, reasoning, finish_reason, usage_reported))
                 };
                 delivery["state"] = json!("transport_started");
                 metadata(&self.session, "python-context-delivery", &delivery)?;
@@ -482,7 +485,7 @@ impl Host<'_> {
                     request,
                 )
                 .await;
-                let (raw, usage, reasoning, finish_reason) = match outcome {
+                let (raw, usage, reasoning, finish_reason, usage_reported) = match outcome {
                     Ok(Ok(value)) => {
                         self.private_failure = None;
                         value
@@ -498,6 +501,8 @@ impl Host<'_> {
                         self.active_delivery = None;
                         return match result {
                             Ok(Err(error)) => {
+                                self.deliveries.get_mut(&bundle.request.id).unwrap().1 =
+                                    Some(Err(format!("{error:#}")));
                                 if self.private.is_some() {
                                     self.private_failure =
                                         Some(PrivateFailure::provider(&error.to_string()));
@@ -505,6 +510,8 @@ impl Host<'_> {
                                 Err(error)
                             }
                             Err(error) => {
+                                self.deliveries.get_mut(&bundle.request.id).unwrap().1 =
+                                    Some(Err(error.to_string()));
                                 if self.private.is_some() {
                                     self.private_failure =
                                         Some(PrivateFailure::ProviderUnavailable);
@@ -544,11 +551,13 @@ impl Host<'_> {
                 }
                 self.active_delivery = None;
                 let metrics = json!({"elapsed_seconds":started.elapsed().as_secs_f64(),
-                    "input_tokens":usage.input_tokens,"output_tokens":usage.output_tokens,
+                    "input_tokens":usage_reported.then_some(usage.input_tokens),"output_tokens":usage_reported.then_some(usage.output_tokens),
+                    "billing":if self.client.provider_name() == "codex-subscription" { "chatgpt_subscription" } else { "api" },
+                    "cache_write_tokens":if self.client.provider_name() == "codex-subscription" { None } else { usage_reported.then_some(usage.cache_creation_input_tokens) },
                     "finish_reason":finish_reason,"model":self.client.model_name()});
                 let result = json!({"text":raw,"reference":response_node.id,
                     "finish_reason":finish_reason,"metrics":metrics});
-                self.deliveries.get_mut(&bundle.request.id).unwrap().1 = Some(result.clone());
+                self.deliveries.get_mut(&bundle.request.id).unwrap().1 = Some(Ok(result.clone()));
                 metadata(
                     &self.session,
                     "python-model-response",
@@ -565,21 +574,27 @@ impl Host<'_> {
                     )?;
                 }
                 self.usage.add(&usage);
-                (self.on_event)(AgentEvent::TurnUsage {
-                    turn: self.turns,
-                    usage,
-                    cost_usd: hickory_agent::cost_usd(self.client.model_name(), &usage),
-                    total_usage: self.usage,
-                    total_cost_usd: hickory_agent::cost_usd(self.client.model_name(), &self.usage),
-                });
-                append(
-                    &self.session,
-                    SessionEvent::Usage {
-                        turn: Some(self.turns),
+                if usage_reported {
+                    (self.on_event)(AgentEvent::TurnUsage {
+                        turn: self.turns,
                         usage,
-                        cost_usd: None,
-                    },
-                )?;
+                        cost_usd: (self.client.provider_name() != "codex-subscription")
+                            .then(|| hickory_agent::cost_usd(self.client.model_name(), &usage))
+                            .flatten(),
+                        total_usage: self.usage,
+                        total_cost_usd: (self.client.provider_name() != "codex-subscription")
+                            .then(|| hickory_agent::cost_usd(self.client.model_name(), &self.usage))
+                            .flatten(),
+                    });
+                    append(
+                        &self.session,
+                        SessionEvent::Usage {
+                            turn: Some(self.turns),
+                            usage,
+                            cost_usd: None,
+                        },
+                    )?;
+                }
                 self.turns += 1;
                 Ok(result)
             }

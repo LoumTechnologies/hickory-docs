@@ -65627,6 +65627,42 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "used_by": [],
       "role": "history-and-guidance",
       "construction": "literal"
+    },
+    "crates/hickory-cli/src/serve/codex_subscription.rs": {
+      "source": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/codex_subscription.rs.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "subscription-0a2ec44b-0",
+        "subscription-0a2ec44b-1",
+        "subscription-0a2ec44b-2",
+        "subscription-0a2ec44b-3"
+      ],
+      "narrative_owner": "mechanism:subscription-codex"
+    },
+    "apps/web/src/components/ConversationModelChoice.test.tsx": {
+      "source": ".hickory-source/mechanisms/apps/web/src/components/ConversationModelChoice.test.tsx.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "subscription-1efc15db-0"
+      ],
+      "narrative_owner": "mechanism:subscription-codex"
+    },
+    "scripts/test-subscription-codex.py": {
+      "source": ".hickory-source/mechanisms/scripts/test-subscription-codex.py.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "subscription-b48a54c8-0"
+      ],
+      "narrative_owner": "mechanism:subscription-codex"
     }
   },
   "evidence_records": [

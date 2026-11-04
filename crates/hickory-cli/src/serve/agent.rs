@@ -63,7 +63,6 @@ pub struct TurnRecord {
     /// parent's file, so the tree is on disk and survives a restart.
     pub session: String,
 }
-
 /// The per-document model choice the dock last posted. `None` fields mean
 /// "the resolved default".
 #[derive(Default, Clone)]
@@ -71,13 +70,13 @@ pub struct DocSelection {
     pub provider: Option<String>,
     pub model: Option<String>,
 }
-
 /// The conversation state one local session holds.
 #[derive(Default)]
 pub struct AgentHub {
     pub(super) annotations_gate: tokio::sync::RwLock<()>,
     pub(super) reviews: Mutex<HashMap<String, Arc<super::agent_review::ReviewQueue>>>,
     pub(super) acp: super::acp::Hub,
+    pub(super) subscription: super::codex_subscription::Hub,
     /// Turn tree per document id, in creation order (the dock treats the
     /// last element as the default tip).
     pub(super) turns: Mutex<HashMap<String, Vec<TurnRecord>>>,
@@ -95,7 +94,6 @@ pub struct AgentHub {
     /// removed when the run finishes, however it finishes.
     pub(super) cancels: Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>,
 }
-
 impl AgentHub {
     pub(super) fn incorporation_client(
         &self,
@@ -106,6 +104,12 @@ impl AgentHub {
             return Ok(llm);
         }
         let choice = self.selection_of(doc);
+        if choice.provider.as_deref() == Some(super::codex_subscription::SELECTOR) {
+            return Ok(Arc::new(super::codex_subscription::Client::new(
+                state,
+                choice.model.as_deref(),
+            )?));
+        }
         let keys = state.keys.store.read().unwrap().clone();
         let provider = resolve_selector_with_store(choice.provider.as_deref(), &keys)?;
         client_for_with_store(&provider, choice.model.as_deref(), &keys)
@@ -164,6 +168,13 @@ impl AgentHub {
                 });
             }
         }
+        if let Some(choice) = super::codex_subscription::retained_choice(&turns) {
+            self.selection
+                .lock()
+                .unwrap()
+                .entry(doc_id.into())
+                .or_insert(choice);
+        }
         map.insert(doc_id.to_string(), turns);
     }
 
@@ -188,7 +199,12 @@ impl AgentHub {
         match outcome {
             Ok((answer, usage)) => {
                 turn.answer = Some(answer);
-                turn.usage = Some(usage);
+                turn.usage =
+                    if turn.provider == super::codex_subscription::SELECTOR && usage.is_zero() {
+                        None
+                    } else {
+                        Some(usage)
+                    };
                 turn.status = "ok".into();
             }
             // The user pulled the cord: a stop is a stop, never a red error.
@@ -233,7 +249,10 @@ impl AgentHub {
     ) -> DocSelection {
         let mut map = self.selection.lock().unwrap();
         let sel = map.entry(doc_id.to_string()).or_default();
-        if let Some(p) = provider {
+        if let Some(p) = provider.filter(|p| {
+            !p.trim().is_empty()
+                || sel.provider.as_deref() != Some(super::codex_subscription::SELECTOR)
+        }) {
             sel.provider = Some(p.trim().to_string()).filter(|s| !s.is_empty());
         }
         if let Some(m) = model {
@@ -251,12 +270,14 @@ impl AgentHub {
             .unwrap_or_default()
     }
 }
-
 /// The model a provider selector runs by default, for the turns listing —
 /// what a turn would use when nothing is chosen. Mirrors the client
 /// constructors: Anthropic's alias constant, and each OpenAI-compatible
 /// vendor's `MODEL` environment override then its built-in default.
 fn default_model_for(selector: &str) -> String {
+    if selector == super::codex_subscription::SELECTOR {
+        return super::codex_subscription::DEFAULT_MODEL.into();
+    }
     match ProviderSelection::parse(selector) {
         Some(ProviderSelection::Compatible(p)) => std::env::var(p.model_env())
             .ok()
@@ -265,7 +286,6 @@ fn default_model_for(selector: &str) -> String {
         Some(ProviderSelection::Anthropic) | None => DEFAULT_ANTHROPIC_MODEL.to_string(),
     }
 }
-
 /// Session totals across a document's turns: the summed four-way usage and
 /// the summed USD cost. The cost is `None` when any usage-bearing turn ran
 /// on a model with no known price — an unknown price makes the *total*
@@ -273,7 +293,9 @@ fn default_model_for(selector: &str) -> String {
 pub fn totals_of(turns: &[TurnRecord]) -> (Usage, Option<f64>) {
     let mut total = Usage::default();
     let mut usd = 0.0;
-    let mut known = !turns.iter().any(|t| t.provider.starts_with("acp:"));
+    let mut known = !turns.iter().any(|t| {
+        t.provider.starts_with("acp:") || t.provider == super::codex_subscription::SELECTOR
+    });
     for turn in turns {
         let Some(usage) = &turn.usage else { continue };
         total.add(usage);
@@ -285,7 +307,6 @@ pub fn totals_of(turns: &[TurnRecord]) -> (Usage, Option<f64>) {
     }
     (total, known.then_some(usd))
 }
-
 /// The ancestor chain of `tip`, oldest first, as replayable history.
 ///
 /// Only completed exchanges replay: a turn that errored produced no answer
@@ -313,7 +334,6 @@ pub fn prior_turns_of(turns: &[TurnRecord], tip: Option<&str>) -> Vec<PriorTurn>
     chain.reverse();
     chain
 }
-
 /// Body of `POST /api/docs/:id/agent`.
 #[derive(Deserialize)]
 pub struct AgentRequest {
@@ -339,7 +359,6 @@ pub struct AgentRequest {
     #[serde(default)]
     pub model: Option<String>,
 }
-
 /// `POST /api/docs/:id/agent` — start one agent run on the document.
 ///
 /// Returns `{session_id}` immediately; the run proceeds in the background,
@@ -405,12 +424,19 @@ pub async fn start_turn(
     if let Some(p) = body.provider.as_deref().map(str::trim)
         && !p.is_empty()
         && ProviderSelection::parse(p).is_none()
+        && p != super::codex_subscription::SELECTOR
     {
         return Err(ApiError::bad_request(format!(
             "unknown provider {p:?} — choose one of: {}",
-            ProviderSelection::ALL.join(", ")
+            format!(
+                "{}, {}",
+                ProviderSelection::ALL.join(", "),
+                super::codex_subscription::SELECTOR
+            )
         )));
     }
+    let session_root = super::agent_context::session_root(&state, &id)?;
+    state.agent.hydrate(&session_root, &id, &doc_path);
     let selection = state
         .agent
         .update_selection(&id, body.provider.clone(), body.model.clone());
@@ -423,8 +449,6 @@ pub async fn start_turn(
     let (llm, provider_name, model_name) = selected_client(&state, &selection)?;
 
     let turn_id = format!("{:016x}", rand_id());
-    let session_root = super::agent_context::session_root(&state, &id)?;
-    state.agent.hydrate(&session_root, &id, &doc_path);
     let parent_for_run = body.parent_id.clone();
     let (prior_turns, session_rel) = {
         let mut map = state.agent.turns.lock().unwrap();
@@ -631,7 +655,6 @@ pub async fn start_turn(
 
     Ok((StatusCode::ACCEPTED, Json(json!({ "session_id": turn_id }))))
 }
-
 /// Run one agent turn to completion, streaming its events on the run
 /// channel. Returns the final answer plus the turn's total token usage, or
 /// the error message to record.
@@ -648,7 +671,6 @@ pub(super) struct TurnIdentity {
     /// because a run without its cord is the bug this exists to fix.
     pub(super) cancel: Arc<std::sync::atomic::AtomicBool>,
 }
-
 async fn run_turn(
     state: &LocalState,
     doc_id: &str,
@@ -678,7 +700,6 @@ async fn run_turn(
 
     super::python_agent::run_turn(state, doc_id, llm, doc_path, prompt, prior_turns, identity).await
 }
-
 /// `POST /api/docs/:id/agent/stop` — stop the turn running on this document.
 ///
 /// Sets the run's cancel flag; the loop stops at its next seam — between
@@ -698,7 +719,6 @@ pub async fn stop_turn(
         )),
     }
 }
-
 /// `GET /api/docs/:id/agent/turns` — the document's turn tree, in creation
 /// order, plus what the next turn would run on and the session's spend:
 ///
@@ -748,6 +768,8 @@ pub async fn list_turns(State(state): State<LocalState>, Path(id): Path<String>)
         "provider": provider,
         "model": model,
         "totals": {
+            "subscription": turns.iter().any(|t| t.provider == super::codex_subscription::SELECTOR),
+            "mixed": turns.iter().any(|t| !t.provider.starts_with("acp:") && t.provider != super::codex_subscription::SELECTOR),
             "usd": usd,
             "input": total.input_tokens,
             "output": total.output_tokens,
@@ -756,7 +778,6 @@ pub async fn list_turns(State(state): State<LocalState>, Path(id): Path<String>)
         },
     }))
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -889,7 +910,6 @@ mod tests {
         assert!(prior_turns_of(&turns, Some("x")).len() <= 2);
     }
 }
-
 /// Resolve the same configured provider for ordinary and private conversations.
 pub(super) fn selected_client(
     state: &LocalState,
@@ -903,6 +923,9 @@ pub(super) fn selected_client_with_limit(
     max_output_tokens: Option<u32>,
     json_action: bool,
 ) -> ApiResult<(Arc<dyn LlmClient>, String, String)> {
+    if selection.provider.as_deref() == Some(super::codex_subscription::SELECTOR) {
+        return super::codex_subscription::select_client(state, selection, max_output_tokens);
+    }
     let mut provider_name = selection.provider.clone();
     let llm: Arc<dyn LlmClient> = {
         let overridden = state.agent.llm_override.lock().unwrap().clone();
@@ -952,7 +975,6 @@ pub(super) fn selected_client_with_limit(
 
     Ok((llm, provider_name, model_name))
 }
-
 impl AgentHub {
     pub(crate) async fn ordinary_activity(&self) -> bool {
         if self

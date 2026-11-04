@@ -37,6 +37,15 @@ import type { Realtime } from "../api/realtime";
 
 afterEach(() => { localStorage.clear(); });
 
+it("labels subscription totals without API dollar estimates or invented missing counters", () => {
+  const usage = { subscription:true, usd:null, input:80, output:9, cache_read:40, cache_write:0 };
+  expect(statsLine(usage)).toContain("Subscription · reported in 80 · out 9 · cache read 40");
+  expect(statsLine(usage)).toContain("credit cost/balance unknown");
+  expect(statsLine({ ...usage, input:0, output:0, cache_read:0 })).toContain("token usage unknown");
+  expect(statsLine(usage)).not.toContain("$");
+});
+
+
 // Protects docs/guarantees/agent/acp-agents-are-first-class.md.
 describe("switching agents", () => {
   afterEach(() => { cleanup(); vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [] }); });
@@ -301,6 +310,21 @@ describe("the dock's model control and stats line", () => {
       />,
     );
   }
+
+  it("routes the subscription option through Python and clears the prior API model", async () => {
+    vi.mocked(api.agentTurns).mockResolvedValue(listing());
+    vi.mocked(api.agent).mockClear().mockResolvedValue({ session_id: "subscription" });
+    dock();
+    fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
+    await waitFor(() => expect((screen.getByLabelText("Provider") as HTMLSelectElement).value).toBe("anthropic"));
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "claude-custom" } });
+    fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "codex-subscription" } });
+    expect((screen.getByLabelText("Model") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("Model") as HTMLInputElement).placeholder).toBe("gpt-6.1-sol");
+    await typeResponse("Use subscription Codex");
+    fireEvent.click(screen.getByText("Send"));
+    await waitFor(() => expect(api.agent).toHaveBeenCalledWith("d1", "Use subscription Codex", null, "codex-subscription", "", "python"));
+  });
 
   it("hydrates the provider select from the server's resolved default and posts the chosen values", async () => {
     vi.mocked(api.agentTurns).mockResolvedValue(listing());

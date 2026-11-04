@@ -13,6 +13,40 @@ mid-conversation change stays visible per turn.
 
 The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
 
+## Choose subscription-backed Codex
+
+In the built-in Hickory Python agent, the provider selector offers **Codex —
+ChatGPT subscription** alongside API-key providers. Codex manages sign-in and
+reuses its existing ChatGPT session. Hickory never reads credential files or
+extracts tokens. An API-key Codex login does not qualify. Authentication, network
+and usage-limit failures remain on this backend; Hickory never switches to API
+billing or purchases credits. Reopening a retained subscription conversation
+keeps this provider; an empty provider field cannot switch it to API billing.
+
+To use it on macOS with Codex CLI 0.166 or later installed, open the Agent pane's
+**Agent settings**, choose **Hickory Python** as the agent and **Codex — ChatGPT
+subscription** as the provider. If sign-in is ready, keep using that Codex login.
+Otherwise choose **Sign in with ChatGPT**, follow **Continue ChatGPT sign-in**,
+complete the browser flow and choose **Check sign-in**. Leave **Model** empty for
+the default, then send a request and review edits normally.
+
+The transport supplies model text to the existing Python loop. Hickory's editing,
+review, tool allowlist, cancellation and ordinary prediction gates remain in that
+loop. Native execution and integration tools are disabled; other native tool items are
+refused. Process confinement blocks filesystem
+content outside the selected runtime, credentials and scratch. Private prediction
+inference and captured image input are refused until supported safely. The first
+implementation requires macOS sandbox-exec and Codex CLI 0.166 or later.
+
+Reported token totals are subscription observations, potentially partial, rather
+than API-price estimates. Missing counters, balances and credit costs are unknown.
+Cache-write and reasoning counters are not exposed by this CLI event contract.
+
+Selection and failure fixtures live with the [transport construction](../../../mechanisms/crates/hickory-cli/src/serve/codex_subscription.rs.md)
+and [sign-in controls](../../../mechanisms/apps/web/src/components/ConversationModelChoice.test.tsx.md).
+Live sign-in, real account entitlement, exhausted limits and consumption of existing
+credits still require live verification; fixture success does not establish them.
+
 ## Read the detailed requirements
 
 - [Requirements 1](requirements/01.md)

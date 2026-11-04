@@ -58,7 +58,10 @@ impl RuntimeLimits {
             "HICKORY_AGENT_INSTRUCTION_PROFILE must be full or focused"
         );
         let layout = lookup("HICKORY_AGENT_CONTEXT_LAYOUT").unwrap_or_else(|| "structured".into());
-        ensure!(matches!(layout.as_str(), "structured" | "interleaved"), "HICKORY_AGENT_CONTEXT_LAYOUT must be structured or interleaved");
+        ensure!(
+            matches!(layout.as_str(), "structured" | "interleaved"),
+            "HICKORY_AGENT_CONTEXT_LAYOUT must be structured or interleaved"
+        );
         Ok(Self {
             context_layout: layout,
             instruction_profile: profile,
@@ -69,7 +72,6 @@ impl RuntimeLimits {
         })
     }
 }
-
 /// Optional conversation identity supplied by the UI. Standalone runs use defaults.
 #[derive(Default)]
 pub struct Conversation {
@@ -94,7 +96,6 @@ pub struct Outcome {
     pub usage: Usage,
     pub artifact: Option<crate::changeset::Artifact>,
 }
-
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Proposal {
     pub tool: String,
@@ -105,7 +106,6 @@ pub struct Proposal {
     pub revision: Option<String>,
     pub sources: Vec<Value>,
 }
-
 #[async_trait::async_trait]
 pub trait Review: Send {
     /// Explicit host promise: approval does not import ordinary editor/runtime context.
@@ -140,7 +140,6 @@ pub trait Review: Send {
         vec![]
     }
 }
-
 pub struct EditorHead {
     pub identity: String,
     pub content: String,
@@ -185,7 +184,6 @@ impl Review for TerminalReview {
             .context("Terminal review ended without a decision")?
     }
 }
-
 fn append(path: &Path, event: SessionEvent<'_>) -> Result<()> {
     let log = HickSessionLog::append_or_create(path)?;
     log.record(event);
@@ -307,7 +305,8 @@ struct Host<'a> {
     private_failure: Option<PrivateFailure>,
     require_private_verification: bool,
     context_store: hick_context_store::host::Service,
-    deliveries: std::collections::BTreeMap<String, (String, Option<Value>)>,
+    deliveries:
+        std::collections::BTreeMap<String, (String, Option<std::result::Result<Value, String>>)>,
     active_delivery: Option<Value>,
     session: PathBuf,
     turns: usize,
@@ -321,11 +320,9 @@ struct Host<'a> {
     usage: Usage,
     on_event: &'a mut (dyn FnMut(AgentEvent) + Send),
 }
-
 mod host;
 mod private;
 pub use private::Failure as PrivateFailure;
-
 struct ChildGuard {
     child: tokio::process::Child,
     pid: u32,
@@ -341,7 +338,6 @@ impl Drop for ChildGuard {
         let _ = self.child.start_kill();
     }
 }
-
 pub async fn run(
     config: Config,
     client: &dyn LlmClient,
@@ -376,7 +372,6 @@ pub async fn run(
     println!("{}", outcome.summary);
     Ok(outcome.session)
 }
-
 pub async fn run_conversation(
     config: Config,
     client: &dyn LlmClient,
@@ -813,7 +808,6 @@ pub async fn run_conversation(
         usage: host.usage,
     })
 }
-
 /// Check the installed worker in the same confinement used for real turns, without a model call.
 pub async fn probe(python: &Path) -> Result<()> {
     let scratch = tempfile::tempdir()?;
@@ -850,7 +844,6 @@ pub async fn probe(python: &Path) -> Result<()> {
     );
     Ok(())
 }
-
 #[cfg(test)]
 mod observation_capability_tests {
     #[test]

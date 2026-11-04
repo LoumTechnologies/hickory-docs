@@ -65,6 +65,7 @@ See `docs/specs/freeform/local-only.md`.
 //! Sharing is not a feature this product has — not disabled, not deferred.
 //! See `docs/specs/freeform/local-only.md`.
 
+mod codex_subscription;
 pub mod acp;
 </storycode:copy>
 <a id="f-09ea558208cd-agent"></a>
@@ -1173,6 +1174,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/docs/{id}/run", post(api::run_doc))
         .route("/docs/{id}/check", post(api::check_doc))
         .merge(python_agent::routes())
+        .merge(codex_subscription::routes())
         .route("/feature-experiments", get(acp::experiments::list))
         .route(
             "/feature-experiments/{id}/review",

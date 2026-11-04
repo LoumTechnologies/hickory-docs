@@ -45,6 +45,10 @@ This is the maintained test fragment from `crates/hickory-cli/tests/python_agent
 <a id="f-9bda4649fd61-model_claims_and_worker_prints_cannot_certify_completion"></a>
 ### `model_claims_and_worker_prints_cannot_certify_completion`
 
+Read the Markdown session explicitly: directory order may return its context
+JSON sidecar first. The assertion must inspect the retained completion refusal,
+not whichever file the filesystem happened to enumerate first.
+
 <storycode:copy id="f-9bda4649fd61-model_claims_and_worker_prints_cannot_certify_completion">
 // Guarantee: docs/guarantees/agent/changeset-completion-is-negotiated-and-checked.md
 #[tokio::test]
@@ -79,12 +83,11 @@ async fn model_claims_and_worker_prints_cannot_certify_completion() {
     );
     let session = std::fs::read_dir(root.path().join("sessions"))
         .unwrap()
-        .next()
-        .unwrap()
-        .unwrap()
-        .path();
+        .map(|entry| entry.unwrap().path())
+        .find(|path| path.extension().is_some_and(|extension| extension == "md"))
+        .expect("Markdown session record, separate from its context JSON sidecar");
     let source = std::fs::read_to_string(session).unwrap();
-    assert!(source.contains("No current accepted changeset"));
+    assert!(source.contains("No current accepted changeset"), "{error:#}");
     assert!(source.contains("worker-reported"));
     assert!(!source.contains("python-verified-changeset"));
 }
