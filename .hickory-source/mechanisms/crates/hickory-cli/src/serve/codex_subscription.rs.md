@@ -53,19 +53,6 @@ const DISABLED: &[&str] = &[
     "skill_mcp_dependency_install",
 ];
 
-// Restore subscription billing from the newest retained Python turn before
-// resolving defaults. Reopening Hickory must not quietly select an API key.
-pub fn retained_choice(turns: &[super::agent::TurnRecord]) -> Option<super::agent::DocSelection> {
-    let turn = turns
-        .iter()
-        .filter(|t| t.backend == "python")
-        .max_by(|a, b| a.created_at.cmp(&b.created_at))?;
-    (turn.provider == SELECTOR).then(|| super::agent::DocSelection {
-        provider: Some(SELECTOR.into()),
-        model: Some(turn.model.clone()).filter(|m| !m.is_empty()),
-    })
-}
-
 pub fn select_client(
     state: &LocalState,
     selection: &super::agent::DocSelection,
@@ -158,69 +145,27 @@ fn inference_command_for(
             p.to_str().context("Codex paths must be UTF-8")?,
         )?)
     };
-    let binary = binary.canonicalize()?;
-    // Unconditional denials cannot be carved back into runtime grants on
-    // macOS. Deny only paths outside the explicit read/write sets instead.
-    // dyld needs the root directory itself; this does not grant its descendants.
-    let mut reads = String::new();
-    for path in [
-        Path::new("/usr"),
-        Path::new("/System"),
-        Path::new("/Library"),
-        Path::new("/opt/homebrew/lib"),
-        &codex_home,
-        &scratch,
-    ] {
-        reads.push_str(&format!("(require-not (subpath {}))", q(path)?));
-    }
-    for path in [
-        Path::new("/"),
-        Path::new("/dev/null"),
-        Path::new("/dev/urandom"),
-        Path::new("/dev/random"),
-        Path::new("/private/etc/resolv.conf"),
-        Path::new("/private/etc/hosts"),
-        &binary,
-    ] {
-        reads.push_str(&format!("(require-not (literal {}))", q(path)?));
-    }
-    let mut profile = format!(
-        "(version 1)(allow default)(deny process-exec (require-not (literal {})))(deny file-read-data (require-all {}))(deny file-write* (require-all (require-not (subpath {}))(require-not (subpath {}))(require-not (literal \"/dev/null\"))))",
-        q(&binary)?,
-        reads,
-        q(&codex_home)?,
-        q(&scratch)?
-    );
-    // Reads are denied globally, including workspaces outside HOME.
-    // Only credential storage and this invocation's scratch are read grants.
-    for path in [
-        codex_home.join("sessions"),
-        codex_home.join("archived_sessions"),
-        codex_home.join("memories"),
-        codex_home.join("history.jsonl"),
-    ] {
-        profile.push_str(&format!("(deny file-read* (subpath {}))", q(&path)?));
-    }
-    let mut cmd = tokio::process::Command::new("/usr/bin/sandbox-exec");
-    cmd.args(["-p", &profile])
-        .arg(&binary)
-        .args([
-            "-a",
-            "never",
-            "exec",
-            "--ignore-user-config",
-            "--ignore-rules",
-            "--ephemeral",
-            "--skip-git-repo-check",
-            "--sandbox",
-            "read-only",
-            "--json",
-            "--color",
-            "never",
-            "--cd",
-        ])
-        .arg(&scratch)
-        .args(["--model", model]);
+    let denied = ["sessions", "archived_sessions", "memories", "history.jsonl"]
+        .map(|name| codex_home.join(name));
+    let mut cmd =
+        super::subscription_process::command(binary, &scratch, &[codex_home], &[], &denied)?;
+    cmd.args([
+        "-a",
+        "never",
+        "exec",
+        "--ignore-user-config",
+        "--ignore-rules",
+        "--ephemeral",
+        "--skip-git-repo-check",
+        "--sandbox",
+        "read-only",
+        "--json",
+        "--color",
+        "never",
+        "--cd",
+    ])
+    .arg(&scratch)
+    .args(["--model", model]);
     for setting in [
         "forced_login_method=\"chatgpt\"",
         "model_provider=\"openai\"",
@@ -588,6 +533,7 @@ mod tests {
         let bin = root.path().join("agents/node_modules/.bin");
         std::fs::create_dir_all(&bin).unwrap();
         std::os::unix::fs::symlink("/usr/bin/true", bin.join("codex")).unwrap();
+        std::os::unix::fs::symlink("/usr/bin/true", bin.join("grok")).unwrap();
         let prepared = super::super::prepare(super::super::ServeOptions {
             target: root.path().to_path_buf(),
             port: 0,
@@ -606,19 +552,27 @@ mod tests {
             .unwrap()
             .set("openai", Some("fixture-key-never-sent".into()))
             .unwrap();
-        let choice = super::super::agent::DocSelection {
-            provider: Some(SELECTOR.into()),
-            model: None,
-        };
-        let (client, provider, model) =
-            super::super::agent::selected_client(&state, &choice).unwrap();
-        assert_eq!(provider, SELECTOR);
-        assert_eq!(client.provider_name(), SELECTOR);
-        assert_eq!(model, DEFAULT_MODEL);
-        assert!(
-            super::super::agent::selected_client_with_limit(&state, &choice, Some(100), true)
-                .is_err()
-        );
+        for (selector, expected_model) in [
+            (SELECTOR, DEFAULT_MODEL),
+            (
+                super::super::grok_subscription::SELECTOR,
+                super::super::grok_subscription::DEFAULT_MODEL,
+            ),
+        ] {
+            let choice = super::super::agent::DocSelection {
+                provider: Some(selector.into()),
+                model: None,
+            };
+            let (client, provider, model) =
+                super::super::agent::selected_client(&state, &choice).unwrap();
+            assert_eq!(provider, selector);
+            assert_eq!(client.provider_name(), selector);
+            assert_eq!(model, expected_model);
+            assert!(
+                super::super::agent::selected_client_with_limit(&state, &choice, Some(100), true)
+                    .is_err()
+            );
+        }
     }
     #[test]
     fn subscription_totals_never_apply_an_api_price_even_for_a_priced_model() {

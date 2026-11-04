@@ -552,7 +552,7 @@ impl Host<'_> {
                 self.active_delivery = None;
                 let metrics = json!({"elapsed_seconds":started.elapsed().as_secs_f64(),
                     "input_tokens":usage_reported.then_some(usage.input_tokens),"output_tokens":usage_reported.then_some(usage.output_tokens),
-                    "billing":if self.client.provider_name() == "codex-subscription" { "chatgpt_subscription" } else { "api" },
+                    "billing":if self.client.provider_name() == "codex-subscription" { "chatgpt_subscription" } else if self.client.provider_name() == "grok-subscription" { "grok_subscription" } else { "api" },
                     "cache_write_tokens":if self.client.provider_name() == "codex-subscription" { None } else { usage_reported.then_some(usage.cache_creation_input_tokens) },
                     "finish_reason":finish_reason,"model":self.client.model_name()});
                 let result = json!({"text":raw,"reference":response_node.id,
@@ -578,13 +578,19 @@ impl Host<'_> {
                     (self.on_event)(AgentEvent::TurnUsage {
                         turn: self.turns,
                         usage,
-                        cost_usd: (self.client.provider_name() != "codex-subscription")
-                            .then(|| hickory_agent::cost_usd(self.client.model_name(), &usage))
-                            .flatten(),
+                        cost_usd: (!matches!(
+                            self.client.provider_name(),
+                            "codex-subscription" | "grok-subscription"
+                        ))
+                        .then(|| hickory_agent::cost_usd(self.client.model_name(), &usage))
+                        .flatten(),
                         total_usage: self.usage,
-                        total_cost_usd: (self.client.provider_name() != "codex-subscription")
-                            .then(|| hickory_agent::cost_usd(self.client.model_name(), &self.usage))
-                            .flatten(),
+                        total_cost_usd: (!matches!(
+                            self.client.provider_name(),
+                            "codex-subscription" | "grok-subscription"
+                        ))
+                        .then(|| hickory_agent::cost_usd(self.client.model_name(), &self.usage))
+                        .flatten(),
                     });
                     append(
                         &self.session,

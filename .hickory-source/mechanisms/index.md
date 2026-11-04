@@ -255,4 +255,14 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="scripts/test-subscription-codex.py.md" />
 
+<storycode:include file="crates/hickory-cli/src/serve/grok_subscription.rs.md" />
+
+<storycode:include file="crates/hickory-cli/src/serve/grok_subscription/tests.rs.md" />
+
+<storycode:include file="crates/hickory-cli/src/serve/subscription.rs.md" />
+
+<storycode:include file="crates/hickory-cli/src/serve/subscription_process.rs.md" />
+
+<storycode:include file="scripts/test-subscription-grok.py.md" />
+
 </storycode:doc>

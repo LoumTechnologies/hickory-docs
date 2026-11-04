@@ -30,6 +30,7 @@ export interface AgentTurn {
  * model it ran on. `usd` is null when any turn's model has no known price. */
 export interface AgentTotals {
   subscription?: boolean;
+  cache_write_available?: boolean;
   mixed?: boolean;
   usd: number | null;
   input: number;

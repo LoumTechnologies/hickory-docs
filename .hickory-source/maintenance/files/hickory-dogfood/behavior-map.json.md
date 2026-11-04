@@ -65663,6 +65663,69 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "subscription-b48a54c8-0"
       ],
       "narrative_owner": "mechanism:subscription-codex"
+    },
+    "crates/hickory-cli/src/serve/grok_subscription.rs": {
+      "source": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription.rs.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "subscription-v2-27f033727e-0",
+        "subscription-v2-27f033727e-1",
+        "subscription-v2-27f033727e-2",
+        "subscription-v2-27f033727e-3",
+        "subscription-v2-27f033727e-4",
+        "subscription-v2-27f033727e-5",
+        "subscription-v2-27f033727e-6"
+      ],
+      "narrative_owner": "mechanism:subscription-transports"
+    },
+    "crates/hickory-cli/src/serve/grok_subscription/tests.rs": {
+      "source": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/grok_subscription/tests.rs.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "subscription-v2-f8a2709db7-0",
+        "subscription-v2-f8a2709db7-1"
+      ],
+      "narrative_owner": "mechanism:subscription-transports"
+    },
+    "crates/hickory-cli/src/serve/subscription.rs": {
+      "source": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/subscription.rs.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "subscription-v2-069ce56f7f-0"
+      ],
+      "narrative_owner": "mechanism:subscription-transports"
+    },
+    "crates/hickory-cli/src/serve/subscription_process.rs": {
+      "source": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/subscription_process.rs.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "subscription-v2-01257a753e-0",
+        "subscription-v2-01257a753e-1"
+      ],
+      "narrative_owner": "mechanism:subscription-transports"
+    },
+    "scripts/test-subscription-grok.py": {
+      "source": ".hickory-source/mechanisms/scripts/test-subscription-grok.py.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "subscription-v2-7d0ca7abc8-0"
+      ],
+      "narrative_owner": "mechanism:subscription-transports"
     }
   },
   "evidence_records": [

@@ -46,6 +46,7 @@ export const PROVIDERS: { id: string; label: string; defaultModel: string }[] =
     { id: "anthropic", label: "Anthropic", defaultModel: "claude-sonnet-5" },
     { id: "openai", label: "OpenAI", defaultModel: "gpt-5" },
     { id: "codex-subscription", label: "Codex — ChatGPT subscription", defaultModel: "gpt-6.1-sol" },
+    { id: "grok-subscription", label: "Grok — subscription", defaultModel: "grok-build" },
     { id: "deepseek", label: "DeepSeek", defaultModel: "deepseek-chat" },
     { id: "grok", label: "xAI (Grok)", defaultModel: "grok-4" },
     { id: "openrouter", label: "OpenRouter", defaultModel: "openrouter/auto" },
@@ -102,7 +103,7 @@ export function statsLine(t: AgentTotals): string {
 
 /** The tooltip behind the stats line: all four counters, uncompacted. */
 export function statsTooltip(t: AgentTotals): string {
-  if (t.subscription) return "Reported tokens only; totals may be incomplete. Subscription usage is separate from API charges. Cache writes, reasoning tokens, provider call counts, credit cost and balance are unknown. Hickory never switches billing or purchases credits.";
+  if (t.subscription) return `Reported cache writes: ${t.cache_write_available ? formatTokens(t.cache_write) + " (partial)" : "unknown"}. Reported tokens only; totals may be incomplete. Subscription usage is separate from API charges. Cache writes are shown only when reported; Codex cache writes, reasoning tokens, provider call counts, credit cost and balance are unknown. Hickory never switches billing or purchases credits.`;
   const n = (v: number) => v.toLocaleString("en-US");
   return [
     `cost ${formatUsd(t.usd)}`,
@@ -530,7 +531,7 @@ export function ChatDock({
       // starts "agent not available" when no provider key is in the
       // environment (serve/agent.rs::start_turn); that is a configuration
       // fact, not a failure to report as a red error.
-      if (provider !== "codex-subscription" && /agent not (configured|available)/i.test(message))
+      if (!provider.endsWith("-subscription") && /agent not (configured|available)/i.test(message))
         setUnavailable(true);
       else setError(message);
     } finally { sendingRef.current = false; setSending(false); earlyEvents.current = []; }
@@ -681,7 +682,7 @@ export function ChatDock({
       {recovery.error && <p className="chat-note error" role="status">{recovery.error}</p>}
       {unavailable && (
         <p className="chat-note muted">
-          {provider === "codex-subscription" ? "Open Agent settings, sign in with ChatGPT, then retry. No API billing fallback was attempted." : <>The agent needs a provider API key. Add one in <a href="#/settings">Settings</a>, then try again.</>}
+          {provider.endsWith("-subscription") ? "Open Agent settings, sign in with your subscription account, then retry. No API billing fallback was attempted." : <>The agent needs a provider API key. Add one in <a href="#/settings">Settings</a>, then try again.</>}
         </p>
       )}
       {note && <p className="chat-note muted">{note}</p>}
