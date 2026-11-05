@@ -329,8 +329,8 @@ test("review an ACP proposal in the literate editor, then read its commit", asyn
   await review.getByRole("button", { name: "Accept change" }).click();
   await expect.poll(async () => (await (await page.request.get(`/api/docs/${note.id}`)).json()).source).toContain("Changed by ACP");
   await expect(agent.getByRole("button", { name: "Send", exact: true })).toBeVisible();
-  // CodeMirror virtualizes offscreen history: reveal the opening turn before inspecting it.
-  await response.press("ControlOrMeta+Home");
+  // Each recorded message is a separate protected editor.
+  await agent.locator(".conversation-card--user").first().scrollIntoViewIfNeeded();
   // docs/guarantees/agent/a-session-is-the-conversation.md
   await expect(agent.locator(".cm-bubble-you").first()).toHaveCSS("text-align", "left");
   await expect(agent.locator(".cm-bubble-you").first()).toHaveCSS("margin-left", "0px");
@@ -341,10 +341,10 @@ test("review an ACP proposal in the literate editor, then read its commit", asyn
   const context = agent.locator(".cm-line").filter({ hasText: '<hick:context kind="editor-buffers">' });
   await expect(context.locator(".cm-hick-fold-placeholder")).toBeVisible();
   await context.locator(".cm-hick-fold-placeholder").click();
-  await expect(response).toContainText('review-note.md');
+  await expect(agent.locator('.conversation-card--user').first()).toContainText('review-note.md');
   // The completed answer is protected; selecting all and typing cannot erase it.
   await response.press("ControlOrMeta+a"); await response.pressSequentially("Should not replace history");
-  await expect(response).toContainText("buffer-edit");
+  await expect(agent.locator(".conversation-card--user").first()).toContainText("buffer-edit");
   await response.press("ControlOrMeta+End"); await response.press("Enter"); await response.pressSequentially("Next response draft");
   await expect(response).toContainText("Next response draft");
   await page.screenshot({ path: "/tmp/hickory-agent-inline-send.png", fullPage: true });
@@ -372,22 +372,48 @@ test("an ACP final claim about the startup Untitled note has a visible context r
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.request.put("/api/agents", { data: [{ id: "fixture", name: "Fixture", command: process.env.HICKORY_ACP_FIXTURE, args: [] }] });
+  await page.addInitScript(() => localStorage.setItem("hickory.filesWindows", "true"));
   await page.goto("/");
-  await expect(page.locator(".untitled-tab .cm-editor")).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Untitled", exact: true })).toBeVisible({ timeout: 20_000 });
   await page.evaluate(() => window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "show-agent" })));
+  await page.getByRole("tab", { name: "Untitled", exact: true }).click();
+  await page.getByRole("button", { name: "Pin view in drawer", exact: true }).click();
+  await page.getByRole("tab", { name: "Agent", exact: true }).click();
   const agent = page.getByRole("region", { name: "Agent chat" });
   await agent.getByRole("button", { name: "Agent settings" }).click();
   await page.getByRole("combobox", { name: "Agent", exact: true }).selectOption("fixture");
   await page.getByRole("combobox", { name: "Agent", exact: true }).press("Escape");
+  await agent.getByRole("button", { name: "Agent settings" }).click();
+  await page.getByText("Next context projection", { exact: true }).click();
+  await page.getByRole("checkbox", { name: "Untitled", exact: true }).click();
+  await expect(page.getByRole("checkbox", { name: "Untitled", exact: true })).toBeChecked();
+  await page.getByRole("checkbox", { name: "Pin full text", exact: true }).click();
+  await expect(page.getByRole("checkbox", { name: "Pin full text", exact: true })).toBeChecked();
+  await page.keyboard.press("Escape");
   const response = agent.getByRole("textbox", { name: "Agent conversation and response" });
   await response.click(); await response.press("ControlOrMeta+End"); await response.pressSequentially("untitled-paragraph");
   await agent.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(response).toContainText("The second paragraph has the most characters.");
+  // Each message is a separate native literate buffer; only the composer edits.
+  const answer = agent.locator(".conversation-card--assistant").filter({ hasText: "The second paragraph has the most characters." });
+  await expect(answer).toBeVisible();
+  await expect(response).not.toContainText("The second paragraph has the most characters.");
+  await expect(answer.getByRole("textbox", { name: "Recorded message" })).toHaveAttribute("aria-readonly", "true");
+  await expect(answer.locator(".cm-content")).toHaveAttribute("contenteditable", "false");
+  await response.pressSequentially("## Follow-up\n\nKeep this draft.");
+  await expect(response).toContainText("Keep this draft.");
+  await agent.getByRole("button", { name: "Write a response" }).click();
+  await expect(response).toContainText("Keep this draft.");
+  // The transcript must contribute its full height to the outer scrollport.
+  await expect.poll(async () => agent.evaluate(host => {
+    const draft = host.querySelector(".conversation-card--composer")!.getBoundingClientRect();
+    const strip = host.querySelector(".chat-turn-strip")!.getBoundingClientRect();
+    return { ordered: strip.top >= draft.bottom - 1 };
+  })).toEqual({ ordered: true });
   // Context remains folded; its connection must originate from the answer itself.
   const context = agent.locator(".cm-line").filter({ hasText: '<hick:context kind="editor-buffers">' });
   await expect(context.locator(".cm-hick-fold-placeholder")).toBeVisible();
   await agent.locator(".cm-line").filter({ hasText: "The second paragraph has the most characters." }).scrollIntoViewIfNeeded();
-  const ribbon = page.locator(".ribbon-group--context").filter({ has: page.locator("title", { hasText: "editor snapshot of Untitled" }) });
+  const ribbon = page.locator(".ribbon-group--context").filter({ has: page.locator("title", { hasText: "selected source lines" }) });
   await expect(ribbon.locator("path.ribbon, path.ribbon-brace-link").last()).toBeVisible();
   // The source brace must be painted over its Agent item, not behind dock chrome.
   const sourceBrace = ribbon.last().locator("path.ribbon-brace:not(.ribbon-brace-link)").first();
@@ -403,7 +429,7 @@ test("an ACP final claim about the startup Untitled note has a visible context r
   expect(endpoint.x).toBeGreaterThan(endpoint.paneLeft);
   expect(endpoint.x).toBeLessThan(endpoint.paneRight);
   expect(endpoint.visible).toBe(true);
-  await expect(page.locator(".untitled-tab")).toContainText("Hickory");
+  await expect(page.locator("[data-shell-tab-kind=untitled]").first()).toBeVisible();
   await page.screenshot({ path: "/tmp/hickory-untitled-answer-ribbon.png", fullPage: true });
   expect(errors).toEqual([]);
 });
@@ -546,7 +572,7 @@ for (const order of [["editor", "files", "agent"], ["files", "editor", "agent"],
     const response = agent.getByRole("textbox", { name: "Agent conversation and response" });
     await response.click(); await response.press("ControlOrMeta+End"); await response.pressSequentially("ribbon-file");
     await agent.getByRole("button", { name: "Send", exact: true }).click();
-    await expect(response).toContainText("See");
+    await expect(agent.locator(".conversation-card--assistant")).toContainText("See");
     const brace = page.locator(".ribbon-group--declared").filter({ has: page.locator("title", { hasText: "code.py" }) }).last().locator("path.ribbon-brace-link");
     await expect(brace).toBeVisible();
     const point = await brace.evaluate(element => {

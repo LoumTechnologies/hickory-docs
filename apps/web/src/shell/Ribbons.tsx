@@ -114,7 +114,7 @@ export type RibbonFamily = "lineage" | "context" | "declared" | "execution";
 export interface RibbonLink {
   key: string;
   family: RibbonFamily;
-  from: { path: string; lines: [number, number] };
+  from: { path: string; lines: [number, number]; view?: EditorView };
   to: {
     path: string;
     lines?: [number, number];

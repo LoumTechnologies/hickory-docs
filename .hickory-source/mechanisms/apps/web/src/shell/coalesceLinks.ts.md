@@ -15,6 +15,9 @@ Related contracts: [Show the requested connections without changing their meanin
 <a id="f-f87ad5795296-coalesceLinks"></a>
 ### `coalesceLinks`
 
+Adjacent citations can merge only within the same originating editor. Local
+line numbers in separate message cards cannot imply adjacent source passages.
+
 <storycode:copy id="f-f87ad5795296-coalesceLinks">
 import type { RibbonLink, RibbonSource } from "./Ribbons";
 import { samePath } from "../lib/paths";
@@ -24,9 +27,9 @@ export function coalesceLinks(links: readonly RibbonLink[], sources: readonly Ri
   const groups: RibbonLink[] = [];
   for (const link of [...links].sort((a, b) => a.from.lines[0] - b.from.lines[0])) {
     const source = sources.find(s => samePath(s.docPath, link.from.path));
-    const text = source?.view?.state.doc.toString() ?? source?.docSource;
+    const text = link.from.view?.state.doc.toString() ?? source?.view?.state.doc.toString() ?? source?.docSource;
     const previous = text === undefined || link.anchor || link.family === "execution" ? undefined : [...groups].reverse().find(candidate =>
-      !candidate.anchor && candidate.family === link.family && candidate.alwaysVisible === link.alwaysVisible
+      !candidate.anchor && candidate.from.view === link.from.view && candidate.family === link.family && candidate.alwaysVisible === link.alwaysVisible
       && samePath(candidate.from.path, link.from.path) && samePath(candidate.to.path, link.to.path)
       && candidate.to.kind === link.to.kind && String(candidate.to.lines) === String(link.to.lines)
       && candidate.from.lines[1] <= link.from.lines[0]

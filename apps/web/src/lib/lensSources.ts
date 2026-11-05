@@ -36,7 +36,7 @@ export function ribbonLinksOf(path: string, links: readonly SessionLink[]): Ribb
   }));
 }
 
-const lenses = new Map<string, LensSource>();
+const lenses = new Map<EditorView, LensSource>();
 const listeners = new Set<() => void>();
 let version = 0;
 
@@ -46,11 +46,11 @@ function changed() {
 }
 
 export function registerLens(lens: LensSource): () => void {
-  lenses.set(lens.path, lens);
+  lenses.set(lens.view, lens);
   changed();
   return () => {
-    if (lenses.get(lens.path) === lens) {
-      lenses.delete(lens.path);
+    if (lenses.get(lens.view) === lens) {
+      lenses.delete(lens.view);
       changed();
     }
   };

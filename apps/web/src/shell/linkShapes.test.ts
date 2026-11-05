@@ -28,6 +28,13 @@ it.each([false, true])("joins the cited passage in an open editor, braces=%s", b
   const sources = [{ docPath: "sessions/s.md", docSource: "", view: source }, { docPath: "note.md", docSource: "", view: target }];
   const shapes = linkShapes(container, sources, [], [link], () => true, braces, geometry);
   expect(shapes).toHaveLength(1);
+  // Agent cards share a session path but own independent local line coordinates.
+  const other = new EditorView({ parent: container, state: EditorState.create({ doc: "Another message" }) });
+  views.push(other);
+  vi.spyOn(other.scrollDOM, "getBoundingClientRect").mockReturnValue(box(0));
+  const cardShapes = linkShapes(container, sources, [], [{ ...link, from: { ...link.from, view: other } }], () => true, braces, geometry);
+  expect(cardShapes[0].hl[0].view).toBe(other);
+
   const bufferShapes = linkShapes(container, [sources[0], { ...sources[1], docPath: "hickory-buffer://u1" }], [],
     [{ ...link, to: { ...link.to, path: "hickory-buffer://u1" } }], () => true, braces, geometry);
   expect(bufferShapes).toHaveLength(1);

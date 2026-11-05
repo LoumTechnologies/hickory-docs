@@ -279,6 +279,10 @@ export type RibbonFamily = "lineage" | "context" | "declared" | "execution";
 <a id="f-b916e85d3b0b-RibbonLink"></a>
 ### `RibbonLink`
 
+Several message buffers may display the same session path with different local
+line coordinates. An optional originating editor disambiguates their geometry
+without changing the recorded provenance path.
+
 A connection handed to the overlay ready-made: from a run of lines in a
 source document to a place — another document, a plain file, a session
 element, a generated file — named by path and optional lines. The overlay
@@ -294,7 +298,7 @@ finds the far end wherever it is (a tab, a tree row, a port) and draws.
 export interface RibbonLink {
   key: string;
   family: RibbonFamily;
-  from: { path: string; lines: [number, number] };
+  from: { path: string; lines: [number, number]; view?: EditorView };
   to: {
     path: string;
     lines?: [number, number];

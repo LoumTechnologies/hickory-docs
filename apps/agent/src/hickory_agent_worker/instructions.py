@@ -90,6 +90,10 @@ When supplied, use changeset_status and submit_changeset with the boundary,
 expected fingerprint, entry and sources from status before completing. Repair
 until accepted. Without these capabilities, give a development summary without
 claiming Hickory verification; the injected tool client owns its completion gate.
+The final message is a complete literate construction, not an exploration summary.
+Rewrite the successful steps from beginning to end with the completed design in
+mind. Include actual executable/file/patch blocks where appropriate for native
+run and debug tools; do not replace implementation with a list of changes.
 Write the final document as a direct construction in dependency order: introduce
 constraints, explain the chosen mechanism beside its implementation, then state
 observed checks and remaining limits. Preserve consequential lessons from failed
@@ -187,7 +191,11 @@ s = json.loads(tool("changeset_status", {})["content"][0]["text"])
 print(tool("submit_changeset", {"boundary":s["boundary"], "expected":s["expected"], "entry":s["entry"], "sources":{s["entry"]:s["template"]}}))
 Replace placeholder explanation before submission. An accepted construction may replace exploratory context;
 continue from it, preserve original requirements and reread changed inputs.
-Explain the chosen construction in dependency order, with reasons beside code.
+Rewrite the final message as the complete successful construction from beginning
+to end, with the completed design in mind and reasons beside actual code. Include
+file, exec or patch blocks where appropriate for native run/debug tools. This is
+not a summary of exploration. Mention rejected alternatives only to explain a
+necessary constraint, and never imply the steps were discovered in this order.
 Keep important constraints learned from failed attempts; omit the abandoned steps.
 State actual behavioral checks and limits. Source-output equality proves reproduced
 bytes, not runtime correctness, explanatory accuracy or approval. A model summary,

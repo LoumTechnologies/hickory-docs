@@ -633,8 +633,7 @@ export function ChatDock({
             />
           ) : (
             <>
-              {branch.filter(turn => turn.status === "ok").map(turn => <AgentProject key={turn.id} doc={docId} turn={turn.id} getContext={getContext} applyChange={applyAgentChange} />)}
-              <ConversationEditor branch={branch} path={sessionPath} stamp={lensStamp} running={running}
+              <ConversationEditor renderFinal={turn => <AgentProject doc={docId} turn={turn.id} getContext={getContext} applyChange={applyAgentChange} />} branch={branch} path={sessionPath} stamp={lensStamp} running={running}
                 showCollapsedLineage={showCollapsedLineage} stream={stream} reasoning={reasoning} draft={prompt} onDraft={setPrompt}
                 onSend={() => void conversationActions.invoke("send")} sending={sending} canSend={!running && !sending && (!!acp.state?.ready && !acp.busy)} />
               {branch.length > 0 && <div className="chat-turn-strip" aria-label="Turns">
