@@ -36,6 +36,7 @@ import { Decoration, EditorView, ViewPlugin, keymap } from "@codemirror/view";
 import { Prec, StateEffect, type Extension } from "@codemirror/state";
 import { foldedRanges, unfoldEffect } from "@codemirror/language";
 import { SearchCursor } from "@codemirror/search";
+import { gutterIconLayout } from "./gutterIconLayout";
 
 /** Which of the two looks an editor wears. */
 export type ChromeKind = "document" | "code";
@@ -48,7 +49,7 @@ export type ChromeKind = "document" | "code";
  */
 export function editorChrome(kind: ChromeKind): Extension {
   const code = kind === "code";
-  return EditorView.theme({
+  return [gutterIconLayout, EditorView.theme({
     "&": {
       color: "var(--fg)",
       backgroundColor: "transparent",
@@ -135,7 +136,7 @@ export function editorChrome(kind: ChromeKind): Extension {
       backgroundColor: "var(--accent)",
       color: "var(--bg)",
     },
-  });
+  })];
 }
 
 // The same local find interaction serves document text and Files row names.

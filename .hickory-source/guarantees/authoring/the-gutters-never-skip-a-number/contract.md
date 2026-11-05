@@ -48,7 +48,7 @@ Related contracts: [The Gutters Never Skip A Number](contract.md).
 import { describe, expect, it } from "vitest";
 
 // Protects docs/guarantees/authoring/the-gutters-never-skip-a-number.md
-import { ICON_GAP, ICON_SIZE, iconVisible, popoverTop, stackIcons } from "./cardRail";
+import { ICON_GAP, ICON_SIZE, iconVisible, popoverTop, groupRailIcons } from "./cardRail";
 
 const PITCH = ICON_SIZE + ICON_GAP;
 
@@ -57,32 +57,24 @@ const PITCH = ICON_SIZE + ICON_GAP;
 ### `expression_statement`
 
 <storycode:copy id="f-b0f86d5f9f81-expression_statement">
-describe("stacking the rail's icons", () => {
-  it("leaves well-separated icons exactly level with their lines", () => {
-    expect(stackIcons([0, 100, 300])).toEqual([0, 100, 300]);
+// Contract: .hickory-source/guarantees/authoring/the-editor-keeps-its-space/contract.md
+describe("grouping the rail’s icons", () => {
+  it("leaves separated icons at their source rows", () => {
+    expect(groupRailIcons([0, 100, 300], 600).tops).toEqual([0, 100, 300]);
   });
-
-  it("pushes a crowded icon DOWN, never up", () => {
-    // Up would draw an icon above the line it belongs to, so a reader
-    // scanning from a line to the rail would have to look backwards.
-    const tops = stackIcons([100, 102, 104]);
-    expect(tops[0]).toBe(100);
-    expect(tops[1]).toBe(100 + PITCH);
-    expect(tops[2]).toBe(100 + 2 * PITCH);
+  it("reserves overflow without displacing the following row", () => {
+    expect(groupRailIcons([100, 100, 100, 144], 600)).toEqual({
+      tops: [100, null, null, 144], overflow: [{ top: 122, indices: [1, 2] }],
+    });
   });
-
-  it("stays monotonic, so rail order is document order", () => {
-    const tops = stackIcons([0, 1, 2, 500, 501, 40]);
-    for (let i = 1; i < tops.length; i++) expect(tops[i]).toBeGreaterThan(tops[i - 1]);
+  it("keeps adjacent row centers and puts each excess group in its own grid", () => {
+    expect(groupRailIcons([100, 100, 120, 120], 142)).toEqual({
+      tops: [null, null, null, null], overflow: [{ top: 100, indices: [0, 1] }, { top: 120, indices: [2, 3] }],
+    });
   });
-
-  it("recovers as soon as there is room again", () => {
-    const tops = stackIcons([0, 1, 900]);
-    expect(tops[2]).toBe(900);
-  });
-
-  it("handles an empty document", () => {
-    expect(stackIcons([])).toEqual([]);
+  it("uses spare room below the last populated row and handles empty input", () => {
+    expect(groupRailIcons([0, 0, 0], PITCH * 3)).toEqual({ tops: [0, PITCH, PITCH * 2], overflow: [] });
+    expect(groupRailIcons([], 600)).toEqual({ tops: [], overflow: [] });
   });
 });
 

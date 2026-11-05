@@ -584,6 +584,11 @@ export interface TerminalsResponse {
 
 /** POST /api/terminals. Everything is optional: no body at all opens a shell
  * in the open folder. */
+export interface JustRecipe {
+  name: string;
+  doc: string | null;
+  parameters: { name: string; required: boolean; variadic: boolean }[];
+}
 export interface OpenTerminal {
   title?: string;
   /** Relative to the open folder, or absolute. */

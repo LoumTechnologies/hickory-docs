@@ -27468,6 +27468,12 @@
         "f-f6019c4774f8-runSuffix",
         "f-f6019c4774f8-title",
         "f-f6019c4774f8-CardRail",
+        "f-f6019c4774f8-CardRail-1",
+        "f-f6019c4774f8-CardRail-2",
+        "f-f6019c4774f8-CardRail-3",
+        "f-f6019c4774f8-CardRail-4",
+        "f-f6019c4774f8-CardRail-5",
+        "f-f6019c4774f8-CardRail-6",
         "f-f6019c4774f8-documentRevisions",
         "f-f6019c4774f8-documentRevision"
       ],
@@ -53949,6 +53955,8 @@
         "f-128423f88fa6-editing_root",
         "f-128423f88fa6-get_file",
         "f-128423f88fa6-SavePlainFile",
+        "f-128423f88fa6-SavePlainFile-1",
+        "f-128423f88fa6-SavePlainFile-2",
         "f-128423f88fa6-put_file",
         "f-128423f88fa6-content_hash",
         "f-128423f88fa6-resolve",
@@ -53956,6 +53964,8 @@
         "f-128423f88fa6-read_plain",
         "f-128423f88fa6-write_plain",
         "f-128423f88fa6-tests",
+        "f-128423f88fa6-tests-1",
+        "f-128423f88fa6-tests-2",
         "f-128423f88fa6-ScratchpadNote",
         "f-128423f88fa6-post_scratchpad",
         "f-128423f88fa6-post_assisted_scratchpad",
@@ -66987,6 +66997,89 @@
       ],
       "anchor": "output-quiet-2a402f70d3eb",
       "narrative_owner": "shell:quiet-inline-workspace"
+    },
+    "apps/web/src/editor/gutterIconLayout.ts": {
+      "source": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "just-gutter-apps-web-src-editor-gutterIconLayout-ts",
+        "just-gutter-apps-web-src-editor-gutterIconLayout-ts-1",
+        "just-gutter-apps-web-src-editor-gutterIconLayout-ts-2",
+        "just-gutter-apps-web-src-editor-gutterIconLayout-ts-3",
+        "just-gutter-apps-web-src-editor-gutterIconLayout-ts-4",
+        "just-gutter-apps-web-src-editor-gutterIconLayout-ts-5",
+        "just-gutter-apps-web-src-editor-gutterIconLayout-ts-6",
+        "just-gutter-apps-web-src-editor-gutterIconLayout-ts-7",
+        "just-gutter-apps-web-src-editor-gutterIconLayout-ts-8"
+      ],
+      "anchor": "just-gutter-apps-web-src-editor-gutterIconLayout-ts",
+      "narrative_owner": "mechanism:apps/web"
+    },
+    "apps/web/src/editor/justRecipeGutter.ts": {
+      "source": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "just-gutter-apps-web-src-editor-justRecipeGutter-ts",
+        "just-gutter-apps-web-src-editor-justRecipeGutter-ts-1",
+        "just-gutter-apps-web-src-editor-justRecipeGutter-ts-2",
+        "just-gutter-apps-web-src-editor-justRecipeGutter-ts-3"
+      ],
+      "anchor": "just-gutter-apps-web-src-editor-justRecipeGutter-ts",
+      "narrative_owner": "mechanism:apps/web"
+    },
+    "apps/web/src/shell/RecipeFolderHeader.tsx": {
+      "source": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "just-gutter-apps-web-src-shell-RecipeFolderHeader-tsx"
+      ],
+      "anchor": "just-gutter-apps-web-src-shell-RecipeFolderHeader-tsx",
+      "narrative_owner": "mechanism:apps/web"
+    },
+    "apps/web/src/editor/justRecipeGutter.test.ts": {
+      "source": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "construction": "fragments",
+      "fragments": [
+        "just-gutter-apps-web-src-editor-justRecipeGutter-test-ts"
+      ],
+      "anchor": "just-gutter-apps-web-src-editor-justRecipeGutter-test-ts",
+      "narrative_owner": "mechanism:apps/web"
+    },
+    "scripts/test-just-gutters.py": {
+      "source": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "just-gutter-scripts-test-just-gutters-py"
+      ],
+      "anchor": "just-gutter-scripts-test-just-gutters-py",
+      "narrative_owner": "mechanism:apps/web"
+    },
+    "apps/web/src/editor/CardRail.test.tsx": {
+      "source": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "construction": "fragments",
+      "fragments": [
+        "just-gutter-apps-web-src-editor-CardRail-test-tsx"
+      ],
+      "anchor": "just-gutter-apps-web-src-editor-CardRail-test-tsx",
+      "narrative_owner": "mechanism:apps/web"
     }
   },
   "evidence_records": [

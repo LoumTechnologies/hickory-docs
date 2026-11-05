@@ -8,8 +8,8 @@
 // They are all on the rail now. A rendered card is something to read; the
 // things you can click belong in the one column that exists to be clicked.
 // So a card contributes a short COLUMN of icons rather than a single one,
-// stacked downward from its own line by the same `stackIcons` that keeps two
-// crowded cards apart — an action never rises above the line it belongs to.
+// placed below its own line while space remains. A crowded group opens its
+// excess actions in a grid, preserving the following line's gutter center.
 //
 // Pure — kind and a couple of flags in, action list out — because "which
 // icons does a failed cell with a transcript show?" is a question worth

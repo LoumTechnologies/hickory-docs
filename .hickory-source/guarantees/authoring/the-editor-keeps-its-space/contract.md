@@ -7,9 +7,52 @@ Given the desktop workspace, when editing a document or plain file, then view
 identity, editability and write destination use an information control in that
 pane’s existing header. Document-wide Run/Test and plain-file Debug live in its
 header’s action menu. Cell actions remain on the right-hand action rail;
-collisions still push buttons downward. A document with no rail actions reserves
+crowded gutter actions open a floating grid without displacing later rows. A document with no rail actions reserves
 no empty action column; adding a cell restores its actions. Editor instances, source bytes and
 selections are not replaced by moving their controls.
+
+## Recipe buttons and gutter overflow
+
+Saved justfile and .justfile recipes appear on their containing folder’s gutter
+row in Files, including the workspace root’s read-only header. Discovery uses
+just’s parse-only JSON dump; it must not evaluate assignments or run recipes.
+Public recipes from imports and modules are included. Clicking runs the selected
+recipe in a named terminal with its folder as the working directory. Parameterized
+recipes ask for parameter values; cancellation starts nothing. Tree drafts retire
+recipe markers so renamed text cannot select a different execution directory.
+
+Across editors, gutter icons share one vertical column at the gutter’s right edge.
+A stack may extend down only until the next populated row. If it cannot fit, its
+last available slot becomes a three-dot button opening a floating grid of the
+remaining icons. Opening it does not move text or later gutter rows. Escape,
+outside pointer presses, scrolling and editor updates dismiss the grid. This
+supersedes downward collision-pushing for both CodeMirror gutter icons and the
+right-hand cell action rail.
+
+Evidence is scoped to the focused recipe unit tests, native metadata tests and
+`scripts/test-just-gutters.py`. The Python witness checks actual native discovery,
+recipe output, root controls and browser geometry. Existing marker semantics such
+as breakpoint dragging need their own focused checks; this change does not claim
+that all inherited markers have accessible names.
+
+Verification on 2026-11-04: the native Python/browser witness passed recipe
+non-evaluation, contained-path refusal, a real terminal’s output in the selected
+folder, root-header controls, Files grid geometry, document-action overflow,
+normal pointer hit-testing, and Escape/outside dismissal. The 27 targeted
+frontend tests cover shared slot arithmetic, source retirement, literal parameter
+arguments, document callbacks, debugger ownership and controller behavior; five
+existing document rail witnesses and six native plain-file/metadata safety tests
+also passed. Frontend type checking and the literate check/audit were run
+separately. Node 26 needed `NODE_OPTIONS=--no-experimental-webstorage` for the
+existing jsdom storage setup. Broad regressions were not run.
+
+Follow the [gutter construction](../../../mechanisms/apps/web/src/editor/gutterActions.ts.md)
+and [document action rail](../../../mechanisms/apps/web/src/editor/CardRail.tsx.md)
+when maintaining this behavior. The native witness runs with
+`bash scripts/test-spatial-ui.sh --just-gutters`; it starts and stops a disposable
+host and browser. It uses uv’s Playwright environment by default, or the Python
+executable named by `HICKORY_SYSTEM_PYTHON` when Playwright is already installed.
+
 
 The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
 
@@ -347,6 +390,7 @@ import { Decoration, EditorView, ViewPlugin, keymap } from "@codemirror/view";
 import { Prec, StateEffect, type Extension } from "@codemirror/state";
 import { foldedRanges, unfoldEffect } from "@codemirror/language";
 import { SearchCursor } from "@codemirror/search";
+import { gutterIconLayout } from "./gutterIconLayout";
 
 /** Which of the two looks an editor wears. */
 export type ChromeKind = "document" | "code";
@@ -374,7 +418,7 @@ focus containment and Escape dismissal keep keyboard interaction consistent.
  */
 export function editorChrome(kind: ChromeKind): Extension {
   const code = kind === "code";
-  return EditorView.theme({
+  return [gutterIconLayout, EditorView.theme({
     "&": {
       color: "var(--fg)",
       backgroundColor: "transparent",
@@ -461,7 +505,7 @@ export function editorChrome(kind: ChromeKind): Extension {
       backgroundColor: "var(--accent)",
       color: "var(--bg)",
     },
-  });
+  })];
 }
 
 // The same local find interaction serves document text and Files row names.

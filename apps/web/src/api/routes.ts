@@ -37,6 +37,8 @@ export interface ApiRoutes {
 /** Any text file in the folder, whole, with the hash a save passes back. */
   openFile(path: string): POST<"/api/open-file", { path: string; doc_id?: string }>;
   file(path: string): GET<"/api/file?path={path:url}", Types.PlainFile>;
+  /** Parse public recipes without evaluating assignments or starting a recipe. */
+  justRecipes(path: string): GET<"/api/just-recipes?path={path:url}", { recipes: Types.JustRecipe[] }>;
 /** One dired verb: rename, move, copy, delete, a new file or folder. */
   fileOp(op: Types.FileOpRequest): POST<"/api/files/op", { op: string; from?: string; to?: string; path?: string }, "op">;
 /** Fetch a tool the project needs — today a debug adapter — through the

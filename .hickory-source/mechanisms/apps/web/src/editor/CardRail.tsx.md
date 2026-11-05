@@ -47,16 +47,16 @@ read as a group without any second layout pass.
 // reachable, and each icon is a button with a name.
 //
 // A card contributes a COLUMN of icons, not one icon. Each gets the same
-// wanted top (its card's line) and `stackIcons` pushes the rest down, which
-// is the same rule that keeps two crowded cards apart — so a card's actions
-// read as a group without any second layout pass.
+// wanted top (its card's line). Each group can use the space before the next
+// populated line; excess actions open in a floating grid instead of moving
+// that next line's icons.
 
 import { createPortal } from "react-dom";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useUiCommands } from "../lib/uiActionBridge";
 import type { EditorView } from "@codemirror/view";
 
-import { ICON_SIZE, iconVisible, stackIcons } from "../lib/cardRail";
+import { ICON_SIZE, iconVisible, groupRailIcons } from "../lib/cardRail";
 import { attrValue } from "../lib/attrSelector";
 import type { RailAction } from "../lib/railActions";
 import type { DocCard } from "./cards";
@@ -232,6 +232,8 @@ Action failures belong to a viewport panel outside the clipped icon rail. A port
 keeps long errors readable and selectable even when an editor ancestor clips
 overflow; dismissal leaves the document and its controls available.
 
+Document actions keep their existing command identities and callbacks. The rail changes their presentation only: no group can displace the following populated line.
+
 <storycode:copy id="f-f6019c4774f8-CardRail">
 export function CardRail({
   documentId = "editor",
@@ -247,6 +249,30 @@ export function CardRail({
   const instance = useId();
   const parent = `document:${documentId}/rail:${instance}`;
   const [actionError, setActionError] = useState("");
+</storycode:copy>
+
+Keep one floating grid open at a time. Focus its first action and dismiss it on Escape, outside pointer presses, scrolling or resize; Escape restores focus to the trigger.
+
+<storycode:copy id="f-f6019c4774f8-CardRail-1">
+  const [overflowGroups, setOverflowGroups] = useState<{ id: string; top: number; keys: string[] }[]>([]);
+  const [expanded, setExpanded] = useState<{ id: string; left: number; top: number } | null>(null);
+  const overflowPanel = useRef<HTMLDivElement>(null);
+  const overflowTrigger = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (!expanded) return;
+    overflowPanel.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    const outside = (event: PointerEvent) => { if (event.target instanceof Node && !overflowPanel.current?.contains(event.target) && !overflowTrigger.current?.contains(event.target)) setExpanded(null); };
+    const keyboard = (event: KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); setExpanded(null); overflowTrigger.current?.focus(); } };
+    const close = () => setExpanded(null);
+    document.addEventListener("pointerdown", outside, true); document.addEventListener("keydown", keyboard, true);
+    view?.scrollDOM.addEventListener("scroll", close); window.addEventListener("resize", close);
+    return () => { document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", keyboard, true); view?.scrollDOM.removeEventListener("scroll", close); window.removeEventListener("resize", close); };
+  }, [expanded, view]);
+</storycode:copy>
+
+The action registry still owns execution, disabled states and runtime admission. Grid buttons invoke those same commands, rather than adding a second launch path.
+
+<storycode:copy id="f-f6019c4774f8-CardRail-2">
   // One entry per ICON. Every action of a card wants the same top — its
   // card's line — and the stacker turns that into a column.
   const icons = useMemo(
@@ -319,7 +345,12 @@ export function CardRail({
         const pos = Math.min(card.at, view.state.doc.length);
         return view.lineBlockAt(pos).top + offset;
       });
-      const tops = stackIcons(wanted);
+</storycode:copy>
+
+Use the shared gutter slot calculation against the visible band. Hidden actions keep their group anchor for later callbacks. Publish overflow state only when its geometry or membership changes so periodic measurement cannot invalidate commands by itself.
+
+<storycode:copy id="f-f6019c4774f8-CardRail-3">
+      const { tops, overflow } = groupRailIcons(wanted, scroller.clientHeight || Number.POSITIVE_INFINITY);
       // The band is the rail's OWN box, because `tops` are rail-relative
       // viewport pixels — the same space `el.style.top` is written in. Asking
       // the scroller for `scrollTop` here would be a document coordinate, and
@@ -331,14 +362,22 @@ export function CardRail({
         const el = rail.querySelector<HTMLElement>(
           `[data-card=${attrValue(icon.key)}]`,
         );
-        map.set(icon.key, tops[i]);
+        const top = tops[i] ?? overflow.find(group => group.indices.includes(i))?.top ?? wanted[i];
+        map.set(icon.key, top);
         if (!el) return;
-        el.style.top = `${tops[i]}px`;
-        el.style.display = iconVisible(tops[i], band) ? "" : "none";
+        el.style.top = `${top}px`;
+        el.style.display = tops[i] !== null && iconVisible(top, band) ? "" : "none";
       });
       topsRef.current = map;
+      const groups = overflow.filter(group => iconVisible(group.top, band)).map(group => ({ id: icons[group.indices[0]].key, top: group.top, keys: group.indices.map(index => icons[index].key) }));
+      setOverflowGroups(previous => JSON.stringify(previous) === JSON.stringify(groups) ? previous : groups);
     };
 
+</storycode:copy>
+
+Existing scroll and size observations refresh geometry; disposal retires queued measurement before it can read a detached editor.
+
+<storycode:copy id="f-f6019c4774f8-CardRail-4">
     const schedule = () => {
       if (disposed || frame !== null) return;
       frame = requestAnimationFrame(() => {
@@ -370,6 +409,54 @@ export function CardRail({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, signature]);
 
+  useEffect(() => { setExpanded(null); }, [view, signature]);
+
+</storycode:copy>
+
+Render each action with the same label, disabled state and callback both on the rail and in the grid. Popup copies omit the rail-position attribute so measurement cannot move them out of the grid.
+
+<storycode:copy id="f-f6019c4774f8-CardRail-5">
+  const renderIcon = (icon: typeof icons[number], popup = false) => {
+    const { card, action, key } = icon;
+    const state = stateOf(card);
+    const rendered = renderedAt.includes(card.at);
+    const replaying = replayingAt.includes(card.at);
+    // Only an icon that TOGGLES something reports a pressed state. Run
+    // is a verb — it does not stay down — so marking it pressed because
+    // its cell is rendered would be a lie a screen reader repeats.
+    const pressed =
+      action === "source"
+        ? rendered
+        : action === "replay"
+          ? replaying
+          : action === "convert"
+            ? openKey === key
+            : undefined;
+    return (
+      <button
+        key={key}
+        type="button"
+        data-card={popup ? undefined : key}
+        className={`cm-card-rail__icon cm-card-rail__${card.kind} cm-card-rail__act-${action} is-${state}${
+          pressed ? " on" : ""
+        }`}
+        style={{ height: ICON_SIZE, width: ICON_SIZE, ...(popup ? { position: "relative", left: "auto", transform: "none", top: "auto" } as const : {}) }}
+        disabled={action === "run" && state === "running"}
+        aria-label={title(card, action, state, rendered, replaying)}
+        aria-pressed={pressed}
+        data-tip={title(card, action, state, rendered, replaying)}
+        onClick={() => { setExpanded(null); setActionError(""); void invoke(`${parent}/${key}`).catch(error => setActionError(String(error))); }}
+      >
+        {glyph(card, action, state, rendered)}
+      </button>
+    );
+  };
+
+</storycode:copy>
+
+Overflow triggers replace only excess actions. Their body-portal grid escapes the narrow rail without changing editor width, source bytes or line positions.
+
+<storycode:copy id="f-f6019c4774f8-CardRail-6">
   return (
     <div className="cm-card-rail" data-empty={icons.length === 0} role="toolbar" aria-label="Cell and diagram actions" ref={railRef}>
       {actionError && createPortal(<div className="cm-card-action-error" role="alert">
@@ -377,40 +464,20 @@ export function CardRail({
         <p>{actionError}</p>
         <button type="button" onClick={() => setActionError("")}>Dismiss</button>
       </div>, document.body)}
-      {icons.map(({ card, action, key }) => {
-        const state = stateOf(card);
-        const rendered = renderedAt.includes(card.at);
-        const replaying = replayingAt.includes(card.at);
-        // Only an icon that TOGGLES something reports a pressed state. Run
-        // is a verb — it does not stay down — so marking it pressed because
-        // its cell is rendered would be a lie a screen reader repeats.
-        const pressed =
-          action === "source"
-            ? rendered
-            : action === "replay"
-              ? replaying
-              : action === "convert"
-                ? openKey === key
-                : undefined;
-        return (
-          <button
-            key={key}
-            type="button"
-            data-card={key}
-            className={`cm-card-rail__icon cm-card-rail__${card.kind} cm-card-rail__act-${action} is-${state}${
-              pressed ? " on" : ""
-            }`}
-            style={{ height: ICON_SIZE, width: ICON_SIZE }}
-            disabled={action === "run" && state === "running"}
-            aria-label={title(card, action, state, rendered, replaying)}
-            aria-pressed={pressed}
-            data-tip={title(card, action, state, rendered, replaying)}
-            onClick={() => { setActionError(""); void invoke(`${parent}/${key}`).catch(error => setActionError(String(error))); }}
-          >
-            {glyph(card, action, state, rendered)}
-          </button>
-        );
-      })}
+      {icons.map(icon => renderIcon(icon))}
+      {overflowGroups.map(group => <button key={group.id} type="button" data-overflow-group={group.id}
+        className="cm-card-rail__icon cm-card-rail__more" style={{ top: group.top, width: ICON_SIZE, height: ICON_SIZE }}
+        aria-label={`Show ${group.keys.length} more gutter icons`} aria-haspopup="dialog" aria-expanded={expanded?.id === group.id}
+        onClick={event => {
+          if (expanded?.id === group.id) { setExpanded(null); return; }
+          const box = event.currentTarget.getBoundingClientRect(); overflowTrigger.current = event.currentTarget;
+          const height = Math.min(window.innerHeight - 16, Math.ceil(group.keys.length / 4) * 22 + 14);
+          setExpanded({ id: group.id, left: Math.max(8, Math.min(box.left - 108, window.innerWidth - 116)), top: Math.max(8, Math.min(box.top, window.innerHeight - height - 8)) });
+        }}>⋯</button>)}
+      {expanded && createPortal(<div ref={overflowPanel} role="dialog" aria-label="Gutter icons"
+        style={{ position: "fixed", left: expanded.left, top: expanded.top, display: "grid", gridTemplateColumns: "repeat(4, 20px)", gap: 2, padding: 6, maxHeight: "calc(100vh - 16px)", overflowY: "auto", zIndex: 10000, background: "var(--bg-raised)", color: "var(--fg)", border: "1px solid var(--border)", borderRadius: 6, boxShadow: "0 4px 18px #0005" }}>
+        {(overflowGroups.find(group => group.id === expanded.id)?.keys ?? []).flatMap(key => { const icon = icons.find(candidate => candidate.key === key); return icon ? [renderIcon(icon, true)] : []; })}
+      </div>, document.body)}
     </div>
   );
 }
@@ -438,6 +505,6 @@ function documentRevision(document: object | undefined): string {
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/editor/CardRail.tsx"><storycode:paste select="#f-f6019c4774f8-CardState"/><storycode:paste select="#f-f6019c4774f8-CardRailProps"/><storycode:paste select="#f-f6019c4774f8-glyph"/><storycode:paste select="#f-f6019c4774f8-runSuffix"/><storycode:paste select="#f-f6019c4774f8-title"/><storycode:paste select="#f-f6019c4774f8-CardRail"/><storycode:paste select="#f-f6019c4774f8-documentRevisions"/><storycode:paste select="#f-f6019c4774f8-documentRevision"/></storycode:file>
+<storycode:file path="apps/web/src/editor/CardRail.tsx"><storycode:paste select="#f-f6019c4774f8-CardState"/><storycode:paste select="#f-f6019c4774f8-CardRailProps"/><storycode:paste select="#f-f6019c4774f8-glyph"/><storycode:paste select="#f-f6019c4774f8-runSuffix"/><storycode:paste select="#f-f6019c4774f8-title"/><storycode:paste select="#f-f6019c4774f8-CardRail"/><storycode:paste select="#f-f6019c4774f8-CardRail-1"/><storycode:paste select="#f-f6019c4774f8-CardRail-2"/><storycode:paste select="#f-f6019c4774f8-CardRail-3"/><storycode:paste select="#f-f6019c4774f8-CardRail-4"/><storycode:paste select="#f-f6019c4774f8-CardRail-5"/><storycode:paste select="#f-f6019c4774f8-CardRail-6"/><storycode:paste select="#f-f6019c4774f8-documentRevisions"/><storycode:paste select="#f-f6019c4774f8-documentRevision"/></storycode:file>
 
 </storycode:doc>

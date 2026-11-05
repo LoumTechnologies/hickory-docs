@@ -36,6 +36,8 @@ export function debugRailTop(wanted: number, height: number, available: number, 
 <a id="f-3f2d1a1c0986-DebugRailGroup"></a>
 ### `DebugRailGroup`
 
+The shared gutter layout can position every child absolutely, leaving the group with zero measured height. Reserve at least one icon slot when clamping a live debugger group, so its overflow trigger remains inside the viewport. The group retains every control’s original React and DOM owner.
+
 <storycode:copy id="f-3f2d1a1c0986-DebugRailGroup">
 export function DebugRailGroup({ view, at, sticky = false, children }: {
   view: EditorView; at: number; sticky?: boolean; children: ReactNode;
@@ -54,7 +56,7 @@ export function DebugRailGroup({ view, at, sticky = false, children }: {
           read: () => {
             const pos = Math.max(0, Math.min(at, view.state.doc.length));
             const wanted = view.lineBlockAt(pos).top + view.documentTop - rail.getBoundingClientRect().top;
-            const top = debugRailTop(wanted, element.offsetHeight, rail.clientHeight, sticky);
+            const top = debugRailTop(wanted, Math.max(20, element.offsetHeight), rail.clientHeight, sticky);
             const menu = element.querySelector<HTMLElement>("details[open] .more-actions__items, .debug-strip > .debug-strip__error, .debug-strip__missing");
             const menuTop = Math.max(-(top ?? 0), Math.min(0, rail.clientHeight - (menu?.offsetHeight ?? 0) - (top ?? 0)));
             return { top, menuTop, available: rail.clientHeight };

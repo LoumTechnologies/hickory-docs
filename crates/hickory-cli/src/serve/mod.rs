@@ -642,6 +642,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/open-external", post(reveal::open_external))
         .route("/open-file", post(plain_file::open_file))
         .route("/file", get(plain_file::get_file).put(plain_file::put_file))
+        .route("/just-recipes", get(plain_file::just_recipes))
         .route("/scratchpad", post(plain_file::post_scratchpad))
         .route("/v1/scratchpad", post(plain_file::post_assisted_scratchpad))
         .route("/tour/private-practice", post(private_practice::create))

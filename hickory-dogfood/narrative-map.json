@@ -22427,8 +22427,8 @@
       "id": "f-f6019c4774f8-CardRail",
       "output": "apps/web/src/editor/CardRail.tsx",
       "page": ".hickory-source/mechanisms/apps/web/src/editor/CardRail.tsx.md",
-      "symbol": "CardRail",
-      "basis": "needs-explanation",
+      "symbol": "Document actions keep their existing command identities and callbacks",
+      "basis": "reviewed-explanation",
       "original_range": [
         5664,
         13696
@@ -122472,8 +122472,8 @@
       "id": "f-128423f88fa6-SavePlainFile",
       "output": "crates/hickory-cli/src/serve/plain_file.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/plain_file.rs.md",
-      "symbol": "SavePlainFile",
-      "basis": "needs-explanation",
+      "symbol": "Resolve the selected justfile through the existing contained-file boundary before starting parse-only discovery",
+      "basis": "reviewed-explanation",
       "original_range": [
         4543,
         5069
@@ -122549,8 +122549,8 @@
       "id": "f-128423f88fa6-tests",
       "output": "crates/hickory-cli/src/serve/plain_file.rs",
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/plain_file.rs.md",
-      "symbol": "tests",
-      "basis": "needs-explanation",
+      "symbol": "The existing contained-file tests remain in the same module",
+      "basis": "reviewed-explanation",
       "original_range": [
         11180,
         15922
@@ -149652,6 +149652,195 @@
         0,
         1376
       ]
+    },
+    {
+      "id": "just-gutter-apps-web-src-editor-gutterIconLayout-ts",
+      "output": "apps/web/src/editor/gutterIconLayout.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "symbol": "Reserve one slot for the overflow trigger before placing any icons",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "just-gutter-apps-web-src-editor-justRecipeGutter-ts",
+      "output": "apps/web/src/editor/justRecipeGutter.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "symbol": "Recipe metadata comes from the API rather than a second justfile parser in the browser",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "just-gutter-apps-web-src-shell-RecipeFolderHeader-tsx",
+      "output": "apps/web/src/shell/RecipeFolderHeader.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "symbol": "Give the workspace root the same recipe gutter",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "just-gutter-apps-web-src-editor-justRecipeGutter-test-ts",
+      "output": "apps/web/src/editor/justRecipeGutter.test.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "symbol": "Check source identity and launch arguments",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "just-gutter-scripts-test-just-gutters-py",
+      "output": "scripts/test-just-gutters.py",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "symbol": "Drive real recipes and overflowing folder icons",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "just-gutter-apps-web-src-editor-gutterIconLayout-ts-1",
+      "output": "apps/web/src/editor/gutterIconLayout.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "symbol": "The layout belongs to the editor, while each marker retains its original DOM owner",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "just-gutter-apps-web-src-editor-gutterIconLayout-ts-2",
+      "output": "apps/web/src/editor/gutterIconLayout.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "symbol": "A displaced icon still refers to its source line",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "just-gutter-apps-web-src-editor-gutterIconLayout-ts-3",
+      "output": "apps/web/src/editor/gutterIconLayout.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "symbol": "Restore original styles and keyboard state when a marker retires",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "just-gutter-apps-web-src-editor-gutterIconLayout-ts-4",
+      "output": "apps/web/src/editor/gutterIconLayout.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "symbol": "Position the existing marker within a fixed slot without increasing its gutter cell\u2019s height",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "just-gutter-apps-web-src-editor-gutterIconLayout-ts-5",
+      "output": "apps/web/src/editor/gutterIconLayout.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "symbol": "The overflow grid is an overlay, not a text widget",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "just-gutter-apps-web-src-editor-gutterIconLayout-ts-6",
+      "output": "apps/web/src/editor/gutterIconLayout.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "symbol": "Read all populated rows together before writing positions",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "just-gutter-apps-web-src-editor-gutterIconLayout-ts-7",
+      "output": "apps/web/src/editor/gutterIconLayout.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "symbol": "Write absolute positions only after measuring",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "just-gutter-apps-web-src-editor-gutterIconLayout-ts-8",
+      "output": "apps/web/src/editor/gutterIconLayout.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "symbol": "Retirement removes transient panels, triggers and listeners, then returns marker styling to its original owner",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "just-gutter-apps-web-src-editor-justRecipeGutter-ts-1",
+      "output": "apps/web/src/editor/justRecipeGutter.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "symbol": "Parameterized recipes ask for an explicit JSON string array",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "just-gutter-apps-web-src-editor-justRecipeGutter-ts-2",
+      "output": "apps/web/src/editor/justRecipeGutter.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "symbol": "Each button retains the saved justfile path and recipe identity",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "just-gutter-apps-web-src-editor-justRecipeGutter-ts-3",
+      "output": "apps/web/src/editor/justRecipeGutter.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "symbol": "A document edit clears recipe markers and invalidates callbacks held by old DOM references",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "f-128423f88fa6-SavePlainFile-1",
+      "output": "crates/hickory-cli/src/serve/plain_file.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/plain_file.rs.md",
+      "symbol": "Project only recipe metadata into the response",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "f-128423f88fa6-SavePlainFile-2",
+      "output": "crates/hickory-cli/src/serve/plain_file.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/plain_file.rs.md",
+      "symbol": "Whole-file save admission remains separate from recipe discovery",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "just-gutter-apps-web-src-editor-CardRail-test-tsx",
+      "output": "apps/web/src/editor/CardRail.test.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
+      "symbol": "Keep document action callbacks behind the shared overflow rule",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "f-f6019c4774f8-CardRail-1",
+      "output": "apps/web/src/editor/CardRail.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/CardRail.tsx.md",
+      "symbol": "Keep one floating grid open at a time",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "f-f6019c4774f8-CardRail-2",
+      "output": "apps/web/src/editor/CardRail.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/CardRail.tsx.md",
+      "symbol": "The action registry still owns execution, disabled states and runtime admission",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "f-f6019c4774f8-CardRail-3",
+      "output": "apps/web/src/editor/CardRail.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/CardRail.tsx.md",
+      "symbol": "Use the shared gutter slot calculation against the visible band",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "f-f6019c4774f8-CardRail-4",
+      "output": "apps/web/src/editor/CardRail.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/CardRail.tsx.md",
+      "symbol": "Existing scroll and size observations refresh geometry; disposal retires queued measurement before it can read a detached editor",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "f-f6019c4774f8-CardRail-5",
+      "output": "apps/web/src/editor/CardRail.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/CardRail.tsx.md",
+      "symbol": "Render each action with the same label, disabled state and callback both on the rail and in the grid",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "f-f6019c4774f8-CardRail-6",
+      "output": "apps/web/src/editor/CardRail.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/editor/CardRail.tsx.md",
+      "symbol": "Overflow triggers replace only excess actions",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "f-128423f88fa6-tests-1",
+      "output": "crates/hickory-cli/src/serve/plain_file.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/plain_file.rs.md",
+      "symbol": "The metadata witness checks private filtering, qualified module names, and required versus default or variadic parameters",
+      "basis": "reviewed-explanation"
+    },
+    {
+      "id": "f-128423f88fa6-tests-2",
+      "output": "crates/hickory-cli/src/serve/plain_file.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/plain_file.rs.md",
+      "symbol": "Retain the existing file-editing safety fixtures and witnesses independently of recipe discovery",
+      "basis": "reviewed-explanation"
     }
   ],
   "explanation_gaps": {

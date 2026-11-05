@@ -29,11 +29,9 @@ Icon box, in pixels. Kept here so the geometry and the CSS agree.
 <storycode:copy id="f-996aefac1e60-ICON_SIZE">
 // Where the action rail's icons sit.
 //
-// Each icon wants to be level with the line its card is about. Two cards on
-// nearby lines want the same pixels, so the rail stacks them: an icon never
-// rises above its own line, and never overlaps the one before it. The result
-// is monotonic, which is what keeps "further down the rail" meaning "further
-// down the document" even where cards crowd together.
+// Each group starts level with its source line. It may stack into available
+// space below that line, but cannot displace a later populated line. Reserve
+// the last available slot for overflow and show excess actions in a grid.
 //
 // Pure arithmetic, separate from the component, because the crowding cases
 // are exactly the ones that are tedious to produce in a browser and trivial
@@ -51,7 +49,9 @@ export const ICON_GAP = 2;
 
 </storycode:copy>
 <a id="f-996aefac1e60-stackIcons"></a>
-### `stackIcons`
+### Preserve source rows while grouping icons
+
+Measure groups in source order and reserve room for the next group before placing icons. This is the same slot rule used by CodeMirror’s left and right gutters. A hidden icon receives no rail position; its overflow trigger retains the group’s anchor.
 
 Stack icon tops so none overlaps the previous one.
 `wanted` must be in document order (the card list is). An icon is placed at
@@ -61,29 +61,29 @@ belongs to and a reader scanning from a line to the rail never has to look
 backwards.
 
 <storycode:copy id="f-996aefac1e60-stackIcons">
-/**
- * Stack icon tops so none overlaps the previous one.
- *
- * `wanted` must be in document order (the card list is). An icon is placed at
- * its wanted top, or just under its predecessor when that would collide —
- * pushed DOWN rather than up, so an icon is never drawn above the line it
- * belongs to and a reader scanning from a line to the rail never has to look
- * backwards.
- */
-export function stackIcons(
-  wanted: readonly number[],
-  pitch: number = ICON_SIZE + ICON_GAP,
-): number[] {
-  const tops: number[] = [];
-  let floor = Number.NEGATIVE_INFINITY;
-  for (const want of wanted) {
-    const top = Math.max(want, floor);
-    tops.push(top);
-    floor = top + pitch;
-  }
-  return tops;
+/** Reserve overflow before the next populated line; never move that line. */
+export function gutterSlots(count: number, available: number, size = ICON_SIZE) {
+  const slots = Math.max(1, Math.floor((available + .5) / size));
+  return count <= slots ? { visible: count, overflow: 0 } : { visible: slots - 1, overflow: count - slots + 1 };
 }
 
+export function groupRailIcons(wanted: readonly number[], bottom: number, pitch = ICON_SIZE + ICON_GAP) {
+  const rows: { top: number; indices: number[] }[] = [];
+  wanted.forEach((top, index) => {
+    const previous = rows[rows.length - 1];
+    if (previous && Math.abs(previous.top - top) < .5) previous.indices.push(index);
+    else rows.push({ top, indices: [index] });
+  });
+  const tops: (number | null)[] = wanted.map(() => null);
+  const overflow: { top: number; indices: number[] }[] = [];
+  rows.forEach((row, index) => {
+    const room = (rows[index + 1]?.top ?? bottom) - row.top;
+    const slots = gutterSlots(row.indices.length, room, pitch);
+    row.indices.slice(0, slots.visible).forEach((icon, i) => tops[icon] = row.top + i * pitch);
+    if (slots.overflow) overflow.push({ top: row.top + slots.visible * pitch, indices: row.indices.slice(slots.visible) });
+  });
+  return { tops, overflow };
+}
 </storycode:copy>
 <a id="f-996aefac1e60-iconVisible"></a>
 ### `iconVisible`
@@ -93,6 +93,7 @@ band. One icon-height of slack either side so an icon scrolling into view
 is already placed rather than appearing mid-motion.
 
 <storycode:copy id="f-996aefac1e60-iconVisible">
+
 /**
  * Whether an icon at `top` is worth drawing, given the scroller's visible
  * band. One icon-height of slack either side so an icon scrolling into view

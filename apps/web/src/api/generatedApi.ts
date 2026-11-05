@@ -31,6 +31,8 @@ export function generatedApi(request: typeof Request) { return {
 /** Any text file in the folder, whole, with the hash a save passes back. */
   openFile: (path: Parameters<ApiRoutes["openFile"]>[0]) => request<Response<"openFile">>("POST", "/api/open-file", { path }),
   file: (path: Parameters<ApiRoutes["file"]>[0]) => request<Response<"file">>("GET", "/api/file?path=" + encodeURIComponent(path) + ""),
+  /** Parse public recipes without evaluating assignments or starting a recipe. */
+  justRecipes: (path: Parameters<ApiRoutes["justRecipes"]>[0]) => request<Response<"justRecipes">>("GET", "/api/just-recipes?path=" + encodeURIComponent(path) + ""),
 /** One dired verb: rename, move, copy, delete, a new file or folder. */
   fileOp: (op: Parameters<ApiRoutes["fileOp"]>[0]) => request<Response<"fileOp">>("POST", "/api/files/op", op),
 /** Fetch a tool the project needs — today a debug adapter — through the

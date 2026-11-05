@@ -9,7 +9,7 @@ import { ChangePreview } from "../components/ChangePreview";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { foldEffect, foldable } from "@codemirror/language";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import { Decoration, EditorView, highlightActiveLine, keymap, lineNumbers } from "@codemirror/view";
 
 import { api } from "../api/client";
@@ -17,6 +17,7 @@ import type { FileNode } from "../api/types";
 import { filesystemTreeFolding } from "../editor/filesystemTreeFolding";
 import { editorChrome, paneSearch } from "../editor/chrome";
 import { multipleCursors } from "../editor/multiCursor";
+import { justRecipeGutter, launchJustRecipe, type JustRecipe } from "../editor/justRecipeGutter";
 import {
   filesystemTextEntries,
   parseFilesystemTreeText,
@@ -77,6 +78,7 @@ export function FilesystemTreeEditor({
   onDeleted,
   onOpenPath,
   onContextPath,
+  onOpenTerminal,
   kindOfPath = (_path, dir) => dir ? "directory" : "file",
   extras = [],
   dirtyPaths = new Set(),
@@ -86,6 +88,7 @@ export function FilesystemTreeEditor({
   onDeleted?: (paths: readonly string[]) => void;
   onOpenPath: (path: string) => void;
   onContextPath: (anchor: { clientX: number; clientY: number }, path: string, dir: boolean) => void;
+  onOpenTerminal?: (id: string) => void;
   kindOfPath?: (path: string, dir: boolean) => string;
   extras?: readonly WorkspaceTextExtra[];
   dirtyPaths?: ReadonlySet<string>;
@@ -106,6 +109,18 @@ export function FilesystemTreeEditor({
   const [receipt, setReceipt] = useState<UiValue>(null);
   const [dryRun, setDryRun] = useState<{ lines?: string[]; error?: string } | null>(null);
   const [message, setMessage] = useState("Edit names or indentation. Changes stay here until Apply.");
+  const lastRecipeNodes = useRef(nodes);
+  const refreshRecipes = useRef<() => void>(() => undefined);
+  const recipePending = useRef(false);
+  const runRecipe = useRef<(path: string, recipe: JustRecipe) => void>(() => undefined);
+  runRecipe.current = (path, recipe) => {
+    if (recipePending.current) return;
+    recipePending.current = true;
+    void launchJustRecipe(path, recipe)
+      .then(session => { if (!session) return; onOpenTerminal?.(session.id); setMessage(`Started just ${recipe.name}. Read its terminal for the result.`); })
+      .catch(error => setMessage(`Cannot run just ${recipe.name}: ${said(error)}. Check just is installed and retry.`))
+      .finally(() => { recipePending.current = false; });
+  };
   const save = useRef<() => void>(() => undefined);
   const activate = useRef<(index: number, editor: EditorView) => boolean>(() => false);
   const context = useRef<(index: number, editor: EditorView, anchor: { clientX: number; clientY: number }) => boolean>(() => false);
@@ -133,13 +148,25 @@ export function FilesystemTreeEditor({
     if (!host.current) return;
     base.current = projection;
     const generation = crypto.randomUUID(); owner.current = generation;
-    const editor = new EditorView({
+    const recipeConfig = new Compartment();
+    const original = projection.map(line => line.text).join("\n");
+    const recipes = () => justRecipeGutter(projection.flatMap((line, index) => {
+      if (!("filesystem" in line) || line.filesystem.dir || !["justfile", ".justfile"].includes(line.filesystem.name.toLowerCase())) return [];
+      const path = line.filesystem.path;
+      const parent = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+      if (!parent) return [];
+      const folder = projection.findIndex(candidate => "filesystem" in candidate && candidate.filesystem.dir && candidate.filesystem.path === parent);
+      return [{ line: folder < 0 ? index + 1 : folder + 1, path }];
+    }), () => view.current === editor && owner.current === generation && liveVersion.current === version,
+    (path, recipe) => runRecipe.current(path, recipe), reason => setMessage(reason));
+    const editor: EditorView = new EditorView({
       parent: host.current,
       state: EditorState.create({
         doc: projection.map((line) => line.text).join("\n"),
         extensions: [
           editorChrome("code"),
           paneSearch("Files"),
+          recipeConfig.of(recipes()),
           EditorState.transactionFilter.of(transaction => {
             if (!transaction.docChanged) return transaction;
             if (pending.current) return [];
@@ -222,12 +249,15 @@ export function FilesystemTreeEditor({
       return range ? [foldEffect.of(range)] : [];
     }) });
     view.current = editor;
+    refreshRecipes.current = () => { if (view.current === editor && editor.state.doc.toString() === original) editor.dispatch({ effects: recipeConfig.reconfigure(recipes()) }); };
     setActionView(editor);
     setDirty(false);
     setPendingDeletes(null);
     setDryRun(null);
     return () => { if (owner.current === generation) owner.current = null; view.current = undefined; setActionView(null); editor.destroy(); };
   }, [version]);
+
+  useEffect(() => { if (lastRecipeNodes.current !== nodes) { lastRecipeNodes.current = nodes; refreshRecipes.current(); } }, [nodes]);
 
   const prepare = (): { plan?: PreparedPlan; error?: string } => {
     if (!view.current) return { error: "The Files buffer is not ready." };

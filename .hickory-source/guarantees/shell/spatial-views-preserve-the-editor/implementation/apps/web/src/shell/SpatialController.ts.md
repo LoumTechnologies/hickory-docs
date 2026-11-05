@@ -302,9 +302,13 @@ export class SpatialController {
       if (background) setRect(background, box);
       if (toolbar) setRect(toolbar, { ...box, h: 36 });
     }
-    const minimap = root.querySelector<HTMLElement>(".spatial-minimap"); if (minimap) minimap.style.left = `${regions.center.x + regions.center.w - 7}px`;
+    const editor = this.centerEditor(), sourceBox = editor?.scrollDOM.getBoundingClientRect();
+    // The minimap belongs beside scrolling text, inside the action rails.
+    // Anchoring to the entire pane covers buttons on its outermost gutter.
+    const minimap = root.querySelector<HTMLElement>(".spatial-minimap");
+    if (minimap) minimap.style.left = `${(sourceBox?.width ? sourceBox.right - base.left : regions.center.x + regions.center.w) - 7}px`;
     for (const side of ["left", "right"] as const) { const rule = root.querySelector<HTMLElement>(`[data-spatial-column=${side}]`); if (rule) { rule.hidden = state.sides?.[side] === false || (state.drawers ? !state.drawers.pinned[side] : regions.small); setRect(rule, { x: side === "left" ? regions.center.x - regions.gap / 2 - 4 : regions.center.x + regions.center.w + regions.gap / 2 - 4, y: regions.center.y, w: 8, h: regions.center.h }); rule.style.width = "8px"; } }
-    const editor = this.centerEditor(), sourceBox = editor?.scrollDOM.getBoundingClientRect(), pivot = sourceBox ? (sourceBox.top + sourceBox.bottom) / 2 : base.top + regions.center.h / 2, scroll = this.scroll(), planned = new Map<string, { r: Rect; side: Side; from?: Rect }>(), occupied: Rect[] = [];
+    const pivot = sourceBox ? (sourceBox.top + sourceBox.bottom) / 2 : base.top + regions.center.h / 2, scroll = this.scroll(), planned = new Map<string, { r: Rect; side: Side; from?: Rect }>(), occupied: Rect[] = [];
     if (this.hold?.scroll !== scroll) this.hold = null;
     for (const item of items) { const p = state.views[item.key]; if (tiled.has(item.key) || !p?.pin || this.gesture?.key === item.key && this.gesture.moved) continue; planned.set(item.key, { r: p.pin, side: p.side }); occupied.push(p.pin); }
     for (const [key, run] of this.routes) { occupied.push(run.from, run.target); planned.set(key, { r: run.target, side: run.side }); }

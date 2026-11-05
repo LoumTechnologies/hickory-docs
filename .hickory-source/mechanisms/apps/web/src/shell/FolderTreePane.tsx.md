@@ -33,6 +33,7 @@ import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 
 import { api } from "../api/client";
 import type { FileNode, FilesResponse } from "../api/types";
+import { RecipeFolderHeader } from "./RecipeFolderHeader";
 import { TreeContextMenu } from "./TreeContextMenu";
 import { TreePrompt } from "./TreePrompt";
 import { FileActionPrompts, runFileMenuItem } from "./fileMenuActions";
@@ -874,13 +875,14 @@ function FolderRoot({
   return (
     <section className="folder-tree__root">
       <header className="folder-tree__header">
-        <span
+        <div
           className="folder-tree__name"
+          style={{ overflow: "visible" }}
           data-tip={folder.root}
           onContextMenu={(event) => openMenu(event, "", true)}
         >
-          {name}
-        </span>
+          <RecipeFolderHeader name={name} revision={folder} paths={folder.tree.filter(node => !node.dir && ["justfile", ".justfile"].includes(node.name.toLowerCase())).map(node => node.path)} onOpenTerminal={onOpenTerminal} onError={setNotice} />
+        </div>
         <button
           type="button"
           className="folder-tree__new"
@@ -946,6 +948,7 @@ function FolderRoot({
       </ul>
       <FilesystemTreeEditor
         nodes={folder.tree}
+        onOpenTerminal={onOpenTerminal}
         onDeleted={(paths) => window.dispatchEvent(new CustomEvent(FILES_DELETED_EVENT, { detail: { paths } }))}
         onChanged={(renames) =>
           window.dispatchEvent(

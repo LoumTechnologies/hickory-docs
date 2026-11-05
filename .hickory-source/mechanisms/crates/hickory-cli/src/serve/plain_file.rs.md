@@ -188,7 +188,90 @@ pub async fn get_file(
 <a id="f-128423f88fa6-SavePlainFile"></a>
 ### `SavePlainFile`
 
+Resolve the selected justfile through the existing contained-file boundary before starting parse-only discovery. Run just with a timeout and kill-on-drop; report parser or missing-tool errors with a next step. Dumping parses imported recipes and modules without evaluating variable expressions or running a recipe.
+
 <storycode:copy id="f-128423f88fa6-SavePlainFile">
+/// Parse recipe metadata without evaluating assignments, backticks or recipe bodies.
+/// `just --dump` owns the grammar, including imports and modules.
+pub async fn just_recipes(
+    State(state): State<LocalState>,
+    Query(q): Query<PlainFileQuery>,
+) -> ApiResult<Json<Value>> {
+    let name = FsPath::new(&q.path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if name != "justfile" && name != ".justfile" {
+        return Err(ApiError::bad_request(
+            "Choose a justfile or .justfile in the Files pane.",
+        ));
+    }
+    let path = resolve_existing(state.index.root(), &q.path)?;
+    let mut command = tokio::process::Command::new("just");
+    command
+        .current_dir(path.parent().unwrap())
+        .args(["--justfile"])
+        .arg(&path)
+        .args(["--dump", "--dump-format", "json"])
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(std::time::Duration::from_secs(5), command.output())
+        .await
+        .map_err(|_| {
+            ApiError::unprocessable("Recipe discovery timed out. Check the justfile and retry.")
+        })?
+        .map_err(|e| {
+            ApiError::unprocessable(format!(
+                "Cannot list recipes for {}: {e}. Install just on this host and retry.",
+                q.path
+            ))
+        })?;
+    if !output.status.success() {
+        return Err(ApiError::unprocessable(format!(
+            "Cannot list recipes for {}: {}. Fix the justfile and retry.",
+            q.path,
+            String::from_utf8_lossy(&output.stderr)
+        )));
+    }
+    let dump: Value = serde_json::from_slice(&output.stdout).map_err(|e| {
+        ApiError::unprocessable(format!(
+            "Cannot read just recipe metadata: {e}. Update just and retry."
+        ))
+    })?;
+    let mut recipes = Vec::new();
+    collect_just_recipes(&dump, "", &mut recipes);
+    Ok(Json(json!({ "recipes": recipes })))
+}
+
+</storycode:copy>
+
+Project only recipe metadata into the response. Hidden recipes remain hidden; required singular and variadic parameters retain their shape. Recurse through module names so a button launches its qualified recipe rather than a same-named root recipe.
+
+<storycode:copy id="f-128423f88fa6-SavePlainFile-1">
+fn collect_just_recipes(module: &Value, prefix: &str, out: &mut Vec<Value>) {
+    if let Some(recipes) = module["recipes"].as_object() {
+        for (name, recipe) in recipes {
+            if recipe["private"].as_bool() == Some(true) {
+                continue;
+            }
+            let parameters: Vec<Value> = recipe["parameters"].as_array().into_iter().flatten().map(|p| json!({
+                "name": p["name"], "required": p["default"].is_null() && p["kind"] != "star", "variadic": p["kind"] != "singular"
+            })).collect();
+            out.push(json!({ "name": format!("{prefix}{name}"), "doc": recipe["doc"], "parameters": parameters }));
+        }
+    }
+    if let Some(modules) = module["modules"].as_object() {
+        for (name, child) in modules {
+            collect_just_recipes(child, &format!("{prefix}{name}::"), out);
+        }
+    }
+}
+
+</storycode:copy>
+
+Whole-file save admission remains separate from recipe discovery. These fields retain the existing optimistic write checks.
+
+<storycode:copy id="f-128423f88fa6-SavePlainFile-2">
 #[derive(Deserialize)]
 pub struct SavePlainFile {
     pub path: String,
@@ -409,11 +492,45 @@ fn write_plain(
 <a id="f-128423f88fa6-tests"></a>
 ### `tests`
 
+The existing contained-file tests remain in the same module.
+
 <storycode:copy id="f-128423f88fa6-tests">
 #[cfg(test)]
 mod tests {
     use super::*;
 
+</storycode:copy>
+
+The metadata witness checks private filtering, qualified module names, and required versus default or variadic parameters. Actual non-evaluation and terminal execution are covered by the native HTTP/browser witness.
+
+<storycode:copy id="f-128423f88fa6-tests-1">
+    // Contract: .hickory-source/guarantees/authoring/the-editor-keeps-its-space/contract.md
+    #[test]
+    fn public_recipe_metadata_preserves_modules_and_argument_requirements() {
+        let dump = json!({"recipes": {
+            "build": {"private": false, "doc": "Build", "parameters": [
+                {"name":"input", "default":null, "kind":"singular"},
+                {"name":"optional", "default":"x", "kind":"singular"},
+                {"name":"rest", "default":null, "kind":"star"}
+            ]},
+            "secret": {"private":true}
+        }, "modules": {"tools": {"recipes": {"test": {"parameters": []}}}}});
+        let mut found = vec![];
+        collect_just_recipes(&dump, "", &mut found);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0]["name"], "build");
+        assert_eq!(found[0]["parameters"][0]["required"], true);
+        assert_eq!(found[0]["parameters"][1]["required"], false);
+        assert_eq!(found[0]["parameters"][2]["variadic"], true);
+        assert_eq!(found[0]["parameters"][2]["required"], false);
+        assert_eq!(found[1]["name"], "tools::test");
+    }
+
+</storycode:copy>
+
+Retain the existing file-editing safety fixtures and witnesses independently of recipe discovery.
+
+<storycode:copy id="f-128423f88fa6-tests-2">
     fn root_with(files: &[(&str, &[u8])]) -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
         for (rel, bytes) in files {
@@ -632,6 +749,6 @@ fn save_scratchpad_note(state: LocalState, body: ScratchpadNote) -> ApiResult<Js
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/src/serve/plain_file.rs"><storycode:paste select="#f-128423f88fa6-MAX_PLAIN_FILE_BYTES"/><storycode:paste select="#f-128423f88fa6-PlainFileQuery"/><storycode:paste select="#f-128423f88fa6-open_file"/><storycode:paste select="#f-128423f88fa6-editing_root"/><storycode:paste select="#f-128423f88fa6-get_file"/><storycode:paste select="#f-128423f88fa6-SavePlainFile"/><storycode:paste select="#f-128423f88fa6-put_file"/><storycode:paste select="#f-128423f88fa6-content_hash"/><storycode:paste select="#f-128423f88fa6-resolve"/><storycode:paste select="#f-128423f88fa6-resolve_existing"/><storycode:paste select="#f-128423f88fa6-read_plain"/><storycode:paste select="#f-128423f88fa6-write_plain"/><storycode:paste select="#f-128423f88fa6-tests"/><storycode:paste select="#f-128423f88fa6-ScratchpadNote"/><storycode:paste select="#f-128423f88fa6-post_scratchpad"/><storycode:paste select="#f-128423f88fa6-post_assisted_scratchpad"/><storycode:paste select="#f-128423f88fa6-save_scratchpad_note"/></storycode:file>
+<storycode:file path="crates/hickory-cli/src/serve/plain_file.rs"><storycode:paste select="#f-128423f88fa6-MAX_PLAIN_FILE_BYTES"/><storycode:paste select="#f-128423f88fa6-PlainFileQuery"/><storycode:paste select="#f-128423f88fa6-open_file"/><storycode:paste select="#f-128423f88fa6-editing_root"/><storycode:paste select="#f-128423f88fa6-get_file"/><storycode:paste select="#f-128423f88fa6-SavePlainFile"/><storycode:paste select="#f-128423f88fa6-SavePlainFile-1"/><storycode:paste select="#f-128423f88fa6-SavePlainFile-2"/><storycode:paste select="#f-128423f88fa6-put_file"/><storycode:paste select="#f-128423f88fa6-content_hash"/><storycode:paste select="#f-128423f88fa6-resolve"/><storycode:paste select="#f-128423f88fa6-resolve_existing"/><storycode:paste select="#f-128423f88fa6-read_plain"/><storycode:paste select="#f-128423f88fa6-write_plain"/><storycode:paste select="#f-128423f88fa6-tests"/><storycode:paste select="#f-128423f88fa6-tests-1"/><storycode:paste select="#f-128423f88fa6-tests-2"/><storycode:paste select="#f-128423f88fa6-ScratchpadNote"/><storycode:paste select="#f-128423f88fa6-post_scratchpad"/><storycode:paste select="#f-128423f88fa6-post_assisted_scratchpad"/><storycode:paste select="#f-128423f88fa6-save_scratchpad_note"/></storycode:file>
 
 </storycode:doc>
