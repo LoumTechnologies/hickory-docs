@@ -36,6 +36,22 @@ Use `behavior.py locate <output-path>` to find its construction and every fragme
 A narrative owner is not proof of adequate explanation: inspect the explicit gaps
 in `hickory-dogfood/narrative-map.json` and do not invent coverage or guarantees.
 
+## UI feel
+
+Keep the UI compact and spatially stable: revealing controls must not disturb
+the content the user is reading.
+
+- Keep contextual actions beside the folder or line they belong to, with gutter
+  icons arranged in a single vertical column on the right.
+- Anchor each line's gutter icons to that line. A stack may use the space below
+  it, but must never push down the icon center for a later line.
+- When a stack would collide with the next line's icons, reserve a slot for a
+  clickable `⋯` control. It opens a small floating popover containing the remaining
+  icons in a grid, with rows and columns as needed.
+- Opening that popover must not reflow, resize or move adjacent content or other
+  gutter icons. Apply this same overflow behavior to gutter icons everywhere in
+  the app, including Files, document actions and debugger controls.
+
 @.instructions/simple-composable-design.md
 @.instructions/config-and-environments.md
 @.instructions/continuous-delivery-downloadable.md
