@@ -10,7 +10,11 @@ This page owns the output construction and the explained fragments below. Source
 
 Present and edit the shared engine state. Browser-side revisions, pending requests and local drafts affect which source and UI actions are still valid.
 
-This literal construction preserves embedded document syntax and exact file bytes. Its internal reasoning boundaries still need editorial review.
+The conversation uses plain assistant messages, a restrained user bubble and a
+sticky draft. Keep the composer in the same editor tree so streaming and opening
+review details preserve selection and undo. Bound long drafts to leave room for
+history. Existing document/comparison styles below retain their own behavior;
+this presentation change does not establish explanatory coverage of those tools.
 
 <storycode:entry path="apps/web/src/views/DocumentReading.css">
 .document-reading { height: 100%; overflow: auto; }
@@ -34,21 +38,59 @@ This literal construction preserves embedded document syntax and exact file byte
 .document-editor .comparison-removed .cm-scroller { overflow: visible; height: auto; }
 .document-editor .comparison-removed .cm-content { padding: 0.5rem; min-height: 0; }
 
-/* Independent document buffers read as a conversation, with one outer scroll. */
-.conversation-turn { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem; }
-.conversation-card { min-width: 0; border: 1px solid var(--border); border-radius: 0.75rem; background: var(--bg); }
-.conversation-card > header { padding: 0.6rem 1rem; font-size: 0.8rem; font-weight: 600; border-bottom: 1px solid var(--border); }
-.conversation-card--user { margin-left: 1.5rem; }
-.conversation-card--assistant, .conversation-card--final { margin-right: 1.5rem; }
-.conversation-card--composer { border-color: var(--accent); }
-.conversation-card--composer .cm-editor { min-height: 8rem; }
-.conversation-document { padding: 1rem; }
-@media (max-width: 600px) { .conversation-card { margin-left: 0; margin-right: 0; } }
+/* Quiet messages retain native document tools; the draft stays within reach. */
+.conversation-document { display: flex; flex-direction: column; padding: 1rem; gap: 1rem; }
+.conversation-turn { display: flex; flex-direction: column; gap: 0.75rem; }
+.conversation-card { min-width: 0; background: var(--bg); }
+.conversation-card > header { padding: 0.4rem 1rem 0; font-size: 0.72rem; font-weight: 600; color: var(--fg-muted); }
+.conversation-card--user { margin-left: min(12%, 3rem); border-radius: 1rem; background: var(--bg-raised); border: 1px solid var(--border); }
+.conversation-card--assistant { margin-right: 0; }
+.conversation-card--composer { position: sticky; bottom: 0; z-index: 3; margin-top: auto; border: 1px solid var(--border); border-radius: 1rem; box-shadow: 0 3px 16px rgb(0 0 0 / 8%); }
+.conversation-card--composer:focus-within { border-color: var(--accent); }
+.conversation-card--composer .cm-editor { min-height: 5rem; }
+.conversation-card--composer .cm-scroller { max-height: 35vh; overflow-y: auto !important; }
+.conversation-welcome { margin: auto; padding: 2.5rem 0.5rem; max-width: 24rem; text-align: center; }
+.conversation-welcome__mark { color: var(--accent); font-size: 2rem; }
+.conversation-welcome h2 { font-size: 1.25rem; font-weight: 500; line-height: 1.4; margin: 0.75rem 0; }
+.conversation-welcome p { font-size: 0.85rem; color: var(--fg-muted); line-height: 1.6; }
+.conversation-reasoning, .conversation-review, .chat-history { color: var(--fg-muted); font-size: 0.78rem; }
+.conversation-reasoning > summary, .conversation-review > summary, .chat-history > summary { cursor: pointer; padding: 0.5rem; }
+.conversation-review { border: 1px solid var(--border); border-radius: 0.6rem; }
+.conversation-review[open] { padding-bottom: 0.75rem; }
+.conversation-reasoning .conversation-card > header { display: none; }
+.chat-head { min-height: 2.25rem; flex-wrap: nowrap; border-bottom: 1px solid var(--border); padding-bottom: 0.4rem; }
+.chat-head > .chat-toggle { margin-right: auto; }
+.chat-composer { padding: 0.25rem 0.5rem; }
+@media (max-width: 600px) { .conversation-document { padding: 0.5rem; } }
 
-/* One scrollbar owns the conversation and its editable response. */
+/* One scrollbar owns history; the sticky response keeps its independent editor. */
 .conversation-document .document-editor .cm-editor { height: auto; max-height: none; }
 .conversation-document .document-editor .cm-scroller { overflow: visible; height: auto; }
 .conversation-send { display: block; margin: 0.6rem 0; }
+
+/* Session framing belongs to the stored document, not the chat's visual chrome.
+   Retain the number rail's geometry for provenance endpoints, without its labels.
+   Project review disclosures keep the full editor furniture. */
+.conversation-card:not(.conversation-card--final) > .editor-ruler { display: none; }
+.conversation-card:not(.conversation-card--final) > .document-editor .cm-right-rail__line { visibility: hidden; }
+.conversation-card:not(.conversation-card--final) > .document-editor .cm-debug-rail { display: none; }
+.conversation-card:not(.conversation-card--final) > .document-editor .cm-doc-frame-line { display: none; }
+.conversation-card:not(.conversation-card--final) > .document-editor .cm-bubble { background: transparent; max-width: 100%; padding-left: 0; padding-right: 0; }
+.conversation-card:not(.conversation-card--final) > .document-editor .cm-bubble-last::before,
+.conversation-card:not(.conversation-card--final) > .document-editor .cm-bubble-last::after { display: none; }
+.conversation-card:not(.conversation-card--final) > .document-editor .cm-hick-banner-turn-user,
+.conversation-card:not(.conversation-card--final) > .document-editor .cm-hick-banner-turn-assistant,
+.conversation-card:not(.conversation-card--final) > .document-editor .cm-hick-banner-turn-reasoning { display: none; }
+
+/* Keep native actions discoverable on hover/focus without a permanent tool grid. */
+.conversation-card:not(.conversation-card--final) > .document-editor { background: transparent; border: 0; }
+.conversation-card:not(.conversation-card--final) > .document-editor .cm-right-rail,
+.conversation-card:not(.conversation-card--final) > .document-editor .cm-card-rail { border: 0; background: transparent; }
+.conversation-card:not(.conversation-card--final) > .document-editor .cm-card-rail { opacity: 0; }
+.conversation-card:hover > .document-editor .cm-card-rail,
+.conversation-card:focus-within > .document-editor .cm-card-rail { opacity: 1; }
+.conversation-card:not(.conversation-card--final) > .document-editor .cm-content::before { display: none; }
+.conversation-card--user .cm-turn-context .cm-hick-chrome { display: none; }
 
 /* A shell pane shares the workspace's ribbon layer; only a floating dock is raised. */
 .chat-dock.chat-dock--pane { z-index: auto; }

@@ -582,8 +582,6 @@ export function ChatDock({
         ) : (
           <span className="chat-toggle chat-toggle--static">Agent</span>
         )}
-        <MoreActions label="Conversation actions">
-          {turns.length > 0 && <span className="muted">{branch.length} of {turns.length} turns on this branch</span>}
         {tip && (
           <button
             className="btn-link chat-new"
@@ -594,6 +592,8 @@ export function ChatDock({
             New thread
           </button>
         )}
+        <MoreActions label="Conversation actions">
+          {turns.length > 0 && <span className="muted">{branch.length} of {turns.length} turns on this branch</span>}
         {turns.length > 0 && (
           <button
             className={`btn-link chat-tree-toggle${showTree ? " chat-tree-toggle--on" : ""}`}
@@ -636,21 +636,21 @@ export function ChatDock({
               <ConversationEditor renderFinal={turn => <AgentProject doc={docId} turn={turn.id} getContext={getContext} applyChange={applyAgentChange} />} branch={branch} path={sessionPath} stamp={lensStamp} running={running}
                 showCollapsedLineage={showCollapsedLineage} stream={stream} reasoning={reasoning} draft={prompt} onDraft={setPrompt}
                 onSend={() => void conversationActions.invoke("send")} sending={sending} canSend={!running && !sending && (!!acp.state?.ready && !acp.busy)} />
-              {branch.length > 0 && <div className="chat-turn-strip" aria-label="Turns">
+              {branch.length > 0 && <details className="chat-history"><summary>Conversation history</summary><div className="chat-turn-strip" aria-label="Turns">
                 {branch.map(turn => <span key={turn.id} className="chat-turn-strip__turn">
                   <span className="muted">{turn.prompt.slice(0, 40)}</span>
                   {(backend === "python" || acp.state?.canRewind) && turn.id !== tip &&
                     <button className="btn-link chat-rewind" disabled={!!running || sending} onClick={() => void conversationActions.invoke("tip", { id: turn.id })} data-tip={REWIND_TIP}>rewind here</button>}
                 </span>)}
                 {sessionPath && onOpenSession && <button className="btn-link" onClick={() => onOpenSession(sessionPath)}>session</button>}
-              </div>}
+              </div></details>}
             </>
           )}
         </div>
       )}
 
       <div className="chat-composer">
-        <span className="muted">{!collapsed && !showTree ? <button className="btn-link" onClick={() => focusConversationResponse(logRef.current)}>Write a response</button> : "Type your response at the bottom"} · ⌘/Ctrl+Enter to send</span>
+        <span className="muted">{!collapsed && !showTree ? <button className="btn-link" onClick={() => focusConversationResponse(logRef.current)}>Message agent</button> : "Your draft is in the conversation"} · Ctrl/⌘ + Enter</span>
         {running ? (
           // The way out of a runaway turn — a model looping mid-stream bills
           // tokens until somebody pulls this. Never disabled while a run is

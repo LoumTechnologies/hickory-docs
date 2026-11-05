@@ -19,7 +19,7 @@ import { parseStructure } from "../editor/hickDoc";
 import { registerReviewEditor } from "../lib/reviews";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorState, Prec, Transaction } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import { Decoration, EditorView, keymap } from "@codemirror/view";
 import { DocumentEditor } from "../editor/DocumentEditor";
 import { LocalRealtime } from "../api/realtime";
 import { api } from "../api/client";
@@ -63,8 +63,18 @@ construction follows its turn, with native execution/debugging owned by the
 existing captured-project surface. The composer has an independent undo history
 and never receives a replacement of the recorded prefix.
 
+The default reading emphasizes the conversation. Reasoning and completed project
+construction remain available in disclosures; opening them does not remount the
+message buffers or discard draft history. An empty thread gives a short invitation
+rather than exposing implementation concepts before the first request.
+
 Message slicing is memoized by the captured history and stream, so typing a draft
 does not reparse all prior messages.
+
+Recorded buffers replace only their session/message envelope tags in the visual
+reading. The bytes and receipt offsets stay intact; nested file/patch syntax and
+all draft syntax keep their normal editor behavior. This avoids stripping tags
+from the source or accidentally concealing authored code with broad CSS.
 
 The buffer protects every mutation except an owner-authorized reading update,
 including widget writes at the end of a message. It retains native folding and
@@ -118,24 +128,32 @@ export function ConversationEditor({ branch, path, running, stream, reasoning, d
     return { turn, cards };
   }), [data, branch, running, stream, reasoning]);
   return <div className="conversation-document">
+    {branch.length === 0 && <div className="conversation-welcome">
+      <span className="conversation-welcome__mark" aria-hidden="true">✳</span>
+      <h2>What would you like to work on?</h2>
+      <p>Ask a question, explore an idea, or describe a change.</p>
+    </div>}
     {path && data && <VerificationStanding records={data.audit ?? []} turn={branch.at(-1)?.id} running={!!running} />}
     {path && data && <AssumptionAudit records={data.audit ?? []} path={path} source={data.source} />}
     {messages.map(({ turn, cards }) => {
       return <div className="conversation-turn" key={turn.id} data-turn={turn.id}>
         {cards.map(({ role, reading: card }, index) => {
-          return <section className={`conversation-card conversation-card--${role}`} key={index} aria-label={`${role === "user" ? "You" : role === "reasoning" ? "Reasoning" : "Agent"} message`}>
+          const message = <section className={`conversation-card conversation-card--${role}`} key={index} aria-label={`${role === "user" ? "You" : role === "reasoning" ? "Reasoning" : "Agent"} message`}>
             <header>{role === "user" ? "You" : role === "reasoning" ? "Reasoning" : "Agent"}</header>
             <ConversationBuffer reading={card} path={path} source={data?.source ?? null} id={`${turn.id}:${index}`} readOnly
               running={running} sending={sending} draft="" onDraft={() => {}} onSend={() => {}} canSend={false} showCollapsedLineage={showCollapsedLineage} />
           </section>;
+          return role === "reasoning" ? <details className="conversation-reasoning" key={index}>
+            <summary>{running === turn.id ? "Thinking…" : "Reasoning"}</summary>{message}
+          </details> : message;
         })}
         {turn.status === "ok" && renderFinal && <section className="conversation-card conversation-card--final" aria-label="Final construction">
-          <header>Final construction</header>{renderFinal(turn)}
+          <details className="conversation-review"><summary>Review project changes</summary>{renderFinal(turn)}</details>
         </section>}
       </div>;
     })}
     <section className="conversation-card conversation-card--composer" aria-label="Your response">
-      <header>Your response</header>
+      <header>Message agent</header>
       <ConversationBuffer reading={{ source: "", links: [] }} path={null} source={null} id="response" readOnly={false}
         running={running} sending={sending} draft={draft} onDraft={onDraft} onSend={onSend} canSend={canSend} showCollapsedLineage={false} />
     </section>
@@ -169,6 +187,15 @@ function ConversationBuffer({ reading, path, source, id, readOnly, running, send
     return registerReviewEditor(view, path, () => source);
   }, [view, path, source]);
   const extensions = useMemo(() => [...protectedPrefix,
+    // Omit only conversation envelopes from the reading, retaining exact bytes
+    // and native syntax for nested constructions and the editable draft.
+    ...(readOnly ? [EditorView.decorations.compute(["doc"], state => {
+      const structure = parseStructure(state.doc.toString());
+      const wrappers = structure.blocks.filter(block => ["user", "assistant", "reasoning"].includes(block.name)
+        && !structure.blocks.some(parent => parent !== block && parent.name !== "session" && parent.from < block.from && parent.to >= block.to));
+      return Decoration.set(structure.tags.filter(tag => tag.name === "session" || wrappers.some(block => tag.from === block.from || tag.to === block.to))
+        .map(tag => Decoration.replace({}).range(tag.from, tag.to)), true);
+    })] : []),
     EditorState.transactionFilter.of(tr => readOnly && tr.docChanged && !tr.annotation(replaceReading) ? [] : tr), sessionBookkeeping, ...responseSend(() => { if (latest.current.canSend) { following.current = true; latest.current.onSend(); } }),
     EditorView.domEventHandlers({
       mousedown(event) {
@@ -373,7 +400,7 @@ it("gives every message a protected buffer and keeps the draft independent durin
   const host = await screen.findByRole("textbox", { name: "Agent conversation and response" });
   const response = EditorView.findFromDOM(host)!;
   await waitFor(() => expect(rendered.container.textContent).toContain("Answer a 📝"));
-  const cards = screen.getAllByRole("textbox", { name: "Recorded message" });
+  const cards = screen.getAllByRole("textbox", { name: "Recorded message", hidden: true });
   expect(cards.length).toBeGreaterThanOrEqual(4);
   const views = cards.map(card => EditorView.findFromDOM(card)!);
   expect(new Set(views).size).toBe(cards.length);
@@ -430,6 +457,11 @@ it("keeps the final construction beside its own turn before the independent comp
   const rendered = render(<ConversationEditor {...props} renderFinal={item => <p>Construction {item.id}</p>} />);
   const cards = screen.getAllByRole("region", { name: "Final construction" });
   expect(cards).toHaveLength(2);
+  const reviews = rendered.container.querySelectorAll<HTMLDetailsElement>(".conversation-review");
+  expect(reviews).toHaveLength(2);
+  expect([...reviews].every(review => !review.open)).toBe(true);
+  fireEvent.click(reviews[0].querySelector("summary")!);
+  expect(screen.getByText("Construction a")).toBeTruthy();
   expect(cards[0].closest("[data-turn]")?.getAttribute("data-turn")).toBe("a");
   expect(cards[1].closest("[data-turn]")?.getAttribute("data-turn")).toBe("b");
   expect(rendered.container.lastElementChild?.lastElementChild?.getAttribute("aria-label")).toBe("Your response");

@@ -3,7 +3,7 @@ import { parseStructure } from "../editor/hickDoc";
 import { registerReviewEditor } from "../lib/reviews";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorState, Prec, Transaction } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import { Decoration, EditorView, keymap } from "@codemirror/view";
 import { DocumentEditor } from "../editor/DocumentEditor";
 import { LocalRealtime } from "../api/realtime";
 import { api } from "../api/client";
@@ -75,24 +75,32 @@ export function ConversationEditor({ branch, path, running, stream, reasoning, d
     return { turn, cards };
   }), [data, branch, running, stream, reasoning]);
   return <div className="conversation-document">
+    {branch.length === 0 && <div className="conversation-welcome">
+      <span className="conversation-welcome__mark" aria-hidden="true">✳</span>
+      <h2>What would you like to work on?</h2>
+      <p>Ask a question, explore an idea, or describe a change.</p>
+    </div>}
     {path && data && <VerificationStanding records={data.audit ?? []} turn={branch.at(-1)?.id} running={!!running} />}
     {path && data && <AssumptionAudit records={data.audit ?? []} path={path} source={data.source} />}
     {messages.map(({ turn, cards }) => {
       return <div className="conversation-turn" key={turn.id} data-turn={turn.id}>
         {cards.map(({ role, reading: card }, index) => {
-          return <section className={`conversation-card conversation-card--${role}`} key={index} aria-label={`${role === "user" ? "You" : role === "reasoning" ? "Reasoning" : "Agent"} message`}>
+          const message = <section className={`conversation-card conversation-card--${role}`} key={index} aria-label={`${role === "user" ? "You" : role === "reasoning" ? "Reasoning" : "Agent"} message`}>
             <header>{role === "user" ? "You" : role === "reasoning" ? "Reasoning" : "Agent"}</header>
             <ConversationBuffer reading={card} path={path} source={data?.source ?? null} id={`${turn.id}:${index}`} readOnly
               running={running} sending={sending} draft="" onDraft={() => {}} onSend={() => {}} canSend={false} showCollapsedLineage={showCollapsedLineage} />
           </section>;
+          return role === "reasoning" ? <details className="conversation-reasoning" key={index}>
+            <summary>{running === turn.id ? "Thinking…" : "Reasoning"}</summary>{message}
+          </details> : message;
         })}
         {turn.status === "ok" && renderFinal && <section className="conversation-card conversation-card--final" aria-label="Final construction">
-          <header>Final construction</header>{renderFinal(turn)}
+          <details className="conversation-review"><summary>Review project changes</summary>{renderFinal(turn)}</details>
         </section>}
       </div>;
     })}
     <section className="conversation-card conversation-card--composer" aria-label="Your response">
-      <header>Your response</header>
+      <header>Message agent</header>
       <ConversationBuffer reading={{ source: "", links: [] }} path={null} source={null} id="response" readOnly={false}
         running={running} sending={sending} draft={draft} onDraft={onDraft} onSend={onSend} canSend={canSend} showCollapsedLineage={false} />
     </section>
@@ -115,6 +123,15 @@ function ConversationBuffer({ reading, path, source, id, readOnly, running, send
     return registerReviewEditor(view, path, () => source);
   }, [view, path, source]);
   const extensions = useMemo(() => [...protectedPrefix,
+    // Omit only conversation envelopes from the reading, retaining exact bytes
+    // and native syntax for nested constructions and the editable draft.
+    ...(readOnly ? [EditorView.decorations.compute(["doc"], state => {
+      const structure = parseStructure(state.doc.toString());
+      const wrappers = structure.blocks.filter(block => ["user", "assistant", "reasoning"].includes(block.name)
+        && !structure.blocks.some(parent => parent !== block && parent.name !== "session" && parent.from < block.from && parent.to >= block.to));
+      return Decoration.set(structure.tags.filter(tag => tag.name === "session" || wrappers.some(block => tag.from === block.from || tag.to === block.to))
+        .map(tag => Decoration.replace({}).range(tag.from, tag.to)), true);
+    })] : []),
     EditorState.transactionFilter.of(tr => readOnly && tr.docChanged && !tr.annotation(replaceReading) ? [] : tr), sessionBookkeeping, ...responseSend(() => { if (latest.current.canSend) { following.current = true; latest.current.onSend(); } }),
     EditorView.domEventHandlers({
       mousedown(event) {

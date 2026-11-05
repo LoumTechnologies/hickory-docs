@@ -354,14 +354,16 @@ test("an ACP final claim about the startup Untitled note has a visible context r
   await expect(answer.locator(".cm-content")).toHaveAttribute("contenteditable", "false");
   await response.pressSequentially("## Follow-up\n\nKeep this draft.");
   await expect(response).toContainText("Keep this draft.");
-  await agent.getByRole("button", { name: "Write a response" }).click();
+  await agent.getByRole("button", { name: "Message agent" }).click();
   await expect(response).toContainText("Keep this draft.");
-  // The transcript must contribute its full height to the outer scrollport.
+  // The response stays available while history grows; review/history start quiet.
+  await expect(agent.getByText("Conversation history", { exact: true })).toBeVisible();
   await expect.poll(async () => agent.evaluate(host => {
     const draft = host.querySelector(".conversation-card--composer")!.getBoundingClientRect();
-    const strip = host.querySelector(".chat-turn-strip")!.getBoundingClientRect();
-    return { ordered: strip.top >= draft.bottom - 1 };
-  })).toEqual({ ordered: true });
+    const log = host.querySelector(".chat-log")!.getBoundingClientRect();
+    return draft.top >= log.top && draft.bottom <= log.bottom + 1;
+  })).toBe(true);
+  await page.screenshot({ path: "/tmp/hickory-agent-pane.png", fullPage: true });
   // Context remains folded; its connection must originate from the answer itself.
   const context = agent.locator(".cm-line").filter({ hasText: '<hick:context kind="editor-buffers">' });
   await expect(context.locator(".cm-hick-fold-placeholder")).toBeVisible();

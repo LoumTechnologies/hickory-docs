@@ -45,7 +45,7 @@ it("gives every message a protected buffer and keeps the draft independent durin
   const host = await screen.findByRole("textbox", { name: "Agent conversation and response" });
   const response = EditorView.findFromDOM(host)!;
   await waitFor(() => expect(rendered.container.textContent).toContain("Answer a 📝"));
-  const cards = screen.getAllByRole("textbox", { name: "Recorded message" });
+  const cards = screen.getAllByRole("textbox", { name: "Recorded message", hidden: true });
   expect(cards.length).toBeGreaterThanOrEqual(4);
   const views = cards.map(card => EditorView.findFromDOM(card)!);
   expect(new Set(views).size).toBe(cards.length);
@@ -89,6 +89,11 @@ it("keeps the final construction beside its own turn before the independent comp
   const rendered = render(<ConversationEditor {...props} renderFinal={item => <p>Construction {item.id}</p>} />);
   const cards = screen.getAllByRole("region", { name: "Final construction" });
   expect(cards).toHaveLength(2);
+  const reviews = rendered.container.querySelectorAll<HTMLDetailsElement>(".conversation-review");
+  expect(reviews).toHaveLength(2);
+  expect([...reviews].every(review => !review.open)).toBe(true);
+  fireEvent.click(reviews[0].querySelector("summary")!);
+  expect(screen.getByText("Construction a")).toBeTruthy();
   expect(cards[0].closest("[data-turn]")?.getAttribute("data-turn")).toBe("a");
   expect(cards[1].closest("[data-turn]")?.getAttribute("data-turn")).toBe("b");
   expect(rendered.container.lastElementChild?.lastElementChild?.getAttribute("aria-label")).toBe("Your response");
