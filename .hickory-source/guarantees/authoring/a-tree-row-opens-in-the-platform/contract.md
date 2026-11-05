@@ -18,7 +18,10 @@ The existing requirement is retained. Its original detail is below; implementati
 Markdown links display their label while the selection is elsewhere. Entering
 that link reveals its complete Markdown for editing; entering other text on the
 same line does not. Leaving the link hides its syntax without changing source.
-Double-click follows links and parsed Hickory include tags. Relative file paths
+Double-click follows links, parsed Hickory include tags and agent-style `@path`
+references such as `@AGENTS.md` and `@.instructions/just.md`. Quoted paths
+support spaces; `@include path` is also recognized. Email addresses, bare mentions
+and references inside inline or fenced code stay literal. Relative file paths
 resolve against the linking document and open inside Hickory. A local link's
 context menu offers the same applicable actions as its Files row, including the
 OS default program. Web links use the OS default browser; their menu also offers

@@ -19,6 +19,19 @@ afterEach(() => {
 });
 
 describe("what counts as a link", () => {
+  // Contract: .hickory-source/guarantees/authoring/a-tree-row-opens-in-the-platform/contract.md
+  it("recognizes agent @file includes without making code or mentions navigable", () => {
+    const text = '@AGENTS.md\n@.instructions/just.md\nRead @"notes/my plan.md"\n@include notes/other.md\nmail@example.com @someone `@literal.md`\n```md\n@fenced.md\n```\n[an @label.md](target.md)';
+    const state = EditorState.create({ doc: text });
+    expect(linksIn(state, inNotes).map(({ link }) => link.target)).toEqual([
+      'AGENTS.md', '.instructions/just.md', 'notes/my plan.md', 'notes/other.md', 'target.md',
+    ]);
+    expect(linkAt(state, inNotes, text.indexOf('@.instructions') + 3)?.target).toBe('.instructions/just.md');
+    expect(linksIn(state, { ...inNotes, skip: () => [[0, text.length]] })).toEqual([]);
+    const view = editorWith('@AGENTS.md', inNotes);
+    expect(view.contentDOM.querySelector('.cm-md-link')?.textContent).toBe('@AGENTS.md');
+    view.destroy();
+  });
   it("skips the ranges the caller says are not prose", () => {
     const doc = "prose [a](a.md)\ncode [b](b.md)";
     const state = EditorState.create({ doc });

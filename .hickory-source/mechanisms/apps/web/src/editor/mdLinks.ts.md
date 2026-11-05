@@ -32,6 +32,8 @@ import type { EditorState, Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 
+import { scanMarkdownProse } from "./hickDoc";
+import { fencedCodeRanges } from "./markdownStyling";
 import { findLinks, isLocalTarget, resolveTarget } from "../lib/mdLinks";
 import type { MdLink } from "../lib/mdLinks";
 
@@ -174,6 +176,12 @@ function skipped(pos: number, ranges: readonly (readonly [number, number])[]): b
 
 Every link in the buffer that is not inside a range this extension skips.
 
+Scan `@path` references alongside Markdown links so double-click, modifier-click
+and file context menus share one destination lookup. Keep the entire reference
+visible: it has no separate label to collapse. Exclude email addresses, bare
+mentions, escaped references, code fences, inline code and Markdown destinations;
+these are literal examples or other syntax, not a second navigation target.
+
 <storycode:copy id="f-1645f056db0c-linksIn">
 /** Every link in the buffer that is not inside a range this extension skips. */
 export function linksIn(
@@ -182,9 +190,26 @@ export function linksIn(
 ): { link: MdLink; from: number }[] {
   const text = state.doc.toString();
   const skips = config.skip?.(state) ?? [];
-  return findLinks(text)
-    .filter((link) => !skipped(link.from, skips))
-    .map((link) => ({ link, from: link.from }));
+  const links = findLinks(text).filter(link => !skipped(link.from, skips));
+  // Agent instruction files use @path references, optionally quoted for spaces.
+  // Require a filename/path rather than treating @mentions as filesystem links.
+  if (!text.includes("@")) return links.map(link => ({ link, from: link.from }));
+  const excluded = [...skips, ...fencedCodeRanges(text)];
+  const code = scanMarkdownProse(text, [], []).inline.filter(mark => mark.kind === "code");
+  const reference = /(?:^|[\s(])@(?:include[ \t]+)?(?:"([^"\n]+)"|'([^'\n]+)'|([^\s<>()[\]`"',;!?]+))/gm;
+  for (const match of text.matchAll(reference)) {
+    const target = match[1] ?? match[2] ?? match[3];
+    const from = match.index! + match[0].indexOf("@");
+    const to = match.index! + match[0].length;
+    if (text[from - 1] === "\\" || !/[/.\\]/.test(target) || !isLocalTarget(target) || target.includes(":") ||
+        excluded.some(([start, end]) => from < end && to > start) ||
+        code.some(mark => from >= mark.openFrom && from < mark.closeTo) ||
+        links.some(link => from >= link.from && from < link.to)) continue;
+    const targetFrom = match.index! + match[0].indexOf(target, match[0].indexOf("@") + 1);
+    links.push({ from, to, textFrom: from, textTo: to, targetFrom,
+      targetTo: targetFrom + target.length, text: text.slice(from, to), target, image: false });
+  }
+  return links.sort((a, b) => a.from - b.from).map(link => ({ link, from: link.from }));
 }
 
 </storycode:copy>
@@ -204,9 +229,9 @@ function decorationsFor(state: EditorState, config: MdLinksConfig): DecorationSe
     // leaves the whole link. A caret elsewhere on this line reveals nothing.
     const editing = link.image || state.selection.ranges.some(r => r.from <= link.to && r.to >= link.from);
     const punctuation = editing ? linkMark : Decoration.replace({});
-    ranges.push(punctuation.range(link.from, link.textFrom));
+    if (link.from < link.textFrom) ranges.push(punctuation.range(link.from, link.textFrom));
     if (link.textTo > link.textFrom) ranges.push(linkLabel.range(link.textFrom, link.textTo));
-    ranges.push(punctuation.range(link.textTo, link.to));
+    if (link.textTo < link.to) ranges.push(punctuation.range(link.textTo, link.to));
     if (!config.images || !link.image) continue;
     const resolved = resolveTarget(docPath, link.target);
     const src = resolved
@@ -459,6 +484,19 @@ afterEach(() => {
 
 <storycode:copy id="f-419d07f37b80-expression_statement-2">
 describe("what counts as a link", () => {
+  // Contract: .hickory-source/guarantees/authoring/a-tree-row-opens-in-the-platform/contract.md
+  it("recognizes agent @file includes without making code or mentions navigable", () => {
+    const text = '@AGENTS.md\n@.instructions/just.md\nRead @"notes/my plan.md"\n@include notes/other.md\nmail@example.com @someone `@literal.md`\n```md\n@fenced.md\n```\n[an @label.md](target.md)';
+    const state = EditorState.create({ doc: text });
+    expect(linksIn(state, inNotes).map(({ link }) => link.target)).toEqual([
+      'AGENTS.md', '.instructions/just.md', 'notes/my plan.md', 'notes/other.md', 'target.md',
+    ]);
+    expect(linkAt(state, inNotes, text.indexOf('@.instructions') + 3)?.target).toBe('.instructions/just.md');
+    expect(linksIn(state, { ...inNotes, skip: () => [[0, text.length]] })).toEqual([]);
+    const view = editorWith('@AGENTS.md', inNotes);
+    expect(view.contentDOM.querySelector('.cm-md-link')?.textContent).toBe('@AGENTS.md');
+    view.destroy();
+  });
   it("skips the ranges the caller says are not prose", () => {
     const doc = "prose [a](a.md)\ncode [b](b.md)";
     const state = EditorState.create({ doc });

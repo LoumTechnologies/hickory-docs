@@ -8,6 +8,8 @@ import type { EditorState, Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 
+import { scanMarkdownProse } from "./hickDoc";
+import { fencedCodeRanges } from "./markdownStyling";
 import { findLinks, isLocalTarget, resolveTarget } from "../lib/mdLinks";
 import type { MdLink } from "../lib/mdLinks";
 
@@ -115,9 +117,26 @@ export function linksIn(
 ): { link: MdLink; from: number }[] {
   const text = state.doc.toString();
   const skips = config.skip?.(state) ?? [];
-  return findLinks(text)
-    .filter((link) => !skipped(link.from, skips))
-    .map((link) => ({ link, from: link.from }));
+  const links = findLinks(text).filter(link => !skipped(link.from, skips));
+  // Agent instruction files use @path references, optionally quoted for spaces.
+  // Require a filename/path rather than treating @mentions as filesystem links.
+  if (!text.includes("@")) return links.map(link => ({ link, from: link.from }));
+  const excluded = [...skips, ...fencedCodeRanges(text)];
+  const code = scanMarkdownProse(text, [], []).inline.filter(mark => mark.kind === "code");
+  const reference = /(?:^|[\s(])@(?:include[ \t]+)?(?:"([^"\n]+)"|'([^'\n]+)'|([^\s<>()[\]`"',;!?]+))/gm;
+  for (const match of text.matchAll(reference)) {
+    const target = match[1] ?? match[2] ?? match[3];
+    const from = match.index! + match[0].indexOf("@");
+    const to = match.index! + match[0].length;
+    if (text[from - 1] === "\\" || !/[/.\\]/.test(target) || !isLocalTarget(target) || target.includes(":") ||
+        excluded.some(([start, end]) => from < end && to > start) ||
+        code.some(mark => from >= mark.openFrom && from < mark.closeTo) ||
+        links.some(link => from >= link.from && from < link.to)) continue;
+    const targetFrom = match.index! + match[0].indexOf(target, match[0].indexOf("@") + 1);
+    links.push({ from, to, textFrom: from, textTo: to, targetFrom,
+      targetTo: targetFrom + target.length, text: text.slice(from, to), target, image: false });
+  }
+  return links.sort((a, b) => a.from - b.from).map(link => ({ link, from: link.from }));
 }
 
 function decorationsFor(state: EditorState, config: MdLinksConfig): DecorationSet {
@@ -129,9 +148,9 @@ function decorationsFor(state: EditorState, config: MdLinksConfig): DecorationSe
     // leaves the whole link. A caret elsewhere on this line reveals nothing.
     const editing = link.image || state.selection.ranges.some(r => r.from <= link.to && r.to >= link.from);
     const punctuation = editing ? linkMark : Decoration.replace({});
-    ranges.push(punctuation.range(link.from, link.textFrom));
+    if (link.from < link.textFrom) ranges.push(punctuation.range(link.from, link.textFrom));
     if (link.textTo > link.textFrom) ranges.push(linkLabel.range(link.textFrom, link.textTo));
-    ranges.push(punctuation.range(link.textTo, link.to));
+    if (link.textTo < link.to) ranges.push(punctuation.range(link.textTo, link.to));
     if (!config.images || !link.image) continue;
     const resolved = resolveTarget(docPath, link.target);
     const src = resolved

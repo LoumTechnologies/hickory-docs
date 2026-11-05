@@ -26,7 +26,7 @@ def check_links(page, origin):
     source = ('<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">\n'
               '# Link reading\n\nSee [related note](notes/other.md) and '
               '[the web](https://example.com).\n\n'
-              '<hick:include file="notes/other.md" />\n</hick:doc>\n')
+              '@notes/other.md\n\n<hick:include file="notes/other.md" />\n</hick:doc>\n')
     response = page.request.post(origin + "/api/projects/local/docs", data={"path": "links.md", "source": source})
     assert response.ok, response.text()
     address = origin + "/#/docs/" + response.json()["id"]
@@ -64,7 +64,15 @@ def check_links(page, origin):
     assert {"url": "https://example.com", "browser": "firefox"} in launches, launches
     editor.locator('.cm-line').filter(has_text='file="notes/other.md"').dblclick()
     expect(destination).to_have_attribute("data-spatial-center", "true")
-    print(json.dumps({"result": "PASS", "scope": "link labels, selection, file actions, double-click, include, browser requests"}))
+    page.goto(address)
+    at_include = editor.locator('.cm-md-link').filter(has_text="@notes/other.md")
+    expect(at_include).to_be_visible()
+    at_include.click(button="right")
+    expect(page.get_by_role("menuitem", name="Open in default program", exact=True)).to_be_visible()
+    page.keyboard.press("Escape")
+    at_include.dblclick()
+    expect(destination).to_have_attribute("data-spatial-center", "true")
+    print(json.dumps({"result": "PASS", "scope": "link labels, selection, file actions, double-click, include, @include, browser requests"}))
 
 
 def main():
