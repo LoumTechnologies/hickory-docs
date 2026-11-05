@@ -4,6 +4,8 @@ import type { FileNode } from "../api/types";
 import { docPathOf, isLikelyBinaryPath, type FolderTree } from "../shell/FolderTreePane";
 import { FileActionPrompts, runFileMenuItem } from "../shell/fileMenuActions";
 import { TreeContextMenu } from "../shell/TreeContextMenu";
+import { ContextMenu } from "../components/ContextMenu";
+import { request } from "../api/client";
 import { treeMenuItems } from "../shell/treeMenu";
 import { useDired } from "../shell/useDired";
 import type { Tab } from "../shell/layout";
@@ -21,7 +23,9 @@ export function useFileTabMenu(roots: readonly FolderTree[], activeDocId: string
   const owner = useMemo(() => crypto.randomUUID(), [ownerSignature]);
   const [menu, setMenu] = useState<{ owner: string; x: number; y: number; path: string; folder: FolderTree; plainText: boolean } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [webMenu, setWebMenu] = useState<{ target: string; x: number; y: number } | null>(null);
   const dired = useDired(setNotice);
+  useEffect(() => { setWebMenu(null); }, [owner]);
   useEffect(() => { if (menu && menu.owner !== owner) setMenu(null); }, [menu, owner]);
   const open = (tab: Tab, position: { x: number; y: number }) => {
     if (!["document", "generated", "file"].includes(tab.kind) || (tabs.length > 0 && !tabs.some(current => current.id === tab.id && current.kind === tab.kind && current.target === tab.target && current.docId === tab.docId))) return false;
@@ -41,6 +45,31 @@ export function useFileTabMenu(roots: readonly FolderTree[], activeDocId: string
   const onTabContextMenu = (event: MouseEvent, tab: Tab) => {
     if (open(tab, { x: event.clientX, y: event.clientY })) { event.preventDefault(); event.stopPropagation(); }
   };
+  // Links use the same current tree metadata and verbs as Files and tabs.
+  useEffect(() => {
+    const onLink = (event: Event) => {
+      const detail = (event as CustomEvent<{ path: string | null; target: string; x: number; y: number }>).detail;
+      if (!detail) return;
+      setMenu(null); setWebMenu(null);
+      if (!detail.path) {
+        if (/^(https?|mailto|tel):/i.test(detail.target)) setWebMenu(detail);
+        return;
+      }
+      const matches = roots.filter(folder => findFile(folder.tree, detail.path!));
+      if (matches.length !== 1) return;
+      const folder = matches[0], node = findFile(folder.tree, detail.path)!;
+      setNotice(null);
+      setMenu({ owner, x: detail.x, y: detail.y, path: detail.path, folder,
+        plainText: !node.doc_id && !node.generated_by && !openable.has(detail.path) && !isLikelyBinaryPath(detail.path) });
+    };
+    const onError = (event: Event) => setNotice((event as CustomEvent<string>).detail);
+    window.addEventListener("hickory-link-menu", onLink);
+    window.addEventListener("hickory-link-error", onError);
+    return () => {
+      window.removeEventListener("hickory-link-menu", onLink);
+      window.removeEventListener("hickory-link-error", onError);
+    };
+  }, [owner, roots, openable]);
   const parent = `file-tab-menus:${useId()}`;
   const targets = tabs.filter(tab => ["document", "generated", "file"].includes(tab.kind));
   const revision = useUiRevision(() => [roots, activeDocId, [...openable], targets, menu]);
@@ -61,6 +90,14 @@ export function useFileTabMenu(roots: readonly FolderTree[], activeDocId: string
   return {
     onTabContextMenu,
     fileTabMenu: <>
+      {webMenu && <ContextMenu x={webMenu.x} y={webMenu.y} subject={webMenu.target}
+        items={[["default", "default browser"], ["chrome", "Chrome"], ["firefox", "Firefox"], ["edge", "Edge"], ["brave", "Brave"],
+          ...(/mac/i.test(navigator.platform) ? [["safari", "Safari"]] : [])].map(([id, name]) => ({ id, label: `Open in ${name}` }))}
+        onClose={() => setWebMenu(null)} onPick={item => {
+          const target = webMenu.target;
+          setWebMenu(null);
+          void request("POST", "/api/open-external", { url: target, browser: item }).catch(error => setNotice(String(error)));
+        }} /> }
       {menu && menu.owner === owner && <TreeContextMenu x={menu.x} y={menu.y} subject={menu.path}
         items={treeMenuItems({ rootPath: menu.folder.root_path, separator: menu.folder.separator, fileManager: menu.folder.file_manager }, menu.path, false, {
           plainText: menu.plainText,

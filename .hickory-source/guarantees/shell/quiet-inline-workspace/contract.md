@@ -485,6 +485,11 @@ it("requests real native pickers and creates a new unsaved file from the blank w
 
 This system witness drives the same browser controls a person uses, in Python rather than the frontend's implementation language. It verifies a quiet initial footer, typing, connection-setting discovery, panel dismissal and contextual agent status without a paid request. The two recorded timings are a single development sample, not performance guarantees. Run only against the disposable fixture because the test types into its unsaved buffer.
 
+The `--links` mode isolates the link-reading interaction in a disposable workspace.
+It uses Python Playwright and public HTTP, so changing the editor framework does
+not change its assertions. External browser launches are checked at the request
+boundary; actual host browser installation remains a separate acceptance check.
+
 <a id="output-quiet-c2657fb100b9"></a>
 <quiet:copy id="quiet-c2657fb100b9">
 #!/usr/bin/env python3
@@ -509,8 +514,55 @@ def command(page, text):
     field.press("Enter")
 
 
+# Contract: .hickory-source/guarantees/authoring/a-tree-row-opens-in-the-platform/contract.md
+def check_links(page, origin):
+    """Drive only public HTTP and visible UI, independent of editor internals."""
+    source = ('<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">\n'
+              '# Link reading\n\nSee [related note](notes/other.md) and '
+              '[the web](https://example.com).\n\n'
+              '<hick:include file="notes/other.md" />\n</hick:doc>\n')
+    response = page.request.post(origin + "/api/projects/local/docs", data={"path": "links.md", "source": source})
+    assert response.ok, response.text()
+    address = origin + "/#/docs/" + response.json()["id"]
+    page.goto(address)
+    editor = page.locator('[data-spatial-key="document:links.md"] .cm-content').first
+    label = editor.locator('.cm-md-link').filter(has_text="related note")
+    expect(label).to_be_visible(timeout=45000)
+    expect(editor).not_to_contain_text("](notes/other.md)")
+    label.click()
+    expect(editor).to_contain_text("[related note](notes/other.md)")
+    expect(editor).not_to_contain_text("](https://example.com)")
+    editor.locator('.cm-line').filter(has_text="Link reading").click()
+    expect(editor).not_to_contain_text("](notes/other.md)")
+    label.click(button="right")
+    for name in ["Rename…", "Move to…", "Copy to…", "Delete", "Copy relative path", "Open in default program"]:
+        expect(page.get_by_role("menuitem", name=name, exact=True)).to_be_visible()
+    page.keyboard.press("Escape")
+    label.dblclick()
+    destination = page.locator('[data-spatial-key="document:notes/other.md"]')
+    expect(destination).to_have_attribute("data-spatial-center", "true")
+    page.goto(address)
+    launches = []
+    def launch(route):
+        launches.append(route.request.post_data_json)
+        route.fulfill(json={"ok": True})
+    # A boundary witness records the requested browser without opening external apps.
+    page.route("**/api/open-external", launch)
+    web = page.locator('[data-spatial-key="document:links.md"] .cm-md-link').filter(has_text="the web")
+    with page.expect_response(lambda response: response.url.endswith("/api/open-external")):
+        web.dblclick()
+    assert {"url": "https://example.com"} in launches, launches
+    web.click(button="right")
+    with page.expect_response(lambda response: response.url.endswith("/api/open-external")):
+        page.get_by_role("menuitem", name="Open in Firefox", exact=True).click()
+    assert {"url": "https://example.com", "browser": "firefox"} in launches, launches
+    editor.locator('.cm-line').filter(has_text='file="notes/other.md"').dblclick()
+    expect(destination).to_have_attribute("data-spatial-center", "true")
+    print(json.dumps({"result": "PASS", "scope": "link labels, selection, file actions, double-click, include, browser requests"}))
+
+
 def main():
-    if len(sys.argv) != 2:
+    if len(sys.argv) not in (2, 3):
         raise SystemExit("Usage: test-quiet-workspace.py DISPOSABLE_WORKSPACE_URL")
     with sync_playwright() as automation:
         browser = automation.chromium.launch()
@@ -518,6 +570,11 @@ def main():
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
         started = time.monotonic()
+        if len(sys.argv) == 3 and sys.argv[2] == "--links":
+            check_links(page, sys.argv[1].rstrip("/"))
+            assert not errors, errors
+            browser.close()
+            return
         page.goto(sys.argv[1])
         editor = page.locator(".untitled-tab .cm-content").first
         expect(editor).to_be_visible(timeout=45000)

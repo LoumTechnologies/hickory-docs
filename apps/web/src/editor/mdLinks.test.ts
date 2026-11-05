@@ -3,6 +3,7 @@ import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
 import { assetUrl, followLink, linkAt, linksIn, mdLinks } from "./mdLinks";
+import { installMockHandler } from "../api/client";
 
 function editorWith(doc: string, options: Parameters<typeof mdLinks>[0]) {
   return new EditorView({
@@ -35,11 +36,16 @@ describe("what counts as a link", () => {
 });
 
 describe("how a link looks", () => {
-  it("lights the label and dims the punctuation without hiding anything", () => {
+  it("shows only the label until the caret enters that link", () => {
     const view = editorWith("see [the plan](plan.md)", inNotes);
     expect(view.state.doc.toString()).toBe("see [the plan](plan.md)");
     expect(view.contentDOM.querySelector(".cm-md-link")?.textContent).toBe("the plan");
+    expect(view.contentDOM.textContent).toBe("see the plan");
+    view.dispatch({ selection: { anchor: 8 } });
+    expect(view.contentDOM.textContent).toBe("see [the plan](plan.md)");
     expect(view.contentDOM.querySelectorAll(".cm-md-link-mark").length).toBe(2);
+    view.dispatch({ selection: { anchor: 0 } });
+    expect(view.contentDOM.textContent).toBe("see the plan");
     view.destroy();
   });
 
@@ -61,24 +67,25 @@ describe("how a link looks", () => {
 });
 
 describe("following a link", () => {
+  it("opens parsed includes through the same destination lookup", () => {
+    const state = EditorState.create({ doc: '<book:include file="other.md" />' });
+    expect(linkAt(state, { ...inNotes, includes: () => [{ from: 0, to: state.doc.length, target: "other.md" }] }, 12)?.target).toBe("other.md");
+    expect(linkAt(state, inNotes, 12)).toBeNull();
+  });
   it("asks the shell to open a document in the folder", () => {
     const seen: string[] = [];
     const listener = (e: Event) => seen.push((e as CustomEvent<string>).detail);
     window.addEventListener("hickory-open-path", listener);
     followLink("notes/weekly/mon.md", "../plan.md");
     window.removeEventListener("hickory-open-path", listener);
-    expect(seen).toEqual(["/notes/plan.md"]);
+    expect(seen).toEqual(["notes/plan.md"]);
   });
 
-  it("sends a web address to the browser", () => {
-    const open = vi.spyOn(window, "open").mockReturnValue(null);
+  it("sends a web address to the default OS browser", async () => {
+    const calls: unknown[] = [];
+    installMockHandler(async (...args) => { calls.push(args); return { ok: true }; });
     followLink("a.md", "https://example.com");
-    expect(open).toHaveBeenCalledWith(
-      "https://example.com",
-      "_blank",
-      "noopener,noreferrer",
-    );
-    open.mockRestore();
+    expect(calls).toEqual([["POST", "/api/open-external", { url: "https://example.com" }]]);
   });
 
   it("does nothing for a destination with nowhere to go", () => {

@@ -542,6 +542,9 @@ export function DocumentEditor({
           mdLinks({
             docPath: () => pathRef.current,
             images: true,
+            includes: state => structureOf(state).tags
+              .filter(tag => tag.name === "include" && !tag.closing && !!tag.attrs.file)
+              .map(tag => ({ from: tag.from, to: tag.to, target: tag.attrs.file })),
             skip: (state) => verbatimRanges(structureOf(state).blocks),
             // Click a generated picture and land on the block that writes
             // it — the way back from the output to its source.

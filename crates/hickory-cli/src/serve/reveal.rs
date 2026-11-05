@@ -36,6 +36,10 @@ pub struct RevealRequest {
     /// Empty (or absent) names the open folder itself.
     #[serde(default)]
     pub path: String,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub browser: Option<String>,
 }
 
 /// `POST /api/reveal` — show the path in the platform's file manager.
@@ -61,6 +65,11 @@ pub async fn open_external(
     State(state): State<LocalState>,
     Json(body): Json<RevealRequest>,
 ) -> ApiResult<Json<Value>> {
+    if let Some(url) = body.url {
+        let command = browser_command(&url, body.browser.as_deref())?;
+        spawn_detached(command, "the selected browser; choose another browser or check its installation")?;
+        return Ok(Json(json!({ "ok": true })));
+    }
     let target = resolve_in_root(state.index.root(), &body.path)?;
     tokio::task::spawn_blocking(move || spawn_open(&target))
         .await
@@ -204,6 +213,55 @@ fn dbus_show_item(target: &FsPath) -> Result<(), ()> {
     }
 }
 
+// URLs are separate from file paths: validate the scheme and use only fixed
+// browser executables, never a caller-supplied command or shell interpolation.
+fn browser_command(url: &str, browser: Option<&str>) -> Result<Command, ApiError> {
+    let parsed = reqwest::Url::parse(url)
+        .map_err(|_| ApiError::bad_request("Invalid link URL; edit the link and try again"))?;
+    if !matches!(parsed.scheme(), "http" | "https" | "mailto" | "tel") {
+        return Err(ApiError::bad_request(
+            "Unsupported link scheme; use an http or https link",
+        ));
+    }
+    let browser = browser.unwrap_or("default");
+    let app = match browser {
+        "default" => None,
+        "chrome" => Some(("Google Chrome", "google-chrome", "chrome.exe")),
+        "firefox" => Some(("Firefox", "firefox", "firefox.exe")),
+        "edge" => Some(("Microsoft Edge", "microsoft-edge", "msedge.exe")),
+        "brave" => Some(("Brave Browser", "brave-browser", "brave.exe")),
+        "safari" if cfg!(target_os = "macos") => Some(("Safari", "", "")),
+        _ => {
+            return Err(ApiError::bad_request(
+                "Unknown browser; choose a browser from the link menu",
+            ));
+        }
+    };
+    let mut command;
+    if cfg!(target_os = "macos") {
+        command = Command::new("open");
+        if let Some((name, _, _)) = app {
+            command.arg("-a").arg(name);
+        }
+        command.arg(url);
+    } else if cfg!(target_os = "windows") {
+        command = Command::new("rundll32.exe");
+        if let Some((_, _, executable)) = app {
+            command = Command::new(executable);
+        } else {
+            command.arg("url.dll,FileProtocolHandler");
+        }
+        command.arg(url);
+    } else {
+        command = Command::new(
+            app.map(|(_, executable, _)| executable)
+                .unwrap_or("xdg-open"),
+        );
+        command.arg(url);
+    }
+    Ok(command)
+}
+
 fn spawn_open(target: &FsPath) -> Result<(), ApiError> {
     if cfg!(target_os = "macos") {
         let mut command = Command::new("open");
@@ -222,9 +280,29 @@ fn spawn_open(target: &FsPath) -> Result<(), ApiError> {
     command.arg(target);
     spawn_detached(command, "the default program (`xdg-open`)")
 }
-
 #[cfg(test)]
 mod tests {
+    // Link navigation accepts fixed browser names and safe schemes only.
+    #[test]
+    fn browser_links_refuse_commands_and_non_web_schemes() {
+        for url in [
+            "javascript:alert(1)",
+            "file:///etc/passwd",
+            "--help",
+            "data:text/html,hello",
+        ] {
+            assert!(super::browser_command(url, None).is_err());
+        }
+        assert!(super::browser_command("https://example.com/?x=1&y=2", Some("sh")).is_err());
+        for browser in ["default", "chrome", "firefox", "edge", "brave"] {
+            let command =
+                super::browser_command("https://example.com/?x=1&y=2", Some(browser)).unwrap();
+            assert_eq!(
+                command.get_args().last().unwrap(),
+                "https://example.com/?x=1&y=2"
+            );
+        }
+    }
     use super::*;
 
     /// Everything the resolver refuses, and the one thing it accepts. None of

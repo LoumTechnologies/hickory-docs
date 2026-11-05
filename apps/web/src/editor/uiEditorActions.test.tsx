@@ -1,4 +1,5 @@
 import { mdLinks } from "./mdLinks";
+import * as client from "../api/client";
 import { codeFolding, foldEffect } from "@codemirror/language";
 import { useEditorEditing } from "./useEditorEditing";
 import { act, cleanup, renderHook } from "@testing-library/react";
@@ -96,14 +97,14 @@ it("follows only current prose links through the native navigation handler and r
   const run = (label: string, args: Record<string, number>) => registry.act(registry.scope, { id: "agent", kind: "agent" }, { handle: action(label).handle, arguments: args, request_id: String(++id) });
   const seen: string[] = []; const listener = (event: Event) => seen.push((event as CustomEvent<string>).detail);
   window.addEventListener("hickory-open-path", listener);
-  const open = vi.spyOn(window, "open").mockReturnValue(null);
+  const open = vi.spyOn(client, "request").mockResolvedValue({ ok: true });
   try {
     expect(await run("Read markdown link page", { first: 0, count: 1 })).toMatchObject({ outcome: { value: { total: 2, next: 1, links: [{ target: "../plan.md" }] } } });
     expect(await run("Follow markdown link", { position: 2 })).toMatchObject({ outcome: { value: { navigation_requested: true, path: "plan.md" } } });
-    expect(seen).toEqual(["/plan.md"]);
+    expect(seen).toEqual(["plan.md"]);
     expect(await run("Follow markdown link", { position: text.indexOf("[code]") + 2 })).toMatchObject({ outcome: { status: "unavailable" } });
     expect(await run("Follow markdown link", { position: text.indexOf("[web]") + 2 })).toMatchObject({ outcome: { value: { navigation_requested: true, tab_handle_returned: false } } });
-    expect(open).toHaveBeenCalledWith("https://example.com", "_blank", "noopener,noreferrer");
+    expect(open).toHaveBeenCalledWith("POST", "/api/open-external", { url: "https://example.com" });
     const old = action("Follow markdown link"); path = "other/a.md";
     expect(await registry.act(registry.scope, { id: "agent", kind: "agent" }, { handle: old.handle, arguments: { position: 2 }, request_id: "old-path" })).toMatchObject({ status: "stale" });
     act(() => { view.dispatch({ changes: { from: 0, to: text.length, insert: "no links" } }); });
@@ -115,7 +116,7 @@ it("follows only current prose links through the native navigation handler and r
 it("opens only generated prose image sources through the native image callback", async () => {
   const host = document.createElement("div"); document.body.append(host);
   const open = vi.fn((target: string) => target === "notes/generated.png");
-  const text = "![generated](generated.png) ![external](external.png) [text](generated.png)";
+  const text = "![generated](generated.png)\n![external](external.png)\n[text](generated.png)";
   const view = new EditorView({ parent: host, state: EditorState.create({ doc: text, extensions: [mdLinks({ docPath: () => "notes/a.md", images: true, onOpenImageSource: open })] }) });
   const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
   const wrapper = ({ children }: { children: ReactNode }) => <UiActionContext.Provider value={registry}>{children}</UiActionContext.Provider>;

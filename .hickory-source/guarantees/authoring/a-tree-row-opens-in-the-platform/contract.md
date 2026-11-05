@@ -13,6 +13,29 @@ the open folder, then nothing is started and the refusal says why.
 
 The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
 
+## Follow links while reading
+
+Markdown links display their label while the selection is elsewhere. Entering
+that link reveals its complete Markdown for editing; entering other text on the
+same line does not. Leaving the link hides its syntax without changing source.
+Double-click follows links and parsed Hickory include tags. Relative file paths
+resolve against the linking document and open inside Hickory. A local link's
+context menu offers the same applicable actions as its Files row, including the
+OS default program. Web links use the OS default browser; their menu also offers
+named browsers. Browser launch errors are shown with recovery instructions.
+
+The focused `scripts/test-quiet-workspace.py URL --links` Python browser witness checks reading,
+editing, local navigation, Files menu parity, include navigation and browser
+requests. Browser process startup is separate from page-load success; the browser
+witness intercepts external launches so it does not open unrelated applications.
+Native command tests reject unsupported schemes and arbitrary executable names.
+Actual browser installations and default associations require host acceptance.
+
+Focused verification (2026-11-05): Python link acceptance passed against the native
+engine and Chromium; 22 frontend tests passed across `mdLinks`, editor language
+actions and file menus; three `serve::reveal::tests` passed. These observations
+support link behavior and command boundaries, not every retained tree guarantee.
+
 ## Read the detailed requirements
 
 - [Requirements 1](requirements/01.md)
@@ -165,6 +188,10 @@ pub struct RevealRequest {
     /// Empty (or absent) names the open folder itself.
     #[serde(default)]
     pub path: String,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub browser: Option<String>,
 }
 
 </storycode:copy>
@@ -208,6 +235,11 @@ pub async fn open_external(
     State(state): State<LocalState>,
     Json(body): Json<RevealRequest>,
 ) -> ApiResult<Json<Value>> {
+    if let Some(url) = body.url {
+        let command = browser_command(&url, body.browser.as_deref())?;
+        spawn_detached(command, "the selected browser; choose another browser or check its installation")?;
+        return Ok(Json(json!({ "ok": true })));
+    }
     let target = resolve_in_root(state.index.root(), &body.path)?;
     tokio::task::spawn_blocking(move || spawn_open(&target))
         .await
@@ -403,7 +435,60 @@ fn dbus_show_item(target: &FsPath) -> Result<(), ()> {
 <a id="f-5a5f451acc1b-spawn_open"></a>
 ### `spawn_open`
 
+Web links ask the engine to open the OS default browser or a fixed named browser.
+Validate URL schemes before spawning and pass the URL as one argument. A menu
+choice never becomes executable text; unavailable installations report an error.
+
 <storycode:copy id="f-5a5f451acc1b-spawn_open">
+// URLs are separate from file paths: validate the scheme and use only fixed
+// browser executables, never a caller-supplied command or shell interpolation.
+fn browser_command(url: &str, browser: Option<&str>) -> Result<Command, ApiError> {
+    let parsed = reqwest::Url::parse(url)
+        .map_err(|_| ApiError::bad_request("Invalid link URL; edit the link and try again"))?;
+    if !matches!(parsed.scheme(), "http" | "https" | "mailto" | "tel") {
+        return Err(ApiError::bad_request(
+            "Unsupported link scheme; use an http or https link",
+        ));
+    }
+    let browser = browser.unwrap_or("default");
+    let app = match browser {
+        "default" => None,
+        "chrome" => Some(("Google Chrome", "google-chrome", "chrome.exe")),
+        "firefox" => Some(("Firefox", "firefox", "firefox.exe")),
+        "edge" => Some(("Microsoft Edge", "microsoft-edge", "msedge.exe")),
+        "brave" => Some(("Brave Browser", "brave-browser", "brave.exe")),
+        "safari" if cfg!(target_os = "macos") => Some(("Safari", "", "")),
+        _ => {
+            return Err(ApiError::bad_request(
+                "Unknown browser; choose a browser from the link menu",
+            ));
+        }
+    };
+    let mut command;
+    if cfg!(target_os = "macos") {
+        command = Command::new("open");
+        if let Some((name, _, _)) = app {
+            command.arg("-a").arg(name);
+        }
+        command.arg(url);
+    } else if cfg!(target_os = "windows") {
+        command = Command::new("rundll32.exe");
+        if let Some((_, _, executable)) = app {
+            command = Command::new(executable);
+        } else {
+            command.arg("url.dll,FileProtocolHandler");
+        }
+        command.arg(url);
+    } else {
+        command = Command::new(
+            app.map(|(_, executable, _)| executable)
+                .unwrap_or("xdg-open"),
+        );
+        command.arg(url);
+    }
+    Ok(command)
+}
+
 fn spawn_open(target: &FsPath) -> Result<(), ApiError> {
     if cfg!(target_os = "macos") {
         let mut command = Command::new("open");
@@ -422,7 +507,6 @@ fn spawn_open(target: &FsPath) -> Result<(), ApiError> {
     command.arg(target);
     spawn_detached(command, "the default program (`xdg-open`)")
 }
-
 </storycode:copy>
 <a id="f-5a5f451acc1b-tests"></a>
 ### `tests`
@@ -430,6 +514,27 @@ fn spawn_open(target: &FsPath) -> Result<(), ApiError> {
 <storycode:copy id="f-5a5f451acc1b-tests">
 #[cfg(test)]
 mod tests {
+    // Link navigation accepts fixed browser names and safe schemes only.
+    #[test]
+    fn browser_links_refuse_commands_and_non_web_schemes() {
+        for url in [
+            "javascript:alert(1)",
+            "file:///etc/passwd",
+            "--help",
+            "data:text/html,hello",
+        ] {
+            assert!(super::browser_command(url, None).is_err());
+        }
+        assert!(super::browser_command("https://example.com/?x=1&y=2", Some("sh")).is_err());
+        for browser in ["default", "chrome", "firefox", "edge", "brave"] {
+            let command =
+                super::browser_command("https://example.com/?x=1&y=2", Some(browser)).unwrap();
+            assert_eq!(
+                command.get_args().last().unwrap(),
+                "https://example.com/?x=1&y=2"
+            );
+        }
+    }
     use super::*;
 
     /// Everything the resolver refuses, and the one thing it accepts. None of

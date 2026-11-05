@@ -54,6 +54,10 @@ for _ in $(seq 1 100); do
   sleep .1
 done
 [ -n "$ui_origin" ] || { cat "$run_dir/vite.log"; exit 1; }
+if [ "${1:-}" = "--links" ]; then
+  "${HICKORY_SYSTEM_PYTHON:-python3}" scripts/test-quiet-workspace.py "$ui_origin" --links
+  exit
+fi
 if [ "${1:-}" = "--just-gutters" ]; then
   if [ -n "${HICKORY_SYSTEM_PYTHON:-}" ]; then
     "$HICKORY_SYSTEM_PYTHON" scripts/test-just-gutters.py "$ui_origin"

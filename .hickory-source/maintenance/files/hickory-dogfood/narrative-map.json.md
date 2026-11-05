@@ -26825,7 +26825,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "output": "apps/web/src/editor/mdLinks.ts",
       "page": ".hickory-source/mechanisms/apps/web/src/editor/mdLinks.ts.md",
       "symbol": "decorationsFor",
-      "basis": "needs-explanation",
+      "basis": "authored-explanation",
       "original_range": [
         6159,
         7741
@@ -26858,7 +26858,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "output": "apps/web/src/editor/mdLinks.ts",
       "page": ".hickory-source/mechanisms/apps/web/src/editor/mdLinks.ts.md",
       "symbol": "mdLinks",
-      "basis": "existing-source-comment",
+      "basis": "authored-explanation",
       "original_range": [
         9354,
         12812
@@ -60701,7 +60701,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "output": "apps/web/src/views/useFileTabMenu.tsx",
       "page": ".hickory-source/guarantees/authoring/the-tree-is-a-dired/contract.md",
       "symbol": "useFileTabMenu",
-      "basis": "needs-explanation",
+      "basis": "authored-explanation",
       "original_range": [
         822,
         5422
@@ -124457,7 +124457,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "output": "crates/hickory-cli/src/serve/reveal.rs",
       "page": ".hickory-source/guarantees/authoring/a-tree-row-opens-in-the-platform/contract.md",
       "symbol": "spawn_open",
-      "basis": "needs-explanation",
+      "basis": "authored-explanation",
       "original_range": [
         8519,
         9380

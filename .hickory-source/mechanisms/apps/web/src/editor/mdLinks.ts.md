@@ -15,55 +15,16 @@ Related contracts: [An Image Dropped In Becomes A File And A Reference](../../..
 <a id="f-1645f056db0c-FOLLOW_KEY"></a>
 ### `FOLLOW_KEY`
 
-Markdown links and images, in the editor: styled, followed, and shown.
-Three jobs that are one extension because they share one scan:
-- **A link looks like a link.** The label is coloured; the brackets and
-the destination are dimmed the way every other markdown mark in this app
-is (`cm-md-mark`, markdownStyling.ts). Nothing is hidden — the source is
-still the source, which is the rule the rest of the markdown display
-follows and the reason a `.md` file stays a file you can edit in vim.
-- **A link goes somewhere.** Mod-click follows it: a document opens as a
-tab, any other file in the folder opens as a pane, and a URL goes to the
-browser. Mod-click rather than click because this is an editor first —
-a plain click has to be able to put the caret inside the label.
-- **An image is the picture.** A `!…` gets the picture drawn under
-its line, read through `GET /api/asset`. Under, not instead of: the
-markdown stays visible and editable, so there is never a state where the
-text is hidden behind a widget you have to guess how to get back out of.
-## Where a link points
-A relative destination resolves against the LINKING document's directory,
-which is what it means in every other markdown tool and what keeps a folder
-of notes movable. Resolution and the `.md` → `.md` rewrite for the weave
-are both in lib/mdLinks.ts, shared with the weaver's own rule so the editor
-and the woven file cannot come to disagree about where a link goes.
+Links show their labels while reading. Entering a link exposes its original
+Markdown until the selection leaves it; decorations never rewrite the buffer.
+Double-click and Ctrl/Cmd-click follow the destination. Parsed include tags use
+the same navigation. Local context menus delegate to the Files menu owner.
+Images retain their source and preview below the line.
 
 <storycode:copy id="f-1645f056db0c-FOLLOW_KEY">
-// Markdown links and images, in the editor: styled, followed, and shown.
-//
-// Three jobs that are one extension because they share one scan:
-//
-//  - **A link looks like a link.** The label is coloured; the brackets and
-//    the destination are dimmed the way every other markdown mark in this app
-//    is (`cm-md-mark`, markdownStyling.ts). Nothing is hidden — the source is
-//    still the source, which is the rule the rest of the markdown display
-//    follows and the reason a `.md` file stays a file you can edit in vim.
-//  - **A link goes somewhere.** Mod-click follows it: a document opens as a
-//    tab, any other file in the folder opens as a pane, and a URL goes to the
-//    browser. Mod-click rather than click because this is an editor first —
-//    a plain click has to be able to put the caret inside the label.
-//  - **An image is the picture.** A `![…](…)` gets the picture drawn under
-//    its line, read through `GET /api/asset`. Under, not instead of: the
-//    markdown stays visible and editable, so there is never a state where the
-//    text is hidden behind a widget you have to guess how to get back out of.
-//
-// ## Where a link points
-//
-// A relative destination resolves against the LINKING document's directory,
-// which is what it means in every other markdown tool and what keeps a folder
-// of notes movable. Resolution and the `.md` → `.md` rewrite for the weave
-// are both in lib/mdLinks.ts, shared with the weaver's own rule so the editor
-// and the woven file cannot come to disagree about where a link goes.
+// Read links as labels, edit their Markdown in place, and follow on double-click.
 
+import { request } from "../api/client";
 import { editorLanguageActions } from "./languageActions";
 import type { UiOutcome } from "../lib/uiActions";
 import { RangeSetBuilder, StateField } from "@codemirror/state";
@@ -178,6 +139,8 @@ export interface MdLinksConfig {
    * destination resolves to; null (an untitled buffer) resolves against the
    * folder root. */
   docPath: () => string | null;
+  /** Parsed include tags share navigation, without guessing namespace syntax. */
+  includes?: (state: EditorState) => readonly { from: number; to: number; target: string }[];
   /** Ranges to leave alone — a fenced block, a generated file's body. A
    * `[…](…)` inside a shell script is shell, not a link. */
   skip?: (state: EditorState) => readonly (readonly [number, number])[];
@@ -228,17 +191,22 @@ export function linksIn(
 <a id="f-1645f056db0c-decorationsFor"></a>
 ### `decorationsFor`
 
+Replace only punctuation and destination ranges while reading. Selection changes
+rebuild decorations so leaving one link hides its syntax even on the same line.
+
 <storycode:copy id="f-1645f056db0c-decorationsFor">
 function decorationsFor(state: EditorState, config: MdLinksConfig): DecorationSet {
   const ranges: Range<Decoration>[] = [];
   const docPath = config.docPath();
   const seenLines = new Set<number>();
   for (const { link } of linksIn(state, config)) {
-    // `[` … `](` … `)` dimmed, the label lit. An image's `!` goes with the
-    // punctuation it belongs to.
-    ranges.push(linkMark.range(link.from, link.textFrom));
+    // Keep a destination editable after entering its label, until the caret
+    // leaves the whole link. A caret elsewhere on this line reveals nothing.
+    const editing = link.image || state.selection.ranges.some(r => r.from <= link.to && r.to >= link.from);
+    const punctuation = editing ? linkMark : Decoration.replace({});
+    ranges.push(punctuation.range(link.from, link.textFrom));
     if (link.textTo > link.textFrom) ranges.push(linkLabel.range(link.textFrom, link.textTo));
-    ranges.push(linkMark.range(link.textTo, link.to));
+    ranges.push(punctuation.range(link.textTo, link.to));
     if (!config.images || !link.image) continue;
     const resolved = resolveTarget(docPath, link.target);
     const src = resolved
@@ -291,15 +259,17 @@ to the web has always gone.
 export function followLink(docPath: string | null, target: string): UiOutcome {
   if (!isLocalTarget(target)) {
     if (/^(https?|mailto|tel):/i.test(target)) {
-      const opened = window.open(target, "_blank", "noopener,noreferrer");
-      return { status: "completed", value: { navigation_requested: true, tab_handle_returned: !!opened, target, scope: "Browser request only; no page-load witness" } };
+      void request("POST", "/api/open-external", { url: target }).catch(error => {
+        window.dispatchEvent(new CustomEvent("hickory-link-error", { detail: String(error) }));
+      });
+      return { status: "completed", value: { navigation_requested: true, tab_handle_returned: false, target, scope: "Default browser request only; no page-load witness" } };
     }
     return { status: "unavailable", reason: "This link has no supported navigation target" };
   }
   const resolved = resolveTarget(docPath, target);
   if (!resolved) return { status: "unavailable", reason: "This link cannot resolve against the current document" };
   window.dispatchEvent(
-    new CustomEvent<string>("hickory-open-path", { detail: `/${resolved}` }),
+    new CustomEvent<string>("hickory-open-path", { detail: resolved }),
   );
   return { status: "completed", value: { navigation_requested: true, path: resolved, scope: "Shell open request only; no loaded-document witness" } };
 }
@@ -318,6 +288,12 @@ export function linkAt(
   for (const { link } of linksIn(state, config)) {
     if (pos >= link.from && pos <= link.to) return link;
   }
+  for (const include of config.includes?.(state) ?? []) {
+    if (pos >= include.from && pos <= include.to) return {
+      ...include, image: false, text: include.target,
+      textFrom: include.from, textTo: include.to, targetFrom: include.from, targetTo: include.to,
+    };
+  }
   return null;
 }
 
@@ -325,12 +301,20 @@ export function linkAt(
 <a id="f-1645f056db0c-mdLinks"></a>
 ### `mdLinks`
 
+The first mousedown remembers the destination before selection exposes syntax.
+Double-click reuses it only for the same nearby gesture; ordinary clicks remain
+editor selection. Includes arrive from the language parser rather than a second
+tag regex. Context-menu events carry destinations to the shared Files menu owner.
+
 Links styled, followed on Mod-click, and images drawn.
 
 <storycode:copy id="f-1645f056db0c-mdLinks">
-/** Links styled, followed on Mod-click, and images drawn. */
+/** Labels for reading, Markdown for editing, double-click navigation and images. */
 export function mdLinks(config: MdLinksConfig): Extension {
   const position = { type: "number" as const, integer: true, minimum: 0, maximum: 100_000_000 };
+  // First click expands the source and can move text under the second click.
+  // Retain its destination for the duration of this double-click gesture.
+  let pressed: { target: string; x: number; y: number; time: number } | null = null;
   return [
     editorLanguageActions.of({
       id: "markdown-links", label: "Read markdown link page",
@@ -365,12 +349,40 @@ export function mdLinks(config: MdLinksConfig): Extension {
     StateField.define<{ path: string | null; decorations: DecorationSet }>({
       create: (state) => ({ path: config.docPath(), decorations: decorationsFor(state, config) }),
       // Renaming the owning document can change asset resolution without edits.
-      update: (value, tr) => tr.docChanged || value.path !== config.docPath() ? { path: config.docPath(), decorations: decorationsFor(tr.state, config) } : value,
+      update: (value, tr) => tr.docChanged || tr.selection || value.path !== config.docPath() ? { path: config.docPath(), decorations: decorationsFor(tr.state, config) } : value,
       provide: (f) => EditorView.decorations.from(f, value => value.decorations),
     }),
     EditorView.domEventHandlers({
+      dblclick(event, view) {
+        if (event.button !== 0) return false;
+        const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+        const target = pressed && event.timeStamp - pressed.time < 1000 && Math.abs(event.clientX - pressed.x) < 5 && Math.abs(event.clientY - pressed.y) < 5
+          ? pressed.target : pos === null ? null : linkAt(view.state, config, pos)?.target;
+        pressed = null;
+        if (!target) return false;
+        event.preventDefault();
+        followLink(config.docPath(), target);
+        return true;
+      },
+      contextmenu(event, view) {
+        const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+        const link = pos === null ? null : linkAt(view.state, config, pos);
+        if (!link) return false;
+        event.preventDefault();
+        window.dispatchEvent(new CustomEvent("hickory-link-menu", { detail: {
+          path: resolveTarget(config.docPath(), link.target), target: link.target,
+          x: event.clientX, y: event.clientY,
+        } }));
+        return true;
+      },
       mousedown(event, view) {
-        if (!(event.metaKey || event.ctrlKey) || event.button !== 0) return false;
+        if (event.button !== 0) return false;
+        if (event.detail < 2) {
+          const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+          const link = pos === null ? null : linkAt(view.state, config, pos);
+          pressed = link ? { target: link.target, x: event.clientX, y: event.clientY, time: event.timeStamp } : null;
+        }
+        if (!(event.metaKey || event.ctrlKey)) return false;
         const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
         if (pos === null) return false;
         const link = linkAt(view.state, config, pos);
@@ -411,6 +423,7 @@ import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
 import { assetUrl, followLink, linkAt, linksIn, mdLinks } from "./mdLinks";
+import { installMockHandler } from "../api/client";
 
 function editorWith(doc: string, options: Parameters<typeof mdLinks>[0]) {
   return new EditorView({
@@ -429,6 +442,11 @@ const inNotes = { docPath: () => "notes/a.md" };
 </storycode:copy>
 <a id="f-419d07f37b80-expression_statement"></a>
 ### `expression_statement`
+
+The display witness moves the caret into and out of the same link, checking both
+the rendered label and unchanged source. Navigation assertions inspect the shell
+or browser request boundary; only the Python browser witness demonstrates a
+loaded destination document.
 
 <storycode:copy id="f-419d07f37b80-expression_statement">
 afterEach(() => {
@@ -463,11 +481,16 @@ describe("what counts as a link", () => {
 
 <storycode:copy id="f-419d07f37b80-expression_statement-3">
 describe("how a link looks", () => {
-  it("lights the label and dims the punctuation without hiding anything", () => {
+  it("shows only the label until the caret enters that link", () => {
     const view = editorWith("see [the plan](plan.md)", inNotes);
     expect(view.state.doc.toString()).toBe("see [the plan](plan.md)");
     expect(view.contentDOM.querySelector(".cm-md-link")?.textContent).toBe("the plan");
+    expect(view.contentDOM.textContent).toBe("see the plan");
+    view.dispatch({ selection: { anchor: 8 } });
+    expect(view.contentDOM.textContent).toBe("see [the plan](plan.md)");
     expect(view.contentDOM.querySelectorAll(".cm-md-link-mark").length).toBe(2);
+    view.dispatch({ selection: { anchor: 0 } });
+    expect(view.contentDOM.textContent).toBe("see the plan");
     view.destroy();
   });
 
@@ -494,24 +517,25 @@ describe("how a link looks", () => {
 
 <storycode:copy id="f-419d07f37b80-expression_statement-4">
 describe("following a link", () => {
+  it("opens parsed includes through the same destination lookup", () => {
+    const state = EditorState.create({ doc: '<book:include file="other.md" />' });
+    expect(linkAt(state, { ...inNotes, includes: () => [{ from: 0, to: state.doc.length, target: "other.md" }] }, 12)?.target).toBe("other.md");
+    expect(linkAt(state, inNotes, 12)).toBeNull();
+  });
   it("asks the shell to open a document in the folder", () => {
     const seen: string[] = [];
     const listener = (e: Event) => seen.push((e as CustomEvent<string>).detail);
     window.addEventListener("hickory-open-path", listener);
     followLink("notes/weekly/mon.md", "../plan.md");
     window.removeEventListener("hickory-open-path", listener);
-    expect(seen).toEqual(["/notes/plan.md"]);
+    expect(seen).toEqual(["notes/plan.md"]);
   });
 
-  it("sends a web address to the browser", () => {
-    const open = vi.spyOn(window, "open").mockReturnValue(null);
+  it("sends a web address to the default OS browser", async () => {
+    const calls: unknown[] = [];
+    installMockHandler(async (...args) => { calls.push(args); return { ok: true }; });
     followLink("a.md", "https://example.com");
-    expect(open).toHaveBeenCalledWith(
-      "https://example.com",
-      "_blank",
-      "noopener,noreferrer",
-    );
-    open.mockRestore();
+    expect(calls).toEqual([["POST", "/api/open-external", { url: "https://example.com" }]]);
   });
 
   it("does nothing for a destination with nowhere to go", () => {
