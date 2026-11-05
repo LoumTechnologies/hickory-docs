@@ -460,6 +460,9 @@ it("keeps the editor, selection and unsaved bytes through Settings without repla
 <a id="f-65ac24c24624-expression_statement-5"></a>
 ### `expression_statement`
 
+Window-close cancellation must have exactly one visible button and retain the
+same editor and its unsaved text. The singular role query rejects duplicates.
+
 <storycode:copy id="f-65ac24c24624-expression_statement-5">
 it("checks unsaved work visibly when closing the app from Settings", async () => {
   const close = vi.spyOn(api, "closeWindow").mockResolvedValue({ ok: true });
@@ -473,7 +476,7 @@ it("checks unsaved work visibly when closing the app from Settings", async () =>
   const dialog = await app.findByRole("dialog", { name: /^Save changes before closing Hickory Docs\?/ });
   expect(app.queryByRole("heading", { name: /^Settings$/ })).toBeNull();
   expect(close).not.toHaveBeenCalled();
-  fireEvent.click(within(dialog).getAllByRole("button", { name: "Cancel" })[0]);
+  fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   expect(editor(app.container)).toBe(view);
   expect(view.state.doc.toString()).toContain("Unsaved work");
 });
@@ -499,7 +502,7 @@ it("lets an agent request the same visible window-close decision from Settings",
   await act(async () => { pending = registry.act(registry.scope, { id: "python:test", kind: "agent" }, { handle: action.handle, arguments: {}, request_id: "close-from-settings" }); });
   const dialog = await app.findByRole("dialog", { name: /^Save changes before closing Hickory Docs\?/ });
   expect(app.queryByRole("heading", { name: /^Settings$/ })).toBeNull();
-  fireEvent.click(within(dialog).getAllByRole("button", { name: "Cancel" })[0]);
+  fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   await act(async () => { expect(await pending).toMatchObject({ status: "result", outcome: { status: "completed", value: { cancelled: true, host_close_submitted: false } } }); });
   expect(close).not.toHaveBeenCalled(); expect(editor(app.container)).toBe(view);
   expect(view.state.doc.toString()).toContain("Retained agent-close draft");
@@ -508,6 +511,9 @@ it("lets an agent request the same visible window-close decision from Settings",
 </storycode:copy>
 <a id="f-65ac24c24624-expression_statement-7"></a>
 ### `expression_statement`
+
+The dirty-tab flow first cancels through a singular button query and checks that
+the note survives, then reopens the decision and verifies explicit discard.
 
 <storycode:copy id="f-65ac24c24624-expression_statement-7">
 describe("the startup workspace", () => {
@@ -749,6 +755,12 @@ describe("the startup workspace", () => {
     fireEvent.click(first.getByRole("button", { name: "Close Untitled" }));
     await waitFor(() => expect(first.getByRole("button", { name: "Discard" })).toBeTruthy());
     expect(first.getByText(/Save changes to Untitled/).textContent).toContain("discards these changes");
+    fireEvent.click(within(first.getByRole("dialog", { name: /^Save changes to Untitled/ })).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(first.queryByRole("dialog", { name: /^Save changes to Untitled/ })).toBeNull());
+    expect(editor(first.container).state.doc.toString()).toBe("My unsaved note");
+    expect(first.getByRole("button", { name: "Close Untitled" })).toBeTruthy();
+    fireEvent.click(first.getByRole("button", { name: "Close Untitled" }));
+    await waitFor(() => expect(first.getByRole("button", { name: "Discard" })).toBeTruthy());
     fireEvent.click(first.getByRole("button", { name: "Discard" }));
     await waitFor(() => expect(first.container.querySelector(".untitled-tab")).toBeNull());
     fireEvent(window, new Event("pagehide"));

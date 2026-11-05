@@ -149,9 +149,9 @@ export function useUnsavedLifecycle({
         const viewBuffer = viewBuffers.get(tabId);
         const name = tab.title ?? tab.target.split("/").pop() ?? "this file";
         const answer = preparation?.choice ?? await prompt.askChoice(`Save changes to ${name}? Closing without saving discards these changes.`, [
-          { label: "Save", value: "save" as const }, { label: "Discard", value: "close" as const }, { label: "Cancel", value: "cancel" as const },
+          { label: "Save", value: "save" as const }, { label: "Discard", value: "close" as const },
         ], { agent: true, currentRevision: source, signal });
-        if (!answer || answer === "cancel" || signal?.aborted) return { status: "completed", value: { tab: tabId, cancelled: true, tab_close_requested: false } };
+        if (!answer || signal?.aborted) return { status: "completed", value: { tab: tabId, cancelled: true, tab_close_requested: false } };
         if (source() !== baseline) throw Error("The originating tab changed while its close decision was open. No save or discard was submitted; inspect it and retry.");
         decision = answer; effectsStarted = true;
         if (answer === "save") {
@@ -217,9 +217,9 @@ export function useUnsavedLifecycle({
         let choice: "save" | "close" = "save";
         if (captured.some(tab => tabDirty(tab.pane, tab.id))) {
           const answer = await prompt.askChoice("Save changes before closing Hickory Docs? Closing without saving discards all unsaved changes.", [
-            { label: "Save all", value: "save" as const }, { label: "Close without saving", value: "close" as const }, { label: "Cancel", value: "cancel" as const },
+            { label: "Save all", value: "save" as const }, { label: "Close without saving", value: "close" as const },
           ], { agent: true, currentRevision: windowSnapshot, signal });
-          if (!answer || answer === "cancel" || signal.aborted) return { status: "completed", value: { window_close_request: request, cancelled: true, host_close_submitted: false } };
+          if (!answer || signal.aborted) return { status: "completed", value: { window_close_request: request, cancelled: true, host_close_submitted: false } };
           choice = answer;
         }
         if (windowSnapshot() !== baseline) throw Error("Workspace buffers or lifecycle state changed before window-close preparation");
