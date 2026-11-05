@@ -149553,6 +149553,105 @@
       "page": ".hickory-source/guarantees/verification/predictions-precede-managed-observation/implementation/crates/hick-literate/src/prediction.rs.md",
       "symbol": "Challenge the host boundary with real execution",
       "basis": "authored-explanation"
+    },
+    {
+      "id": "quiet-deceb2806831",
+      "output": "apps/web/src/shell/WorkspaceTools.tsx",
+      "page": ".hickory-source/guarantees/shell/quiet-inline-workspace/contract.md",
+      "symbol": "WorkspaceTools",
+      "basis": "authored-explanation",
+      "original_range": [
+        0,
+        3297
+      ]
+    },
+    {
+      "id": "quiet-a891e30d12d9",
+      "output": "apps/web/src/shell/quietWorkspace.css",
+      "page": ".hickory-source/guarantees/shell/quiet-inline-workspace/contract.md",
+      "symbol": "quietWorkspace",
+      "basis": "authored-explanation",
+      "original_range": [
+        0,
+        1221
+      ]
+    },
+    {
+      "id": "quiet-16d67cad5b64",
+      "output": "apps/web/src/shell/ReviewEvents.tsx",
+      "page": ".hickory-source/guarantees/shell/quiet-inline-workspace/contract.md",
+      "symbol": "ReviewEvents",
+      "basis": "authored-explanation",
+      "original_range": [
+        0,
+        1231
+      ]
+    },
+    {
+      "id": "quiet-2c85bd61cdf0",
+      "output": "apps/web/src/lib/agentStatus.ts",
+      "page": ".hickory-source/guarantees/shell/quiet-inline-workspace/contract.md",
+      "symbol": "agentStatus",
+      "basis": "authored-explanation",
+      "original_range": [
+        0,
+        4411
+      ]
+    },
+    {
+      "id": "quiet-20ef37b0ae72",
+      "output": "apps/web/src/shell/AgentStatus.tsx",
+      "page": ".hickory-source/guarantees/shell/quiet-inline-workspace/contract.md",
+      "symbol": "AgentStatus",
+      "basis": "authored-explanation",
+      "original_range": [
+        0,
+        6813
+      ]
+    },
+    {
+      "id": "quiet-af84974b9e11",
+      "output": "apps/web/src/shell/quietWorkspace.test.tsx",
+      "page": ".hickory-source/guarantees/shell/quiet-inline-workspace/contract.md",
+      "symbol": "quietWorkspace.test",
+      "basis": "authored-explanation",
+      "original_range": [
+        0,
+        6472
+      ]
+    },
+    {
+      "id": "quiet-c2657fb100b9",
+      "output": "scripts/test-quiet-workspace.py",
+      "page": ".hickory-source/guarantees/shell/quiet-inline-workspace/contract.md",
+      "symbol": "test-quiet-workspace",
+      "basis": "authored-explanation",
+      "original_range": [
+        0,
+        3635
+      ]
+    },
+    {
+      "id": "quiet-e1c536330e37",
+      "output": "scripts/test-account-usage.py",
+      "page": ".hickory-source/guarantees/shell/quiet-inline-workspace/contract.md",
+      "symbol": "test-account-usage",
+      "basis": "authored-explanation",
+      "original_range": [
+        0,
+        4000
+      ]
+    },
+    {
+      "id": "quiet-2a402f70d3eb",
+      "output": "apps/web/src/shell/FileToolMenu.tsx",
+      "page": ".hickory-source/guarantees/shell/quiet-inline-workspace/contract.md",
+      "symbol": "FileToolMenu",
+      "basis": "authored-explanation",
+      "original_range": [
+        0,
+        1376
+      ]
     }
   ],
   "explanation_gaps": {

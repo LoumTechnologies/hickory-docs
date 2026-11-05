@@ -9,10 +9,11 @@ derivation), **context** (what was in front of the model when an agent wrote
 these lines, from the session record), and **declared** (what the author says
 it cites, `cites="…"`) — each in its own hue AND its own stroke (solid
 palette / dotted amber / dashed grey), each with a title that says what it is
-and what it cannot claim; and three toggles in the status bar show any
-subset, remembered per browser.
+and what it cannot claim; and display settings select any subset, remembered per browser. The status bar
+only labels families painted in the current view; the editor and command search
+retain access to all display settings, including disabled families.
 
-The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
+The quiet-workspace requirement supersedes permanent status-bar toggles. Other provenance distinctions remain retained; the preserved original records earlier placement.
 
 ## Read the detailed requirements
 
@@ -21,7 +22,7 @@ The existing requirement is retained. Its original detail is below; implementati
 
 Earlier wording and all later notes remain in [the preserved original](../../../support/files/docs/guarantees/lineage/three-provenances-are-drawn-apart.md.md). The paragraph ledger records their exact ranges and dispositions.
 
-Requirement decision: Retain the existing requirement without inferring new intent. Separate evidence history and retain follow-up paragraphs for review; no new implementation verification is claimed.
+Requirement decision: Keep provenance hue/stroke distinctions and remembered display preferences. The quiet-workspace contract supersedes permanent status-bar toggles; the retained detail below records the earlier placement. Focused checks and live acceptance remain separate.
 
 Implementation review: not verified. Executed checks and human judgment are recorded separately. Source and test changes stale earlier evidence.
 
@@ -344,7 +345,10 @@ export function ProvenanceToggles({
   onToggle,
   continuity,
   onContinuity,
+  displayed,
 }: {
+  /** When present this is a legend for painted connections, not a preferences list. */
+  displayed?: ReadonlySet<ProvenanceLayer>;
   layers: ReadonlySet<ProvenanceLayer>;
   onToggle: (layer: ProvenanceLayer) => void;
   /** Whether continuity is on FOR THIS PROJECT. Unlike the other three, this
@@ -357,9 +361,9 @@ export function ProvenanceToggles({
   const parent = `provenance-toggles:${useId()}`;
   const revision = useUiRevision(() => [[...layers].sort(), continuity]);
   const [error, setError] = useState("");
-  const visible = PROVENANCE_LAYERS.filter(layer => layer !== "continuity" || continuity !== undefined);
+  const visible = PROVENANCE_LAYERS.filter(layer => (!displayed || displayed.has(layer)) && (layer !== "continuity" || continuity !== undefined));
   useUiReading("visible provenance layers", { layers: visible.map(layer => ({ layer, enabled: layer === "continuity" ? !!continuity : layers.has(layer), meaning: LAYER_LABEL[layer].tip })), error });
-  const invoke = useUiCommands(visible.map(layer => ({ key: `${parent}:${layer}`, command: {
+  const invoke = useUiCommands((displayed ? [] : visible).map(layer => ({ key: `${parent}:${layer}`, command: {
     label: `Toggle ${LAYER_LABEL[layer].short} provenance`, parent, subject: parent, parameters: {}, prerequisites: [layer === "continuity" ? "Changes the project continuity setting through its existing host handler" : "Changes only the existing overlay drawing preference"],
     read: () => ({ revision: revision(), enabled: layer !== "continuity" || !!onContinuity, value: layer === "continuity" ? !!continuity : layers.has(layer) }),
     execute: async () => { if (layer === "continuity") { if (!onContinuity) return { status: "unavailable", reason: "No continuity handler is attached" }; await onContinuity(!continuity); } else await onToggle(layer); return { status: "completed", value: { change_requested: true, layer, persistence: "Inspect the resulting project/UI state; no write completion is certified here" } }; },
@@ -372,7 +376,8 @@ export function ProvenanceToggles({
       aria-label="Provenance layers"
     >
       {error && <span role="alert">{error}</span>}
-      {PROVENANCE_LAYERS.map((layer) => {
+      {visible.map((layer) => {
+        if (displayed) return <span key={layer} className={`status-bar__item provenance-toggle--${layer}`} tabIndex={0} title={LAYER_LABEL[layer].tip} data-tip={LAYER_LABEL[layer].tip}><span className="provenance-toggle__swatch" aria-hidden />{LAYER_LABEL[layer].short}</span>;
         // Continuity is not shown at all until the project has it, because a
         // toggle for a feature that records nothing is a toggle that does
         // nothing — and one that silently started writing records into

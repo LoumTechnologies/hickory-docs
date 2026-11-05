@@ -1,0 +1,11 @@
+.workspace-tool-panel { position: fixed; z-index: 60; right: 12px; bottom: 30px; width: min(560px, calc(100vw - 24px)); max-height: 65vh; overflow: auto; padding: 12px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); box-shadow: 0 4px 20px #0003; }
+.workspace-tool-panel > header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.workspace-tool-panel > header small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-tool-panel > header button { margin-left: auto; }
+.status-bar__right .status-bar__path { min-width: 0; max-width: 20vw; flex-shrink: 2; }
+.agent-status { display: inline-flex; gap: 6px; align-items: center; min-width: 0; }
+.agent-status > summary { cursor: pointer; list-style: none; max-width: 42vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-status__details { position: fixed; z-index: 65; right: 12px; bottom: 30px; max-width: min(480px, 90vw); max-height: 60vh; overflow: auto; padding: 12px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); box-shadow: 0 4px 20px #0003; }
+.agent-status__details p { margin: 4px 0; }
+.environment-notice > details:not([open]) { font-size: 12px; }
+@media (max-width: 800px) { .agent-status > summary { max-width: 30vw; } }

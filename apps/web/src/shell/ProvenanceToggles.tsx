@@ -19,7 +19,10 @@ export function ProvenanceToggles({
   onToggle,
   continuity,
   onContinuity,
+  displayed,
 }: {
+  /** When present this is a legend for painted connections, not a preferences list. */
+  displayed?: ReadonlySet<ProvenanceLayer>;
   layers: ReadonlySet<ProvenanceLayer>;
   onToggle: (layer: ProvenanceLayer) => void;
   /** Whether continuity is on FOR THIS PROJECT. Unlike the other three, this
@@ -32,9 +35,9 @@ export function ProvenanceToggles({
   const parent = `provenance-toggles:${useId()}`;
   const revision = useUiRevision(() => [[...layers].sort(), continuity]);
   const [error, setError] = useState("");
-  const visible = PROVENANCE_LAYERS.filter(layer => layer !== "continuity" || continuity !== undefined);
+  const visible = PROVENANCE_LAYERS.filter(layer => (!displayed || displayed.has(layer)) && (layer !== "continuity" || continuity !== undefined));
   useUiReading("visible provenance layers", { layers: visible.map(layer => ({ layer, enabled: layer === "continuity" ? !!continuity : layers.has(layer), meaning: LAYER_LABEL[layer].tip })), error });
-  const invoke = useUiCommands(visible.map(layer => ({ key: `${parent}:${layer}`, command: {
+  const invoke = useUiCommands((displayed ? [] : visible).map(layer => ({ key: `${parent}:${layer}`, command: {
     label: `Toggle ${LAYER_LABEL[layer].short} provenance`, parent, subject: parent, parameters: {}, prerequisites: [layer === "continuity" ? "Changes the project continuity setting through its existing host handler" : "Changes only the existing overlay drawing preference"],
     read: () => ({ revision: revision(), enabled: layer !== "continuity" || !!onContinuity, value: layer === "continuity" ? !!continuity : layers.has(layer) }),
     execute: async () => { if (layer === "continuity") { if (!onContinuity) return { status: "unavailable", reason: "No continuity handler is attached" }; await onContinuity(!continuity); } else await onToggle(layer); return { status: "completed", value: { change_requested: true, layer, persistence: "Inspect the resulting project/UI state; no write completion is certified here" } }; },
@@ -47,7 +50,8 @@ export function ProvenanceToggles({
       aria-label="Provenance layers"
     >
       {error && <span role="alert">{error}</span>}
-      {PROVENANCE_LAYERS.map((layer) => {
+      {visible.map((layer) => {
+        if (displayed) return <span key={layer} className={`status-bar__item provenance-toggle--${layer}`} tabIndex={0} title={LAYER_LABEL[layer].tip} data-tip={LAYER_LABEL[layer].tip}><span className="provenance-toggle__swatch" aria-hidden />{LAYER_LABEL[layer].short}</span>;
         // Continuity is not shown at all until the project has it, because a
         // toggle for a feature that records nothing is a toggle that does
         // nothing — and one that silently started writing records into

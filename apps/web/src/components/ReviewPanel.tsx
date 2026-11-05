@@ -11,9 +11,9 @@ import { REVIEW_TARGET, REVIEW_ERROR, reviewSelection, investigationPrompt, type
 import "./ReviewPanel.css";
 interface Investigation { event: string; thread: string; link: { id: string; conversation: string; turn?: string }; state: string; response?: string; session?: string; error?: string }
 interface History { scope?: string; events: ReviewEvent[]; targets: { thread: string; current_state: string }[]; investigations?: Investigation[] }
-export function ReviewPanel({ document, source, view }: { document?: string; source?: string; view?: EditorView | null } = {}) {
+export function ReviewPanel({ document, source, view, initialOpen = false }: { document?: string; source?: string; view?: EditorView | null; initialOpen?: boolean } = {}) {
   const instance = useId();
-  const [shown, setShown] = useState(false);
+  const [shown, setShown] = useState(initialOpen);
   const [target, setTarget] = useState<ReviewTarget | null>(null);
   const [history, setHistory] = useState<History>({ events: [], targets: [] });
   const [thread, setThread] = useState<string | null>(null);

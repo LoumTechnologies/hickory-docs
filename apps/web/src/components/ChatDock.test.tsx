@@ -10,7 +10,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 
-vi.mock("../api/client", () => ({ request: vi.fn().mockImplementation(async (_method, path: string) => path.endsWith("/agent/python/context") ? { items: [], updates: [], coverage: "No retained references in this fixture" } : {}),
+vi.mock("../api/client", () => ({ MOCK: false, request: vi.fn().mockImplementation(async (_method, path: string) => path.endsWith("/agent/python/context") ? { items: [], updates: [], coverage: "No retained references in this fixture" } : {}),
   api: { responseDraft: vi.fn().mockResolvedValue({ scope: "test", state: null }), saveResponseDraft: vi.fn().mockResolvedValue({ ok: true }), agent: vi.fn(), agentTurns: vi.fn(), agentStop: vi.fn(), executor: vi.fn().mockResolvedValue({}), sessionView: vi.fn().mockRejectedValue(new Error("No session fixture")), complete: vi.fn().mockResolvedValue({ suggestions: [] }) },
 }));
 
@@ -31,6 +31,7 @@ import {
   SLASH_HELP,
 } from "./ChatDock";
 import { api } from "../api/client";
+import { AgentStatusBar } from "../shell/AgentStatus";
 import { acpApi } from "../api/acp";
 import type { AgentTotals, AgentTurn, AgentTurnsResponse } from "../api/types";
 import type { Realtime } from "../api/realtime";
@@ -59,7 +60,7 @@ describe("switching agents", () => {
     vi.mocked(api.agent).mockResolvedValue({ session_id: "acp-turn" });
     const realtime = { onRunEvent: () => () => undefined } as unknown as Realtime;
     const props = { docId: "d1", realtime, onAgentFinished: () => undefined };
-    const view = render(<ChatDock {...props} />);
+    const view = render(<><ChatDock {...props} /><AgentStatusBar /></>);
     expect(screen.queryByRole("combobox", { name: "Agent" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
     await screen.findByRole("option", { name: "Codex (ACP)" });
@@ -69,7 +70,7 @@ describe("switching agents", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Agent" }), { target: { value: "codex" } });
     await waitFor(() => expect(acpApi.connect).toHaveBeenCalledWith("d1", "codex", undefined));
     expect(localStorage.getItem("hickory.agent")).toBe("codex");
-    expect(screen.getByText("Codex · ACP · adapter-model")).toBeTruthy();
+    expect(screen.getByText("Codex via ACP · adapter-model", { selector: "summary" })).toBeTruthy();
     await typeResponse("Use Codex");
     await waitFor(() => expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -95,6 +96,7 @@ describe("switching agents", () => {
     vi.mocked(api.agent).mockResolvedValue({ session_id:"measured-request" });
     const realtime = { onRunEvent: () => () => undefined } as unknown as Realtime;
     render(<ChatDock docId="measured" realtime={realtime} onAgentFinished={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
     const checkbox = await screen.findByRole("checkbox", { name:"Measure this request with and without Hickory features" }) as HTMLInputElement;
     await waitFor(() => expect(checkbox.disabled).toBe(false));
     await act(async () => fireEvent.click(checkbox));
@@ -115,13 +117,13 @@ describe("switching agents", () => {
     vi.mocked(api.agent).mockResolvedValue({ session_id: "python-turn" });
     const realtime = { onRunEvent: () => () => undefined } as unknown as Realtime;
     const props = { docId: "d1", realtime, onAgentFinished: () => undefined };
-    const view = render(<ChatDock {...props} />);
+    const view = render(<><ChatDock {...props} /><AgentStatusBar /></>);
     fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
     await screen.findByRole("option", { name: "Hickory Python" });
     fireEvent.change(screen.getByRole("combobox", { name: "Agent" }), { target: { value: "python" } });
     await waitFor(() => expect(acpApi.state).toHaveBeenCalledWith("d1", "python", ""));
     expect(acpApi.connect).not.toHaveBeenCalled();
-    expect(screen.getByText("Anthropic · claude-sonnet-5")).toBeTruthy();
+    expect(screen.getByText("Hickory agent · Anthropic · claude-sonnet-5", { selector: "summary" })).toBeTruthy();
     expect(screen.queryByText(/Ask the Python agent/)).toBeNull();
     expect(screen.queryByText(/Context:.*Next context projection/)).toBeNull();
     expect(screen.queryByRole("region", { name: "Conversation document edits" })).toBeNull();
@@ -301,13 +303,13 @@ describe("the dock's model control and stats line", () => {
 
   function dock() {
     return render(
-      <ChatDock
+      <><AgentStatusBar /><ChatDock
         docId="d1"
         realtime={realtime}
         collapsed={false}
         onToggleCollapsed={() => undefined}
         onAgentFinished={() => undefined}
-      />,
+      /></>,
     );
   }
 
@@ -370,12 +372,13 @@ describe("the dock's model control and stats line", () => {
       }),
     );
     dock();
-
-    const stats = await screen.findByText(
+    await waitFor(() => expect(document.querySelector(".agent-status > summary")).toBeTruthy());
+    fireEvent.click(document.querySelector(".agent-status > summary")!);
+    await screen.findByText(
       "$0.0342 · in 12.4k · out 3.1k · cache 78%",
     );
-    expect(stats.dataset.tip).toContain("cache read 44,000 tokens");
-    expect(stats.dataset.tip).toContain("cache write 500 tokens");
+    expect(screen.getByText("cache read 44,000 tokens")).toBeTruthy();
+    expect(screen.getByText("cache write 500 tokens")).toBeTruthy();
   });
 
   it("shows no stats line before any turn has reported usage", async () => {

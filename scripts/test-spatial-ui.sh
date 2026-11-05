@@ -39,6 +39,10 @@ for _ in $(seq 1 100); do
   sleep .1
 done
 [ -n "$ui_origin" ] || { cat "$run_dir/vite.log"; exit 1; }
+if [ "${1:-}" = "--quiet" ]; then
+  uv run --with playwright==1.63.0 python scripts/test-quiet-workspace.py "$ui_origin"
+  exit
+fi
 [ "$#" -gt 0 ] || set -- spatialWorkspace.spec.ts
 HICKORY_SPATIAL_URL="$ui_origin" HICKORY_E2E_CHANNEL=chromium HICKORY_E2E_URL="$ui_origin" \
   npm --prefix apps/web run test:e2e -- "$@"

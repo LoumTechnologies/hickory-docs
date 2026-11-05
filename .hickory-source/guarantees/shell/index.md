@@ -9,4 +9,7 @@ Follow the placement interaction and its editor-state witness before changing ge
 
 <book:include file="spatial-views-preserve-the-editor/contract.md" />
 
+- [A quiet inline workspace](quiet-inline-workspace/contract.md) — current interaction policy.
+<book:include file="quiet-inline-workspace/contract.md" />
+
 </book:doc>

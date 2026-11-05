@@ -396,13 +396,15 @@ describe("windows without an open folder", () => {
     window.history.replaceState(null, "", "/#/blank");
     const settings = vi.spyOn(api, "settingsKeys");
     const { getByRole, queryByRole } = render(<App />);
-    for (const action of ["files", "show-agent", "terminal", "settings", "new", "new-project"]) {
+    for (const action of ["files", "show-agent", "terminal", "settings", "new-project"]) {
       fireEvent(window, new CustomEvent("hickory-menu", { detail: action }));
       await waitFor(() => expect(getByRole("status").textContent).toContain("Open a"));
     }
     expect(queryByRole("tab")).toBeNull();
     expect(settings).not.toHaveBeenCalled();
     expect(window.location.hash).toBe("#/blank");
+    fireEvent.click(getByRole("button", { name: "New File" }));
+    await waitFor(() => expect(window.location.hash).toBe("#/new"));
   });
 });
 

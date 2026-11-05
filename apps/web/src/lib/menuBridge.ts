@@ -12,6 +12,8 @@ export type MenuAction =
    * action rather than a mode of "new", because it writes a real file and
    * runs a generator — an untitled buffer does neither. */
   | "new-project"
+  | "import-meeting"
+  | "export-snapshot"
   | "save"
   | "save-as"
   | "save-all"
@@ -48,6 +50,8 @@ export const DEDUPE_MS = 100;
 const ACTIONS: ReadonlySet<string> = new Set([
   "new",
   "new-project",
+  "import-meeting",
+  "export-snapshot",
   "save",
   "save-as",
   "save-all",

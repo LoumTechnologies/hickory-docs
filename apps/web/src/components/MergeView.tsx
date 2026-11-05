@@ -2,7 +2,6 @@ import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import type { UiCommand } from "../lib/uiActions";
 import { LocalRealtime } from "../api/realtime";
 import type { EditorView } from "@codemirror/view";
-const LiterateEditor = lazy(() => import("../editor/DocumentEditor").then(module => ({ default: module.DocumentEditor })));
 // The merge, as something to read and answer.
 //
 // It opens whenever two versions of one file both have changes worth keeping:
@@ -30,6 +29,7 @@ const LiterateEditor = lazy(() => import("../editor/DocumentEditor").then(module
 // work never disappears off the screen while they think.
 
 import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
+const LiterateEditor = lazy(() => import("../editor/DocumentEditor").then(module => ({ default: module.DocumentEditor })));
 
 import {
   conflictCount,

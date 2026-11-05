@@ -471,11 +471,32 @@ async fn status(state: State<LocalState>) -> ApiResult<Json<Value>> {
 async fn login(state: State<LocalState>) -> ApiResult<Json<Value>> {
     auth(state, true).await
 }
+async fn usage(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
+    let result = async {
+        ensure!(state.private_prediction.is_none(), "Account usage is unavailable in private prediction mode");
+        crate::engine::require_ordinary_agent_context_at(state.index.root()).await?;
+        let mut slot = state.agent.subscription.auth.lock().await;
+        if slot.is_none() { *slot = Some(Auth::start(&state).await?); }
+        let auth = slot.as_mut().unwrap();
+        let result = auth.rpc.request("account/rateLimits/read", json!({}), TIMEOUT).await?;
+        // Forward only quota fields; no credentials or account email enter this response.
+        Ok::<_, anyhow::Error>(Json(json!({
+            "rateLimits": result["rateLimits"], "rateLimitsByLimitId": result["rateLimitsByLimitId"],
+            "rateLimitResetCredits": result["rateLimitResetCredits"].as_object().map(|credits| json!({"availableCount":credits.get("availableCount")}))
+        })))
+    }.await;
+    if result.is_err() {
+        if let Some(auth) = state.agent.subscription.auth.lock().await.take() {
+            auth.rpc.kill().await;
+        }
+    }
+    result.map_err(|_| ApiError::unavailable("Codex usage is unavailable. Check native Codex sign-in and update Codex CLI, then retry."))
+}
 pub fn routes() -> axum::Router<LocalState> {
     axum::Router::new().route(
         "/agents/codex-subscription",
         axum::routing::get(status).post(login),
-    )
+    ).route("/agents/codex-subscription/usage", axum::routing::get(usage))
 }
 #[cfg(test)]
 mod tests {

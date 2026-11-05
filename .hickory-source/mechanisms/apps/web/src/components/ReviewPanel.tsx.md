@@ -39,9 +39,9 @@ interface History { scope?: string; events: ReviewEvent[]; targets: { thread: st
 ### `ReviewPanel`
 
 <storycode:copy id="f-da8b14773733-ReviewPanel">
-export function ReviewPanel({ document, source, view }: { document?: string; source?: string; view?: EditorView | null } = {}) {
+export function ReviewPanel({ document, source, view, initialOpen = false }: { document?: string; source?: string; view?: EditorView | null; initialOpen?: boolean } = {}) {
   const instance = useId();
-  const [shown, setShown] = useState(false);
+  const [shown, setShown] = useState(initialOpen);
   const [target, setTarget] = useState<ReviewTarget | null>(null);
   const [history, setHistory] = useState<History>({ events: [], targets: [] });
   const [thread, setThread] = useState<string | null>(null);

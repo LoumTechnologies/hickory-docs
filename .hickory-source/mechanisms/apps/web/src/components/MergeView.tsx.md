@@ -13,12 +13,13 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <a id="f-4c1db87e0a96-MergeViewProps"></a>
 ### `MergeViewProps`
 
+Initialize the deferred editor only after importing React. The development module transform binds React imports at their source position; calling lazy above that import makes the whole workspace fail before its first editor mounts. The quiet-workspace browser witness covers this startup path.
+
 <storycode:copy id="f-4c1db87e0a96-MergeViewProps">
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import type { UiCommand } from "../lib/uiActions";
 import { LocalRealtime } from "../api/realtime";
 import type { EditorView } from "@codemirror/view";
-const LiterateEditor = lazy(() => import("../editor/DocumentEditor").then(module => ({ default: module.DocumentEditor })));
 // The merge, as something to read and answer.
 //
 // It opens whenever two versions of one file both have changes worth keeping:
@@ -46,6 +47,7 @@ const LiterateEditor = lazy(() => import("../editor/DocumentEditor").then(module
 // work never disappears off the screen while they think.
 
 import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
+const LiterateEditor = lazy(() => import("../editor/DocumentEditor").then(module => ({ default: module.DocumentEditor })));
 
 import {
   conflictCount,

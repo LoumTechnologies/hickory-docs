@@ -85,10 +85,17 @@ function EnvironmentGroup({ finding, environments }: { finding: EnvironmentFindi
 }
 
 export function EnvironmentNotice({ environments }: { environments: Environments }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
   const finding = environments.notices[0];
+  const invoke = useUiCommands(finding ? [{ key: "environment-notice:visibility", command: {
+    label: "Set dependency setup details visibility", parent: "workspace-environments", subject: "environment-notice", parameters: { open: { type: "boolean" } }, prerequisites: [],
+    read: () => ({ revision: `${finding.revision}:${expanded}`, enabled: true, value: expanded === finding.revision }),
+    execute: async args => { setExpanded(args.open ? finding.revision : null); return { status: "completed", value: { open: Boolean(args.open) } }; },
+  } }] : []);
   if (!finding) return null;
   return <aside className="environment-notice" role="status" aria-label="Project environment needs attention">
-    <Finding finding={finding} environments={environments} />
+    <details key={finding.revision} open={expanded === finding.revision} onToggle={event => setExpanded(event.currentTarget.open ? finding.revision : null)}><summary onClick={event => { event.preventDefault(); void invoke("environment-notice:visibility", { open: expanded !== finding.revision }); }}>{finding.message} Review dependency setup…</summary>
+    {expanded === finding.revision && <Finding finding={finding} environments={environments} />}</details>
     {environments.error && <p role="alert">{environments.error}</p>}
     <button type="button" onClick={() => environments.dismiss(finding)}>Dismiss</button>
   </aside>;

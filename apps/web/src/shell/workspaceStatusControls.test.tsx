@@ -20,20 +20,20 @@ function controls() {
 }
 // Guarantee: docs/guarantees/agent/ui-action-dispatch.md
 it("shares status and project navigation handlers and retires replaced status handles", async () => {
-  const c = controls(), git = vi.fn(), problems = vi.fn(), attention = vi.fn(), environments = vi.fn(), graph = vi.fn();
-  const ui = (path: string, projectId: string | null) => <UiActionContext.Provider value={c.registry}>
+  const c = controls(), git = vi.fn(), problems = vi.fn(), attention = vi.fn(), environments = vi.fn();
+  const ui = (path: string, count: number) => <UiActionContext.Provider value={c.registry}>
     <StatusBar problems={{ errors: 1, warnings: 0 }} needsAttention={1} path={path} zoom={1} git={{ branch: "main", dirty: 2 }} onGit={git} onProblems={problems} onAttention={attention} />
-    <WorkspaceStatusExtras provenance={{ layers: new Set(), onToggle: () => {} }} environmentCount={2} onEnvironments={environments} projectId={projectId} onGraph={graph} />
+    <WorkspaceStatusExtras provenance={{ layers: new Set(), onToggle: () => {} }} environmentCount={count} onEnvironments={environments}  />
   </UiActionContext.Provider>;
-  const rendered = render(ui("a.md", "first"));
-  await act(async () => { expect(await c.run("Show status branch history")).toMatchObject({ outcome: { value: { view_requested: true } } }); await c.run("Show status problems"); await c.run("Go to next waiting terminal"); await c.run("Show workspace environments"); await c.run("Show workspace lineage graph"); });
-  expect([git.mock.calls.length, problems.mock.calls.length, attention.mock.calls.length, environments.mock.calls.length, graph.mock.calls.length]).toEqual([1, 1, 1, 1, 1]);
+  const rendered = render(ui("a.md", 2));
+  await act(async () => { expect(await c.run("Show status branch history")).toMatchObject({ outcome: { value: { view_requested: true } } }); await c.run("Show status problems"); await c.run("Go to next waiting terminal"); await c.run("Show workspace environments"); });
+  expect([git.mock.calls.length, problems.mock.calls.length, attention.mock.calls.length, environments.mock.calls.length]).toEqual([1, 1, 1, 1]);
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Branch main, 2 changed" })));
   expect(git).toHaveBeenCalledTimes(2);
-  const old = c.action("Show status branch history"), oldGraph = c.action("Show workspace lineage graph");
-  rendered.rerender(ui("b.md", null));
+  const old = c.action("Show status branch history"), oldEnvironment = c.action("Show workspace environments");
+  rendered.rerender(ui("b.md", 0));
   expect(await c.registry.act(c.registry.scope, { id: "agent", kind: "agent" }, { handle: old.handle, arguments: {}, request_id: "old" })).toMatchObject({ status: "stale" });
-  expect(await c.registry.act(c.registry.scope, { id: "agent", kind: "agent" }, { handle: oldGraph.handle, arguments: {}, request_id: "old-graph" })).toMatchObject({ status: "unavailable" });
+  expect(await c.registry.act(c.registry.scope, { id: "agent", kind: "agent" }, { handle: oldEnvironment.handle, arguments: {}, request_id: "old-graph" })).toMatchObject({ status: "unavailable" });
 });
 // Guarantee: docs/guarantees/agent/ui-action-dispatch.md
 it("shares provenance toggles and never invents an unavailable project continuity control", async () => {

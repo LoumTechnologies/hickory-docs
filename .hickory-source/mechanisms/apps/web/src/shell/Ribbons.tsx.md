@@ -789,6 +789,7 @@ export function RibbonOverlay({
   ribbonStyle = "bands",
   visibility = "caret",
   onNavigate,
+  onVisibleFamilies,
 }: {
   container: HTMLElement | null;
   /**
@@ -813,6 +814,7 @@ export function RibbonOverlay({
    */
   visibility?: RibbonVisibility;
   onNavigate?: (target: RibbonTarget, intent?: RibbonOpenIntent) => void;
+  onVisibleFamilies?: (families: ReadonlySet<RibbonFamily>) => void;
 }) {
   const [shapes, setShapes] = useState<Shape[]>([]);
   const frame = useRef<number | null>(null);
@@ -1398,6 +1400,11 @@ export function RibbonOverlay({
   const isShown = (shape: Shape) => !!shape.alwaysVisible || (visibility === "caret" ? shape.caret || revealedKeys.has(shape.key) : shape.ends === "text" && !shape.whitespaceOnly || revealedKeys.has(shape.key));
   const disclose = (shape: Shape, visible: boolean) => { setHovered(visible ? shape : null); if (visible) reveal.current?.enter(shape.key); else reveal.current?.leave(shape.key); };
   const act = useRibbonActions(shapes, isShown, disclose, onNavigate ? shape => onNavigate(shape.target, ribbonOpenIntent(container, shape.hl[0]?.view.dom, shape.target)) : undefined);
+  // Measure actual painted shapes, not enabled preferences or available links.
+  // A stable key keeps caret polling from re-rendering the workspace needlessly.
+  const paintedFamilies = [...new Set(shapes.filter(isShown).map(shape => shape.family))].sort().join(",");
+  useEffect(() => { onVisibleFamilies?.(new Set(paintedFamilies ? paintedFamilies.split(",") as RibbonFamily[] : [])); }, [paintedFamilies, onVisibleFamilies]);
+  useEffect(() => () => onVisibleFamilies?.(new Set()), [onVisibleFamilies]);
   if (shapes.length === 0) return null;
   return (
     <svg className="ribbon-layer">

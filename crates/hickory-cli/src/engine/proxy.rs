@@ -120,10 +120,21 @@ async fn forward(State(proxy): State<Proxy>, req: Request) -> Response {
         (shell.cancel_quit)();
         return Json(json!({"ok":true})).into_response();
     }
+    if req.method() == axum::http::Method::POST && matches!(req.uri().path(), "/api/window/open-file" | "/api/window/open-folder") {
+        if proxy.connection.attach.prediction.is_some() {
+            return (StatusCode::FORBIDDEN, Json(json!({"error":"End private prediction and open an ordinary window before choosing another file or folder."}))).into_response();
+        }
+        match super::private_prediction_active().await {
+            Ok(false) => {},
+            _ => return (StatusCode::FORBIDDEN, Json(json!({"error":"File pickers are unavailable during private prediction. End the private session before opening another location."}))).into_response(),
+        }
+    }
     let local_window = match (req.method().as_str(), req.uri().path()) {
         ("GET", "/api/window/status") => Some(Some(WindowOperation::Inspect)),
         ("POST", "/api/window/minimize") => Some(Some(WindowOperation::Minimize)),
         ("POST", "/api/window/restore") => Some(Some(WindowOperation::Restore)),
+        ("POST", "/api/window/open-file") => Some(Some(WindowOperation::OpenFile)),
+        ("POST", "/api/window/open-folder") => Some(Some(WindowOperation::OpenFolder)),
         ("POST", "/api/window/close") if proxy.connection.private_ended() => Some(None),
         _ => None,
     };

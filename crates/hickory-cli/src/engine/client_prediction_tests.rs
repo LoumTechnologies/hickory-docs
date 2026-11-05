@@ -176,6 +176,10 @@ async fn native_window_close_requires_end_and_survives_retired_engine() {
         );
     }
     assert_eq!(closed.load(Ordering::SeqCst), 0);
+    // Contract: .hickory-source/guarantees/shell/quiet-inline-workspace/contract.md
+    for path in ["/api/window/open-file", "/api/window/open-folder"] {
+        assert_eq!(router.clone().oneshot(request("POST", path, "{}", None)).await.unwrap().status(), StatusCode::FORBIDDEN);
+    }
     for path in [
         "/api/window/status",
         "/api/window/minimize",

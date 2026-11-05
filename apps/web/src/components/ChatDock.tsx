@@ -1,4 +1,7 @@
 import { useConversationActions } from "./uiConversationActions";
+import { useAgentStatus } from "../shell/AgentStatus";
+import { agentIdentity } from "../lib/agentStatus";
+import { MoreActions } from "./MoreActions";
 import { ConversationModelChoice } from "./ConversationModelChoice";
 import { UiCheckbox } from "./UiCheckbox";
 import { ContextUpdates } from "./ContextUpdates";
@@ -555,8 +558,12 @@ export function ChatDock({
     },
   }), [docId, contextLabel, selectedSession, tip]);
 
+  const statusNode = useRef<HTMLElement>(null);
+  useAgentStatus({ identity: agentIdentity(backend, PROVIDERS.find(item => item.id === provider)?.label ?? provider, model.trim() || defaultModelFor(provider), acp.state, acp.agents.find(agent => agent.id === backend)?.name),
+    owner: `${docId}:${selectedSession ?? "new"}:${tip ?? "root"}`, backend, provider: backend === "python" ? provider : "", node: statusNode, agents: acp.agents,
+    details: totals && (hasUsage(totals) || totals.subscription) ? `${statsLine(totals)}\n${statsTooltip(totals)}` : undefined }, !collapsed);
   return (
-    <section
+    <section ref={statusNode}
       className={`chat-dock${collapsed ? " collapsed" : ""}${onToggleCollapsed ? "" : " chat-dock--pane"}`}
       aria-label="Agent chat"
       data-coach-target="agent"
@@ -575,20 +582,8 @@ export function ChatDock({
         ) : (
           <span className="chat-toggle chat-toggle--static">Agent</span>
         )}
-        <span className="chat-identity" title={backend === "python" ? "Python agent · provider and selected model" : "ACP adapter · reported model"}>
-          {backend === "python" ? `${PROVIDERS.find(p => p.id === provider)?.label ?? provider} · ${model.trim() || defaultModelFor(provider)}` : `${acp.agents.find(a => a.id === backend)?.name ?? backend} · ACP · ${acp.state?.configOptions?.find(o => o.category === "model" || o.id === "model")?.currentValue || acp.state?.models?.currentModelId || "Model not reported"}`}
-        </span>
-        {turns.length > 0 && (
-          <span className="chat-count">
-            {branch.length} of {turns.length} turn
-            {turns.length === 1 ? "" : "s"} on this branch
-          </span>
-        )}
-        {totals && (hasUsage(totals) || totals.subscription) && (
-          <span className="chat-stats muted" data-tip={statsTooltip(totals)}>
-            {statsLine(totals)}
-          </span>
-        )}
+        <MoreActions label="Conversation actions">
+          {turns.length > 0 && <span className="muted">{branch.length} of {turns.length} turns on this branch</span>}
         {tip && (
           <button
             className="btn-link chat-new"
@@ -609,6 +604,7 @@ export function ChatDock({
             Tree
           </button>
         )}
+        </MoreActions>
         {!collapsed && <FeatureSettings label="Agent settings" owner={docId}>
         {backend === "python" && <ConversationModelChoice scope={`${docId}:${tip ?? "root"}:${selectedSession ?? "new"}`} provider={provider} model={model} disabled={running !== null || sending} providers={PROVIDERS} defaultModel={defaultModelFor(provider)} onProvider={next => { setProvider(next); setModel(""); setUnavailable(false); setError(null); }} onModel={setModel} />}
       <AgentPicker scope={`${docId}:${tip ?? "root"}:${selectedSession ?? "new"}`} backend={backend} agents={acp.agents} disabled={running !== null || sending} detecting={acp.detecting} error={acp.catalogueError}
@@ -617,13 +613,14 @@ export function ChatDock({
         }} />
         <AcpControls doc={docId} backend={backend} running={running !== null} control={acp} settingsOnly />
         {contextControls}
+      {!collapsed && <FeatureExperiments doc={docId} backend={backend} running={running !== null || sending || acp.busy} features={experimentFeatures} activeFeatures={activeExperimentFeatures} onFeatures={setExperimentFeatures} onUpdate={async () => { const result = await acp.install(); if (result.error) throw new Error(result.error); if (result.superseded) throw new Error("Agent selection changed; inspect the installed adapter before retrying"); }} />}
         <label><UiCheckbox label="conversation collapsed lineage" checked={showCollapsedLineage} onCheckedChange={checked => {
           setShowCollapsedLineage(checked); saveCollapsedLineage(checked);
         }} />Show lineage for collapsed conversation items</label>
         </FeatureSettings>}
       </header>
       {!collapsed && <AcpControls doc={docId} backend={backend} running={running !== null} control={acp} settingsOpen={false} showTools={false} />}
-      {!collapsed && <FeatureExperiments doc={docId} backend={backend} running={running !== null || sending || acp.busy} features={experimentFeatures} activeFeatures={activeExperimentFeatures} onFeatures={setExperimentFeatures} onUpdate={async () => { const result = await acp.install(); if (result.error) throw new Error(result.error); if (result.superseded) throw new Error("Agent selection changed; inspect the installed adapter before retrying"); }} />}
+
 
       {!collapsed && (
         <div className="chat-log" ref={logRef}>

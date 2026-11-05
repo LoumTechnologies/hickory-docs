@@ -50,6 +50,8 @@ pub enum WindowOperation {
     Inspect,
     Minimize,
     Restore,
+    OpenFile,
+    OpenFolder,
 }
 #[derive(Debug, Deserialize, Serialize)]
 pub struct WindowStatus {

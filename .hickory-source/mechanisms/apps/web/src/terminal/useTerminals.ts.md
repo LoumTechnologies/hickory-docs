@@ -101,8 +101,10 @@ export function useTerminals(): Terminals {
   useEffect(() => {
     const captured = { live: true, sequence: 0 }; life.current = captured;
     refresh();
-    const timer = window.setInterval(refresh, POLL_MS);
-    return () => { captured.live = false; captured.sequence++; window.clearInterval(timer); };
+    const poll = () => { if (!document.hidden) refresh(); };
+    const timer = window.setInterval(poll, POLL_MS);
+    window.addEventListener("focus", poll);
+    return () => { captured.live = false; captured.sequence++; window.clearInterval(timer); window.removeEventListener("focus", poll); };
   }, [refresh]);
   const perform = useCallback(async (what: () => Promise<unknown>): Promise<boolean> => {
     const captured = life.current;

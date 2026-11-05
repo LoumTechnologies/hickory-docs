@@ -118,10 +118,17 @@ function EnvironmentGroup({ finding, environments }: { finding: EnvironmentFindi
 
 <storycode:copy id="f-a428d5761b36-EnvironmentNotice">
 export function EnvironmentNotice({ environments }: { environments: Environments }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
   const finding = environments.notices[0];
+  const invoke = useUiCommands(finding ? [{ key: "environment-notice:visibility", command: {
+    label: "Set dependency setup details visibility", parent: "workspace-environments", subject: "environment-notice", parameters: { open: { type: "boolean" } }, prerequisites: [],
+    read: () => ({ revision: `${finding.revision}:${expanded}`, enabled: true, value: expanded === finding.revision }),
+    execute: async args => { setExpanded(args.open ? finding.revision : null); return { status: "completed", value: { open: Boolean(args.open) } }; },
+  } }] : []);
   if (!finding) return null;
   return <aside className="environment-notice" role="status" aria-label="Project environment needs attention">
-    <Finding finding={finding} environments={environments} />
+    <details key={finding.revision} open={expanded === finding.revision} onToggle={event => setExpanded(event.currentTarget.open ? finding.revision : null)}><summary onClick={event => { event.preventDefault(); void invoke("environment-notice:visibility", { open: expanded !== finding.revision }); }}>{finding.message} Review dependency setup…</summary>
+    {expanded === finding.revision && <Finding finding={finding} environments={environments} />}</details>
     {environments.error && <p role="alert">{environments.error}</p>}
     <button type="button" onClick={() => environments.dismiss(finding)}>Dismiss</button>
   </aside>;
@@ -189,6 +196,8 @@ describe("project environment affordances", () => {
   it("shows command and directory beside the sync action and submits that finding", () => {
     const environments = controller();
     render(<EnvironmentNotice environments={environments} />);
+    expect(screen.queryByRole("button", { name: "Sync dependencies" })).toBeNull();
+    fireEvent.click(screen.getByText(/Review dependency setup/));
     expect(screen.getByText("uv sync --locked")).toBeTruthy();
     expect(screen.getByText("/repo/analysis · host")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Sync dependencies" }));
@@ -198,6 +207,7 @@ describe("project environment affordances", () => {
   });
   it("disables a repair while its terminal is running", () => {
     render(<EnvironmentNotice environments={controller({ running: { [finding.project]: "session" } })} />);
+    fireEvent.click(screen.getByText(/Review dependency setup/));
     expect((screen.getByRole("button", { name: "Installing…" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByRole("button", { name: "Show terminal" })).toBeTruthy();
   });

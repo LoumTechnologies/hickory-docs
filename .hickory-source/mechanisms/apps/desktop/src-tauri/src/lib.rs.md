@@ -311,6 +311,8 @@ fn native_window_operation(
         .ok_or_else(|| anyhow::anyhow!("Current native window closed"))?;
     match operation {
         WindowOperation::Inspect => {}
+        WindowOperation::OpenFile => on_menu(handle, "open-file"),
+        WindowOperation::OpenFolder => on_menu(handle, "open-folder"),
         WindowOperation::Minimize => window.minimize()?,
         WindowOperation::Restore => {
             window.show()?;
@@ -382,6 +384,8 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
             "Open Folder…",
             "CmdOrCtrl+Shift+O",
         )?)
+        .item(&item(handle, &keys, "import-meeting", "Import Meeting…", "")?)
+        .item(&item(handle, &keys, "export-snapshot", "Export Document Snapshot…", "")?)
         .item(&recent.files)
         .item(&recent.folders)
         .separator()
@@ -712,7 +716,7 @@ fn on_menu(app: &AppHandle, id: &str) {
             }
         }
         "new" | "new-project" | "save" | "save-as" | "save-all" | "print" | "settings"
-        | "files" | "show-agent" | "terminal" | "attention" | "edit-element" => {
+        | "files" | "show-agent" | "terminal" | "attention" | "edit-element" | "import-meeting" | "export-snapshot" => {
             dispatch_to_ui(app, id)
         }
         // Zoom, both scopes. Handled by the page rather than by the webview's

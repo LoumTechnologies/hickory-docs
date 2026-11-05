@@ -43,7 +43,7 @@ test("configure the Python agent, review its edit, recover the conversation and 
   const response = agent.getByRole("textbox", { name: "Agent conversation and response" });
   await expect(agent.getByRole("region", { name: "Conversation document edits" })).toHaveCount(0);
   await expect(agent.getByRole("button", { name: /Changed agent context/ })).toHaveCount(0);
-  await expect(agent.locator(".chat-identity")).toContainText("Anthropic");
+  await expect(page.locator(".agent-status > summary")).toContainText("Anthropic");
   await page.screenshot({ path: "/tmp/hickory-python-agent-empty.png", fullPage: true });
   await response.click(); await response.press("ControlOrMeta+End"); await response.pressSequentially("Propose in Python");
   const sent = page.waitForRequest(request => request.method() === "POST" && /\/api\/docs\/[^/]+\/agent$/.test(new URL(request.url()).pathname));

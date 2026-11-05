@@ -20,6 +20,8 @@ describe("project environment affordances", () => {
   it("shows command and directory beside the sync action and submits that finding", () => {
     const environments = controller();
     render(<EnvironmentNotice environments={environments} />);
+    expect(screen.queryByRole("button", { name: "Sync dependencies" })).toBeNull();
+    fireEvent.click(screen.getByText(/Review dependency setup/));
     expect(screen.getByText("uv sync --locked")).toBeTruthy();
     expect(screen.getByText("/repo/analysis · host")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Sync dependencies" }));
@@ -29,6 +31,7 @@ describe("project environment affordances", () => {
   });
   it("disables a repair while its terminal is running", () => {
     render(<EnvironmentNotice environments={controller({ running: { [finding.project]: "session" } })} />);
+    fireEvent.click(screen.getByText(/Review dependency setup/));
     expect((screen.getByRole("button", { name: "Installing…" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByRole("button", { name: "Show terminal" })).toBeTruthy();
   });

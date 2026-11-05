@@ -66870,6 +66870,123 @@
       "fragments": [],
       "anchor": "preserve-the-negative-result-and-a-continuation-record",
       "narrative_owner": "mechanism:prediction-reactive-benchmark"
+    },
+    "apps/web/src/shell/WorkspaceTools.tsx": {
+      "source": ".hickory-source/guarantees/shell/quiet-inline-workspace/contract.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "1411024189b660a31dbe0aefb0b45243ac7d2c4a31c4f0b2db7055e3cce1d5ad",
+      "construction": "fragments",
+      "fragments": [
+        "quiet-deceb2806831"
+      ],
+      "anchor": "output-quiet-deceb2806831",
+      "narrative_owner": "shell:quiet-inline-workspace"
+    },
+    "apps/web/src/shell/quietWorkspace.css": {
+      "source": ".hickory-source/guarantees/shell/quiet-inline-workspace/contract.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "8df64d8d41d1f82c3763609f5085a77b5929a50187d018ae37d35ab48f7716a4",
+      "construction": "fragments",
+      "fragments": [
+        "quiet-a891e30d12d9"
+      ],
+      "anchor": "output-quiet-a891e30d12d9",
+      "narrative_owner": "shell:quiet-inline-workspace"
+    },
+    "apps/web/src/shell/ReviewEvents.tsx": {
+      "source": ".hickory-source/guarantees/shell/quiet-inline-workspace/contract.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "8f1d5f6870ca5ad43d57ea5a83485699160d0b6a7ab10566416b4f027137d8bb",
+      "construction": "fragments",
+      "fragments": [
+        "quiet-16d67cad5b64"
+      ],
+      "anchor": "output-quiet-16d67cad5b64",
+      "narrative_owner": "shell:quiet-inline-workspace"
+    },
+    "apps/web/src/lib/agentStatus.ts": {
+      "source": ".hickory-source/guarantees/shell/quiet-inline-workspace/contract.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "38c0af17fb17f256ec9cd3cd240fa8063e6c366f964dc6946a06393ce3704a51",
+      "construction": "fragments",
+      "fragments": [
+        "quiet-2c85bd61cdf0"
+      ],
+      "anchor": "output-quiet-2c85bd61cdf0",
+      "narrative_owner": "shell:quiet-inline-workspace"
+    },
+    "apps/web/src/shell/AgentStatus.tsx": {
+      "source": ".hickory-source/guarantees/shell/quiet-inline-workspace/contract.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "8d9e166376c1631cfddc683b595e0e924ec675430fa6f42e854b94786b22ddee",
+      "construction": "fragments",
+      "fragments": [
+        "quiet-20ef37b0ae72"
+      ],
+      "anchor": "output-quiet-20ef37b0ae72",
+      "narrative_owner": "shell:quiet-inline-workspace"
+    },
+    "apps/web/src/shell/quietWorkspace.test.tsx": {
+      "source": ".hickory-source/guarantees/shell/quiet-inline-workspace/contract.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "abc453263ca3da48fe62a39c998fcdfe34d40287780d18b38f9e184d5361a59d",
+      "construction": "fragments",
+      "fragments": [
+        "quiet-af84974b9e11"
+      ],
+      "anchor": "output-quiet-af84974b9e11",
+      "narrative_owner": "shell:quiet-inline-workspace"
+    },
+    "scripts/test-quiet-workspace.py": {
+      "source": ".hickory-source/guarantees/shell/quiet-inline-workspace/contract.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "e0de4cf6ea964b73dfc7143fb17a6806b1d6c12b6f17c74144eb9174464831d8",
+      "construction": "fragments",
+      "fragments": [
+        "quiet-c2657fb100b9"
+      ],
+      "anchor": "output-quiet-c2657fb100b9",
+      "narrative_owner": "shell:quiet-inline-workspace"
+    },
+    "scripts/test-account-usage.py": {
+      "source": ".hickory-source/guarantees/shell/quiet-inline-workspace/contract.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "58d579cb048cfcfb4385cbb32949b1b199ee33c66c051853a567c401898cd210",
+      "construction": "fragments",
+      "fragments": [
+        "quiet-e1c536330e37"
+      ],
+      "anchor": "output-quiet-e1c536330e37",
+      "narrative_owner": "shell:quiet-inline-workspace"
+    },
+    "apps/web/src/shell/FileToolMenu.tsx": {
+      "source": ".hickory-source/guarantees/shell/quiet-inline-workspace/contract.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "c29accaf05d25d8bcc6f9e6801bab9faf61413dbb5fb46bb319d0b867d2ea742",
+      "construction": "fragments",
+      "fragments": [
+        "quiet-2a402f70d3eb"
+      ],
+      "anchor": "output-quiet-2a402f70d3eb",
+      "narrative_owner": "shell:quiet-inline-workspace"
     }
   },
   "evidence_records": [

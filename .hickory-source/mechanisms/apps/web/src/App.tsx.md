@@ -93,15 +93,15 @@ export function App() {
   const workspace = useRef<{ route: WorkspaceRoute; hash: string } | null>(null);
   if (inWorkspace) workspace.current = { route: route as WorkspaceRoute, hash: location.hash || "#/" };
   if (route.name === "blank") workspace.current = null;
-  const pendingWorkspaceEvents = useRef<string[]>([]);
+  const pendingWorkspaceEvents = useRef<{ event: string; detail?: string }[]>([]);
   const returnToWorkspace = () => {
     navigate(workspace.current?.hash.replace(/^#/, "") ?? "/");
     if (route.name === "settings") window.dispatchEvent(new Event(SETTINGS_CLOSED));
   };
-  const revealWorkspaceAndDispatch = (event: string) => {
-    if (inWorkspace) window.dispatchEvent(new CustomEvent(event));
+  const revealWorkspaceAndDispatch = (event: string, detail?: string) => {
+    if (inWorkspace) window.dispatchEvent(new CustomEvent(event, { detail }));
     else {
-      pendingWorkspaceEvents.current.push(event);
+      pendingWorkspaceEvents.current.push({ event, detail });
       returnToWorkspace();
     }
   };
@@ -109,8 +109,8 @@ export function App() {
     if (!inWorkspace) return;
     // Wait until the retained workspace is visible before a command moves
     // its focus or opens a pane. Its editors and layout stay mounted.
-    for (const event of pendingWorkspaceEvents.current.splice(0)) {
-      window.dispatchEvent(new CustomEvent(event));
+    for (const { event, detail } of pendingWorkspaceEvents.current.splice(0)) {
+      window.dispatchEvent(new CustomEvent(event, { detail }));
     }
   }, [inWorkspace]);
 
@@ -187,11 +187,11 @@ export function App() {
       }
       switch (action) {
         case "new":
-          if (routeRef.current.name === "blank") {
-            setNotice("Open a folder before creating a document.");
-            return;
-          }
           newDocument();
+          return;
+        case "import-meeting":
+        case "export-snapshot":
+          revealWorkspaceAndDispatch("hickory-file-tool", action);
           return;
         case "new-project":
           if (routeRef.current.name === "blank") {
@@ -278,7 +278,7 @@ export function App() {
     ...([['new', 'Create untitled document'], ['new-project', 'Open new project dialog'], ['files', 'Show workspace Files'], ['show-agent', 'Show workspace agent'], ['settings', 'Open settings']] as const).map(([action, label]) => ({
       key: `application-navigation/${action}`, command: {
         label, parent: 'application-navigation', subject: 'application-navigation', parameters: {}, prerequisites: ['An open workspace is required'],
-        read: () => ({ revision: JSON.stringify([route, newProject]), enabled: route.name !== 'blank', reason: route.name === 'blank' ? 'Open a workspace first' : undefined }),
+        read: () => ({ revision: JSON.stringify([route, newProject]), enabled: action === 'new' || route.name !== 'blank', reason: route.name === 'blank' && action !== 'new' ? 'Open a workspace first' : undefined }),
         execute: async () => { handleMenuAction(action); return { status: 'completed' as const, value: { dispatch: 'requested', result: 'Observe the actual route, pane or dialog' } }; },
       },
     })),
@@ -824,13 +824,15 @@ describe("windows without an open folder", () => {
     window.history.replaceState(null, "", "/#/blank");
     const settings = vi.spyOn(api, "settingsKeys");
     const { getByRole, queryByRole } = render(<App />);
-    for (const action of ["files", "show-agent", "terminal", "settings", "new", "new-project"]) {
+    for (const action of ["files", "show-agent", "terminal", "settings", "new-project"]) {
       fireEvent(window, new CustomEvent("hickory-menu", { detail: action }));
       await waitFor(() => expect(getByRole("status").textContent).toContain("Open a"));
     }
     expect(queryByRole("tab")).toBeNull();
     expect(settings).not.toHaveBeenCalled();
     expect(window.location.hash).toBe("#/blank");
+    fireEvent.click(getByRole("button", { name: "New File" }));
+    await waitFor(() => expect(window.location.hash).toBe("#/new"));
   });
 });
 

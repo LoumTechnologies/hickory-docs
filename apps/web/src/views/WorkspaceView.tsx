@@ -1,13 +1,7 @@
-import { CoverageTools } from "../coverage/CoverageTools";
 import { workspaceTreeFiles } from "./workspaceTreeFiles";
 import { useUiReading } from "../lib/uiReading";
 import { runWorkspaceMenu } from "./workspaceMenuActions";
 import { useWorkspaceMenuActions } from "./uiWorkspaceMenuActions";
-import { NativeRuntimeHistory } from "../debug/RuntimeRuns";
-import { MeetingImport } from "../components/MeetingImport";
-import { SnapshotExport } from "../components/SnapshotExport";
-import { WorkflowTour } from "../components/WorkflowTour";
-import { ReviewPanel } from "../components/ReviewPanel";
 import { useFileTabMenu } from "./useFileTabMenu";
 import { documentCommands } from "./documentCommands";
 import { resolveDocumentPath, openIndexedDocument } from "./indexedDocumentPath";
@@ -38,7 +32,6 @@ import type {
 } from "../api/types";
 import { WorkspaceChat } from "./deferredAgent";
 import { InsertMenu } from "../components/InsertMenu";
-import { MoreActions } from "../components/MoreActions";
 import { PlainFilePane } from "../components/PlainFilePane";
 import { ScratchpadPane } from "../components/ScratchpadPane";
 import { SearchPanel } from "../components/SearchPanel";
@@ -78,6 +71,11 @@ import {
 } from "../shell/Ribbons";
 import { samePath } from "../lib/paths";
 import { WorkspaceStatusExtras } from "../environments/WorkspaceStatusExtras";
+import { PaneHeaderContent } from "../shell/PaneHeader";
+import { FileToolMenu } from "../shell/FileToolMenu";
+import { plainSearchEditor } from "../lib/workspaceSearch";
+import { ReviewEvents } from "../shell/ReviewEvents";
+import { AgentStatusBar } from "../shell/AgentStatus";
 import { findNodeByPath, joinRel } from "../shell/workspacePaths";
 import { nextWorkspaceProblem } from "../shell/nextWorkspaceProblem";
 import {
@@ -189,7 +187,12 @@ export type WorkspaceRoute = Extract<
   { name: "doc" } | { name: "new" } | { name: "scratchpad" }
 >;
 
+const WorkspaceTools = lazy(() => import("../shell/WorkspaceTools").then(module => ({ default: module.WorkspaceTools })));
+
 export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
+  const [tool, setToolKind] = useState<"connections" | "execution" | "review" | "import" | "export" | "help" | null>(null);
+  const [toolTarget, setToolTarget] = useState<{ path: string | null; document?: string; source?: string; view?: EditorView | null }>({ path: null });
+  const [paintedFamilies, setPaintedFamilies] = useState<ReadonlySet<RibbonFamily>>(new Set());
   const startup = useRef(route.name === "new" && route.introduction === true).current;
   const [layout, setLayout] = useState<Layout>(() =>
     startup ? openUntitledTab(initialWorkspace()) : initialWorkspace(),
@@ -556,6 +559,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       }
       if (mode === "command") {
         const all: CommandItem[] = [...documentCommands(registry.get(focusedDocId(layoutRef.current))),
+          ...([ ["connections", "Connection display"], ["execution", "Tests and execution"], ["review", "Review this file"], ["import", "Import meeting"], ["export", "Export document snapshot"], ["help", "Workflow help"] ] as const).map(([id, label]) => ({ id: `tool-${id}`, label, detail: "Open a temporary panel", run: () => setTool(id) })),
+          ...(projectId ? [{ id: "document-connections-graph", label: "Show document connections graph", detail: "Workspace lineage", run: () => navigate(`/projects/${encodeURIComponent(projectId)}/lineage`) }] : []),
           ...welcomeActions.map((action) => ({
             id: action.id,
             label: action.label,
@@ -604,7 +609,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         run: () => openHitRef.current(node.path, 1),
       }));
     },
-    [welcomeActions, registry],
+    [welcomeActions, registry, projectId],
   );
   /**
    * Open a path and put the caret on a line.
@@ -1239,6 +1244,15 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       saveUntitled, flush: requestFlushSaves, print: printFocusedBuffer, insert: openInsert, editElement: openEditElement,
     }, destination);
   };
+  useEffect(() => {
+    const openTool = (event: Event) => {
+      const value = (event as CustomEvent<string>).detail;
+      if (value === "import-meeting") setTool("import");
+      if (value === "export-snapshot") setTool("export");
+    };
+    window.addEventListener("hickory-file-tool", openTool);
+    return () => window.removeEventListener("hickory-file-tool", openTool);
+  }, []);
   const invokeDocumentMenu = useWorkspaceMenuActions(menuSnapshot, handleDocumentMenu);
   const menuHandler = useRef(invokeDocumentMenu); menuHandler.current = invokeDocumentMenu;
   useEffect(() => {
@@ -1443,6 +1457,19 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
    * its tab's zoom box without this switch growing another level of
    * indentation.
    */
+  function setTool(kind: typeof tool, tab?: Tab) {
+    if (kind) {
+      const pane = panesOf(layoutRef.current.root).find(pane => pane.id === layoutRef.current.focus);
+      const current = tab ?? pane?.tabs[pane.active];
+      const session = registry.get(current?.docId);
+      const path = current && ["document", "generated", "file"].includes(current.kind) ? current.target : null;
+      const view = current?.kind === "generated" ? session?.openOutputs.get(current.target)
+        : current?.kind === "file" ? plainSearchEditor(current.target)
+        : current?.kind === "untitled" ? bufferEditor(current.id) : session?.docEditor;
+      setToolTarget({ path, document: current?.kind === "document" ? current.docId : undefined, source: view?.state.doc.toString() ?? session?.liveSource, view });
+    }
+    setToolKind(kind);
+  }
   const renderTabBody = (tab: Tab): ReactNode => {
     if (tab.kind === "document" && tab.docId) {
       return (
@@ -1641,6 +1668,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       {/* Plain files' debug sessions, held above their panes so a session
           survives the tab that started it being fronted away. */}
       <PlainDebugHosts />
+      {tool !== "review" && <ReviewEvents />}
       <CommandBar candidates={commandCandidates} overlay />
       <div className="doc-main">
         {/* Asked at open, because a clone that never ran `hick init` merges
@@ -1687,6 +1715,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
                 }
               >
                 {renderTabBody(tab)}
+                {["document", "generated", "file", "untitled"].includes(tab.kind) && <PaneHeaderContent part="actions">
+                  <FileToolMenu name={tab.title ?? tab.target} document={tab.kind === "document"}
+                    readRevision={() => [tab.id, registry.get(tab.docId)?.liveSource, plainSources.current.get(tab.id)]} onOpen={kind => setTool(kind, tab)} />
+                </PaneHeaderContent>}
               </div>
             )}
           />
@@ -1699,6 +1731,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             layers={drawnLayers}
             ribbonStyle={ribbonStyle}
             visibility={ribbonVisibility}
+            onVisibleFamilies={setPaintedFamilies}
             onNavigate={(target, intent) => {
               const spatial = requestSpatialRibbonOpen(shellBox, target, intent);
               const routed = spatial ? layoutRef.current : prepareRibbonOpen(layoutRef.current, paneBoxes(shellBox), intent);
@@ -1825,6 +1858,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           Nothing is waiting on you.
         </p>
       )}
+      {tool && <Suspense fallback={<span role="status">Opening tool…</span>}><WorkspaceTools
+        key={`${tool}:${toolTarget.path}`} tool={tool} {...toolTarget}
+        provenance={{ layers, onToggle: toggleProvenance, continuity, onContinuity: setContinuityEnabled }} projectId={projectId ?? null}
+        onGraph={() => navigate(`/projects/${encodeURIComponent(projectId ?? "")}/lineage`)}
+        onOpen={(path, line) => openHit(path, line ?? 1)} onOpenNote={id => { ensureDocOpen(id); navigate(`/docs/${id}`); }} close={() => setTool(null)}
+      /></Suspense>}
       <StatusBar
         git={git}
         onGit={() => setLayout(openGitTab)}
@@ -1834,20 +1873,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         zoom={zoom.uiZoom}
         extra={<>
           <WorkspaceStatusExtras
-            provenance={{ layers, onToggle: toggleProvenance, continuity, onContinuity: setContinuityEnabled }}
+            provenance={{ layers, onToggle: toggleProvenance, displayed: paintedFamilies, continuity, onContinuity: setContinuityEnabled }}
             environmentCount={environments.notices.length}
             onEnvironments={() => setProblemsOpen(true)}
-            projectId={projectId ?? null}
-            onGraph={() => navigate(`/projects/${encodeURIComponent(projectId ?? "")}/lineage`)}
           />
-          <MoreActions label="Workspace tools">
-            <CoverageTools path={focusedPath} />
-            <ReviewPanel document={focused?.doc?.path} source={focused?.liveSource} view={focused?.docEditor} />
-            <MeetingImport onOpen={(path, line) => openHit(path, line ?? 1)} onOpenNote={(id) => { ensureDocOpen(id); navigate(`/docs/${id}`); }} />
-            <SnapshotExport docId={focused?.docId} />
-            <NativeRuntimeHistory path={focused?.doc?.path} source={focused?.liveSource} view={focused?.docEditor} />
-            <WorkflowTour surface="app" onOpen={(path, line) => openHit(path, line ?? 1)} focused={{ path: focused?.doc?.path, source: focused?.liveSource, view: focused?.docEditor }} />
-          </MoreActions>
+          <AgentStatusBar />
         </>}
         onProblems={() => setProblemsOpen((open) => !open)}
         onAttention={nextAttention}

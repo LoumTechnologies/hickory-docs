@@ -421,6 +421,10 @@ test-spatial-ui:
 test-workflow-ui:
     bash scripts/test-spatial-ui.sh workflow-polish.spec.ts
 
+# Focused Python browser witness; uses uv and the existing Playwright Chromium installation.
+test-quiet-ui:
+    bash scripts/test-spatial-ui.sh --quiet
+
 test-workflow:
     cd apps/web && npm run typecheck && npm test -- src/App.test.tsx src/shell/CommandBar.test.tsx src/views/documentCommands.test.ts src/views/useWorkspaceAppearance.test.tsx src/views/ConversationEditor.test.tsx src/components/ChatDock.test.tsx src/editor/DocumentEditor.test.tsx src/components/CellPanel.test.tsx
 

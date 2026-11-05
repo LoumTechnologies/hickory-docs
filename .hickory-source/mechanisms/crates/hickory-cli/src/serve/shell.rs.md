@@ -89,6 +89,8 @@ pub enum WindowOperation {
     Inspect,
     Minimize,
     Restore,
+    OpenFile,
+    OpenFolder,
 }
 </storycode:copy>
 <a id="f-16984801199b-WindowStatus"></a>
