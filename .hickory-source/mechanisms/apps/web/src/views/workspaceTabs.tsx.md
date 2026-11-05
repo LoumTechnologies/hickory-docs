@@ -32,7 +32,7 @@ import { ActionNotice } from "../components/ActionNotice";
 // from WorkspaceView so the workspace file stays about OWNING the layout
 // rather than about what is inside any pane.
 
-import { useId, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useId, useEffect, useMemo, useRef, useState } from "react";
 import { openLiterate } from "../lib/openRepresentation";
 import type { EditorView } from "@codemirror/view";
 
@@ -192,12 +192,12 @@ export function DocTabBody({
   // Before the early returns: hooks may not be conditional, and the baseline
   // outlives whatever the session is doing.
   const baseline = useBaseline(docId);
-  const loadMessage = session?.fatalError || (!session?.doc || !session.blocks ? "Loading document…" : null);
+  const loadMessage = session?.fatalError || (!session?.doc ? "Loading document…" : null);
   useUiReading("document tab load state", { doc_id: docId, phase: session?.fatalError ? "failed" : loadMessage ? "loading" : "loaded", message: loadMessage });
   if (!session) return <p className="muted">Loading document…</p>;
   if (session.fatalError) return <p className="error">{session.fatalError}</p>;
-  const { doc, blocks, debug } = session;
-  if (!doc || !blocks) return <p className="muted">Loading document…</p>;
+  const { doc, debug } = session;
+  if (!doc) return <p className="muted">Loading document…</p>;
   const running = session.runningCells.size > 0;
 
   return (
@@ -295,9 +295,11 @@ export function DocTabBody({
 <a id="f-b5a48fd337ae-GeneratedTabBody"></a>
 ### `GeneratedTabBody`
 
-One generated file, owned by `docId` — the tab carries the owner, so the
-fetch, the debounced save, and the provenance all reach the right
-document when several are open at once.
+Start the file pane even when its owner session is absent. Its disk read is
+independent; optional session props attach provenance navigation and debugging
+later. Literate document tabs likewise mount their source editor as soon as the
+document arrives, using no rendered blocks until a matching projection is ready.
+Neither pending render nor pending language services should hide source text.
 
 <storycode:copy id="f-b5a48fd337ae-GeneratedTabBody">
 /** One generated file, owned by `docId` — the tab carries the owner, so the
@@ -317,23 +319,23 @@ export function GeneratedTabBody({
   onSource?: (path: string, source: string) => void;
 }) {
   const session = useDocSession(registry, docId);
-  useUiReading("generated tab session state", { doc_id: docId, path, session_loaded: !!session, message: session ? null : `Loading ${path}…` });
-  // The session appears one tick after its host mounts; the file fetch is
-  // cheap enough to wait for the LSP wiring rather than mount without it.
-  if (!session) return <p className="muted">Loading {path}…</p>;
+  useUiReading("generated tab session state", { doc_id: docId, path, session_loaded: !!session, message: session ? null : "Source capabilities are loading." });
+  const registerOutputView = session?.registerOutputView;
+  const ready = useCallback((target: { view: EditorView } | null) => {
+    registerOutputView?.(path, target?.view ?? null);
+  }, [registerOutputView, path]);
+  // Disk text does not depend on the owner session or its language services.
   return (
     <GeneratedFileView
       docId={docId}
       path={path}
       bufferId={bufferId}
       onSource={onSource}
-      liveFile={session.outputs.get(path) ?? null}
-      debugger={session.doc ? {debug:session.debug,source:session.liveSource,docPath:session.doc.path,askText:session.askText} : undefined}
-      makeOutputLsp={session.makeOutputLsp}
-      onSourceEdits={session.flashSourceEdits}
-      onReady={(target) =>
-        session.registerOutputView(path, target ? target.view : null)
-      }
+      liveFile={session?.outputs.get(path) ?? null}
+      debugger={session?.doc ? {debug:session.debug,source:session.liveSource,docPath:session.doc.path,askText:session.askText} : undefined}
+      makeOutputLsp={session?.makeOutputLsp}
+      onSourceEdits={session?.flashSourceEdits}
+      onReady={ready}
     />
   );
 }
@@ -741,6 +743,10 @@ it("shares the document header launcher and disclosed menu callback with agent r
 <a id="f-5370130a675d-expression_statement-9"></a>
 ### `expression_statement`
 
+The pending-render witness holds blocks at null while source is available. The
+absent-owner witness proves the generated pane starts without a session; actual
+disk visibility and write safety are tested with the real editor in shell/views.
+
 <storycode:copy id="f-5370130a675d-expression_statement-9">
 it("reads actual loading/fatal states before the document editor exists without including source", async () => {
   const sessions = new SessionRegistry(), registry = new UiActions({ workspace: "p", window: "loading" }, () => true, async () => {});
@@ -752,6 +758,23 @@ it("reads actual loading/fatal states before the document editor exists without 
   expect(mounted.getByText("Document cannot be opened")).toBeTruthy();
   const failed = await read(); expect(JSON.parse(failed)).toMatchObject({ phase: "failed", message: "Document cannot be opened" });
   expect(failed).not.toContain("NEVER INCLUDE SOURCE");
+});
+
+// Contract: .hickory-source/guarantees/shell/quiet-inline-workspace/contract.md
+it("shows literate source while rendering is pending and keeps the editor mounted", () => {
+  const sessions = new SessionRegistry();
+  sessions.publish(makeSession({ blocks: null }));
+  const mounted = render(<DocTabBody registry={sessions} docId="d1" />);
+  const editor = mounted.getByTestId("editor");
+  expect(mounted.queryByText("Loading document…")).toBeNull();
+  act(() => sessions.publish(makeSession({ blocks: [] })));
+  expect(mounted.getByTestId("editor")).toBe(editor);
+});
+
+it("starts a generated-file pane even when its owner session never arrives", () => {
+  const mounted = render(<GeneratedTabBody registry={new SessionRegistry()} docId="absent" path="portfolio.toml" />);
+  expect(mounted.getByTestId("generated")).toBeTruthy();
+  expect(mounted.queryByText("Loading portfolio.toml…")).toBeNull();
 });
 </storycode:copy>
 

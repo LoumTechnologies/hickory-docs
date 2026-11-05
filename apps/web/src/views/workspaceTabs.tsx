@@ -14,7 +14,7 @@ import { ActionNotice } from "../components/ActionNotice";
 // from WorkspaceView so the workspace file stays about OWNING the layout
 // rather than about what is inside any pane.
 
-import { useId, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useId, useEffect, useMemo, useRef, useState } from "react";
 import { openLiterate } from "../lib/openRepresentation";
 import type { EditorView } from "@codemirror/view";
 
@@ -161,12 +161,12 @@ export function DocTabBody({
   // Before the early returns: hooks may not be conditional, and the baseline
   // outlives whatever the session is doing.
   const baseline = useBaseline(docId);
-  const loadMessage = session?.fatalError || (!session?.doc || !session.blocks ? "Loading document…" : null);
+  const loadMessage = session?.fatalError || (!session?.doc ? "Loading document…" : null);
   useUiReading("document tab load state", { doc_id: docId, phase: session?.fatalError ? "failed" : loadMessage ? "loading" : "loaded", message: loadMessage });
   if (!session) return <p className="muted">Loading document…</p>;
   if (session.fatalError) return <p className="error">{session.fatalError}</p>;
-  const { doc, blocks, debug } = session;
-  if (!doc || !blocks) return <p className="muted">Loading document…</p>;
+  const { doc, debug } = session;
+  if (!doc) return <p className="muted">Loading document…</p>;
   const running = session.runningCells.size > 0;
 
   return (
@@ -277,23 +277,23 @@ export function GeneratedTabBody({
   onSource?: (path: string, source: string) => void;
 }) {
   const session = useDocSession(registry, docId);
-  useUiReading("generated tab session state", { doc_id: docId, path, session_loaded: !!session, message: session ? null : `Loading ${path}…` });
-  // The session appears one tick after its host mounts; the file fetch is
-  // cheap enough to wait for the LSP wiring rather than mount without it.
-  if (!session) return <p className="muted">Loading {path}…</p>;
+  useUiReading("generated tab session state", { doc_id: docId, path, session_loaded: !!session, message: session ? null : "Source capabilities are loading." });
+  const registerOutputView = session?.registerOutputView;
+  const ready = useCallback((target: { view: EditorView } | null) => {
+    registerOutputView?.(path, target?.view ?? null);
+  }, [registerOutputView, path]);
+  // Disk text does not depend on the owner session or its language services.
   return (
     <GeneratedFileView
       docId={docId}
       path={path}
       bufferId={bufferId}
       onSource={onSource}
-      liveFile={session.outputs.get(path) ?? null}
-      debugger={session.doc ? {debug:session.debug,source:session.liveSource,docPath:session.doc.path,askText:session.askText} : undefined}
-      makeOutputLsp={session.makeOutputLsp}
-      onSourceEdits={session.flashSourceEdits}
-      onReady={(target) =>
-        session.registerOutputView(path, target ? target.view : null)
-      }
+      liveFile={session?.outputs.get(path) ?? null}
+      debugger={session?.doc ? {debug:session.debug,source:session.liveSource,docPath:session.doc.path,askText:session.askText} : undefined}
+      makeOutputLsp={session?.makeOutputLsp}
+      onSourceEdits={session?.flashSourceEdits}
+      onReady={ready}
     />
   );
 }

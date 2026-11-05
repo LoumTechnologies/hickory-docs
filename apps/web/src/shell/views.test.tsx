@@ -13,6 +13,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import type { EditorView } from "@codemirror/view";
+import { EditorState } from "@codemirror/state";
 import { installMockHandler } from "../api/client";
 import type { OutputFile, SourceEdit } from "../api/types";
 import { UiActions } from "../lib/uiActions";
@@ -236,4 +237,45 @@ it("reads the actual generated-file loading/failure path before its editor mount
   await waitFor(() => expect(mounted.getByText("Generated file is unavailable")).toBeTruthy());
   expect(await read()).toMatchObject({ loading: false, error: "Generated file is unavailable", source_read: false });
   expect(mounted.container.querySelector(".cm-editor")).toBeNull();
+});
+
+// Contract: .hickory-source/guarantees/shell/quiet-inline-workspace/contract.md
+it("reads generated disk text during a stalled weave and upgrades the same editor", async () => {
+  let resolve!: (value: OutputFile) => void;
+  let edits = 0;
+  installMockHandler(async (method, path) => {
+    if (method === "GET" && path.startsWith("/api/file?")) return { ...file("x = 1\n"), hash: "disk" };
+    if (method === "GET" && path.includes("/outputs/file")) return new Promise<OutputFile>(answer => { resolve = answer; });
+    if (method === "GET" && path.endsWith("/diverged")) return { diverged: {} };
+    if (method === "POST") { edits++; throw new Error("unexpected write"); }
+    throw new Error(`unexpected ${method} ${path}`);
+  });
+  const mounted = render(<GeneratedFileView docId="slow" path="src/hello.py" />);
+  await waitFor(() => expect(mounted.container.querySelector(".cm-content")?.textContent).toBe("x = 1"));
+  const dom = mounted.container.querySelector(".cm-editor")!;
+  const view = (await import("@codemirror/view")).EditorView.findFromDOM(dom as HTMLElement)!;
+  expect(view.state.readOnly).toBe(true);
+  act(() => view.dispatch({ selection: { anchor: 3 } }));
+  act(() => view.dispatch({ changes: { from: 0, insert: "unsafe" }, userEvent: "input" }));
+  expect(view.state.doc.toString()).toBe("x = 1\n");
+  mounted.rerender(<GeneratedFileView docId="slow" path="src/hello.py" makeOutputLsp={() => [EditorState.tabSize.of(7)]} />);
+  await act(async () => resolve(file("x = 1\n")));
+  await waitFor(() => expect(view.state.readOnly).toBe(false));
+  expect(mounted.container.querySelector(".cm-editor")).toBe(dom);
+  expect(view.state.selection.main.head).toBe(3);
+  expect(view.state.facet(EditorState.tabSize)).toBe(7);
+  expect(edits).toBe(0);
+});
+
+it("keeps disk contents readable when generated provenance fails", async () => {
+  installMockHandler(async (method, path) => {
+    if (method === "GET" && path.startsWith("/api/file?")) return { ...file("x = 9\n"), hash: "disk" };
+    if (method === "GET" && path.includes("/outputs/file")) throw new Error("weave failed");
+    if (method === "GET" && path.endsWith("/diverged")) return { diverged: {} };
+    throw new Error(`unexpected ${method} ${path}`);
+  });
+  const mounted = render(<GeneratedFileView docId="failed" path="src/hello.py" />);
+  await waitFor(() => expect(mounted.container.querySelector(".cm-content")?.textContent).toBe("x = 9"));
+  expect(mounted.getByRole("status").textContent).toContain("weave failed");
+  expect(mounted.container.querySelector(".cm-content")?.getAttribute("contenteditable")).toBe("false");
 });

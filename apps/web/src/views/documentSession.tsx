@@ -596,11 +596,21 @@ function useDocumentSession(
     let live = true;
     void (async () => {
       const listed = await api.outputs(docId).catch(() => ({ files: [] }));
-      const loaded = await Promise.all(
-        listed.files.map((meta) => api.outputFile(docId, meta.path).catch(() => null)),
-      );
+      const loaded = new Map<string, OutputFile>();
+      // Each provenance request weaves its owner. Queue one background read at
+      // a time so opening a large project cannot flood the server with weaves.
+      // Publish each result immediately; a slow later output hides no earlier one.
+      for (const meta of listed.files) {
+        if (!live) return;
+        const file = await api.outputFile(docId, meta.path).catch(() => null);
+        if (!live) return;
+        if (file) {
+          loaded.set(file.path, file);
+          setOutputs(current => new Map(current).set(file.path, file));
+        }
+      }
       if (!live) return;
-      setOutputs(new Map(loaded.filter(Boolean).map((file) => [file!.path, file!])));
+      setOutputs(loaded);
       // A run is when files on disk change; every mounted folder tree
       // listens for this and refetches.
       window.dispatchEvent(new Event(FILES_CHANGED_EVENT));

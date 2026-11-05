@@ -68,6 +68,8 @@ export function GeneratedFileView({
   onReady?: (target: { view: EditorView; file: OutputFile } | null) => void;
 }) {
   const [file, setFile] = useState<OutputFile | null>(null);
+  // Disk is an independent reading, not a substitute for write provenance.
+  const [diskFile, setDiskFile] = useState<OutputFile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const outputView = useRef<EditorView | null>(null);
   const [debugView,setDebugView] = useState<EditorView|null>(null);
@@ -79,6 +81,14 @@ export function GeneratedFileView({
   onSourceRef.current = onSource;
   const onSourceEditsRef = useRef(onSourceEdits);
   onSourceEditsRef.current = onSourceEdits;
+
+  useEffect(() => {
+    let live = true;
+    void api.file(path).then(loaded => {
+      if (live) setDiskFile({ path: loaded.path, language: loaded.language, content: loaded.content, provenance: [] });
+    }, () => { /* The provenance request can still supply an output absent on disk. */ });
+    return () => { live = false; };
+  }, [path]);
 
   useEffect(() => {
     let live = true;
@@ -230,15 +240,27 @@ export function GeneratedFileView({
     };
   }, [path]);
 
-  useUiReading("generated file load and save status", { doc_id: docId, path, loading: !file && !error, loaded: !!file, error, save_state: saveState, save_error: saveError, recovery_error: wayError, message: error || (!file ? `Loading ${path}…` : null), source_read: false });
-  if (error) return <p className="error">{error}</p>;
-  if (!file) return <p className="muted">Loading {path}…</p>;
+  const displayFile = file ?? diskFile;
+  useEffect(() => {
+    if (!debugView || !file) return;
+    // A retained edit is restored only after the matching provenance is loaded.
+    const pending = pendingOutputs.get(pendingKey);
+    if (pending && debugView.state.doc.toString() !== pending.contents) {
+      debugView.dispatch({ changes: { from: 0, to: debugView.state.doc.length, insert: pending.contents } });
+    }
+    onReady?.({ view: debugView, file });
+    return () => onReady?.(null);
+  }, [debugView, file, pendingKey, onReady]);
+
+  useUiReading("generated file load and save status", { doc_id: docId, path, loading: !displayFile && !error, loaded: !!displayFile, provenance_loaded: !!file, error, save_state: saveState, save_error: saveError, recovery_error: wayError, message: error || (!displayFile ? `Loading ${path}…` : null), source_read: false });
+  if (!displayFile) return error ? <p className="error">{error}</p> : <p className="muted">Loading {path}…</p>;
 
   return (
     <div className="generated-view">
-      <SurfaceInfo name={`Generated file · ${path}`} editable destination="Editable regions save automatically into the owning document; generated regions are read-only." />
+      <SurfaceInfo name={`Generated file · ${path}`} editable={!!file} destination={file ? "Editable regions save automatically into the owning document; generated regions are read-only." : "Reading disk contents; editing becomes available when source information is ready."} />
+      {error && <p className="error" role="status">Source information could not load. Reopen this tab to retry. {error}</p>}
       {saveState && <span className="save-state" role="status">{saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved to owning document" : "Unsaved changes"}</span>}
-      {diverged && dismissed !== diverged.reason && !merging && (
+      {file && diverged && dismissed !== diverged.reason && !merging && (
         <DivergedBanner
           what={path}
           sourceRevision={() => [docId, file?.content, diverged, outputView.current?.state.doc.toString()]}
@@ -281,22 +303,17 @@ export function GeneratedFileView({
       )}
       <OutputEditorPane
         key={path}
-        file={file}
+        file={displayFile}
         extensions={extensions}
-        onLocalEdit={save}
+        onLocalEdit={file ? save : undefined}
         onViewReady={(view) => {
         outputView.current = view;
         setDebugView(view);
-        if (view && pendingOutputs.has(pendingKey)) {
-          const pending = pendingOutputs.get(pendingKey)!.contents;
-          view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: pending } });
-        }
         if (view) onSourceRef.current?.(path, view.state.doc.toString());
-        onReady?.(view ? { view, file } : null);
       }}
       />
       {debuggerContext && file && <GeneratedDebugTools view={debugView} file={file} {...debuggerContext} />}
-      {range && <SamplePicker path={path} range={range} contents={outputView.current?.state.doc.toString() ?? file?.content ?? ""} />}
+      {file && range && <SamplePicker path={path} range={range} contents={outputView.current?.state.doc.toString() ?? file?.content ?? ""} />}
       {saveError && <GeneratedBufferRecovery bufferId={bufferId} saver={saver} error={saveError}
         isCurrent={() => bufferOwners.get(bufferId) === saver && !!outputView.current?.dom.isConnected}
         source={() => outputView.current?.state.doc.toString() ?? null} />}

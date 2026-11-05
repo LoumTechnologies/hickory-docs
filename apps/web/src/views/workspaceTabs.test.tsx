@@ -226,3 +226,20 @@ it("reads actual loading/fatal states before the document editor exists without 
   const failed = await read(); expect(JSON.parse(failed)).toMatchObject({ phase: "failed", message: "Document cannot be opened" });
   expect(failed).not.toContain("NEVER INCLUDE SOURCE");
 });
+
+// Contract: .hickory-source/guarantees/shell/quiet-inline-workspace/contract.md
+it("shows literate source while rendering is pending and keeps the editor mounted", () => {
+  const sessions = new SessionRegistry();
+  sessions.publish(makeSession({ blocks: null }));
+  const mounted = render(<DocTabBody registry={sessions} docId="d1" />);
+  const editor = mounted.getByTestId("editor");
+  expect(mounted.queryByText("Loading document…")).toBeNull();
+  act(() => sessions.publish(makeSession({ blocks: [] })));
+  expect(mounted.getByTestId("editor")).toBe(editor);
+});
+
+it("starts a generated-file pane even when its owner session never arrives", () => {
+  const mounted = render(<GeneratedTabBody registry={new SessionRegistry()} docId="absent" path="portfolio.toml" />);
+  expect(mounted.getByTestId("generated")).toBeTruthy();
+  expect(mounted.queryByText("Loading portfolio.toml…")).toBeNull();
+});

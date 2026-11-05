@@ -45,6 +45,18 @@ Use `behavior.py locate <output-path>` to find its construction and every fragme
 A narrative owner is not proof of adequate explanation: inspect the explicit gaps
 in `hickory-dogfood/narrative-map.json` and do not invent coverage or guarantees.
 
+## UI responsiveness
+
+Prefer a snappy, eventually consistent UI. Open every file — literate or plain,
+generated or non-generated — from its available text immediately. Load parsing,
+provenance, ownership, language services, diagnostics and other capabilities
+independently in the background, and attach them to the existing editor as they
+become available. A slow or failed capability must not hide readable content or
+block unrelated interaction. Preserve selection, scroll, undo history and unsaved
+edits as capabilities arrive; reject obsolete asynchronous replies. Keep write,
+permission and source-revision checks authoritative: eventual consistency of the
+display does not authorize unsafe edits or claim a save succeeded.
+
 ## UI feel
 
 Keep the UI compact and spatially stable: revealing controls must not disturb

@@ -64,6 +64,12 @@ const bufferOwners = new Map<string, OutputSaver>();
 
 One generated file, live, with its provenance carried into the LSP.
 
+Disk contents and woven provenance are separate reads. A stalled weave leaves a
+readable, read-only editor; failure is reported beside it. Only the provenance
+reply enables reverse editing, so the existing source-revision and save checks
+still govern writes. Reusing OutputEditorPane preserves its view and selection
+when capabilities arrive. Disk-read failure does not suppress a successful weave.
+
 <storycode:copy id="f-68a8fba10658-GeneratedFileView">
 /** One generated file, live, with its provenance carried into the LSP. */
 export function GeneratedFileView({
@@ -103,6 +109,8 @@ export function GeneratedFileView({
   onReady?: (target: { view: EditorView; file: OutputFile } | null) => void;
 }) {
   const [file, setFile] = useState<OutputFile | null>(null);
+  // Disk is an independent reading, not a substitute for write provenance.
+  const [diskFile, setDiskFile] = useState<OutputFile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const outputView = useRef<EditorView | null>(null);
   const [debugView,setDebugView] = useState<EditorView|null>(null);
@@ -114,6 +122,14 @@ export function GeneratedFileView({
   onSourceRef.current = onSource;
   const onSourceEditsRef = useRef(onSourceEdits);
   onSourceEditsRef.current = onSourceEdits;
+
+  useEffect(() => {
+    let live = true;
+    void api.file(path).then(loaded => {
+      if (live) setDiskFile({ path: loaded.path, language: loaded.language, content: loaded.content, provenance: [] });
+    }, () => { /* The provenance request can still supply an output absent on disk. */ });
+    return () => { live = false; };
+  }, [path]);
 
   useEffect(() => {
     let live = true;
@@ -265,15 +281,27 @@ export function GeneratedFileView({
     };
   }, [path]);
 
-  useUiReading("generated file load and save status", { doc_id: docId, path, loading: !file && !error, loaded: !!file, error, save_state: saveState, save_error: saveError, recovery_error: wayError, message: error || (!file ? `Loading ${path}…` : null), source_read: false });
-  if (error) return <p className="error">{error}</p>;
-  if (!file) return <p className="muted">Loading {path}…</p>;
+  const displayFile = file ?? diskFile;
+  useEffect(() => {
+    if (!debugView || !file) return;
+    // A retained edit is restored only after the matching provenance is loaded.
+    const pending = pendingOutputs.get(pendingKey);
+    if (pending && debugView.state.doc.toString() !== pending.contents) {
+      debugView.dispatch({ changes: { from: 0, to: debugView.state.doc.length, insert: pending.contents } });
+    }
+    onReady?.({ view: debugView, file });
+    return () => onReady?.(null);
+  }, [debugView, file, pendingKey, onReady]);
+
+  useUiReading("generated file load and save status", { doc_id: docId, path, loading: !displayFile && !error, loaded: !!displayFile, provenance_loaded: !!file, error, save_state: saveState, save_error: saveError, recovery_error: wayError, message: error || (!displayFile ? `Loading ${path}…` : null), source_read: false });
+  if (!displayFile) return error ? <p className="error">{error}</p> : <p className="muted">Loading {path}…</p>;
 
   return (
     <div className="generated-view">
-      <SurfaceInfo name={`Generated file · ${path}`} editable destination="Editable regions save automatically into the owning document; generated regions are read-only." />
+      <SurfaceInfo name={`Generated file · ${path}`} editable={!!file} destination={file ? "Editable regions save automatically into the owning document; generated regions are read-only." : "Reading disk contents; editing becomes available when source information is ready."} />
+      {error && <p className="error" role="status">Source information could not load. Reopen this tab to retry. {error}</p>}
       {saveState && <span className="save-state" role="status">{saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved to owning document" : "Unsaved changes"}</span>}
-      {diverged && dismissed !== diverged.reason && !merging && (
+      {file && diverged && dismissed !== diverged.reason && !merging && (
         <DivergedBanner
           what={path}
           sourceRevision={() => [docId, file?.content, diverged, outputView.current?.state.doc.toString()]}
@@ -316,22 +344,17 @@ export function GeneratedFileView({
       )}
       <OutputEditorPane
         key={path}
-        file={file}
+        file={displayFile}
         extensions={extensions}
-        onLocalEdit={save}
+        onLocalEdit={file ? save : undefined}
         onViewReady={(view) => {
         outputView.current = view;
         setDebugView(view);
-        if (view && pendingOutputs.has(pendingKey)) {
-          const pending = pendingOutputs.get(pendingKey)!.contents;
-          view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: pending } });
-        }
         if (view) onSourceRef.current?.(path, view.state.doc.toString());
-        onReady?.(view ? { view, file } : null);
       }}
       />
       {debuggerContext && file && <GeneratedDebugTools view={debugView} file={file} {...debuggerContext} />}
-      {range && <SamplePicker path={path} range={range} contents={outputView.current?.state.doc.toString() ?? file?.content ?? ""} />}
+      {file && range && <SamplePicker path={path} range={range} contents={outputView.current?.state.doc.toString() ?? file?.content ?? ""} />}
       {saveError && <GeneratedBufferRecovery bufferId={bufferId} saver={saver} error={saveError}
         isCurrent={() => bufferOwners.get(bufferId) === saver && !!outputView.current?.dom.isConnected}
         source={() => outputView.current?.state.doc.toString() ?? null} />}
@@ -393,6 +416,7 @@ owning document's editor flashes.
 import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import type { EditorView } from "@codemirror/view";
+import { EditorState } from "@codemirror/state";
 import { installMockHandler } from "../api/client";
 import type { OutputFile, SourceEdit } from "../api/types";
 import { UiActions } from "../lib/uiActions";
@@ -630,6 +654,11 @@ describe("removed chrome stays removed", () => {
 <a id="f-003396968e5c-expression_statement-4"></a>
 ### `expression_statement`
 
+Hold provenance pending while the disk read finishes: the actual CodeMirror view
+must show text, reject edits, retain its selection and identity, and acquire a
+language extension after provenance arrives. A separate failing weave must leave
+the disk reading visible. These are dependency-order tests, not timing benchmarks.
+
 <storycode:copy id="f-003396968e5c-expression_statement-4">
 // Guarantee: docs/guarantees/authoring/the-editor-keeps-its-space.md
 it("reads the actual generated-file loading/failure path before its editor mounts", async () => {
@@ -653,6 +682,47 @@ it("reads the actual generated-file loading/failure path before its editor mount
   await waitFor(() => expect(mounted.getByText("Generated file is unavailable")).toBeTruthy());
   expect(await read()).toMatchObject({ loading: false, error: "Generated file is unavailable", source_read: false });
   expect(mounted.container.querySelector(".cm-editor")).toBeNull();
+});
+
+// Contract: .hickory-source/guarantees/shell/quiet-inline-workspace/contract.md
+it("reads generated disk text during a stalled weave and upgrades the same editor", async () => {
+  let resolve!: (value: OutputFile) => void;
+  let edits = 0;
+  installMockHandler(async (method, path) => {
+    if (method === "GET" && path.startsWith("/api/file?")) return { ...file("x = 1\n"), hash: "disk" };
+    if (method === "GET" && path.includes("/outputs/file")) return new Promise<OutputFile>(answer => { resolve = answer; });
+    if (method === "GET" && path.endsWith("/diverged")) return { diverged: {} };
+    if (method === "POST") { edits++; throw new Error("unexpected write"); }
+    throw new Error(`unexpected ${method} ${path}`);
+  });
+  const mounted = render(<GeneratedFileView docId="slow" path="src/hello.py" />);
+  await waitFor(() => expect(mounted.container.querySelector(".cm-content")?.textContent).toBe("x = 1"));
+  const dom = mounted.container.querySelector(".cm-editor")!;
+  const view = (await import("@codemirror/view")).EditorView.findFromDOM(dom as HTMLElement)!;
+  expect(view.state.readOnly).toBe(true);
+  act(() => view.dispatch({ selection: { anchor: 3 } }));
+  act(() => view.dispatch({ changes: { from: 0, insert: "unsafe" }, userEvent: "input" }));
+  expect(view.state.doc.toString()).toBe("x = 1\n");
+  mounted.rerender(<GeneratedFileView docId="slow" path="src/hello.py" makeOutputLsp={() => [EditorState.tabSize.of(7)]} />);
+  await act(async () => resolve(file("x = 1\n")));
+  await waitFor(() => expect(view.state.readOnly).toBe(false));
+  expect(mounted.container.querySelector(".cm-editor")).toBe(dom);
+  expect(view.state.selection.main.head).toBe(3);
+  expect(view.state.facet(EditorState.tabSize)).toBe(7);
+  expect(edits).toBe(0);
+});
+
+it("keeps disk contents readable when generated provenance fails", async () => {
+  installMockHandler(async (method, path) => {
+    if (method === "GET" && path.startsWith("/api/file?")) return { ...file("x = 9\n"), hash: "disk" };
+    if (method === "GET" && path.includes("/outputs/file")) throw new Error("weave failed");
+    if (method === "GET" && path.endsWith("/diverged")) return { diverged: {} };
+    throw new Error(`unexpected ${method} ${path}`);
+  });
+  const mounted = render(<GeneratedFileView docId="failed" path="src/hello.py" />);
+  await waitFor(() => expect(mounted.container.querySelector(".cm-content")?.textContent).toBe("x = 9"));
+  expect(mounted.getByRole("status").textContent).toContain("weave failed");
+  expect(mounted.container.querySelector(".cm-content")?.getAttribute("contenteditable")).toBe("false");
 });
 </storycode:copy>
 

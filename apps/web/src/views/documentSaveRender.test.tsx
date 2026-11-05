@@ -47,12 +47,19 @@ it("acknowledged Save makes a newly authored cell runnable through the actual se
   render(<Harness registry={registry} />);
   await screen.findByRole("button", { name: /click to run it/ });
   const view = registry.get("d")!.docEditor!;
+  // jsdom has no layout: give the rail a viewport so measured controls do
+  // not disappear merely because clientHeight defaults to zero.
+  Object.defineProperty(view.scrollDOM, "clientHeight", { value: 1000 });
   await act(async () => { view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: two } }); });
   expect(screen.getByRole("button", { name: /save this document to enable running/ })).toBeTruthy();
   await act(async () => { expect(await registry.get("d")!.menuSave()).toBe(true); });
   await waitFor(() => expect(screen.queryByRole("button", { name: /save this document to enable running/ })).toBeNull());
-  const runs = screen.getAllByRole("button", { name: /click to run it/ });
-  expect(runs).toHaveLength(2);
+  // Save acknowledgement precedes projection and rail layout readiness.
+  const runs = await waitFor(() => {
+    const ready = screen.getAllByRole("button", { name: /click to run it/ });
+    expect(ready).toHaveLength(2);
+    return ready;
+  });
   await act(async () => { runs[1].click(); });
   await waitFor(() => expect(handler.mock.calls.some(([method, path]) => method === "POST" && path.endsWith("/run"))).toBe(true));
   expect(handler.mock.calls.filter(([method, path]) => method === "POST" && path.endsWith("/run"))).toHaveLength(1);
@@ -72,4 +79,30 @@ it("keeps mock startup compatible with the same source-backed render receipt con
   expect(rendered.document).toBe(document.id);
   expect(rendered.source_hash).toBe([...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join(""));
   expect(rendered.blocks.length).toBeGreaterThan(0);
+});
+
+// Contract: .hickory-source/guarantees/shell/quiet-inline-workspace/contract.md
+it("publishes each background output without a fanout or slowest-output barrier", async () => {
+  const requested: string[] = [];
+  const replies: ((value: unknown) => void)[] = [];
+  installMockHandler(async (_method, path) => {
+    if (path === "/api/docs/d") return { id: "d", path: "note.md", source: one };
+    if (path === "/api/docs/d/render") return new Promise(() => {});
+    if (path === "/api/docs/d/outputs") return { files: ["a.rs", "b.toml", "c.txt"].map(path => ({ path, language: "text" })) };
+    if (path.includes("/outputs/file")) {
+      requested.push(new URL(path, "http://local").searchParams.get("path")!);
+      return new Promise(resolve => { replies.push(resolve); });
+    }
+    return {};
+  });
+  const registry = new SessionRegistry();
+  const mounted = render(<DocSessionHost registry={registry} docId="d" openGenerated={openGenerated} />);
+  await waitFor(() => expect(requested).toEqual(["a.rs"]));
+  await act(async () => replies[0]({ path: "a.rs", content: "a", language: "rust", provenance: [] }));
+  await waitFor(() => expect(requested).toEqual(["a.rs", "b.toml"]));
+  expect(registry.get("d")!.outputs.get("a.rs")?.content).toBe("a");
+  expect(registry.get("d")!.outputs.has("b.toml")).toBe(false);
+  mounted.unmount();
+  await act(async () => replies[1]({ path: "b.toml", content: "b", language: "text", provenance: [] }));
+  expect(requested).toEqual(["a.rs", "b.toml"]);
 });

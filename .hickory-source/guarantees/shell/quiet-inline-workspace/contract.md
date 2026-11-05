@@ -7,6 +7,33 @@ The editor keeps familiar branch, problem and caret status. Connection legends d
 
 This requirement supersedes earlier always-visible provenance toggle and workspace-tool placement requirements. Existing execution, source-revision, permission and write-review boundaries still apply. Visual feel and language-specific installation success require live acceptance; focused witnesses below establish only the behavior they exercise.
 
+## Show file text before optional capabilities
+
+File display is eventually consistent: mount available source or disk text without
+waiting for rendered blocks, owner sessions, provenance or language services.
+Attach late capabilities to the same editor. Loading or failure of an optional
+capability must not erase readable content, selection, scrolling or unsaved work.
+Generated disk readings remain read-only until provenance can route edits back to
+the source; existing permission, revision and save acknowledgement rules apply.
+
+The November 5 source audit covered file routing, sessions, plain/generated
+editors, language attachment, folder refresh, restoration and lazy workspace tools.
+The maintained implementations below and their linked mechanisms remove source
+render gates and generated-session gates, display generated disk contents during
+weave loading/failure, reconfigure late output extensions, and publish background
+provenance incrementally with one request at a time. Remaining restoration,
+folder refresh, repeated evaluation and document LSP findings are tracked in
+[issue 117](https://github.com/LoumTechnologies/hickory-docs/issues/117).
+This is not a claim that every panel or installed release has measured fast loads.
+
+Focused witnesses live in `workspaceTabs.test.tsx`, `shell/views.test.tsx`,
+`documentSaveRender.test.tsx` and `OutputEditorPane.test.tsx`: pending blocks,
+missing owner sessions, stalled/failed provenance, write refusal before provenance,
+late capability attachment to the same view, and sequential background publishing.
+The save/render witness waits for runnable controls after save acknowledgement;
+acknowledgement alone does not imply asynchronous rail layout has finished.
+Existing source-receipt rejection checks remain in `useDocumentRender.test.tsx`.
+
 ## Provider and runtime evidence limits
 
 Codex quota reads use the native App Server's documented account/rateLimits/read method. Claude Code documents rate_limits in status-line input, but the installed ACP connection does not currently forward that input; Grok's checked public CLI reference does not establish a structured subscription quota read. Their detected accounts remain visible in account details with a link to native usage, without fabricated percentages or reset counts. This is an integration limit, not evidence of unlimited usage. Model effort and speed appear only when reported by the selected adapter.

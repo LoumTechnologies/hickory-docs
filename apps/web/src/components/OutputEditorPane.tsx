@@ -120,6 +120,7 @@ export function OutputEditorPane({
   // the rail must mount its sync against the view that actually exists.
   const [railView, setRailView] = useState<EditorView | null>(null);
   const access = useRef(new Compartment());
+  const capabilities = useRef(new Compartment());
   const canEdit = !!onLocalEdit;
   useEditorActions(railView, `output:${file.path}`);
   useEditorEditing(railView, { source: `output:${file.path}`, label: "output editor", current: () => canEdit, identity: () => [file.path, file.provenance, !!onLocalEdit], localOnly: !onLocalEdit });
@@ -293,7 +294,7 @@ export function OutputEditorPane({
               updateLineage(sel.from, sel.to);
             }
           }),
-          ...(extensions ?? []),
+          capabilities.current.of(extensions ?? []),
         ],
       }),
     });
@@ -324,6 +325,12 @@ export function OutputEditorPane({
   useEffect(() => {
     viewRef.current?.dispatch({ effects: access.current.reconfigure([EditorState.readOnly.of(!canEdit), EditorView.editable.of(canEdit)]) });
   }, [canEdit]);
+
+  // LSP and lineage extensions can arrive after disk text; attach them without
+  // replacing the view, which owns selection, scrolling and undo history.
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: capabilities.current.reconfigure(extensions ?? []) });
+  }, [extensions]);
 
   // A NEW file prop on a live view is the server's copy after a re-weave:
   // reconcile the buffer to it with minimal edits and flash what changed.
