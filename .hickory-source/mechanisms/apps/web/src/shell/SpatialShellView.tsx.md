@@ -33,7 +33,7 @@ import { useFilesParallax } from "../lib/filesParallax";
 import { saveSpatialSides, useSpatialSides } from "../lib/spatialSides";
 import { OPEN_READING, readingStatus, useReadingsVersion } from "../lib/readingViews";
 import { closeTab, focus, panes, split, type Pane, type Tab } from "./layout";
-import { useShellKeys, type ShellViewProps } from "./ShellView";
+import { useTabVisibility, useShellKeys, type ShellViewProps } from "./ShellView";
 import { type RibbonFile, type RibbonLink, type RibbonSource } from "./Ribbons";
 import { SpatialController, type SpatialItem } from "./SpatialController";
 import { readSpatialState, spatialize, spatialKey, type Side, type SpatialState } from "./spatialLayout";
@@ -109,6 +109,11 @@ so offscreen hits remain visible without rendering the whole document. The exist
 scroll listener and half-second refresh also refresh ticks after edits, query changes
 and center switches. A center with no editor clears the old markers. These are
 source-line positions, not measured positions within rendered block widgets.
+
+The center strip is mounted inside the centered editor's stable pane. Switching
+center therefore creates a different strip. Use the shell's shared tab visibility
+hook after that mount and when its geometry changes; offset-parent coordinates
+cannot reliably identify the visible portion of this nested strip.
 
 <storycode:copy id="f-64456f67b44e-SpatialShellView">
 /** Each editor has one stable mount. Centering, pinning and parallax only change its rectangle. */
@@ -238,12 +243,7 @@ export function SpatialShellView(props: Props) {
     if (sides[side]) { setRequestedFiles(current => ({ ...current, [side]: true })); setDrawerOpen(current => ({ ...current, [side]: true })); }
   }, [focusKey]);
   useEffect(() => { controller.schedule(); });
-  useEffect(() => {
-    const strip = root.current?.querySelector<HTMLElement>(".spatial-center-tabs"), selected = strip?.querySelector<HTMLElement>('[aria-selected="true"]');
-    if (!strip || !selected) return;
-    if (selected.offsetLeft < strip.scrollLeft) strip.scrollLeft = selected.offsetLeft;
-    else if (selected.offsetLeft + selected.offsetWidth > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = selected.offsetLeft + selected.offsetWidth - strip.clientWidth;
-  }, [center?.key, entries.length]);
+  useTabVisibility(root, '.spatial-center-tabs .spatial-tab-item:has([aria-selected="true"])', JSON.stringify([center?.key, entries.filter(entry => entry.tab).map(entry => entry.tab!.id)]));
   useEffect(() => {
     if (!props.spatialHydrated) return;
     previousTabs.current = new Set(entries.filter(entry => entry.tab).map(entry => entry.key));

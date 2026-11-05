@@ -30,7 +30,7 @@ import { workspaceIsVisible } from "../lib/workspaceVisibility";
 // See docs/specs/freeform/shell-layouts.md.
 
 import { isAction } from "../lib/keymap";
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 
 import {
   activate,
@@ -400,7 +400,39 @@ so they ride along whether the tab sits in the top strip or the side tree;
 `data-shell-tab-vertical` tells the overlay to land on the tab's facing
 vertical edge instead of its underside.
 
+Opening, activating or rearranging tabs must reveal the active tab, including its
+close control. Compare viewport rectangles rather than offsetLeft: a tab's offset
+parent can be outside its scroll strip. Move only the strip so editor selection,
+focus and document scroll stay untouched. Observe strip and sibling tab sizes for pane
+resizes and changing labels. Do not listen to scroll events: deliberately scrolling
+away must remain possible until the next tab or geometry change.
+
 <storycode:copy id="f-e5f8a7657f14-TabChip">
+export function useTabVisibility(root: RefObject<HTMLElement>, selector: string, revision: string, vertical = false) {
+  useLayoutEffect(() => {
+    const selected = root.current?.querySelector<HTMLElement>(selector);
+    const strip = selected?.closest<HTMLElement>('[role="tablist"]');
+    if (!selected || !strip) return;
+    const reveal = () => {
+      const tab = selected.getBoundingClientRect(), viewport = strip.getBoundingClientRect();
+      const start = vertical ? tab.top : tab.left, end = vertical ? tab.bottom : tab.right;
+      const edge = (vertical ? viewport.top : viewport.left) + (vertical ? strip.clientTop : strip.clientLeft);
+      const size = vertical ? strip.clientHeight : strip.clientWidth;
+      if (!size) return;
+      // Oversized tabs show their leading edge; otherwise use the smallest movement.
+      const delta = start < edge || end - start > size ? start - edge : Math.max(0, end - edge - size);
+      if (vertical) strip.scrollTop += delta;
+      else strip.scrollLeft += delta;
+    };
+    reveal();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(reveal);
+    observer.observe(strip);
+    for (const child of strip.children) observer.observe(child);
+    return () => observer.disconnect();
+  }, [root, selector, revision, vertical]);
+}
+
 /**
  * One tab, wherever tabs render. The data attributes are the contract with
  * the ribbon overlay (a ribbon to an inactive file terminates ON its tab),
@@ -635,6 +667,8 @@ function PaneBox({
   onRequestCloseTab,
 }: Omit<NodeProps, "node"> & { pane: Pane }) {
   const active = pane.tabs[pane.active] ?? null;
+  const paneRoot = useRef<HTMLElement>(null);
+  useTabVisibility(paneRoot, ".shell-tab--on", JSON.stringify([active?.id, pane.tabs.map(tab => tab.id), tabStyle]), tabStyle === "side");
   const isFocused = layout.focus === pane.id;
   const side = tabStyle === "side";
   const over = dragging.drag?.over;
@@ -654,6 +688,7 @@ function PaneBox({
 
   return (
     <section
+      ref={paneRoot}
       className={`shell-pane${isFocused ? " shell-pane--focus" : ""}${side ? " shell-pane--side" : ""}`}
       // How the drag's hit-testing finds this pane from elementFromPoint.
       data-shell-pane-id={pane.id}

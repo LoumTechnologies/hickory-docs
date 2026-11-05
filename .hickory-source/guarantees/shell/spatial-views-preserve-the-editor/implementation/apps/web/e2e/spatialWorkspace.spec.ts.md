@@ -30,6 +30,13 @@ test.beforeEach(async ({ page }) => {
   test.skip(!process.env.HICKORY_SPATIAL_URL, "Use just test-spatial-ui with a disposable workspace.");
   await page.goto(process.env.HICKORY_SPATIAL_URL!);
   await expect(page.getByRole("tablist", { name: "Center views" })).toBeVisible();
+  // A newly opened folder pins Files by default; start these flows collapsed.
+  const unpin = page.getByRole("button", { name: "Unpin left drawer" });
+  await expect(unpin).toBeVisible();
+  await unpin.click();
+  const close = page.getByRole("button", { name: "Close left drawer" });
+  await expect(close).toBeVisible();
+  await close.click();
   await expect(page.getByRole("button", { name: "Show left drawer" })).toBeVisible();
 });
 </storycode:copy>
@@ -59,7 +66,11 @@ async function rect(element: Locator) {
 <storycode:copy id="f-2b83f22a0d20-open">
 async function open(page: Page, path: string) {
   await page.getByRole("button", { name: "Show left drawer" }).click();
-  await page.locator('[data-spatial-files=left] [data-tree-path="' + path + '"]').dblclick();
+  const row = page.locator('[data-spatial-files=left] [data-tree-path="' + path + '"]');
+  if (path.includes("/") && !await row.count()) {
+    await page.locator('[data-spatial-files=left]').locator('[title="Unfold line"]:visible').first().click();
+  }
+  await row.dblclick();
   await expect(tile(page, path)).toHaveAttribute("data-spatial-center", "true");
   await expect(page.getByRole("button", { name: "Show left drawer" })).toBeVisible();
   return tile(page, path);
@@ -343,6 +354,11 @@ test("scrolling an earlier Files preview around a pin never moves the pin", asyn
 <a id="f-2b83f22a0d20-expression_statement-11"></a>
 ### `expression_statement`
 
+The scroll-attention witness opens two real files in a deliberately narrow strip,
+then checks the complete selected chip against its viewport. Keyboard activation
+avoids Playwright's click auto-scroll masking a missing reveal. Explicit scrolling
+must remain effective until the strip changes size.
+
 <storycode:copy id="f-2b83f22a0d20-expression_statement-11">
 // Guarantee: docs/guarantees/shell/spatial-views-preserve-the-editor.md
 test("resizing Files puts the same preview beneath its filename or to its right", async ({ page }) => {
@@ -386,6 +402,34 @@ test("resizing Files puts the same preview beneath its filename or to its right"
   expect(wide.y).toBe(original.y);
   expect(await preserved(page, '[data-spatial-key="document:notes/other.md"]')).toBe(true);
   await page.screenshot({ path: "/tmp/hickory-files-responsive-beside.png", fullPage: true });
+});
+
+
+test("active tabs receive scroll attention on open, selection and strip resize", async ({ page }) => {
+  // Keep each complete tab narrower than the strip, but force overflow with two.
+  await page.addStyleTag({ content: ".spatial-center-tabs { max-width: 190px } .spatial-tab-item { width: 160px; flex-shrink: 0 }" });
+  await open(page, "note.md");
+  await open(page, "notes/other.md");
+  const strip = page.getByRole("tablist", { name: "Center views" });
+  const fullyVisible = () => strip.evaluate(el => {
+    const active = el.querySelector('[aria-selected="true"]')!.closest('.spatial-tab-item')!;
+    const tab = active.getBoundingClientRect(), viewport = el.getBoundingClientRect();
+    return tab.left >= viewport.left - 1 && tab.right <= viewport.left + el.clientWidth + 1;
+  });
+  await expect.poll(fullyVisible).toBe(true);
+  // Keyboard activation must reveal the beginning and end without pointer auto-scroll.
+  await strip.getByRole("tab", { selected: true }).press("Home");
+  await expect(strip.getByRole("tab").first()).toHaveAttribute("aria-selected", "true");
+  await expect.poll(fullyVisible).toBe(true);
+  await strip.getByRole("tab", { selected: true }).press("End");
+  await expect(strip.getByRole("tab").last()).toHaveAttribute("aria-selected", "true");
+  await expect.poll(fullyVisible).toBe(true);
+  // Deliberate scrolling survives unrelated work; geometry changes reveal again.
+  await strip.evaluate(el => { el.scrollLeft = 0; });
+  await page.waitForTimeout(100);
+  expect(await fullyVisible()).toBe(false);
+  await page.addStyleTag({ content: ".spatial-center-tabs { max-width: 170px }" });
+  await expect.poll(fullyVisible).toBe(true);
 });
 </storycode:copy>
 

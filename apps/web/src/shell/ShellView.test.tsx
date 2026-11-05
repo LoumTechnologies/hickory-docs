@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { ShellView } from "./ShellView";
-import { freeform, open, tab, type Layout } from "./layout";
+import { activate, freeform, open, tab, type Layout } from "./layout";
 
 afterEach(cleanup);
 
@@ -88,5 +88,49 @@ describe("unsaved tabs", () => {
     expect(getByRole("tab").textContent).toBe("Untitled *");
     fireEvent.click(getByRole("button", { name: "Close Untitled" }));
     expect(request).toHaveBeenCalledWith(layout.focus, dirty.id);
+  });
+});
+
+
+describe("active tab visibility", () => {
+  it.each(["top", "side"] as const)("reveals %s tabs with strip-relative geometry and preserves deliberate scrolling", tabStyle => {
+    const vertical = tabStyle === "side";
+    let resized = () => {};
+    const disconnect = vi.fn();
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: () => void) { resized = callback; }
+      observe() {}
+      disconnect = disconnect;
+    });
+    let size = 100;
+    const dimension = vi.spyOn(HTMLElement.prototype, vertical ? "clientHeight" : "clientWidth", "get").mockImplementation(() => size);
+    const geometry = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const strip = this.closest<HTMLElement>('[role="tablist"]');
+      const scroll = strip ? (vertical ? strip.scrollTop : strip.scrollLeft) : 0;
+      const offset = this.classList.contains("shell-tab") ? (this.dataset.shellTabIndex === "1" ? 80 : 0) - scroll : 0;
+      return { left: 200 + (vertical ? 0 : offset), top: 150 + (vertical ? offset : 0), right: 200 + (vertical ? size : offset + 80), bottom: 150 + (vertical ? offset + 80 : size), width: vertical ? size : 80, height: vertical ? 80 : size, x: 0, y: 0, toJSON() {} };
+    });
+    try {
+      const layout = open(open(freeform(), tab("file", "a.md")), tab("file", "b.md"));
+      const props = { onLayout: () => {}, render: () => <input defaultValue="unsaved" />, tabStyle };
+      const ui = render(<ShellView {...props} layout={layout} />);
+      const strip = ui.container.querySelector<HTMLElement>('[role="tablist"]')!;
+      const position = () => vertical ? strip.scrollTop : strip.scrollLeft;
+      expect(position()).toBe(60);
+      const first = activate(layout, layout.focus, 0);
+      ui.rerender(<ShellView {...props} layout={first} />);
+      expect(position()).toBe(0);
+      if (vertical) strip.scrollTop = 20; else strip.scrollLeft = 20;
+      ui.rerender(<ShellView {...props} layout={{ ...first }} />);
+      expect(position()).toBe(20);
+      ui.rerender(<ShellView {...props} layout={layout} />);
+      expect(position()).toBe(60);
+      size = 90; resized();
+      expect(position()).toBe(70);
+      ui.unmount();
+      expect(disconnect).toHaveBeenCalled();
+    } finally {
+      geometry.mockRestore(); dimension.mockRestore(); vi.unstubAllGlobals();
+    }
   });
 });

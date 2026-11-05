@@ -15,7 +15,7 @@ import { useFilesParallax } from "../lib/filesParallax";
 import { saveSpatialSides, useSpatialSides } from "../lib/spatialSides";
 import { OPEN_READING, readingStatus, useReadingsVersion } from "../lib/readingViews";
 import { closeTab, focus, panes, split, type Pane, type Tab } from "./layout";
-import { useShellKeys, type ShellViewProps } from "./ShellView";
+import { useTabVisibility, useShellKeys, type ShellViewProps } from "./ShellView";
 import { type RibbonFile, type RibbonLink, type RibbonSource } from "./Ribbons";
 import { SpatialController, type SpatialItem } from "./SpatialController";
 import { readSpatialState, spatialize, spatialKey, type Side, type SpatialState } from "./spatialLayout";
@@ -167,12 +167,7 @@ export function SpatialShellView(props: Props) {
     if (sides[side]) { setRequestedFiles(current => ({ ...current, [side]: true })); setDrawerOpen(current => ({ ...current, [side]: true })); }
   }, [focusKey]);
   useEffect(() => { controller.schedule(); });
-  useEffect(() => {
-    const strip = root.current?.querySelector<HTMLElement>(".spatial-center-tabs"), selected = strip?.querySelector<HTMLElement>('[aria-selected="true"]');
-    if (!strip || !selected) return;
-    if (selected.offsetLeft < strip.scrollLeft) strip.scrollLeft = selected.offsetLeft;
-    else if (selected.offsetLeft + selected.offsetWidth > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = selected.offsetLeft + selected.offsetWidth - strip.clientWidth;
-  }, [center?.key, entries.length]);
+  useTabVisibility(root, '.spatial-center-tabs .spatial-tab-item:has([aria-selected="true"])', JSON.stringify([center?.key, entries.filter(entry => entry.tab).map(entry => entry.tab!.id)]));
   useEffect(() => {
     if (!props.spatialHydrated) return;
     previousTabs.current = new Set(entries.filter(entry => entry.tab).map(entry => entry.key));
