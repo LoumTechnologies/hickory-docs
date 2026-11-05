@@ -1,6 +1,8 @@
+import type { ReactNode } from "react";
+import { parseStructure } from "../editor/hickDoc";
 import { registerReviewEditor } from "../lib/reviews";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Prec, Transaction } from "@codemirror/state";
+import { EditorState, Prec, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { DocumentEditor } from "../editor/DocumentEditor";
 import { LocalRealtime } from "../api/realtime";
@@ -19,24 +21,19 @@ import { AssumptionAudit, VerificationStanding } from "../components/AssumptionA
 const noCells = new Set<string>();
 
 export function focusConversationResponse(host: Element | null) {
-  const editor = host?.querySelector<HTMLElement>(".cm-editor");
+  const editor = host?.querySelector<HTMLElement>(".conversation-card--composer .cm-editor");
   const view = editor && EditorView.findFromDOM(editor);
   if (!view) return;
   view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true });
   view.focus();
 }
 
-export function ConversationEditor({ branch, path, running, stream, reasoning, draft, onDraft, onSend, canSend, sending = false, stamp, showCollapsedLineage = false }: {
+export function ConversationEditor({ branch, path, running, stream, reasoning, draft, onDraft, onSend, canSend, sending = false, stamp, showCollapsedLineage = false, renderFinal }: {
+  renderFinal?: (turn: AgentTurn) => ReactNode;
   branch: AgentTurn[]; path: string | null; running: string | null; stream: string; reasoning: string;
   draft: string; onDraft: (draft: string) => void; onSend: () => void; canSend: boolean; sending?: boolean; stamp: string; showCollapsedLineage?: boolean;
 }) {
   const [data, setData] = useState<SessionViewResponse | null>(null);
-  const [view, setView] = useState<EditorView | null>(null);
-  const realtime = useMemo(() => new LocalRealtime(), []);
-  const following = useRef(true);
-  const initialFocus = useRef(false);
-  const syncLinks = useRef(() => {});
-  const latest = useRef({ onDraft, onSend, canSend }); latest.current = { onDraft, onSend, canSend };
   useEffect(() => { setData(null); }, [path]);
   useEffect(() => {
     if (!path) return;
@@ -54,22 +51,81 @@ export function ConversationEditor({ branch, path, running, stream, reasoning, d
     const timer = running ? undefined : window.setInterval(refresh, 5000);
     return () => { live = false; window.clearInterval(timer); };
   }, [path, running, stamp]);
-  const reading = useMemo(() => conversationReading(data, branch, running, stream, reasoning), [data, branch, running, stream, reasoning]);
+  const messages = useMemo(() => branch.map(turn => {
+    const reading = conversationReading(data, [turn], running, stream, reasoning);
+    const structure = parseStructure(reading.source);
+    // Only session-level messages split cards. Tags inside a message remain
+    // native literate content, including executable/project constructions.
+    const messages = structure.blocks.filter(block => ["user", "assistant", "reasoning"].includes(block.name)
+      && !structure.blocks.some(parent => parent !== block && parent.name !== "session" && parent.from < block.from && parent.to >= block.to))
+      .sort((a, b) => a.from - b.from);
+    const end = reading.source.lastIndexOf("</hick:session>");
+    const ranges = messages.map((block, index) => ({
+      from: block.from, to: messages[index + 1]?.from ?? end, role: block.name,
+    }));
+    const cards = ranges.map(range => {
+      const prefix = '<hick:session xmlns:hick="http://www.hickorydocs.com/1.0">\n';
+      const lineOffset = 1 - reading.source.slice(0, range.from).split("\n").length + 1;
+      const card = { source: prefix + reading.source.slice(range.from, range.to) + "</hick:session>\n", links: reading.links
+        .filter(link => link.span[0] >= range.from && link.span[1] <= range.to)
+        .map(link => ({ ...link, span: [link.span[0] - range.from + prefix.length, link.span[1] - range.from + prefix.length] as [number, number],
+          lines: [link.lines[0] + lineOffset, link.lines[1] + lineOffset] as [number, number] })) };
+      return { role: range.role, reading: card };
+    });
+    return { turn, cards };
+  }), [data, branch, running, stream, reasoning]);
+  return <div className="conversation-document">
+    {path && data && <VerificationStanding records={data.audit ?? []} turn={branch.at(-1)?.id} running={!!running} />}
+    {path && data && <AssumptionAudit records={data.audit ?? []} path={path} source={data.source} />}
+    {messages.map(({ turn, cards }) => {
+      return <div className="conversation-turn" key={turn.id} data-turn={turn.id}>
+        {cards.map(({ role, reading: card }, index) => {
+          return <section className={`conversation-card conversation-card--${role}`} key={index} aria-label={`${role === "user" ? "You" : role === "reasoning" ? "Reasoning" : "Agent"} message`}>
+            <header>{role === "user" ? "You" : role === "reasoning" ? "Reasoning" : "Agent"}</header>
+            <ConversationBuffer reading={card} path={path} source={data?.source ?? null} id={`${turn.id}:${index}`} readOnly
+              running={running} sending={sending} draft="" onDraft={() => {}} onSend={() => {}} canSend={false} showCollapsedLineage={showCollapsedLineage} />
+          </section>;
+        })}
+        {turn.status === "ok" && renderFinal && <section className="conversation-card conversation-card--final" aria-label="Final construction">
+          <header>Final construction</header>{renderFinal(turn)}
+        </section>}
+      </div>;
+    })}
+    <section className="conversation-card conversation-card--composer" aria-label="Your response">
+      <header>Your response</header>
+      <ConversationBuffer reading={{ source: "", links: [] }} path={null} source={null} id="response" readOnly={false}
+        running={running} sending={sending} draft={draft} onDraft={onDraft} onSend={onSend} canSend={canSend} showCollapsedLineage={false} />
+    </section>
+  </div>;
+}
+
+/** Each card owns its editor and undo history; only the composer reports edits. */
+function ConversationBuffer({ reading, path, source, id, readOnly, running, sending, draft, onDraft, onSend, canSend, showCollapsedLineage }: {
+  reading: ReturnType<typeof conversationReading>; path: string | null; source: string | null; id: string; readOnly: boolean;
+  running: string | null; sending: boolean; draft: string; onDraft: (draft: string) => void; onSend: () => void; canSend: boolean; showCollapsedLineage: boolean;
+}) {
+  const [view, setView] = useState<EditorView | null>(null);
+  const realtime = useMemo(() => new LocalRealtime(), []);
+  const following = useRef(true);
+  const initialFocus = useRef(false);
+  const syncLinks = useRef(() => {});
+  const latest = useRef({ onDraft, onSend, canSend }); latest.current = { onDraft, onSend, canSend };
   useEffect(() => {
     if (!view || !path) return;
-    return registerReviewEditor(view, path, () => data?.source ?? null);
-  }, [view, path, data?.source]);
-  const extensions = useMemo(() => [...protectedPrefix, sessionBookkeeping, ...responseSend(() => { if (latest.current.canSend) { following.current = true; latest.current.onSend(); } }),
+    return registerReviewEditor(view, path, () => source);
+  }, [view, path, source]);
+  const extensions = useMemo(() => [...protectedPrefix,
+    EditorState.transactionFilter.of(tr => readOnly && tr.docChanged && !tr.annotation(replaceReading) ? [] : tr), sessionBookkeeping, ...responseSend(() => { if (latest.current.canSend) { following.current = true; latest.current.onSend(); } }),
     EditorView.domEventHandlers({
       mousedown(event) {
         if (event.target instanceof Element && event.target.closest(".cm-hick-fold-placeholder, .cm-foldGutter")) following.current = false;
         return false;
       },
     }),
-    EditorView.contentAttributes.of({ "aria-label": "Agent conversation and response", role: "textbox", "aria-multiline": "true" }),
+    EditorView.contentAttributes.of({ "aria-label": readOnly ? "Recorded message" : "Agent conversation and response", "aria-readonly": String(readOnly), role: "textbox", "aria-multiline": "true" }),
     EditorView.updateListener.of(update => {
       if (update.docChanged || update.transactions.some(tr => tr.effects.some(effect => effect.is(foldEffect) || effect.is(unfoldEffect)))) queueMicrotask(() => syncLinks.current());
-      if (update.docChanged && !update.transactions.some(tr => tr.annotation(replaceReading)))
+      if (!readOnly && update.docChanged && !update.transactions.some(tr => tr.annotation(replaceReading)))
         latest.current.onDraft(update.state.doc.sliceString(update.state.field(responseStart)));
     }),
     Prec.high(keymap.of(["Ctrl-Enter", "Meta-Enter"].map(key => ({ key, run: () => { if (latest.current.canSend) { following.current = true; latest.current.onSend(); } return true; } })))),
@@ -81,20 +137,20 @@ export function ConversationEditor({ branch, path, running, stream, reasoning, d
     const before = view.state.doc.toString();
     view.dispatch({ changes: computeEdits(before, next).map(e => ({ from: e.start, to: e.end, insert: e.text })),
       effects: setResponseStart.of(reading.source.length), annotations: [replaceReading.of(true), Transaction.addToHistory.of(false)] });
-    if (!initialFocus.current && !view.dom.closest("[hidden]")) {
+    if (!readOnly && !initialFocus.current && !view.dom.closest("[hidden]")) {
       initialFocus.current = true;
       view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true });
       view.focus();
     }
   }, [view, reading.source, draft]);
   useEffect(() => {
-    if (view) view.dispatch({ effects: setSendState.of({ enabled: canSend, label: sending ? "Starting…" : "Send", visible: !running }) });
+    if (view) view.dispatch({ effects: setSendState.of({ enabled: canSend, label: sending ? "Starting…" : "Send", visible: !readOnly && !running }) });
   }, [view, canSend, sending, running]);
   useEffect(() => {
     if (running || sending) following.current = true;
   }, [running, sending]);
   useEffect(() => {
-    if (!view) return;
+    if (!view || readOnly) return;
     const log = view.dom.closest<HTMLElement>(".chat-log");
     if (!log) return;
     let previousTop = log.scrollTop;
@@ -112,7 +168,7 @@ export function ConversationEditor({ branch, path, running, stream, reasoning, d
     };
     log.addEventListener("scroll", onScroll);
     const observer = new ResizeObserver(follow);
-    observer.observe(view.contentDOM);
+    observer.observe(view.dom.closest(".conversation-document") ?? view.contentDOM);
     follow();
     return () => { cancelAnimationFrame(frame); observer.disconnect(); log.removeEventListener("scroll", onScroll); };
   }, [view, reading.source, sending]);
@@ -126,8 +182,9 @@ export function ConversationEditor({ branch, path, running, stream, reasoning, d
         const folded = conversationFold(view, link.span[0], link.span[1]);
         if (folded !== null && !showCollapsedLineage) return [];
         return ribbonLinksOf(path, [link]).map(ribbon => ({ ...ribbon,
-          key: `conversation:${path}:${link.span.join(":")}:${link.family}:${link.to.path}:${link.to.lines?.join(":")}`,
-          ...(folded !== null ? { from: { path, lines: [folded, folded] as [number, number] } } : anchor ? { anchor } : {}), alwaysVisible: true }));
+          key: `conversation:${path}:${id}:${link.span.join(":")}:${link.family}:${link.to.path}:${link.to.lines?.join(":")}`,
+          from: { ...ribbon.from, view, ...(folded !== null ? { lines: [folded, folded] as [number, number] } : {}) },
+          ...(folded === null && anchor ? { anchor } : {}), alwaysVisible: true }));
       });
       unregister(); unregister = registerLens({ path, view, source: view.state.doc.toString(), links: visible });
     };
@@ -138,12 +195,7 @@ export function ConversationEditor({ branch, path, running, stream, reasoning, d
     return () => { syncLinks.current = () => {}; unregister(); view.dom.removeEventListener("toggle", sync, true); view.dom.removeEventListener("click", sync); };
   }, [view, path, reading, draft, showCollapsedLineage]);
   useEffect(() => () => realtime.close(), [realtime]);
-  return <div className="conversation-document">
-    {running && path && <p className="muted">Recorded history is held at its last loaded capture during this turn. Current text streams below; open the session to inspect recorded work.</p>}
-    {path && data && <VerificationStanding records={data.audit ?? []} turn={branch.at(-1)?.id} running={!!running} />}
-    {path && data && <AssumptionAudit records={data.audit ?? []} path={path} source={data.source} />}
-    <DocumentEditor docId="conversation-reading" initialSource="" realtime={realtime}
-      execBlocks={[]} runningCells={noCells} onRunCell={() => {}} onViewReady={ready}
-      preserveBytes editorExtensions={extensions} />
-  </div>;
+  return <DocumentEditor docId={`conversation:${id}`} initialSource="" realtime={realtime} readOnly={readOnly}
+    execBlocks={[]} runningCells={noCells} onRunCell={() => {}} onViewReady={ready}
+    preserveBytes editorExtensions={extensions} />;
 }

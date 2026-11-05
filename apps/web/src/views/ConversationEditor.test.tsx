@@ -40,29 +40,35 @@ it("opens at the editable response and can return there without rewriting the co
   rendered.rerender(<ConversationEditor {...props} stream="Update" />);
   expect(view.state.doc.sliceString(view.state.field(responseStart))).toBe("My draft");
 });
-it("protects recorded and live content while preserving a response across streaming updates", async () => {
+it("gives every message a protected buffer and keeps the draft independent during streaming", async () => {
   const rendered = render(<Harness />);
   const host = await screen.findByRole("textbox", { name: "Agent conversation and response" });
-  const view = EditorView.findFromDOM(host)!;
-  await waitFor(() => expect(view.state.doc.toString()).toContain("Answer a 📝"));
-  const before = view.state.doc.toString();
-  act(() => view.dispatch({ changes: { from: 0, to: 5, insert: "erase" }, userEvent: "input.type" }));
-  expect(view.state.doc.toString()).toBe(before);
-  // A widget's programmatic edit is protected too, not just keyboard events.
-  act(() => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "replace everything" } }));
-  expect(view.state.doc.toString()).toBe(before);
-  act(() => view.dispatch({ changes: { from: view.state.field(responseStart), insert: "My response\nsecond line" }, userEvent: "input.type" }));
-  expect(view.state.doc.toString()).toContain("My response\nsecond line");
+  const response = EditorView.findFromDOM(host)!;
+  await waitFor(() => expect(rendered.container.textContent).toContain("Answer a 📝"));
+  const cards = screen.getAllByRole("textbox", { name: "Recorded message" });
+  expect(cards.length).toBeGreaterThanOrEqual(4);
+  const views = cards.map(card => EditorView.findFromDOM(card)!);
+  expect(new Set(views).size).toBe(cards.length);
+  for (const view of views) {
+    expect(view.state.readOnly).toBe(true);
+    const before = view.state.doc.toString();
+    act(() => view.dispatch({ changes: { from: 0, to: 5, insert: "erase" }, userEvent: "input.type" }));
+    act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: "widget write" } }));
+    act(() => { undo(view); });
+    expect(view.state.doc.toString()).toBe(before);
+  }
+  act(() => response.dispatch({ changes: { from: 0, insert: "My response\nsecond line" }, userEvent: "input.type" }));
+  const answer = views.find(view => view.state.doc.toString().includes("Answer a 📝"))!;
   rendered.rerender(<Harness stream="Writing more now" />);
-  await waitFor(() => expect(view.state.doc.toString()).toContain("Writing more now"));
-  expect(view.state.doc.sliceString(view.state.field(responseStart))).toBe("My response\nsecond line");
-  expect(view.state.doc.toString()).toContain("Thinking");
-  expect(document.querySelector(".cm-turn-assistant")).toBeTruthy();
-  expect(document.querySelector(".cm-turn-reasoning")).toBeTruthy();
-  expect(lensSources().find(lens => lens.path === data.path)?.links.some(link => link.to.path === "note.md")).toBe(true);
-  const protectedText = view.state.doc.sliceString(0, view.state.field(responseStart));
-  act(() => { undo(view); });
-  expect(view.state.doc.sliceString(0, view.state.field(responseStart))).toBe(protectedText);
+  await waitFor(() => expect(rendered.container.textContent).toContain("Writing more now"));
+  expect(response.state.doc.toString()).toBe("My response\nsecond line");
+  expect(EditorView.findFromDOM(answer.dom)).toBe(answer);
+  expect(rendered.container.querySelector(".conversation-card--reasoning")).toBeTruthy();
+  expect(lensSources().some(lens => lens.path === data.path && lens.links.some(link => link.to.path === "note.md"))).toBe(true);
+  // Separate histories: undoing the draft cannot touch recorded speech.
+  const before = answer.state.doc.toString();
+  act(() => { undo(response); });
+  expect(answer.state.doc.toString()).toBe(before);
 });
 it("submits only with the send shortcut; ordinary Enter remains multiline editing", async () => {
   const send = vi.fn();
@@ -77,6 +83,18 @@ it("submits only with the send shortcut; ordinary Enter remains multiline editin
   fireEvent.keyDown(host, { key: "Enter", code: "Enter", ctrlKey: true });
   expect(send).toHaveBeenCalledTimes(1);
 });
+it("keeps the final construction beside its own turn before the independent composer", async () => {
+  const second = turn("b", "a");
+  const props = { branch: [first, second], path: null, running: null, stream: "", reasoning: "", draft: "## My response", onDraft: () => {}, onSend: () => {}, canSend: true, stamp: "" };
+  const rendered = render(<ConversationEditor {...props} renderFinal={item => <p>Construction {item.id}</p>} />);
+  const cards = screen.getAllByRole("region", { name: "Final construction" });
+  expect(cards).toHaveLength(2);
+  expect(cards[0].closest("[data-turn]")?.getAttribute("data-turn")).toBe("a");
+  expect(cards[1].closest("[data-turn]")?.getAttribute("data-turn")).toBe("b");
+  expect(rendered.container.lastElementChild?.lastElementChild?.getAttribute("aria-label")).toBe("Your response");
+  expect(screen.getByRole("textbox", { name: "Agent conversation and response" }).textContent).toContain("My response");
+});
+
 it("places Send after the multiline draft without adding bytes, and disables an empty draft", async () => {
   const send = vi.fn();
   const props = { branch: [], path: null, running: null, stream: "", reasoning: "", draft: "Hello\nthere", onDraft: () => {}, onSend: send, canSend: true, stamp: "" };
@@ -125,22 +143,23 @@ it("folds newly arriving context with native editor folds and refreshes its rece
   installMockHandler(async (_method, path) => path.startsWith("/api/sessions/view") ? contextData : {});
   const props = { branch: [first], path: data.path, stamp: "a", running: null, stream: "", reasoning: "", draft: "", onDraft: () => {}, onSend: () => {}, canSend: false };
   const rendered = render(<ConversationEditor {...props} />);
-  const host = await screen.findByRole("textbox", { name: "Agent conversation and response" });
+  const hosts = await screen.findAllByRole("textbox", { name: "Recorded message" });
+  const host = hosts[0];
   const view = EditorView.findFromDOM(host)!;
   await waitFor(() => expect(foldedRanges(view.state).size).toBeGreaterThan(0));
   expect(host.querySelector("details")).toBeNull();
   expect(view.state.doc.toString()).toContain("Snapshot 📝");
   expect(host.textContent).not.toContain("Snapshot 📝");
-  await waitFor(() => expect(lensSources().find(lens => lens.path === data.path)?.links).toHaveLength(0));
+  await waitFor(() => expect(lensSources().find(lens => lens.view === view)?.links).toHaveLength(0));
   rendered.rerender(<ConversationEditor {...props} showCollapsedLineage />);
-  await waitFor(() => expect(lensSources().find(lens => lens.path === data.path)?.links[0]?.from.lines).toEqual([3,3]));
+  await waitFor(() => expect(lensSources().find(lens => lens.view === view)?.links[0]?.from.lines).toEqual([3,3]));
   const folds: { from: number; to: number }[] = [];
   foldedRanges(view.state).between(0, view.state.doc.length, (from, to) => { folds.push({ from, to }); });
   act(() => view.dispatch({ effects: folds.map(f => unfoldEffect.of(f)) }));
   await waitFor(() => expect(host.textContent).toContain("Snapshot 📝"));
   rendered.rerender(<ConversationEditor {...props} draft="new response" />);
-  await waitFor(() => expect(view.state.doc.toString()).toContain("new response"));
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "Agent conversation and response" }).textContent).toContain("new response"));
   expect(foldedRanges(view.state).size).toBe(0);
-  expect(lensSources().find(lens => lens.path === data.path)?.links[0]?.from.lines).toEqual([3,5]);
+  expect(lensSources().find(lens => lens.view === view)?.links[0]?.from.lines).toEqual([3,5]);
   installMockHandler(async (_method, path) => path.startsWith("/api/sessions/view") ? data : {});
 });

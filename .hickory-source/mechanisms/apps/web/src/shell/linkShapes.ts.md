@@ -20,6 +20,7 @@ Context and declared links use the same rails and geometry as byte lineage.
 <storycode:copy id="f-5b6df5b99815-Geometry">
 // Context and declared links use the same rails and geometry as byte lineage.
 import { coalesceLinks } from "./coalesceLinks";
+import { spatialEditorVisible } from "./spatialTerminals";
 import type { EditorView } from "@codemirror/view";
 import type { Draft, Terminal, RibbonFamily, RibbonLink, RibbonSource, RibbonFile } from "./Ribbons";
 import { samePath } from "../lib/paths";
@@ -31,6 +32,10 @@ type Geometry = Pick<typeof import("./Ribbons"), "bandBetween" | "paneEdges" | "
 <a id="f-5b6df5b99815-linkShapes"></a>
 ### `linkShapes`
 
+Prefer the originating message editor when supplied. Choosing the first editor
+with a matching session path would paint every answer’s ribbon on the first card.
+Ordinary document links retain path-based discovery.
+
 <storycode:copy id="f-5b6df5b99815-linkShapes">
 export function linkShapes(container: HTMLElement, sources: readonly RibbonSource[], files: readonly RibbonFile[], links: readonly RibbonLink[], on: (family: RibbonFamily) => boolean, braces: boolean, geometry: Geometry): Draft[] {
   const { bandBetween, paneEdges, findTerminal, attachTerminal, revealStrip } = geometry;
@@ -38,7 +43,8 @@ export function linkShapes(container: HTMLElement, sources: readonly RibbonSourc
   const out: Draft[] = [];
     for (const link of coalesceLinks(links, sources)) {
       if (!on(link.family)) continue;
-      const source = sources.find(
+      if (link.from.view && !spatialEditorVisible(link.from.view, container)) continue;
+      const source = link.from.view ? { docPath: link.from.path, docSource: link.from.view.state.doc.toString(), view: link.from.view } : sources.find(
         (s) => s.view && samePath(s.docPath, link.from.path),
       );
       const view = source?.view;
@@ -266,6 +272,13 @@ it.each([false, true])("joins the cited passage in an open editor, braces=%s", b
   const sources = [{ docPath: "sessions/s.md", docSource: "", view: source }, { docPath: "note.md", docSource: "", view: target }];
   const shapes = linkShapes(container, sources, [], [link], () => true, braces, geometry);
   expect(shapes).toHaveLength(1);
+  // Agent cards share a session path but own independent local line coordinates.
+  const other = new EditorView({ parent: container, state: EditorState.create({ doc: "Another message" }) });
+  views.push(other);
+  vi.spyOn(other.scrollDOM, "getBoundingClientRect").mockReturnValue(box(0));
+  const cardShapes = linkShapes(container, sources, [], [{ ...link, from: { ...link.from, view: other } }], () => true, braces, geometry);
+  expect(cardShapes[0].hl[0].view).toBe(other);
+
   const bufferShapes = linkShapes(container, [sources[0], { ...sources[1], docPath: "hickory-buffer://u1" }], [],
     [{ ...link, to: { ...link.to, path: "hickory-buffer://u1" } }], () => true, braces, geometry);
   expect(bufferShapes).toHaveLength(1);

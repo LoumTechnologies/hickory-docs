@@ -305,7 +305,7 @@ export function ribbonLinksOf(path: string, links: readonly SessionLink[]): Ribb
 ### `lenses`
 
 <storycode:copy id="f-f20ae3d80724-lenses">
-const lenses = new Map<string, LensSource>();
+const lenses = new Map<EditorView, LensSource>();
 </storycode:copy>
 <a id="f-f20ae3d80724-listeners"></a>
 ### `listeners`
@@ -333,13 +333,17 @@ function changed() {
 <a id="f-f20ae3d80724-registerLens"></a>
 ### `registerLens`
 
+A session can appear in several message editors at once. Register by editor
+identity while retaining the real session path for provenance; unmounting one
+card must not retire another card’s ribbons.
+
 <storycode:copy id="f-f20ae3d80724-registerLens">
 export function registerLens(lens: LensSource): () => void {
-  lenses.set(lens.path, lens);
+  lenses.set(lens.view, lens);
   changed();
   return () => {
-    if (lenses.get(lens.path) === lens) {
-      lenses.delete(lens.path);
+    if (lenses.get(lens.view) === lens) {
+      lenses.delete(lens.view);
       changed();
     }
   };

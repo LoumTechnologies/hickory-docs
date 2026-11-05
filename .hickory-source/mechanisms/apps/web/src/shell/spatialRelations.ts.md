@@ -37,6 +37,9 @@ export interface SpatialRelation {
 <a id="f-a9a4742c7a2b-spatialRelations"></a>
 ### `spatialRelations`
 
+Carry a message’s originating editor into spatial alignment too, so arranging
+panes uses the same local passage as the painted ribbon.
+
 <storycode:copy id="f-a9a4742c7a2b-spatialRelations">
 export function spatialRelations(sources: readonly RibbonSource[], files: readonly RibbonFile[], links: readonly RibbonLink[]): SpatialRelation[] {
   const editor = (path: string) => sources.find(source => samePath(source.docPath, path))?.view
@@ -47,7 +50,7 @@ export function spatialRelations(sources: readonly RibbonSource[], files: readon
     return [view.state.doc.line(Math.max(1, Math.min(count, lines[0]))).from, view.state.doc.line(Math.max(1, Math.min(count, lines[1]))).to];
   };
   const out: SpatialRelation[] = links.map(link => ({ key: link.key, fromPath: link.from.path, toPath: link.to.path,
-    from: editor(link.from.path), to: editor(link.to.path), fromRange: range(editor(link.from.path), link.from.lines),
+    from: link.from.view ?? editor(link.from.path), to: editor(link.to.path), fromRange: range(link.from.view ?? editor(link.from.path), link.from.lines),
     toRange: range(editor(link.to.path), link.to.lines), anchor: link.anchor }));
   for (const source of sources) for (const { file, view } of files) {
     for (const ribbon of deriveRibbons(file, source.docPath, source.docSource)) out.push({ key: ribbon.key, fromPath: source.docPath,

@@ -14,9 +14,11 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 ### `noCells`
 
 <storycode:copy id="f-436917f654b3-noCells">
+import type { ReactNode } from "react";
+import { parseStructure } from "../editor/hickDoc";
 import { registerReviewEditor } from "../lib/reviews";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Prec, Transaction } from "@codemirror/state";
+import { EditorState, Prec, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { DocumentEditor } from "../editor/DocumentEditor";
 import { LocalRealtime } from "../api/realtime";
@@ -38,9 +40,12 @@ const noCells = new Set<string>();
 <a id="f-436917f654b3-focusConversationResponse"></a>
 ### `focusConversationResponse`
 
+The response action must find the composer rather than the first recorded
+message editor. Selecting its end preserves the user’s existing Markdown.
+
 <storycode:copy id="f-436917f654b3-focusConversationResponse">
 export function focusConversationResponse(host: Element | null) {
-  const editor = host?.querySelector<HTMLElement>(".cm-editor");
+  const editor = host?.querySelector<HTMLElement>(".conversation-card--composer .cm-editor");
   const view = editor && EditorView.findFromDOM(editor);
   if (!view) return;
   view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true });
@@ -51,18 +56,27 @@ export function focusConversationResponse(host: Element | null) {
 <a id="f-436917f654b3-ConversationEditor"></a>
 ### `ConversationEditor`
 
+Split only session-level messages so nested file, patch and executable blocks
+stay intact. Each card keeps exact source text and remaps receipt coordinates to
+its own editor; streaming text never gains recorded evidence. The final captured
+construction follows its turn, with native execution/debugging owned by the
+existing captured-project surface. The composer has an independent undo history
+and never receives a replacement of the recorded prefix.
+
+Message slicing is memoized by the captured history and stream, so typing a draft
+does not reparse all prior messages.
+
+The buffer protects every mutation except an owner-authorized reading update,
+including widget writes at the end of a message. It retains native folding and
+ribbon anchors in each editor. Focus and Send target only the composer.
+
 <storycode:copy id="f-436917f654b3-ConversationEditor">
-export function ConversationEditor({ branch, path, running, stream, reasoning, draft, onDraft, onSend, canSend, sending = false, stamp, showCollapsedLineage = false }: {
+export function ConversationEditor({ branch, path, running, stream, reasoning, draft, onDraft, onSend, canSend, sending = false, stamp, showCollapsedLineage = false, renderFinal }: {
+  renderFinal?: (turn: AgentTurn) => ReactNode;
   branch: AgentTurn[]; path: string | null; running: string | null; stream: string; reasoning: string;
   draft: string; onDraft: (draft: string) => void; onSend: () => void; canSend: boolean; sending?: boolean; stamp: string; showCollapsedLineage?: boolean;
 }) {
   const [data, setData] = useState<SessionViewResponse | null>(null);
-  const [view, setView] = useState<EditorView | null>(null);
-  const realtime = useMemo(() => new LocalRealtime(), []);
-  const following = useRef(true);
-  const initialFocus = useRef(false);
-  const syncLinks = useRef(() => {});
-  const latest = useRef({ onDraft, onSend, canSend }); latest.current = { onDraft, onSend, canSend };
   useEffect(() => { setData(null); }, [path]);
   useEffect(() => {
     if (!path) return;
@@ -80,22 +94,92 @@ export function ConversationEditor({ branch, path, running, stream, reasoning, d
     const timer = running ? undefined : window.setInterval(refresh, 5000);
     return () => { live = false; window.clearInterval(timer); };
   }, [path, running, stamp]);
-  const reading = useMemo(() => conversationReading(data, branch, running, stream, reasoning), [data, branch, running, stream, reasoning]);
+  const messages = useMemo(() => branch.map(turn => {
+    const reading = conversationReading(data, [turn], running, stream, reasoning);
+    const structure = parseStructure(reading.source);
+    // Only session-level messages split cards. Tags inside a message remain
+    // native literate content, including executable/project constructions.
+    const messages = structure.blocks.filter(block => ["user", "assistant", "reasoning"].includes(block.name)
+      && !structure.blocks.some(parent => parent !== block && parent.name !== "session" && parent.from < block.from && parent.to >= block.to))
+      .sort((a, b) => a.from - b.from);
+    const end = reading.source.lastIndexOf("</hick:session>");
+    const ranges = messages.map((block, index) => ({
+      from: block.from, to: messages[index + 1]?.from ?? end, role: block.name,
+    }));
+    const cards = ranges.map(range => {
+      const prefix = '<hick:session xmlns:hick="http://www.hickorydocs.com/1.0">\n';
+      const lineOffset = 1 - reading.source.slice(0, range.from).split("\n").length + 1;
+      const card = { source: prefix + reading.source.slice(range.from, range.to) + "</hick:session>\n", links: reading.links
+        .filter(link => link.span[0] >= range.from && link.span[1] <= range.to)
+        .map(link => ({ ...link, span: [link.span[0] - range.from + prefix.length, link.span[1] - range.from + prefix.length] as [number, number],
+          lines: [link.lines[0] + lineOffset, link.lines[1] + lineOffset] as [number, number] })) };
+      return { role: range.role, reading: card };
+    });
+    return { turn, cards };
+  }), [data, branch, running, stream, reasoning]);
+  return <div className="conversation-document">
+    {path && data && <VerificationStanding records={data.audit ?? []} turn={branch.at(-1)?.id} running={!!running} />}
+    {path && data && <AssumptionAudit records={data.audit ?? []} path={path} source={data.source} />}
+    {messages.map(({ turn, cards }) => {
+      return <div className="conversation-turn" key={turn.id} data-turn={turn.id}>
+        {cards.map(({ role, reading: card }, index) => {
+          return <section className={`conversation-card conversation-card--${role}`} key={index} aria-label={`${role === "user" ? "You" : role === "reasoning" ? "Reasoning" : "Agent"} message`}>
+            <header>{role === "user" ? "You" : role === "reasoning" ? "Reasoning" : "Agent"}</header>
+            <ConversationBuffer reading={card} path={path} source={data?.source ?? null} id={`${turn.id}:${index}`} readOnly
+              running={running} sending={sending} draft="" onDraft={() => {}} onSend={() => {}} canSend={false} showCollapsedLineage={showCollapsedLineage} />
+          </section>;
+        })}
+        {turn.status === "ok" && renderFinal && <section className="conversation-card conversation-card--final" aria-label="Final construction">
+          <header>Final construction</header>{renderFinal(turn)}
+        </section>}
+      </div>;
+    })}
+    <section className="conversation-card conversation-card--composer" aria-label="Your response">
+      <header>Your response</header>
+      <ConversationBuffer reading={{ source: "", links: [] }} path={null} source={null} id="response" readOnly={false}
+        running={running} sending={sending} draft={draft} onDraft={onDraft} onSend={onSend} canSend={canSend} showCollapsedLineage={false} />
+    </section>
+  </div>;
+}
+
+</storycode:copy>
+
+### Keep message buffers immutable and the response independently editable
+
+A card keeps native Markdown rendering, folding and receipt anchors. Its owner
+may replace streamed text, but keyboard, undo and widget edits cannot change the
+record. The composer alone reports draft changes and owns focus, Send and scroll
+following. Resize observation follows the outer conversation so a growing message
+does not move a reader who deliberately scrolled upward.
+
+<storycode:copy id="conversation-message-buffer">
+/** Each card owns its editor and undo history; only the composer reports edits. */
+function ConversationBuffer({ reading, path, source, id, readOnly, running, sending, draft, onDraft, onSend, canSend, showCollapsedLineage }: {
+  reading: ReturnType<typeof conversationReading>; path: string | null; source: string | null; id: string; readOnly: boolean;
+  running: string | null; sending: boolean; draft: string; onDraft: (draft: string) => void; onSend: () => void; canSend: boolean; showCollapsedLineage: boolean;
+}) {
+  const [view, setView] = useState<EditorView | null>(null);
+  const realtime = useMemo(() => new LocalRealtime(), []);
+  const following = useRef(true);
+  const initialFocus = useRef(false);
+  const syncLinks = useRef(() => {});
+  const latest = useRef({ onDraft, onSend, canSend }); latest.current = { onDraft, onSend, canSend };
   useEffect(() => {
     if (!view || !path) return;
-    return registerReviewEditor(view, path, () => data?.source ?? null);
-  }, [view, path, data?.source]);
-  const extensions = useMemo(() => [...protectedPrefix, sessionBookkeeping, ...responseSend(() => { if (latest.current.canSend) { following.current = true; latest.current.onSend(); } }),
+    return registerReviewEditor(view, path, () => source);
+  }, [view, path, source]);
+  const extensions = useMemo(() => [...protectedPrefix,
+    EditorState.transactionFilter.of(tr => readOnly && tr.docChanged && !tr.annotation(replaceReading) ? [] : tr), sessionBookkeeping, ...responseSend(() => { if (latest.current.canSend) { following.current = true; latest.current.onSend(); } }),
     EditorView.domEventHandlers({
       mousedown(event) {
         if (event.target instanceof Element && event.target.closest(".cm-hick-fold-placeholder, .cm-foldGutter")) following.current = false;
         return false;
       },
     }),
-    EditorView.contentAttributes.of({ "aria-label": "Agent conversation and response", role: "textbox", "aria-multiline": "true" }),
+    EditorView.contentAttributes.of({ "aria-label": readOnly ? "Recorded message" : "Agent conversation and response", "aria-readonly": String(readOnly), role: "textbox", "aria-multiline": "true" }),
     EditorView.updateListener.of(update => {
       if (update.docChanged || update.transactions.some(tr => tr.effects.some(effect => effect.is(foldEffect) || effect.is(unfoldEffect)))) queueMicrotask(() => syncLinks.current());
-      if (update.docChanged && !update.transactions.some(tr => tr.annotation(replaceReading)))
+      if (!readOnly && update.docChanged && !update.transactions.some(tr => tr.annotation(replaceReading)))
         latest.current.onDraft(update.state.doc.sliceString(update.state.field(responseStart)));
     }),
     Prec.high(keymap.of(["Ctrl-Enter", "Meta-Enter"].map(key => ({ key, run: () => { if (latest.current.canSend) { following.current = true; latest.current.onSend(); } return true; } })))),
@@ -107,20 +191,20 @@ export function ConversationEditor({ branch, path, running, stream, reasoning, d
     const before = view.state.doc.toString();
     view.dispatch({ changes: computeEdits(before, next).map(e => ({ from: e.start, to: e.end, insert: e.text })),
       effects: setResponseStart.of(reading.source.length), annotations: [replaceReading.of(true), Transaction.addToHistory.of(false)] });
-    if (!initialFocus.current && !view.dom.closest("[hidden]")) {
+    if (!readOnly && !initialFocus.current && !view.dom.closest("[hidden]")) {
       initialFocus.current = true;
       view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true });
       view.focus();
     }
   }, [view, reading.source, draft]);
   useEffect(() => {
-    if (view) view.dispatch({ effects: setSendState.of({ enabled: canSend, label: sending ? "Starting…" : "Send", visible: !running }) });
+    if (view) view.dispatch({ effects: setSendState.of({ enabled: canSend, label: sending ? "Starting…" : "Send", visible: !readOnly && !running }) });
   }, [view, canSend, sending, running]);
   useEffect(() => {
     if (running || sending) following.current = true;
   }, [running, sending]);
   useEffect(() => {
-    if (!view) return;
+    if (!view || readOnly) return;
     const log = view.dom.closest<HTMLElement>(".chat-log");
     if (!log) return;
     let previousTop = log.scrollTop;
@@ -138,7 +222,7 @@ export function ConversationEditor({ branch, path, running, stream, reasoning, d
     };
     log.addEventListener("scroll", onScroll);
     const observer = new ResizeObserver(follow);
-    observer.observe(view.contentDOM);
+    observer.observe(view.dom.closest(".conversation-document") ?? view.contentDOM);
     follow();
     return () => { cancelAnimationFrame(frame); observer.disconnect(); log.removeEventListener("scroll", onScroll); };
   }, [view, reading.source, sending]);
@@ -152,8 +236,9 @@ export function ConversationEditor({ branch, path, running, stream, reasoning, d
         const folded = conversationFold(view, link.span[0], link.span[1]);
         if (folded !== null && !showCollapsedLineage) return [];
         return ribbonLinksOf(path, [link]).map(ribbon => ({ ...ribbon,
-          key: `conversation:${path}:${link.span.join(":")}:${link.family}:${link.to.path}:${link.to.lines?.join(":")}`,
-          ...(folded !== null ? { from: { path, lines: [folded, folded] as [number, number] } } : anchor ? { anchor } : {}), alwaysVisible: true }));
+          key: `conversation:${path}:${id}:${link.span.join(":")}:${link.family}:${link.to.path}:${link.to.lines?.join(":")}`,
+          from: { ...ribbon.from, view, ...(folded !== null ? { lines: [folded, folded] as [number, number] } : {}) },
+          ...(folded === null && anchor ? { anchor } : {}), alwaysVisible: true }));
       });
       unregister(); unregister = registerLens({ path, view, source: view.state.doc.toString(), links: visible });
     };
@@ -164,14 +249,9 @@ export function ConversationEditor({ branch, path, running, stream, reasoning, d
     return () => { syncLinks.current = () => {}; unregister(); view.dom.removeEventListener("toggle", sync, true); view.dom.removeEventListener("click", sync); };
   }, [view, path, reading, draft, showCollapsedLineage]);
   useEffect(() => () => realtime.close(), [realtime]);
-  return <div className="conversation-document">
-    {running && path && <p className="muted">Recorded history is held at its last loaded capture during this turn. Current text streams below; open the session to inspect recorded work.</p>}
-    {path && data && <VerificationStanding records={data.audit ?? []} turn={branch.at(-1)?.id} running={!!running} />}
-    {path && data && <AssumptionAudit records={data.audit ?? []} path={path} source={data.source} />}
-    <DocumentEditor docId="conversation-reading" initialSource="" realtime={realtime}
-      execBlocks={[]} runningCells={noCells} onRunCell={() => {}} onViewReady={ready}
-      preserveBytes editorExtensions={extensions} />
-  </div>;
+  return <DocumentEditor docId={`conversation:${id}`} initialSource="" realtime={realtime} readOnly={readOnly}
+    execBlocks={[]} runningCells={noCells} onRunCell={() => {}} onViewReady={ready}
+    preserveBytes editorExtensions={extensions} />;
 }
 </storycode:copy>
 
@@ -179,7 +259,7 @@ export function ConversationEditor({ branch, path, running, stream, reasoning, d
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/views/ConversationEditor.tsx"><storycode:paste select="#f-436917f654b3-noCells"/><storycode:paste select="#f-436917f654b3-focusConversationResponse"/><storycode:paste select="#f-436917f654b3-ConversationEditor"/></storycode:file>
+<storycode:file path="apps/web/src/views/ConversationEditor.tsx"><storycode:paste select="#f-436917f654b3-noCells"/><storycode:paste select="#f-436917f654b3-focusConversationResponse"/><storycode:paste select="#f-436917f654b3-ConversationEditor"/><storycode:paste select="#conversation-message-buffer"/></storycode:file>
 
 
 ## Exercise this mechanism
@@ -283,30 +363,40 @@ it("opens at the editable response and can return there without rewriting the co
 <a id="f-edc92cd336d7-expression_statement-4"></a>
 ### `expression_statement`
 
+Recorded messages need different editor identities, not just separate visual
+wrappers. Try keyboard and programmatic writes at both boundaries, stream an
+update and undo the response; only the editable draft may change.
+
 <storycode:copy id="f-edc92cd336d7-expression_statement-4">
-it("protects recorded and live content while preserving a response across streaming updates", async () => {
+it("gives every message a protected buffer and keeps the draft independent during streaming", async () => {
   const rendered = render(<Harness />);
   const host = await screen.findByRole("textbox", { name: "Agent conversation and response" });
-  const view = EditorView.findFromDOM(host)!;
-  await waitFor(() => expect(view.state.doc.toString()).toContain("Answer a 📝"));
-  const before = view.state.doc.toString();
-  act(() => view.dispatch({ changes: { from: 0, to: 5, insert: "erase" }, userEvent: "input.type" }));
-  expect(view.state.doc.toString()).toBe(before);
-  // A widget's programmatic edit is protected too, not just keyboard events.
-  act(() => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "replace everything" } }));
-  expect(view.state.doc.toString()).toBe(before);
-  act(() => view.dispatch({ changes: { from: view.state.field(responseStart), insert: "My response\nsecond line" }, userEvent: "input.type" }));
-  expect(view.state.doc.toString()).toContain("My response\nsecond line");
+  const response = EditorView.findFromDOM(host)!;
+  await waitFor(() => expect(rendered.container.textContent).toContain("Answer a 📝"));
+  const cards = screen.getAllByRole("textbox", { name: "Recorded message" });
+  expect(cards.length).toBeGreaterThanOrEqual(4);
+  const views = cards.map(card => EditorView.findFromDOM(card)!);
+  expect(new Set(views).size).toBe(cards.length);
+  for (const view of views) {
+    expect(view.state.readOnly).toBe(true);
+    const before = view.state.doc.toString();
+    act(() => view.dispatch({ changes: { from: 0, to: 5, insert: "erase" }, userEvent: "input.type" }));
+    act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: "widget write" } }));
+    act(() => { undo(view); });
+    expect(view.state.doc.toString()).toBe(before);
+  }
+  act(() => response.dispatch({ changes: { from: 0, insert: "My response\nsecond line" }, userEvent: "input.type" }));
+  const answer = views.find(view => view.state.doc.toString().includes("Answer a 📝"))!;
   rendered.rerender(<Harness stream="Writing more now" />);
-  await waitFor(() => expect(view.state.doc.toString()).toContain("Writing more now"));
-  expect(view.state.doc.sliceString(view.state.field(responseStart))).toBe("My response\nsecond line");
-  expect(view.state.doc.toString()).toContain("Thinking");
-  expect(document.querySelector(".cm-turn-assistant")).toBeTruthy();
-  expect(document.querySelector(".cm-turn-reasoning")).toBeTruthy();
-  expect(lensSources().find(lens => lens.path === data.path)?.links.some(link => link.to.path === "note.md")).toBe(true);
-  const protectedText = view.state.doc.sliceString(0, view.state.field(responseStart));
-  act(() => { undo(view); });
-  expect(view.state.doc.sliceString(0, view.state.field(responseStart))).toBe(protectedText);
+  await waitFor(() => expect(rendered.container.textContent).toContain("Writing more now"));
+  expect(response.state.doc.toString()).toBe("My response\nsecond line");
+  expect(EditorView.findFromDOM(answer.dom)).toBe(answer);
+  expect(rendered.container.querySelector(".conversation-card--reasoning")).toBeTruthy();
+  expect(lensSources().some(lens => lens.path === data.path && lens.links.some(link => link.to.path === "note.md"))).toBe(true);
+  // Separate histories: undoing the draft cannot touch recorded speech.
+  const before = answer.state.doc.toString();
+  act(() => { undo(response); });
+  expect(answer.state.doc.toString()).toBe(before);
 });
 </storycode:copy>
 <a id="f-edc92cd336d7-expression_statement-5"></a>
@@ -330,7 +420,22 @@ it("submits only with the send shortcut; ordinary Enter remains multiline editin
 <a id="f-edc92cd336d7-expression_statement-6"></a>
 ### `expression_statement`
 
+Keep each completed construction with its owning turn. The composer comes last,
+with Send after its Markdown rather than inside a recorded message.
+
 <storycode:copy id="f-edc92cd336d7-expression_statement-6">
+it("keeps the final construction beside its own turn before the independent composer", async () => {
+  const second = turn("b", "a");
+  const props = { branch: [first, second], path: null, running: null, stream: "", reasoning: "", draft: "## My response", onDraft: () => {}, onSend: () => {}, canSend: true, stamp: "" };
+  const rendered = render(<ConversationEditor {...props} renderFinal={item => <p>Construction {item.id}</p>} />);
+  const cards = screen.getAllByRole("region", { name: "Final construction" });
+  expect(cards).toHaveLength(2);
+  expect(cards[0].closest("[data-turn]")?.getAttribute("data-turn")).toBe("a");
+  expect(cards[1].closest("[data-turn]")?.getAttribute("data-turn")).toBe("b");
+  expect(rendered.container.lastElementChild?.lastElementChild?.getAttribute("aria-label")).toBe("Your response");
+  expect(screen.getByRole("textbox", { name: "Agent conversation and response" }).textContent).toContain("My response");
+});
+
 it("places Send after the multiline draft without adding bytes, and disables an empty draft", async () => {
   const send = vi.fn();
   const props = { branch: [], path: null, running: null, stream: "", reasoning: "", draft: "Hello\nthere", onDraft: () => {}, onSend: send, canSend: true, stamp: "" };
@@ -394,23 +499,24 @@ it("folds newly arriving context with native editor folds and refreshes its rece
   installMockHandler(async (_method, path) => path.startsWith("/api/sessions/view") ? contextData : {});
   const props = { branch: [first], path: data.path, stamp: "a", running: null, stream: "", reasoning: "", draft: "", onDraft: () => {}, onSend: () => {}, canSend: false };
   const rendered = render(<ConversationEditor {...props} />);
-  const host = await screen.findByRole("textbox", { name: "Agent conversation and response" });
+  const hosts = await screen.findAllByRole("textbox", { name: "Recorded message" });
+  const host = hosts[0];
   const view = EditorView.findFromDOM(host)!;
   await waitFor(() => expect(foldedRanges(view.state).size).toBeGreaterThan(0));
   expect(host.querySelector("details")).toBeNull();
   expect(view.state.doc.toString()).toContain("Snapshot 📝");
   expect(host.textContent).not.toContain("Snapshot 📝");
-  await waitFor(() => expect(lensSources().find(lens => lens.path === data.path)?.links).toHaveLength(0));
+  await waitFor(() => expect(lensSources().find(lens => lens.view === view)?.links).toHaveLength(0));
   rendered.rerender(<ConversationEditor {...props} showCollapsedLineage />);
-  await waitFor(() => expect(lensSources().find(lens => lens.path === data.path)?.links[0]?.from.lines).toEqual([3,3]));
+  await waitFor(() => expect(lensSources().find(lens => lens.view === view)?.links[0]?.from.lines).toEqual([3,3]));
   const folds: { from: number; to: number }[] = [];
   foldedRanges(view.state).between(0, view.state.doc.length, (from, to) => { folds.push({ from, to }); });
   act(() => view.dispatch({ effects: folds.map(f => unfoldEffect.of(f)) }));
   await waitFor(() => expect(host.textContent).toContain("Snapshot 📝"));
   rendered.rerender(<ConversationEditor {...props} draft="new response" />);
-  await waitFor(() => expect(view.state.doc.toString()).toContain("new response"));
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "Agent conversation and response" }).textContent).toContain("new response"));
   expect(foldedRanges(view.state).size).toBe(0);
-  expect(lensSources().find(lens => lens.path === data.path)?.links[0]?.from.lines).toEqual([3,5]);
+  expect(lensSources().find(lens => lens.view === view)?.links[0]?.from.lines).toEqual([3,5]);
   installMockHandler(async (_method, path) => path.startsWith("/api/sessions/view") ? data : {});
 });
 </storycode:copy>

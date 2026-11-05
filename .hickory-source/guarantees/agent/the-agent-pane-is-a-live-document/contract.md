@@ -3,15 +3,26 @@
 
 For: Authors using an agent to change documents while retaining review control.
 
-Given an agent conversation, the Agent pane uses `DocumentEditor`, the same
-literate editor as an ordinary note. Recorded turns on the selected branch and
-the running turn appear in one buffer, followed by **Your response**, an editable
-region. Recorded and streaming content is protected against keyboard edits,
-paste, undo, and programmatic widget edits. Only the conversation owner can
-replace that prefix. A streaming update preserves the user's response draft,
-including its line breaks.
+Given an agent conversation, each message on the selected branch appears in its
+own card backed by `DocumentEditor`, the same Markdown/literate editor as a note.
+Recorded user messages and recorded or streaming AI messages are read-only,
+including paste, undo and programmatic widget edits. The latest **Your response**
+card is a separate editable buffer with its own undo history. Streaming changes
+preserve the draft and its line breaks; response focus and Send target that buffer.
 
-The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
+A successful turn carries its final captured literate construction immediately
+after its messages. This document presents the successful steps from beginning to
+end with the final design in mind, beside real implementation and observed checks.
+It omits exploratory chronology; rejected alternatives appear only when needed
+to explain a decision. Native captured-project run/debug tools remain available
+without making the AI record editable. Acceptance proves source/output equality,
+not explanatory accuracy or runtime correctness.
+
+Requirement decision: this card-based conversation supersedes the historical
+single-buffer wording below. Original captures remain history. Focused component
+checks protect independent editor identity, immutable speech, streaming draft
+retention, native folding and receipt anchors. The quality of an agent’s chosen
+explanation still requires human review; instructions cannot guarantee it.
 
 ## Read the detailed requirements
 
@@ -20,7 +31,7 @@ The existing requirement is retained. Its original detail is below; implementati
 
 Earlier wording and all later notes remain in [the preserved original](../../../support/files/docs/guarantees/agent/the-agent-pane-is-a-live-document.md.md). The paragraph ledger records their exact ranges and dispositions.
 
-Requirement decision: Retain the existing requirement without inferring new intent. Separate evidence history and retain follow-up paragraphs for review; no new implementation verification is claimed.
+Historical detail below retains the former single-buffer design. The card-based requirement above governs current work.
 
 Implementation review: not verified. Executed checks and human judgment are recorded separately. Source and test changes stale earlier evidence.
 
@@ -52,6 +63,8 @@ Implementation review: not verified. Executed checks and human judgment are reco
 - Executed checks: [the run record](../../../evidence/focused-checks.md) lists actual executions.
 - Human judgment: stakeholder priorities confirmed; individual requirement acceptance remains unrecorded.
 - Dependencies: exact cited-file hashes are in the capture and source entries. Transitive source and environment changes can also stale evidence.
-- Open evidence gaps: no-existing-code-or-test-reference-resolved.
+- Focused execution (2026-11-04): 59 frontend tests passed across ConversationEditor, ChatDock, ChangesetDocument, linkShapes and coalesceLinks. The final scroll-observation change passed the eight ConversationEditor tests again. Type checking passed; three Rust changeset safety tests and eight Python local-workflow tests passed.
+- Browser execution: `scripts/test-literate-editor.sh --grep 'an ACP final claim about the startup Untitled note'` passed against a real isolated engine and ACP fixture. It checks separate read-only cards, the editable Markdown response and the answer’s context ribbon with explicitly selected context and Files windows enabled. No model tokens are spent by this fixture.
+- Evidence limits: final explanation quality remains a human judgment. Broad regressions and post-commit status monitoring remain with the maintainer.
 
 </storycode:doc>

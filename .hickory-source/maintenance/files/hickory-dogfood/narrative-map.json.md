@@ -56576,6 +56576,13 @@ The entry below owns this output. Its metadata is separate from semantic verific
       ]
     },
     {
+      "id": "conversation-message-buffer",
+      "output": "apps/web/src/views/ConversationEditor.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/views/ConversationEditor.tsx.md",
+      "symbol": "ConversationBuffer",
+      "basis": "explained-decision"
+    },
+    {
       "id": "f-c7ae8a3155cc-expression_statement",
       "output": "apps/web/src/views/DocumentReading.controls.test.tsx",
       "page": ".hickory-source/guarantees/agent/ui-action-dispatch/implementation/apps/web/src/views/DocumentReading.controls.test.tsx.md",

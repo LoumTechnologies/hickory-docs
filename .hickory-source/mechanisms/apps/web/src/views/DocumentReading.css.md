@@ -17,9 +17,9 @@ This literal construction preserves embedded document syntax and exact file byte
 .document-reading > .doc-tab-toolbar { position: sticky; top: 0; z-index: 4; background: var(--bg); }
 .commit-reading__file { margin: 1rem 0; }
 .commit-reading__file > h2 { font-size: 1rem; padding: 0.5rem 1rem; }
-.conversation-document { min-height: 100%; }
-.conversation-document .cm-editor { min-height: 12rem; }
-.conversation-document .cm-content { padding-bottom: 3rem; }
+.conversation-document { min-height: 100%; flex-shrink: 0; }
+.conversation-document .cm-editor { min-height: 0; }
+.conversation-document .cm-content { padding-bottom: 1rem; }
 .document-reading .document-editor .cm-content,
 .conversation-document .document-editor .cm-content { --cm-pad-x: 1rem; padding-top: 0.75rem; }
 .chat-dock--pane > :not(.chat-log) { flex-shrink: 0; }
@@ -33,6 +33,17 @@ This literal construction preserves embedded document syntax and exact file byte
 .document-editor .comparison-removed .cm-editor { flex: none; height: auto; min-height: 0; max-height: none; }
 .document-editor .comparison-removed .cm-scroller { overflow: visible; height: auto; }
 .document-editor .comparison-removed .cm-content { padding: 0.5rem; min-height: 0; }
+
+/* Independent document buffers read as a conversation, with one outer scroll. */
+.conversation-turn { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem; }
+.conversation-card { min-width: 0; border: 1px solid var(--border); border-radius: 0.75rem; background: var(--bg); }
+.conversation-card > header { padding: 0.6rem 1rem; font-size: 0.8rem; font-weight: 600; border-bottom: 1px solid var(--border); }
+.conversation-card--user { margin-left: 1.5rem; }
+.conversation-card--assistant, .conversation-card--final { margin-right: 1.5rem; }
+.conversation-card--composer { border-color: var(--accent); }
+.conversation-card--composer .cm-editor { min-height: 8rem; }
+.conversation-document { padding: 1rem; }
+@media (max-width: 600px) { .conversation-card { margin-left: 0; margin-right: 0; } }
 
 /* One scrollbar owns the conversation and its editable response. */
 .conversation-document .document-editor .cm-editor { height: auto; max-height: none; }
