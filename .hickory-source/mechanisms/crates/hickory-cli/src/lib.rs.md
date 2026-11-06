@@ -48,6 +48,7 @@ pub mod carry;
 
 <storycode:copy id="f-056f6a618871-changeset">
 mod changeset;
+pub mod checks;
 </storycode:copy>
 <a id="f-056f6a618871-clap_help"></a>
 ### `clap_help`

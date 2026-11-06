@@ -18,6 +18,29 @@ its location instead of deleting the only recoverable copy.
 <maint:entry path="justfile">
 # Hickory Docs task runner — the only entry point for project tasks.
 
+# Configure the optional checks provider; default workload is just check.
+[positional-arguments]
+checks-configure executable *COMMAND:
+    cargo run --quiet -p hickory-cli --bin hickory-checks -- configure "$@"
+
+# Read normalized provider status without starting a service or workload.
+checks-provider-status:
+    cargo run --quiet -p hickory-cli --bin hickory-checks -- status
+
+# Submit a detached local-ci run; an optional full commit ID uses its Git adapter.
+checks-submit revision="":
+    cargo run --quiet -p hickory-cli --bin hickory-checks -- run {{ if revision == "" { "" } else { quote(revision) } }}
+
+# Select clone-local post-commit behavior: local (default), local-ci, or off.
+checks-hook mode:
+    @case {{quote(mode)}} in local|local-ci|off) git config --local hickory.postCommitChecks {{quote(mode)}} ;; *) echo 'Choose local, local-ci, or off' >&2; exit 1 ;; esac
+
+# Focused checks-provider and UI safety witnesses; no broad regression suite.
+checks-integration-test provider="":
+    cargo test -p hickory-cli --lib checks::tests
+    cd apps/web && npx vitest run src/views/ChecksPane.test.tsx
+    {{ if provider == "" { "true" } else { "cargo build -p hickory-cli --bin hickory-checks --example checks_fixture && python3 scripts/test-checks-integration.py target/debug/hickory-checks " + quote(provider) + " target/debug/examples/checks_fixture" } }}
+
 # Run local checks, with compact progress and per-commit results for clean trees.
 checks:
     @scripts/checks.sh

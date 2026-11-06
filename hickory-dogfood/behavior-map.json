@@ -67080,6 +67080,76 @@
       ],
       "anchor": "just-gutter-apps-web-src-editor-CardRail-test-tsx",
       "narrative_owner": "mechanism:apps/web"
+    },
+    "crates/hickory-cli/src/checks.rs": {
+      "source": ".hickory-source/mechanisms/optional-checks.md",
+      "owner": "mechanism",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "371cf03113c6e4bb38c5b266cb0f8abb7cf5948a29af64e70a0584702fa42bcb"
+    },
+    "crates/hickory-cli/src/bin/hickory-checks.rs": {
+      "source": ".hickory-source/mechanisms/optional-checks.md",
+      "owner": "mechanism",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "4458f3994792fe5bdb7c37db9a2ced71c484f37e4de69178fd25256ffae89bbb"
+    },
+    "crates/hickory-cli/src/serve/checks.rs": {
+      "source": ".hickory-source/mechanisms/optional-checks.md",
+      "owner": "mechanism",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "128e4d64a9867d7c648b7b79a73d21841080d13b018ae5ebbc3e9fe0373020e5"
+    },
+    "apps/web/src/api/checks.ts": {
+      "source": ".hickory-source/mechanisms/optional-checks.md",
+      "owner": "mechanism",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "f9fe7c56cc0b7da7d681ff033948cc087376858f65e8e939a28c87ea139c8a2a"
+    },
+    "apps/web/src/views/ChecksPane.tsx": {
+      "source": ".hickory-source/mechanisms/optional-checks.md",
+      "owner": "mechanism",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "c072f00f42a5f95bf40ff02cc29dd0b43e671c532596d93457eb698d395a2d90"
+    },
+    "apps/web/src/views/ChecksPane.test.tsx": {
+      "source": ".hickory-source/mechanisms/optional-checks.md",
+      "owner": "mechanism",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "e0e24da5028b3e300cb4d64a219cf868dcf53973038185fa80b5a21c288fac00"
+    },
+    "docs/developers/checks.md": {
+      "source": ".hickory-source/mechanisms/optional-checks.md",
+      "owner": "mechanism",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "b2bcd5dfb085f758d3e5d2d8db3fada29afb53feed9741c6806a083d76e67c88"
+    },
+    "scripts/test-checks-integration.py": {
+      "source": ".hickory-source/mechanisms/optional-checks.md",
+      "owner": "mechanism",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "48097cc83759996561195204fb878036c3a24ad8a6c2eb1e3987e385e84d8c06"
+    },
+    "crates/hickory-cli/examples/checks_fixture.rs": {
+      "source": ".hickory-source/mechanisms/optional-checks.md",
+      "owner": "mechanism",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "7fc03dc87119840539779f27cb99c5a7a4d6675d224aae6b91722a79cd2f6861"
+    },
+    "scripts/test-checks-ui.mjs": {
+      "source": ".hickory-source/mechanisms/optional-checks.md",
+      "owner": "mechanism",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "c0d94399ca0534848b9000005d653f86730d45622e8304201b0e28687192ba4f"
     }
   },
   "evidence_records": [

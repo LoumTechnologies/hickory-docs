@@ -379,6 +379,8 @@ export interface StatusBarProps {
   git?: { branch: string; dirty: number } | null;
   /** Show the commit graph. */
   onGit?: () => void;
+  /** Open the independent checks tool; its polling belongs to that pane. */
+  onChecks?: () => void;
   /** The focused file's path, or null when nothing is focused. */
   path: string | null;
   /** Controls the workspace wants at hand on the right — the provenance
@@ -407,12 +409,14 @@ export function StatusBar({
   onProblems,
   onAttention,
   onGit,
+  onChecks,
   extra,
 }: StatusBarProps) {
   const parent = `workspace-status:${useId()}`;
   const revision = useUiRevision(() => [problems, needsAttention, path, zoom, git]);
   useUiReading("workspace status", { problems, needsAttention, path, zoom, git: git ?? null });
   const actions = [
+    { id: "checks", label: "Show checks", callback: onChecks, visible: !!onChecks },
     { id: "git", label: "Show status branch history", callback: git ? onGit : undefined, visible: !!git },
     { id: "problems", label: "Show status problems", callback: onProblems, visible: true },
     { id: "attention", label: "Go to next waiting terminal", callback: onAttention, visible: needsAttention > 0 },
@@ -429,6 +433,7 @@ export function StatusBar({
     <footer className="status-bar" role="contentinfo">
       {error && <span role="alert">{error}</span>}
       <div className="status-bar__left">
+        {onChecks && <button type="button" className="status-bar__item" onClick={() => act("checks")}>Checks</button>}
         {/* Leftmost, the way every editor puts it — and only when there IS a
             branch. A permanent "no repository" would spend a slot saying
             nothing. */}

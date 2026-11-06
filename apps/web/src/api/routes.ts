@@ -1,5 +1,6 @@
 import type * as Fleet from "./fleetPairings";
 import type * as Types from "./types";
+import type { ChecksSnapshot } from "./checks";
 import type * as Github from "./github";
 
 interface Endpoint<P, R, B> { path: P; response: R; body: B; }
@@ -9,6 +10,7 @@ interface PUT<P extends string, R, B extends string = "$fields"> extends Endpoin
 interface DELETE<P extends string, R, B extends string = "$fields"> extends Endpoint<P, R, B> {}
 
 export interface ApiRoutes {
+  checks(): GET<"/api/checks", ChecksSnapshot>;
   projects(): GET<"/api/projects", Types.Project[]>;
   createProject(name: string, visibility: "public" | "private"): POST<"/api/projects", Types.Project>;
   projectDocs(projectId: string): GET<"/api/projects/{projectId}/docs", Types.DocSummary[]>;

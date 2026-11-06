@@ -278,4 +278,7 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="scripts/test-subscription-grok.py.md" />
 
+[Observe optional local checks](optional-checks.md) keeps provider facts separate from Git triggers.
+<storycode:include file="optional-checks.md" />
+
 </storycode:doc>

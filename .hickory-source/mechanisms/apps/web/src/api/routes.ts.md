@@ -15,6 +15,7 @@ generator never parses TypeScript signatures with regular expressions.
 <storycode:copy id="api-codegen-route-vocabulary">
 import type * as Fleet from "./fleetPairings";
 import type * as Types from "./types";
+import type { ChecksSnapshot } from "./checks";
 import type * as Github from "./github";
 
 interface Endpoint<P, R, B> { path: P; response: R; body: B; }
@@ -33,6 +34,7 @@ Projects and files declare the same public signatures as the old wrappers.
 component. Non-path parameters become JSON fields unless a body name is explicit.
 
 <storycode:copy id="api-codegen-routes-projects">
+  checks(): GET<"/api/checks", ChecksSnapshot>;
   projects(): GET<"/api/projects", Types.Project[]>;
   createProject(name: string, visibility: "public" | "private"): POST<"/api/projects", Types.Project>;
   projectDocs(projectId: string): GET<"/api/projects/{projectId}/docs", Types.DocSummary[]>;

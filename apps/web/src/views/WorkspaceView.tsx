@@ -93,7 +93,7 @@ import {
   fileAction,
 } from "../shell/FolderTreePane";
 import {
-  paneById,
+  paneById, open as openInLayout, tab as makeTab,
   panes as panesOf,
   type Layout,
   type Tab,
@@ -1866,7 +1866,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       /></Suspense>}
       <StatusBar
         git={git}
-        onGit={() => setLayout(openGitTab)}
+        onChecks={() => setLayout(current => openInLayout(current, makeTab("tool", "checks", "Checks")))} onGit={() => setLayout(openGitTab)}
         problems={problems}
         needsAttention={terminals.attention.length}
         path={focusedPath}

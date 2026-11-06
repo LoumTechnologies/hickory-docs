@@ -5,6 +5,7 @@ pub mod agent_lineage;
 pub mod anchor;
 pub mod carry;
 mod changeset;
+pub mod checks;
 pub mod clap_help;
 pub mod claude_code;
 pub mod code_model;

@@ -3,6 +3,7 @@ import type { ApiRoutes } from "./routes";
 import type { request as Request } from "./client";
 type Response<K extends keyof ApiRoutes> = ReturnType<ApiRoutes[K]>["response"];
 export function generatedApi(request: typeof Request) { return {
+  checks: () => request<Response<"checks">>("GET", "/api/checks"),
   projects: () => request<Response<"projects">>("GET", "/api/projects"),
   createProject: (name: Parameters<ApiRoutes["createProject"]>[0], visibility: Parameters<ApiRoutes["createProject"]>[1]) => request<Response<"createProject">>("POST", "/api/projects", { name, visibility }),
   projectDocs: (projectId: Parameters<ApiRoutes["projectDocs"]>[0]) => request<Response<"projectDocs">>("GET", "/api/projects/" + projectId + "/docs"),

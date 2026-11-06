@@ -4,6 +4,7 @@ import { OPEN_READING } from "../lib/readingViews";
 import { DocumentReading } from "./DocumentReading";
 import { OPEN_REPRESENTATION } from "../lib/openRepresentation";
 import { RepresentationLibrary, RepresentationPane } from "./RepresentationPane";
+import { ChecksPane } from "./ChecksPane";
 import { GitPane } from "./GitPane";
 import { HistoryLens } from "./HistoryLens";
 import { GIT_TAB, STORY_TAB } from "./workspaceState";
@@ -43,6 +44,7 @@ export function useRepresentationTabs(setLayout: Dispatch<SetStateAction<Layout>
 export function reviewTool(tab: Tab, onOpenFile: (path:string)=>void, onOpenStory:()=>void, onOpenLiterate:()=>void) {
   if (tab.kind !== "tool") return null;
   if (tab.target.startsWith("reading:")) return <DocumentReading key={tab.target} id={tab.target.slice(8)} />;
+  if (tab.target === "checks") return <ChecksPane />;
   if (tab.target === GIT_TAB) return <GitPane {...{onOpenFile,onOpenStory,onOpenLiterate}} />;
   if (tab.target === STORY_TAB) return <HistoryLens />;
   if (tab.target === "literate") return <RepresentationLibrary />;

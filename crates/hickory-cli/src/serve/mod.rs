@@ -43,6 +43,7 @@ pub mod asset;
 mod audit_evidence;
 pub mod bisect;
 mod changeset_drafts;
+mod checks;
 pub mod commit_reading;
 pub mod dataset;
 pub mod debug_bridge;
@@ -488,6 +489,8 @@ impl LocalState {
 /// them on load. It is not shared any more.
 pub(crate) fn router(state: LocalState) -> Router {
     let api = Router::new()
+        // Checks are an optional observer, independent of Git history.
+        .route("/checks", get(checks::status))
         .route("/prediction/state", get(private_predictions::status))
         .route("/prediction/history", get(private_predictions::history))
         .route(

@@ -149848,6 +149848,90 @@
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/plain_file.rs.md",
       "symbol": "Retain the existing file-editing safety fixtures and witnesses independently of recipe discovery",
       "basis": "reviewed-explanation"
+    },
+    {
+      "id": "optional-checks-configuration",
+      "output": "crates/hickory-cli/src/checks.rs",
+      "page": ".hickory-source/mechanisms/optional-checks.md",
+      "symbol": "configuration",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "optional-checks-provider-transport",
+      "output": "crates/hickory-cli/src/checks.rs",
+      "page": ".hickory-source/mechanisms/optional-checks.md",
+      "symbol": "provider-transport",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "optional-checks-normalized-snapshot",
+      "output": "crates/hickory-cli/src/checks.rs",
+      "page": ".hickory-source/mechanisms/optional-checks.md",
+      "symbol": "normalized-snapshot",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "optional-checks-adapter-tests",
+      "output": "crates/hickory-cli/src/checks.rs",
+      "page": ".hickory-source/mechanisms/optional-checks.md",
+      "symbol": "adapter-tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "optional-checks-command-interface",
+      "output": "crates/hickory-cli/src/bin/hickory-checks.rs",
+      "page": ".hickory-source/mechanisms/optional-checks.md",
+      "symbol": "command-interface",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "optional-checks-http-boundary",
+      "output": "crates/hickory-cli/src/serve/checks.rs",
+      "page": ".hickory-source/mechanisms/optional-checks.md",
+      "symbol": "http-boundary",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "optional-checks-browser-contract",
+      "output": "apps/web/src/api/checks.ts",
+      "page": ".hickory-source/mechanisms/optional-checks.md",
+      "symbol": "browser-contract",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "optional-checks-polling-view",
+      "output": "apps/web/src/views/ChecksPane.tsx",
+      "page": ".hickory-source/mechanisms/optional-checks.md",
+      "symbol": "polling-view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "optional-checks-view-tests",
+      "output": "apps/web/src/views/ChecksPane.test.tsx",
+      "page": ".hickory-source/mechanisms/optional-checks.md",
+      "symbol": "view-tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "optional-checks-process-witness",
+      "output": "scripts/test-checks-integration.py",
+      "page": ".hickory-source/mechanisms/optional-checks.md",
+      "symbol": "process-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "optional-checks-socket-fixture",
+      "output": "crates/hickory-cli/examples/checks_fixture.rs",
+      "page": ".hickory-source/mechanisms/optional-checks.md",
+      "symbol": "socket-fixture",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "optional-checks-live-browser-witness",
+      "output": "scripts/test-checks-ui.mjs",
+      "page": ".hickory-source/mechanisms/optional-checks.md",
+      "symbol": "live-browser-witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {
