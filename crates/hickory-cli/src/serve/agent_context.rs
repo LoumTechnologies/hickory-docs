@@ -9,6 +9,8 @@ pub const WORKSPACE_AGENT: &str = "workspace";
 
 #[derive(Default, Deserialize, Serialize)]
 pub struct EditorContext {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<ChatAttachment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ui_window: Option<String>,
     #[serde(default)]
@@ -19,6 +21,35 @@ pub struct EditorContext {
     pub buffers: Vec<EditorBuffer>,
 }
 
+/// Explicit user-selected bytes. These never grant filesystem access.
+#[derive(Clone, Deserialize, Serialize)]
+pub struct ChatAttachment {
+    pub name: String,
+    pub media_type: String,
+    pub data: String,
+}
+impl ChatAttachment {
+    pub fn bytes(&self) -> anyhow::Result<Vec<u8>> {
+        use base64::Engine;
+        anyhow::ensure!(
+            self.name.len() <= 255 && !self.name.is_empty(),
+            "Attachment needs a name of at most 255 bytes. Rename the file and retry."
+        );
+        anyhow::ensure!(
+            self.data.len() <= 524288,
+            "Attachment is too large. Choose a smaller file."
+        );
+        let bytes = base64::engine::general_purpose::STANDARD.decode(&self.data)?;
+        anyhow::ensure!(
+            bytes.len() <= 393216,
+            "Attachment is too large. Choose a smaller file."
+        );
+        if self.media_type.starts_with("image/") {
+            super::ui_images::decode(&self.media_type, &self.data)?;
+        }
+        Ok(bytes)
+    }
+}
 #[derive(Clone, Deserialize, Serialize)]
 pub struct EditorBuffer {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -122,6 +153,26 @@ pub fn model_projection(mut context: serde_json::Value) -> serde_json::Value {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn attachments_validate_bytes_before_delivery() {
+        use super::ChatAttachment;
+        let mut file = ChatAttachment {
+            name: "notes.txt".into(),
+            media_type: "text/plain".into(),
+            data: "aGVsbG8=".into(),
+        };
+        assert_eq!(file.bytes().unwrap(), b"hello");
+        file.media_type = "image/png".into();
+        assert!(
+            file.bytes().is_err(),
+            "claiming PNG cannot turn text into an image"
+        );
+        file.media_type = "application/octet-stream".into();
+        file.data = "!invalid!".into();
+        assert!(file.bytes().is_err());
+        file.data = "A".repeat(524289);
+        assert!(file.bytes().is_err());
+    }
     // Guarantee: docs/guarantees/agent/expanded-reading-projection.md
     #[test]
     fn projection_keeps_edit_buffers_out_of_model_description() {

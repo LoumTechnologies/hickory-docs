@@ -4,6 +4,7 @@ import { expect, test } from "@playwright/test";
 // agent/a-session-is-the-conversation.md; agent/the-agent-pane-is-a-live-document.md.
 test("configure the Python agent, review its edit, recover the conversation and stop another proposal", async ({ page }) => {
   test.setTimeout(60_000);
+  test.skip(!!process.env.HICKORY_ATTACHMENT_UI_FIXTURE, "Run attachment transport separately in its own disposable fixture.");
   test.skip(!process.env.HICKORY_PYTHON_UI_FIXTURE || !process.env.HICKORY_AGENT_TEST_PYTHON, "Use scripts/test-python-agent-ui.sh with the installed runtime.");
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
@@ -71,4 +72,111 @@ test("configure the Python agent, review its edit, recover the conversation and 
   }).toBe("stopped");
   expect((await page.request.get("/api/file?path=cancelled.md")).ok()).toBe(false);
   expect(errors).toEqual([]);
+});
+
+test.use({ launchOptions: { args: process.env.HICKORY_ATTACHMENT_UI_FIXTURE ? ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] : [] } });
+
+test.describe("chat attachment transport", () => {
+test("chat attachments and dictation reach the confined host only after Send", async ({ page }) => {
+  test.setTimeout(60_000);
+  test.skip(!process.env.HICKORY_ATTACHMENT_UI_FIXTURE || !process.env.HICKORY_AGENT_TEST_PYTHON, "Use scripts/test-python-agent-ui.sh with the installed runtime.");
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  // Deterministic recognition events exercise draft timing and transport, not
+  // vendor speech accuracy. No external speech service is called in this fixture.
+  await page.addInitScript(() => {
+    class Recognition {
+      continuous = false; interimResults = false; lang = "";
+      onstart: (() => void) | null = null;
+      onend: (() => void) | null = null;
+      onerror: ((event: { error: string }) => void) | null = null;
+      onresult: ((event: { results: { isFinal: boolean; 0: { transcript: string } }[] }) => void) | null = null;
+      result = (event: Event) => {
+        const detail = (event as CustomEvent<{ text: string; final: boolean }>).detail;
+        this.onresult?.({ results: [{ isFinal: detail.final, 0: { transcript: detail.text } }] });
+      };
+      end = () => { this.abort(); this.onend?.(); };
+      start() { window.addEventListener("fixture-dictation-result", this.result); window.addEventListener("fixture-dictation-end", this.end); this.onstart?.(); }
+      stop() { /* Final events are delivered explicitly after the user stops. */ }
+      abort() { window.removeEventListener("fixture-dictation-result", this.result); window.removeEventListener("fixture-dictation-end", this.end); }
+    }
+    Object.defineProperty(window, "SpeechRecognition", { configurable: true, value: Recognition });
+  });
+  let agentRequests = 0;
+  page.on("request", request => { if (request.method() === "POST" && /\/api\/docs\/[^/]+\/agent$/.test(new URL(request.url()).pathname)) agentRequests++; });
+  await page.goto("/#/settings");
+  await page.getByRole("textbox", { name: "Python executable" }).fill(process.env.HICKORY_AGENT_TEST_PYTHON!);
+  await page.getByRole("button", { name: "Save Python runtime" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Runtime started in confinement" })).toBeVisible();
+  const files = await (await page.request.get("/api/projects/local/docs")).json();
+  const note = files.find((doc: { path: string }) => doc.path === "note.md");
+  await page.goto(`/#/docs/${note.id}`);
+  await expect(page.locator('[data-spatial-key="document:note.md"] .cm-content').filter({ hasText: "Original human input" })).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "show-agent" })));
+  const agent = page.getByRole("region", { name: "Agent chat" });
+  await agent.getByRole("button", { name: "Agent settings" }).click();
+  await page.getByRole("combobox", { name: "Agent", exact: true }).selectOption("python");
+  await page.getByRole("combobox", { name: "Agent", exact: true }).press("Escape");
+  const response = agent.getByRole("textbox", { name: "Agent conversation and response" });
+  await expect(agent.getByRole("region", { name: "Conversation document edits" })).toHaveCount(0);
+  await expect(agent.getByRole("button", { name: /Changed agent context/ })).toHaveCount(0);
+  await expect(page.locator(".agent-status > summary")).toContainText("Anthropic");
+  // Real clipboard and camera bytes must reach the native host with the same
+  // request as the text. These controls must not require a provider call.
+  await agent.getByLabel("Attach files", { exact: true }).setInputFiles({ name: "selected.txt", mimeType: "text/plain", buffer: Buffer.from("selected file") });
+  await expect(agent.getByRole("button", { name: "Remove selected.txt" })).toBeVisible();
+  await agent.getByRole("button", { name: "Remove selected.txt" }).click();
+  await response.evaluate(element => {
+    const clipboard = new DataTransfer();
+    clipboard.items.add(new File(["clipboard bytes"], "pasted.txt", { type: "text/plain" }));
+    const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="), character => character.charCodeAt(0));
+    clipboard.items.add(new File([png], "pasted.png", { type: "image/png" }));
+    element.dispatchEvent(new ClipboardEvent("paste", { clipboardData: clipboard, bubbles: true, cancelable: true }));
+  });
+  await expect(agent.getByRole("button", { name: "Remove pasted.txt" })).toBeVisible();
+  await agent.getByRole("button", { name: "Take picture" }).click();
+  const camera = page.getByRole("dialog", { name: "Camera" });
+  await expect(camera.locator("video")).toBeVisible();
+  await expect.poll(() => camera.locator("video").evaluate(video => (video as HTMLVideoElement).videoWidth)).toBeGreaterThan(0);
+  const track = await camera.locator("video").evaluateHandle(video => (video as HTMLVideoElement).srcObject instanceof MediaStream ? ((video as HTMLVideoElement).srcObject as MediaStream).getVideoTracks()[0] : null);
+  await camera.getByRole("button", { name: "Use photo" }).click();
+  await expect.poll(() => track.evaluate(value => value?.readyState)).toBe("ended");
+  await expect(camera).toHaveCount(0);
+  await expect(agent.getByRole("button", { name: "Remove camera-photo.png" })).toBeVisible();
+  await page.screenshot({ path: "/tmp/hickory-python-agent-empty.png", fullPage: true });
+  const draftBounds = await response.boundingBox();
+  await agent.getByRole("button", { name: "Dictate", exact: true }).click();
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("fixture-dictation-result", { detail: { text: "interim words", final: false } })));
+  await expect(agent.getByLabel("Dictation status")).toContainText("interim words");
+  await expect(response).not.toContainText("interim words");
+  expect(await response.boundingBox()).toEqual(draftBounds);
+  await expect(agent.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+  await agent.getByRole("button", { name: "Stop dictation" }).click();
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("fixture-dictation-result", { detail: { text: "Dictated request.", final: true } })));
+  await expect(response).toContainText("Dictated request.");
+  await expect(agent.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+  await page.evaluate(() => window.dispatchEvent(new Event("fixture-dictation-end")));
+  await expect(agent.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+  expect(agentRequests).toBe(0);
+  await response.click(); await response.press("ControlOrMeta+End"); await response.pressSequentially(" Propose in Python");
+  const sent = page.waitForRequest(request => request.method() === "POST" && /\/api\/docs\/[^/]+\/agent$/.test(new URL(request.url()).pathname));
+  await agent.getByRole("button", { name: "Send", exact: true }).click();
+  const request = await sent;
+  expect(request.postDataJSON().prompt).toContain("Dictated request.");
+  const attached = request.postDataJSON().context.attachments;
+  expect(attached.map((file: { name: string }) => file.name)).toEqual(["pasted.txt", "pasted.png", "camera-photo.png"]);
+  expect(Buffer.from(attached[0].data, "base64").toString()).toBe("clipboard bytes");
+  expect(attached[1].media_type).toBe("image/png");
+  const turnsPath = `${new URL(request.url()).pathname}/turns`;
+  await expect(agent).toContainText("read_doc");
+  await expect.poll(async () => {
+    const history = await (await page.request.get(turnsPath)).json();
+    if (!history.turns.length) return false;
+    const session = await (await page.request.get(`/api/sessions/view?path=${encodeURIComponent(history.turns[0].session)}`)).json();
+    return session.source.includes('"images":[{') && session.source.includes("clipboard bytes");
+  }).toBe(true);
+  await agent.getByRole("button", { name: "Stop the agent" }).click();
+  await expect.poll(async () => (await (await page.request.get(turnsPath)).json()).turns.at(-1)?.status).toBe("stopped");
+  expect(errors).toEqual([]);
+});
 });

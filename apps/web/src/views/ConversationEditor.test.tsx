@@ -2,7 +2,7 @@
 // Guarantees: agent/the-agent-pane-is-a-live-document.md; agent/an-answer-in-the-agent-pane-has-ribbons.md.
 import { useState } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { EditorView } from "@codemirror/view";
 import { undo } from "@codemirror/commands";
 import { ConversationEditor, focusConversationResponse } from "./ConversationEditor";
@@ -82,6 +82,121 @@ it("submits only with the send shortcut; ordinary Enter remains multiline editin
   expect(send).not.toHaveBeenCalled();
   fireEvent.keyDown(host, { key: "Enter", code: "Enter", ctrlKey: true });
   expect(send).toHaveBeenCalledTimes(1);
+});
+
+
+describe("composer dictation", () => {
+  class Recognition {
+    static instances: Recognition[] = [];
+    continuous = false; interimResults = false; lang = "";
+    onstart: (() => void) | null = null;
+    onend: (() => void) | null = null;
+    onerror: ((event: { error: string }) => void) | null = null;
+    onresult: ((event: { results: { isFinal: boolean; 0: { transcript: string } }[] }) => void) | null = null;
+    start = vi.fn(); stop = vi.fn(); abort = vi.fn();
+    constructor() { Recognition.instances.push(this); }
+    result(text: string, isFinal: boolean) { this.onresult?.({ results: [{ isFinal, 0: { transcript: text } }] }); }
+  }
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); Recognition.instances = []; });
+  function Draft({ scope = "one", cancel }: { scope?: string; cancel?: { current: (() => void) | null } }) {
+    const [draft, setDraft] = useState("Before after");
+    return <ConversationEditor branch={[]} path={null} stamp="" running={null} stream="" reasoning="" draft={draft}
+      onDraft={setDraft} onSend={sent} canSend dictationScope={scope} cancelDictation={cancel} />;
+  }
+  const sent = vi.fn();
+  async function setup(cancel?: { current: (() => void) | null }) {
+    sent.mockClear(); vi.stubGlobal("SpeechRecognition", Recognition);
+    const rendered = render(<Draft cancel={cancel} />);
+    const host = await screen.findByRole("textbox", { name: "Agent conversation and response" });
+    return { ...rendered, host, view: EditorView.findFromDOM(host)! };
+  }
+  it("inserts finalized speech at the live caret, leaves interim speech out, and preserves undo", async () => {
+    const { view, host } = await setup();
+    fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
+    const speech = Recognition.instances.at(-1)!;
+    expect(speech.start).toHaveBeenCalledOnce();
+    expect(speech.continuous && speech.interimResults).toBe(true);
+    act(() => speech.result("uncertain words", false));
+    expect(view.state.doc.toString()).toBe("Before after");
+    expect(screen.getByLabelText("Dictation status").textContent).toBe("uncertain words");
+    // Typing and moving the caret while recognition is pending remain authoritative.
+    act(() => view.dispatch({ changes: { from: 0, insert: "Typed " }, selection: { anchor: 12 }, userEvent: "input.type" }));
+    act(() => speech.result("spoken", true));
+    expect(view.state.doc.toString()).toBe("Typed Before spoken after");
+    act(() => speech.result("spoken", true));
+    expect(view.state.doc.toString()).toBe("Typed Before spoken after");
+    fireEvent.keyDown(host, { key: "Enter", code: "Enter", ctrlKey: true });
+    expect(sent).not.toHaveBeenCalled();
+    act(() => { undo(view); });
+    expect(view.state.doc.toString()).toBe("Typed Before after");
+  });
+  it("waits for the last result on Stop and never sends speech automatically", async () => {
+    const { view } = await setup();
+    fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
+    const speech = Recognition.instances.at(-1)!;
+    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Stop dictation" }));
+    expect(speech.stop).toHaveBeenCalledOnce();
+    act(() => speech.result("last words", true));
+    expect(view.state.doc.toString()).toBe("Before after last words");
+    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+    act(() => speech.onend?.());
+    expect(speech.abort).not.toHaveBeenCalled();
+    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(sent).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(sent).toHaveBeenCalledOnce();
+  });
+  it("aborts navigation and unmount, rejecting even a previously queued callback", async () => {
+    const rendered = await setup();
+    fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
+    const speech = Recognition.instances.at(-1)!, queued = speech.onresult!;
+    rendered.rerender(<Draft scope="two" />);
+    expect(speech.abort).toHaveBeenCalledOnce();
+    expect(speech.onresult).toBeNull();
+    act(() => queued({ results: [{ isFinal: true, 0: { transcript: "obsolete" } }] }));
+    expect(rendered.view.state.doc.toString()).toBe("Before after");
+    fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
+    const second = Recognition.instances.at(-1)!;
+    rendered.unmount();
+    expect(second.abort).toHaveBeenCalledOnce();
+  });
+  it("degrades without recognition and handles permission denial without losing the draft", async () => {
+    vi.stubGlobal("SpeechRecognition", undefined); vi.stubGlobal("webkitSpeechRecognition", undefined);
+    render(<Draft />);
+    fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
+    expect(screen.getByLabelText("Dictation status").textContent).toContain("Use your system's dictation");
+    vi.stubGlobal("webkitSpeechRecognition", Recognition);
+    fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
+    const speech = Recognition.instances.at(-1)!;
+    act(() => speech.onerror?.({ error: "not-allowed" }));
+    expect(speech.abort).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText("Dictation status").textContent).toContain("Allow access");
+    expect(screen.getByRole("textbox", { name: "Agent conversation and response" }).textContent).toContain("Before after");
+    expect(screen.getByRole("button", { name: "Dictate" })).toBeTruthy();
+  });
+  it("cancels synchronously on discard before a queued final can restore discarded text", async () => {
+    const cancel: { current: (() => void) | null } = { current: null };
+    const { view } = await setup(cancel);
+    fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
+    const speech = Recognition.instances.at(-1)!, queued = speech.onresult!;
+    act(() => { cancel.current?.(); view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "" } }); });
+    act(() => queued({ results: [{ isFinal: true, 0: { transcript: "discarded speech" } }] }));
+    expect(speech.abort).toHaveBeenCalledOnce();
+    expect(view.state.doc.toString()).toBe("");
+  });
+  it("bounds a stalled Stop and rejects its late final result", async () => {
+    const { view } = await setup();
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
+    const speech = Recognition.instances.at(-1)!, queued = speech.onresult!;
+    fireEvent.click(screen.getByRole("button", { name: "Stop dictation" }));
+    act(() => { vi.advanceTimersByTime(5000); });
+    expect(speech.abort).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText("Dictation status").textContent).toContain("too long");
+    act(() => queued({ results: [{ isFinal: true, 0: { transcript: "too late" } }] }));
+    expect(view.state.doc.toString()).toBe("Before after");
+  });
 });
 it("keeps the final construction beside its own turn before the independent composer", async () => {
   const second = turn("b", "a");

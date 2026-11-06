@@ -52,6 +52,7 @@ export interface AgentTurnsResponse {
 
 /** A snapshot of what the user has open, taken when Send is pressed. */
 export interface AgentEditorContext {
+  attachments?: { name: string; media_type: string; data: string }[];
   ui_window?: string;
   live?: boolean;
   projection?: import("../lib/contextProjection").ReadingProjection;

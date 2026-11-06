@@ -2,7 +2,7 @@ import { StateEffect, StateField } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import { responseStart } from "./protectedPrefix";
 
-export const setSendState = StateEffect.define<{ enabled: boolean; label: string; visible: boolean }>();
+export const setSendState = StateEffect.define<{ enabled: boolean; label: string; visible: boolean; allowEmpty?: boolean }>();
 
 class SendButton extends WidgetType {
   constructor(readonly enabled: boolean, readonly label: string, readonly send: () => void) { super(); }
@@ -22,18 +22,18 @@ class SendButton extends WidgetType {
 /** A view-only control after the draft; never inserted into session bytes. */
 export function responseSend(send: () => void) {
   const status = StateField.define({
-    create: () => ({ enabled: false, label: "Send", visible: true }),
+    create: () => ({ enabled: false, label: "Send", visible: true, allowEmpty: false }),
     update(value, tr) {
-      for (const effect of tr.effects) if (effect.is(setSendState)) value = effect.value;
+      for (const effect of tr.effects) if (effect.is(setSendState)) value = { ...effect.value, allowEmpty: effect.value.allowEmpty ?? false };
       return value;
     },
   });
   return [status, EditorView.decorations.compute([status, responseStart, "doc"], state => {
-    const { enabled, label, visible } = state.field(status);
+    const { enabled, label, visible, allowEmpty } = state.field(status);
     if (!visible) return Decoration.none;
     const hasDraft = !!state.doc.sliceString(state.field(responseStart)).trim();
     return Decoration.set([Decoration.widget({
-      widget: new SendButton(enabled && hasDraft, label, send), side: 1, block: true,
+      widget: new SendButton(enabled && (hasDraft || allowEmpty), label, send), side: 1, block: true,
     }).range(state.doc.length)]);
   })];
 }

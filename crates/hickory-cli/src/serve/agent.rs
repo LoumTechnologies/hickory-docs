@@ -376,6 +376,31 @@ pub async fn start_turn(
             "Feature measurement currently requires Codex ACP.",
         ));
     }
+    if !body.context.attachments.is_empty() {
+        if backend != "python" {
+            return Err(ApiError::bad_request(
+                "Chat attachments currently require Hickory Python. Switch agents and retry.",
+            ));
+        }
+        if body.context.attachments.len() > 8
+            || body
+                .context
+                .attachments
+                .iter()
+                .map(|a| a.data.len())
+                .sum::<usize>()
+                > 524288
+        {
+            return Err(ApiError::bad_request(
+                "Attachments exceed the message budget. Remove some files and retry.",
+            ));
+        }
+        for attachment in &body.context.attachments {
+            attachment.bytes().map_err(|e| {
+                ApiError::bad_request(format!("Cannot attach {}: {e}", attachment.name))
+            })?;
+        }
+    }
     if backend == "builtin" {
         return Err(ApiError::bad_request(
             "The Rust agent was removed. Select Hickory Python or an ACP agent.",

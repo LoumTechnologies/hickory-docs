@@ -8,12 +8,13 @@ fixture_args=()
 test_file=python-agent.spec.ts
 case "${1:-}" in
   "") ;;
+  --attachments) export HICKORY_ATTACHMENT_UI_FIXTURE=1 ;;
   --live-provider)
     fixture_args=(--live-provider)
     test_file=liveAgentInvestigation.spec.ts
     export HICKORY_LIVE_PROVIDER_WITNESS=1
     ;;
-  *) echo 'Usage: scripts/test-python-agent-ui.sh [--live-provider]' >&2; exit 2 ;;
+  *) echo 'Usage: scripts/test-python-agent-ui.sh [--live-provider|--attachments]' >&2; exit 2 ;;
 esac
 [ "$#" -le 1 ] || { echo 'Unexpected arguments' >&2; exit 2; }
 terminate_tree() {
@@ -62,6 +63,27 @@ for _ in $(seq 1 100); do
 done
 api_origin=$(head -1 "$run_dir/api.log")
 [ -n "$api_origin" ] || { cat "$run_dir/api-error.log"; exit 1; }
+# Exercise attachment refusal through the real HTTP boundary before any model
+# request. These cases must fail even without a configured Python runtime.
+python3 - "$api_origin" <<'PYATTACH'
+import json, sys, urllib.request, urllib.error
+origin = sys.argv[1]
+for attachment in [
+    dict(name='fake.png', media_type='image/png', data='aGVsbG8='),
+    dict(name='bad.txt', media_type='text/plain', data='!not-base64!'),
+    dict(name='x' * 256, media_type='text/plain', data='aA=='),
+    dict(name='large.txt', media_type='text/plain', data='A' * 524289),
+]:
+    payload = dict(backend='python', prompt='Do not run', context=dict(attachments=[attachment]))
+    request = urllib.request.Request(origin + '/api/docs/workspace/agent',
+        data=json.dumps(payload).encode(), headers={'Content-Type': 'application/json'})
+    try:
+        urllib.request.urlopen(request)
+        raise AssertionError('Invalid attachment was accepted')
+    except urllib.error.HTTPError as error:
+        assert error.code == 400, (error.code, error.read())
+print('Attachment HTTP safety checks passed')
+PYATTACH
 HICKORY_API_ORIGIN="$api_origin" npm --prefix apps/web run dev > "$run_dir/vite.log" 2>&1 &
 vite_pid=$!
 ui_origin=""

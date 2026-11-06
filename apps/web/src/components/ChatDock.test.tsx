@@ -48,6 +48,27 @@ it("labels subscription totals without API dollar estimates or invented missing 
 
 
 // Protects docs/guarantees/agent/acp-agents-are-first-class.md.
+describe("chat attachments", () => {
+  afterEach(cleanup);
+  it("pastes files into the composer, allows removal, and retains them on send failure", async () => {
+    vi.mocked(acpApi.state).mockResolvedValue({ backend: "python", ready: true });
+    vi.mocked(acpApi.connect).mockResolvedValue({ backend: "python", ready: true });
+    vi.mocked(api.agentTurns).mockResolvedValue({ turns: [], backend: "python", provider: "anthropic", model: "", totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
+    vi.mocked(api.agent).mockRejectedValueOnce(new Error("Temporary failure"));
+    render(<ChatDock docId="attachment-test" realtime={{ onRunEvent: () => () => undefined } as unknown as Realtime} onAgentFinished={() => {}} />);
+    const composer = await screen.findByLabelText("Your response");
+    fireEvent.paste(composer, { clipboardData: { files: [new File(["hello"], "notes.txt", { type: "text/plain" })] } });
+    await screen.findByRole("button", { name: "Remove notes.txt" });
+    const send = await screen.findByRole("button", { name: "Send" });
+    await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send);
+    await waitFor(() => expect(api.agent).toHaveBeenCalledWith("attachment-test", "Please inspect the attached files.", null, "anthropic", "", "python", { buffers: [], attachments: [{ name: "notes.txt", media_type: "text/plain", data: "aGVsbG8=" }] }));
+    expect(await screen.findByRole("button", { name: "Remove notes.txt" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove notes.txt" }));
+    expect(screen.queryByRole("button", { name: "Remove notes.txt" })).toBeNull();
+  });
+});
+
 describe("switching agents", () => {
   afterEach(() => { cleanup(); vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [] }); });
   it("detects adapters, remembers a choice, and sends an ACP turn from a new thread", async () => {

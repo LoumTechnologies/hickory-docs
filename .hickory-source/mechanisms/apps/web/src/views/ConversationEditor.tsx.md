@@ -18,6 +18,7 @@ import type { ReactNode } from "react";
 import { parseStructure } from "../editor/hickDoc";
 import { registerReviewEditor } from "../lib/reviews";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isolateHistory } from "@codemirror/commands";
 import { EditorState, Prec, Transaction } from "@codemirror/state";
 import { Decoration, EditorView, keymap } from "@codemirror/view";
 import { DocumentEditor } from "../editor/DocumentEditor";
@@ -80,12 +81,130 @@ The buffer protects every mutation except an owner-authorized reading update,
 including widget writes at the end of a message. It retains native folding and
 ribbon anchors in each editor. Focus and Send target only the composer.
 
+Browser dictation is an input method for this same response buffer. Interim
+recognition stays in a compact status field; final results enter the current
+selection through an ordinary undoable editor transaction. Recognition does not
+send a turn, synthesize speech or choose agent actions. It works independently of
+provider setup, through the browser's speech service where available.
+
+Stop waits for a final result before re-enabling Send. A bounded finish timer,
+identity check, detached callbacks and abort on unmount prevent late results from
+changing a closed or different response. The outer conversation scope also rejects
+old inserts during navigation or explicit discard. Permission, network and missing
+browser support failures keep completed draft text and explain how to continue.
+
 <storycode:copy id="f-436917f654b3-ConversationEditor">
-export function ConversationEditor({ branch, path, running, stream, reasoning, draft, onDraft, onSend, canSend, sending = false, stamp, showCollapsedLineage = false, renderFinal }: {
+/** Browser recognition produces draft text only. No audio enters the agent API. */
+interface DictationRecognition {
+  continuous: boolean; interimResults: boolean; lang: string;
+  onstart: (() => void) | null;
+  onresult: ((event: { results: ArrayLike<{ isFinal: boolean; [index: number]: { transcript: string } }> }) => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onend: (() => void) | null;
+  start(): void; stop(): void; abort(): void;
+}
+function DictationButton({ disabled, onText, onActive, cancelRef }: { cancelRef?: { current: (() => void) | null }; disabled: boolean; onText: (text: string) => void; onActive: (active: boolean) => void }) {
+  const recognizer = useRef<DictationRecognition | null>(null);
+  const callbacks = useRef({ onText, onActive }); callbacks.current = { onText, onActive };
+  const finishTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [active, setActive] = useState(false);
+  const [finishing, setFinishing] = useState(false);
+  const [status, setStatus] = useState("");
+  const release = (abort: boolean) => {
+    clearTimeout(finishTimer.current);
+    const current = recognizer.current; recognizer.current = null;
+    if (current) {
+      current.onstart = current.onresult = current.onerror = current.onend = null;
+      if (abort) { try { current.abort(); } catch { /* Already ended. */ } }
+    }
+    setActive(false); setFinishing(false); callbacks.current.onActive(false);
+  };
+  useEffect(() => {
+    const cancel = () => { release(true); setStatus(""); };
+    if (cancelRef) cancelRef.current = cancel;
+    return () => { if (cancelRef?.current === cancel) cancelRef.current = null; release(true); };
+  }, [cancelRef]);
+  useEffect(() => { if (disabled) { release(true); setStatus(""); } }, [disabled]);
+  const start = () => {
+    const host = window as unknown as { SpeechRecognition?: new () => DictationRecognition; webkitSpeechRecognition?: new () => DictationRecognition };
+    const Recognition = host.SpeechRecognition ?? host.webkitSpeechRecognition;
+    if (!Recognition) { setStatus("Dictation is unavailable in this browser. Use your system's dictation or type your message."); return; }
+    let current: DictationRecognition;
+    try { current = new Recognition(); }
+    catch { setStatus("Could not start dictation. Try again or use your system's dictation."); return; }
+    recognizer.current = current;
+    const seen = new Set<number>();
+    const live = () => recognizer.current === current;
+    current.continuous = true; current.interimResults = true; current.lang = navigator.language || "en-US";
+    current.onstart = () => { if (live()) setStatus("Listening…"); };
+    current.onresult = event => {
+      if (!live()) return;
+      const final: string[] = [], interim: string[] = [];
+      for (let index = 0; index < event.results.length; index++) {
+        const result = event.results[index], text = result[0]?.transcript?.trim();
+        if (!text) continue;
+        if (result.isFinal) { if (!seen.has(index)) { seen.add(index); final.push(text); } }
+        else interim.push(text);
+      }
+      if (final.length) callbacks.current.onText(final.join(" "));
+      setStatus(interim.length ? interim.join(" ").slice(0, 500) : "Listening…");
+    };
+    current.onerror = event => {
+      if (!live()) return;
+      const messages: Record<string, string> = {
+        "not-allowed": "Microphone or speech recognition access was denied. Allow access in your browser settings, then retry.",
+        "service-not-allowed": "Speech recognition is blocked. Check your browser settings or use your system's dictation.",
+        "audio-capture": "No microphone is available. Connect a microphone and retry.",
+        "no-speech": "No speech was detected. Check your microphone and try dictating again.",
+        "network": "Speech recognition could not connect. Check your connection and retry, or type your message.",
+        "language-not-supported": "Your browser cannot dictate in this language. Change your browser language or use your system's dictation.",
+      };
+      release(true);
+      setStatus(event.error === "aborted" ? "" : messages[event.error] ?? "Dictation failed. Try again or type your message; completed text is kept.");
+    };
+    current.onend = () => { if (live()) { release(false); setStatus(""); } };
+    setActive(true); callbacks.current.onActive(true); setStatus("Starting dictation…");
+    try { current.start(); }
+    catch { release(true); setStatus("Could not start dictation. Allow microphone access and retry, or type your message."); }
+  };
+  const stop = () => {
+    const current = recognizer.current;
+    if (!current) return;
+    setFinishing(true); setStatus("Finishing dictation…");
+    // Keep the final-result callback until onend, but bound a stalled service.
+    finishTimer.current = setTimeout(() => {
+      if (recognizer.current === current) { release(true); setStatus("Dictation took too long to finish. Completed text is kept; try again."); }
+    }, 5000);
+    try { current.stop(); } catch { release(true); setStatus("Dictation stopped. Completed text is kept; you can retry."); }
+  };
+  return <span style={{ display: "inline-flex", position: "relative" }}><button type="button" style={{ minWidth: 120 }} disabled={disabled || finishing} aria-pressed={active}
+    title="Use browser speech recognition to dictate draft text. Review your message before sending."
+    onMouseDown={event => event.preventDefault()} onClick={() => active ? stop() : start()}>{active ? "Stop dictation" : "Dictate"}</button>
+    <span role="status" aria-label="Dictation status" title={status} style={{ position: "absolute", bottom: "calc(100% + 4px)", left: 0, width: "min(360px, 70vw)", maxHeight: 96, overflow: "auto", zIndex: 10, padding: status ? "4px 6px" : 0, background: "var(--bg-raised)", color: "var(--fg)", boxShadow: status ? "var(--shadow)" : undefined }}>{status}</span></span>;
+}
+
+export function ConversationEditor({ dictationScope = "response", onDictatingChange, cancelDictation, hasAttachments = false, onFiles, composerTools, branch, path, running, stream, reasoning, draft, onDraft, onSend, canSend, sending = false, stamp, showCollapsedLineage = false, renderFinal }: {
+  cancelDictation?: { current: (() => void) | null }; dictationScope?: string; onDictatingChange?: (active: boolean) => void;
   renderFinal?: (turn: AgentTurn) => ReactNode;
+  hasAttachments?: boolean; onFiles?: (files: File[]) => void; composerTools?: ReactNode;
   branch: AgentTurn[]; path: string | null; running: string | null; stream: string; reasoning: string;
   draft: string; onDraft: (draft: string) => void; onSend: () => void; canSend: boolean; sending?: boolean; stamp: string; showCollapsedLineage?: boolean;
 }) {
+  const composer = useRef<EditorView | null>(null);
+  const scope = useRef(dictationScope); scope.current = dictationScope;
+  const [dictating, setDictating] = useState(false);
+  const dictate = (text: string, expectedScope: string) => {
+    const view = composer.current;
+    if (!view || scope.current !== expectedScope || sending) return;
+    const selection = view.state.selection.main;
+    const from = Math.max(view.state.field(responseStart), selection.from);
+    const to = Math.max(from, selection.to);
+    const before = view.state.doc.sliceString(Math.max(0, from - 1), from);
+    const after = view.state.doc.sliceString(to, to + (to < view.state.doc.length ? 1 : 0));
+    const insert = (before && !/[\s([{]/.test(before) ? " " : "") + text + (after && !/[\s,.;:!?)}\]]/.test(after) ? " " : "");
+    view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + insert.length },
+      annotations: isolateHistory.of("full"), userEvent: "input.dictation", scrollIntoView: true });
+  };
   const [data, setData] = useState<SessionViewResponse | null>(null);
   useEffect(() => { setData(null); }, [path]);
   useEffect(() => {
@@ -152,10 +271,15 @@ export function ConversationEditor({ branch, path, running, stream, reasoning, d
         </section>}
       </div>;
     })}
-    <section className="conversation-card conversation-card--composer" aria-label="Your response">
+    <section className="conversation-card conversation-card--composer" aria-label="Your response"
+      onPasteCapture={event => { const files = Array.from(event.clipboardData.files); if (files.length && onFiles) { event.preventDefault(); event.stopPropagation(); onFiles(files); } }}
+      onDragOver={event => { if (onFiles && event.dataTransfer.types.includes("Files")) event.preventDefault(); }}
+      onDropCapture={event => { const files = Array.from(event.dataTransfer.files); if (files.length && onFiles) { event.preventDefault(); event.stopPropagation(); onFiles(files); } }}>
+      <div aria-label="Chat input tools" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}><DictationButton key={dictationScope} disabled={sending} cancelRef={cancelDictation}
+        onText={text => dictate(text, dictationScope)} onActive={active => { setDictating(active); onDictatingChange?.(active); }} />{composerTools}</div>
       <header>Message agent</header>
-      <ConversationBuffer reading={{ source: "", links: [] }} path={null} source={null} id="response" readOnly={false}
-        running={running} sending={sending} draft={draft} onDraft={onDraft} onSend={onSend} canSend={canSend} showCollapsedLineage={false} />
+      <ConversationBuffer reading={{ source: "", links: [] }} path={null} source={null} id="response" readOnly={false} hasAttachments={hasAttachments} onView={view => { composer.current = view; }}
+        running={running} sending={sending} draft={draft} onDraft={onDraft} onSend={onSend} canSend={canSend && !dictating} showCollapsedLineage={false} />
     </section>
   </div>;
 }
@@ -172,8 +296,8 @@ does not move a reader who deliberately scrolled upward.
 
 <storycode:copy id="conversation-message-buffer">
 /** Each card owns its editor and undo history; only the composer reports edits. */
-function ConversationBuffer({ reading, path, source, id, readOnly, running, sending, draft, onDraft, onSend, canSend, showCollapsedLineage }: {
-  reading: ReturnType<typeof conversationReading>; path: string | null; source: string | null; id: string; readOnly: boolean;
+function ConversationBuffer({ onView, hasAttachments = false, reading, path, source, id, readOnly, running, sending, draft, onDraft, onSend, canSend, showCollapsedLineage }: {
+  onView?: (view: EditorView | null) => void; hasAttachments?: boolean; reading: ReturnType<typeof conversationReading>; path: string | null; source: string | null; id: string; readOnly: boolean;
   running: string | null; sending: boolean; draft: string; onDraft: (draft: string) => void; onSend: () => void; canSend: boolean; showCollapsedLineage: boolean;
 }) {
   const [view, setView] = useState<EditorView | null>(null);
@@ -181,7 +305,7 @@ function ConversationBuffer({ reading, path, source, id, readOnly, running, send
   const following = useRef(true);
   const initialFocus = useRef(false);
   const syncLinks = useRef(() => {});
-  const latest = useRef({ onDraft, onSend, canSend }); latest.current = { onDraft, onSend, canSend };
+  const latest = useRef({ onDraft, onSend, canSend, onView }); latest.current = { onDraft, onSend, canSend, onView };
   useEffect(() => {
     if (!view || !path) return;
     return registerReviewEditor(view, path, () => source);
@@ -211,7 +335,7 @@ function ConversationBuffer({ reading, path, source, id, readOnly, running, send
     }),
     Prec.high(keymap.of(["Ctrl-Enter", "Meta-Enter"].map(key => ({ key, run: () => { if (latest.current.canSend) { following.current = true; latest.current.onSend(); } return true; } })))),
   ], []);
-  const ready = useCallback((editor: EditorView | null) => { setView(editor); }, []);
+  const ready = useCallback((editor: EditorView | null) => { setView(editor); latest.current.onView?.(editor); }, []);
   useEffect(() => {
     if (!view) return;
     const next = reading.source + draft;
@@ -225,8 +349,8 @@ function ConversationBuffer({ reading, path, source, id, readOnly, running, send
     }
   }, [view, reading.source, draft]);
   useEffect(() => {
-    if (view) view.dispatch({ effects: setSendState.of({ enabled: canSend, label: sending ? "Starting…" : "Send", visible: !readOnly && !running }) });
-  }, [view, canSend, sending, running]);
+    if (view) view.dispatch({ effects: setSendState.of({ enabled: canSend, label: sending ? "Starting…" : "Send", visible: !readOnly && !running, allowEmpty: hasAttachments }) });
+  }, [view, canSend, sending, running, hasAttachments]);
   useEffect(() => {
     if (running || sending) following.current = true;
   }, [running, sending]);
@@ -308,7 +432,7 @@ Related contracts: [Read the retained branch of an agent conversation](../../../
 // Guarantees: agent/the-agent-pane-is-a-live-document.md; agent/an-answer-in-the-agent-pane-has-ribbons.md.
 import { useState } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { EditorView } from "@codemirror/view";
 import { undo } from "@codemirror/commands";
 import { ConversationEditor, focusConversationResponse } from "./ConversationEditor";
@@ -429,6 +553,12 @@ it("gives every message a protected buffer and keeps the draft independent durin
 <a id="f-edc92cd336d7-expression_statement-5"></a>
 ### `expression_statement`
 
+Dictation tests use a controllable recognition service to make permission,
+interim/final and obsolete-callback timing deterministic. They drive the real
+composer, assert editable text and undo, and require an explicit Send after the
+recognizer ends. A browser transport witness covers the same user controls; these
+checks do not claim microphone accuracy or a working remote speech service.
+
 <storycode:copy id="f-edc92cd336d7-expression_statement-5">
 it("submits only with the send shortcut; ordinary Enter remains multiline editing", async () => {
   const send = vi.fn();
@@ -442,6 +572,121 @@ it("submits only with the send shortcut; ordinary Enter remains multiline editin
   expect(send).not.toHaveBeenCalled();
   fireEvent.keyDown(host, { key: "Enter", code: "Enter", ctrlKey: true });
   expect(send).toHaveBeenCalledTimes(1);
+});
+
+
+describe("composer dictation", () => {
+  class Recognition {
+    static instances: Recognition[] = [];
+    continuous = false; interimResults = false; lang = "";
+    onstart: (() => void) | null = null;
+    onend: (() => void) | null = null;
+    onerror: ((event: { error: string }) => void) | null = null;
+    onresult: ((event: { results: { isFinal: boolean; 0: { transcript: string } }[] }) => void) | null = null;
+    start = vi.fn(); stop = vi.fn(); abort = vi.fn();
+    constructor() { Recognition.instances.push(this); }
+    result(text: string, isFinal: boolean) { this.onresult?.({ results: [{ isFinal, 0: { transcript: text } }] }); }
+  }
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); Recognition.instances = []; });
+  function Draft({ scope = "one", cancel }: { scope?: string; cancel?: { current: (() => void) | null } }) {
+    const [draft, setDraft] = useState("Before after");
+    return <ConversationEditor branch={[]} path={null} stamp="" running={null} stream="" reasoning="" draft={draft}
+      onDraft={setDraft} onSend={sent} canSend dictationScope={scope} cancelDictation={cancel} />;
+  }
+  const sent = vi.fn();
+  async function setup(cancel?: { current: (() => void) | null }) {
+    sent.mockClear(); vi.stubGlobal("SpeechRecognition", Recognition);
+    const rendered = render(<Draft cancel={cancel} />);
+    const host = await screen.findByRole("textbox", { name: "Agent conversation and response" });
+    return { ...rendered, host, view: EditorView.findFromDOM(host)! };
+  }
+  it("inserts finalized speech at the live caret, leaves interim speech out, and preserves undo", async () => {
+    const { view, host } = await setup();
+    fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
+    const speech = Recognition.instances.at(-1)!;
+    expect(speech.start).toHaveBeenCalledOnce();
+    expect(speech.continuous && speech.interimResults).toBe(true);
+    act(() => speech.result("uncertain words", false));
+    expect(view.state.doc.toString()).toBe("Before after");
+    expect(screen.getByLabelText("Dictation status").textContent).toBe("uncertain words");
+    // Typing and moving the caret while recognition is pending remain authoritative.
+    act(() => view.dispatch({ changes: { from: 0, insert: "Typed " }, selection: { anchor: 12 }, userEvent: "input.type" }));
+    act(() => speech.result("spoken", true));
+    expect(view.state.doc.toString()).toBe("Typed Before spoken after");
+    act(() => speech.result("spoken", true));
+    expect(view.state.doc.toString()).toBe("Typed Before spoken after");
+    fireEvent.keyDown(host, { key: "Enter", code: "Enter", ctrlKey: true });
+    expect(sent).not.toHaveBeenCalled();
+    act(() => { undo(view); });
+    expect(view.state.doc.toString()).toBe("Typed Before after");
+  });
+  it("waits for the last result on Stop and never sends speech automatically", async () => {
+    const { view } = await setup();
+    fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
+    const speech = Recognition.instances.at(-1)!;
+    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Stop dictation" }));
+    expect(speech.stop).toHaveBeenCalledOnce();
+    act(() => speech.result("last words", true));
+    expect(view.state.doc.toString()).toBe("Before after last words");
+    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+    act(() => speech.onend?.());
+    expect(speech.abort).not.toHaveBeenCalled();
+    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(sent).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(sent).toHaveBeenCalledOnce();
+  });
+  it("aborts navigation and unmount, rejecting even a previously queued callback", async () => {
+    const rendered = await setup();
+    fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
+    const speech = Recognition.instances.at(-1)!, queued = speech.onresult!;
+    rendered.rerender(<Draft scope="two" />);
+    expect(speech.abort).toHaveBeenCalledOnce();
+    expect(speech.onresult).toBeNull();
+    act(() => queued({ results: [{ isFinal: true, 0: { transcript: "obsolete" } }] }));
+    expect(rendered.view.state.doc.toString()).toBe("Before after");
+    fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
+    const second = Recognition.instances.at(-1)!;
+    rendered.unmount();
+    expect(second.abort).toHaveBeenCalledOnce();
+  });
+  it("degrades without recognition and handles permission denial without losing the draft", async () => {
+    vi.stubGlobal("SpeechRecognition", undefined); vi.stubGlobal("webkitSpeechRecognition", undefined);
+    render(<Draft />);
+    fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
+    expect(screen.getByLabelText("Dictation status").textContent).toContain("Use your system's dictation");
+    vi.stubGlobal("webkitSpeechRecognition", Recognition);
+    fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
+    const speech = Recognition.instances.at(-1)!;
+    act(() => speech.onerror?.({ error: "not-allowed" }));
+    expect(speech.abort).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText("Dictation status").textContent).toContain("Allow access");
+    expect(screen.getByRole("textbox", { name: "Agent conversation and response" }).textContent).toContain("Before after");
+    expect(screen.getByRole("button", { name: "Dictate" })).toBeTruthy();
+  });
+  it("cancels synchronously on discard before a queued final can restore discarded text", async () => {
+    const cancel: { current: (() => void) | null } = { current: null };
+    const { view } = await setup(cancel);
+    fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
+    const speech = Recognition.instances.at(-1)!, queued = speech.onresult!;
+    act(() => { cancel.current?.(); view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "" } }); });
+    act(() => queued({ results: [{ isFinal: true, 0: { transcript: "discarded speech" } }] }));
+    expect(speech.abort).toHaveBeenCalledOnce();
+    expect(view.state.doc.toString()).toBe("");
+  });
+  it("bounds a stalled Stop and rejects its late final result", async () => {
+    const { view } = await setup();
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
+    const speech = Recognition.instances.at(-1)!, queued = speech.onresult!;
+    fireEvent.click(screen.getByRole("button", { name: "Stop dictation" }));
+    act(() => { vi.advanceTimersByTime(5000); });
+    expect(speech.abort).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText("Dictation status").textContent).toContain("too long");
+    act(() => queued({ results: [{ isFinal: true, 0: { transcript: "too late" } }] }));
+    expect(view.state.doc.toString()).toBe("Before after");
+  });
 });
 </storycode:copy>
 <a id="f-edc92cd336d7-expression_statement-6"></a>

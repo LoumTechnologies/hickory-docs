@@ -13,13 +13,18 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <a id="f-344c997b71bc-useConversationActions"></a>
 ### `useConversationActions`
 
+The registered Send and Discard actions include separately selected attachments.
+A preparation in progress makes the conversation unavailable to Send, just as it
+does for the visible composer, so UI automation observes the same boundary.
+
+
 <storycode:copy id="f-344c997b71bc-useConversationActions">
 import { useId } from "react";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import type { UiCommand, UiOutcome } from "../lib/uiActions";
 
 export function useConversationActions(state: {
-  doc: string; draft: string; tip: string | null; turns: { id: string }[];
+  doc: string; draft: string; hasAttachments?: boolean; tip: string | null; turns: { id: string }[];
   running: string | null; sending: boolean; stopping: boolean; ready: boolean;
   tree: boolean; collapsed: boolean; evidence: unknown;
   setDraft: (text: string) => void; discard: () => void;
@@ -28,7 +33,7 @@ export function useConversationActions(state: {
   toggleCollapsed?: () => void;
 }) {
   const parent = `conversation:${useId()}`;
-  const revision = useUiRevision(() => [state.doc, state.draft, state.tip, state.turns, state.running, state.sending, state.stopping, state.ready, state.tree, state.collapsed, state.evidence]);
+  const revision = useUiRevision(() => [state.doc, state.draft, state.hasAttachments, state.tip, state.turns, state.running, state.sending, state.stopping, state.ready, state.tree, state.collapsed, state.evidence]);
   const commands: { key: string; command: UiCommand }[] = [];
   const add = (key: string, label: string, parameters: UiCommand["parameters"], enabled: boolean, execute: UiCommand["execute"]) => commands.push({ key: `${parent}:${key}`, command: { label, subject: parent, parent, parameters, prerequisites: [], read: () => ({ revision: revision(), enabled, ...(!enabled ? { reason: "Conversation busy, unavailable or control not applicable" } : {}) }), execute } });
   add("read", "Read conversation state bytes", { offset: { type: "number", minimum: 0, maximum: 1000000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 8192, integer: true } }, true, async args => {
@@ -38,8 +43,8 @@ export function useConversationActions(state: {
     return { status: "completed", value: { bytes: Array.from(bytes.slice(offset, end)), encoding: "JSON UTF-8", offset, total_bytes: bytes.length, next_offset: end < bytes.length ? end : null } };
   });
   add("draft", "Set conversation response draft", { text: { type: "string", maxLength: 1048576 } }, !state.collapsed && !state.tree, async args => { state.setDraft(args.text as string); return { status: "completed", value: { draft_changed: true, provider_request_sent: false } }; });
-  add("discard", "Discard conversation response", {}, !!state.draft, async () => { state.discard(); return { status: "completed", value: { discarded: true, prior_exposure_removed: false } }; });
-  add("send", "Send conversation response", {}, !!state.draft.trim() && !state.running && !state.sending && state.ready, async (): Promise<UiOutcome> => {
+  add("discard", "Discard conversation response", {}, !!state.draft || !!state.hasAttachments, async () => { state.discard(); return { status: "completed", value: { discarded: true, prior_exposure_removed: false } }; });
+  add("send", "Send conversation response", {}, (!!state.draft.trim() || !!state.hasAttachments) && !state.running && !state.sending && state.ready, async (): Promise<UiOutcome> => {
     const turn = await state.send();
     return turn ? { status: "queued", job: turn, value: { turn, completion: "Await actual turn state; this is not verification" } } : { status: "completed", value: { turn_started: false, interpretation: "A local slash command or unavailable submission; read current note/error" } };
   });

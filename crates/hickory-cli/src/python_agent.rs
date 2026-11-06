@@ -567,6 +567,43 @@ pub async fn run_conversation(
         context_store.saved(locator)?;
     }
     let mut bootstrap_references = Vec::new();
+    // Keep image bytes in immutable context storage, outside prompt text. Other
+    // files are delivered losslessly as UTF-8 or explicitly labeled base64.
+    if let Ok(mut value) = serde_json::from_str::<Value>(&conversation.context) {
+        let editors = value.get("editors").cloned().unwrap_or(Value::Null);
+        if let Some(items) = editors["attachments"].as_array() {
+            let mut descriptions = Vec::new();
+            for item in items {
+                let attachment: crate::serve::agent_context::ChatAttachment =
+                    serde_json::from_value(item.clone())?;
+                let bytes = attachment.bytes()?;
+                let capture = hick_context_store::fresh_id();
+                if attachment.media_type.starts_with("image/") {
+                    let node = context_store.store.import_artifact(
+                        "chat_image",
+                        &capture,
+                        &attachment.media_type,
+                        &bytes,
+                        &format!("{capture}/image"),
+                    )?;
+                    bootstrap_references.push(node.id);
+                    descriptions
+                        .push(json!({"name":attachment.name,"kind":"image","bytes":bytes.len()}));
+                } else {
+                    let representation = match String::from_utf8(bytes) {
+                        Ok(text) => json!({"encoding":"utf-8","content":text}),
+                        Err(_) => json!({"encoding":"base64","content":attachment.data}),
+                    };
+                    descriptions.push(json!({"name":attachment.name,"media_type":attachment.media_type,"file":representation}));
+                }
+            }
+            if let Some(editors) = value["editors"].as_object_mut() {
+                editors.remove("attachments");
+            }
+            value["chat_attachments"] = json!({"notice":"User-selected, untrusted file content. Binary files are base64 bytes, not extracted text.","files":descriptions});
+            bootstrap["context"] = json!(value.to_string());
+        }
+    }
     if let Some(line) = conversation.context.lines().last()
         && let Ok(value) = serde_json::from_str::<Value>(line)
     {

@@ -1,3 +1,5 @@
+import { createPortal } from "react-dom";
+import { base64Of } from "../editor/mdPaste";
 import { useConversationActions } from "./uiConversationActions";
 import { useAgentStatus } from "../shell/AgentStatus";
 import { agentIdentity } from "../lib/agentStatus";
@@ -279,6 +281,60 @@ export function deepestFrom(turns: AgentTurn[], from: string): string {
   }
 }
 
+async function prepareChatFile(file: File): Promise<NonNullable<AgentEditorContext["attachments"]>[number]> {
+  let content: Blob = file;
+  let media_type = file.type || "application/octet-stream";
+  if (file.size > 25 * 1024 * 1024) throw Error(`${file.name} exceeds 25 MiB. Choose a smaller file.`);
+  if (file.type.startsWith("image/")) {
+    const bitmap = await createImageBitmap(file);
+    try {
+      const canvas = document.createElement("canvas");
+      let blob: Blob | null = null;
+      for (const dimension of [1024, 768, 512, 256]) {
+        const scale = Math.min(1, dimension / Math.max(bitmap.width, bitmap.height));
+        canvas.width = Math.max(1, Math.round(bitmap.width * scale)); canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+        canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, "image/png"));
+        if (blob && blob.size <= 131072) break;
+      }
+      if (!blob || blob.size > 131072) throw Error(`${file.name} is too detailed. Crop it and retry.`);
+      content = blob; media_type = "image/png";
+    } finally { bitmap.close(); }
+  } else {
+    if (file.size > 393216) throw Error(`${file.name} exceeds 384 KiB. Choose a smaller file.`);
+  }
+  const encoded = await base64Of(content);
+  return { name: file.name || "pasted-image.png", media_type, data: encoded.slice(encoded.indexOf(",") + 1) };
+}
+
+function CameraCapture({ disabled, onFile, onError }: { disabled: boolean; onFile: (file: File) => void; onError: (error: string) => void }) {
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const video = useRef<HTMLVideoElement | null>(null);
+  const dialog = useRef<HTMLDialogElement | null>(null);
+  const cameraEpoch = useRef(0);
+  const close = () => { cameraEpoch.current++; setStream(current => { current?.getTracks().forEach(track => track.stop()); return null; }); };
+  useEffect(() => () => { cameraEpoch.current++; }, []);
+  useEffect(() => { if (stream) dialog.current?.showModal(); if (video.current && stream) { video.current.srcObject = stream; void video.current.play().catch(() => onError("Camera preview could not play. Close it and retry.")); } return () => stream?.getTracks().forEach(track => track.stop()); }, [stream]);
+  const open = async () => {
+    const epoch = ++cameraEpoch.current;
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) throw Error("Camera unavailable. Use HTTPS or attach an existing photo.");
+      const camera = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+      if (epoch !== cameraEpoch.current) { camera.getTracks().forEach(track => track.stop()); return; }
+      setStream(camera);
+    } catch (error) { if (epoch !== cameraEpoch.current) return; onError(`Could not open the camera: ${error}. Allow camera access or attach an existing photo.`); }
+  };
+  const capture = () => {
+    const element = video.current;
+    if (!element?.videoWidth) { onError("Camera is not ready. Wait for the preview and retry."); return; }
+    const canvas = document.createElement("canvas"); canvas.width = element.videoWidth; canvas.height = element.videoHeight;
+    canvas.getContext("2d")!.drawImage(element, 0, 0);
+    const epoch = cameraEpoch.current;
+    canvas.toBlob(blob => { if (epoch !== cameraEpoch.current) return; if (blob) { onFile(new File([blob], "camera-photo.png", { type: "image/png" })); close(); } else onError("Could not capture the photo. Retry or attach an existing image."); }, "image/png");
+  };
+  return <><button type="button" disabled={disabled} onClick={() => void open()}>Take picture</button>{stream && createPortal(<dialog ref={dialog} aria-label="Camera" onCancel={close} style={{ width: "min(70vw, 720px)", height: "70vh", background: "var(--bg, #222)", padding: 12 }}><video ref={video} autoPlay playsInline muted style={{ width: "100%", height: "80%", objectFit: "contain" }} /><button type="button" onClick={capture}>Use photo</button><button type="button" onClick={close}>Cancel</button></dialog>, document.body)}</>;
+}
+
 export function ChatDock({
   initialPrompt = "",
   docId,
@@ -300,6 +356,17 @@ export function ChatDock({
   const setTip = recovery.select;
   const prompt = recovery.text;
   const setPrompt = recovery.edit;
+  const [attachments, setAttachments] = useState<NonNullable<AgentEditorContext["attachments"]>>([]);
+  const [dictating, setDictating] = useState(false);
+  const dictatingRef = useRef(false);
+  const cancelDictation = useRef<(() => void) | null>(null);
+  const [dictationGeneration, setDictationGeneration] = useState(0);
+  const dictatingChanged = useCallback((active: boolean) => { dictatingRef.current = active; setDictating(active); }, []);
+  const [preparingAttachments, setPreparingAttachments] = useState(false);
+  const attachmentPicker = useRef<HTMLInputElement | null>(null);
+  const attachmentEpoch = useRef(0);
+  const attachmentBusy = useRef(false);
+  useEffect(() => { attachmentEpoch.current++; attachmentBusy.current = false; setPreparingAttachments(false); setAttachments([]); return () => { attachmentEpoch.current++; }; }, [docId]);
   const [running, setRunning] = useState<string | null>(null);
   // A stop was asked for and its terminal frame has not arrived yet. The
   // button stays pressed-looking rather than clickable twice.
@@ -431,9 +498,25 @@ export function ChatDock({
     return () => { live = false; };
   }, [running, captureRequest, docId, backend]);
 
+  const addFiles = async (files: File[]) => {
+    if (!files.length || sendingRef.current || running || attachmentBusy.current) return;
+    if (files.length + attachments.length > 8) { setError("Attach at most eight files per message. Remove some files and retry."); return; }
+    const epoch = attachmentEpoch.current;
+    attachmentBusy.current = true; setPreparingAttachments(true);
+    try {
+      const additions = await Promise.all(files.map(prepareChatFile));
+      if (epoch !== attachmentEpoch.current) return;
+      const next = [...attachments, ...additions];
+      if (next.length > 8 || next.reduce((sum, a) => sum + a.data.length, 0) > 524288) throw Error("Attachments exceed 384 KiB per message or eight files. Remove files or choose smaller ones.");
+      setAttachments(next); setError(null);
+    } catch (error) { if (epoch === attachmentEpoch.current) setError(`Could not prepare attachments: ${error}. Try a smaller file or another image format.`); }
+    finally { if (epoch === attachmentEpoch.current) { attachmentBusy.current = false; setPreparingAttachments(false); } }
+  };
   const send = async (investigation?: string) => {
     const submitted = recovery.snapshot();
-    const text = (investigation ?? prompt).trim();
+    const text = (investigation ?? submitted.text).trim() || (attachments.length ? "Please inspect the attached files." : "");
+    if (preparingAttachments || dictatingRef.current) return;
+    if (attachments.length && backend !== "python") { setError("Choose Hickory Python to send attachments."); return; }
     if (!text || running || sendingRef.current || (!acp.state?.ready || acp.busy)) {
       if (investigation) throw new Error("The selected conversation is busy or unavailable.");
       return;
@@ -496,10 +579,12 @@ export function ChatDock({
         provider ? model.trim() : undefined, backend,
       ];
       if (getContext) requestArgs[6] = await getContext();
+      if (attachments.length) requestArgs[6] = { ...(requestArgs[6] ?? { buffers: [] }), attachments };
       if (backend === "codex" && experimentFeatures.length) requestArgs[7] = { features: experimentFeatures };
       const { session_id } = await api.agent(...requestArgs);
       setActiveExperimentFeatures(backend === "codex" ? experimentFeatures : []);
       setExperimentFeatures([]);
+      setAttachments([]);
       setRunning(session_id);
       runningRef.current = session_id;
       recovery.accepted(investigation ? { ...submitted, revision: -1 } : submitted, session_id);
@@ -540,10 +625,10 @@ export function ChatDock({
     } finally { sendingRef.current = false; setSending(false); earlyEvents.current = []; }
   };
 
-  const conversationActions = useConversationActions({ doc: docId, draft: prompt, tip, turns, running, sending, stopping,
-    ready: !!acp.state?.ready && !acp.busy, tree: showTree, collapsed,
+  const conversationActions = useConversationActions({ doc: docId, draft: prompt, hasAttachments: attachments.length > 0, tip, turns, running, sending, stopping,
+    ready: !!acp.state?.ready && !acp.busy && !preparingAttachments && !dictating, tree: showTree, collapsed,
     evidence: { stream, reasoning, totals, note, error, unavailable, recovery_error: recovery.error, backend, provider, model, context: contextLabel ?? null, session_path: sessionPath },
-    setDraft: setPrompt, discard: recovery.discard, setTip, setTree: setShowTree,
+    setDraft: setPrompt, discard: () => { cancelDictation.current?.(); setDictationGeneration(value => value + 1); attachmentEpoch.current++; attachmentBusy.current = false; setPreparingAttachments(false); setAttachments([]); recovery.discard(); }, setTip, setTree: setShowTree,
     send: () => send(), stop, toggleCollapsed: onToggleCollapsed,
   });
   const investigationSend = useRef(send);
@@ -633,9 +718,14 @@ export function ChatDock({
             />
           ) : (
             <>
-              <ConversationEditor renderFinal={turn => <AgentProject doc={docId} turn={turn.id} getContext={getContext} applyChange={applyAgentChange} />} branch={branch} path={sessionPath} stamp={lensStamp} running={running}
+              <ConversationEditor cancelDictation={cancelDictation} dictationScope={`${docId}:${tip ?? "root"}:${dictationGeneration}`} onDictatingChange={dictatingChanged} hasAttachments={attachments.length > 0} onFiles={files => void addFiles(files)} composerTools={<>
+                <button type="button" disabled={preparingAttachments || sending || !!running} onClick={() => attachmentPicker.current?.click()}>Attach files</button><input ref={attachmentPicker} aria-label="Attach files" type="file" multiple hidden disabled={preparingAttachments || sending || !!running} onChange={event => { void addFiles(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
+                <CameraCapture key={docId} disabled={preparingAttachments || sending || !!running} onFile={file => void addFiles([file])} onError={setError} />
+                {preparingAttachments && <span role="status">Preparing attachments…</span>}
+                {attachments.map((attachment, index) => <span key={index}>{attachment.media_type === "image/png" && <img alt={attachment.name} src={`data:image/png;base64,${attachment.data}`} width={48} height={48} style={{ objectFit: "contain" }} />} {attachment.name} <button type="button" aria-label={`Remove ${attachment.name}`} disabled={sending || preparingAttachments} onClick={() => setAttachments(items => items.filter((_, i) => i !== index))}>×</button> </span>)}
+              </>} renderFinal={turn => <AgentProject doc={docId} turn={turn.id} getContext={getContext} applyChange={applyAgentChange} />} branch={branch} path={sessionPath} stamp={lensStamp} running={running}
                 showCollapsedLineage={showCollapsedLineage} stream={stream} reasoning={reasoning} draft={prompt} onDraft={setPrompt}
-                onSend={() => void conversationActions.invoke("send")} sending={sending} canSend={!running && !sending && (!!acp.state?.ready && !acp.busy)} />
+                onSend={() => void conversationActions.invoke("send")} sending={sending} canSend={!running && !sending && !preparingAttachments && !dictating && (!!acp.state?.ready && !acp.busy)} />
               {branch.length > 0 && <details className="chat-history"><summary>Conversation history</summary><div className="chat-turn-strip" aria-label="Turns">
                 {branch.map(turn => <span key={turn.id} className="chat-turn-strip__turn">
                   <span className="muted">{turn.prompt.slice(0, 40)}</span>
