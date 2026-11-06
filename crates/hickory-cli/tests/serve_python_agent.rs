@@ -481,13 +481,13 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
         assert_eq!(turn["status"], "ok");
         assert_eq!(turn["backend"], "python");
         assert_eq!(turn["provider"], "scripted");
+        assert!(turn["answer"].as_str().unwrap().starts_with("<hick:doc"));
         assert!(
             turn["answer"]
                 .as_str()
                 .unwrap()
-                .starts_with("<hick:doc")
+                .contains("Source-output equality verified")
         );
-        assert!(turn["answer"].as_str().unwrap().contains("Source-output equality verified"));
         assert_eq!(turn["usage"]["input_tokens"], 21);
         assert_eq!(app.root.join("proposal.md").exists(), accept);
         let mut events = vec![];
@@ -560,7 +560,8 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
                 .last()
                 .unwrap()
                 .iter()
-                .any(|m| matches!(&m.role, hickory_agent::Role::Assistant) && m.content.starts_with("<hick:doc"))
+                .any(|m| matches!(&m.role, hickory_agent::Role::Assistant)
+                    && m.content.starts_with("<hick:doc"))
         );
         assert!(
             requests
@@ -572,7 +573,10 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
         // Keep submitted messages for exact manifest comparison below.
         let path = app.root.join(turn["session"].as_str().unwrap());
         let source = std::fs::read_to_string(&path).unwrap();
-        assert!(source.contains("Stopped without verification."), "The declaration remains historical session evidence");
+        assert!(
+            source.contains("Stopped without verification."),
+            "The declaration remains historical session evidence"
+        );
         assert!(source.contains("python-edit-review"));
         assert!(source.contains("python-model-response"));
         // Guarantee: docs/guarantees/agent/python-requests-have-validated-context.md
@@ -652,12 +656,11 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
                 .iter()
                 .all(|t| t["backend"] == "python" && t["status"] == "ok")
         );
-        assert!(recovered.iter().all(|t| {
-            t["answer"]
-                .as_str()
-                .unwrap()
-                .starts_with("<hick:doc")
-        }));
+        assert!(
+            recovered
+                .iter()
+                .all(|t| { t["answer"].as_str().unwrap().starts_with("<hick:doc") })
+        );
     }
 }
 #[tokio::test(flavor = "multi_thread")]
@@ -978,4 +981,62 @@ async fn explicit_context_updates_compare_actual_reads_and_deliver_only_on_child
             .iter()
             .all(|u| u["state"] == "queued")
     );
+}
+// Guarantee: .hickory-source/guarantees/agent/changeset-completion-is-negotiated-and-checked/contract.md
+// Guarantee: .hickory-source/guarantees/agent/a-running-agent-can-be-stopped/contract.md
+#[tokio::test]
+async fn bounded_workspace_capture_reaches_inference_and_stops_with_large_excluded_artifact() {
+    let Some(python) = python() else {
+        return;
+    };
+    let app = App::start().await;
+    app.configure(&python).await;
+    std::fs::create_dir(app.root.join("target")).unwrap();
+    std::fs::File::create(app.root.join("target/huge.bin"))
+        .unwrap()
+        .set_len(9 * 1024 * 1024 * 1024)
+        .unwrap();
+    std::fs::write(
+        app.root.join("project.md"),
+        "<hick:project exclude=\"target/\" />",
+    )
+    .unwrap();
+    let model = Model::new([json!({"pending_stream":true})]);
+    app.state.agent.set_llm_override(model.clone());
+    let id = app.send("Wait in inference", None).await;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while model.requests.lock().unwrap().is_empty() {
+            app.refresh_capture().await;
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("excluded artifacts must not block inference");
+    assert_eq!(
+        app.request("POST", &app.route("/stop"), json!({})).await.0,
+        200
+    );
+    let turn = app.wait(&id).await;
+    assert_eq!(turn["status"], "stopped");
+    let session = app.root.join(turn["session"].as_str().unwrap());
+    assert!(std::fs::metadata(session).unwrap().len() < 1_000_000);
+    let (status, history) = app
+        .request("GET", &app.route(&format!("/projects/{id}")), Value::Null)
+        .await;
+    assert_eq!(status, 200, "{history}");
+    assert_eq!(history["workspace"]["exclude"], json!(["target/"]));
+    assert!(
+        history["starting"]["entries"]
+            .get("target/huge.bin")
+            .is_none()
+    );
+    std::fs::write(app.root.join("project.md"), "<hick:project />").unwrap();
+    let id = app.send("Refuse oversized boundary", None).await;
+    let turn = app.wait(&id).await;
+    assert_eq!(turn["status"], "error");
+    assert!(
+        turn["error"].as_str().unwrap().contains("byte budget"),
+        "{turn}"
+    );
+    assert_eq!(model.requests.lock().unwrap().len(), 1);
 }

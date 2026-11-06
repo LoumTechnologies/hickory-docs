@@ -605,6 +605,7 @@ pub async fn start_turn(
         }
         // Late MCP requests must not submit against a completed turn.
         client.host.changeset.lock().await.take();
+        super::agent_projects::release(&state, &run_id);
         state.agent.cancels.lock().unwrap().remove(&run_id);
         let status = {
             let mut map = state.agent.turns.lock().unwrap();

@@ -4,25 +4,94 @@ use crate::serve::agent_context::EditorBuffer;
 use anyhow::{Context, Result, ensure};
 use hick_lang::{ProjectEntry, ProjectInventory, ProjectTree};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::PathBuf,
+};
 
 /// Reserved evaluator namespace. These entries are editor addresses, never disk destinations.
 pub const BUFFERS: &str = hick_lang::EDITOR_BUFFER_PREFIX;
-#[derive(Clone, Serialize, Deserialize)]
+// Captures are also serialized into retained evidence; bound that amplification.
+pub(crate) const CAPTURE_BYTES: u64 = 16 * 1024 * 1024;
+pub(crate) const CAPTURE_ENTRIES: usize = 10_000;
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceCapture {
     pub root: Option<PathBuf>,
+    #[serde(default)]
+    pub exclude: BTreeSet<String>,
     pub identities: BTreeMap<String, Option<String>>,
     #[serde(default)]
     pub provenance: BTreeMap<String, Option<String>>,
 }
+fn workspace_exclusions(root: &std::path::Path) -> Result<BTreeSet<String>> {
+    if !root.join("project.md").try_exists()? {
+        return Ok(BTreeSet::new());
+    }
+    let remaining = std::cell::Cell::new(CAPTURE_BYTES);
+    let documents = std::cell::Cell::new(CAPTURE_ENTRIES);
+    let sources = hick_lang::load_project_sources("project.md", &|name| {
+        use std::io::Read;
+        if documents.get() == 0 {
+            return Err("Project source exceeds the agent entry budget; open a smaller project and retry.".into());
+        }
+        documents.set(documents.get() - 1);
+        let path = root.join(name);
+        if !path.canonicalize().map_err(|e| e.to_string())?.starts_with(root) {
+            return Err(format!("Project source escapes workspace: {name}"));
+        }
+        if !std::fs::metadata(&path).map_err(|e| e.to_string())?.is_file() {
+            return Err(format!("Project source is not a regular file: {name}"));
+        }
+        let mut bytes = Vec::new();
+        std::fs::File::open(path).map_err(|e| e.to_string())?
+            .take(remaining.get() + 1).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+        if bytes.len() as u64 > remaining.get() {
+            return Err("Project source exceeds the 16 MiB agent capture budget; open a smaller project and retry.".into());
+        }
+        remaining.set(remaining.get() - bytes.len() as u64);
+        String::from_utf8(bytes).map_err(|e| e.to_string())
+    }).map_err(anyhow::Error::msg)?;
+    let mut exclude = BTreeSet::new();
+    for source in sources.values() {
+        for project in hick_lang::parse(source)?.find_tags("project") {
+            for path in project
+                .get_attribute("exclude")
+                .unwrap_or("")
+                .split_whitespace()
+            {
+                hick_lang::validate_project_path(path.trim_end_matches('/'))
+                    .map_err(anyhow::Error::msg)?;
+                exclude.insert(path.to_owned());
+            }
+        }
+    }
+    Ok(exclude)
+}
+
 impl WorkspaceCapture {
     pub fn freeze(root: Option<PathBuf>, buffers: &[EditorBuffer]) -> Result<(Self, ProjectTree)> {
+        let exclude = root
+            .as_deref()
+            .map(workspace_exclusions)
+            .transpose()?
+            .unwrap_or_default();
         let mut scope = Self {
+            exclude,
             root,
             identities: BTreeMap::new(),
             provenance: BTreeMap::new(),
         };
+        let mut buffer_bytes = 0u64;
+        ensure!(
+            buffers.len() <= CAPTURE_ENTRIES,
+            "Too many editor buffers to capture; close some editors and retry."
+        );
         for buffer in buffers {
+            buffer_bytes = buffer_bytes.saturating_add(buffer.content.len() as u64);
+            ensure!(
+                buffer_bytes <= CAPTURE_BYTES,
+                "Editor capture exceeds 16 MiB; close large editors and retry."
+            );
             let id = buffer
                 .id
                 .as_ref()
@@ -40,6 +109,15 @@ impl WorkspaceCapture {
         Ok((scope, tree))
     }
     pub fn current(&self, buffers: &[EditorBuffer]) -> Result<ProjectTree> {
+        ensure!(
+            buffers.len() <= CAPTURE_ENTRIES
+                && buffers
+                    .iter()
+                    .try_fold(0u64, |sum, buffer| sum
+                        .checked_add(buffer.content.len() as u64))
+                    .is_some_and(|bytes| bytes <= CAPTURE_BYTES),
+            "Editor capture exceeds its byte/entry budget; close large editors and start a new turn."
+        );
         let identities: BTreeMap<_, _> = buffers
             .iter()
             .map(|b| (b.id.clone().unwrap_or_default(), b.path.clone()))
@@ -58,12 +136,22 @@ impl WorkspaceCapture {
                 "Editor identity changed (window or buffer instance). Reopen the original captured window before retrying."
             );
         }
+        let mut inventory = ProjectInventory::default();
+        inventory.exclude.extend(self.exclude.iter().cloned());
         let mut tree = if let Some(root) = &self.root {
             {
-                let first =
-                    crate::project_revision::directory(root, Some(&ProjectInventory::default()))?;
-                let second =
-                    crate::project_revision::directory(root, Some(&ProjectInventory::default()))?;
+                let first = crate::project_revision::directory_bounded(
+                    root,
+                    &inventory,
+                    CAPTURE_BYTES,
+                    CAPTURE_ENTRIES,
+                )?;
+                let second = crate::project_revision::directory_bounded(
+                    root,
+                    &inventory,
+                    CAPTURE_BYTES,
+                    CAPTURE_ENTRIES,
+                )?;
                 ensure!(
                     first.compare(&second).is_empty(),
                     "Workspace changed while capturing. Pause other writers and retry changeset_status."
@@ -99,8 +187,8 @@ impl WorkspaceCapture {
                     .replace('\\', "/");
                 hick_lang::validate_project_path(&path).map_err(anyhow::Error::msg)?;
                 ensure!(
-                    ProjectInventory::default().contains(&path),
-                    "Editor {name} is in an excluded metadata/session directory; move it before capturing."
+                    inventory.contains(&path),
+                    "Editor {name} is excluded from this workspace boundary; close it or change the project exclusions before capturing."
                 );
                 let mut parent = root.clone();
                 let components: Vec<_> = path.split('/').collect();
@@ -168,6 +256,66 @@ mod tests {
         ]))
         .unwrap()
     }
+    // A sparse compiler artifact must never be read or serialized into turn evidence.
+    // Guarantee: .hickory-source/guarantees/agent/changeset-completion-is-negotiated-and-checked/contract.md
+    #[test]
+    fn declared_exclusions_avoid_large_artifacts_and_remain_frozen() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("target")).unwrap();
+        std::fs::File::create(dir.path().join("target/huge.bin"))
+            .unwrap()
+            .set_len(9 * 1024 * 1024 * 1024)
+            .unwrap();
+        std::fs::write(
+            dir.path().join("project.md"),
+            "<hick:project exclude=\"target/\" />",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("source.txt"), "A").unwrap();
+        let (scope, first) =
+            WorkspaceCapture::freeze(Some(dir.path().canonicalize().unwrap()), &[]).unwrap();
+        assert!(first.get("target/huge.bin").is_none());
+        assert!(first.get("project.md").is_some());
+        assert_eq!(&*first.get("source.txt").unwrap().bytes, b"A");
+        // Changing the declaration mid-turn cannot expand or shrink its captured scope.
+        std::fs::write(dir.path().join("project.md"), "<hick:project />").unwrap();
+        std::fs::write(dir.path().join("source.txt"), "B").unwrap();
+        let current = scope.current(&[]).unwrap();
+        assert!(current.get("target/huge.bin").is_none());
+        assert_eq!(&*current.get("source.txt").unwrap().bytes, b"B");
+        assert!(
+            WorkspaceCapture::freeze(Some(dir.path().canonicalize().unwrap()), &[])
+                .unwrap_err()
+                .to_string()
+                .contains("byte budget")
+        );
+    }
+
+    // Guarantee: .hickory-source/guarantees/agent/changeset-completion-is-negotiated-and-checked/contract.md
+    #[test]
+    fn bounded_capture_rejects_cumulative_bytes_and_entry_forests() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("one"), [1; 6]).unwrap();
+        std::fs::write(dir.path().join("two"), [2; 6]).unwrap();
+        let error = crate::project_revision::directory_bounded(
+            dir.path(),
+            &ProjectInventory::default(),
+            10,
+            100,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("byte budget"));
+        std::fs::create_dir_all(dir.path().join("empty/nested")).unwrap();
+        let error = crate::project_revision::directory_bounded(
+            dir.path(),
+            &ProjectInventory::default(),
+            100,
+            2,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("entry budget"));
+    }
+
     #[test]
     fn workspace_and_editor_channels_capture_complete_changes_and_repair() {
         let dir = tempfile::tempdir().unwrap();

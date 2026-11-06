@@ -539,13 +539,19 @@ pub async fn start_turn(
     let run_key = turn_id.clone();
     tokio::spawn(async move {
         let _annotation_gate = task_state.agent.annotations_gate.read().await;
-        let project_capture = super::agent_projects::begin_editors(
-            &task_state,
-            &doc_id,
-            task_state.index.root().join(&session_rel),
-            capture_edits,
-        )
-        .await;
+        let project_capture = tokio::select! {
+            capture = super::agent_projects::begin_editors(
+                &task_state,
+                &doc_id,
+                task_state.index.root().join(&session_rel),
+                capture_edits,
+            ) => capture,
+            _ = async {
+                while !cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+            } => Err(anyhow::anyhow!(hickory_agent::STOPPED_BY_USER)),
+        };
         if let Ok(Some(capture)) = &project_capture {
             task_state
                 .agent
@@ -661,6 +667,7 @@ pub async fn start_turn(
             status
         };
         task_state.agent.finish(&doc_id, &run_key, outcome);
+        super::agent_projects::release(&task_state, &run_key);
 
         task_state
             .rooms

@@ -3,6 +3,7 @@ use super::{
     LocalState,
     api::{ApiError, ApiResult},
 };
+use crate::workspace_capture::{CAPTURE_BYTES, CAPTURE_ENTRIES};
 use axum::{
     Json,
     extract::{Path, State},
@@ -17,6 +18,8 @@ use std::{
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CapturedTurn {
+    #[serde(skip)]
+    persisted: bool,
     #[serde(default)]
     pub workspace: Option<crate::workspace_capture::WorkspaceCapture>,
     #[serde(skip)]
@@ -102,8 +105,14 @@ pub async fn begin(
     .map_err(anyhow::Error::msg)?;
     let project = hick_lang::evaluate_project(&entry, &documents, &ProjectTree::default())
         .map_err(anyhow::Error::msg)?;
-    let starting = crate::project_revision::directory(&root, Some(&project.inventory))?;
+    let starting = crate::project_revision::directory_bounded(
+        &root,
+        &project.inventory,
+        CAPTURE_BYTES,
+        CAPTURE_ENTRIES,
+    )?;
     Ok(Some(CapturedTurn {
+        persisted: false,
         workspace: None,
         live_editors: None,
         root,
@@ -163,16 +172,21 @@ pub async fn begin_editors(
         .folder_open
         .then(|| state.index.root().canonicalize())
         .transpose()?;
-    let (workspace, starting) =
-        crate::workspace_capture::WorkspaceCapture::freeze(root, &edits.buffers.lock().unwrap())?;
+    let buffers = edits.buffers.lock().unwrap().clone();
+    let (workspace, starting) = tokio::task::spawn_blocking(move || {
+        let (workspace, tree) = crate::workspace_capture::WorkspaceCapture::freeze(root, &buffers)?;
+        Ok::<_, anyhow::Error>((workspace, ProjectSnapshot::capture(&tree)))
+    })
+    .await??;
     Ok(Some(CapturedTurn {
+        persisted: false,
         root: workspace.root.clone().unwrap_or_default(),
         workspace: Some(workspace),
         live_editors: Some(edits),
         entry: "response.md".into(),
         documents: BTreeMap::new(),
         inventory: ProjectInventory::default(),
-        starting: ProjectSnapshot::capture(&starting),
+        starting,
         completed: None,
         ambiguous: BTreeSet::new(),
         error: None,
@@ -216,7 +230,9 @@ pub async fn finish(
             }
             scope.current(&editors.buffers.lock().unwrap())?
         } else {
-            crate::project_revision::directory(&capture.root, Some(&capture.inventory))?
+            crate::project_revision::directory_bounded(
+                &capture.root, &capture.inventory, CAPTURE_BYTES, CAPTURE_ENTRIES,
+            )?
         };
         // Native filesystem writes have no exclusive writer identity. Do not
         // silently call an external editor's write the agent's successful act.
@@ -251,11 +267,12 @@ pub async fn finish(
     .await;
     capture.error = result.err().map(|e| format!("{e:#}"));
     let record = super::acp::record::Record::existing(capture.session.clone());
-    if let Err(e) = record.context(
+    match record.context(
         "literate-project-capture",
         &json!({"turn":turn,"capture":capture}),
     ) {
-        capture.error = Some(format!("Project capture could not be recorded: {e:#}"));
+        Ok(()) => capture.persisted = true,
+        Err(e) => capture.error = Some(format!("Project capture could not be recorded: {e:#}")),
     }
     state
         .agent
@@ -263,6 +280,14 @@ pub async fn finish(
         .lock()
         .unwrap()
         .insert(turn.into(), capture);
+}
+
+/// Completed captures are read lazily from retained evidence, not kept forever in RAM.
+pub(super) fn release(state: &LocalState, turn: &str) {
+    let mut projects = state.agent.projects.lock().unwrap();
+    if projects.get(turn).is_some_and(|capture| capture.persisted) {
+        projects.remove(turn);
+    }
 }
 
 pub(super) fn captured(state: &LocalState, doc: &str, turn: &str) -> ApiResult<CapturedTurn> {
@@ -418,7 +443,7 @@ pub async fn finalize(
             &json!({"turn":turn,"capture":capture,"resolution":"user-declared"}),
         )
         .map_err(|e| ApiError::unprocessable(e.to_string()))?;
-    state.agent.projects.lock().unwrap().insert(turn, capture);
+    state.agent.projects.lock().unwrap().remove(&turn);
     Ok(Json(json!({"response":response,"verified":true})))
 }
 
@@ -439,4 +464,56 @@ pub(super) fn completed_capture(
         ));
     }
     Ok(capture)
+}
+#[cfg(test)]
+mod capture_lifetime_tests {
+    use super::*;
+
+    // Guarantee: .hickory-source/guarantees/agent/changeset-completion-is-negotiated-and-checked/contract.md
+    #[tokio::test]
+    async fn release_preserves_unrecorded_evidence_and_drops_durable_snapshots() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("note.md"), "note").unwrap();
+        let prepared = super::super::prepare(super::super::ServeOptions {
+            target: root.path().to_path_buf(),
+            port: 0,
+            params: vec![],
+            executor: crate::ExecutorChoice::Local,
+            key_store_path: None,
+            ui_settings_path: None,
+        })
+        .await
+        .unwrap();
+        let state = prepared.state;
+        let doc = state.index.sole().unwrap().0;
+        let session = root.path().join("session.md");
+        let capture = begin_editors(&state, &doc, session.clone(), Default::default())
+            .await
+            .unwrap()
+            .unwrap();
+        state
+            .agent
+            .projects
+            .lock()
+            .unwrap()
+            .insert("turn".into(), capture.clone());
+        release(&state, "turn");
+        assert!(state.agent.projects.lock().unwrap().contains_key("turn"));
+        // A missing session exercises a real recording failure, not just the flag.
+        finish(&state, "turn", capture.clone(), None).await;
+        assert!(!state.agent.projects.lock().unwrap()["turn"].persisted);
+        release(&state, "turn");
+        assert!(state.agent.projects.lock().unwrap().contains_key("turn"));
+        super::super::acp::record::Record::open(session.clone(), &root.path().join("note.md"))
+            .unwrap();
+        finish(&state, "turn", capture, None).await;
+        assert!(state.agent.projects.lock().unwrap()["turn"].persisted);
+        release(&state, "turn");
+        assert!(!state.agent.projects.lock().unwrap().contains_key("turn"));
+        assert!(
+            std::fs::read_to_string(session)
+                .unwrap()
+                .contains("literate-project-capture")
+        );
+    }
 }

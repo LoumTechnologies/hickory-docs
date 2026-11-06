@@ -13,6 +13,22 @@ Completion capability and project boundary are negotiated explicitly. Accepted a
 
 Filesystem snapshots are observed reads rather than a global transaction; equality does not establish runtime behavior.
 
+Workspace turns retain the root `project.md` closure's explicit exclusions for
+the lifetime of their capture. Markdown sources remain captured workspace bytes.
+Each agent disk snapshot is limited to 16 MiB and 10,000 entries, with a separate
+16 MiB editor budget. Exceeding a limit refuses the turn with the offending path
+and a suggestion to declare exclusions or open a smaller folder; it never marks
+an omitted subset as complete. Startup capture runs off the async worker and
+Stop can terminate the wait before inference starts. Successfully persisted
+workspace snapshots leave RAM after completion; history reloads them on demand.
+A failed evidence write retains its in-memory copy.
+
+The [workspace capture construction](implementation/crates/hickory-cli/src/workspace_capture.rs.md)
+contains sparse-artifact and budget witnesses; the
+[HTTP agent witness](../../../mechanisms/crates/hickory-cli/tests/serve_python_agent.rs.md)
+checks inference and cancellation with an excluded 9 GiB artifact.
+
+
 
 Earlier wording and all later notes remain in [the preserved original](../../../support/files/docs/guarantees/agent/changeset-completion-is-negotiated-and-checked.md.md). The paragraph ledger records their exact ranges and dispositions.
 

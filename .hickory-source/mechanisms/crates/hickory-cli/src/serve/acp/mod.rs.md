@@ -567,6 +567,10 @@ and retain the primary result separately. The ordinary request has no comparison
 plan by default, so it starts no additional ACP process. A failed primary request
 cancels the queued comparisons instead of spending on retries.
 
+Release a successfully persisted project capture after the final acceptance
+check and before publishing completion. ACP and Python share this lifetime rule:
+retained history is loaded on demand rather than holding each workspace in RAM.
+
 <storycode:copy id="f-fa77fc3f176f-start_turn">
 pub async fn start_turn(
     state: LocalState,
@@ -801,6 +805,7 @@ pub async fn start_turn(
         }
         // Late MCP requests must not submit against a completed turn.
         client.host.changeset.lock().await.take();
+        super::agent_projects::release(&state, &run_id);
         state.agent.cancels.lock().unwrap().remove(&run_id);
         let status = {
             let mut map = state.agent.turns.lock().unwrap();

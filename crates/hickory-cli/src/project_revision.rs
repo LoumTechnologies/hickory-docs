@@ -2,11 +2,35 @@
 //! mutation, scratch tree or ancestor lookup is part of source verification.
 use anyhow::{Context, Result, bail};
 use hick_lang::{EntryKind, ProjectEntry, ProjectInventory, ProjectTree};
-use std::{path::Path, process::Command};
+use std::{io::Read, path::Path, process::Command};
 
 pub fn directory(root: &Path, inventory: Option<&ProjectInventory>) -> Result<ProjectTree> {
     let mut tree = ProjectTree::default();
-    read_directory(root, root, inventory, &mut tree)?;
+    read_directory(
+        root,
+        root,
+        inventory,
+        &mut tree,
+        &mut (u64::MAX, usize::MAX),
+    )?;
+    Ok(tree)
+}
+
+/// Agent captures must refuse an oversized boundary before allocating its contents.
+pub fn directory_bounded(
+    root: &Path,
+    inventory: &ProjectInventory,
+    bytes: u64,
+    entries: usize,
+) -> Result<ProjectTree> {
+    let mut tree = ProjectTree::default();
+    read_directory(
+        root,
+        root,
+        Some(inventory),
+        &mut tree,
+        &mut (bytes, entries),
+    )?;
     Ok(tree)
 }
 fn read_directory(
@@ -14,6 +38,7 @@ fn read_directory(
     dir: &Path,
     inventory: Option<&ProjectInventory>,
     tree: &mut ProjectTree,
+    remaining: &mut (u64, usize),
 ) -> Result<()> {
     for item in std::fs::read_dir(dir).with_context(|| {
         format!(
@@ -28,6 +53,14 @@ fn read_directory(
             .to_str()
             .context("project contains a non-UTF-8 path")?
             .replace('\\', "/");
+        if inventory.is_some_and(|i| !i.contains(&path)) {
+            continue;
+        }
+        anyhow::ensure!(
+            remaining.1 > 0,
+            "Agent workspace capture exceeds its entry budget at {path}. Declare build/dependency exclusions in project.md or open a smaller folder, then retry."
+        );
+        remaining.1 -= 1;
         let metadata = std::fs::symlink_metadata(&full).with_context(|| {
             format!(
                 "Cannot capture {}; restore access and pause other writers before retrying",
@@ -40,7 +73,7 @@ fn read_directory(
             if inventory.is_some_and(|i| !i.contains(&format!("{path}/"))) {
                 continue;
             }
-            read_directory(root, &full, inventory, tree)?;
+            read_directory(root, &full, inventory, tree, remaining)?;
         } else {
             if inventory.is_some_and(|i| !i.contains(&path)) {
                 continue;
@@ -57,10 +90,24 @@ fn read_directory(
                         .to_vec(),
                 )
             } else if metadata.is_file() {
-                (EntryKind::File, std::fs::read(&full).with_context(|| format!("Cannot capture bytes of {}; make it readable and pause other writers before retrying", full.display()))?)
+                anyhow::ensure!(
+                    metadata.len() <= remaining.0,
+                    "Agent workspace capture exceeds its byte budget at {path}. Declare build/dependency exclusions in project.md or open a smaller folder, then retry."
+                );
+                let mut bytes = Vec::new();
+                std::fs::File::open(&full)?
+                    .take(remaining.0.saturating_add(1))
+                    .read_to_end(&mut bytes)
+                    .with_context(|| format!("Cannot capture bytes of {}; make it readable and pause other writers before retrying", full.display()))?;
+                (EntryKind::File, bytes)
             } else {
                 bail!("unsupported project entry kind: {path}");
             };
+            anyhow::ensure!(
+                bytes.len() as u64 <= remaining.0,
+                "Agent workspace capture exceeds its byte budget at {path}. Declare build/dependency exclusions in project.md or open a smaller folder, then retry."
+            );
+            remaining.0 -= bytes.len() as u64;
             #[cfg(unix)]
             let executable = {
                 use std::os::unix::fs::PermissionsExt;

@@ -21,6 +21,7 @@ use super::{
     LocalState,
     api::{ApiError, ApiResult},
 };
+use crate::workspace_capture::{CAPTURE_BYTES, CAPTURE_ENTRIES};
 use axum::{
     Json,
     extract::{Path, State},
@@ -35,6 +36,8 @@ use std::{
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CapturedTurn {
+    #[serde(skip)]
+    persisted: bool,
     #[serde(default)]
     pub workspace: Option<crate::workspace_capture::WorkspaceCapture>,
     #[serde(skip)]
@@ -125,8 +128,14 @@ pub async fn begin(
     .map_err(anyhow::Error::msg)?;
     let project = hick_lang::evaluate_project(&entry, &documents, &ProjectTree::default())
         .map_err(anyhow::Error::msg)?;
-    let starting = crate::project_revision::directory(&root, Some(&project.inventory))?;
+    let starting = crate::project_revision::directory_bounded(
+        &root,
+        &project.inventory,
+        CAPTURE_BYTES,
+        CAPTURE_ENTRIES,
+    )?;
     Ok(Some(CapturedTurn {
+        persisted: false,
         workspace: None,
         live_editors: None,
         root,
@@ -172,6 +181,11 @@ pub(super) fn editors(
 <a id="f-570609cb95dd-begin_editors"></a>
 ### `begin_editors`
 
+Freeze ordinary workspace bytes on the blocking pool, without holding an editor
+mutex across the await. This disk work must not monopolize an async worker while
+the UI polls status or requests Stop. It is read-only and bounded; cancellation
+can drop the waiting future without abandoning an authorized write.
+
 ACP workspace fallback: the folder flag, never the execution cwd, defines disk scope.
 
 <storycode:copy id="f-570609cb95dd-begin_editors">
@@ -198,16 +212,21 @@ pub async fn begin_editors(
         .folder_open
         .then(|| state.index.root().canonicalize())
         .transpose()?;
-    let (workspace, starting) =
-        crate::workspace_capture::WorkspaceCapture::freeze(root, &edits.buffers.lock().unwrap())?;
+    let buffers = edits.buffers.lock().unwrap().clone();
+    let (workspace, starting) = tokio::task::spawn_blocking(move || {
+        let (workspace, tree) = crate::workspace_capture::WorkspaceCapture::freeze(root, &buffers)?;
+        Ok::<_, anyhow::Error>((workspace, ProjectSnapshot::capture(&tree)))
+    })
+    .await??;
     Ok(Some(CapturedTurn {
+        persisted: false,
         root: workspace.root.clone().unwrap_or_default(),
         workspace: Some(workspace),
         live_editors: Some(edits),
         entry: "response.md".into(),
         documents: BTreeMap::new(),
         inventory: ProjectInventory::default(),
-        starting: ProjectSnapshot::capture(&starting),
+        starting,
         completed: None,
         ambiguous: BTreeSet::new(),
         error: None,
@@ -237,6 +256,12 @@ pub(super) fn cancelled(state: &LocalState, turn: &str) -> bool {
 <a id="f-570609cb95dd-finish"></a>
 ### `finish`
 
+After recording the completed boundary, mark its in-memory copy as disposable.
+Both agent harnesses release it after checking final acceptance. History loads
+that same record lazily through `captured`; repeated chats must not accumulate
+whole workspace snapshots in RAM. Keep the only surviving copy when writing the
+record failed, so a storage failure cannot discard evidence of actual writes.
+
 <storycode:copy id="f-570609cb95dd-finish">
 pub async fn finish(
     state: &LocalState,
@@ -261,7 +286,9 @@ pub async fn finish(
             }
             scope.current(&editors.buffers.lock().unwrap())?
         } else {
-            crate::project_revision::directory(&capture.root, Some(&capture.inventory))?
+            crate::project_revision::directory_bounded(
+                &capture.root, &capture.inventory, CAPTURE_BYTES, CAPTURE_ENTRIES,
+            )?
         };
         // Native filesystem writes have no exclusive writer identity. Do not
         // silently call an external editor's write the agent's successful act.
@@ -296,11 +323,12 @@ pub async fn finish(
     .await;
     capture.error = result.err().map(|e| format!("{e:#}"));
     let record = super::acp::record::Record::existing(capture.session.clone());
-    if let Err(e) = record.context(
+    match record.context(
         "literate-project-capture",
         &json!({"turn":turn,"capture":capture}),
     ) {
-        capture.error = Some(format!("Project capture could not be recorded: {e:#}"));
+        Ok(()) => capture.persisted = true,
+        Err(e) => capture.error = Some(format!("Project capture could not be recorded: {e:#}")),
     }
     state
         .agent
@@ -308,6 +336,14 @@ pub async fn finish(
         .lock()
         .unwrap()
         .insert(turn.into(), capture);
+}
+
+/// Completed captures are read lazily from retained evidence, not kept forever in RAM.
+pub(super) fn release(state: &LocalState, turn: &str) {
+    let mut projects = state.agent.projects.lock().unwrap();
+    if projects.get(turn).is_some_and(|capture| capture.persisted) {
+        projects.remove(turn);
+    }
 }
 
 </storycode:copy>
@@ -483,7 +519,7 @@ pub async fn finalize(
             &json!({"turn":turn,"capture":capture,"resolution":"user-declared"}),
         )
         .map_err(|e| ApiError::unprocessable(e.to_string()))?;
-    state.agent.projects.lock().unwrap().insert(turn, capture);
+    state.agent.projects.lock().unwrap().remove(&turn);
     Ok(Json(json!({"response":response,"verified":true})))
 }
 
@@ -512,10 +548,71 @@ pub(super) fn completed_capture(
 }
 </storycode:copy>
 
+### Release memory only after evidence is durable
+
+A failed record write must retain its only in-memory capture. Once the shared
+finish path records the same boundary, release must drop that workspace from the
+hub. The HTTP witness separately checks that history remains readable afterward.
+
+<storycode:copy id="capture-lifetime-test">
+#[cfg(test)]
+mod capture_lifetime_tests {
+    use super::*;
+
+    // Guarantee: .hickory-source/guarantees/agent/changeset-completion-is-negotiated-and-checked/contract.md
+    #[tokio::test]
+    async fn release_preserves_unrecorded_evidence_and_drops_durable_snapshots() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("note.md"), "note").unwrap();
+        let prepared = super::super::prepare(super::super::ServeOptions {
+            target: root.path().to_path_buf(),
+            port: 0,
+            params: vec![],
+            executor: crate::ExecutorChoice::Local,
+            key_store_path: None,
+            ui_settings_path: None,
+        })
+        .await
+        .unwrap();
+        let state = prepared.state;
+        let doc = state.index.sole().unwrap().0;
+        let session = root.path().join("session.md");
+        let capture = begin_editors(&state, &doc, session.clone(), Default::default())
+            .await
+            .unwrap()
+            .unwrap();
+        state
+            .agent
+            .projects
+            .lock()
+            .unwrap()
+            .insert("turn".into(), capture.clone());
+        release(&state, "turn");
+        assert!(state.agent.projects.lock().unwrap().contains_key("turn"));
+        // A missing session exercises a real recording failure, not just the flag.
+        finish(&state, "turn", capture.clone(), None).await;
+        assert!(!state.agent.projects.lock().unwrap()["turn"].persisted);
+        release(&state, "turn");
+        assert!(state.agent.projects.lock().unwrap().contains_key("turn"));
+        super::super::acp::record::Record::open(session.clone(), &root.path().join("note.md"))
+            .unwrap();
+        finish(&state, "turn", capture, None).await;
+        assert!(state.agent.projects.lock().unwrap()["turn"].persisted);
+        release(&state, "turn");
+        assert!(!state.agent.projects.lock().unwrap().contains_key("turn"));
+        assert!(
+            std::fs::read_to_string(session)
+                .unwrap()
+                .contains("literate-project-capture")
+        );
+    }
+}
+</storycode:copy>
+
 ### Assemble `crates/hickory-cli/src/serve/agent_projects.rs`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/src/serve/agent_projects.rs"><storycode:paste select="#f-570609cb95dd-CapturedTurn"/><storycode:paste select="#f-570609cb95dd-begin"/><storycode:paste select="#f-570609cb95dd-editors"/><storycode:paste select="#f-570609cb95dd-begin_editors"/><storycode:paste select="#f-570609cb95dd-cancelled"/><storycode:paste select="#f-570609cb95dd-finish"/><storycode:paste select="#f-570609cb95dd-captured"/><storycode:paste select="#f-570609cb95dd-snapshot"/><storycode:paste select="#f-570609cb95dd-Finalize"/><storycode:paste select="#f-570609cb95dd-finalize"/><storycode:paste select="#f-570609cb95dd-completed_capture"/></storycode:file>
+<storycode:file path="crates/hickory-cli/src/serve/agent_projects.rs"><storycode:paste select="#f-570609cb95dd-CapturedTurn"/><storycode:paste select="#f-570609cb95dd-begin"/><storycode:paste select="#f-570609cb95dd-editors"/><storycode:paste select="#f-570609cb95dd-begin_editors"/><storycode:paste select="#f-570609cb95dd-cancelled"/><storycode:paste select="#f-570609cb95dd-finish"/><storycode:paste select="#f-570609cb95dd-captured"/><storycode:paste select="#f-570609cb95dd-snapshot"/><storycode:paste select="#f-570609cb95dd-Finalize"/><storycode:paste select="#f-570609cb95dd-finalize"/><storycode:paste select="#f-570609cb95dd-completed_capture"/><storycode:paste select="#capture-lifetime-test"/></storycode:file>
 
 </storycode:doc>

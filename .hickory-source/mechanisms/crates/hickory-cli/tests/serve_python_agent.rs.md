@@ -559,13 +559,13 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
         assert_eq!(turn["status"], "ok");
         assert_eq!(turn["backend"], "python");
         assert_eq!(turn["provider"], "scripted");
+        assert!(turn["answer"].as_str().unwrap().starts_with("<hick:doc"));
         assert!(
             turn["answer"]
                 .as_str()
                 .unwrap()
-                .starts_with("<hick:doc")
+                .contains("Source-output equality verified")
         );
-        assert!(turn["answer"].as_str().unwrap().contains("Source-output equality verified"));
         assert_eq!(turn["usage"]["input_tokens"], 21);
         assert_eq!(app.root.join("proposal.md").exists(), accept);
         let mut events = vec![];
@@ -638,7 +638,8 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
                 .last()
                 .unwrap()
                 .iter()
-                .any(|m| matches!(&m.role, hickory_agent::Role::Assistant) && m.content.starts_with("<hick:doc"))
+                .any(|m| matches!(&m.role, hickory_agent::Role::Assistant)
+                    && m.content.starts_with("<hick:doc"))
         );
         assert!(
             requests
@@ -650,7 +651,10 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
         // Keep submitted messages for exact manifest comparison below.
         let path = app.root.join(turn["session"].as_str().unwrap());
         let source = std::fs::read_to_string(&path).unwrap();
-        assert!(source.contains("Stopped without verification."), "The declaration remains historical session evidence");
+        assert!(
+            source.contains("Stopped without verification."),
+            "The declaration remains historical session evidence"
+        );
         assert!(source.contains("python-edit-review"));
         assert!(source.contains("python-model-response"));
         // Guarantee: docs/guarantees/agent/python-requests-have-validated-context.md
@@ -730,12 +734,11 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
                 .iter()
                 .all(|t| t["backend"] == "python" && t["status"] == "ok")
         );
-        assert!(recovered.iter().all(|t| {
-            t["answer"]
-                .as_str()
-                .unwrap()
-                .starts_with("<hick:doc")
-        }));
+        assert!(
+            recovered
+                .iter()
+                .all(|t| { t["answer"].as_str().unwrap().starts_with("<hick:doc") })
+        );
     }
 }
 </storycode:copy>
@@ -832,10 +835,79 @@ async fn accepting_a_stale_proposal_preserves_live_human_typing() {
 [Read the test `review_investigation_links_real_response_refused_edits_and_cancellation` beside its requirement](../../../../guarantees/authoring/review-investigations-link-observed-agent-work/contract.md#f-08f0cd3133cc-review_investigation_links_real_response_refused_edits_and_cancellation).
 [Read the test `explicit_context_updates_compare_actual_reads_and_deliver_only_on_child_boundary` beside its requirement](../../../../guarantees/agent/explicit-context-updates/contract.md#f-08f0cd3133cc-explicit_context_updates_compare_actual_reads_and_deliver_only_on_child_boundary).
 
+### Keep a large compiler artifact out of a live agent turn
+
+This uses real HTTP, the confined Python worker and a scripted provider that waits
+in inference. A sparse 9 GiB target file must not delay the first model request,
+cancellation, or inflate retained session evidence. Removing its explicit exclusion
+must fail the next turn before any model call. The current-thread runtime also
+exposes blocking startup work that would starve the HTTP server.
+
+<storycode:copy id="bounded-workspace-agent-http">
+// Guarantee: .hickory-source/guarantees/agent/changeset-completion-is-negotiated-and-checked/contract.md
+// Guarantee: .hickory-source/guarantees/agent/a-running-agent-can-be-stopped/contract.md
+#[tokio::test]
+async fn bounded_workspace_capture_reaches_inference_and_stops_with_large_excluded_artifact() {
+    let Some(python) = python() else {
+        return;
+    };
+    let app = App::start().await;
+    app.configure(&python).await;
+    std::fs::create_dir(app.root.join("target")).unwrap();
+    std::fs::File::create(app.root.join("target/huge.bin"))
+        .unwrap()
+        .set_len(9 * 1024 * 1024 * 1024)
+        .unwrap();
+    std::fs::write(
+        app.root.join("project.md"),
+        "<hick:project exclude=\"target/\" />",
+    )
+    .unwrap();
+    let model = Model::new([json!({"pending_stream":true})]);
+    app.state.agent.set_llm_override(model.clone());
+    let id = app.send("Wait in inference", None).await;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while model.requests.lock().unwrap().is_empty() {
+            app.refresh_capture().await;
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("excluded artifacts must not block inference");
+    assert_eq!(
+        app.request("POST", &app.route("/stop"), json!({})).await.0,
+        200
+    );
+    let turn = app.wait(&id).await;
+    assert_eq!(turn["status"], "stopped");
+    let session = app.root.join(turn["session"].as_str().unwrap());
+    assert!(std::fs::metadata(session).unwrap().len() < 1_000_000);
+    let (status, history) = app
+        .request("GET", &app.route(&format!("/projects/{id}")), Value::Null)
+        .await;
+    assert_eq!(status, 200, "{history}");
+    assert_eq!(history["workspace"]["exclude"], json!(["target/"]));
+    assert!(
+        history["starting"]["entries"]
+            .get("target/huge.bin")
+            .is_none()
+    );
+    std::fs::write(app.root.join("project.md"), "<hick:project />").unwrap();
+    let id = app.send("Refuse oversized boundary", None).await;
+    let turn = app.wait(&id).await;
+    assert_eq!(turn["status"], "error");
+    assert!(
+        turn["error"].as_str().unwrap().contains("byte budget"),
+        "{turn}"
+    );
+    assert_eq!(model.requests.lock().unwrap().len(), 1);
+}
+</storycode:copy>
+
 ### Assemble `crates/hickory-cli/tests/serve_python_agent.rs`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/tests/serve_python_agent.rs"><storycode:paste select="#f-08f0cd3133cc-SUBMIT"/><storycode:paste select="#f-08f0cd3133cc-Model"/><storycode:paste select="#f-08f0cd3133cc-impl-Model"/><storycode:paste select="#f-08f0cd3133cc-impl-LlmClient-for-Model"/><storycode:paste select="#f-08f0cd3133cc-App"/><storycode:paste select="#f-08f0cd3133cc-impl-Drop-for-App"/><storycode:paste select="#f-08f0cd3133cc-impl-App"/><storycode:paste select="#f-08f0cd3133cc-python"/><storycode:paste select="#f-08f0cd3133cc-python_agent_uses_originating_window_ui_tools_with_retained_context"/><storycode:paste select="#f-08f0cd3133cc-python_literate_view_uses_ui_without_creating_a_synthetic_document"/><storycode:paste select="#f-08f0cd3133cc-python_agent_delivers_captured_ui_images_as_selected_provider_content"/><storycode:paste select="#f-08f0cd3133cc-ui_transport_case"/><storycode:paste select="#f-08f0cd3133cc-runtime_setup_refuses_invalid_installations_and_reserved_acp_ids"/><storycode:paste select="#f-08f0cd3133cc-python_turn_requires_review_streams_receipts_and_rehydrates_its_branch"/><storycode:paste select="#f-08f0cd3133cc-stop_cancels_a_pending_python_review_and_keeps_the_audit"/><storycode:paste select="#f-08f0cd3133cc-accepting_a_stale_proposal_preserves_live_human_typing"/><storycode:paste select="#f-08f0cd3133cc-cancelling_active_inference_records_uncertain_delivery"/><storycode:paste select="#f-08f0cd3133cc-review_investigation_links_real_response_refused_edits_and_cancellation"/><storycode:paste select="#f-08f0cd3133cc-explicit_context_updates_compare_actual_reads_and_deliver_only_on_child_boundary"/></storycode:file>
+<storycode:file path="crates/hickory-cli/tests/serve_python_agent.rs"><storycode:paste select="#f-08f0cd3133cc-SUBMIT"/><storycode:paste select="#f-08f0cd3133cc-Model"/><storycode:paste select="#f-08f0cd3133cc-impl-Model"/><storycode:paste select="#f-08f0cd3133cc-impl-LlmClient-for-Model"/><storycode:paste select="#f-08f0cd3133cc-App"/><storycode:paste select="#f-08f0cd3133cc-impl-Drop-for-App"/><storycode:paste select="#f-08f0cd3133cc-impl-App"/><storycode:paste select="#f-08f0cd3133cc-python"/><storycode:paste select="#f-08f0cd3133cc-python_agent_uses_originating_window_ui_tools_with_retained_context"/><storycode:paste select="#f-08f0cd3133cc-python_literate_view_uses_ui_without_creating_a_synthetic_document"/><storycode:paste select="#f-08f0cd3133cc-python_agent_delivers_captured_ui_images_as_selected_provider_content"/><storycode:paste select="#f-08f0cd3133cc-ui_transport_case"/><storycode:paste select="#f-08f0cd3133cc-runtime_setup_refuses_invalid_installations_and_reserved_acp_ids"/><storycode:paste select="#f-08f0cd3133cc-python_turn_requires_review_streams_receipts_and_rehydrates_its_branch"/><storycode:paste select="#f-08f0cd3133cc-stop_cancels_a_pending_python_review_and_keeps_the_audit"/><storycode:paste select="#f-08f0cd3133cc-accepting_a_stale_proposal_preserves_live_human_typing"/><storycode:paste select="#f-08f0cd3133cc-cancelling_active_inference_records_uncertain_delivery"/><storycode:paste select="#f-08f0cd3133cc-review_investigation_links_real_response_refused_edits_and_cancellation"/><storycode:paste select="#f-08f0cd3133cc-explicit_context_updates_compare_actual_reads_and_deliver_only_on_child_boundary"/><storycode:paste select="#bounded-workspace-agent-http"/></storycode:file>
 
 </storycode:doc>
