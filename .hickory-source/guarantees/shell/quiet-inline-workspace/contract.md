@@ -542,6 +542,38 @@ def command(page, text):
 
 
 # Contract: .hickory-source/guarantees/authoring/a-tree-row-opens-in-the-platform/contract.md
+def check_sidebar(page, origin):
+    """Contract: conventional Files sidebar; public HTTP plus visible UI only."""
+    name = "sidebar-witness.txt"
+    assert page.request.post(origin + "/api/files/op", data={"op": "create", "path": name}).ok
+    page.goto(origin)
+    handle = page.get_by_role("button", name="Show left drawer", exact=True)
+    if handle.is_visible(): handle.click()
+    row = page.get_by_role("treeitem", name=name, exact=True)
+    expect(row).to_be_visible(timeout=45000)
+    row.click()
+    expect(page.locator('[data-spatial-key="file:' + name + '"]')).to_be_visible()
+    notes = page.get_by_role("treeitem", name="notes", exact=True)
+    notes.focus()
+    notes.press("ArrowRight")
+    expect(notes).to_have_attribute("aria-expanded", "true")
+    expect(page.get_by_role("treeitem", name="other.md", exact=True)).to_be_visible()
+    notes.press("ArrowLeft")
+    expect(notes).to_have_attribute("aria-expanded", "false")
+    row.focus()
+    row.press("m")
+    expect(page.locator(".filesystem-editor")).to_have_count(0)
+    row.press("Delete")
+    expect(page.get_by_role("dialog")).to_contain_text("Delete " + name + "?")
+    assert name in page.request.get(origin + "/api/files").text()
+    page.get_by_role("button", name="Cancel", exact=True).click()
+    row.press("Delete")
+    page.get_by_role("button", name="Delete", exact=True).click()
+    expect(row).to_have_count(0)
+    page.screenshot(path="/tmp/hickory-files-sidebar.png", full_page=True)
+    print(json.dumps({"result": "PASS", "scope": "Files sidebar activation, disclosure and confirmed deletion"}))
+
+
 def check_links(page, origin):
     """Drive only public HTTP and visible UI, independent of editor internals."""
     source = ('<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">\n'
@@ -648,7 +680,7 @@ def check_compact_ui(page, origin):
     expect(files).to_be_visible()
     expect(files.locator('.spatial-files-title')).to_have_count(0)
     expect(files.get_by_role("button", name="Search files", exact=True)).to_have_count(1)
-    tree = files.locator('.filesystem-editor .cm-editor')
+    tree = files.locator('.folder-tree__list[role=tree]').first
     before_tree = tree.bounding_box()
     files.get_by_role("button", name="Search files", exact=True).click()
     folder = page.get_by_role("dialog", name="Search files", exact=True)
@@ -660,7 +692,7 @@ def check_compact_ui(page, origin):
     assert tree.bounding_box() == before_tree
     page.keyboard.press("Escape")
     expect(folder).to_have_count(0)
-    expect(files.get_by_role("button", name="+ New document", exact=True)).to_be_visible()
+    expect(files.get_by_role("button", name="New document", exact=True)).to_be_visible()
     root = files.locator('.folder-tree__header')
     more = root.locator('.cm-gutter-more')
     expect(more).to_be_visible()
@@ -723,6 +755,10 @@ def main():
                 page.screenshot(path="/tmp/hickory-compact-ui-failure.png", full_page=True)
                 raise
             assert not errors, errors
+            browser.close()
+            return
+        if "--sidebar" in sys.argv:
+            check_sidebar(page, sys.argv[1])
             browser.close()
             return
         page.goto(sys.argv[1])

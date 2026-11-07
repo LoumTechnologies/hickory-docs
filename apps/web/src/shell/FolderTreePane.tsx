@@ -22,7 +22,6 @@ import { FileActionPrompts, runFileMenuItem } from "./fileMenuActions";
 import { useDired } from "./useDired";
 import { useTreeNavigation } from "./useTreeNavigation";
 import { TreeFindReplace } from "./TreeFindReplace";
-import { FilesystemTreeEditor, type WorkspaceTextExtra } from "./FilesystemTreeEditor";
 import {
   terminalMenuItems,
   treeMenuItems,
@@ -429,7 +428,7 @@ export function FolderTreePane({
   useEffect(() => {
     if (focusRequest === 0) return;
     const frame = requestAnimationFrame(() =>
-      pane.current?.querySelector<HTMLElement>('.filesystem-editor .cm-content')?.focus(),
+      pane.current?.querySelector<HTMLElement>('[role="tree"]')?.focus(),
     );
     return () => cancelAnimationFrame(frame);
   }, [focusRequest, roots]);
@@ -504,30 +503,12 @@ function FolderRoot({
   );
   const atRoot = placement.get("") ?? [];
   const github = useGithubWorkspaceNodes();
-  const [detailFolder, setDetailFolder] = useState<string | null>(null);
-  const editorExtras = useMemo<WorkspaceTextExtra[]>(() => [
-    ...[...placement].flatMap(([parentPath, placed]) => parentPath === "" ? [] : placed.map((session) => ({
-      key: `terminal:${session.id}`,
-      parentPath,
-      label: `terminal: ${session.title} · ${session.state.replace("-", " ")}`,
-      activate: onOpenTerminal ? () => onOpenTerminal(session.id) : undefined,
-    }))),
-    ...(github.value?.issues ?? []).filter((issue) => issue.folder !== "").map((issue) => ({
-      key: `github:${issue.repository}#${issue.number}`,
-      parentPath: issue.folder,
-      label: `issue #${issue.number}: ${issue.title} · ${issue.state.toLowerCase()}${issue.unread ? ` · ${issue.unread} unread` : ""}`,
-      activate: () => setDetailFolder(issue.folder),
-      edit: {
-        prefix: `issue #${issue.number}: `,
-        value: issue.title,
-        suffix: ` · ${issue.state.toLowerCase()}${issue.unread ? ` · ${issue.unread} unread` : ""}`,
-        apply: async (title: string) => {
-          await api.editGithubObject("issue", issue.repository, issue.number, "title", title);
-          github.refresh();
-        },
-      },
-    })),
-  ], [placement, github.value?.issues, onOpenTerminal]);
+  const [expanded, setExpanded] = useState(() => loadExpanded(folder.root));
+  const toggle = (path: string) => setExpanded(current => {
+    const next = toggleExpanded(current, path);
+    saveExpanded(folder.root, next);
+    return next;
+  });
 
   // The folder as the context menu needs to know it: where it is on this
   // machine, how paths are spelled there, and what the file manager is called.
@@ -563,7 +544,7 @@ function FolderRoot({
     showMenu({ x: event.clientX, y: event.clientY }, path, dir, plainText);
   }, [showMenu]);
 
-  // Dired: the marks, the prompt a verb asks through, and the verbs.
+  // Reuse the explicit filesystem prompts; the sidebar itself is read-only.
   const dired = useDired(setNotice);
   const navigation = useTreeNavigation({
     replacePaths: dired.replaceMarks,
@@ -584,7 +565,7 @@ function FolderRoot({
     session: TreeSession;
   } | null>(null);
   const showTermMenu = (position: { x: number; y: number }, id: string) => {
-    const session = atRoot.find(session => session.id === id);
+    const session = sessions.find(session => session.id === id);
     if (!session) return false;
     setMenu(null); setTermMenu({ owner: menuOwner, ...position, session }); return true;
   };
@@ -664,6 +645,54 @@ function FolderRoot({
     } } },
     { key: `${actionParent}/new`, command: { label: "Create untitled document", parent: actionParent, subject: actionParent, parameters: {}, prerequisites: [], read: actionRead, execute: async () => { onNewDocument(); return { status: "completed", value: { dispatch: "requested", saved: false } }; } } },
   ]);
+  // Only expanded descendants mount. Stable path keys keep rows and focus intact
+  // when background ownership or terminal data changes.
+  function renderNodes(nodes: readonly FileNode[], depth = 0, parentPath?: string): React.ReactNode {
+    return nodes.map(node => {
+      const action = node.dir ? null : fileAction(node, openable);
+      const isExpanded = expanded.has(node.path);
+      const selected = dired.marked.has(node.path);
+      const recipes = node.dir ? (node.children ?? []).filter(child => !child.dir && ["justfile", ".justfile"].includes(child.name.toLowerCase())).map(child => child.path) : [];
+      return <li key={node.path} role="none">
+        <div style={{ display: "flex", alignItems: "center", position: "relative" }}>
+        <button type="button" role="treeitem" tabIndex={-1}
+          aria-label={node.name} aria-level={depth + 1}
+          aria-expanded={node.dir ? isExpanded : undefined} aria-selected={selected}
+          className={`${node.dir ? "folder-tree__dir" : "folder-tree__file"}${selected ? " marked" : ""}${node.doc_id === activeDocId && activeDocId ? " on" : ""}`}
+          style={{ paddingLeft: `${depth * 0.85 + 0.4}rem` }}
+          data-tree-path={node.path} data-tree-dir={node.dir}
+          data-tree-kind={node.dir ? "directory" : action?.kind}
+          data-workspace-node-key={fileWorkspaceKey(node.path)}
+          data-workspace-parent={parentPath ? fileWorkspaceKey(parentPath) : undefined}
+          data-workspace-expandable={node.dir} data-workspace-expanded={isExpanded}
+          title={node.path}
+          onClick={event => {
+            event.currentTarget.focus();
+            if (event.ctrlKey || event.metaKey || event.shiftKey) { dired.toggle(node.path); return; }
+            dired.replaceMarks([node.path]);
+            if (node.dir) toggle(node.path);
+            else if (action && action.kind !== "inert") onOpen(action);
+          }}
+          onContextMenu={event => {
+            if (!dired.marked.has(node.path)) dired.replaceMarks([node.path]);
+            openMenu(event, node.path, node.dir, !node.dir && !isLikelyBinaryPath(node.path));
+          }}
+        >
+          <span className="folder-tree__disclosure" aria-hidden>{node.dir ? (isExpanded ? "▾" : "▸") : ""}</span>
+          {node.name}{dirtyPaths.has(node.path) && <span aria-label="Unsaved changes"> ●</span>}
+        </button>
+        {recipes.length > 0 && <div style={{ width: 20, flex: "none", overflow: "visible" }}>
+          <RecipeFolderHeader name="" paths={recipes} revision={node.children} onOpenTerminal={onOpenTerminal} onError={setNotice} />
+        </div>}
+        </div>
+        {node.dir && isExpanded && <ul role="group" className="folder-tree__list">
+          <TerminalRows sessions={placement.get(node.path) ?? []} depth={depth + 1} parentPath={node.path} onOpen={onOpenTerminal} onMenu={openTermMenu} />
+          <GithubIssueRows workspace={github.value} folder={node.path} onChanged={github.refresh} />
+          {renderNodes(node.children ?? [], depth + 1, node.path)}
+        </ul>}
+      </li>;
+    });
+  }
   return (
     <section className="folder-tree__root">
       <header className="folder-tree__header">
@@ -675,6 +704,9 @@ function FolderRoot({
         >
           <RecipeFolderHeader name={name} revision={folder} paths={folder.tree.filter(node => !node.dir && ["justfile", ".justfile"].includes(node.name.toLowerCase())).map(node => node.path)} onOpenTerminal={onOpenTerminal} onError={setNotice} />
         </div>
+        <button type="button" className="folder-tree__new" aria-label="New file" title="New file" onClick={() => dired.run({ kind: "create", dir: "" })}>+</button>
+        <button type="button" className="folder-tree__new" aria-label="New folder" title="New folder" onClick={() => dired.run({ kind: "mkdir", dir: "" })}>▸+</button>
+        <button type="button" className="folder-tree__new" aria-label="Collapse folders" title="Collapse folders" onClick={() => { setExpanded(new Set()); saveExpanded(folder.root, new Set()); }}>⌃</button>
       </header>
       {folder.truncated && (
         <p className="muted folder-tree__truncated">Large folder — not everything is listed.</p>
@@ -709,14 +741,18 @@ function FolderRoot({
         tabIndex={0}
         onFocus={navigation.onFocus}
         onFocusCapture={navigation.onFocusCapture}
-        // The dired keys — m, u, U, D, R, C, M, +, n — act on the focused
-        // row. Read off the row's own attributes so the tree, not each row,
-        // owns the one handler.
+        aria-label={`Files in ${name}`}
         onKeyDown={(event) => {
+          if ((event.target as HTMLElement).closest('input, textarea, .cm-editor')) return;
           if (navigation.onKeyDown(event)) return;
           const row = (event.target as HTMLElement).closest<HTMLElement>("[data-tree-path]");
           if (!row) return;
-          dired.onKey(event, row.dataset.treePath ?? "", row.dataset.treeDir === "true");
+          const path = row.dataset.treePath ?? "";
+          const paths = dired.marked.has(path) ? [...dired.marked] : [path];
+          if (event.key === "F2" || event.key === "Delete") {
+            event.preventDefault(); event.stopPropagation();
+            dired.run({ kind: event.key === "F2" ? "rename" : "delete", paths });
+          } else if (event.key === "Escape") dired.clear();
         }}
       >
         <GithubProviderStatusRow workspace={github.value} />
@@ -728,41 +764,9 @@ function FolderRoot({
           onOpen={onOpenTerminal}
           onMenu={openTermMenu}
         />
+        {renderNodes(folder.tree)}
       </ul>
-      <FilesystemTreeEditor
-        nodes={folder.tree}
-        onOpenTerminal={onOpenTerminal}
-        onDeleted={(paths) => window.dispatchEvent(new CustomEvent(FILES_DELETED_EVENT, { detail: { paths } }))}
-        onChanged={(renames) =>
-          window.dispatchEvent(
-            renames?.length
-              ? new CustomEvent(FILES_CHANGED_EVENT, {
-                  detail: { renames: renames.map(({ path, to }) => ({ from: path, to })) },
-                })
-              : new Event(FILES_CHANGED_EVENT),
-          )
-        }
-        onOpenPath={(path) => {
-          const node = fileNodeAt(folder.tree, path);
-          if (!node) return;
-          const action = fileAction(node, openable);
-          if (action.kind !== "inert") onOpen(action);
-        }}
-        onContextPath={(event, path, dir) => {
-          showMenu({ x: event.clientX, y: event.clientY }, path, dir, !dir && !isLikelyBinaryPath(path));
-        }}
-        kindOfPath={(path, dir) => {
-          if (dir) return "directory";
-          const node = fileNodeAt(folder.tree, path);
-          return node ? fileAction(node, openable).kind : "file";
-        }}
-        extras={editorExtras}
-        dirtyPaths={dirtyPaths}
-      />
-      <button type="button" className="btn-link" onClick={newFromHeader}>+ New document</button>
-      {detailFolder !== null && <ul className="folder-tree__list" role="tree">
-        <GithubIssueRows workspace={github.value} folder={detailFolder} onChanged={github.refresh} />
-      </ul>}
+      <button type="button" className="btn-link" aria-label="New document" onClick={newFromHeader}>+ New document</button>
       {menu && menu.owner === menuOwner && (
         <TreeContextMenu
           x={menu.x}

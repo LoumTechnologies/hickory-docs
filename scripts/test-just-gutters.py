@@ -37,7 +37,7 @@ def main(origin):
         handle = page.get_by_role("button", name="Show left drawer")
         if handle.is_visible(): handle.click()
         expect(files).to_be_visible()
-        tree = files.locator(".filesystem-editor")
+        tree = files.locator(".folder-tree__list[role=tree]").first
         a = tree.locator('[data-tree-path="a-recipes"]')
         b = tree.locator('[data-tree-path="b-recipes"]')
         expect(a).to_be_visible()

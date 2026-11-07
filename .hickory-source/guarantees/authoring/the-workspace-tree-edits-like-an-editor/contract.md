@@ -1,35 +1,49 @@
 <storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
-# The Workspace Tree Is An Editor Buffer
+# Files use a familiar sidebar tree
 
-For: Authors editing executable documents and the files those documents produce.
+For: authors opening and organizing files in a workspace.
 
-Given an open folder, when the Files pane is shown, then the filesystem is
-written into an ordinary CodeMirror buffer: one entry per line, a trailing
-slash distinguishes a folder, and exactly two leading spaces per level place
-an entry inside the folder above it. The bytes are the tree. They are not
-labels laid over buttons and there is no separate edit mode.
+Files shows a hierarchical sidebar: a single click opens a text file, folders
+have disclosure arrows, and expanded folders persist per workspace. Arrow keys
+move through visible rows; Right expands or enters a folder, Left collapses or
+returns to its parent, and Enter activates a row. Show Files focuses the tree.
+F2 prepares a rename; Delete requests confirmation before removing anything.
+Context menus provide new file, new folder, rename, move, copy and delete.
+Ordinary typing never edits filenames or queues filesystem operations.
 
-The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
+Rows retain paths for provenance and show unsaved-buffer indicators. Folder
+contents appear independently of language services and provenance loading.
+Filesystem writes continue through the existing authoritative endpoint and
+its permission, containment and overwrite checks. Nested terminals and issues
+remain reachable beneath expanded directories.
 
-## Read the detailed requirements
+Requirement decision: the user's November 2026 request for a conventional file
+sidebar supersedes the editable-buffer, text-selection and Dired interaction
+requirements. The former [detail 1](requirements/01.md),
+[detail 2](requirements/02.md) and [original capture](../../../support/files/docs/guarantees/authoring/the-workspace-tree-edits-like-an-editor.md.md)
+remain historical context, not current sidebar requirements.
 
-- [Requirements 1](requirements/01.md)
-- [Requirements 2](requirements/02.md)
+The focused FolderTreePane tests cover disclosure, activation, keyboard focus,
+persistence, context actions and deletion confirmation. The browser witness
+below exercises the visible tree against a real filesystem endpoint.
 
+## Historical detail
 
-Earlier wording and all later notes remain in [the preserved original](../../../support/files/docs/guarantees/authoring/the-workspace-tree-edits-like-an-editor.md.md). The paragraph ledger records their exact ranges and dispositions.
+These included captures retain the former requirements for comparison only;
+the sidebar contract above supersedes their filename-buffer interactions.
 
-Requirement decision: Retain the existing requirement without inferring new intent. Separate evidence history and retain follow-up paragraphs for review; no new implementation verification is claimed.
-
-Implementation review: not verified. Executed checks and human judgment are recorded separately. Source and test changes stale earlier evidence.
-
-
-## Read the retained requirement detail
-
-- [Requirement detail](requirements/01.md)
 <storycode:include file="requirements/01.md" />
-- [Requirement detail](requirements/02.md)
 <storycode:include file="requirements/02.md" />
+
+## Verification on 2026-11-06
+
+TypeScript checking and all 48 focused FolderTreePane/treeNavigation tests passed.
+Source reconstruction check and ownership audit passed. The updated native
+browser flow could not execute: cached Playwright Chromium aborts during macOS
+MachPortRendezvous bootstrap; the connected browser host is unavailable too.
+Browser appearance and the real-server flow remain unverified in this session.
+Run `UV_OFFLINE=1 bash scripts/test-spatial-ui.sh --sidebar` on a machine that can
+launch Chromium. The fixture contains disposable files and cleans itself up.
 
 ## Implementation
 
@@ -46,78 +60,27 @@ Related contracts: [The Workspace Tree Is An Editor Buffer](contract.md), [Spati
 <storycode:copy id="f-e1bed3dfb803-expression_statement">
 import { expect, test } from "@playwright/test";
 
-// Guarantee: docs/guarantees/authoring/the-workspace-tree-edits-like-an-editor.md
-test("the live Files pane navigates and renames like an editor", async ({ page }) => {
-  test.setTimeout(30_000);
+// Contract: .hickory-source/guarantees/authoring/the-workspace-tree-edits-like-an-editor/contract.md
+test("Files opens on click and keeps deletion behind confirmation", async ({ page }) => {
   test.skip(!process.env.HICKORY_E2E_URL, "Run against the URL printed by just dev.");
-  const before = `zz-editor-tree-${Date.now()}.txt`;
-  const after = before.replace("editor-tree", "renamed-tree");
-  const created = before.replace("editor-tree", "created-tree");
+  const name = `zz-sidebar-${Date.now()}.txt`;
   try {
-    await page.request.post("/api/files/op", { data: { op: "create", path: before } });
+    expect((await page.request.post("/api/files/op", { data: { op: "create", path: name } })).ok()).toBeTruthy();
     await page.goto("/");
     await page.evaluate(() => window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "files" })));
-    const content = page.locator("[data-spatial-files=left] .filesystem-editor .cm-content");
-    await content.click();
-    await content.press("Control+End");
-    const line = content.locator(".cm-line", { hasText: before });
-    await line.click();
-    await expect(content).toBeFocused();
-    await content.press("Home");
-    await content.press("Shift+End");
-    await content.pressSequentially(after);
-    const toolbar = page.getByRole("toolbar", { name: "Unsaved Files changes" });
-    await expect(toolbar).toBeVisible();
-    await toolbar.getByRole("button", { name: "Dry Run" }).click();
-    await expect(page.getByLabel("Files dry run")).toContainText(`Rename or move ${before} → ${after}`);
-    const beforeApply = JSON.stringify(await (await page.request.get("/api/files")).json());
-    expect(beforeApply).toContain(before);
-    expect(beforeApply).not.toContain(after);
-    await content.press("ControlOrMeta+s");
-    await expect.poll(async () => JSON.stringify(await (await page.request.get("/api/files")).json())).toContain(after);
-    await page.reload();
-    await page.evaluate(() => window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "files" })));
-    await content.click();
-    await content.press("Control+End");
-    await expect(content.locator(`[data-tree-path="${after}"]`)).toBeVisible();
-
-    const renamedLine = content.locator(`[data-tree-path="${after}"]`);
-    await renamedLine.click();
-    await content.press("End");
-    await content.press("Enter");
-    await content.pressSequentially(created);
-    await page.getByRole("button", { name: "Dry Run" }).click();
-    await expect(page.getByLabel("Files dry run")).toContainText(`Create file ${created}`);
-    await page.getByRole("button", { name: "Apply" }).click();
-    await expect.poll(async () => JSON.stringify(await (await page.request.get("/api/files")).json())).toContain(created);
-
-    // Saving regenerates this lens from the filesystem. Reload once so the
-    // deletion gesture starts against that settled server projection rather
-    // than the editor instance that is being replaced.
-    await page.reload();
-    await page.evaluate(() => window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "files" })));
-    const refreshedContent = page.locator("[data-spatial-files=left] .filesystem-editor .cm-content");
-    await refreshedContent.click();
-    await refreshedContent.press("Control+End");
-    const createdLine = refreshedContent.locator(`[data-tree-path="${created}"]`);
-    await expect(createdLine).toBeVisible();
-    await createdLine.click();
-    await refreshedContent.press("Home");
-    await refreshedContent.press("Shift+End");
-    await refreshedContent.press("Backspace");
-    await refreshedContent.press("Backspace");
-    await page.getByRole("button", { name: "Dry Run" }).click();
-    await expect(page.getByLabel("Files dry run")).toContainText(
-      `Delete ${created} — confirmation required; there is no trash`,
-    );
-    await page.getByRole("button", { name: "Apply" }).click();
-    await expect(page.getByText(`Delete ${created}? There is no trash.`)).toBeVisible();
-    await page.getByRole("button", { name: "Delete" }).click();
-    await expect.poll(async () => JSON.stringify(await (await page.request.get("/api/files")).json())).not.toContain(created);
+    const row = page.getByRole("treeitem", { name, exact: true });
+    await row.click();
+    await expect(page.locator(`[data-spatial-key="file:${name}"]`)).toBeVisible();
+    await row.focus();
+    await row.press("Delete");
+    await expect(page.getByRole("dialog")).toContainText(`Delete ${name}?`);
+    expect(JSON.stringify(await (await page.request.get("/api/files")).json())).toContain(name);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await row.press("Delete");
+    await page.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(row).toHaveCount(0);
   } finally {
-    await page.request.post("/api/files/op", { data: { op: "delete", path: created } });
-    await page.request.post("/api/files/op", { data: { op: "delete", path: after } });
-    await page.request.post("/api/files/op", { data: { op: "delete", path: before } });
+    await page.request.post("/api/files/op", { data: { op: "delete", path: name } });
   }
 });
 </storycode:copy>

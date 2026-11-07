@@ -1,15 +1,15 @@
 <storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
-# Filesystem Acts Keep Dired's Safety
+# Filesystem actions remain explicit and safe
 
 For: Authors editing executable documents and the files those documents produce.
 
-Given an entry in the editable Files buffer, when a person opens its context
+Given an entry in the Files sidebar, when a person opens its context
 menu, then rename, move, copy, delete, new-folder, and new-file acts are routed
 to one filesystem-operation endpoint inside the open folder. A rename never
 overwrites, a move or copy names a destination, `.git` and paths outside the
 root are refused, and the Git pane reports the resulting working-tree change.
 
-The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
+The filesystem safety requirement is retained; the sidebar replaces Dired gestures and filename-buffer editing. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
 
 ## Read the detailed requirements
 

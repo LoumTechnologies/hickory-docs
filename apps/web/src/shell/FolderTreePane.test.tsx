@@ -1,7 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { UiActions } from "../lib/uiActions";
 import { UiActionContext } from "../lib/uiActionBridge";
-import { EditorView } from "@codemirror/view";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installMockHandler } from "../api/client";
@@ -107,13 +106,9 @@ function Harness({
   );
 }
 
-function filesEditor(): EditorView {
-  const element = document.querySelector<HTMLElement>(".filesystem-editor .cm-editor");
-  const editor = element && EditorView.findFromDOM(element);
-  if (!editor) throw new Error("Files editor did not mount");
-  return editor;
+function filesTree(): HTMLElement {
+  return screen.getByRole("tree", { name: "Files in notebook" });
 }
-
 beforeEach(() => {
   localStorage.clear();
   mockFiles();
@@ -125,8 +120,8 @@ describe("rendering the folder", () => {
   it("marks a file dirty from the buffer state supplied by the workspace", async () => {
     render(<Harness dirtyPaths={new Set(["paper.md"])} />);
     await screen.findByText("paper.md");
-    expect(document.querySelector('[data-tree-path="paper.md"]')?.className).toContain("filesystem-editor__line--dirty");
-    expect(document.querySelector('[data-tree-path="readme.txt"]')?.className).not.toContain("filesystem-editor__line--dirty");
+    expect(screen.getByRole("treeitem", { name: "paper.md" }).textContent).toContain("●");
+    expect(screen.getByRole("treeitem", { name: "readme.txt" }).textContent).not.toContain("●");
   });
   it("names the folder after its last path segment and offers a new document", async () => {
     const onNew = vi.fn();
@@ -139,17 +134,16 @@ describe("rendering the folder", () => {
   it("renders the server's order untouched: dirs first, then files", async () => {
     render(<Harness />);
     await screen.findByText("paper.md");
-    expect(filesEditor().state.doc.toString()).toBe(
-      "src/\n  gen/\n    orders.py\n  main.rs\npaper.md\nreadme.txt\nlogo.png",
-    );
+    expect([...filesTree().querySelectorAll('[data-tree-path]')].map(row => row.getAttribute("data-tree-path"))).toEqual(["src", "paper.md", "readme.txt", "logo.png"]);
   });
 
-  it("represents hierarchy as editable, significant whitespace", async () => {
+  it("discloses descendants without an editable filename buffer", async () => {
     render(<Harness />);
-    await screen.findByText("paper.md");
-    expect(filesEditor().state.doc.line(1).text).toBe("src/");
-    expect(filesEditor().state.doc.line(2).text).toBe("  gen/");
-    expect(filesEditor().state.doc.line(3).text).toBe("    orders.py");
+    fireEvent.click(await screen.findByRole("treeitem", { name: "src" }));
+    expect(screen.getByRole("treeitem", { name: "src" }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("treeitem", { name: "main.rs" })).toBeTruthy();
+    expect(screen.queryByRole("treeitem", { name: "orders.py" })).toBeNull();
+    expect(document.querySelector(".filesystem-editor")).toBeNull();
   });
 
   it("tags every visible file row for the ribbon overlay, by path", async () => {
@@ -158,6 +152,7 @@ describe("rendering the folder", () => {
     // found by data-tree-path.
     render(<Harness openable={new Set(["src/main.rs"])} />);
     await screen.findByText("paper.md");
+    fireEvent.click(screen.getByRole("treeitem", { name: "src" }));
     expect(document.querySelector('[data-tree-path="paper.md"]')?.getAttribute("data-tree-kind")).toBe("doc");
     expect(document.querySelector('[data-tree-path="readme.txt"]')?.getAttribute("data-tree-kind")).toBe("file");
     expect(document.querySelector('[data-tree-path="logo.png"]')?.getAttribute("data-tree-kind")).toBe("inert");
@@ -177,21 +172,21 @@ describe("editor-grade tree navigation", () => {
     const view = render(<Harness />);
     await screen.findByText("paper.md");
     view.rerender(<Harness focusRequest={1} />);
-    await vi.waitFor(() => expect(document.activeElement).toBe(filesEditor().contentDOM));
+    await vi.waitFor(() => expect(document.activeElement?.getAttribute("data-workspace-node-key")).toBeTruthy());
   });
 
-  it("uses ordinary editor arrows, Home, and Shift-selection", async () => {
+  it("uses arrows to disclose folders and move between visible rows", async () => {
     render(<Harness />);
-    await screen.findByText("paper.md");
-    const editor = filesEditor();
-    editor.focus();
-    editor.dispatch({ selection: { anchor: 0 } });
-    fireEvent.keyDown(editor.contentDOM, { key: "ArrowRight" });
-    expect(editor.state.selection.main.head).toBe(1);
-    fireEvent.keyDown(editor.contentDOM, { key: "Home" });
-    expect(editor.state.selection.main.head).toBe(0);
-    fireEvent.keyDown(editor.contentDOM, { key: "ArrowRight", shiftKey: true });
-    expect(editor.state.selection.main.empty).toBe(false);
+    const src = await screen.findByRole("treeitem", { name: "src" });
+    src.focus();
+    fireEvent.keyDown(src, { key: "ArrowRight" });
+    expect(src.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.keyDown(src, { key: "ArrowRight" });
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("gen");
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(src);
+    fireEvent.keyDown(src, { key: "m" });
+    expect(document.querySelector(".filesystem-editor")).toBeNull();
   });
 });
 
@@ -207,9 +202,7 @@ describe("GitHub issues in folders", () => {
       throw new Error(`unexpected ${method} ${path}`);
     });
     render(<Harness />);
-    const issue = await screen.findByText(/issue #7: Fix retry/);
-    expect(filesEditor().state.doc.toString()).toContain("src/\n  issue #7: Fix retry · open\n  gen/");
-    fireEvent.doubleClick(issue);
+    fireEvent.click(await screen.findByRole("treeitem", { name: "src" }));
     expect(await screen.findByRole("button", { name: /Issue #7: Fix retry/ })).toBeTruthy();
   });
 
@@ -226,7 +219,7 @@ describe("GitHub issues in folders", () => {
       throw new Error(`unexpected ${method} ${path}`);
     });
     render(<Harness />);
-    const src = await screen.findByText("src/");
+    const src = await screen.findByText("src");
     fireEvent.contextMenu(src);
     fireEvent.click(document.querySelector<HTMLElement>('[data-menu-item="associate-github-issue"]')!);
     const input = await screen.findByRole("textbox", { name: /GitHub issue for src/ });
@@ -302,12 +295,12 @@ describe("the right-click menu", () => {
     expect(menuItem("open-external")).toBeTruthy();
     fireEvent.keyDown(window, { key: "Escape" });
 
-    fireEvent.contextMenu(screen.getByText("src/"));
+    fireEvent.contextMenu(screen.getByText("src"));
     // A directory has no default program of its own worth naming.
     expect(document.querySelector('[data-menu-item="open-external"]')).toBeNull();
     expect(menuItem("copy-name").textContent).toBe("Copy folder name");
-    // ...and right-clicking it did not change the editable buffer.
-    expect(filesEditor().state.doc.line(1).text).toBe("src/");
+    // Right-click does not expand the directory.
+    expect(screen.getByRole("treeitem", { name: "src" }).getAttribute("aria-expanded")).toBe("false");
   });
 
   it("says so when the platform refuses, instead of appearing to do nothing", async () => {
@@ -358,18 +351,18 @@ describe("what clicking a file does", () => {
     expect(isLikelyBinaryPath("Cargo.lock")).toBe(false);
   });
 
-  it("opens text entries on double-click while a single click only places the caret", async () => {
+  it("opens text entries with a single click", async () => {
     const onOpen = vi.fn();
     render(<Harness onOpen={onOpen} openable={new Set(["src/main.rs"])} />);
     fireEvent.click(await screen.findByText("paper.md"));
-    expect(onOpen).not.toHaveBeenCalled();
-    fireEvent.doubleClick(screen.getByText("paper.md"));
+
     expect(onOpen).toHaveBeenLastCalledWith({ kind: "doc", id: "d1" });
-    fireEvent.doubleClick(screen.getByText("main.rs"));
+    fireEvent.click(screen.getByText("src"));
+    fireEvent.click(screen.getByText("main.rs"));
     expect(onOpen).toHaveBeenLastCalledWith({ kind: "generated", path: "src/main.rs" });
-    fireEvent.doubleClick(screen.getByText("readme.txt"));
+    fireEvent.click(screen.getByText("readme.txt"));
     expect(onOpen).toHaveBeenLastCalledWith({ kind: "file", path: "readme.txt" });
-    fireEvent.doubleClick(screen.getByText("logo.png"));
+    fireEvent.click(screen.getByText("logo.png"));
     expect(onOpen).toHaveBeenCalledTimes(3);
   });
 });
@@ -527,9 +520,10 @@ describe("showing a terminal from the tree", () => {
   it("indents a nested terminal beneath its cwd and activates it from the buffer", async () => {
     const onOpenTerminal = vi.fn();
     render(<Harness sessions={[session("t1", "/home/me/notebook/src", { title: "cargo watch" })]} onOpenTerminal={onOpenTerminal} />);
-    const terminal = await screen.findByText("terminal: cargo watch · running");
-    expect(filesEditor().state.doc.toString()).toContain("src/\n  terminal: cargo watch · running\n  gen/");
-    fireEvent.doubleClick(terminal);
+    fireEvent.click(await screen.findByRole("treeitem", { name: "src" }));
+    const terminal = await screen.findByRole("button", { name: /cargo watch/ });
+    expect(terminal.getAttribute("data-workspace-parent")).toBe("filesystem:src");
+    fireEvent.click(terminal);
     expect(onOpenTerminal).toHaveBeenCalledWith("t1");
   });
 
@@ -546,10 +540,12 @@ describe("showing a terminal from the tree", () => {
     expect(onCloseTerminal).toHaveBeenCalledWith("t1");
   });
 
-  it("keeps a nested session visible as text even before a folder is folded", async () => {
+  it("reveals nested sessions when their folder expands", async () => {
     render(<Harness sessions={[session("t1", "/home/me/notebook/src")]} />);
-    await screen.findByText("terminal: t1 · running");
-    expect(filesEditor().state.doc.toString()).toContain("  terminal: t1 · running");
+    const src = await screen.findByRole("treeitem", { name: "src" });
+    expect(screen.queryByRole("button", { name: /t1, terminal/ })).toBeNull();
+    fireEvent.click(src);
+    expect(screen.getByRole("button", { name: /t1, terminal/ })).toBeTruthy();
   });
 
   it("shows nothing for a session working outside the folder", async () => {
@@ -560,7 +556,7 @@ describe("showing a terminal from the tree", () => {
 });
 
 // docs/guarantees/authoring/the-tree-is-a-dired.md
-describe("the tree as dired", () => {
+describe("explicit filesystem actions", () => {
   it("keeps destructive deletion behind the existing confirmation", async () => {
     const ops: unknown[] = [];
     installMockHandler(async (method, path, body) => {
@@ -582,24 +578,24 @@ describe("the tree as dired", () => {
     await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("renames by editing the buffer text and saving it", async () => {
+  it("F2 prepares rename and Delete requires confirmation without writing", async () => {
     const ops: unknown[] = [];
     installMockHandler(async (method, path, body) => {
       if (method === "GET" && path === "/api/files") return RESPONSE;
-      if (method === "POST" && path === "/api/files/op") {
-        ops.push(body);
-        return { op: "rename" };
-      }
+      if (method === "POST" && path === "/api/files/op") { ops.push(body); return {}; }
       throw new Error(`unexpected ${method} ${path}`);
     });
     render(<Harness />);
-    await screen.findByText("readme.txt");
-    const editor = filesEditor();
-    const line = editor.state.doc.line(6);
-    editor.dispatch({ changes: { from: line.from, to: line.to, insert: "notes.txt" } });
-    fireEvent.keyDown(editor.contentDOM, { key: "s", ctrlKey: true });
-    await vi.waitFor(() => expect(ops).toEqual([{ op: "rename", path: "readme.txt", to: "notes.txt" }]));
-    expect(await screen.findByText("Applied 1 filesystem edit.")).toBeTruthy();
+    const row = await screen.findByRole("treeitem", { name: "readme.txt" });
+    fireEvent.keyDown(row, { key: "F2" });
+    expect(await screen.findByRole("dialog", { name: "Rename readme.txt" })).toBeTruthy();
+    expect(ops).toEqual([]);
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    fireEvent.keyDown(row, { key: "Delete" });
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+    expect(ops).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(ops).toEqual([]);
   });
 });
 

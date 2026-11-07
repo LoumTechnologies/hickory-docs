@@ -68,9 +68,9 @@ async function open(page: Page, path: string) {
   await page.getByRole("button", { name: "Show left drawer" }).click();
   const row = page.locator('[data-spatial-files=left] [data-tree-path="' + path + '"]');
   if (path.includes("/") && !await row.count()) {
-    await page.locator('[data-spatial-files=left]').locator('[title="Unfold line"]:visible').first().click();
+    await page.getByRole("treeitem", { name: path.split("/")[0], exact: true }).click();
   }
-  await row.dblclick();
+  await row.click();
   await expect(tile(page, path)).toHaveAttribute("data-spatial-center", "true");
   await expect(page.getByRole("button", { name: "Show left drawer" })).toBeVisible();
   return tile(page, path);
@@ -168,15 +168,14 @@ test("ordinary tabs stay out of context; a pinned view retains its native editor
 ### `expression_statement`
 
 <storycode:copy id="f-2b83f22a0d20-expression_statement-5">
-test("Files editing survives drawer dismissal and drawer pins survive reload", async ({ page }) => {
+test("Files expansion survives drawer dismissal and drawer pins survive reload", async ({ page }) => {
   await page.getByRole("button", { name: "Show left drawer" }).click();
-  const files = page.locator('[data-spatial-files=left] .filesystem-editor .cm-content');
-  await files.click(); await files.press("ControlOrMeta+End"); await files.press("End"); await files.pressSequentially("-tentative");
-  await expect(page.getByRole("toolbar", { name: "Unsaved Files changes" })).toBeVisible();
+  const notes = page.getByRole("treeitem", { name: "notes", exact: true });
+  await notes.click();
+  await expect(notes).toHaveAttribute("aria-expanded", "true");
   await page.getByRole("button", { name: "Close left drawer" }).click();
   await page.getByRole("button", { name: "Show left drawer" }).click();
-  await expect(page.getByRole("toolbar", { name: "Unsaved Files changes" })).toBeVisible();
-  await files.press("ControlOrMeta+z");
+  await expect(notes).toHaveAttribute("aria-expanded", "true");
   await page.getByRole("button", { name: "Pin left drawer" }).click();
   await page.reload();
   await expect(page.getByRole("button", { name: "Unpin left drawer" })).toBeVisible();

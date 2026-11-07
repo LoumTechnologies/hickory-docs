@@ -40,7 +40,6 @@ import { FileActionPrompts, runFileMenuItem } from "./fileMenuActions";
 import { useDired } from "./useDired";
 import { useTreeNavigation } from "./useTreeNavigation";
 import { TreeFindReplace } from "./TreeFindReplace";
-import { FilesystemTreeEditor, type WorkspaceTextExtra } from "./FilesystemTreeEditor";
 import {
   terminalMenuItems,
   treeMenuItems,
@@ -630,7 +629,7 @@ export function FolderTreePane({
   useEffect(() => {
     if (focusRequest === 0) return;
     const frame = requestAnimationFrame(() =>
-      pane.current?.querySelector<HTMLElement>('.filesystem-editor .cm-content')?.focus(),
+      pane.current?.querySelector<HTMLElement>('[role="tree"]')?.focus(),
     );
     return () => cancelAnimationFrame(frame);
   }, [focusRequest, roots]);
@@ -677,6 +676,17 @@ export function FolderTreePane({
 <a id="f-9c0af3061e25-FolderRoot"></a>
 ### `FolderRoot`
 
+Files are navigation targets, so render actual buttons in a hierarchical tree.
+A click opens a file or toggles a folder; the existing navigation mechanism
+moves focus through visible rows and implements left/right disclosure. Expansion
+persists per root. F2 and Delete prepare the existing rename and confirmation
+prompts, while typing ordinary letters cannot change filesystem names. Keep
+path attributes on rows for provenance ribbons and inline rename placement.
+Nested terminals and associated issues remain under their directory, but never
+become editable filename text. Recipe actions use the existing shared gutter
+in a reserved right-hand slot; its floating overflow grid cannot move the next
+row, and recipe discovery never delays the folder label.
+
 Place creation after the file list and label it New document. The folder header identifies the root and retains recipe actions without an ambiguous plus button.
 
 <storycode:copy id="f-9c0af3061e25-FolderRoot">
@@ -712,30 +722,12 @@ function FolderRoot({
   );
   const atRoot = placement.get("") ?? [];
   const github = useGithubWorkspaceNodes();
-  const [detailFolder, setDetailFolder] = useState<string | null>(null);
-  const editorExtras = useMemo<WorkspaceTextExtra[]>(() => [
-    ...[...placement].flatMap(([parentPath, placed]) => parentPath === "" ? [] : placed.map((session) => ({
-      key: `terminal:${session.id}`,
-      parentPath,
-      label: `terminal: ${session.title} · ${session.state.replace("-", " ")}`,
-      activate: onOpenTerminal ? () => onOpenTerminal(session.id) : undefined,
-    }))),
-    ...(github.value?.issues ?? []).filter((issue) => issue.folder !== "").map((issue) => ({
-      key: `github:${issue.repository}#${issue.number}`,
-      parentPath: issue.folder,
-      label: `issue #${issue.number}: ${issue.title} · ${issue.state.toLowerCase()}${issue.unread ? ` · ${issue.unread} unread` : ""}`,
-      activate: () => setDetailFolder(issue.folder),
-      edit: {
-        prefix: `issue #${issue.number}: `,
-        value: issue.title,
-        suffix: ` · ${issue.state.toLowerCase()}${issue.unread ? ` · ${issue.unread} unread` : ""}`,
-        apply: async (title: string) => {
-          await api.editGithubObject("issue", issue.repository, issue.number, "title", title);
-          github.refresh();
-        },
-      },
-    })),
-  ], [placement, github.value?.issues, onOpenTerminal]);
+  const [expanded, setExpanded] = useState(() => loadExpanded(folder.root));
+  const toggle = (path: string) => setExpanded(current => {
+    const next = toggleExpanded(current, path);
+    saveExpanded(folder.root, next);
+    return next;
+  });
 
   // The folder as the context menu needs to know it: where it is on this
   // machine, how paths are spelled there, and what the file manager is called.
@@ -771,7 +763,7 @@ function FolderRoot({
     showMenu({ x: event.clientX, y: event.clientY }, path, dir, plainText);
   }, [showMenu]);
 
-  // Dired: the marks, the prompt a verb asks through, and the verbs.
+  // Reuse the explicit filesystem prompts; the sidebar itself is read-only.
   const dired = useDired(setNotice);
   const navigation = useTreeNavigation({
     replacePaths: dired.replaceMarks,
@@ -792,7 +784,7 @@ function FolderRoot({
     session: TreeSession;
   } | null>(null);
   const showTermMenu = (position: { x: number; y: number }, id: string) => {
-    const session = atRoot.find(session => session.id === id);
+    const session = sessions.find(session => session.id === id);
     if (!session) return false;
     setMenu(null); setTermMenu({ owner: menuOwner, ...position, session }); return true;
   };
@@ -872,6 +864,54 @@ function FolderRoot({
     } } },
     { key: `${actionParent}/new`, command: { label: "Create untitled document", parent: actionParent, subject: actionParent, parameters: {}, prerequisites: [], read: actionRead, execute: async () => { onNewDocument(); return { status: "completed", value: { dispatch: "requested", saved: false } }; } } },
   ]);
+  // Only expanded descendants mount. Stable path keys keep rows and focus intact
+  // when background ownership or terminal data changes.
+  function renderNodes(nodes: readonly FileNode[], depth = 0, parentPath?: string): React.ReactNode {
+    return nodes.map(node => {
+      const action = node.dir ? null : fileAction(node, openable);
+      const isExpanded = expanded.has(node.path);
+      const selected = dired.marked.has(node.path);
+      const recipes = node.dir ? (node.children ?? []).filter(child => !child.dir && ["justfile", ".justfile"].includes(child.name.toLowerCase())).map(child => child.path) : [];
+      return <li key={node.path} role="none">
+        <div style={{ display: "flex", alignItems: "center", position: "relative" }}>
+        <button type="button" role="treeitem" tabIndex={-1}
+          aria-label={node.name} aria-level={depth + 1}
+          aria-expanded={node.dir ? isExpanded : undefined} aria-selected={selected}
+          className={`${node.dir ? "folder-tree__dir" : "folder-tree__file"}${selected ? " marked" : ""}${node.doc_id === activeDocId && activeDocId ? " on" : ""}`}
+          style={{ paddingLeft: `${depth * 0.85 + 0.4}rem` }}
+          data-tree-path={node.path} data-tree-dir={node.dir}
+          data-tree-kind={node.dir ? "directory" : action?.kind}
+          data-workspace-node-key={fileWorkspaceKey(node.path)}
+          data-workspace-parent={parentPath ? fileWorkspaceKey(parentPath) : undefined}
+          data-workspace-expandable={node.dir} data-workspace-expanded={isExpanded}
+          title={node.path}
+          onClick={event => {
+            event.currentTarget.focus();
+            if (event.ctrlKey || event.metaKey || event.shiftKey) { dired.toggle(node.path); return; }
+            dired.replaceMarks([node.path]);
+            if (node.dir) toggle(node.path);
+            else if (action && action.kind !== "inert") onOpen(action);
+          }}
+          onContextMenu={event => {
+            if (!dired.marked.has(node.path)) dired.replaceMarks([node.path]);
+            openMenu(event, node.path, node.dir, !node.dir && !isLikelyBinaryPath(node.path));
+          }}
+        >
+          <span className="folder-tree__disclosure" aria-hidden>{node.dir ? (isExpanded ? "▾" : "▸") : ""}</span>
+          {node.name}{dirtyPaths.has(node.path) && <span aria-label="Unsaved changes"> ●</span>}
+        </button>
+        {recipes.length > 0 && <div style={{ width: 20, flex: "none", overflow: "visible" }}>
+          <RecipeFolderHeader name="" paths={recipes} revision={node.children} onOpenTerminal={onOpenTerminal} onError={setNotice} />
+        </div>}
+        </div>
+        {node.dir && isExpanded && <ul role="group" className="folder-tree__list">
+          <TerminalRows sessions={placement.get(node.path) ?? []} depth={depth + 1} parentPath={node.path} onOpen={onOpenTerminal} onMenu={openTermMenu} />
+          <GithubIssueRows workspace={github.value} folder={node.path} onChanged={github.refresh} />
+          {renderNodes(node.children ?? [], depth + 1, node.path)}
+        </ul>}
+      </li>;
+    });
+  }
   return (
     <section className="folder-tree__root">
       <header className="folder-tree__header">
@@ -883,6 +923,9 @@ function FolderRoot({
         >
           <RecipeFolderHeader name={name} revision={folder} paths={folder.tree.filter(node => !node.dir && ["justfile", ".justfile"].includes(node.name.toLowerCase())).map(node => node.path)} onOpenTerminal={onOpenTerminal} onError={setNotice} />
         </div>
+        <button type="button" className="folder-tree__new" aria-label="New file" title="New file" onClick={() => dired.run({ kind: "create", dir: "" })}>+</button>
+        <button type="button" className="folder-tree__new" aria-label="New folder" title="New folder" onClick={() => dired.run({ kind: "mkdir", dir: "" })}>▸+</button>
+        <button type="button" className="folder-tree__new" aria-label="Collapse folders" title="Collapse folders" onClick={() => { setExpanded(new Set()); saveExpanded(folder.root, new Set()); }}>⌃</button>
       </header>
       {folder.truncated && (
         <p className="muted folder-tree__truncated">Large folder — not everything is listed.</p>
@@ -917,14 +960,18 @@ function FolderRoot({
         tabIndex={0}
         onFocus={navigation.onFocus}
         onFocusCapture={navigation.onFocusCapture}
-        // The dired keys — m, u, U, D, R, C, M, +, n — act on the focused
-        // row. Read off the row's own attributes so the tree, not each row,
-        // owns the one handler.
+        aria-label={`Files in ${name}`}
         onKeyDown={(event) => {
+          if ((event.target as HTMLElement).closest('input, textarea, .cm-editor')) return;
           if (navigation.onKeyDown(event)) return;
           const row = (event.target as HTMLElement).closest<HTMLElement>("[data-tree-path]");
           if (!row) return;
-          dired.onKey(event, row.dataset.treePath ?? "", row.dataset.treeDir === "true");
+          const path = row.dataset.treePath ?? "";
+          const paths = dired.marked.has(path) ? [...dired.marked] : [path];
+          if (event.key === "F2" || event.key === "Delete") {
+            event.preventDefault(); event.stopPropagation();
+            dired.run({ kind: event.key === "F2" ? "rename" : "delete", paths });
+          } else if (event.key === "Escape") dired.clear();
         }}
       >
         <GithubProviderStatusRow workspace={github.value} />
@@ -936,41 +983,9 @@ function FolderRoot({
           onOpen={onOpenTerminal}
           onMenu={openTermMenu}
         />
+        {renderNodes(folder.tree)}
       </ul>
-      <FilesystemTreeEditor
-        nodes={folder.tree}
-        onOpenTerminal={onOpenTerminal}
-        onDeleted={(paths) => window.dispatchEvent(new CustomEvent(FILES_DELETED_EVENT, { detail: { paths } }))}
-        onChanged={(renames) =>
-          window.dispatchEvent(
-            renames?.length
-              ? new CustomEvent(FILES_CHANGED_EVENT, {
-                  detail: { renames: renames.map(({ path, to }) => ({ from: path, to })) },
-                })
-              : new Event(FILES_CHANGED_EVENT),
-          )
-        }
-        onOpenPath={(path) => {
-          const node = fileNodeAt(folder.tree, path);
-          if (!node) return;
-          const action = fileAction(node, openable);
-          if (action.kind !== "inert") onOpen(action);
-        }}
-        onContextPath={(event, path, dir) => {
-          showMenu({ x: event.clientX, y: event.clientY }, path, dir, !dir && !isLikelyBinaryPath(path));
-        }}
-        kindOfPath={(path, dir) => {
-          if (dir) return "directory";
-          const node = fileNodeAt(folder.tree, path);
-          return node ? fileAction(node, openable).kind : "file";
-        }}
-        extras={editorExtras}
-        dirtyPaths={dirtyPaths}
-      />
-      <button type="button" className="btn-link" onClick={newFromHeader}>+ New document</button>
-      {detailFolder !== null && <ul className="folder-tree__list" role="tree">
-        <GithubIssueRows workspace={github.value} folder={detailFolder} onChanged={github.refresh} />
-      </ul>}
+      <button type="button" className="btn-link" aria-label="New document" onClick={newFromHeader}>+ New document</button>
       {menu && menu.owner === menuOwner && (
         <TreeContextMenu
           x={menu.x}
@@ -1028,7 +1043,6 @@ Related contracts: [A File Is Ingested From The Tree](../../../../../guarantees/
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { UiActions } from "../lib/uiActions";
 import { UiActionContext } from "../lib/uiActionBridge";
-import { EditorView } from "@codemirror/view";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installMockHandler } from "../api/client";
@@ -1159,13 +1173,9 @@ function Harness({
 ### `filesEditor`
 
 <storycode:copy id="f-508e32e299fd-filesEditor">
-function filesEditor(): EditorView {
-  const element = document.querySelector<HTMLElement>(".filesystem-editor .cm-editor");
-  const editor = element && EditorView.findFromDOM(element);
-  if (!editor) throw new Error("Files editor did not mount");
-  return editor;
+function filesTree(): HTMLElement {
+  return screen.getByRole("tree", { name: "Files in notebook" });
 }
-
 </storycode:copy>
 <a id="f-508e32e299fd-expression_statement-2"></a>
 ### `expression_statement`
@@ -1192,8 +1202,8 @@ describe("rendering the folder", () => {
   it("marks a file dirty from the buffer state supplied by the workspace", async () => {
     render(<Harness dirtyPaths={new Set(["paper.md"])} />);
     await screen.findByText("paper.md");
-    expect(document.querySelector('[data-tree-path="paper.md"]')?.className).toContain("filesystem-editor__line--dirty");
-    expect(document.querySelector('[data-tree-path="readme.txt"]')?.className).not.toContain("filesystem-editor__line--dirty");
+    expect(screen.getByRole("treeitem", { name: "paper.md" }).textContent).toContain("●");
+    expect(screen.getByRole("treeitem", { name: "readme.txt" }).textContent).not.toContain("●");
   });
   it("names the folder after its last path segment and offers a new document", async () => {
     const onNew = vi.fn();
@@ -1206,17 +1216,16 @@ describe("rendering the folder", () => {
   it("renders the server's order untouched: dirs first, then files", async () => {
     render(<Harness />);
     await screen.findByText("paper.md");
-    expect(filesEditor().state.doc.toString()).toBe(
-      "src/\n  gen/\n    orders.py\n  main.rs\npaper.md\nreadme.txt\nlogo.png",
-    );
+    expect([...filesTree().querySelectorAll('[data-tree-path]')].map(row => row.getAttribute("data-tree-path"))).toEqual(["src", "paper.md", "readme.txt", "logo.png"]);
   });
 
-  it("represents hierarchy as editable, significant whitespace", async () => {
+  it("discloses descendants without an editable filename buffer", async () => {
     render(<Harness />);
-    await screen.findByText("paper.md");
-    expect(filesEditor().state.doc.line(1).text).toBe("src/");
-    expect(filesEditor().state.doc.line(2).text).toBe("  gen/");
-    expect(filesEditor().state.doc.line(3).text).toBe("    orders.py");
+    fireEvent.click(await screen.findByRole("treeitem", { name: "src" }));
+    expect(screen.getByRole("treeitem", { name: "src" }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("treeitem", { name: "main.rs" })).toBeTruthy();
+    expect(screen.queryByRole("treeitem", { name: "orders.py" })).toBeNull();
+    expect(document.querySelector(".filesystem-editor")).toBeNull();
   });
 
   it("tags every visible file row for the ribbon overlay, by path", async () => {
@@ -1225,6 +1234,7 @@ describe("rendering the folder", () => {
     // found by data-tree-path.
     render(<Harness openable={new Set(["src/main.rs"])} />);
     await screen.findByText("paper.md");
+    fireEvent.click(screen.getByRole("treeitem", { name: "src" }));
     expect(document.querySelector('[data-tree-path="paper.md"]')?.getAttribute("data-tree-kind")).toBe("doc");
     expect(document.querySelector('[data-tree-path="readme.txt"]')?.getAttribute("data-tree-kind")).toBe("file");
     expect(document.querySelector('[data-tree-path="logo.png"]')?.getAttribute("data-tree-kind")).toBe("inert");
@@ -1249,21 +1259,21 @@ describe("editor-grade tree navigation", () => {
     const view = render(<Harness />);
     await screen.findByText("paper.md");
     view.rerender(<Harness focusRequest={1} />);
-    await vi.waitFor(() => expect(document.activeElement).toBe(filesEditor().contentDOM));
+    await vi.waitFor(() => expect(document.activeElement?.getAttribute("data-workspace-node-key")).toBeTruthy());
   });
 
-  it("uses ordinary editor arrows, Home, and Shift-selection", async () => {
+  it("uses arrows to disclose folders and move between visible rows", async () => {
     render(<Harness />);
-    await screen.findByText("paper.md");
-    const editor = filesEditor();
-    editor.focus();
-    editor.dispatch({ selection: { anchor: 0 } });
-    fireEvent.keyDown(editor.contentDOM, { key: "ArrowRight" });
-    expect(editor.state.selection.main.head).toBe(1);
-    fireEvent.keyDown(editor.contentDOM, { key: "Home" });
-    expect(editor.state.selection.main.head).toBe(0);
-    fireEvent.keyDown(editor.contentDOM, { key: "ArrowRight", shiftKey: true });
-    expect(editor.state.selection.main.empty).toBe(false);
+    const src = await screen.findByRole("treeitem", { name: "src" });
+    src.focus();
+    fireEvent.keyDown(src, { key: "ArrowRight" });
+    expect(src.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.keyDown(src, { key: "ArrowRight" });
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("gen");
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(src);
+    fireEvent.keyDown(src, { key: "m" });
+    expect(document.querySelector(".filesystem-editor")).toBeNull();
   });
 });
 
@@ -1284,9 +1294,7 @@ describe("GitHub issues in folders", () => {
       throw new Error(`unexpected ${method} ${path}`);
     });
     render(<Harness />);
-    const issue = await screen.findByText(/issue #7: Fix retry/);
-    expect(filesEditor().state.doc.toString()).toContain("src/\n  issue #7: Fix retry · open\n  gen/");
-    fireEvent.doubleClick(issue);
+    fireEvent.click(await screen.findByRole("treeitem", { name: "src" }));
     expect(await screen.findByRole("button", { name: /Issue #7: Fix retry/ })).toBeTruthy();
   });
 
@@ -1303,7 +1311,7 @@ describe("GitHub issues in folders", () => {
       throw new Error(`unexpected ${method} ${path}`);
     });
     render(<Harness />);
-    const src = await screen.findByText("src/");
+    const src = await screen.findByText("src");
     fireEvent.contextMenu(src);
     fireEvent.click(document.querySelector<HTMLElement>('[data-menu-item="associate-github-issue"]')!);
     const input = await screen.findByRole("textbox", { name: /GitHub issue for src/ });
@@ -1387,12 +1395,12 @@ describe("the right-click menu", () => {
     expect(menuItem("open-external")).toBeTruthy();
     fireEvent.keyDown(window, { key: "Escape" });
 
-    fireEvent.contextMenu(screen.getByText("src/"));
+    fireEvent.contextMenu(screen.getByText("src"));
     // A directory has no default program of its own worth naming.
     expect(document.querySelector('[data-menu-item="open-external"]')).toBeNull();
     expect(menuItem("copy-name").textContent).toBe("Copy folder name");
-    // ...and right-clicking it did not change the editable buffer.
-    expect(filesEditor().state.doc.line(1).text).toBe("src/");
+    // Right-click does not expand the directory.
+    expect(screen.getByRole("treeitem", { name: "src" }).getAttribute("aria-expanded")).toBe("false");
   });
 
   it("says so when the platform refuses, instead of appearing to do nothing", async () => {
@@ -1448,18 +1456,18 @@ describe("what clicking a file does", () => {
     expect(isLikelyBinaryPath("Cargo.lock")).toBe(false);
   });
 
-  it("opens text entries on double-click while a single click only places the caret", async () => {
+  it("opens text entries with a single click", async () => {
     const onOpen = vi.fn();
     render(<Harness onOpen={onOpen} openable={new Set(["src/main.rs"])} />);
     fireEvent.click(await screen.findByText("paper.md"));
-    expect(onOpen).not.toHaveBeenCalled();
-    fireEvent.doubleClick(screen.getByText("paper.md"));
+
     expect(onOpen).toHaveBeenLastCalledWith({ kind: "doc", id: "d1" });
-    fireEvent.doubleClick(screen.getByText("main.rs"));
+    fireEvent.click(screen.getByText("src"));
+    fireEvent.click(screen.getByText("main.rs"));
     expect(onOpen).toHaveBeenLastCalledWith({ kind: "generated", path: "src/main.rs" });
-    fireEvent.doubleClick(screen.getByText("readme.txt"));
+    fireEvent.click(screen.getByText("readme.txt"));
     expect(onOpen).toHaveBeenLastCalledWith({ kind: "file", path: "readme.txt" });
-    fireEvent.doubleClick(screen.getByText("logo.png"));
+    fireEvent.click(screen.getByText("logo.png"));
     expect(onOpen).toHaveBeenCalledTimes(3);
   });
 });
@@ -1655,9 +1663,10 @@ describe("showing a terminal from the tree", () => {
   it("indents a nested terminal beneath its cwd and activates it from the buffer", async () => {
     const onOpenTerminal = vi.fn();
     render(<Harness sessions={[session("t1", "/home/me/notebook/src", { title: "cargo watch" })]} onOpenTerminal={onOpenTerminal} />);
-    const terminal = await screen.findByText("terminal: cargo watch · running");
-    expect(filesEditor().state.doc.toString()).toContain("src/\n  terminal: cargo watch · running\n  gen/");
-    fireEvent.doubleClick(terminal);
+    fireEvent.click(await screen.findByRole("treeitem", { name: "src" }));
+    const terminal = await screen.findByRole("button", { name: /cargo watch/ });
+    expect(terminal.getAttribute("data-workspace-parent")).toBe("filesystem:src");
+    fireEvent.click(terminal);
     expect(onOpenTerminal).toHaveBeenCalledWith("t1");
   });
 
@@ -1674,10 +1683,12 @@ describe("showing a terminal from the tree", () => {
     expect(onCloseTerminal).toHaveBeenCalledWith("t1");
   });
 
-  it("keeps a nested session visible as text even before a folder is folded", async () => {
+  it("reveals nested sessions when their folder expands", async () => {
     render(<Harness sessions={[session("t1", "/home/me/notebook/src")]} />);
-    await screen.findByText("terminal: t1 · running");
-    expect(filesEditor().state.doc.toString()).toContain("  terminal: t1 · running");
+    const src = await screen.findByRole("treeitem", { name: "src" });
+    expect(screen.queryByRole("button", { name: /t1, terminal/ })).toBeNull();
+    fireEvent.click(src);
+    expect(screen.getByRole("button", { name: /t1, terminal/ })).toBeTruthy();
   });
 
   it("shows nothing for a session working outside the folder", async () => {
@@ -1693,7 +1704,7 @@ describe("showing a terminal from the tree", () => {
 
 <storycode:copy id="f-508e32e299fd-expression_statement-15">
 // docs/guarantees/authoring/the-tree-is-a-dired.md
-describe("the tree as dired", () => {
+describe("explicit filesystem actions", () => {
   it("keeps destructive deletion behind the existing confirmation", async () => {
     const ops: unknown[] = [];
     installMockHandler(async (method, path, body) => {
@@ -1715,24 +1726,24 @@ describe("the tree as dired", () => {
     await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("renames by editing the buffer text and saving it", async () => {
+  it("F2 prepares rename and Delete requires confirmation without writing", async () => {
     const ops: unknown[] = [];
     installMockHandler(async (method, path, body) => {
       if (method === "GET" && path === "/api/files") return RESPONSE;
-      if (method === "POST" && path === "/api/files/op") {
-        ops.push(body);
-        return { op: "rename" };
-      }
+      if (method === "POST" && path === "/api/files/op") { ops.push(body); return {}; }
       throw new Error(`unexpected ${method} ${path}`);
     });
     render(<Harness />);
-    await screen.findByText("readme.txt");
-    const editor = filesEditor();
-    const line = editor.state.doc.line(6);
-    editor.dispatch({ changes: { from: line.from, to: line.to, insert: "notes.txt" } });
-    fireEvent.keyDown(editor.contentDOM, { key: "s", ctrlKey: true });
-    await vi.waitFor(() => expect(ops).toEqual([{ op: "rename", path: "readme.txt", to: "notes.txt" }]));
-    expect(await screen.findByText("Applied 1 filesystem edit.")).toBeTruthy();
+    const row = await screen.findByRole("treeitem", { name: "readme.txt" });
+    fireEvent.keyDown(row, { key: "F2" });
+    expect(await screen.findByRole("dialog", { name: "Rename readme.txt" })).toBeTruthy();
+    expect(ops).toEqual([]);
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    fireEvent.keyDown(row, { key: "Delete" });
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+    expect(ops).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(ops).toEqual([]);
   });
 });
 
