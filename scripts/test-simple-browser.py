@@ -70,6 +70,8 @@ class BrowserDriver:
 def acceptance(driver, folder):
     plain = folder / "notes.txt"
     driver.act("open", path="notes.txt")
+    assert driver.act("minimap") == 40
+    assert driver.act("content", path="notes.txt") == "before"
     driver.act("append", path="notes.txt", text=" saved")
     driver.act("save")
     eventually(plain.read_text, "before saved")

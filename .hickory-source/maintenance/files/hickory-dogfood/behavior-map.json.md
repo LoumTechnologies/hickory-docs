@@ -67213,7 +67213,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "1a0344e939250d851312f095c1298047876a943ddca0e80c53cd47d0417a62c6",
       "construction": "fragments",
       "fragments": [
-        "simple-1a4a59fc95-0"
+        "simple-1a4a59fc95-0",
+        "simple-document-minimap"
       ]
     },
     "apps/web/src/simple/Agent.tsx": {
@@ -67328,7 +67329,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "1d6d878ac615b1befddfee34c65ef1b90e65fb43d7274baf16d1729de8c9e86a",
       "construction": "fragments",
       "fragments": [
-        "simple-7fad175521-0"
+        "simple-7fad175521-0",
+        "simple-apple-language-preview"
       ]
     },
     "apps/apple-simple/Sources/AgentPane.swift": {
@@ -67386,7 +67388,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "simple-c6aff51ad5-0",
-        "simple-c6aff51ad5-1"
+        "simple-c6aff51ad5-1",
+        "simple-language-attachment-witness"
       ]
     },
     "apps/apple-simple/Tests/ParityTests.swift": {
@@ -67522,7 +67525,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "simple-0d1e071614-0",
-        "simple-0d1e071614-1"
+        "simple-0d1e071614-1",
+        "simple-android-language-preview"
       ]
     },
     "apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentPane.kt": {

@@ -32,6 +32,12 @@ try {
           await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
           await page.keyboard.insertText(request.text); break;
         case "content": value = await editor(request.path).innerText(); break;
+        case "minimap": {
+          const map = page.getByRole("navigation", { name: "Document minimap", exact: true }).last();
+          await map.focus(); await map.press("End");
+          value = await map.evaluate(element => element.getBoundingClientRect().width);
+          break;
+        }
         case "save": await menu("File", "Save"); break;
         case "split": await menu("View", "Split below"); break;
         case "move": await menu("View", "Move tab to next group"); break;

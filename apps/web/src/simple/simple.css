@@ -45,3 +45,13 @@ footer { border-top: 1px solid GrayText; padding: 3px 9px; font-size: 11px; over
 .terminal-screen pre { margin: 6px; font: 13px/17px ui-monospace, monospace; }
 .terminal-body form { display: flex; padding: 6px; border-top: 1px solid GrayText; }
 .terminal-body input { flex: 1; min-width: 0; font: 13px ui-monospace, monospace; background: Canvas; color: CanvasText; border: 1px solid GrayText; }
+.editor-row { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.editor-row .editor-host { min-width: 0; }
+.minimap { flex: 0 0 40px; width: 40px; height: 100%; color: GrayText; cursor: pointer; touch-action: none; border-left: 1px solid color-mix(in srgb, CanvasText 12%, Canvas); }
+.cm-st-keyword, .cm-st-type, .cm-st-class { color: light-dark(#7637a0, #d4a5ff); }
+.cm-st-function, .cm-st-method { color: light-dark(#145e9c, #83c7ff); }
+.cm-st-string { color: light-dark(#267341, #8cdaa2); }
+.cm-st-number { color: light-dark(#945c13, #ecc07c); }
+.cm-st-comment { color: GrayText; font-style: italic; }
+.cm-lsp-signature, .cm-lsp-hover { background: Canvas; color: CanvasText; padding: 6px; border: 1px solid GrayText; max-width: min(400px, 80vw); }
+:root { --text-muted: GrayText; --lsp-highlight: #8090b02d; }

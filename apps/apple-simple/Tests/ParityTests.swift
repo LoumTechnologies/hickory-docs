@@ -25,6 +25,11 @@ final class ParityTests: XCTestCase {
             for group in layout.groups() { XCTAssertTrue(group.active == nil || group.tabs.contains(group.active!), scenario.name) }
         }
     }
+    func testKeywordPreviewUsesUTF16AndWordBoundaries() {
+        let source = "😀 let letter = true"
+        XCTAssertEqual(previewKeywords(source), [NSRange(location: 3, length: 3), NSRange(location: 16, length: 4)])
+        XCTAssertTrue(previewKeywords(String(repeating: "x", count: 200_001)).isEmpty)
+    }
     func testInvalidMoveRetainsTab() {
         var layout = PaneLayout(); layout.activate("notes.md", in: "document-group")
         layout.move("notes.md", to: "missing")

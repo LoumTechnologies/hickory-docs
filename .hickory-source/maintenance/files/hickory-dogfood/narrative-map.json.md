@@ -150416,6 +150416,34 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/scripts/simple-window-layout.swift.md",
       "symbol": "simple-1805c24098-2",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-document-minimap",
+      "output": "apps/web/src/simple/Document.tsx",
+      "page": ".hickory-source/frontends/apps/web/src/simple/Document.tsx.md",
+      "symbol": "simple-document-minimap",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-apple-language-preview",
+      "output": "apps/apple-simple/Sources/NativeEditor.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/NativeEditor.swift.md",
+      "symbol": "simple-apple-language-preview",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-android-language-preview",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt.md",
+      "symbol": "simple-android-language-preview",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-language-attachment-witness",
+      "output": "apps/web/src/simple/parity.test.ts",
+      "page": ".hickory-source/frontends/apps/web/src/simple/parity.test.ts.md",
+      "symbol": "simple-language-attachment-witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

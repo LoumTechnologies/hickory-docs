@@ -1,4 +1,14 @@
 // Contract: .hickory-source/frontends/contract.md
+import { createElement } from "react";
+import { render, waitFor, act, fireEvent } from "@testing-library/react";
+import { EditorView } from "@codemirror/view";
+import { undo } from "@codemirror/commands";
+import { startCompletion, currentCompletions } from "@codemirror/autocomplete";
+import { Document } from "./Document";
+import { useWorkspaceLsp } from "../lsp/useLsp";
+import { LspClient } from "../lsp/client";
+import { createLspChannel, decodeLspFrame, encodeLspFrame } from "../lsp/channel";
+vi.mock("../lsp/useLsp", () => ({ useWorkspaceLsp: vi.fn(() => ({ client: null, uri: "hick:///sample.ts", ready: false, diagnostics: [] })) }));
 import { describe, expect, it, vi } from "vitest";
 import fixture from "../../../simple-contract/layout-cases.json";
 import { activate, groups, initialLayout, move, remove, split } from "./layout";
@@ -22,6 +32,43 @@ describe("shared frontend layout contract", () => {
   it("refuses an unknown move target without removing the document", () => {
     const layout = activate(initialLayout(), "document-group", "notes.md");
     expect(move(layout, "notes.md", "missing")).toBe(layout);
+  });
+});
+
+describe("simple editor capability attachment", () => {
+  it("attaches server colors and completion after typing without replacing selection or undo", async () => {
+    const channel = createLspChannel({ send(frame) {
+      const message = decodeLspFrame(frame);
+      if (!message || !("method" in message) || !("id" in message)) return;
+      const result = message.method === "textDocument/semanticTokens/full" ? { data: [0, 0, 3, 0, 0] }
+        : message.method === "textDocument/completion" ? [{ label: "languageValue", insertText: "languageValue" }] : [];
+      queueMicrotask(() => channel.handleFrame(encodeLspFrame({ jsonrpc: "2.0", id: message.id, result })));
+    } });
+    const client = new LspClient(channel);
+    channel.handleFrame(encodeLspFrame({ jsonrpc: "2.0", method: "hick/serverCapabilities", params: { capabilities: {
+      semanticTokensProvider: { legend: { tokenTypes: ["keyword"], tokenModifiers: [] } },
+    } } }));
+    const buffer = new Buffer({ path: "sample.ts", name: "sample.ts", dir: false }, "let a = 1", "hash", () => {});
+    const screen = render(createElement(Document, { buffer }));
+    const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+    try {
+      act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: "\nla" }, selection: { anchor: 12 } }));
+      const selected = view.state.selection.main.head;
+      vi.mocked(useWorkspaceLsp).mockReturnValue({ client, uri: "hick:///sample.ts", ready: true, diagnostics: [] });
+      screen.rerender(createElement(Document, { buffer }));
+      expect(EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)).toBe(view);
+      expect(view.state.selection.main.head).toBe(selected);
+      await waitFor(() => expect(screen.container.querySelector(".cm-st-keyword")?.textContent).toBe("let"));
+      act(() => { startCompletion(view); });
+      await waitFor(() => expect(currentCompletions(view.state).some(option => option.label === "languageValue")).toBe(true));
+      fireEvent.keyDown(screen.getByRole("navigation", { name: "Document minimap" }), { key: "End" });
+      expect(view.state.selection.main.head).toBe(selected);
+      act(() => { undo(view); });
+      expect(buffer.text).toBe("let a = 1");
+    } finally {
+      screen.unmount(); client.dispose();
+      vi.mocked(useWorkspaceLsp).mockReturnValue({ client: null, uri: "hick:///sample.ts", ready: false, diagnostics: [] });
+    }
   });
 });
 describe("simple frontend text opening", () => {

@@ -12,12 +12,14 @@ import Observation
 @MainActor @Observable final class DocumentBuffer: Identifiable {
     let id = UUID()
     let file: FileNode
-    @ObservationIgnored var text: String {
+    var text: String {
         didSet { let changed = text != base; if dirty != changed { dirty = changed } }
     }
     @ObservationIgnored var base: String {
         didSet { let changed = text != base; if dirty != changed { dirty = changed } }
     }
+    @ObservationIgnored var complete: ((String) -> Void)?
+    @ObservationIgnored var navigate: ((Double) -> Void)?
     var hash: String
     var saving = false
     var error = ""

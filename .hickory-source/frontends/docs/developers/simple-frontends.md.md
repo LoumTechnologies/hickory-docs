@@ -46,9 +46,21 @@ The terminal uses a real backend PTY and its emulated plain-text screen. It acce
 
 The agent uses the configured Python backend. Configure providers with the existing frontend; this first slice does not implement agent installation, provider settings, permission-review surfaces, or token streaming. It refreshes durable conversation history and provides explicit Send and Stop. No provider is required to edit files.
 
-Rich literate rendering, backend capability menus, minimaps, provenance, debugging, file operations, layout persistence and crash recovery are not included yet. This is an iteration baseline, not full parity with the old frontend. Native spellcheck, input methods and platform keyboard behavior may differ. No speed or memory superiority has been established by this scaffold.
+The browser attaches the existing workspace LSP bridge after opening text: semantic colors, completion (Ctrl-Space), hover, signature help and inlay hints are available when a language server supports them. Same-document definition navigation is connected; cross-file navigation, rename and code actions remain outside this slice. Diagnostics are not displayed yet because publications have no source revision to guard against stale results.
 
-## Verification in this session
+Apple and Android expose a **Language preview** popover over the editor. It explicitly uses local keyword coloring and document-word suggestions, not a connected native language server. Choose a word to replace the current selection through the normal editor edit path; generated files remain read-only. Keyword preview coloring is bounded to 200,000 UTF-16 units. These previews establish UI feasibility, not semantic correctness or native LSP parity.
+
+All targets have a fixed-width minimap beside the editor. Click/tap to navigate; browser and Apple also support dragging. Browser keyboard users can focus the minimap and use Home/End; native minimaps expose accessibility adjustment. Browser and Android indicate the visible region. Apple currently shows document density without a viewport marker.
+
+Rich literate rendering, backend capability menus, provenance, debugging, file operations, layout persistence and crash recovery are not included yet. This is an iteration baseline, not full parity with the old frontend. Native spellcheck, input methods and platform keyboard behavior may differ. No speed or memory superiority has been established by this scaffold.
+
+## Language UI verification, 2026-11-07
+
+TypeScript checking, the browser bundle and fifteen focused frontend witnesses passed, including delayed JSON-RPC semantic coloring and completion attachment after typing without losing selection or undo. Ten Swift witnesses passed, including UTF-16 keyword ranges and the large-file cutoff; the shared Apple source also type-checked for an iOS simulator. These are not native device UI acceptance receipts.
+
+The real-backend browser suite includes minimap navigation, but this host still aborts Chromium at macOS bootstrap registration before the UI runs. Android APK compilation remains blocked before source compilation by Maven DNS failure for Kotlin build tools 2.2.10. The complete Android source compiled separately with the installed Kotlin/Compose compiler and cached AndroidX dependencies. This does not produce an APK. Native gestures, input methods, completion undo and visual layout still require device acceptance.
+
+## Earlier baseline verification
 
 Browser TypeScript checking, eleven focused browser witnesses, the production bundle, seven Swift witnesses, simulator-target Swift type checking and four shared Kotlin pane scenarios passed. A native-browser walkthrough confirmed a real plain save and undo after moving a split tab. Real PTY Unicode input, output and resize also passed.
 
