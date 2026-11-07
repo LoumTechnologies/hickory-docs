@@ -8,6 +8,8 @@ Edit this entry to change the generated file. It has one constructor. References
 
 Captured SHA-256: `d4d2b907dce4824ca73b6addab97d186fbd0d09be895d912fb7e2ef79084e02b`.
 
+The comparison launcher is an example executable so it shares the real engine dependencies without a second Cargo project. Its explicit `test = true` makes target-selection and owned-process cleanup witnesses run in the existing Rust CI test scope.
+
 <book:entry path="crates/hickory-cli/Cargo.toml">
 [package]
 name = "hickory-cli"
@@ -24,6 +26,10 @@ path = "src/python_agent_main.rs"
 [[bin]]
 name = "hick"
 path = "src/main.rs"
+
+[[example]]
+name = "simple_dev"
+test = true
 
 [lib]
 name = "hickory_cli"

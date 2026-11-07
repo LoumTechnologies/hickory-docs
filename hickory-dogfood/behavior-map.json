@@ -67150,6 +67150,521 @@
       "used_by": [],
       "role": "implementation",
       "sha256": "c0d94399ca0534848b9000005d653f86730d45622e8304201b0e28687192ba4f"
+    },
+    "apps/web/simple.html": {
+      "source": ".hickory-source/frontends/apps/web/simple.html.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "a297bb29c406fadfbab09765b4a8ddcdb293becefcad5561a4ac1f36be3f1cea",
+      "construction": "fragments",
+      "fragments": [
+        "simple-5bfb0491c8-0"
+      ]
+    },
+    "apps/web/vite.simple.config.ts": {
+      "source": ".hickory-source/frontends/apps/web/vite.simple.config.ts.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "5ec49a861b176e964692fba847b13895e95a32b68875448523ba0a7b7b8e4d9a",
+      "construction": "fragments",
+      "fragments": [
+        "simple-de070d2bb6-0"
+      ]
+    },
+    "apps/web/src/simple/layout.ts": {
+      "source": ".hickory-source/frontends/apps/web/src/simple/layout.ts.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "99c081098ec6c0a133b536f92173c571e53ab410d1244f5fe798dcb2f00965c1",
+      "construction": "fragments",
+      "fragments": [
+        "simple-f98ffc6999-0",
+        "simple-f98ffc6999-1"
+      ]
+    },
+    "apps/web/src/simple/buffers.ts": {
+      "source": ".hickory-source/frontends/apps/web/src/simple/buffers.ts.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "14694fb25280445471b034bbbd96b575b9d6f160c9723344a4676e08f39c7bd6",
+      "construction": "fragments",
+      "fragments": [
+        "simple-964718fb75-0",
+        "simple-964718fb75-1"
+      ]
+    },
+    "apps/web/src/simple/Document.tsx": {
+      "source": ".hickory-source/frontends/apps/web/src/simple/Document.tsx.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "1a0344e939250d851312f095c1298047876a943ddca0e80c53cd47d0417a62c6",
+      "construction": "fragments",
+      "fragments": [
+        "simple-1a4a59fc95-0"
+      ]
+    },
+    "apps/web/src/simple/Agent.tsx": {
+      "source": ".hickory-source/frontends/apps/web/src/simple/Agent.tsx.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "9755b84be3d923268dd85e56c42380f10079be678ce715573657da20343b55c9",
+      "construction": "fragments",
+      "fragments": [
+        "simple-981c695688-0",
+        "simple-981c695688-1"
+      ]
+    },
+    "apps/web/src/simple/App.tsx": {
+      "source": ".hickory-source/frontends/apps/web/src/simple/App.tsx.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "fb013400d65c3f9858439bc2697eeadb844760c15b5b7688045eacd8a568008b",
+      "construction": "fragments",
+      "fragments": [
+        "simple-e8a50a27b2-0",
+        "simple-e8a50a27b2-1"
+      ]
+    },
+    "apps/web/src/simple/main.tsx": {
+      "source": ".hickory-source/frontends/apps/web/src/simple/main.tsx.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "7e5910fdc60fe3c082c84fbc7241b82660577b6875f76386d296fde4b2514842",
+      "construction": "fragments",
+      "fragments": [
+        "simple-aff233fffa-0"
+      ]
+    },
+    "apps/web/src/simple/simple.css": {
+      "source": ".hickory-source/frontends/apps/web/src/simple/simple.css.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "f684f75c252abc83cc4831d248e2ce59c90fbcd712b84d40051a03603bc26e9c",
+      "construction": "fragments",
+      "fragments": [
+        "simple-35d92a1eac-0"
+      ]
+    },
+    "apps/apple-simple/Package.swift": {
+      "source": ".hickory-source/frontends/apps/apple-simple/Package.swift.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "ef99d1520f3c3db2eac3a12433b21fc28f4d9d2f088ca0dbd24fc2a1ac68f306",
+      "construction": "fragments",
+      "fragments": [
+        "simple-fe680c5df3-0"
+      ]
+    },
+    "apps/apple-simple/project.yml": {
+      "source": ".hickory-source/frontends/apps/apple-simple/project.yml.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "188dfcc8aa7fb46cc53559b46e78a85e22730dc1a378345d6db55b9aef09f0cf",
+      "construction": "fragments",
+      "fragments": [
+        "simple-9203f6a7de-0"
+      ]
+    },
+    "apps/apple-simple/Sources/Layout.swift": {
+      "source": ".hickory-source/frontends/apps/apple-simple/Sources/Layout.swift.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "c47e4f99c198e30ed7e85db2944b458f4bd72c2761c6cd4b8299c320702319f3",
+      "construction": "fragments",
+      "fragments": [
+        "simple-bcf63acd46-0",
+        "simple-bcf63acd46-1"
+      ]
+    },
+    "apps/apple-simple/Sources/Engine.swift": {
+      "source": ".hickory-source/frontends/apps/apple-simple/Sources/Engine.swift.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "dad2e384dbd1dd5b51ceb0dde910b1aee8c2d5a0148f4277f0f641ba35533c46",
+      "construction": "fragments",
+      "fragments": [
+        "simple-ff9425b170-0",
+        "simple-ff9425b170-1"
+      ]
+    },
+    "apps/apple-simple/Sources/Workspace.swift": {
+      "source": ".hickory-source/frontends/apps/apple-simple/Sources/Workspace.swift.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "323a7608d4197731785430b8ec7e34389e13432c5835bea85d19bf00f23e26c1",
+      "construction": "fragments",
+      "fragments": [
+        "simple-230bbf9308-0",
+        "simple-230bbf9308-1"
+      ]
+    },
+    "apps/apple-simple/Sources/NativeEditor.swift": {
+      "source": ".hickory-source/frontends/apps/apple-simple/Sources/NativeEditor.swift.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "1d6d878ac615b1befddfee34c65ef1b90e65fb43d7274baf16d1729de8c9e86a",
+      "construction": "fragments",
+      "fragments": [
+        "simple-7fad175521-0"
+      ]
+    },
+    "apps/apple-simple/Sources/AgentPane.swift": {
+      "source": ".hickory-source/frontends/apps/apple-simple/Sources/AgentPane.swift.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "8cb71cb0abd61affb9aaf07eb3784d12f2d1797474f160de7e688bf57f1b2da4",
+      "construction": "fragments",
+      "fragments": [
+        "simple-42e0887630-0",
+        "simple-42e0887630-1"
+      ]
+    },
+    "apps/apple-simple/Sources/WorkspaceView.swift": {
+      "source": ".hickory-source/frontends/apps/apple-simple/Sources/WorkspaceView.swift.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "1730345e22673a9de603b8fa7e6cbe5f7314b3358b2471346a96bde0488aef29",
+      "construction": "fragments",
+      "fragments": [
+        "simple-80f4e5a1a0-0",
+        "simple-80f4e5a1a0-1"
+      ]
+    },
+    "apps/apple-simple/Sources/HickorySimpleApp.swift": {
+      "source": ".hickory-source/frontends/apps/apple-simple/Sources/HickorySimpleApp.swift.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "1f5fb71904ab6efc90ea185afaaccca471358cc5ef1b47edbf8f21480816ce62",
+      "construction": "fragments",
+      "fragments": [
+        "simple-967795f4aa-0"
+      ]
+    },
+    "apps/simple-contract/layout-cases.json": {
+      "source": ".hickory-source/frontends/apps/simple-contract/layout-cases.json.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "214457c11f3f46d4ea596d3b3a57f64efa8dc5273cea023edb72ac7331f21286",
+      "construction": "fragments",
+      "fragments": [
+        "simple-232e6fe962-0"
+      ]
+    },
+    "apps/web/src/simple/parity.test.ts": {
+      "source": ".hickory-source/frontends/apps/web/src/simple/parity.test.ts.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "c03eca340eedbd81acf000c215f12316c9680d701d8c459df5331f67b51450ef",
+      "construction": "fragments",
+      "fragments": [
+        "simple-c6aff51ad5-0",
+        "simple-c6aff51ad5-1"
+      ]
+    },
+    "apps/apple-simple/Tests/ParityTests.swift": {
+      "source": ".hickory-source/frontends/apps/apple-simple/Tests/ParityTests.swift.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "b973d54187f958c2f48fbbc83d44e0f2abcc1647357cecfa20acf00c8d3c62e2",
+      "construction": "fragments",
+      "fragments": [
+        "simple-7d7b2a4b09-0"
+      ]
+    },
+    "apps/apple-simple/Tests/SaveTests.swift": {
+      "source": ".hickory-source/frontends/apps/apple-simple/Tests/SaveTests.swift.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "319f783e860b5f89602d48f554936c8807a162faf3997dc303be68c52368c0ca",
+      "construction": "fragments",
+      "fragments": [
+        "simple-d0dada29d6-0"
+      ]
+    },
+    "apps/android-simple/settings.gradle.kts": {
+      "source": ".hickory-source/frontends/apps/android-simple/settings.gradle.kts.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "5ef461cee17b930abc9ce50b975e9f6622bf21feb4d45a2f55cfa576b25afe10",
+      "construction": "fragments",
+      "fragments": [
+        "simple-18160dd8be-0"
+      ]
+    },
+    "apps/android-simple/build.gradle.kts": {
+      "source": ".hickory-source/frontends/apps/android-simple/build.gradle.kts.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "da71d0eac72987c2d01a1f157d32a259661e11c327cde75b71e6248d8ea602ba",
+      "construction": "fragments",
+      "fragments": [
+        "simple-d6a37e2fab-0"
+      ]
+    },
+    "apps/android-simple/gradle.properties": {
+      "source": ".hickory-source/frontends/apps/android-simple/gradle.properties.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "ee12152131934d0cf3586576f4ee7385c8783081846717ea2953d2fc8881e51b",
+      "construction": "fragments",
+      "fragments": [
+        "simple-be0b3784a0-0"
+      ]
+    },
+    "apps/android-simple/app/build.gradle.kts": {
+      "source": ".hickory-source/frontends/apps/android-simple/app/build.gradle.kts.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "13e52c819e75994bae25388de57003199900685849a4b0234335ac8166e7e28b",
+      "construction": "fragments",
+      "fragments": [
+        "simple-f064d703ee-0"
+      ]
+    },
+    "apps/android-simple/app/src/main/AndroidManifest.xml": {
+      "source": ".hickory-source/frontends/apps/android-simple/app/src/main/AndroidManifest.xml.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "346e6f57465db5ca94823a5bb7ce71f2ed8b2eb1e6b00598bb59ac7efd598a04",
+      "construction": "fragments",
+      "fragments": [
+        "simple-edf5034e37-0"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/PaneLayout.kt": {
+      "source": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/PaneLayout.kt.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "99dea4e787adec7960fc51c1866d4cd79b8e7b875142469538d0e0efdfbb3eb2",
+      "construction": "fragments",
+      "fragments": [
+        "simple-5953f13779-0",
+        "simple-5953f13779-1"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt": {
+      "source": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "a33439a2be2ef5bef1ecad2d265f80c11dfb0fa4726a1131dfb2172410cbe4e4",
+      "construction": "fragments",
+      "fragments": [
+        "simple-38d4bd61a8-0",
+        "simple-38d4bd61a8-1"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Workspace.kt": {
+      "source": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Workspace.kt.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "01b0a57fb06f8995eef9e0820f756bc2fd7d65f56410208fdf4e8da1fb7d6ab0",
+      "construction": "fragments",
+      "fragments": [
+        "simple-f6fdc8535c-0",
+        "simple-f6fdc8535c-1"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/MainActivity.kt": {
+      "source": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/MainActivity.kt.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "f11822932020105de3d81bdff13d214022e40a17a07b7b52e61e37817620f72c",
+      "construction": "fragments",
+      "fragments": [
+        "simple-d8c991adb6-0"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt": {
+      "source": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "3be55f1c98e3c6a5caab6dac41090bd5a0b1ba7ce8b9f05b9dbd08959f7f9de0",
+      "construction": "fragments",
+      "fragments": [
+        "simple-0d1e071614-0",
+        "simple-0d1e071614-1"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentPane.kt": {
+      "source": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentPane.kt.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "904a7f51c9d39015254b20073fbff8582b85867138b338bc2052fb251cebd3f9",
+      "construction": "fragments",
+      "fragments": [
+        "simple-716e739687-0"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/ParityTest.kt": {
+      "source": ".hickory-source/frontends/apps/android-simple/app/src/test/java/com/hickorydocs/simple/ParityTest.kt.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "178efa369bfb52aef2d2faab0189ecac90313b609edf1a0f1b68f3c180d28621",
+      "construction": "fragments",
+      "fragments": [
+        "simple-de002213e5-0"
+      ]
+    },
+    "apps/android-simple/gradle/wrapper/gradle-wrapper.properties": {
+      "source": ".hickory-source/frontends/apps/android-simple/gradle/wrapper/gradle-wrapper.properties.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "c57471c5da51aea5fb2d9d9d58dd646f041571a58a7d4ce308e625c18651f02f",
+      "construction": "fragments",
+      "fragments": [
+        "simple-4dc43924f5-0"
+      ]
+    },
+    "scripts/test-simple-kotlin.py": {
+      "source": ".hickory-source/frontends/scripts/test-simple-kotlin.py.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "47b976f98bcce63f49d2ee0a6dabc3c5e6ba8cfa089f33e1058d639c5bf7bb00",
+      "construction": "fragments",
+      "fragments": [
+        "simple-94203e3be5-0"
+      ]
+    },
+    "docs/developers/simple-frontends.md": {
+      "source": ".hickory-source/frontends/docs/developers/simple-frontends.md.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "6d7f28393cc1e6b83818367e9bd6c3fdcb73f50ff3f86bc7272bc982ee616321",
+      "construction": "fragments",
+      "fragments": [
+        "simple-72e004e1b0-0"
+      ]
+    },
+    ".github/workflows/simple-frontends.yml": {
+      "source": ".hickory-source/frontends/.github/workflows/simple-frontends.yml.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "cb7781d787a21fa6db3ec293f674293f4678bc528bcfbd17c9e472c39550335c",
+      "construction": "fragments",
+      "fragments": [
+        "simple-9492fd1ec5-0"
+      ]
+    },
+    "scripts/simple-browser-driver.mjs": {
+      "source": ".hickory-source/frontends/scripts/simple-browser-driver.mjs.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "7c0b2157cef7bf43ec88e156c1f10e2ae6dd372941d1a91660e1233ef766cdc5",
+      "construction": "fragments",
+      "fragments": [
+        "simple-b622660cef-0"
+      ]
+    },
+    "scripts/test-simple-browser.py": {
+      "source": ".hickory-source/frontends/scripts/test-simple-browser.py.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "be26d3c0a4d0acaef5235d7bbf90136bcdd2c4d57c4130d3bcc75f98e3eec89f",
+      "construction": "fragments",
+      "fragments": [
+        "simple-0799b7d31b-0"
+      ]
+    },
+    "apps/web/src/simple/Terminal.tsx": {
+      "source": ".hickory-source/frontends/apps/web/src/simple/Terminal.tsx.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "65a8e9643f17d30cda94b6d8bb8f655ee551f0d386a0aee156a02f6530c6b2b5",
+      "construction": "fragments",
+      "fragments": [
+        "simple-5d9f52220f-0"
+      ]
+    },
+    "apps/apple-simple/Sources/TerminalPane.swift": {
+      "source": ".hickory-source/frontends/apps/apple-simple/Sources/TerminalPane.swift.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "67aa0b6d7eaf484f880ec3a8015fbf3fd981ef30ed822cd5a35177ace7013c2f",
+      "construction": "fragments",
+      "fragments": [
+        "simple-d7e70d9534-0"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/TerminalPane.kt": {
+      "source": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/TerminalPane.kt.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "436a30e3955c4187445b96f9eb70d99482479fa425db8e4f5a311a9e7d362254",
+      "construction": "fragments",
+      "fragments": [
+        "simple-8f29e9977d-0"
+      ]
+    },
+    "scripts/simple-android-gradle.rs": {
+      "source": ".hickory-source/frontends/scripts/simple-android-gradle.rs.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "2c1fdb259c9c54f2ec44ca45c9e742fea7c4cecb1cd1d542536ebecfe7ff6117",
+      "construction": "fragments",
+      "fragments": [
+        "simple-6cda6e9d31-0",
+        "simple-6cda6e9d31-1"
+      ]
+    },
+    "crates/hickory-cli/examples/simple_dev.rs": {
+      "source": ".hickory-source/frontends/crates/hickory-cli/examples/simple_dev.rs.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "b5d60567ff21b5e900a97c81334bb5ad849d209f8b270adca7994946858b3167",
+      "construction": "fragments",
+      "fragments": [
+        "simple-3119f25e95-0",
+        "simple-3119f25e95-1",
+        "simple-3119f25e95-2",
+        "simple-3119f25e95-3",
+        "simple-3119f25e95-4",
+        "simple-3119f25e95-5"
+      ]
     }
   },
   "evidence_records": [

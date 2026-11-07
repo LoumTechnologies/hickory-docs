@@ -208,8 +208,29 @@ fn selection_includes_latest_master_commit_and_untracked_paths() {
     let steps = plan::steps(&repo.0, &head).unwrap();
     assert!(steps.iter().any(|(name, _)| name == "Web tests"));
     assert!(!steps.iter().any(|(name, _)| name == "Rust Clippy"));
+    // Contract: .hickory-source/frontends/contract.md — local/CI selection parity.
+    fs::create_dir_all(repo.0.join("apps/android-simple")).unwrap();
+    fs::write(
+        repo.0.join("apps/android-simple/build.gradle.kts"),
+        "// Android change\n",
+    )
+    .unwrap();
+    let steps = plan::steps(&repo.0, &head).unwrap();
+    assert!(steps
+        .iter()
+        .any(|(name, _)| name == "Simple Android parity"));
+    assert!(!steps.iter().any(|(name, _)| name == "Simple Apple parity"));
+    fs::create_dir_all(repo.0.join("apps/simple-contract")).unwrap();
+    fs::write(repo.0.join("apps/simple-contract/layout-cases.json"), "{}").unwrap();
+    let steps = plan::steps(&repo.0, &head).unwrap();
+    for expected in [
+        "Simple browser parity",
+        "Simple Apple parity",
+        "Simple Android parity",
+    ] {
+        assert!(steps.iter().any(|(name, _)| name == expected));
+    }
 }
-
 #[cfg(unix)]
 #[test]
 fn child_retains_lock_if_supervisor_dies() {

@@ -239,6 +239,8 @@ fn post_commit_returns_while_checks_are_running() {
 <a id="f-3e8a5b1ca643-selection_includes_latest_master_commit_and_untracked_paths"></a>
 ### `selection_includes_latest_master_commit_and_untracked_paths`
 
+A platform-only source change selects its own comparison check. A shared pane fixture selects all three. These assertions inspect the real selector’s plan; they do not execute broad regression work.
+
 <storycode:copy id="f-3e8a5b1ca643-selection_includes_latest_master_commit_and_untracked_paths">
 #[test]
 fn selection_includes_latest_master_commit_and_untracked_paths() {
@@ -267,8 +269,29 @@ fn selection_includes_latest_master_commit_and_untracked_paths() {
     let steps = plan::steps(&repo.0, &head).unwrap();
     assert!(steps.iter().any(|(name, _)| name == "Web tests"));
     assert!(!steps.iter().any(|(name, _)| name == "Rust Clippy"));
+    // Contract: .hickory-source/frontends/contract.md — local/CI selection parity.
+    fs::create_dir_all(repo.0.join("apps/android-simple")).unwrap();
+    fs::write(
+        repo.0.join("apps/android-simple/build.gradle.kts"),
+        "// Android change\n",
+    )
+    .unwrap();
+    let steps = plan::steps(&repo.0, &head).unwrap();
+    assert!(steps
+        .iter()
+        .any(|(name, _)| name == "Simple Android parity"));
+    assert!(!steps.iter().any(|(name, _)| name == "Simple Apple parity"));
+    fs::create_dir_all(repo.0.join("apps/simple-contract")).unwrap();
+    fs::write(repo.0.join("apps/simple-contract/layout-cases.json"), "{}").unwrap();
+    let steps = plan::steps(&repo.0, &head).unwrap();
+    for expected in [
+        "Simple browser parity",
+        "Simple Apple parity",
+        "Simple Android parity",
+    ] {
+        assert!(steps.iter().any(|(name, _)| name == expected));
+    }
 }
-
 </storycode:copy>
 <a id="f-3e8a5b1ca643-child_retains_lock_if_supervisor_dies"></a>
 ### `child_retains_lock_if_supervisor_dies`

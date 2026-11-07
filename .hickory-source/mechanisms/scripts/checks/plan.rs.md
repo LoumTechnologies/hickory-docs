@@ -11,6 +11,8 @@ This page owns the output construction and the explained fragments below. Source
 <a id="f-56038e128a7a-steps"></a>
 ### `steps`
 
+The new comparison scopes call the same focused recipes as CI. Apple checks require a Mac with full Xcode; Android checks require JDK, SDK and Gradle. A missing required tool fails visibly rather than being reported as a passing platform check. Existing selection behavior is retained.
+
 <storycode:copy id="f-56038e128a7a-steps">
 use super::{git, Result};
 use std::{path::Path, process::Command};
@@ -103,6 +105,16 @@ pub fn steps(root: &Path, head: &str) -> Result<Vec<(String, String)>> {
             add("FSKit build", "just build-fskit");
             add("Workspace filesystem", "just test-workspace-fs");
         }
+    }
+    if has("simple-browser") {
+        add("Simple browser parity", "just simple-test browser");
+    }
+    if has("simple-apple") {
+        add("Simple Apple parity", "just simple-test apple");
+        add("Simple iOS build", "just simple-build ios");
+    }
+    if has("simple-android") {
+        add("Simple Android parity", "just simple-test android");
     }
     Ok(steps)
 }

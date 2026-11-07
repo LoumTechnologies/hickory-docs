@@ -90,5 +90,15 @@ pub fn steps(root: &Path, head: &str) -> Result<Vec<(String, String)>> {
             add("Workspace filesystem", "just test-workspace-fs");
         }
     }
+    if has("simple-browser") {
+        add("Simple browser parity", "just simple-test browser");
+    }
+    if has("simple-apple") {
+        add("Simple Apple parity", "just simple-test apple");
+        add("Simple iOS build", "just simple-build ios");
+    }
+    if has("simple-android") {
+        add("Simple Android parity", "just simple-test android");
+    }
     Ok(steps)
 }

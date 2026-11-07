@@ -14,6 +14,10 @@ path = "src/python_agent_main.rs"
 name = "hick"
 path = "src/main.rs"
 
+[[example]]
+name = "simple_dev"
+test = true
+
 [lib]
 name = "hickory_cli"
 path = "src/lib.rs"

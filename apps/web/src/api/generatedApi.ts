@@ -170,6 +170,8 @@ export function generatedApi(request: typeof Request) { return {
    * order of `attention` is the server's — see hick_term::attention — so the
    * queue, the session tree, and ⌘J cannot disagree about what is next. */
   terminals: () => request<Response<"terminals">>("GET", "/api/terminals"),
+  /** One revision-checked page of the backend-emulated terminal screen. */
+  terminalScreen: (id: Parameters<ApiRoutes["terminalScreen"]>[0], offset: Parameters<ApiRoutes["terminalScreen"]>[1], revision: Parameters<ApiRoutes["terminalScreen"]>[2]) => request<Response<"terminalScreen">>("GET", "/api/terminals/" + id + "/output?view=screen&offset=" + offset + "&limit=16384&revision=" + encodeURIComponent(revision) + ""),
 /** Run one test (or a file's tests) in a terminal session named after it.
    * See crates/hickory-cli/src/serve/test_run.rs. */
   runTest: (body: Parameters<ApiRoutes["runTest"]>[0]) => request<Response<"runTest">>("POST", "/api/tests/run", body),

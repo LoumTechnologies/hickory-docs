@@ -927,3 +927,30 @@ literate-check:
     python3 scripts/generate-api.py --check
     python3 hickory-dogfood/tools/behavior.py check
     python3 hickory-dogfood/tools/behavior.py audit
+
+# Independent comparison frontends; the primary build and dev commands retain their scope.
+simple-build platform="browser":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case {{quote(platform)}} in
+      browser) cd apps/web; npx vite build --config vite.simple.config.ts ;;
+      apple) swift build --package-path apps/apple-simple --scratch-path target/apple-simple-spm ;;
+      ios) mkdir -p target/apple-simple-xcode; xcodegen generate --spec apps/apple-simple/project.yml --project target/apple-simple-xcode; xcodebuild -project target/apple-simple-xcode/HickorySimple.xcodeproj -scheme HickorySimpleMobile -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath target/apple-simple-derived CODE_SIGNING_ALLOWED=NO build ;;
+      android) mkdir -p target; rustc --edition=2021 scripts/simple-android-gradle.rs -o target/simple-android-gradle; target/simple-android-gradle :app:assembleDebug ;;
+      *) echo 'Choose browser, apple, ios or android.' >&2; exit 2 ;;
+    esac
+
+# Focused parity/safety witnesses only, with platform toolchain prerequisites.
+simple-test platform="browser":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case {{quote(platform)}} in
+      browser) cd apps/web; npx tsc -b --noEmit; npx vitest run src/simple/parity.test.ts; npx vite build --config vite.simple.config.ts ;;
+      apple) swift test --package-path apps/apple-simple --scratch-path target/apple-simple-spm ;;
+      android) mkdir -p target; rustc --edition=2021 scripts/simple-android-gradle.rs -o target/simple-android-gradle; target/simple-android-gradle :app:testDebugUnitTest :app:assembleDebug ;;
+      *) echo 'Choose browser, apple or android.' >&2; exit 2 ;;
+    esac
+
+# Launch a comparison frontend and its local backend; Ctrl-C stops the session.
+simple-dev platform="browser":
+    cargo run --quiet --locked -p hickory-cli --example simple_dev -- {{quote(platform)}}

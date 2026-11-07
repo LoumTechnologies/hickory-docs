@@ -1,0 +1,30 @@
+name: HickorySimple
+options:
+  bundleIdPrefix: com.hickorydocs
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    GENERATE_INFOPLIST_FILE: YES
+    CODE_SIGNING_ALLOWED: NO
+    INFOPLIST_KEY_NSLocalNetworkUsageDescription: Connect to your Hickory workspace server.
+    INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking: YES
+targets:
+  HickorySimpleMac:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources: [Sources]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hickorydocs.simple.mac
+  HickorySimpleMobile:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources: [Sources]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hickorydocs.simple.mobile
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES

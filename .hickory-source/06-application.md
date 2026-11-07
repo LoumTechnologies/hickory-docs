@@ -47,6 +47,10 @@ The native host supplies platform behavior rather than a second parser or editor
 <book:include file="mechanisms/apps/web/src/App.tsx.md" />
 <book:include file="mechanisms/apps/desktop/src-tauri/src/lib.rs.md" />
 
+## Compare independent editor frontends
+
+<book:include file="frontends/index.md" />
+
 ## Build the complete construction and select its evidence
 
 Materialize the complete Markdown closure before building. These chapters teach

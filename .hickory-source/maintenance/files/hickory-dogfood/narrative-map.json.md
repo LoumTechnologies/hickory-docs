@@ -149940,6 +149940,461 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/optional-checks.md",
       "symbol": "live-browser-witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-5bfb0491c8-0",
+      "output": "apps/web/simple.html",
+      "page": ".hickory-source/frontends/apps/web/simple.html.md",
+      "symbol": "simple-5bfb0491c8-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-de070d2bb6-0",
+      "output": "apps/web/vite.simple.config.ts",
+      "page": ".hickory-source/frontends/apps/web/vite.simple.config.ts.md",
+      "symbol": "simple-de070d2bb6-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-f98ffc6999-0",
+      "output": "apps/web/src/simple/layout.ts",
+      "page": ".hickory-source/frontends/apps/web/src/simple/layout.ts.md",
+      "symbol": "simple-f98ffc6999-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-f98ffc6999-1",
+      "output": "apps/web/src/simple/layout.ts",
+      "page": ".hickory-source/frontends/apps/web/src/simple/layout.ts.md",
+      "symbol": "simple-f98ffc6999-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-964718fb75-0",
+      "output": "apps/web/src/simple/buffers.ts",
+      "page": ".hickory-source/frontends/apps/web/src/simple/buffers.ts.md",
+      "symbol": "simple-964718fb75-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-964718fb75-1",
+      "output": "apps/web/src/simple/buffers.ts",
+      "page": ".hickory-source/frontends/apps/web/src/simple/buffers.ts.md",
+      "symbol": "simple-964718fb75-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-1a4a59fc95-0",
+      "output": "apps/web/src/simple/Document.tsx",
+      "page": ".hickory-source/frontends/apps/web/src/simple/Document.tsx.md",
+      "symbol": "simple-1a4a59fc95-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-981c695688-0",
+      "output": "apps/web/src/simple/Agent.tsx",
+      "page": ".hickory-source/frontends/apps/web/src/simple/Agent.tsx.md",
+      "symbol": "simple-981c695688-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-981c695688-1",
+      "output": "apps/web/src/simple/Agent.tsx",
+      "page": ".hickory-source/frontends/apps/web/src/simple/Agent.tsx.md",
+      "symbol": "simple-981c695688-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-e8a50a27b2-0",
+      "output": "apps/web/src/simple/App.tsx",
+      "page": ".hickory-source/frontends/apps/web/src/simple/App.tsx.md",
+      "symbol": "simple-e8a50a27b2-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-e8a50a27b2-1",
+      "output": "apps/web/src/simple/App.tsx",
+      "page": ".hickory-source/frontends/apps/web/src/simple/App.tsx.md",
+      "symbol": "simple-e8a50a27b2-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-aff233fffa-0",
+      "output": "apps/web/src/simple/main.tsx",
+      "page": ".hickory-source/frontends/apps/web/src/simple/main.tsx.md",
+      "symbol": "simple-aff233fffa-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-35d92a1eac-0",
+      "output": "apps/web/src/simple/simple.css",
+      "page": ".hickory-source/frontends/apps/web/src/simple/simple.css.md",
+      "symbol": "simple-35d92a1eac-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-fe680c5df3-0",
+      "output": "apps/apple-simple/Package.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Package.swift.md",
+      "symbol": "simple-fe680c5df3-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-9203f6a7de-0",
+      "output": "apps/apple-simple/project.yml",
+      "page": ".hickory-source/frontends/apps/apple-simple/project.yml.md",
+      "symbol": "simple-9203f6a7de-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-bcf63acd46-0",
+      "output": "apps/apple-simple/Sources/Layout.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Layout.swift.md",
+      "symbol": "simple-bcf63acd46-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-bcf63acd46-1",
+      "output": "apps/apple-simple/Sources/Layout.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Layout.swift.md",
+      "symbol": "simple-bcf63acd46-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-ff9425b170-0",
+      "output": "apps/apple-simple/Sources/Engine.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Engine.swift.md",
+      "symbol": "simple-ff9425b170-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-ff9425b170-1",
+      "output": "apps/apple-simple/Sources/Engine.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Engine.swift.md",
+      "symbol": "simple-ff9425b170-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-230bbf9308-0",
+      "output": "apps/apple-simple/Sources/Workspace.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Workspace.swift.md",
+      "symbol": "simple-230bbf9308-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-230bbf9308-1",
+      "output": "apps/apple-simple/Sources/Workspace.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Workspace.swift.md",
+      "symbol": "simple-230bbf9308-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-7fad175521-0",
+      "output": "apps/apple-simple/Sources/NativeEditor.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/NativeEditor.swift.md",
+      "symbol": "simple-7fad175521-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-42e0887630-0",
+      "output": "apps/apple-simple/Sources/AgentPane.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/AgentPane.swift.md",
+      "symbol": "simple-42e0887630-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-42e0887630-1",
+      "output": "apps/apple-simple/Sources/AgentPane.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/AgentPane.swift.md",
+      "symbol": "simple-42e0887630-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-80f4e5a1a0-0",
+      "output": "apps/apple-simple/Sources/WorkspaceView.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/WorkspaceView.swift.md",
+      "symbol": "simple-80f4e5a1a0-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-80f4e5a1a0-1",
+      "output": "apps/apple-simple/Sources/WorkspaceView.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/WorkspaceView.swift.md",
+      "symbol": "simple-80f4e5a1a0-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-967795f4aa-0",
+      "output": "apps/apple-simple/Sources/HickorySimpleApp.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/HickorySimpleApp.swift.md",
+      "symbol": "simple-967795f4aa-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-232e6fe962-0",
+      "output": "apps/simple-contract/layout-cases.json",
+      "page": ".hickory-source/frontends/apps/simple-contract/layout-cases.json.md",
+      "symbol": "simple-232e6fe962-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-c6aff51ad5-0",
+      "output": "apps/web/src/simple/parity.test.ts",
+      "page": ".hickory-source/frontends/apps/web/src/simple/parity.test.ts.md",
+      "symbol": "simple-c6aff51ad5-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-c6aff51ad5-1",
+      "output": "apps/web/src/simple/parity.test.ts",
+      "page": ".hickory-source/frontends/apps/web/src/simple/parity.test.ts.md",
+      "symbol": "simple-c6aff51ad5-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-7d7b2a4b09-0",
+      "output": "apps/apple-simple/Tests/ParityTests.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Tests/ParityTests.swift.md",
+      "symbol": "simple-7d7b2a4b09-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-d0dada29d6-0",
+      "output": "apps/apple-simple/Tests/SaveTests.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Tests/SaveTests.swift.md",
+      "symbol": "simple-d0dada29d6-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-18160dd8be-0",
+      "output": "apps/android-simple/settings.gradle.kts",
+      "page": ".hickory-source/frontends/apps/android-simple/settings.gradle.kts.md",
+      "symbol": "simple-18160dd8be-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-d6a37e2fab-0",
+      "output": "apps/android-simple/build.gradle.kts",
+      "page": ".hickory-source/frontends/apps/android-simple/build.gradle.kts.md",
+      "symbol": "simple-d6a37e2fab-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-be0b3784a0-0",
+      "output": "apps/android-simple/gradle.properties",
+      "page": ".hickory-source/frontends/apps/android-simple/gradle.properties.md",
+      "symbol": "simple-be0b3784a0-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-f064d703ee-0",
+      "output": "apps/android-simple/app/build.gradle.kts",
+      "page": ".hickory-source/frontends/apps/android-simple/app/build.gradle.kts.md",
+      "symbol": "simple-f064d703ee-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-edf5034e37-0",
+      "output": "apps/android-simple/app/src/main/AndroidManifest.xml",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/AndroidManifest.xml.md",
+      "symbol": "simple-edf5034e37-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-5953f13779-0",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/PaneLayout.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/PaneLayout.kt.md",
+      "symbol": "simple-5953f13779-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-5953f13779-1",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/PaneLayout.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/PaneLayout.kt.md",
+      "symbol": "simple-5953f13779-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-38d4bd61a8-0",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt.md",
+      "symbol": "simple-38d4bd61a8-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-38d4bd61a8-1",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt.md",
+      "symbol": "simple-38d4bd61a8-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-f6fdc8535c-0",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Workspace.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Workspace.kt.md",
+      "symbol": "simple-f6fdc8535c-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-f6fdc8535c-1",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Workspace.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Workspace.kt.md",
+      "symbol": "simple-f6fdc8535c-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-d8c991adb6-0",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/MainActivity.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/MainActivity.kt.md",
+      "symbol": "simple-d8c991adb6-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-0d1e071614-0",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt.md",
+      "symbol": "simple-0d1e071614-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-0d1e071614-1",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt.md",
+      "symbol": "simple-0d1e071614-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-716e739687-0",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentPane.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentPane.kt.md",
+      "symbol": "simple-716e739687-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-de002213e5-0",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/ParityTest.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/test/java/com/hickorydocs/simple/ParityTest.kt.md",
+      "symbol": "simple-de002213e5-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-4dc43924f5-0",
+      "output": "apps/android-simple/gradle/wrapper/gradle-wrapper.properties",
+      "page": ".hickory-source/frontends/apps/android-simple/gradle/wrapper/gradle-wrapper.properties.md",
+      "symbol": "simple-4dc43924f5-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-94203e3be5-0",
+      "output": "scripts/test-simple-kotlin.py",
+      "page": ".hickory-source/frontends/scripts/test-simple-kotlin.py.md",
+      "symbol": "simple-94203e3be5-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-72e004e1b0-0",
+      "output": "docs/developers/simple-frontends.md",
+      "page": ".hickory-source/frontends/docs/developers/simple-frontends.md.md",
+      "symbol": "simple-72e004e1b0-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-9492fd1ec5-0",
+      "output": ".github/workflows/simple-frontends.yml",
+      "page": ".hickory-source/frontends/.github/workflows/simple-frontends.yml.md",
+      "symbol": "simple-9492fd1ec5-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-b622660cef-0",
+      "output": "scripts/simple-browser-driver.mjs",
+      "page": ".hickory-source/frontends/scripts/simple-browser-driver.mjs.md",
+      "symbol": "simple-b622660cef-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-0799b7d31b-0",
+      "output": "scripts/test-simple-browser.py",
+      "page": ".hickory-source/frontends/scripts/test-simple-browser.py.md",
+      "symbol": "simple-0799b7d31b-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-5d9f52220f-0",
+      "output": "apps/web/src/simple/Terminal.tsx",
+      "page": ".hickory-source/frontends/apps/web/src/simple/Terminal.tsx.md",
+      "symbol": "simple-5d9f52220f-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-d7e70d9534-0",
+      "output": "apps/apple-simple/Sources/TerminalPane.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/TerminalPane.swift.md",
+      "symbol": "simple-d7e70d9534-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-8f29e9977d-0",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/TerminalPane.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/TerminalPane.kt.md",
+      "symbol": "simple-8f29e9977d-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-6cda6e9d31-0",
+      "output": "scripts/simple-android-gradle.rs",
+      "page": ".hickory-source/frontends/scripts/simple-android-gradle.rs.md",
+      "symbol": "simple-6cda6e9d31-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-6cda6e9d31-1",
+      "output": "scripts/simple-android-gradle.rs",
+      "page": ".hickory-source/frontends/scripts/simple-android-gradle.rs.md",
+      "symbol": "simple-6cda6e9d31-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-3119f25e95-0",
+      "output": "crates/hickory-cli/examples/simple_dev.rs",
+      "page": ".hickory-source/frontends/crates/hickory-cli/examples/simple_dev.rs.md",
+      "symbol": "simple-3119f25e95-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-3119f25e95-1",
+      "output": "crates/hickory-cli/examples/simple_dev.rs",
+      "page": ".hickory-source/frontends/crates/hickory-cli/examples/simple_dev.rs.md",
+      "symbol": "simple-3119f25e95-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-3119f25e95-2",
+      "output": "crates/hickory-cli/examples/simple_dev.rs",
+      "page": ".hickory-source/frontends/crates/hickory-cli/examples/simple_dev.rs.md",
+      "symbol": "simple-3119f25e95-2",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-3119f25e95-3",
+      "output": "crates/hickory-cli/examples/simple_dev.rs",
+      "page": ".hickory-source/frontends/crates/hickory-cli/examples/simple_dev.rs.md",
+      "symbol": "simple-3119f25e95-3",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-3119f25e95-4",
+      "output": "crates/hickory-cli/examples/simple_dev.rs",
+      "page": ".hickory-source/frontends/crates/hickory-cli/examples/simple_dev.rs.md",
+      "symbol": "simple-3119f25e95-4",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-3119f25e95-5",
+      "output": "crates/hickory-cli/examples/simple_dev.rs",
+      "page": ".hickory-source/frontends/crates/hickory-cli/examples/simple_dev.rs.md",
+      "symbol": "simple-3119f25e95-5",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {
