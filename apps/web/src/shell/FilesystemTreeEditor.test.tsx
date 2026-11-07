@@ -15,30 +15,12 @@ function editor(): EditorView {
   return found;
 }
 
-it("searches folded Files names through the shared icon and modal without changing text", () => {
-  const showModal = vi.fn(function (this: HTMLDialogElement) { this.open = true; });
-  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: showModal });
-  Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.open = false; } });
-  render(<FilesystemTreeEditor nodes={[
-    { name: "src", path: "src", dir: true, children: [
-      { name: "needle.ts", path: "src/needle.ts", dir: false },
-    ] },
-  ]} onChanged={() => {}} onOpenPath={() => {}} onContextPath={() => {}} />);
-  const view = editor(), before = view.state.doc.toString();
-  fireEvent.click(screen.getByRole("button", { name: "Search Files" }));
-  expect(showModal).toHaveBeenCalledOnce();
-  const field = screen.getByRole("searchbox", { name: "Search Files text" });
-  fireEvent.input(field, { target: { value: "NEEDLE" } });
-  expect(foldedRanges(view.state).size).toBe(0);
-  expect(view.dom.querySelector(".cm-searchMatch")?.textContent).toBe("needle");
-  expect(view.state.doc.toString()).toBe(before);
-  fireEvent.click(screen.getByRole("button", { name: "Close" }));
-  expect(view.dom.querySelector(".cm-searchMatch")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Search Files" }));
-  fireEvent.input(field, { target: { value: "" } });
-  expect(view.dom.querySelector(".cm-searchMatch")).toBeNull();
-  Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
-  Reflect.deleteProperty(HTMLDialogElement.prototype, "close");
+// Contract: .hickory-source/guarantees/authoring/the-editor-keeps-its-space/contract.md
+it("leaves search to the Files pane and displays no clean-buffer instructions", () => {
+  render(<FilesystemTreeEditor nodes={[{ name: "note.md", path: "note.md", dir: false }]} onChanged={() => {}} onOpenPath={() => {}} onContextPath={() => {}} />);
+  expect(screen.queryByRole("button", { name: /Search/ })).toBeNull();
+  expect(screen.queryByText(/Edit names or indentation/)).toBeNull();
+  expect(editor().state.doc.toString()).toBe("note.md");
 });
 
 it("starts with every folder collapsed while preserving the full editable tree", () => {

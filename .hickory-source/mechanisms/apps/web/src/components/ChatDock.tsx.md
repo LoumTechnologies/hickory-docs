@@ -62,7 +62,7 @@ import type {
   TranscriptEvent,
 } from "../api/types";
 import type { Realtime } from "../api/realtime";
-import { ConversationEditor, focusConversationResponse } from "../views/ConversationEditor";
+import { ConversationEditor } from "../views/ConversationEditor";
 import { ChatTree } from "./ChatTree";
 import { StopMark } from "./icons";
 import { useResponseRecovery } from "../lib/responseRecovery";
@@ -457,6 +457,8 @@ export function deepestFrom(turns: AgentTurn[], from: string): string {
 <a id="f-57557cac78c8-ChatDock"></a>
 ### `ChatDock`
 
+Keep the composer footer for the running-turn stop action. The send shortcut belongs on the Send button, so drafting does not require scanning a permanent instruction.
+
 Selected attachments remain a separate draft until the host accepts a turn. File
 reads finish before Send becomes available, and a document epoch discards late
 results after navigation. A failed send keeps the attachments available for retry.
@@ -537,7 +539,7 @@ function CameraCapture({ disabled, onFile, onError }: { disabled: boolean; onFil
     const epoch = cameraEpoch.current;
     canvas.toBlob(blob => { if (epoch !== cameraEpoch.current) return; if (blob) { onFile(new File([blob], "camera-photo.png", { type: "image/png" })); close(); } else onError("Could not capture the photo. Retry or attach an existing image."); }, "image/png");
   };
-  return <><button type="button" disabled={disabled} onClick={() => void open()}>Take picture</button>{stream && createPortal(<dialog ref={dialog} aria-label="Camera" onCancel={close} style={{ width: "min(70vw, 720px)", height: "70vh", background: "var(--bg, #222)", padding: 12 }}><video ref={video} autoPlay playsInline muted style={{ width: "100%", height: "80%", objectFit: "contain" }} /><button type="button" onClick={capture}>Use photo</button><button type="button" onClick={close}>Cancel</button></dialog>, document.body)}</>;
+  return <><button type="button" aria-label="Take picture" title="Take picture" disabled={disabled} onClick={() => void open()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M3 6h4l2-3h6l2 3h4v15H3Z"/><circle cx="12" cy="13" r="4"/></svg></button>{stream && createPortal(<dialog ref={dialog} aria-label="Camera" onCancel={close} style={{ width: "min(70vw, 720px)", height: "70vh", background: "var(--bg, #222)", padding: 12 }}><video ref={video} autoPlay playsInline muted style={{ width: "100%", height: "80%", objectFit: "contain" }} /><button type="button" onClick={capture}>Use photo</button><button type="button" onClick={close}>Cancel</button></dialog>, document.body)}</>;
 }
 
 export function ChatDock({
@@ -924,7 +926,7 @@ export function ChatDock({
           ) : (
             <>
               <ConversationEditor cancelDictation={cancelDictation} dictationScope={`${docId}:${tip ?? "root"}:${dictationGeneration}`} onDictatingChange={dictatingChanged} hasAttachments={attachments.length > 0} onFiles={files => void addFiles(files)} composerTools={<>
-                <button type="button" disabled={preparingAttachments || sending || !!running} onClick={() => attachmentPicker.current?.click()}>Attach files</button><input ref={attachmentPicker} aria-label="Attach files" type="file" multiple hidden disabled={preparingAttachments || sending || !!running} onChange={event => { void addFiles(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
+                <button type="button" aria-label="Attach files" title="Attach files" disabled={preparingAttachments || sending || !!running} onClick={() => attachmentPicker.current?.click()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m8 12 7-7a4 4 0 0 1 6 6L10 22a6 6 0 0 1-8-8L13 3M5 17l11-11"/></svg></button><input ref={attachmentPicker} aria-label="Attach files" type="file" multiple hidden disabled={preparingAttachments || sending || !!running} onChange={event => { void addFiles(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
                 <CameraCapture key={docId} disabled={preparingAttachments || sending || !!running} onFile={file => void addFiles([file])} onError={setError} />
                 {preparingAttachments && <span role="status">Preparing attachments…</span>}
                 {attachments.map((attachment, index) => <span key={index}>{attachment.media_type === "image/png" && <img alt={attachment.name} src={`data:image/png;base64,${attachment.data}`} width={48} height={48} style={{ objectFit: "contain" }} />} {attachment.name} <button type="button" aria-label={`Remove ${attachment.name}`} disabled={sending || preparingAttachments} onClick={() => setAttachments(items => items.filter((_, i) => i !== index))}>×</button> </span>)}
@@ -945,7 +947,6 @@ export function ChatDock({
       )}
 
       <div className="chat-composer">
-        <span className="muted">{!collapsed && !showTree ? <button className="btn-link" onClick={() => focusConversationResponse(logRef.current)}>Message agent</button> : "Your draft is in the conversation"} · Ctrl/⌘ + Enter</span>
         {running ? (
           // The way out of a runaway turn — a model looping mid-stream bills
           // tokens until somebody pulls this. Never disabled while a run is

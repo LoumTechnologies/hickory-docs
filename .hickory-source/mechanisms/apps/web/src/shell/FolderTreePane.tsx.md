@@ -648,9 +648,7 @@ export function FolderTreePane({
         }
       }}
     >
-      {/* Find and replace across everything, above the tree it acts on. Not
-          an overlay: this is a list you work through while the tree stays
-          where it is. */}
+      {/* Search opens above the tree without changing its geometry. */}
       <TreeFindReplace
         onOpenHit={(path, line) => onOpenHit?.(path, line)}
         onReplaced={() => window.dispatchEvent(new Event(FILES_CHANGED_EVENT))}
@@ -678,6 +676,8 @@ export function FolderTreePane({
 </storycode:copy>
 <a id="f-9c0af3061e25-FolderRoot"></a>
 ### `FolderRoot`
+
+Place creation after the file list and label it New document. The folder header identifies the root and retains recipe actions without an ambiguous plus button.
 
 <storycode:copy id="f-9c0af3061e25-FolderRoot">
 function FolderRoot({
@@ -883,15 +883,6 @@ function FolderRoot({
         >
           <RecipeFolderHeader name={name} revision={folder} paths={folder.tree.filter(node => !node.dir && ["justfile", ".justfile"].includes(node.name.toLowerCase())).map(node => node.path)} onOpenTerminal={onOpenTerminal} onError={setNotice} />
         </div>
-        <button
-          type="button"
-          className="folder-tree__new"
-          data-tip="New document"
-          aria-label="New document"
-          onClick={newFromHeader}
-        >
-          +
-        </button>
       </header>
       {folder.truncated && (
         <p className="muted folder-tree__truncated">Large folder — not everything is listed.</p>
@@ -976,6 +967,7 @@ function FolderRoot({
         extras={editorExtras}
         dirtyPaths={dirtyPaths}
       />
+      <button type="button" className="btn-link" onClick={newFromHeader}>+ New document</button>
       {detailFolder !== null && <ul className="folder-tree__list" role="tree">
         <GithubIssueRows workspace={github.value} folder={detailFolder} onChanged={github.refresh} />
       </ul>}

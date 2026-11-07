@@ -2,7 +2,7 @@ import { useId, useRef, useState, type ReactNode } from "react";
 import { UiActionsVisibility, useUiCommands, useUiPendingHumanActions } from "../lib/uiActionBridge";
 
 /** Occasional tab actions stay discoverable without occupying the toolbar. */
-export function MoreActions({ children, label = "More actions" }: { children: ReactNode; label?: string }) {
+export function MoreActions({ children, label = "More actions", glyph = "⚙" }: { children: ReactNode; label?: string; glyph?: ReactNode }) {
   const id = useId();
   const details = useRef<HTMLDetailsElement>(null);
   const [open, setOpen] = useState(false);
@@ -27,7 +27,7 @@ export function MoreActions({ children, label = "More actions" }: { children: Re
     if (event.key === "Escape") { close(); details.current?.querySelector("summary")?.focus(); event.stopPropagation(); }
   }}><summary aria-label={label} onClick={event => {
     event.preventDefault(); void invoke(key).catch(reason => setError(String(reason)));
-  }}>⋯</summary>
+  }} title={label}>{glyph}</summary>
     {error && <span role="alert">{error}</span>}
     <div className="more-actions__items" onClick={event => {
       if (!(event.target as HTMLElement).closest("button")) return;

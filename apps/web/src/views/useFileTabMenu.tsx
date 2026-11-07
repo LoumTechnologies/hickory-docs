@@ -1,11 +1,16 @@
-import { useEffect, useId, useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import type { FileNode } from "../api/types";
 import { docPathOf, isLikelyBinaryPath, type FolderTree } from "../shell/FolderTreePane";
 import { FileActionPrompts, runFileMenuItem } from "../shell/fileMenuActions";
 import { TreeContextMenu } from "../shell/TreeContextMenu";
 import { ContextMenu } from "../components/ContextMenu";
-import { request } from "../api/client";
+import { api, request } from "../api/client";
+import { createPortal } from "react-dom";
+import { showRepresentation } from "../lib/openRepresentation";
+import { representations } from "../api/representations";
+import { openCommit } from "../lib/readingViews";
+import type { GitCommit } from "../api/gitHistoryTypes";
 import { treeMenuItems } from "../shell/treeMenu";
 import { useDired } from "../shell/useDired";
 import type { Tab } from "../shell/layout";
@@ -25,7 +30,13 @@ export function useFileTabMenu(roots: readonly FolderTree[], activeDocId: string
   const [notice, setNotice] = useState<string | null>(null);
   const [webMenu, setWebMenu] = useState<{ target: string; x: number; y: number } | null>(null);
   const dired = useDired(setNotice);
-  useEffect(() => { setWebMenu(null); }, [owner]);
+  const [history, setHistory] = useState<string | null>(null);
+  useEffect(() => {
+    const show = (event: Event) => { const path = (event as CustomEvent<{ path: string }>).detail?.path; if (path && (roots.some(folder => findFile(folder.tree, path)) || targets.some(tab => tab.target === path))) setHistory(path); };
+    window.addEventListener("hickory-file-history", show);
+    return () => window.removeEventListener("hickory-file-history", show);
+  }, [owner]);
+  useEffect(() => { setWebMenu(null); setHistory(null); }, [owner]);
   useEffect(() => { if (menu && menu.owner !== owner) setMenu(null); }, [menu, owner]);
   const open = (tab: Tab, position: { x: number; y: number }) => {
     if (!["document", "generated", "file"].includes(tab.kind) || (tabs.length > 0 && !tabs.some(current => current.id === tab.id && current.kind === tab.kind && current.target === tab.target && current.docId === tab.docId))) return false;
@@ -90,6 +101,7 @@ export function useFileTabMenu(roots: readonly FolderTree[], activeDocId: string
   return {
     onTabContextMenu,
     fileTabMenu: <>
+      {history && <FileRevisionHistory key={history} path={history} close={() => setHistory(null)} />}
       {webMenu && <ContextMenu x={webMenu.x} y={webMenu.y} subject={webMenu.target}
         items={[["default", "default browser"], ["chrome", "Chrome"], ["firefox", "Firefox"], ["edge", "Edge"], ["brave", "Brave"],
           ...(/mac/i.test(navigator.platform) ? [["safari", "Safari"]] : [])].map(([id, name]) => ({ id, label: `Open in ${name}` }))}
@@ -111,4 +123,49 @@ export function useFileTabMenu(roots: readonly FolderTree[], activeDocId: string
       <FileActionPrompts dired={dired} />
     </>,
   };
+}
+/** Read revision choices independently; comparison loads Git bytes on demand. */
+function FileRevisionHistory({ path, close }: { path: string; close: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [commits, setCommits] = useState<GitCommit[] | null>(null);
+  const [base, setBase] = useState(""), [target, setTarget] = useState("");
+  const [error, setError] = useState(""), [busy, setBusy] = useState(false);
+  const live = useRef(true), pending = useRef(false);
+  useEffect(() => {
+    live.current = true; dialog.current?.showModal();
+    api.gitLog(1000, path).then(log => { if (live.current) { setCommits(log.commits); setBase(log.commits[0]?.sha ?? ""); } }, cause => { if (live.current) setError(String(cause)); });
+    return () => { live.current = false; };
+  }, [path]);
+  const parent = `file-history:${useId()}`;
+  const revision = useUiRevision(() => [path, commits, base, target, busy, error]);
+  const invoke = useUiCommands([
+    { key: `${parent}:select`, command: { parent, subject: parent, label: "Select file comparison revisions", parameters: { base: { type: "string", maxLength: 256 }, target: { type: "string", maxLength: 256 } }, prerequisites: [], read: () => ({ revision: revision(), enabled: !!commits && !busy }), execute: async args => {
+      if (!commits?.some(commit => commit.sha === args.base) || args.target !== "" && !commits?.some(commit => commit.sha === args.target)) return { status: "unavailable", reason: "Select revisions from this file’s loaded history" };
+      setBase(String(args.base)); setTarget(String(args.target)); return { status: "completed", value: { selected: true } };
+    } } },
+    { key: `${parent}:compare`, command: { parent, subject: parent, label: "Compare selected file revisions", parameters: {}, prerequisites: [], read: () => ({ revision: revision(), enabled: !!base && base !== target && !busy }), execute: async () => {
+      if (!base || base === target || pending.current) return { status: "unavailable", reason: "Choose two different revisions and wait for the current comparison" };
+      pending.current = true; setBusy(true); setError("");
+      try {
+        const reading = await representations.create({ kind: "files", paths: [path] });
+        if (!live.current) return { status: "unavailable", reason: "The file history was closed while its comparison loaded" };
+        showRepresentation(reading.id, base, target || undefined); close();
+        return { status: "completed", value: { comparison_requested: true, path } };
+      }
+      catch (cause) { if (live.current) setError(String(cause)); return { status: "unavailable", reason: String(cause) }; }
+      finally { pending.current = false; if (live.current) setBusy(false); }
+    } } },
+  ]);
+  const choices = (commits ?? []).map(commit => <option key={commit.sha} value={commit.sha}>{commit.short} · {commit.subject}</option>);
+  return createPortal(<dialog ref={dialog} aria-label={`Revision history for ${path}`} onCancel={close} style={{ width: "min(720px,85vw)", maxHeight: "80vh", overflow: "auto", background: "var(--bg-raised)", color: "var(--fg)", border: "1px solid var(--border)", borderRadius: 8 }}>
+    <header style={{ display: "flex", justifyContent: "space-between" }}><strong>{path}</strong><button type="button" onClick={close} aria-label="Close revision history">×</button></header>
+    {error && <p role="alert">{error}</p>}
+    {!commits && !error && <p role="status">Loading revisions…</p>}
+    {commits && !commits.length && <p>No recorded revisions.</p>}
+    {!!commits?.length && <><form onSubmit={event => { event.preventDefault(); void invoke(`${parent}:compare`); }} style={{ display: "flex", gap: 8, margin: "12px 0", flexWrap: "wrap" }}>
+      <label>From <select aria-label="Earlier file revision" value={base} disabled={busy} onChange={event => setBase(event.target.value)}>{choices}</select></label>
+      <label>To <select aria-label="Later file revision" value={target} disabled={busy} onChange={event => setTarget(event.target.value)}><option value="">Working tree</option>{choices}</select></label>
+      <button disabled={busy || !base || base === target}>{busy ? "Opening…" : "Compare"}</button>
+    </form><ul style={{ paddingLeft: 20 }}>{commits.map(commit => <li key={commit.sha}><button type="button" className="btn-link" onClick={() => openCommit(commit.sha)}>{commit.short} · {commit.subject}</button> <time>{new Date(commit.time * 1000).toLocaleDateString()}</time></li>)}</ul></>}
+  </dialog>, document.body);
 }

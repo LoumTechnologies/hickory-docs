@@ -23,8 +23,8 @@ it("discloses revision controls and shares typed selection, actual comparison an
   const actions = () => registry.groups().groups.flatMap(group => registry.observe(group).actions);
   let id = 0;
   const run = async (label: string, args = {}) => { let result: unknown; await act(async () => { result = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: actions().find(a => a.label === label)!.handle, arguments: args, request_id: String(++id) }); }); return result; };
-  expect(actions().map(a => a.label)).toEqual(["Set evidence visibility: older → past"]);
-  await run("Set evidence visibility: older → past", { open: true });
+  expect(actions().map(a => a.label)).toEqual(["Revision history"]);
+  await run("Revision history");
   expect(JSON.stringify(actions())).not.toContain(source);
   await run("Set literate comparison base", { value: "main~2" });
   expect((screen.getByLabelText("Comparison base") as HTMLInputElement).value).toBe("main~2");
@@ -34,8 +34,8 @@ it("discloses revision controls and shares typed selection, actual comparison an
   expect(compare).not.toHaveBeenCalled();
   expect(await run("Show literate revision diff")).toMatchObject({ status: "result", outcome: { status: "completed", value: { revision: "actual-revision" } } });
   expect(await run("Return literate view to current code")).toMatchObject({ status: "result", outcome: { status: "completed", value: { current_view_revision: "loaded-current" } } });
-  await run("Set evidence visibility: older → past", { open: false });
-  expect(actions().map(a => a.label)).toEqual(["Set evidence visibility: older → past"]);
+  await run("Revision history");
+  expect(actions().map(a => a.label)).toEqual(["Revision history"]);
 });
 
 it("folds the actual comparison editor without changing source", async () => {
@@ -47,7 +47,7 @@ it("folds the actual comparison editor without changing source", async () => {
     render(<UiActionContext.Provider value={registry}><RepresentationVersions id="lens" base="HEAD" target="" comparison={{ base: "old", target: null, source, target_source: source, editable: true, revision: "r" }} filesBacking source={source} editor={editor} dirty={false} busy={false} live={() => editor.state} setBase={vi.fn()} setTarget={vi.fn()} compare={vi.fn()} reset={vi.fn()} onError={vi.fn()} /></UiActionContext.Provider>);
     const actions = () => registry.groups().groups.flatMap(group => registry.observe(group).actions);
     const run = async (label: string, args = {}) => { let result: unknown; await act(async () => { result = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: actions().find(a => a.label === label)!.handle, arguments: args, request_id: label }); }); return result; };
-    await run("Set evidence visibility: old → current", { open: true });
+    await run("Revision history");
     expect(await run("Fold unchanged literate comparison regions")).toMatchObject({ status: "result", outcome: { status: "completed", value: { folded_regions: 1, source_written: false } } });
     expect(foldedRanges(editor.state).size).toBe(1);
     expect(editor.state.doc.toString()).toBe(source);

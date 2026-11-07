@@ -24,6 +24,8 @@ export const setSendState = StateEffect.define<{ enabled: boolean; label: string
 <a id="f-b22135a529bf-SendButton"></a>
 ### `SendButton`
 
+Expose the shortcut on hover using the host platform’s modifier. The button keeps its normal Send label and dispatches the existing guarded send callback.
+
 <storycode:copy id="f-b22135a529bf-SendButton">
 class SendButton extends WidgetType {
   constructor(readonly enabled: boolean, readonly label: string, readonly send: () => void) { super(); }
@@ -32,6 +34,7 @@ class SendButton extends WidgetType {
     const button = document.createElement("button");
     button.className = "btn btn-primary conversation-send";
     button.textContent = this.label;
+    button.title = `${this.label} (${/Mac|iPhone|iPad/i.test(navigator.platform) ? "⌘" : "Ctrl"}+Enter)`;
     button.disabled = !this.enabled;
     button.addEventListener("mousedown", event => event.preventDefault());
     button.addEventListener("click", this.send);

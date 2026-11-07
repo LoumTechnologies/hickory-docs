@@ -45,9 +45,8 @@ export function MergeDriverNotice() {
     try {
       const outcome = await api.initRepository();
       const wrote = Object.entries(outcome.changed).filter(([, changed]) => changed).map(([what]) => what.replace("_", "."));
-      setDone(outcome.ok
-        ? `hick init ran: ${wrote.length ? wrote.join(", ") : "everything was already in place"}. \`.md\` documents now merge through hick in this clone.`
-        : `hick init ran, but the driver is still not defined: ${outcome.status.summary}`);
+      if (outcome.ok) setDone(`hick init ran: ${wrote.length ? wrote.join(", ") : "everything was already in place"}. \`.md\` documents now merge through hick in this clone.`);
+      else setFailed(outcome.status.summary);
       return outcome.ok ? { status: "completed", value: { reply: JSON.stringify(outcome), scope: "Actual initialization reply; not a merge execution witness" } } : { status: "unavailable", reason: outcome.status.summary };
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e); setFailed(reason); return { status: "unavailable", reason };
@@ -82,33 +81,15 @@ export function MergeDriverNotice() {
   const human = (key: string) => void invoke(`${parent}:${key}`).catch(() => undefined);
   const evidence = <MergeDriverReading value={{ status, running, done, failed, scope: "Host merge-driver configuration and current repair state; not proof of an executed merge" }} />;
   if (!status || dismissed) return null;
-  if (done) {
-    return (
-      <div className="banner" role="status">
-        {evidence}
-        <span>{done}</span>
-        <button type="button" className="banner__dismiss" onClick={() => human("dismiss")}>
-          Dismiss
-        </button>
-      </div>
-    );
-  }
-  return (
-    <div className="banner banner-warn" role="status">
+  return <details className="merge-driver-status" style={{ position: "relative" }}>
+    <summary className="status-bar__item" aria-label={done ? "Repository setup result" : "Repository setup warning"} title={done ?? "Repository setup needed"} style={{ listStyle: "none", cursor: "pointer" }}>{done ? "✓" : "⚠"}</summary>
+    <div role="status" style={{ position: "fixed", left: 8, bottom: 32, zIndex: 100, width: "min(480px, 85vw)", padding: 12, background: "var(--bg-raised)", color: "var(--fg)", border: "1px solid var(--border)", borderRadius: 6, boxShadow: "var(--shadow)" }}>
       {evidence}
-      <span>{failed ? `${status.summary} — hick init failed: ${failed}` : status.summary}</span>
-      <button type="button" className="banner__action" onClick={() => human("init")} disabled={running}>
-        {running ? "Running hick init…" : "Run hick init"}
-      </button>
-      <button
-        type="button"
-        className="banner__dismiss"
-        onClick={() => human("dismiss")}
-      >
-        Dismiss
-      </button>
+      <p>{done ?? (failed ? `Repository setup failed: ${failed}. Try again.` : "Set up Hickory merging for Markdown files in this repository.")}</p>
+      {!done && <button type="button" onClick={() => human("init")} disabled={running}>{running ? "Setting up…" : "Run hick init"}</button>}
+      <button type="button" onClick={() => human("dismiss")}>Dismiss</button>
     </div>
-  );
+  </details>;
 }
 
 function MergeDriverReading({ value }: { value: unknown }) { useUiReading("merge driver notice", value); return null; }

@@ -4,12 +4,30 @@
 For: Authors editing executable documents and the files those documents produce.
 
 Given the desktop workspace, when editing a document or plain file, then view
-identity, editability and write destination use an information control in that
-pane’s existing header. Document-wide Run/Test and plain-file Debug live in its
+identity is conveyed by the tab and content rather than an explanatory information
+control. One search icon in the pane header opens a modal with replacement for
+writable buffers; conversation cards share one search control. Empty audit and
+unrecorded check summaries are hidden. Composer tools are icons with accessible
+names, and the platform-specific send shortcut appears on hover. Repository setup
+warnings live in the status bar. The tab-strip ellipsis lists open tabs; file
+actions use a distinct menu, and file/tab context menus offer revision history
+and relative/absolute path copying. Creating a document belongs after the file
+list. Document-wide Run/Test and plain-file Debug live in its
 header’s action menu. Cell actions remain on the right-hand action rail;
 crowded gutter actions open a floating grid without displacing later rows. A document with no rail actions reserves
 no empty action column; adding a cell restores its actions. Editor instances, source bytes and
 selections are not replaced by moving their controls.
+
+Focused verification on 2026-11-06: 107 selected frontend tests passed across
+conversation editing, Files replacement, file history, menus, save races and
+plain/generated editor guards. Frontend type checking passed. The disposable
+native-host browser witness (`bash scripts/test-spatial-ui.sh --compact`) passed
+modal replacement and undo, retained draft text, one search per surface,
+status-bar warning placement, root recipe popover visibility and unchanged
+editor/tree geometry. Its merge-driver status is a presentation-boundary stub;
+it does not establish repair success. Actual initialization replies remain
+covered by `MergeDriverNotice.test.tsx`. These checks do not certify the packaged
+desktop build or every inherited UI surface. Broad regressions were not run.
 
 ## Recipe buttons and gutter overflow
 
@@ -387,9 +405,9 @@ two different programs.
 // two different programs.
 
 import { Decoration, EditorView, ViewPlugin, keymap } from "@codemirror/view";
-import { Prec, StateEffect, type Extension } from "@codemirror/state";
+import { Prec, type Extension } from "@codemirror/state";
 import { foldedRanges, unfoldEffect } from "@codemirror/language";
-import { SearchCursor } from "@codemirror/search";
+import { SearchQuery, search, setSearchQuery, replaceAll } from "@codemirror/search";
 import { gutterIconLayout } from "./gutterIconLayout";
 
 /** Which of the two looks an editor wears. */
@@ -398,6 +416,8 @@ export type ChromeKind = "document" | "code";
 </storycode:copy>
 <a id="f-a4f9707ac652-editorChrome"></a>
 ### `editorChrome`
+
+Local search uses one modal for each pane. Conversation cards register their separate editors under the conversation host, preserving independent undo and read-only boundaries. Match case, whole-word and regular-expression queries use CodeMirror’s matcher and replacement command. Replacement is offered only for writable editors; the editor’s transaction filters remain authoritative. Search controls join the pane header when available and never overlay each recorded turn.
 
 The shared chrome.
 Everything here reads a token, never a literal colour, so all three themes
@@ -508,61 +528,111 @@ export function editorChrome(kind: ChromeKind): Extension {
   })];
 }
 
-// The same local find interaction serves document text and Files row names.
-// Decorations leave the buffer unchanged; revealing a match only opens folds.
+// One modal per working surface. Conversation cards share it without sharing
+// their editor state, so searching never reconstructs the draft or its history.
+const paneSearchGroups = new WeakMap<HTMLElement, {
+  views: Set<EditorView>; query: SearchQuery; open: () => void; refresh: () => void; destroy: () => void;
+}>();
 export function paneSearch(label: string): Extension {
-  const refresh = StateEffect.define<null>();
   const plugin = ViewPlugin.fromClass(class {
-    query = "";
     decorations = Decoration.none;
-    button = document.createElement("button");
-    dialog = document.createElement("dialog");
-    input = document.createElement("input");
-    status = document.createElement("span");
+    group: NonNullable<ReturnType<typeof paneSearchGroups.get>>;
+    host: HTMLElement;
     constructor(readonly view: EditorView) {
-      this.button.type = "button";
-      this.button.setAttribute("aria-label", `Search ${label}`);
-      this.button.title = `Search ${label}`;
-      this.button.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></svg>';
-      this.button.style.cssText = "position:absolute;right:8px;top:4px;z-index:5;background:var(--bg-raised);color:var(--fg);border:1px solid var(--border);border-radius:4px;cursor:pointer";
-      this.dialog.setAttribute("aria-label", `Search ${label}`);
-      this.dialog.style.cssText = "background:var(--bg-raised);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:16px";
-      this.input.type = "search";
-      this.input.placeholder = `Search ${label}`;
-      this.input.setAttribute("aria-label", `Search ${label} text`);
-      this.input.oninput = () => {
-        this.query = this.input.value;
-        const effects: ReturnType<typeof unfoldEffect.of>[] = [];
-        if (this.query) foldedRanges(view.state).between(0, view.state.doc.length, (from, to) => {
-          if (view.state.sliceDoc(from, to).toLowerCase().includes(this.query.toLowerCase()))
-            effects.push(unfoldEffect.of({ from, to }));
+      this.host = view.dom.closest<HTMLElement>(".conversation-document") ?? view.dom;
+      let group = paneSearchGroups.get(this.host);
+      if (!group) {
+        const views = new Set<EditorView>();
+        const button = document.createElement("button");
+        button.type = "button";
+        const name = this.host === view.dom ? label : "conversation";
+        button.setAttribute("aria-label", `Search ${name}`);
+        button.title = `Search ${name}`;
+        button.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></svg>';
+        button.style.cssText = "background:transparent;color:var(--fg);border:0;border-radius:4px;padding:5px;cursor:pointer";
+        const toolbar = document.createElement("div");
+        toolbar.className = "pane-search-tools";
+        toolbar.style.cssText = "display:flex;justify-content:flex-end;position:sticky;top:0;z-index:5;height:28px;flex-shrink:0";
+        toolbar.append(button);
+        const header = this.host.closest(".shell-pane")?.querySelector(".pane-header-actions");
+        if (header) header.append(toolbar); else this.host.prepend(toolbar);
+        const dialog = document.createElement("dialog");
+        dialog.setAttribute("aria-label", `Search ${name}`);
+        dialog.style.cssText = "background:var(--bg-raised);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:16px;width:min(480px,80vw)";
+        const input = document.createElement("input"), replacement = document.createElement("input");
+        input.type = "search"; input.placeholder = "Find"; input.setAttribute("aria-label", `Search ${name} text`);
+        replacement.placeholder = "Replace with"; replacement.setAttribute("aria-label", "Replace with");
+        const status = document.createElement("p"), options = document.createElement("div"), controls = document.createElement("div");
+        status.setAttribute("role", "status");
+        options.style.cssText = controls.style.cssText = "display:flex;gap:8px;margin-top:8px;align-items:center";
+        const toggles: HTMLInputElement[] = [];
+        for (const name of ["Match case", "Whole word", "Regular expression"]) {
+          const label = document.createElement("label"), toggle = document.createElement("input");
+          toggle.type = "checkbox"; toggle.setAttribute("aria-label", name); toggles.push(toggle); label.append(toggle, name); options.append(label);
+        }
+        const action = (name: string, run: () => void) => { const control = document.createElement("button"); control.type = "button"; control.textContent = name; control.onclick = run; controls.append(control); return control; };
+        let current: { view: EditorView; from: number; to: number } | null = null;
+        const matches = () => {
+          const found: { view: EditorView; from: number; to: number }[] = [];
+          if (!group!.query.valid) return found;
+          for (const view of views) {
+            const cursor = group!.query.getCursor(view.state);
+            for (let match = cursor.next(); !match.done; match = cursor.next()) found.push({ view, ...match.value });
+          }
+          return found;
+        };
+        const refresh = () => {
+          const found = matches();
+          status.textContent = input.value && !group!.query.valid ? "Invalid expression" : `${found.length} matches`;
+          const writable = [...views].some(view => !view.state.readOnly);
+          replacement.hidden = replace.hidden = !writable;
+          replace.disabled = !group!.query.valid;
+        };
+        const navigate = (direction: number) => {
+          const found = matches(); if (!found.length) return;
+          const index = current ? found.findIndex(match => match.view === current!.view && match.from === current!.from && match.to === current!.to) : direction > 0 ? -1 : 0;
+          current = found[(index + direction + found.length) % found.length];
+          const { view, from, to } = current;
+          const effects = [];
+          foldedRanges(view.state).between(0, view.state.doc.length, (start, end) => { if (start < to && end > from) effects.push(unfoldEffect.of({ from: start, to: end })); });
+          effects.push(EditorView.scrollIntoView(from, { y: "center" }));
+          view.dispatch({ selection: { anchor: from, head: to }, effects });
+        };
+        action("Previous", () => navigate(-1)); action("Next", () => navigate(1));
+        const replace = action("Replace all", () => {
+          for (const view of views) if (!view.state.readOnly) { view.dispatch({ effects: setSearchQuery.of(group!.query) }); replaceAll(view); }
+          current = null; refresh();
         });
-        view.dispatch({ effects: [...effects, refresh.of(null)] });
-      };
-      const close = document.createElement("button");
-      close.type = "button"; close.textContent = "Close";
-      close.onclick = () => this.dialog.close();
-      this.dialog.onclose = () => this.button.focus();
-      this.dialog.append(this.input, this.status, close);
-      this.button.onclick = () => this.open();
-      view.dom.append(this.button, this.dialog);
-    }
-    open() { if (!this.dialog.open) this.dialog.showModal(); this.input.focus(); }
-    update() {
-      const marks = [];
-      if (this.query) {
-        const cursor = new SearchCursor(this.view.state.doc, this.query, 0, this.view.state.doc.length, text => text.toLowerCase());
-        while (!cursor.next().done)
-          marks.push(Decoration.mark({ class: "cm-searchMatch" }).range(cursor.value.from, cursor.value.to));
+        action("Close", () => dialog.close());
+        const update = () => {
+          group!.query = new SearchQuery({ search: input.value, replace: replacement.value, caseSensitive: toggles[0].checked, wholeWord: toggles[1].checked, regexp: toggles[2].checked });
+          current = null;
+          for (const view of views) view.dispatch({ effects: setSearchQuery.of(group!.query) });
+          refresh();
+        };
+        input.oninput = replacement.oninput = update; toggles.forEach(toggle => { toggle.onchange = update; });
+        input.onkeydown = event => { if (event.key === "Enter") { event.preventDefault(); navigate(event.shiftKey ? -1 : 1); } };
+        dialog.onclose = () => button.focus();
+        dialog.append(input, replacement, options, status, controls); document.body.append(dialog);
+        group = { views, query: new SearchQuery({ search: "" }), refresh, open: () => { refresh(); if (!dialog.open) dialog.showModal(); input.focus(); }, destroy: () => { toolbar.remove(); dialog.remove(); } };
+        paneSearchGroups.set(this.host, group); button.onclick = group.open;
       }
-      this.decorations = Decoration.set(marks);
-      this.status.textContent = ` ${marks.length} matches `;
+      this.group = group; group.views.add(view);
     }
-    destroy() { this.button.remove(); this.dialog.remove(); }
+    open() { this.group.open(); }
+    update() {
+      const marks = [], query = this.group.query;
+      if (query.valid) {
+        const cursor = query.getCursor(this.view.state);
+        for (let match = cursor.next(); !match.done; match = cursor.next()) {
+          if (match.value.to > match.value.from) marks.push(Decoration.mark({ class: "cm-searchMatch" }).range(match.value.from, match.value.to));
+        }
+      }
+      this.decorations = Decoration.set(marks); this.group.refresh();
+    }
+    destroy() { this.group.views.delete(this.view); if (!this.group.views.size) { this.group.destroy(); paneSearchGroups.delete(this.host); } }
   }, { decorations: value => value.decorations });
-  return [plugin, Prec.highest(keymap.of([{ key: "Mod-f", run: view => {
-    view.plugin(plugin)?.open(); return true;
-  } }]))];
+  return [search(), plugin, Prec.highest(keymap.of([{ key: "Mod-f", run: view => { view.plugin(plugin)?.open(); return true; } }]))];
 }
 </storycode:copy>
 
@@ -1044,7 +1114,7 @@ it("keeps info and actions in the header without recreating the editing surface"
   const source = screen.getByRole("textbox") as HTMLTextAreaElement;
   source.setSelectionRange(1, 4);
   expect(screen.getByTestId("header").contains(screen.getByRole("button", { name: "old" }))).toBe(true);
-  expect(screen.getByTestId("header").querySelector(".surface-info")).toBeTruthy();
+  expect(screen.getByTestId("header").querySelector(".surface-info")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "old" }));
   expect(screen.getByRole("textbox")).toBe(source);
   expect(source.value).toBe("unchanged");
@@ -1228,6 +1298,8 @@ function Harness({ kind = "file", target = "input.txt" }: { kind?: Tab["kind"]; 
 ### `expression_statement`
 
 <storycode:copy id="f-721476aea697-expression_statement">
+Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.open = true; } });
+Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.open = false; this.dispatchEvent(new Event("close")); } });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 </storycode:copy>
 <a id="f-721476aea697-expression_statement-2"></a>
@@ -1306,6 +1378,31 @@ it("discloses current file-tab targets, opens the real menu and retires the form
   expect(await registry.act(registry.scope, { id: "acp:tabs", kind: "agent" }, { handle: old.handle, arguments: {}, request_id: "old" })).not.toMatchObject({ outcome: { status: "completed" } });
   await run("Open file tab context menu", { tab: "tab1" });
   expect(screen.queryByRole("menuitem", { name: /Make literate/ })).toBeNull();
+});
+
+// Contract: .hickory-source/guarantees/authoring/the-editor-keeps-its-space/contract.md
+it("loads revisions for the right-clicked file and opens the selected comparison", async () => {
+  const calls: unknown[] = [];
+  installMockHandler(async (method, path, body) => {
+    calls.push([method, path, body]);
+    if (path.startsWith("/api/git/log")) return { repository: true, commits: [{ sha: "old", short: "old", subject: "Change input", time: 1, parents: [] }] };
+    if (path === "/api/representations") return { id: "history-view" };
+    return {};
+  });
+  const opened = vi.fn(); window.addEventListener("hickory.open-representation", opened);
+  try {
+    render(<Harness />);
+    fireEvent.contextMenu(screen.getByText("File tab"));
+    expect(screen.getByRole("menuitem", { name: "Copy absolute path" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Copy relative path" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Revision history…" }));
+    await screen.findByRole("button", { name: /old · Change input/ });
+    expect(calls).toContainEqual(["GET", "/api/git/log?limit=1000&path=input.txt", undefined]);
+    fireEvent.click(screen.getByRole("button", { name: "Compare" }));
+    await waitFor(() => expect(opened).toHaveBeenCalled());
+    expect(calls).toContainEqual(["POST", "/api/representations", { backing: { kind: "files", paths: ["input.txt"] } }]);
+    expect(opened.mock.calls[0][0].detail).toEqual({ id: "history-view", base: "old", target: undefined });
+  } finally { window.removeEventListener("hickory.open-representation", opened); }
 });
 </storycode:copy>
 

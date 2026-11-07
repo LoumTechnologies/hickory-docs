@@ -15,6 +15,8 @@ Related contracts: [Read the retained branch of an agent conversation](../../../
 <a id="f-b5a48fd337ae-DocToolbar"></a>
 ### `DocToolbar`
 
+Use a gear for document actions so the tab-strip ellipsis consistently opens the vertical tab list. Pending and failed saves retain their existing authoritative status.
+
 <storycode:copy id="f-b5a48fd337ae-DocToolbar">
 import { DiskChangeNotice } from "../components/MergeView";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
@@ -121,7 +123,7 @@ function DocToolbar({
         data-tip="More actions for this document"
         onClick={() => { void invoke(key).catch(cause => setError(String(cause))); }}
       >
-        ⋯
+        ⚙
       </button>
       {menuAt && (
         <ContextMenu

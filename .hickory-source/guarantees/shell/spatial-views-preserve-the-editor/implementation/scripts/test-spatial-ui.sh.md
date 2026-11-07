@@ -54,6 +54,10 @@ for _ in $(seq 1 100); do
   sleep .1
 done
 [ -n "$ui_origin" ] || { cat "$run_dir/vite.log"; exit 1; }
+if [ "${1:-}" = "--compact" ]; then
+  uv run --with playwright==1.63.0 python scripts/test-quiet-workspace.py "$ui_origin" --compact
+  exit
+fi
 if [ "${1:-}" = "--links" ]; then
   "${HICKORY_SYSTEM_PYTHON:-python3}" scripts/test-quiet-workspace.py "$ui_origin" --links
   exit

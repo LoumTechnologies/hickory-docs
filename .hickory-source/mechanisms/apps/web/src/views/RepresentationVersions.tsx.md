@@ -17,7 +17,7 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 import { useId } from "react";
 import { EditorView } from "@codemirror/view";
 import { foldEffect, foldedRanges, unfoldAll } from "@codemirror/language";
-import { EvidenceDisclosure } from "../components/EvidenceDisclosure";
+import { MoreActions } from "../components/MoreActions";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import type { UiCommand, UiOutcome } from "../lib/uiActions";
 import type { Comparison } from "../api/representations";
@@ -32,14 +32,13 @@ type Props = { id: string; base: string; target: string; comparison: Comparison 
 <a id="f-879e8370bfea-RepresentationVersions"></a>
 ### `RepresentationVersions`
 
+Revision comparison stays behind the history clock. Opening it exposes revision selectors without a permanent Compare revisions sentence in the tab strip.
+
 <storycode:copy id="f-879e8370bfea-RepresentationVersions">
 export function RepresentationVersions(props: Props) {
-  const c = props.comparison;
-  return <EvidenceDisclosure className="representation-versions" label={c ? `${c.base.slice(0, 8)} → ${c.target?.slice(0, 8) ?? "current"}` : "Compare revisions…"}
-    value={{ id: props.id, base: props.base, target: props.target, comparison: c && { base: c.base, target: c.target, editable: c.editable, revision: c.revision }, scope: "Comparison identity; read displayed source and diff separately. Explanations are not evidence from the compared commit." }}>
-    <VersionControls {...props} />
-  </EvidenceDisclosure>;
+  return <MoreActions glyph="◷" label="Revision history"><VersionControls {...props} /></MoreActions>;
 }
+
 </storycode:copy>
 <a id="f-879e8370bfea-VersionControls"></a>
 ### `VersionControls`
@@ -72,7 +71,7 @@ function VersionControls(props: Props) {
   const invoke = useUiCommands(commands);
   const human = (key: string, args = {}) => void invoke(`${parent}:${key}`, args).catch(e => props.onError(String(e)));
   const c = props.comparison;
-  return <div className="representation-versions__menu"><form className="representation-comparison" onSubmit={e => { e.preventDefault(); human("compare"); }}>
+  return <div className="representation-history"><form className="representation-comparison" onSubmit={e => { e.preventDefault(); human("compare"); }}>
     <label>Earlier revision <input aria-label="Comparison base" value={props.base} disabled={props.busy} placeholder="HEAD, branch, or commit" onChange={e => props.setBase(e.target.value)} /></label>
     <label>Compare with <input aria-label="Comparison target" value={props.target} disabled={props.busy} placeholder="Current code (editable)" onChange={e => props.setTarget(e.target.value)} /></label>
     <button className="btn" disabled={props.dirty || props.busy}>Show diff</button>

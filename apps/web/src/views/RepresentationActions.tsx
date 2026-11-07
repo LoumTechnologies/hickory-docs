@@ -27,10 +27,8 @@ export function RepresentationActions(props: Props) {
   const human = (key: string) => void invoke(`${parent}:${key}`).catch(e => props.onNotice(String(e)));
   useUiReading("literate view status", { id: props.record.id, revision: props.record.revision, backing: props.record.backing, dirty: props.dirty, pending: props.busy, historical: props.historical, explanation_stale: props.record.explanation_stale, warning: props.record.local_warning, scope: "Loaded host revision and local buffer status; source and file contents require explicit editor reading. Saved does not establish execution correctness." });
   return <>
-    <button className="btn btn-primary" disabled={!props.dirty || props.busy || props.historical} onClick={() => human("save")}>{props.busy ? "Working…" : "Save"}</button>
-    <button className="btn" disabled={props.dirty || props.busy || props.historical} onClick={() => human("refresh")}>Refresh from source</button>
-    <span role="status">{props.dirty ? "Unsaved changes" : "Saved"}</span>
-    <MoreActions label={`More actions for literate view ${props.record.id}`}><RepresentationMenu {...props} /></MoreActions>
+    {props.dirty && <button className="btn btn-primary" disabled={props.busy || props.historical} onClick={() => human("save")}>{props.busy ? "Working…" : "Save"}</button>}
+    <MoreActions label={`More actions for literate view ${props.record.id}`}><button className="btn" disabled={props.dirty || props.busy || props.historical} onClick={() => human("refresh")}>Refresh from source</button><RepresentationMenu {...props} /></MoreActions>
   </>;
 }
 

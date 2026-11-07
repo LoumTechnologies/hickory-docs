@@ -8,6 +8,11 @@ reported, in path order, or the answer says it stopped and why; and when those
 matches are replaced, then exactly the matches that were shown are rewritten,
 except in files a document generates, which are refused by name.
 
+The Files pane exposes one magnifying-glass control. Query, replacement and match
+options open in a modal; opening or closing it does not reflow the file list.
+This supersedes the retained inline presentation detail below, while keeping
+per-file refusal and source-identity checks authoritative.
+
 The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
 
 ## Read the detailed requirements
@@ -115,12 +120,14 @@ Related contracts: [Find And Replace Is Exhaustive, And Refuses What It Would Un
 
 <storycode:copy id="f-60a64147ca82-expression_statement">
 // Guarantee: docs/guarantees/search/find-and-replace-is-exhaustive.md
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { api } from "../api/client";
 import { UiActions } from "../lib/uiActions";
 import { UiActionContext } from "../lib/uiActionBridge";
 import { TreeFindReplace } from "./TreeFindReplace";
+Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.open = true; } });
+Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.open = false; this.dispatchEvent(new Event("close")); } });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 </storycode:copy>
 <a id="f-60a64147ca82-expression_statement-2"></a>
@@ -151,6 +158,18 @@ it("discloses search, validates hit identity and replaces with observed hashes",
   expect(replace).toHaveBeenCalledWith("old", "new", { case: false, whole_word: false, regex: false }, ["source.md"], { "source.md": "a".repeat(64) });
   expect(replaced).toHaveBeenCalledWith(expect.objectContaining({ skipped: [expect.objectContaining({ reason: "source_changed" })] }));
 });
+// Contract: .hickory-source/guarantees/search/find-and-replace-is-exhaustive/contract.md
+it("opens one modal search with replacement and all match options", () => {
+  const rendered = render(<TreeFindReplace onOpenHit={vi.fn()} onReplaced={vi.fn()} />);
+  expect(screen.queryByPlaceholderText("Find")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Search files" }));
+  expect(screen.getByRole("dialog", { name: "Search files" })).toBeTruthy();
+  expect(rendered.container.querySelector("dialog")).toBeNull();
+  expect(screen.getByPlaceholderText("Replace with")).toBeTruthy();
+  for (const name of ["Match case", "Whole word", "Regular expression"]) expect(screen.getByRole("button", { name })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Close find" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
 </storycode:copy>
 
 ### Assemble `apps/web/src/shell/TreeFindReplace.test.tsx`
@@ -169,6 +188,8 @@ Related contracts: [Find And Replace Is Exhaustive, And Refuses What It Would Un
 <a id="f-a222850e0cd6-TreeFindReplace"></a>
 ### `TreeFindReplace`
 
+The magnifying glass opens a native modal containing the existing query, replacement, options and per-file results. Escape and Close restore the file-list control without reflow. Source-identity and generated-file guards still belong to the existing replacement request, independent of presentation.
+
 Find and replace across the whole folder, at the top of the tree.
 It lives here rather than in an overlay because it is not a question you
 ask and dismiss — it is a list you work through, ticking files, while the
@@ -185,25 +206,10 @@ write use the same matcher on the server (one pattern, built once), so
 the list cannot describe a different edit from the one performed.
 
 <storycode:copy id="f-a222850e0cd6-TreeFindReplace">
-// Find and replace across the whole folder, at the top of the tree.
-//
-// It lives here rather than in an overlay because it is not a question you
-// ask and dismiss — it is a list you work through, ticking files, while the
-// tree beneath it stays where it was. The ranked search overlay (⌘⇧F) is the
-// other thing, and stays: "where is the bit about invoices" and "rename this
-// symbol in 40 files" are different jobs with different right answers.
-//
-// Two rules the UI exists to enforce:
-//
-//  - **A generated file is shown and refused.** Not hidden: its matches are
-//    real and worth reading. But replace will not write it, because the next
-//    weave would undo the edit — so the row says which document to change
-//    instead, which is also the change that fixes every other copy.
-//  - **Nothing is written until Replace is pressed.** The preview and the
-//    write use the same matcher on the server (one pattern, built once), so
-//    the list cannot describe a different edit from the one performed.
-
+// Folder find and replace lives in a modal: opening options and results
+// must not push the file list away from the row the reader was using.
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import type { UiCommand, UiField } from "../lib/uiActions";
 
@@ -230,9 +236,12 @@ export function TreeFindReplace({
   const [report, setReport] = useState<ReplaceResponse | null>(null);
   const [reload, setReload] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const searchButton = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    if (open) inputRef.current?.focus();
+    if (open) { if (!dialogRef.current?.open) dialogRef.current?.showModal(); inputRef.current?.focus(); }
+    else if (dialogRef.current?.open) dialogRef.current.close();
   }, [open]);
 
   // A keystroke is not a question — a pause is. Guarded against a slow
@@ -313,21 +322,11 @@ export function TreeFindReplace({
   }
   useUiCommands(commands);
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        className="tree-find__open"
-        data-tip="Find and replace across every file in this folder"
-        onClick={() => setOpen(true)}
-      >
-        Find in folder…
-      </button>
-    );
-  }
-
-  return (
-    <section className="tree-find" aria-label="Find and replace in this folder">
+  return <>
+    <div style={{ display: "flex", justifyContent: "flex-end", height: 28 }}><button ref={searchButton} type="button" aria-label="Search files" title="Search files" onClick={() => setOpen(true)} style={{ background: "transparent", border: 0, color: "var(--fg)", cursor: "pointer" }}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></svg>
+    </button></div>
+    {open && createPortal(<dialog ref={dialogRef} className="tree-find" aria-label="Search files" onCancel={() => setOpen(false)} onClose={() => { setOpen(false); searchButton.current?.focus(); }} style={{ width: "min(680px, 85vw)", maxHeight: "80vh", overflow: "auto", background: "var(--bg-raised)", color: "var(--fg)", border: "1px solid var(--border)", borderRadius: 8 }}>
       <div className="tree-find__fields">
         <input
           ref={inputRef}
@@ -455,8 +454,8 @@ export function TreeFindReplace({
           </li>
         ))}
       </ul>
-    </section>
-  );
+    </dialog>, document.body)}
+  </>;
 }
 </storycode:copy>
 

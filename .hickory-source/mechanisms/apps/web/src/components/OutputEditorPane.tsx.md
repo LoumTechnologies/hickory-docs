@@ -15,6 +15,8 @@ Related contracts: [Keep divergent output until an explicit decision names the w
 <a id="f-2571b0682164-HighlightRange"></a>
 ### `HighlightRange`
 
+Plain and generated file search uses the same header icon and modal as document search. Replacement still passes through the existing read-only, region ownership and source-revision checks.
+
 <storycode:copy id="f-2571b0682164-HighlightRange">
 import { immutableScaffoldOutput, capturedOutputRanges, setScaffoldOutputRanges } from "../editor/immutableScaffolds";
 import { performanceInline } from "../performance/inline";
@@ -56,7 +58,7 @@ import { fencedCodeRanges, isMarkdownPath, markdownStyling } from "../editor/mar
 import { taskCheckboxes } from "../editor/taskList";
 import { renderedMath } from "../editor/mathRender";
 import { proseWrap } from "../editor/wrapColumn";
-import { editorChrome } from "../editor/chrome";
+import { editorChrome, paneSearch } from "../editor/chrome";
 import { completions } from "../lsp/completion";
 import { api } from "../api/client";
 import { blameGutter } from "../editor/blameGutter";
@@ -302,6 +304,7 @@ export function OutputEditorPane({
             project: (prefix, around) =>
               api.complete(prefix, around).then((answer) => answer.suggestions),
           }),
+          paneSearch("generated file"),
           search({ top: true }),
           // Word motion first: bindings for one key run in registration
           // order and the first to return true wins, so these must arrive

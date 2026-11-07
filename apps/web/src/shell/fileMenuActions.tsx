@@ -10,6 +10,7 @@ export function runFileMenuItem(item: TreeMenuItem, dired: Dired, notice: (text:
   const action = item.action;
   const failed = (e: unknown) => notice(e instanceof Error ? e.message : String(e));
   switch (action.kind) {
+    case "history": window.dispatchEvent(new CustomEvent("hickory-file-history", { detail: { path: action.path } })); return true;
     case "copy": void copyText(action.text).catch(failed); return true;
     case "reveal": void api.reveal(action.path).catch(failed); return true;
     case "open": void api.openExternal(action.path).catch(failed); return true;

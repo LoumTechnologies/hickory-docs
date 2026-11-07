@@ -25,17 +25,9 @@ it("shares welcome callbacks and the saved preference without disclosing hidden 
   expect(localStorage.getItem(WELCOME_KEY)).toBe("1");
   expect(screen.getByLabelText("Show this page when a folder opens")).toHaveProperty("checked",true);
 });
-it("shares surface disclosure and removes retired controls", async () => {
+it("keeps ordinary editor identity out of the visual chrome", () => {
   const registry = new UiActions({workspace:"workspace",window:"info"},()=>true,async()=>{});
   const view = render(<UiActionContext.Provider value={registry}><SurfaceInfo name="Generated" editable={false} destination="Review source to change this output" /></UiActionContext.Provider>);
-  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group,64).actions);
-  const action = actions().find(action => action.label === "Set information visibility for Generated")!;
-  expect(screen.getByLabelText("About this view")).toHaveProperty("open",false);
-  await act(async()=> { await registry.act(registry.scope,{kind:"agent",id:"reader"},{handle:action.handle,arguments:{open:true},request_id:"show"}); });
-  expect(screen.getByLabelText("About this view")).toHaveProperty("open",true);
-  const details = screen.getByLabelText("About this view");
-  (details as HTMLDetailsElement).open=false; fireEvent(details,new Event("toggle"));
-  expect(details).toHaveProperty("open",false);
-  view.unmount();
-  expect(actions()).toEqual([]);
+  expect(view.container.textContent).toBe("");
+  expect(registry.groups().groups.flatMap(group => registry.observe(group).actions).some(action => action.label.startsWith("Set information visibility"))).toBe(false);
 });

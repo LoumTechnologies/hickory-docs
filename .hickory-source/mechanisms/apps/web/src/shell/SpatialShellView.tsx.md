@@ -20,6 +20,7 @@ import { UiActionsVisibility, useUiCommands, useUiRevision } from "../lib/uiActi
 import type { UiCommand, UiField, UiOutcome } from "../lib/uiActions";
 import { PRIMARY, dockTile, pruneTiles, tileRects, type DockEdge } from "./spatialTiles";
 import { SPATIAL_RIBBON_OPEN, type SpatialRibbonOpen } from "./spatialNavigation";
+import { MoreActions } from "../components/MoreActions";
 import { PaneHeaderProvider, PaneHeaderSlots } from "./PaneHeader";
 import { openCommandBar } from "./CommandBar";
 import { useCallback, useEffect, useMemo, useRef, useState, useId, type SetStateAction, type PointerEvent } from "react";
@@ -91,6 +92,8 @@ const paneId = (entry: Entry) => `spatial-pane-${entry.tab?.id ?? encodeURICompo
 </storycode:copy>
 <a id="f-64456f67b44e-SpatialShellView"></a>
 ### `SpatialShellView`
+
+The drawer already names Files, so its inner buffer repeats no title. The center’s ellipsis lists open tabs vertically; gear menus keep file actions distinct. Activating a listed tab follows the existing center navigation and retains each mounted editor.
 
 Opening a folder overrides a collapsed or disabled left drawer after hydration and
 the Files tab arrive. Pinning reserves editor space, and clearing the left offset
@@ -433,7 +436,7 @@ export function SpatialShellView(props: Props) {
           if (entry && !controller.suppressClick) pinView(entry);
         }}
         onDoubleClickCapture={event => { if ((event.target as HTMLElement).closest("[data-tree-path]")) { pendingSide.current = side; props.onLayout(split(layout, pane.id, "row", side === "right")); } }}>
-        <button role="tab" aria-label={side === "left" ? "Files" : "Right file buffer"} aria-selected={layout.focus === pane.id} className="spatial-files-title" onClick={() => props.onLayout(focus(layout, pane.id))}>Files</button><div className="shell-pane__body"><UiActionsVisibility visible={visible[side] && files[side]}>{props.render(tab, pane)}</UiActionsVisibility></div>
+        <div className="shell-pane__body"><UiActionsVisibility visible={visible[side] && files[side]}>{props.render(tab, pane)}</UiActionsVisibility></div>
       </section>;
     })}
     {entries.map(entry => { const tab = entry.tab, centered = entry.key === center?.key, tiled = tiledKeys.has(entry.key), central = centered || tiled, name = relative(entry.path, props.folderRoot), title = tab?.title ?? props.ports?.find(port => port.id === entry.key)?.label ?? name;
@@ -460,9 +463,10 @@ export function SpatialShellView(props: Props) {
           </div> : <button type="button" role={tab ? "tab" : undefined} aria-label={title} aria-selected={tab ? layout.focus === entry.pane?.id : undefined} className="spatial-filename" data-tip={name} data-shell-tab-kind={tab?.kind} data-shell-tab-target={entry.path} data-shell-tab-source={entry.path} data-shell-tab-vertical={true} data-shell-tab-buffer={tab ? bufferTarget(tab.id) : undefined}
             onContextMenu={event => { if (tab) props.onTabContextMenu?.(event, tab); }}
             data-ribbon-port={entry.port ? entry.key : undefined} onClick={() => click(() => { if (entry.port) openPort(entry); else if (!centered) { if (tab?.kind === "untitled") centerOn(entry); else controller.toggle(entry.key); } })}>{tab && !["document", "generated", "file"].includes(tab.kind) ? title : name || title}{tab && props.dirtyTabIds?.has(tab.id) ? " *" : ""}</button>}
+          {centered && <MoreActions glyph="⋯" label="Open tabs">{entries.filter(candidate => candidate.tab).map(candidate => <button type="button" key={candidate.key} aria-current={candidate.key === entry.key ? "page" : undefined} onClick={() => centerOn(candidate)}>{candidate.tab?.title ?? relative(candidate.path, props.folderRoot)}{props.dirtyTabIds?.has(candidate.tab!.id) ? " *" : ""}</button>)}</MoreActions>}
           <PaneHeaderSlots />
           <div className="spatial-window-controls">
-            {centered ? <><button data-tip="Search (Ctrl/Cmd+P)" aria-label="Open search" onClick={() => openCommandBar()}>⌕</button><button data-tip="Restore previous center" aria-label="Restore previous center" onClick={restore}>▣</button>{filesWindows && (sides.left || sides.right) && entries.some(item => item.tab && item.key !== entry.key) && <button data-tip="Pin view in drawer" aria-label="Pin view in drawer" onClick={() => pinCentered(entry)}><PinIcon /></button>}<button data-tip="Automatic accordion" aria-label="Automatic accordion" aria-pressed={scene.auto} onClick={() => setAccordion(!scene.auto)}>↕</button></>
+            {centered ? <><button data-tip="Restore previous center" aria-label="Restore previous center" onClick={restore}>▣</button>{filesWindows && (sides.left || sides.right) && entries.some(item => item.tab && item.key !== entry.key) && <button data-tip="Pin view in drawer" aria-label="Pin view in drawer" onClick={() => pinCentered(entry)}><PinIcon /></button>}<button data-tip="Automatic accordion" aria-label="Automatic accordion" aria-pressed={scene.auto} onClick={() => setAccordion(!scene.auto)}>↕</button></>
               : <><button data-tip={scene.views[entry.key]?.pin ? "Unpin view" : "Pin view"} aria-label={scene.views[entry.key]?.pin ? "Unpin view" : "Pin view"} aria-pressed={!!scene.views[entry.key]?.pin} onClick={() => click(() => { if (tiled) { controller.pin(entry.key); dockHandler.current(entry.key, sides[entry.side] ? entry.side : sides.left ? "left" : "right", "center"); } else pinView(entry); })}><PinIcon /></button>
                 <button data-tip="Center" aria-label="Center" onClick={() => click(() => centerOn(entry))}>□</button>{!tiled && <button data-tip="Minimize" aria-label="Minimize" onClick={() => { if (controller.frames.get(entry.key)?.h !== 36) controller.toggle(entry.key); }}>—</button>}</>}
             {tab && !centered && <button data-tip={`Close ${title}`} aria-label={`Close ${title}`} onClick={() => close(entry)}>×</button>}

@@ -12,6 +12,7 @@ export type { AuditRecord } from "../api/sessionTypes";
 /** All branches stay available here; declared rationale never becomes proof. */
 export function AssumptionAudit({ records, path, source }: { records: AuditRecord[]; path: string; source?: string }) {
   const declared = records.filter(record => record.record_kind === "audit").length;
+  if (!declared && !records.some(record => record.record_kind === "audit-gap")) return null;
   return <EvidenceDisclosure className="assumption-audit" label={`Assumption audit · ${declared} declared records · all branches`}
     value={{ path, declared_records: declared, completeness_established: false }}>
     <AuditBody key={path} records={records} path={path} source={source} />
@@ -103,6 +104,6 @@ export function VerificationStanding({ records, turn, running }: { records: Audi
   const scope = record?.scope ?? "Document execution and expectations only; semantic support is not assessed";
   useUiReading("verification standing", { state, revision: record?.revision ?? null, turn: turn ?? null,
     scope });
-  return <p className="verification-standing" role="status">Hickory checks: <strong>{state}</strong>
-    {record?.revision && <> · revision <code>{record.revision}</code></>}. {scope}.</p>;
+  if (!record) return null;
+  return <p className="verification-standing" role="status" title={`${scope}${record.revision ? ` · ${record.revision}` : ""}`}>Checks: <strong>{state}</strong></p>;
 }

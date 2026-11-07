@@ -1,10 +1,12 @@
 // Guarantee: docs/guarantees/search/find-and-replace-is-exhaustive.md
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { api } from "../api/client";
 import { UiActions } from "../lib/uiActions";
 import { UiActionContext } from "../lib/uiActionBridge";
 import { TreeFindReplace } from "./TreeFindReplace";
+Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.open = true; } });
+Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.open = false; this.dispatchEvent(new Event("close")); } });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 it("discloses search, validates hit identity and replaces with observed hashes", async () => {
   const find = vi.spyOn(api, "find").mockResolvedValue({ files: [{ path: "source.md", source_hash: "a".repeat(64), matches: [{ line: 3, text: "old", at: [{ column: 0, length: 3 }] }] }], truncated: false });
@@ -29,4 +31,16 @@ it("discloses search, validates hit identity and replaces with observed hashes",
   expect(await invoke(parent, "Replace folder matches")).toMatchObject({ outcome: { value: { changed_files: 0, skipped_files: 1, replacements: 0 } } });
   expect(replace).toHaveBeenCalledWith("old", "new", { case: false, whole_word: false, regex: false }, ["source.md"], { "source.md": "a".repeat(64) });
   expect(replaced).toHaveBeenCalledWith(expect.objectContaining({ skipped: [expect.objectContaining({ reason: "source_changed" })] }));
+});
+// Contract: .hickory-source/guarantees/search/find-and-replace-is-exhaustive/contract.md
+it("opens one modal search with replacement and all match options", () => {
+  const rendered = render(<TreeFindReplace onOpenHit={vi.fn()} onReplaced={vi.fn()} />);
+  expect(screen.queryByPlaceholderText("Find")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Search files" }));
+  expect(screen.getByRole("dialog", { name: "Search files" })).toBeTruthy();
+  expect(rendered.container.querySelector("dialog")).toBeNull();
+  expect(screen.getByPlaceholderText("Replace with")).toBeTruthy();
+  for (const name of ["Match case", "Whole word", "Regular expression"]) expect(screen.getByRole("button", { name })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Close find" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
 });

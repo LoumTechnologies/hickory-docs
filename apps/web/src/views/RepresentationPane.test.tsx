@@ -58,14 +58,14 @@ describe("saving a working representation", () => {
     let complete!: (record: Representation) => void;
     const edit = vi.spyOn(representations, "edit").mockImplementation(() => new Promise(done => { complete = done; }));
     const { editor } = await mount();
-    expect(screen.getByLabelText("About this view").textContent).toContain("code.py");
+    expect(screen.queryByLabelText("About this view")).toBeNull();
     fireEvent.change(editor, { target: { value: "first edit" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(edit).toHaveBeenCalledWith("v", "r1", "first edit");
     fireEvent.change(editor, { target: { value: "newer edit" } });
     await act(async () => complete(record("first edit", "r2")));
     expect((editor as HTMLTextAreaElement).value).toBe("newer edit");
-    expect(screen.getByText("Unsaved changes")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
     expect(viewBuffers.get("tab-v")?.dirty).toBe(true);
     edit.mockResolvedValue(record("newer edit", "r3"));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -87,9 +87,9 @@ describe("saving a working representation", () => {
 
 it("keeps revision selection in a closed menu until requested", async () => {
   await mount();
-  const menu = screen.getByText("Compare revisions…").closest("details")!;
+  const menu = screen.getByLabelText("Revision history").closest("details")!;
   expect(menu.open).toBe(false);
-  fireEvent.click(screen.getByText("Compare revisions…"));
+  fireEvent.click(screen.getByLabelText("Revision history"));
   expect(menu.open).toBe(true);
   expect((screen.getByLabelText("Comparison target") as HTMLInputElement).placeholder).toBe("Current code (editable)");
 });
@@ -99,6 +99,7 @@ it("keeps later typing when a source refresh completes", async () => {
   let complete!: (value: Representation) => void;
   const refresh = vi.spyOn(representations, "refresh").mockImplementation(() => new Promise(done => { complete = done; }));
   const { editor } = await mount();
+  fireEvent.click(screen.getByLabelText("More actions for literate view v"));
   fireEvent.click(screen.getByRole("button", { name: "Refresh from source" }));
   expect(refresh).toHaveBeenCalledWith("v");
   fireEvent.change(editor, { target: { value: "typed during refresh" } });
@@ -112,7 +113,7 @@ it("keeps later typing when a revision comparison completes", async () => {
   let complete!: (value: Awaited<ReturnType<typeof representations.compare>>) => void;
   vi.spyOn(representations, "compare").mockImplementation(() => new Promise(done => { complete = done; }));
   const { editor } = await mount();
-  fireEvent.click(screen.getByText("Compare revisions…"));
+  fireEvent.click(screen.getByLabelText("Revision history"));
   fireEvent.click(screen.getByRole("button", { name: "Show diff" }));
   fireEvent.change(editor, { target: { value: "typed during comparison" } });
   await act(async () => complete({ base: "HEAD", target: "past", source: "base", target_source: "historical", editable: false, revision: "r2" }));
@@ -124,12 +125,12 @@ it("keeps later typing when a revision comparison completes", async () => {
 it("honors a read-only comparison reply and returns to loaded current code", async () => {
   vi.spyOn(representations, "compare").mockResolvedValue({ base: "resolved", target: null, source: "base", target_source: "old", editable: false, revision: "r2" });
   const { editor } = await mount();
-  fireEvent.click(screen.getByText("Compare revisions…"));
+  fireEvent.click(screen.getByLabelText("Revision history"));
   fireEvent.click(screen.getByRole("button", { name: "Show diff" }));
   await waitFor(() => expect((editor as HTMLTextAreaElement).readOnly).toBe(true));
   fireEvent.click(screen.getByRole("button", { name: "Return to current code" }));
   await waitFor(() => expect((editor as HTMLTextAreaElement).readOnly).toBe(false));
-  expect(screen.getByText("Saved")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
 });
 
 // Guarantee: docs/guarantees/lenses/a-view-declares-where-edits-land.md

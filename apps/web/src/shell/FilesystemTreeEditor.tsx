@@ -15,7 +15,7 @@ import { Decoration, EditorView, highlightActiveLine, keymap, lineNumbers } from
 import { api } from "../api/client";
 import type { FileNode } from "../api/types";
 import { filesystemTreeFolding } from "../editor/filesystemTreeFolding";
-import { editorChrome, paneSearch } from "../editor/chrome";
+import { editorChrome } from "../editor/chrome";
 import { multipleCursors } from "../editor/multiCursor";
 import { justRecipeGutter, launchJustRecipe, type JustRecipe } from "../editor/justRecipeGutter";
 import {
@@ -108,7 +108,7 @@ export function FilesystemTreeEditor({
   const [pendingDeletes, setPendingDeletes] = useState<{ paths: string[]; source: string; version: string; plan: PreparedPlan } | null>(null);
   const [receipt, setReceipt] = useState<UiValue>(null);
   const [dryRun, setDryRun] = useState<{ lines?: string[]; error?: string } | null>(null);
-  const [message, setMessage] = useState("Edit names or indentation. Changes stay here until Apply.");
+  const [message, setMessage] = useState("");
   const lastRecipeNodes = useRef(nodes);
   const refreshRecipes = useRef<() => void>(() => undefined);
   const recipePending = useRef(false);
@@ -165,7 +165,6 @@ export function FilesystemTreeEditor({
         doc: projection.map((line) => line.text).join("\n"),
         extensions: [
           editorChrome("code"),
-          paneSearch("Files"),
           recipeConfig.of(recipes()),
           EditorState.transactionFilter.of(transaction => {
             if (!transaction.docChanged) return transaction;

@@ -1671,9 +1671,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       {tool !== "review" && <ReviewEvents />}
       <CommandBar candidates={commandCandidates} overlay />
       <div className="doc-main">
-        {/* Asked at open, because a clone that never ran `hick init` merges
-            `.md` documents with git's line merge and is told nothing. */}
-        {folderOpen && <MergeDriverNotice />}
         <div className="shell-host" ref={setShellBox}>
           {/* The machinery, one per open document, none of it visible: the
               tabs below subscribe to what these publish. */}
@@ -1872,6 +1869,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         path={focusedPath}
         zoom={zoom.uiZoom}
         extra={<>
+          {folderOpen && <MergeDriverNotice />}
           <WorkspaceStatusExtras
             provenance={{ layers, onToggle: toggleProvenance, displayed: paintedFamilies, continuity, onContinuity: setContinuityEnabled }}
             environmentCount={environments.notices.length}

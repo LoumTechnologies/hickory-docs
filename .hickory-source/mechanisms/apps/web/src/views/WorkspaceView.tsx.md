@@ -356,6 +356,8 @@ export type WorkspaceRoute = Extract<
 <a id="f-47afe3575948-WorkspaceView"></a>
 ### `WorkspaceView`
 
+Mount the repository setup indicator in the status bar beside other workspace state. The editor area stays the same size as configuration status arrives.
+
 Connection legends are fed by the overlay after caret and hover filtering. File tools capture their tab, source and editor when opened, so a later focus change cannot redirect review or export. Optional tool panels load through a lazy boundary; closing one leaves the editor mounted.
 
 <storycode:copy id="f-47afe3575948-WorkspaceView">
@@ -1843,9 +1845,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       {tool !== "review" && <ReviewEvents />}
       <CommandBar candidates={commandCandidates} overlay />
       <div className="doc-main">
-        {/* Asked at open, because a clone that never ran `hick init` merges
-            `.md` documents with git's line merge and is told nothing. */}
-        {folderOpen && <MergeDriverNotice />}
         <div className="shell-host" ref={setShellBox}>
           {/* The machinery, one per open document, none of it visible: the
               tabs below subscribe to what these publish. */}
@@ -2044,6 +2043,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         path={focusedPath}
         zoom={zoom.uiZoom}
         extra={<>
+          {folderOpen && <MergeDriverNotice />}
           <WorkspaceStatusExtras
             provenance={{ layers, onToggle: toggleProvenance, displayed: paintedFamilies, continuity, onContinuity: setContinuityEnabled }}
             environmentCount={environments.notices.length}

@@ -103,7 +103,7 @@ function DocToolbar({
         data-tip="More actions for this document"
         onClick={() => { void invoke(key).catch(cause => setError(String(cause))); }}
       >
-        ⋯
+        ⚙
       </button>
       {menuAt && (
         <ContextMenu

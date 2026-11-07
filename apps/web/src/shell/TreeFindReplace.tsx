@@ -1,22 +1,7 @@
-// Find and replace across the whole folder, at the top of the tree.
-//
-// It lives here rather than in an overlay because it is not a question you
-// ask and dismiss — it is a list you work through, ticking files, while the
-// tree beneath it stays where it was. The ranked search overlay (⌘⇧F) is the
-// other thing, and stays: "where is the bit about invoices" and "rename this
-// symbol in 40 files" are different jobs with different right answers.
-//
-// Two rules the UI exists to enforce:
-//
-//  - **A generated file is shown and refused.** Not hidden: its matches are
-//    real and worth reading. But replace will not write it, because the next
-//    weave would undo the edit — so the row says which document to change
-//    instead, which is also the change that fixes every other copy.
-//  - **Nothing is written until Replace is pressed.** The preview and the
-//    write use the same matcher on the server (one pattern, built once), so
-//    the list cannot describe a different edit from the one performed.
-
+// Folder find and replace lives in a modal: opening options and results
+// must not push the file list away from the row the reader was using.
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import type { UiCommand, UiField } from "../lib/uiActions";
 
@@ -43,9 +28,12 @@ export function TreeFindReplace({
   const [report, setReport] = useState<ReplaceResponse | null>(null);
   const [reload, setReload] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const searchButton = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    if (open) inputRef.current?.focus();
+    if (open) { if (!dialogRef.current?.open) dialogRef.current?.showModal(); inputRef.current?.focus(); }
+    else if (dialogRef.current?.open) dialogRef.current.close();
   }, [open]);
 
   // A keystroke is not a question — a pause is. Guarded against a slow
@@ -126,21 +114,11 @@ export function TreeFindReplace({
   }
   useUiCommands(commands);
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        className="tree-find__open"
-        data-tip="Find and replace across every file in this folder"
-        onClick={() => setOpen(true)}
-      >
-        Find in folder…
-      </button>
-    );
-  }
-
-  return (
-    <section className="tree-find" aria-label="Find and replace in this folder">
+  return <>
+    <div style={{ display: "flex", justifyContent: "flex-end", height: 28 }}><button ref={searchButton} type="button" aria-label="Search files" title="Search files" onClick={() => setOpen(true)} style={{ background: "transparent", border: 0, color: "var(--fg)", cursor: "pointer" }}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></svg>
+    </button></div>
+    {open && createPortal(<dialog ref={dialogRef} className="tree-find" aria-label="Search files" onCancel={() => setOpen(false)} onClose={() => { setOpen(false); searchButton.current?.focus(); }} style={{ width: "min(680px, 85vw)", maxHeight: "80vh", overflow: "auto", background: "var(--bg-raised)", color: "var(--fg)", border: "1px solid var(--border)", borderRadius: 8 }}>
       <div className="tree-find__fields">
         <input
           ref={inputRef}
@@ -268,6 +246,6 @@ export function TreeFindReplace({
           </li>
         ))}
       </ul>
-    </section>
-  );
+    </dialog>, document.body)}
+  </>;
 }

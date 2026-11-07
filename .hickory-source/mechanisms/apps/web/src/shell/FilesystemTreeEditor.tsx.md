@@ -33,7 +33,7 @@ import { Decoration, EditorView, highlightActiveLine, keymap, lineNumbers } from
 import { api } from "../api/client";
 import type { FileNode } from "../api/types";
 import { filesystemTreeFolding } from "../editor/filesystemTreeFolding";
-import { editorChrome, paneSearch } from "../editor/chrome";
+import { editorChrome } from "../editor/chrome";
 import { multipleCursors } from "../editor/multiCursor";
 import { justRecipeGutter, launchJustRecipe, type JustRecipe } from "../editor/justRecipeGutter";
 import {
@@ -119,6 +119,8 @@ function projectedLines(nodes: readonly FileNode[], extras: readonly WorkspaceTe
 <a id="f-d30e9ea77e15-FilesystemTreeEditor"></a>
 ### `FilesystemTreeEditor`
 
+The clean Files buffer needs no instructional status sentence or second search button. Editing reveals the existing Dry run and Apply actions; folder search owns the pane’s single search control.
+
 The Files pane initially shows only top-level rows. Fold each directory, including
 nested directories, when constructing the projection so opening a parent still
 leaves its child folders collapsed. Folding preserves the complete editable buffer
@@ -163,7 +165,7 @@ export function FilesystemTreeEditor({
   const [pendingDeletes, setPendingDeletes] = useState<{ paths: string[]; source: string; version: string; plan: PreparedPlan } | null>(null);
   const [receipt, setReceipt] = useState<UiValue>(null);
   const [dryRun, setDryRun] = useState<{ lines?: string[]; error?: string } | null>(null);
-  const [message, setMessage] = useState("Edit names or indentation. Changes stay here until Apply.");
+  const [message, setMessage] = useState("");
   const lastRecipeNodes = useRef(nodes);
   const refreshRecipes = useRef<() => void>(() => undefined);
   const recipePending = useRef(false);
@@ -220,7 +222,6 @@ export function FilesystemTreeEditor({
         doc: projection.map((line) => line.text).join("\n"),
         extensions: [
           editorChrome("code"),
-          paneSearch("Files"),
           recipeConfig.of(recipes()),
           EditorState.transactionFilter.of(transaction => {
             if (!transaction.docChanged) return transaction;

@@ -112,9 +112,9 @@ function DictationButton({ disabled, onText, onActive, cancelRef }: { cancelRef?
     }, 5000);
     try { current.stop(); } catch { release(true); setStatus("Dictation stopped. Completed text is kept; you can retry."); }
   };
-  return <span style={{ display: "inline-flex", position: "relative" }}><button type="button" style={{ minWidth: 120 }} disabled={disabled || finishing} aria-pressed={active}
-    title="Use browser speech recognition to dictate draft text. Review your message before sending."
-    onMouseDown={event => event.preventDefault()} onClick={() => active ? stop() : start()}>{active ? "Stop dictation" : "Dictate"}</button>
+  return <span style={{ display: "inline-flex", position: "relative" }}><button type="button" aria-label={active ? "Stop dictation" : "Dictate"} disabled={disabled || finishing} aria-pressed={active}
+    title={active ? "Stop dictation" : "Dictate"}
+    onMouseDown={event => event.preventDefault()} onClick={() => active ? stop() : start()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg></button>
     <span role="status" aria-label="Dictation status" title={status} style={{ position: "absolute", bottom: "calc(100% + 4px)", left: 0, width: "min(360px, 70vw)", maxHeight: 96, overflow: "auto", zIndex: 10, padding: status ? "4px 6px" : 0, background: "var(--bg-raised)", color: "var(--fg)", boxShadow: status ? "var(--shadow)" : undefined }}>{status}</span></span>;
 }
 
@@ -212,7 +212,6 @@ export function ConversationEditor({ dictationScope = "response", onDictatingCha
       onDropCapture={event => { const files = Array.from(event.dataTransfer.files); if (files.length && onFiles) { event.preventDefault(); event.stopPropagation(); onFiles(files); } }}>
       <div aria-label="Chat input tools" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}><DictationButton key={dictationScope} disabled={sending} cancelRef={cancelDictation}
         onText={text => dictate(text, dictationScope)} onActive={active => { setDictating(active); onDictatingChange?.(active); }} />{composerTools}</div>
-      <header>Message agent</header>
       <ConversationBuffer reading={{ source: "", links: [] }} path={null} source={null} id="response" readOnly={false} hasAttachments={hasAttachments} onView={view => { composer.current = view; }}
         running={running} sending={sending} draft={draft} onDraft={onDraft} onSend={onSend} canSend={canSend && !dictating} showCollapsedLineage={false} />
     </section>

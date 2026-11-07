@@ -51,9 +51,9 @@ it("discloses the bounded shared-UI check scope only on its recorded turn", () =
   const checks: AuditRecord[] = [{ record_kind: "verification", turn: "selected", state: "passed", current_state: "unchanged", revision: "root-digest", scope, session_line: 5 }];
   const view = render(<VerificationStanding records={checks} turn="selected" running={false} />);
   expect(screen.getByText("passed")).toBeTruthy();
-  expect(screen.getByRole("status").textContent).toContain(scope);
+  expect(screen.getByRole("status").title).toContain(scope);
   view.rerender(<VerificationStanding records={checks} turn="another-turn" running={false} />);
-  expect(screen.getByText("not recorded")).toBeTruthy();
+  expect(screen.queryByText("not recorded")).toBeNull();
   expect(screen.queryByText("root-digest")).toBeNull();
 });
 

@@ -42,7 +42,7 @@ import { fencedCodeRanges, isMarkdownPath, markdownStyling } from "../editor/mar
 import { taskCheckboxes } from "../editor/taskList";
 import { renderedMath } from "../editor/mathRender";
 import { proseWrap } from "../editor/wrapColumn";
-import { editorChrome } from "../editor/chrome";
+import { editorChrome, paneSearch } from "../editor/chrome";
 import { multipleCursors } from "../editor/multiCursor";
 import { testGutter } from "../editor/testGutter";
 import { showTerminalRequest } from "../lib/revealLine";
@@ -460,6 +460,7 @@ export function PlainFilePane({
                 : null,
             onMessage: setNotice,
           }),
+          paneSearch("file"),
           search({ top: true }),
           // Word motion first: bindings for one key run in registration
           // order and the first to return true wins, so these must arrive

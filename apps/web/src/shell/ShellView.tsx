@@ -11,6 +11,7 @@ import { workspaceIsVisible } from "../lib/workspaceVisibility";
 //
 // See docs/specs/freeform/shell-layouts.md.
 
+import { MoreActions } from "../components/MoreActions";
 import { isAction } from "../lib/keymap";
 import { useCallback, useEffect, useLayoutEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 
@@ -626,6 +627,7 @@ function PaneBox({
             )}
           </div>
         )}
+        <MoreActions glyph="⋯" label="Open tabs">{pane.tabs.map((tab, index) => <button type="button" key={tab.id} aria-current={index === pane.active ? "page" : undefined} onClick={() => onLayout(activate(layout, pane.id, index))}>{tab.title ?? tab.target}{dirtyTabIds?.has(tab.id) ? " *" : ""}</button>)}</MoreActions>
         <div className="shell-pane__controls">
           {/* The last visible pane refuses to collapse (layout.ts) — with no
               sibling to take the freed space, a strip would just float in an

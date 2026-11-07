@@ -69,6 +69,7 @@ export type TreeMenuAction =
    * in the folder tree now — they have a working directory, and the tree
    * already draws directories, so "open one here" is a verb of the row. */
   | { kind: "terminal"; path: string }
+  | { kind: "history"; path: string }
   /** Start a terminal in a fresh git worktree, on its own branch. */
   | { kind: "worktree"; path: string }
   /** Persist a credentialless GitHub issue → folder association. */
@@ -215,6 +216,8 @@ export function subjects(path: string, marked?: ReadonlySet<string>): string[] {
 <a id="f-19605cc8cff0-treeMenuItems"></a>
 ### `treeMenuItems`
 
+Revision history belongs to each file’s context menu, alongside relative and absolute path copying. The action carries the selected path, so a background tab cannot accidentally request the focused file’s history.
+
 <storycode:copy id="f-19605cc8cff0-treeMenuItems">
 export function treeMenuItems(
   folder: TreeFolder,
@@ -249,6 +252,7 @@ export function treeMenuItems(
     items.push({ id: "copy-to", label: `Copy to…${count}`, action: { kind: "copy-to", paths: many } });
     items.push({ id: "delete", label: `Delete${count}`, action: { kind: "delete", paths: many } });
   }
+  if (!dir) items.push({ id: "history", label: "Revision history…", action: { kind: "history", path }, group: true });
   const absolute = absolutePath(folder, path);
   if (absolute) {
     items.push({

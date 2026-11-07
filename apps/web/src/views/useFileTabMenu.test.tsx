@@ -18,6 +18,8 @@ function Harness({ kind = "file", target = "input.txt" }: { kind?: Tab["kind"]; 
   const { onTabContextMenu, fileTabMenu } = useFileTabMenu([folder], "doc1", new Map(), opened, [{ id: "tab1", kind, target }]);
   return <><button onContextMenu={event => onTabContextMenu(event, { id: "tab1", kind, target })}>File tab</button>{fileTabMenu}</>;
 }
+Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.open = true; } });
+Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.open = false; this.dispatchEvent(new Event("close")); } });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 it("offers every Files menu action and acts on the right-clicked tab", async () => {
   const calls: unknown[] = [];
@@ -71,4 +73,29 @@ it("discloses current file-tab targets, opens the real menu and retires the form
   expect(await registry.act(registry.scope, { id: "acp:tabs", kind: "agent" }, { handle: old.handle, arguments: {}, request_id: "old" })).not.toMatchObject({ outcome: { status: "completed" } });
   await run("Open file tab context menu", { tab: "tab1" });
   expect(screen.queryByRole("menuitem", { name: /Make literate/ })).toBeNull();
+});
+
+// Contract: .hickory-source/guarantees/authoring/the-editor-keeps-its-space/contract.md
+it("loads revisions for the right-clicked file and opens the selected comparison", async () => {
+  const calls: unknown[] = [];
+  installMockHandler(async (method, path, body) => {
+    calls.push([method, path, body]);
+    if (path.startsWith("/api/git/log")) return { repository: true, commits: [{ sha: "old", short: "old", subject: "Change input", time: 1, parents: [] }] };
+    if (path === "/api/representations") return { id: "history-view" };
+    return {};
+  });
+  const opened = vi.fn(); window.addEventListener("hickory.open-representation", opened);
+  try {
+    render(<Harness />);
+    fireEvent.contextMenu(screen.getByText("File tab"));
+    expect(screen.getByRole("menuitem", { name: "Copy absolute path" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Copy relative path" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Revision history…" }));
+    await screen.findByRole("button", { name: /old · Change input/ });
+    expect(calls).toContainEqual(["GET", "/api/git/log?limit=1000&path=input.txt", undefined]);
+    fireEvent.click(screen.getByRole("button", { name: "Compare" }));
+    await waitFor(() => expect(opened).toHaveBeenCalled());
+    expect(calls).toContainEqual(["POST", "/api/representations", { backing: { kind: "files", paths: ["input.txt"] } }]);
+    expect(opened.mock.calls[0][0].detail).toEqual({ id: "history-view", base: "old", target: undefined });
+  } finally { window.removeEventListener("hickory.open-representation", opened); }
 });

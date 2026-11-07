@@ -11,6 +11,7 @@ class SendButton extends WidgetType {
     const button = document.createElement("button");
     button.className = "btn btn-primary conversation-send";
     button.textContent = this.label;
+    button.title = `${this.label} (${/Mac|iPhone|iPad/i.test(navigator.platform) ? "⌘" : "Ctrl"}+Enter)`;
     button.disabled = !this.enabled;
     button.addEventListener("mousedown", event => event.preventDefault());
     button.addEventListener("click", this.send);

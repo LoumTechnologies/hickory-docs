@@ -21,6 +21,8 @@ reload or merge against the last acknowledged content. A clean buffer also
 requires a choice unless safe automatic reload is enabled.
 
 
+Plain and generated file search uses the same header icon and modal as document search. Replacement still passes through the existing read-only, region ownership and source-revision checks.
+
 <storycode:copy id="f-2f891a49445f-PlainFilePane">
 import { performanceInline } from "../performance/inline";
 import { coverageGutter } from "../coverage/gutter";
@@ -66,7 +68,7 @@ import { fencedCodeRanges, isMarkdownPath, markdownStyling } from "../editor/mar
 import { taskCheckboxes } from "../editor/taskList";
 import { renderedMath } from "../editor/mathRender";
 import { proseWrap } from "../editor/wrapColumn";
-import { editorChrome } from "../editor/chrome";
+import { editorChrome, paneSearch } from "../editor/chrome";
 import { multipleCursors } from "../editor/multiCursor";
 import { testGutter } from "../editor/testGutter";
 import { showTerminalRequest } from "../lib/revealLine";
@@ -484,6 +486,7 @@ export function PlainFilePane({
                 : null,
             onMessage: setNotice,
           }),
+          paneSearch("file"),
           search({ top: true }),
           // Word motion first: bindings for one key run in registration
           // order and the first to return true wins, so these must arrive

@@ -19,7 +19,7 @@ it("keeps info and actions in the header without recreating the editing surface"
   const source = screen.getByRole("textbox") as HTMLTextAreaElement;
   source.setSelectionRange(1, 4);
   expect(screen.getByTestId("header").contains(screen.getByRole("button", { name: "old" }))).toBe(true);
-  expect(screen.getByTestId("header").querySelector(".surface-info")).toBeTruthy();
+  expect(screen.getByTestId("header").querySelector(".surface-info")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "old" }));
   expect(screen.getByRole("textbox")).toBe(source);
   expect(source.value).toBe("unchanged");

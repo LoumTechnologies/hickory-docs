@@ -38,7 +38,7 @@ import { fencedCodeRanges, isMarkdownPath, markdownStyling } from "../editor/mar
 import { taskCheckboxes } from "../editor/taskList";
 import { renderedMath } from "../editor/mathRender";
 import { proseWrap } from "../editor/wrapColumn";
-import { editorChrome } from "../editor/chrome";
+import { editorChrome, paneSearch } from "../editor/chrome";
 import { completions } from "../lsp/completion";
 import { api } from "../api/client";
 import { blameGutter } from "../editor/blameGutter";
@@ -248,6 +248,7 @@ export function OutputEditorPane({
             project: (prefix, around) =>
               api.complete(prefix, around).then((answer) => answer.suggestions),
           }),
+          paneSearch("generated file"),
           search({ top: true }),
           // Word motion first: bindings for one key run in registration
           // order and the first to return true wins, so these must arrive

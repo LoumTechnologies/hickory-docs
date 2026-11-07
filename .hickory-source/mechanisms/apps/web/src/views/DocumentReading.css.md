@@ -16,6 +16,8 @@ review details preserve selection and undo. Bound long drafts to leave room for
 history. Existing document/comparison styles below retain their own behavior;
 this presentation change does not establish explanatory coverage of those tools.
 
+Composer icons share a compact 28-pixel hit target with transparent borders, hover feedback and a visible keyboard-focus outline. Their row is inset inside the draft card rather than touching its rounded edge.
+
 <storycode:entry path="apps/web/src/views/DocumentReading.css">
 .document-reading { height: 100%; overflow: auto; }
 .document-reading > .doc-tab-toolbar { position: sticky; top: 0; z-index: 4; background: var(--bg); }
@@ -102,6 +104,14 @@ this presentation change does not establish explanatory coverage of those tools.
 .comparison-side .cm-editor { min-height: 4rem; height: auto; }
 .comparison-side .cm-scroller { overflow: auto; }
 @media (max-width: 600px) { .comparison-panes--side-by-side { grid-template-columns: 1fr; } }
+
+/* Draft tools are icon controls, with stable hit targets and contextual feedback. */
+.conversation-card--composer > [aria-label="Chat input tools"] { padding: 6px 12px 0; gap: 4px !important; }
+.conversation-card--composer [aria-label="Chat input tools"] button[title] { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 5px; border: 0; border-radius: 6px; background: transparent; color: var(--fg-muted); cursor: pointer; }
+.conversation-card--composer [aria-label="Chat input tools"] button[title]:hover,
+.conversation-card--composer [aria-label="Chat input tools"] button[aria-pressed="true"] { background: var(--bg-raised); color: var(--fg); }
+.conversation-card--composer [aria-label="Chat input tools"] button[title]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.conversation-card--composer [aria-label="Chat input tools"] button[title]:disabled { opacity: .45; cursor: default; }
 </storycode:entry>
 
 </storycode:doc>

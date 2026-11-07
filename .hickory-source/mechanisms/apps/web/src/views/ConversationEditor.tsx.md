@@ -57,6 +57,8 @@ export function focusConversationResponse(host: Element | null) {
 <a id="f-436917f654b3-ConversationEditor"></a>
 ### `ConversationEditor`
 
+Composer tools use recognizable icons with accessible names and hover hints. The draft needs no repeated heading: its placement and Send action identify its purpose.
+
 Split only session-level messages so nested file, patch and executable blocks
 stay intact. Each card keeps exact source text and remaps receipt coordinates to
 its own editor; streaming text never gains recorded evidence. The final captured
@@ -177,9 +179,9 @@ function DictationButton({ disabled, onText, onActive, cancelRef }: { cancelRef?
     }, 5000);
     try { current.stop(); } catch { release(true); setStatus("Dictation stopped. Completed text is kept; you can retry."); }
   };
-  return <span style={{ display: "inline-flex", position: "relative" }}><button type="button" style={{ minWidth: 120 }} disabled={disabled || finishing} aria-pressed={active}
-    title="Use browser speech recognition to dictate draft text. Review your message before sending."
-    onMouseDown={event => event.preventDefault()} onClick={() => active ? stop() : start()}>{active ? "Stop dictation" : "Dictate"}</button>
+  return <span style={{ display: "inline-flex", position: "relative" }}><button type="button" aria-label={active ? "Stop dictation" : "Dictate"} disabled={disabled || finishing} aria-pressed={active}
+    title={active ? "Stop dictation" : "Dictate"}
+    onMouseDown={event => event.preventDefault()} onClick={() => active ? stop() : start()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg></button>
     <span role="status" aria-label="Dictation status" title={status} style={{ position: "absolute", bottom: "calc(100% + 4px)", left: 0, width: "min(360px, 70vw)", maxHeight: 96, overflow: "auto", zIndex: 10, padding: status ? "4px 6px" : 0, background: "var(--bg-raised)", color: "var(--fg)", boxShadow: status ? "var(--shadow)" : undefined }}>{status}</span></span>;
 }
 
@@ -277,7 +279,6 @@ export function ConversationEditor({ dictationScope = "response", onDictatingCha
       onDropCapture={event => { const files = Array.from(event.dataTransfer.files); if (files.length && onFiles) { event.preventDefault(); event.stopPropagation(); onFiles(files); } }}>
       <div aria-label="Chat input tools" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}><DictationButton key={dictationScope} disabled={sending} cancelRef={cancelDictation}
         onText={text => dictate(text, dictationScope)} onActive={active => { setDictating(active); onDictatingChange?.(active); }} />{composerTools}</div>
-      <header>Message agent</header>
       <ConversationBuffer reading={{ source: "", links: [] }} path={null} source={null} id="response" readOnly={false} hasAttachments={hasAttachments} onView={view => { composer.current = view; }}
         running={running} sending={sending} draft={draft} onDraft={onDraft} onSend={onSend} canSend={canSend && !dictating} showCollapsedLineage={false} />
     </section>
@@ -443,6 +444,9 @@ import type { AgentTurn, SessionViewResponse } from "../api/types";
 import { conversationReading } from "./conversationReading";
 import { charToByte } from "../lib/offsets";
 import { foldedRanges, unfoldEffect } from "@codemirror/language";
+
+Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.open = true; } });
+Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.open = false; this.dispatchEvent(new Event("close")); } });
 afterEach(cleanup);
 </storycode:copy>
 <a id="f-edc92cd336d7-turn"></a>
@@ -795,6 +799,35 @@ it("folds newly arriving context with native editor folds and refreshes its rece
   expect(foldedRanges(view.state).size).toBe(0);
   expect(lensSources().find(lens => lens.view === view)?.links[0]?.from.lines).toEqual([3,5]);
   installMockHandler(async (_method, path) => path.startsWith("/api/sessions/view") ? data : {});
+});
+
+// Contract: .hickory-source/guarantees/authoring/the-editor-keeps-its-space/contract.md
+it("shares one conversation search and preserves recorded messages when replacing the draft", async () => {
+  const props = { branch: [first], path: null, running: null, stream: "", reasoning: "", draft: "Request draft", onDraft: vi.fn(), onSend: vi.fn(), canSend: true, stamp: "" };
+  const rendered = render(<ConversationEditor {...props} />);
+  const buttons = await screen.findAllByRole("button", { name: "Search conversation" });
+  expect(buttons).toHaveLength(1);
+  expect(screen.queryByText("Message agent")).toBeNull();
+  expect(screen.queryByText(/Ctrl\/⌘/)).toBeNull();
+  const recorded = screen.getAllByRole("textbox", { name: "Recorded message" }).map(node => EditorView.findFromDOM(node)!);
+  const before = recorded.map(view => view.state.doc.toString());
+  const composer = EditorView.findFromDOM(screen.getByRole("textbox", { name: "Agent conversation and response" }))!;
+  const send = rendered.container.querySelector<HTMLButtonElement>(".conversation-send")!;
+  expect(send.title).toContain("Enter");
+  const selected = composer.state.selection.main;
+  fireEvent.click(buttons[0]);
+  fireEvent.input(screen.getByRole("searchbox", { name: "Search conversation text" }), { target: { value: "Request" } });
+  expect(composer.state.selection.main).toEqual(selected);
+  fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+  expect(composer.state.sliceDoc(composer.state.selection.main.from, composer.state.selection.main.to)).toBe("Request");
+  fireEvent.input(screen.getByRole("textbox", { name: "Replace with" }), { target: { value: "Changed" } });
+  fireEvent.click(screen.getByRole("button", { name: "Replace all" }));
+  expect(composer.state.doc.toString()).toBe("Changed draft");
+  expect(recorded.map(view => view.state.doc.toString())).toEqual(before);
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  expect(screen.getByRole("textbox", { name: "Agent conversation and response" })).toBe(composer.contentDOM);
+  rendered.unmount();
+  expect(document.querySelector('dialog[aria-label="Search conversation"]')).toBeNull();
 });
 </storycode:copy>
 

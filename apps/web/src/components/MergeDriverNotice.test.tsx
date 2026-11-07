@@ -29,14 +29,16 @@ describe("a clone whose merge driver is not defined", () => {
   it("is told at open, because a check at commit time tells you after the damage", async () => {
     answer({});
     render(<MergeDriverNotice />);
-    await waitFor(() => expect(screen.getByText(/SILENTLY/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByLabelText("Repository setup warning")).toBeTruthy());
+    fireEvent.click(screen.getByLabelText("Repository setup warning"));
     expect(screen.getByRole("button", { name: "Run hick init" })).toBeTruthy();
   });
 
   it("can be dismissed for this window", async () => {
     answer({});
     render(<MergeDriverNotice />);
-    await waitFor(() => expect(screen.getByText(/SILENTLY/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByLabelText("Repository setup warning")).toBeTruthy());
+    fireEvent.click(screen.getByLabelText("Repository setup warning"));
     act(() => {
       fireEvent.click(screen.getByRole("button", { name: /dismiss/i }));
     });
@@ -79,7 +81,8 @@ describe("the banner's button", () => {
       ok: true,
     });
     render(<MergeDriverNotice />);
-    await waitFor(() => expect(screen.getByText(/SILENTLY/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByLabelText("Repository setup warning")).toBeTruthy());
+    fireEvent.click(screen.getByLabelText("Repository setup warning"));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Run hick init" }));
     });
@@ -92,11 +95,12 @@ describe("the banner's button", () => {
     answer({});
     vi.spyOn(api, "initRepository").mockRejectedValue(new Error("not a git work tree"));
     render(<MergeDriverNotice />);
-    await waitFor(() => expect(screen.getByText(/SILENTLY/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByLabelText("Repository setup warning")).toBeTruthy());
+    fireEvent.click(screen.getByLabelText("Repository setup warning"));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Run hick init" }));
     });
-    await waitFor(() => expect(screen.getByText(/hick init failed: not a git work tree/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Repository setup failed: not a git work tree/)).toBeTruthy());
     expect(screen.getByRole("button", { name: "Run hick init" })).toBeTruthy();
   });
 });
@@ -109,7 +113,8 @@ it("shares the awaited repair with agents and retires controls after dismissal",
   const init = vi.spyOn(api, "initRepository").mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
   render(<UiActionContext.Provider value={registry}><MergeDriverNotice /></UiActionContext.Provider>);
-  await screen.findByRole("button", { name: "Run hick init" });
+  await screen.findByLabelText("Repository setup warning");
+  fireEvent.click(screen.getByLabelText("Repository setup warning"));
   const actions = () => registry.groups().groups.flatMap(group => registry.observe(group).actions);
   const repair = actions().find(a => a.label === "Initialize repository merge driver")!;
   let result!: ReturnType<typeof registry.act>;
@@ -123,4 +128,17 @@ it("shares the awaited repair with agents and retires controls after dismissal",
   const dismiss = actions().find(a => a.label === "Dismiss merge driver notice")!;
   await act(async () => { await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: dismiss.handle, arguments: {}, request_id: "dismiss" }); });
   expect(actions()).toHaveLength(0);
+});
+
+// Contract: .hickory-source/guarantees/authoring/the-editor-keeps-its-space/contract.md
+it("keeps a warning and retry when initialization returns an unsuccessful result", async () => {
+  answer({});
+  vi.spyOn(api, "initRepository").mockResolvedValue({ ok: false, changed: { hook: false, gitignore: false, gitattributes: false, merge_driver: false, agents_md: false, mcp_json: false }, hook_path: "", status: { repository: true, attributes: true, configured: false, summary: "Driver is still missing" } });
+  render(<MergeDriverNotice />);
+  fireEvent.click(await screen.findByLabelText("Repository setup warning"));
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Run hick init" })); });
+  expect(screen.getByLabelText("Repository setup warning")).toBeTruthy();
+  expect(screen.queryByLabelText("Repository setup result")).toBeNull();
+  expect(screen.getByText(/Repository setup failed: Driver is still missing/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Run hick init" })).toBeTruthy();
 });

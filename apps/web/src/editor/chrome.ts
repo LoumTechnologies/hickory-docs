@@ -33,9 +33,9 @@
 // two different programs.
 
 import { Decoration, EditorView, ViewPlugin, keymap } from "@codemirror/view";
-import { Prec, StateEffect, type Extension } from "@codemirror/state";
+import { Prec, type Extension } from "@codemirror/state";
 import { foldedRanges, unfoldEffect } from "@codemirror/language";
-import { SearchCursor } from "@codemirror/search";
+import { SearchQuery, search, setSearchQuery, replaceAll } from "@codemirror/search";
 import { gutterIconLayout } from "./gutterIconLayout";
 
 /** Which of the two looks an editor wears. */
@@ -139,59 +139,109 @@ export function editorChrome(kind: ChromeKind): Extension {
   })];
 }
 
-// The same local find interaction serves document text and Files row names.
-// Decorations leave the buffer unchanged; revealing a match only opens folds.
+// One modal per working surface. Conversation cards share it without sharing
+// their editor state, so searching never reconstructs the draft or its history.
+const paneSearchGroups = new WeakMap<HTMLElement, {
+  views: Set<EditorView>; query: SearchQuery; open: () => void; refresh: () => void; destroy: () => void;
+}>();
 export function paneSearch(label: string): Extension {
-  const refresh = StateEffect.define<null>();
   const plugin = ViewPlugin.fromClass(class {
-    query = "";
     decorations = Decoration.none;
-    button = document.createElement("button");
-    dialog = document.createElement("dialog");
-    input = document.createElement("input");
-    status = document.createElement("span");
+    group: NonNullable<ReturnType<typeof paneSearchGroups.get>>;
+    host: HTMLElement;
     constructor(readonly view: EditorView) {
-      this.button.type = "button";
-      this.button.setAttribute("aria-label", `Search ${label}`);
-      this.button.title = `Search ${label}`;
-      this.button.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></svg>';
-      this.button.style.cssText = "position:absolute;right:8px;top:4px;z-index:5;background:var(--bg-raised);color:var(--fg);border:1px solid var(--border);border-radius:4px;cursor:pointer";
-      this.dialog.setAttribute("aria-label", `Search ${label}`);
-      this.dialog.style.cssText = "background:var(--bg-raised);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:16px";
-      this.input.type = "search";
-      this.input.placeholder = `Search ${label}`;
-      this.input.setAttribute("aria-label", `Search ${label} text`);
-      this.input.oninput = () => {
-        this.query = this.input.value;
-        const effects: ReturnType<typeof unfoldEffect.of>[] = [];
-        if (this.query) foldedRanges(view.state).between(0, view.state.doc.length, (from, to) => {
-          if (view.state.sliceDoc(from, to).toLowerCase().includes(this.query.toLowerCase()))
-            effects.push(unfoldEffect.of({ from, to }));
+      this.host = view.dom.closest<HTMLElement>(".conversation-document") ?? view.dom;
+      let group = paneSearchGroups.get(this.host);
+      if (!group) {
+        const views = new Set<EditorView>();
+        const button = document.createElement("button");
+        button.type = "button";
+        const name = this.host === view.dom ? label : "conversation";
+        button.setAttribute("aria-label", `Search ${name}`);
+        button.title = `Search ${name}`;
+        button.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></svg>';
+        button.style.cssText = "background:transparent;color:var(--fg);border:0;border-radius:4px;padding:5px;cursor:pointer";
+        const toolbar = document.createElement("div");
+        toolbar.className = "pane-search-tools";
+        toolbar.style.cssText = "display:flex;justify-content:flex-end;position:sticky;top:0;z-index:5;height:28px;flex-shrink:0";
+        toolbar.append(button);
+        const header = this.host.closest(".shell-pane")?.querySelector(".pane-header-actions");
+        if (header) header.append(toolbar); else this.host.prepend(toolbar);
+        const dialog = document.createElement("dialog");
+        dialog.setAttribute("aria-label", `Search ${name}`);
+        dialog.style.cssText = "background:var(--bg-raised);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:16px;width:min(480px,80vw)";
+        const input = document.createElement("input"), replacement = document.createElement("input");
+        input.type = "search"; input.placeholder = "Find"; input.setAttribute("aria-label", `Search ${name} text`);
+        replacement.placeholder = "Replace with"; replacement.setAttribute("aria-label", "Replace with");
+        const status = document.createElement("p"), options = document.createElement("div"), controls = document.createElement("div");
+        status.setAttribute("role", "status");
+        options.style.cssText = controls.style.cssText = "display:flex;gap:8px;margin-top:8px;align-items:center";
+        const toggles: HTMLInputElement[] = [];
+        for (const name of ["Match case", "Whole word", "Regular expression"]) {
+          const label = document.createElement("label"), toggle = document.createElement("input");
+          toggle.type = "checkbox"; toggle.setAttribute("aria-label", name); toggles.push(toggle); label.append(toggle, name); options.append(label);
+        }
+        const action = (name: string, run: () => void) => { const control = document.createElement("button"); control.type = "button"; control.textContent = name; control.onclick = run; controls.append(control); return control; };
+        let current: { view: EditorView; from: number; to: number } | null = null;
+        const matches = () => {
+          const found: { view: EditorView; from: number; to: number }[] = [];
+          if (!group!.query.valid) return found;
+          for (const view of views) {
+            const cursor = group!.query.getCursor(view.state);
+            for (let match = cursor.next(); !match.done; match = cursor.next()) found.push({ view, ...match.value });
+          }
+          return found;
+        };
+        const refresh = () => {
+          const found = matches();
+          status.textContent = input.value && !group!.query.valid ? "Invalid expression" : `${found.length} matches`;
+          const writable = [...views].some(view => !view.state.readOnly);
+          replacement.hidden = replace.hidden = !writable;
+          replace.disabled = !group!.query.valid;
+        };
+        const navigate = (direction: number) => {
+          const found = matches(); if (!found.length) return;
+          const index = current ? found.findIndex(match => match.view === current!.view && match.from === current!.from && match.to === current!.to) : direction > 0 ? -1 : 0;
+          current = found[(index + direction + found.length) % found.length];
+          const { view, from, to } = current;
+          const effects = [];
+          foldedRanges(view.state).between(0, view.state.doc.length, (start, end) => { if (start < to && end > from) effects.push(unfoldEffect.of({ from: start, to: end })); });
+          effects.push(EditorView.scrollIntoView(from, { y: "center" }));
+          view.dispatch({ selection: { anchor: from, head: to }, effects });
+        };
+        action("Previous", () => navigate(-1)); action("Next", () => navigate(1));
+        const replace = action("Replace all", () => {
+          for (const view of views) if (!view.state.readOnly) { view.dispatch({ effects: setSearchQuery.of(group!.query) }); replaceAll(view); }
+          current = null; refresh();
         });
-        view.dispatch({ effects: [...effects, refresh.of(null)] });
-      };
-      const close = document.createElement("button");
-      close.type = "button"; close.textContent = "Close";
-      close.onclick = () => this.dialog.close();
-      this.dialog.onclose = () => this.button.focus();
-      this.dialog.append(this.input, this.status, close);
-      this.button.onclick = () => this.open();
-      view.dom.append(this.button, this.dialog);
-    }
-    open() { if (!this.dialog.open) this.dialog.showModal(); this.input.focus(); }
-    update() {
-      const marks = [];
-      if (this.query) {
-        const cursor = new SearchCursor(this.view.state.doc, this.query, 0, this.view.state.doc.length, text => text.toLowerCase());
-        while (!cursor.next().done)
-          marks.push(Decoration.mark({ class: "cm-searchMatch" }).range(cursor.value.from, cursor.value.to));
+        action("Close", () => dialog.close());
+        const update = () => {
+          group!.query = new SearchQuery({ search: input.value, replace: replacement.value, caseSensitive: toggles[0].checked, wholeWord: toggles[1].checked, regexp: toggles[2].checked });
+          current = null;
+          for (const view of views) view.dispatch({ effects: setSearchQuery.of(group!.query) });
+          refresh();
+        };
+        input.oninput = replacement.oninput = update; toggles.forEach(toggle => { toggle.onchange = update; });
+        input.onkeydown = event => { if (event.key === "Enter") { event.preventDefault(); navigate(event.shiftKey ? -1 : 1); } };
+        dialog.onclose = () => button.focus();
+        dialog.append(input, replacement, options, status, controls); document.body.append(dialog);
+        group = { views, query: new SearchQuery({ search: "" }), refresh, open: () => { refresh(); if (!dialog.open) dialog.showModal(); input.focus(); }, destroy: () => { toolbar.remove(); dialog.remove(); } };
+        paneSearchGroups.set(this.host, group); button.onclick = group.open;
       }
-      this.decorations = Decoration.set(marks);
-      this.status.textContent = ` ${marks.length} matches `;
+      this.group = group; group.views.add(view);
     }
-    destroy() { this.button.remove(); this.dialog.remove(); }
+    open() { this.group.open(); }
+    update() {
+      const marks = [], query = this.group.query;
+      if (query.valid) {
+        const cursor = query.getCursor(this.view.state);
+        for (let match = cursor.next(); !match.done; match = cursor.next()) {
+          if (match.value.to > match.value.from) marks.push(Decoration.mark({ class: "cm-searchMatch" }).range(match.value.from, match.value.to));
+        }
+      }
+      this.decorations = Decoration.set(marks); this.group.refresh();
+    }
+    destroy() { this.group.views.delete(this.view); if (!this.group.views.size) { this.group.destroy(); paneSearchGroups.delete(this.host); } }
   }, { decorations: value => value.decorations });
-  return [plugin, Prec.highest(keymap.of([{ key: "Mod-f", run: view => {
-    view.plugin(plugin)?.open(); return true;
-  } }]))];
+  return [search(), plugin, Prec.highest(keymap.of([{ key: "Mod-f", run: view => { view.plugin(plugin)?.open(); return true; } }]))];
 }

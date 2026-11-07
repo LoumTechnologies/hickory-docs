@@ -13,6 +13,9 @@ import type { AgentTurn, SessionViewResponse } from "../api/types";
 import { conversationReading } from "./conversationReading";
 import { charToByte } from "../lib/offsets";
 import { foldedRanges, unfoldEffect } from "@codemirror/language";
+
+Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.open = true; } });
+Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.open = false; this.dispatchEvent(new Event("close")); } });
 afterEach(cleanup);
 const turn = (id: string, parent: string | null = null): AgentTurn => ({ id, parent_id: parent, prompt: `Request ${id}`, answer: `Answer ${id}`, status: "ok", error: null, provider: "acp:codex", model: "", created_at: "", usage: null });
 const first = turn("a"), live = { ...turn("b", "a"), status: "running" as const, answer: null };
@@ -282,4 +285,33 @@ it("folds newly arriving context with native editor folds and refreshes its rece
   expect(foldedRanges(view.state).size).toBe(0);
   expect(lensSources().find(lens => lens.view === view)?.links[0]?.from.lines).toEqual([3,5]);
   installMockHandler(async (_method, path) => path.startsWith("/api/sessions/view") ? data : {});
+});
+
+// Contract: .hickory-source/guarantees/authoring/the-editor-keeps-its-space/contract.md
+it("shares one conversation search and preserves recorded messages when replacing the draft", async () => {
+  const props = { branch: [first], path: null, running: null, stream: "", reasoning: "", draft: "Request draft", onDraft: vi.fn(), onSend: vi.fn(), canSend: true, stamp: "" };
+  const rendered = render(<ConversationEditor {...props} />);
+  const buttons = await screen.findAllByRole("button", { name: "Search conversation" });
+  expect(buttons).toHaveLength(1);
+  expect(screen.queryByText("Message agent")).toBeNull();
+  expect(screen.queryByText(/Ctrl\/⌘/)).toBeNull();
+  const recorded = screen.getAllByRole("textbox", { name: "Recorded message" }).map(node => EditorView.findFromDOM(node)!);
+  const before = recorded.map(view => view.state.doc.toString());
+  const composer = EditorView.findFromDOM(screen.getByRole("textbox", { name: "Agent conversation and response" }))!;
+  const send = rendered.container.querySelector<HTMLButtonElement>(".conversation-send")!;
+  expect(send.title).toContain("Enter");
+  const selected = composer.state.selection.main;
+  fireEvent.click(buttons[0]);
+  fireEvent.input(screen.getByRole("searchbox", { name: "Search conversation text" }), { target: { value: "Request" } });
+  expect(composer.state.selection.main).toEqual(selected);
+  fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+  expect(composer.state.sliceDoc(composer.state.selection.main.from, composer.state.selection.main.to)).toBe("Request");
+  fireEvent.input(screen.getByRole("textbox", { name: "Replace with" }), { target: { value: "Changed" } });
+  fireEvent.click(screen.getByRole("button", { name: "Replace all" }));
+  expect(composer.state.doc.toString()).toBe("Changed draft");
+  expect(recorded.map(view => view.state.doc.toString())).toEqual(before);
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  expect(screen.getByRole("textbox", { name: "Agent conversation and response" })).toBe(composer.contentDOM);
+  rendered.unmount();
+  expect(document.querySelector('dialog[aria-label="Search conversation"]')).toBeNull();
 });
