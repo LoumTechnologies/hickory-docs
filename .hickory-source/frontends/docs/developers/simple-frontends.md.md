@@ -17,7 +17,12 @@ just simple-dev browser
 just simple-dev apple
 just simple-dev ios
 just simple-dev android
+just simple-dev all
 ```
+
+`all` opens all four frontends together on macOS, using the same workspace. A macOS Accessibility helper tries to arrange the browser, Mac app and simulator/emulator windows in a 2×2 grid on the first display. Set `HICKORY_COMPARISON_SCREEN=1` for the second display, and so on. The terminal running `just` needs Accessibility authorization in System Settings > Privacy & Security > Accessibility. Without it, the helper reports that layout was skipped and the frontends remain open. No permissions are changed automatically. It arranges each unique matching window once; close duplicate comparison windows when selection is ambiguous. Emulator minimum sizes and aspect ratios can prevent an exact fit. Native SDKs, simulator runtime and an Android device/AVD must already be installed. If one platform exits or fails, the runner stops the other sessions. Stop and rerun the whole comparison after saving edits.
+
+The browser hot-reloads its React source. Native source changes require a rebuild and relaunch; there is no common automatic, state-preserving hot reload in this comparison setup.
 
 Each command starts a local workspace backend and opens the chosen frontend with its address already configured. Keep the command running while comparing; Ctrl-C stops the frontend session and disconnects the backend. Browser windows and previously running simulator windows remain open, but their development server/session stops. The original frontend is untouched.
 
@@ -28,6 +33,8 @@ Android requires Android Studio’s initial project sync, an installed SDK, and 
 iOS launches a simulator, not a physical phone. It prefers a booted iPhone/iPad and otherwise boots an available one. Set `HICKORY_IOS_DEVICE` to a simulator name or UDID to choose an iPad or another target. If multiple simulators are already booted, selection is required. The runner builds, installs and opens the app, and terminates its session on Ctrl-C. Only a simulator started by the runner is shut down.
 
 Native launches use the backend on the host: iOS simulator loopback and Android ADB reverse. A physical iPhone requires a separately reachable backend and manual connection; this recipe does not expose the loopback server on the network. A new launch of the same mobile app may replace a previous comparison session, so save edits before relaunching.
+
+The macOS recipe builds a locally signed `Hickory Simple.app` under `target/simple-apple-launch/`, then opens it through macOS Launch Services with normal Dock/menu activation. It opens a workspace window without waiting for a backend request. The app watches the development launcher’s lifetime, so Ctrl-C still stops this test app.
 
 The Apple build requires full Xcode. `simple-dev` honors `DEVELOPER_DIR` and otherwise finds Xcode under `/Applications` if command-line tools are selected. For standalone build/test recipes, set `DEVELOPER_DIR` to your installed Xcode's `Contents/Developer` directory when needed. `xcodegen` is needed for the iOS project. Run `just simple-build ios`, then open `target/apple-simple-xcode/HickorySimple.xcodeproj` for device or simulator work. Device signing is not configured by this comparison scaffold.
 

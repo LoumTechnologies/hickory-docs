@@ -150395,6 +150395,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/crates/hickory-cli/examples/simple_dev.rs.md",
       "symbol": "simple-3119f25e95-5",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-1805c24098-0",
+      "output": "scripts/simple-window-layout.swift",
+      "page": ".hickory-source/frontends/scripts/simple-window-layout.swift.md",
+      "symbol": "simple-1805c24098-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-1805c24098-1",
+      "output": "scripts/simple-window-layout.swift",
+      "page": ".hickory-source/frontends/scripts/simple-window-layout.swift.md",
+      "symbol": "simple-1805c24098-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-1805c24098-2",
+      "output": "scripts/simple-window-layout.swift",
+      "page": ".hickory-source/frontends/scripts/simple-window-layout.swift.md",
+      "symbol": "simple-1805c24098-2",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

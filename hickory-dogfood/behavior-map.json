@@ -67665,6 +67665,19 @@
         "simple-3119f25e95-4",
         "simple-3119f25e95-5"
       ]
+    },
+    "scripts/simple-window-layout.swift": {
+      "source": ".hickory-source/frontends/scripts/simple-window-layout.swift.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "d4d4a9da4a6b1927a568e5b00e70ad0f7456d8eabc358445a9e27e1686091f9e",
+      "construction": "fragments",
+      "fragments": [
+        "simple-1805c24098-0",
+        "simple-1805c24098-1",
+        "simple-1805c24098-2"
+      ]
     }
   },
   "evidence_records": [

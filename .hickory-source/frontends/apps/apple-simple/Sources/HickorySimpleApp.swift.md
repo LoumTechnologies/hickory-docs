@@ -3,7 +3,7 @@
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
-The new app has its own product identity and window. Mac commands match the browser menu. Native window close and application termination refuse while any buffer is dirty or saving, rather than losing edits behind a closed tab.
+The new app has its own product identity and window. A terminal launch must explicitly adopt the regular macOS activation policy before launch finishes, then activate once its workspace window appears. Otherwise the process can finish building and run without a discoverable foreground app. Activation runs at startup, independently of the backend connection. Launch Services owns the app process, so a development-only host PID makes the app stop when its launcher exits. That explicit Ctrl-C teardown ends the session; ordinary app Quit still checks unsaved buffers. Mac commands match the browser menu. Native window close and application termination refuse while any buffer is dirty or saving, rather than losing edits behind a closed tab.
 
 <ui:copy id="simple-967795f4aa-0">
 import SwiftUI
@@ -17,7 +17,13 @@ import SwiftUI
         #if os(macOS)
         Window("Hickory Simple", id: "workspace") {
             WorkspaceView(workspace: workspace).frame(minWidth: 480, minHeight: 320)
-                .onAppear { delegate.workspace = workspace }
+                .onAppear {
+                    delegate.workspace = workspace
+                    DispatchQueue.main.async {
+                        NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+                        NSApp.activate()
+                    }
+                }
         }.commands {
             CommandGroup(replacing: .newItem) {
                 Button("Connect…") { NotificationCenter.default.post(name: .simpleConnect, object: nil) }
@@ -40,10 +46,30 @@ import SwiftUI
 }
 #if os(macOS)
 import AppKit
+import Darwin
 @MainActor final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     var workspace: Workspace?
+    private var developmentHostEnded = false
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+    }
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.activate()
+        if let value = ProcessInfo.processInfo.environment["HICKORY_SIMPLE_HOST_PID"],
+           let host = Int32(value), host > 1 {
+            Task { @MainActor [weak self] in
+                while Darwin.kill(host, 0) == 0 || errno == EPERM {
+                    try? await Task.sleep(for: .milliseconds(250))
+                }
+                // Ctrl-C intentionally ends this development session, matching
+                // termination of an app supervised as a direct child process.
+                self?.developmentHostEnded = true
+                NSApp.terminate(nil)
+            }
+        }
+    }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if workspace?.hasUnsavedChanges == true { workspace?.status = "Save your documents before quitting."; return .terminateCancel }
+        if !developmentHostEnded && workspace?.hasUnsavedChanges == true { workspace?.status = "Save your documents before quitting."; return .terminateCancel }
         return .terminateNow
     }
 }

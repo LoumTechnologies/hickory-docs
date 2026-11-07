@@ -19,10 +19,10 @@ fn main() -> Result<()> {
     }
     let platform = args.first().map(String::as_str).unwrap_or("browser");
     ensure!(
-        args.len() <= 1 && ["browser", "apple", "ios", "android"].contains(&platform),
-        "Usage: just simple-dev browser|apple|ios|android"
+        args.len() <= 1 && ["browser", "apple", "ios", "android", "all"].contains(&platform),
+        "Usage: just simple-dev browser|apple|ios|android|all"
     );
-    if ["apple", "ios"].contains(&platform) {
+    if ["apple", "ios", "all"].contains(&platform) {
         configure_xcode()?;
     }
     tokio::runtime::Runtime::new()?.block_on(async {
@@ -125,9 +125,24 @@ impl Session {
                 result => eprintln!("Cleanup {command:?}: {result:?}"),
             }
         }
+        // Child launchers have their own service groups. Give their signal
+        // handlers time to clean those up before escalating to a hard kill.
+        #[cfg(unix)]
         for child in self.children.iter_mut().rev() {
-            stop_group(child);
-            let _ = child.wait().await;
+            if let Some(pid) = child.id() {
+                unsafe {
+                    libc::kill(-(pid as i32), libc::SIGTERM);
+                }
+            }
+        }
+        for child in self.children.iter_mut().rev() {
+            if tokio::time::timeout(Duration::from_secs(5), child.wait())
+                .await
+                .is_err()
+            {
+                stop_group(child);
+                let _ = child.wait().await;
+            }
         }
         if let Some(guard) = self.guard.take() {
             match tokio::time::timeout(Duration::from_secs(10), guard.detach()).await {
@@ -191,6 +206,50 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
         "Workspace must be a directory: {}",
         project.display()
     );
+    if platform == "all" {
+        println!(
+            "Launching browser, macOS, iOS simulator and Android against {}",
+            project.display()
+        );
+        session
+            .run(&mut cmd(
+                "swiftc",
+                &[
+                    "scripts/simple-window-layout.swift",
+                    "-o",
+                    "target/simple-window-layout",
+                ],
+            ))
+            .await?;
+        let first_platform = session.children.len();
+        let mut platforms = Vec::new();
+        for platform in ["browser", "apple", "ios", "android"] {
+            session.spawn(
+                cmd(env::current_exe()?, &[platform]).env("HICKORY_PROJECT_DIR", &project),
+            )?;
+            platforms.push(platform);
+        }
+        session.spawn(&mut cmd(
+            root.join("target/simple-window-layout"),
+            &[&std::process::id().to_string()],
+        ))?;
+        loop {
+            for (child, platform) in session
+                .children
+                .iter_mut()
+                .skip(first_platform)
+                .take(4)
+                .zip(&platforms)
+            {
+                if let Some(status) = child.try_wait()? {
+                    bail!(
+                        "{platform} comparison session stopped ({status}); stopping the other sessions. Fix its reported error and rerun just simple-dev all."
+                    );
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    }
     // Reserve an OS-assigned browser port before configuring the backend origin.
     // Vite's strictPort fails safely if another process wins the handoff race.
     let browser_port = if platform == "browser" {
@@ -268,32 +327,76 @@ async fn frontend(
                 )
                 .await
         }
-        "apple" => {
-            ensure!(
-                cfg!(target_os = "macos"),
-                "The Apple frontend requires macOS and Xcode"
-            );
-            session
-                .run(
-                    cmd(
-                        "swift",
-                        &[
-                            "run",
-                            "--package-path",
-                            "apps/apple-simple",
-                            "--scratch-path",
-                            "target/apple-simple-spm",
-                            "HickorySimple",
-                        ],
-                    )
-                    .env("HICKORY_API_ORIGIN", api),
-                )
-                .await
-        }
+        "apple" => apple(root, session, api).await,
         "android" => android(root, session, api).await,
         "ios" => ios(session, api).await,
         _ => unreachable!(),
     }
+}
+
+async fn apple(root: &Path, session: &mut Session, api: &str) -> Result<()> {
+    ensure!(
+        cfg!(target_os = "macos"),
+        "The Apple frontend requires macOS and Xcode"
+    );
+    let arguments = [
+        "build",
+        "--package-path",
+        "apps/apple-simple",
+        "--scratch-path",
+        "target/apple-simple-spm",
+    ];
+    session.run(&mut cmd("swift", &arguments)).await?;
+    let binary_dir = session
+        .output(cmd("swift", &arguments).arg("--show-bin-path"))
+        .await?;
+    let port = api.rsplit(':').next().context("Backend port missing")?;
+    let bundle = root
+        .join("target/simple-apple-launch")
+        .join(port)
+        .join("Hickory Simple.app");
+    let contents = bundle.join("Contents");
+    std::fs::create_dir_all(contents.join("MacOS"))?;
+    let executable = contents.join("MacOS/HickorySimple");
+    std::fs::copy(
+        Path::new(binary_dir.trim()).join("HickorySimple"),
+        &executable,
+    )?;
+    std::fs::write(
+        contents.join("Info.plist"),
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>HickorySimple</string>
+<key>CFBundleIdentifier</key><string>com.hickorydocs.simple.mac</string>
+<key>CFBundleName</key><string>Hickory Simple</string>
+<key>CFBundleDisplayName</key><string>Hickory Simple</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleShortVersionString</key><string>0.1.0</string>
+<key>LSMinimumSystemVersion</key><string>14.0</string>
+<key>LSUIElement</key><false/>
+<key>NSHighResolutionCapable</key><true/>
+<key>NSPrincipalClass</key><string>NSApplication</string>
+<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
+</dict></plist>
+"#,
+    )?;
+    session
+        .run(&mut cmd("codesign", &["--force", "--sign", "-"]).arg(&bundle))
+        .await?;
+    println!("Opening {}", bundle.display());
+    let backend_env = format!("HICKORY_API_ORIGIN={api}");
+    let host_env = format!("HICKORY_SIMPLE_HOST_PID={}", std::process::id());
+    session
+        .run(
+            cmd(
+                "open",
+                &["-n", "-W", "--env", &backend_env, "--env", &host_env],
+            )
+            .arg(&bundle),
+        )
+        .await
 }
 fn sdk() -> Result<PathBuf> {
     let mut candidates: Vec<PathBuf> = ["ANDROID_HOME", "ANDROID_SDK_ROOT"]

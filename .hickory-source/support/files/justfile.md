@@ -964,12 +964,12 @@ simple-test platform="browser":
     set -euo pipefail
     case {{quote(platform)}} in
       browser) cd apps/web; npx tsc -b --noEmit; npx vitest run src/simple/parity.test.ts; npx vite build --config vite.simple.config.ts ;;
-      apple) swift test --package-path apps/apple-simple --scratch-path target/apple-simple-spm ;;
+      apple) swift test --package-path apps/apple-simple --scratch-path target/apple-simple-spm; swiftc scripts/simple-window-layout.swift -o target/simple-window-layout; target/simple-window-layout --self-test ;;
       android) mkdir -p target; rustc --edition=2021 scripts/simple-android-gradle.rs -o target/simple-android-gradle; target/simple-android-gradle :app:testDebugUnitTest :app:assembleDebug ;;
       *) echo 'Choose browser, apple or android.' >&2; exit 2 ;;
     esac
 
-# Launch a comparison frontend and its local backend; Ctrl-C stops the session.
+# Launch browser, apple, ios, android, or all together; Ctrl-C stops the session.
 simple-dev platform="browser":
     cargo run --quiet --locked -p hickory-cli --example simple_dev -- {{quote(platform)}}
 </maint:entry>
