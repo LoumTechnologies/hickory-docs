@@ -11,9 +11,9 @@ import { describe, expect, it, vi } from "vitest";
 import fixture from "../../../simple-contract/layout-cases.json";
 import { activate, groups, initialLayout, move, remove, split } from "./layout";
 import { TerminalSession } from "./Terminal";
-import { Buffer } from "./buffers";
+import { Buffer, Buffers } from "./buffers";
 import { api } from "../api/client";
-vi.mock("../api/client", () => ({ api: { saveFile: vi.fn(), saveDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agent: vi.fn() } }));
+vi.mock("../api/client", () => ({ api: { doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agent: vi.fn() } }));
 describe("shared frontend layout contract", () => {
   for (const scenario of fixture.cases) it(scenario.name, () => {
     let layout = initialLayout();
@@ -37,6 +37,26 @@ describe("shared frontend layout contract", () => {
 A stale save retains text and baseline. A successful save acknowledges only the submitted snapshot, including when more text arrived while the request was pending. Generated files do not dispatch whole-file writes.
 
 <ui:copy id="simple-c6aff51ad5-1">
+describe("simple frontend text opening", () => {
+  it.each(["notes.md", "cards.md"])("opens managed %s through its document source", async path => {
+    vi.mocked(api.file).mockClear();
+    vi.mocked(api.doc).mockResolvedValueOnce({ id: "managed", path, source: "# Readable source", updated_at: "" });
+    const buffer = await new Buffers(() => {}).open({ name: path, path, dir: false, doc_id: "managed" });
+    expect(api.doc).toHaveBeenLastCalledWith("managed");
+    expect(api.file).not.toHaveBeenCalled();
+    expect(buffer.text).toBe("# Readable source"); expect(buffer.base).toBe(buffer.text);
+    buffer.edit("# Edited"); vi.mocked(api.saveDoc).mockResolvedValueOnce({ id: "managed", path, source: "# Edited", updated_at: "" });
+    await buffer.save();
+    expect(api.saveDoc).toHaveBeenLastCalledWith("managed", "# Edited", { source: "# Readable source", disk: "# Readable source" });
+  });
+  it("opens plain text with its file hash", async () => {
+    vi.mocked(api.doc).mockClear();
+    vi.mocked(api.file).mockResolvedValueOnce({ path: "notes.txt", content: "Plain text", hash: "plain-hash", language: "text" });
+    const buffer = await new Buffers(() => {}).open({ name: "notes.txt", path: "notes.txt", dir: false });
+    expect(api.file).toHaveBeenLastCalledWith("notes.txt"); expect(api.doc).not.toHaveBeenCalled();
+    expect(buffer.text).toBe("Plain text"); expect(buffer.hash).toBe("plain-hash");
+  });
+});
 describe("simple frontend save safety", () => {
   const plain = { name: "notes.txt", path: "notes.txt", dir: false };
   it("retains edits after a conflict and sends the original hash", async () => {

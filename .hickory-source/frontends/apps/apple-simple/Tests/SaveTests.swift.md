@@ -11,12 +11,14 @@ import XCTest
 @testable import HickorySimple
 
 final class ResponseProtocol: URLProtocol {
+    static var requestedURL: URL?
     static var status = 200
     static var response = Data()
     static var captured: [String: Any] = [:]
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
+        Self.requestedURL = request.url
         var body = request.httpBody ?? Data()
         if let stream = request.httpBodyStream {
             stream.open(); defer { stream.close() }
@@ -41,6 +43,22 @@ final class SaveTests: XCTestCase {
         let engine = try Engine(address: "http://fixture.invalid", session: URLSession(configuration: configuration))
         let file = FileNode(name: "notes.txt", path: "notes.txt", dir: false, doc_id: doc, generated_by: generated)
         return (engine, DocumentBuffer(file: file, text: FileText(path: file.path, content: "before", hash: "hash-before")))
+    }
+    @MainActor func testManagedMarkdownOpensThroughDocumentSource() async throws {
+        let (engine, buffer) = try fixture(doc: "managed")
+        ResponseProtocol.status = 200
+        ResponseProtocol.response = Data(##"{"source":"# Readable source"}"##.utf8)
+        let text = try await engine.file(buffer.file)
+        XCTAssertEqual(ResponseProtocol.requestedURL?.path, "/api/docs/managed")
+        XCTAssertEqual(text.content, "# Readable source")
+    }
+    @MainActor func testPlainTextOpensWithFileHash() async throws {
+        let (engine, buffer) = try fixture()
+        ResponseProtocol.status = 200
+        ResponseProtocol.response = Data(#"{"path":"notes.txt","content":"Plain text","hash":"plain-hash"}"#.utf8)
+        let text = try await engine.file(buffer.file)
+        XCTAssertEqual(ResponseProtocol.requestedURL?.path, "/api/file")
+        XCTAssertEqual(text.content, "Plain text"); XCTAssertEqual(text.hash, "plain-hash")
     }
     @MainActor func testConflictRetainsEditsAndOriginalBaseline() async throws {
         let (engine, buffer) = try fixture()

@@ -5,6 +5,8 @@ For maintainers iterating on the equivalent Apple, Android and browser editor fr
 
 Decode only the fields this frontend needs. The address is explicit runtime configuration, validated once. Requests have a timeout and never retry a mutation after an ambiguous failure. The browser uses the existing generated TypeScript client for these same routes.
 
+Read managed Markdown through its document ID, using the source response without requesting rendering. Plain text retains the hash-based file endpoint. Document saves continue through the room-aware document endpoint with the loaded source baseline.
+
 <ui:copy id="simple-ff9425b170-0">
 import Foundation
 
@@ -68,7 +70,13 @@ Save requests carry the exact baseline from the original read. Agent sends selec
 
 <ui:copy id="simple-ff9425b170-1">
     func files() async throws -> FileTree { try await request("GET", "/api/files") }
-    func file(_ path: String) async throws -> FileText { try await request("GET", "/api/file", query: [URLQueryItem(name: "path", value: path)]) }
+    func file(_ file: FileNode) async throws -> FileText {
+        if let id = file.doc_id {
+            let document: SavedDocument = try await request("GET", "/api/docs/" + id)
+            return FileText(path: file.path, content: document.source, hash: "")
+        }
+        return try await request("GET", "/api/file", query: [URLQueryItem(name: "path", value: file.path)])
+    }
     @MainActor func save(_ buffer: DocumentBuffer, text: String, base: String, hash: String) async throws -> String {
         if let id = buffer.file.doc_id {
             let _: SavedDocument = try await request("PUT", "/api/docs/" + id, body: ["source": text, "expected": ["source": base, "disk": base]])

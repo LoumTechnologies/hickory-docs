@@ -5,6 +5,8 @@ For maintainers iterating on the equivalent Apple, Android and browser editor fr
 
 The user-entered origin is validated at connection time. The transport performs bounded blocking I/O on the coroutine I/O dispatcher. Mutation failures surface without automatic replay.
 
+Managed Markdown reads its current source from the document endpoint, while plain files use the file endpoint and its content hash. This matches the existing save distinction and avoids the plain-file route’s deliberate refusal of documents.
+
 <ui:copy id="simple-38d4bd61a8-0">
 package com.hickorydocs.simple
 
@@ -52,8 +54,12 @@ class Engine(address: String) {
         }
         return response.getString("root") to decode(response.getJSONArray("tree"))
     }
-    suspend fun file(path: String): FileText {
-        val response = request("GET", "/api/file?path=" + URLEncoder.encode(path, "UTF-8"))
+    suspend fun file(file: FileNode): FileText {
+        if (file.docID != null) {
+            val document = request("GET", "/api/docs/${file.docID}")
+            return FileText(document.getString("source"), "")
+        }
+        val response = request("GET", "/api/file?path=" + URLEncoder.encode(file.path, "UTF-8"))
         return FileText(response.getString("content"), response.getString("hash"))
     }
 </ui:copy>

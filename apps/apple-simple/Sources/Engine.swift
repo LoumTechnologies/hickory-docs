@@ -55,7 +55,13 @@ struct Engine {
         return try JSONDecoder().decode(T.self, from: data)
     }
     func files() async throws -> FileTree { try await request("GET", "/api/files") }
-    func file(_ path: String) async throws -> FileText { try await request("GET", "/api/file", query: [URLQueryItem(name: "path", value: path)]) }
+    func file(_ file: FileNode) async throws -> FileText {
+        if let id = file.doc_id {
+            let document: SavedDocument = try await request("GET", "/api/docs/" + id)
+            return FileText(path: file.path, content: document.source, hash: "")
+        }
+        return try await request("GET", "/api/file", query: [URLQueryItem(name: "path", value: file.path)])
+    }
     @MainActor func save(_ buffer: DocumentBuffer, text: String, base: String, hash: String) async throws -> String {
         if let id = buffer.file.doc_id {
             let _: SavedDocument = try await request("PUT", "/api/docs/" + id, body: ["source": text, "expected": ["source": base, "disk": base]])

@@ -73,7 +73,7 @@ import Observation
         opening.insert(file.path)
         defer { if current == generation { opening.remove(file.path) } }
         do {
-            let text = try await engine.file(file.path)
+            let text = try await engine.file(file)
             guard current == generation else { return }
             buffers[file.path] = DocumentBuffer(file: file, text: text)
             if newestOpen[target] == file.path { layout.activate(file.path, in: target); status = file.path }

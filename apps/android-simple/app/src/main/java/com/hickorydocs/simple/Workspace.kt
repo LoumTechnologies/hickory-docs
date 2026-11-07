@@ -75,7 +75,7 @@ class Workspace : ViewModel() {
             ?: layout.groups().firstOrNull { "files" !in it.tabs }?.id ?: focused
         newestOpen[target] = file.path; focused = target
         try {
-            val text = server.file(file.path)
+            val text = server.file(file)
             if (generation != current) return
             buffers[file.path] = DocumentBuffer(file, text)
             if (newestOpen[target] == file.path) { layout = layout.activate(file.path, target); status = file.path }

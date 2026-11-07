@@ -44,8 +44,12 @@ class Engine(address: String) {
         }
         return response.getString("root") to decode(response.getJSONArray("tree"))
     }
-    suspend fun file(path: String): FileText {
-        val response = request("GET", "/api/file?path=" + URLEncoder.encode(path, "UTF-8"))
+    suspend fun file(file: FileNode): FileText {
+        if (file.docID != null) {
+            val document = request("GET", "/api/docs/${file.docID}")
+            return FileText(document.getString("source"), "")
+        }
+        val response = request("GET", "/api/file?path=" + URLEncoder.encode(file.path, "UTF-8"))
         return FileText(response.getString("content"), response.getString("hash"))
     }
     suspend fun save(file: FileNode, text: String, base: String, hash: String): String {

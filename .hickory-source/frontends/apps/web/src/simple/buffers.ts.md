@@ -5,6 +5,8 @@ For maintainers iterating on the equivalent Apple, Android and browser editor fr
 
 Each buffer owns its text and save baseline. Subscribers to text changes are separate from the workspace shell so typing does not rerender every pane. One in-flight read per path prevents late duplicate opens from replacing edits.
 
+Managed documents use their document ID to read the current source directly, without rendering or analysis. The plain-file endpoint deliberately refuses them. Their save baseline is that source text; the hash is unused for document saves.
+
 <ui:copy id="simple-964718fb75-0">
 import { api } from "../api/client";
 import type { FileNode } from "../api/types";
@@ -56,7 +58,10 @@ export class Buffers {
     if (current) return Promise.resolve(current);
     const pending = this.pending.get(file.path);
     if (pending) return pending;
-    const request = api.file(file.path).then(data => {
+    const read = file.doc_id
+      ? api.doc(file.doc_id).then(doc => ({ content: doc.source, hash: "" }))
+      : api.file(file.path);
+    const request = read.then(data => {
       const buffer = new Buffer(file, data.content, data.hash, this.changed);
       this.values.set(file.path, buffer); return buffer;
     }).finally(() => this.pending.delete(file.path));

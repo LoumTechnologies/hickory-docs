@@ -43,7 +43,10 @@ export class Buffers {
     if (current) return Promise.resolve(current);
     const pending = this.pending.get(file.path);
     if (pending) return pending;
-    const request = api.file(file.path).then(data => {
+    const read = file.doc_id
+      ? api.doc(file.doc_id).then(doc => ({ content: doc.source, hash: "" }))
+      : api.file(file.path);
+    const request = read.then(data => {
       const buffer = new Buffer(file, data.content, data.hash, this.changed);
       this.values.set(file.path, buffer); return buffer;
     }).finally(() => this.pending.delete(file.path));

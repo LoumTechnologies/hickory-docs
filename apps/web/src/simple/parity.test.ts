@@ -3,9 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import fixture from "../../../simple-contract/layout-cases.json";
 import { activate, groups, initialLayout, move, remove, split } from "./layout";
 import { TerminalSession } from "./Terminal";
-import { Buffer } from "./buffers";
+import { Buffer, Buffers } from "./buffers";
 import { api } from "../api/client";
-vi.mock("../api/client", () => ({ api: { saveFile: vi.fn(), saveDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agent: vi.fn() } }));
+vi.mock("../api/client", () => ({ api: { doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agent: vi.fn() } }));
 describe("shared frontend layout contract", () => {
   for (const scenario of fixture.cases) it(scenario.name, () => {
     let layout = initialLayout();
@@ -22,6 +22,26 @@ describe("shared frontend layout contract", () => {
   it("refuses an unknown move target without removing the document", () => {
     const layout = activate(initialLayout(), "document-group", "notes.md");
     expect(move(layout, "notes.md", "missing")).toBe(layout);
+  });
+});
+describe("simple frontend text opening", () => {
+  it.each(["notes.md", "cards.md"])("opens managed %s through its document source", async path => {
+    vi.mocked(api.file).mockClear();
+    vi.mocked(api.doc).mockResolvedValueOnce({ id: "managed", path, source: "# Readable source", updated_at: "" });
+    const buffer = await new Buffers(() => {}).open({ name: path, path, dir: false, doc_id: "managed" });
+    expect(api.doc).toHaveBeenLastCalledWith("managed");
+    expect(api.file).not.toHaveBeenCalled();
+    expect(buffer.text).toBe("# Readable source"); expect(buffer.base).toBe(buffer.text);
+    buffer.edit("# Edited"); vi.mocked(api.saveDoc).mockResolvedValueOnce({ id: "managed", path, source: "# Edited", updated_at: "" });
+    await buffer.save();
+    expect(api.saveDoc).toHaveBeenLastCalledWith("managed", "# Edited", { source: "# Readable source", disk: "# Readable source" });
+  });
+  it("opens plain text with its file hash", async () => {
+    vi.mocked(api.doc).mockClear();
+    vi.mocked(api.file).mockResolvedValueOnce({ path: "notes.txt", content: "Plain text", hash: "plain-hash", language: "text" });
+    const buffer = await new Buffers(() => {}).open({ name: "notes.txt", path: "notes.txt", dir: false });
+    expect(api.file).toHaveBeenLastCalledWith("notes.txt"); expect(api.doc).not.toHaveBeenCalled();
+    expect(buffer.text).toBe("Plain text"); expect(buffer.hash).toBe("plain-hash");
   });
 });
 describe("simple frontend save safety", () => {
