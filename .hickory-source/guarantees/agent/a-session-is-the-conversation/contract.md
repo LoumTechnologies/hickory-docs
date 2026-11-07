@@ -46,7 +46,7 @@ it the tip (a rewind), which is how you go back to where you branched off.
 // highlighted path is the branch the dock is showing; clicking a node makes
 // it the tip (a rewind), which is how you go back to where you branched off.
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { AgentTurn } from "../api/types";
 import { graphWidth, laneColor, layout } from "../lib/gitGraph";
 
@@ -102,7 +102,60 @@ export function pathTo(
 <a id="f-d6c33a544e5e-ChatTree"></a>
 ### `ChatTree`
 
-<storycode:copy id="f-d6c33a544e5e-ChatTree">
+The compact reading preserves newest-first lanes. The optional botanical reading
+puts roots below new growth and spreads sibling subtrees into separate leaf slots.
+The canvas scrolls and zooms without moving surrounding controls. Both readings
+select the same retained turn; decorative branches never invent conversation data.
+A visited set makes cycles finite, and an iterative traversal avoids recursive
+stack growth. This experiment renders all turns; it does not yet virtualize large
+histories. The browser remembers the chosen reading independently of app colors.
+
+<storycode:copy id="f-d6c33a544e5e-ChatTree">/** Place parents below their children, with one horizontal slot per leaf.
+ * Iterative traversal keeps deep conversations off the JS call stack. */
+export function botanicalLayout(turns: readonly AgentTurn[]) {
+  const byId = new Map(turns.map(turn => [turn.id, turn]));
+  const children = new Map<string, string[]>();
+  for (const turn of turns) {
+    if (turn.parent_id && byId.has(turn.parent_id)) {
+      const siblings = children.get(turn.parent_id) ?? [];
+      siblings.push(turn.id);
+      children.set(turn.parent_id, siblings);
+    }
+  }
+  const nodes = new Map<string, { x: number; depth: number; parent: string | null }>();
+  const order: string[] = [];
+  let leaves = 0;
+  let depth = 0;
+  // Visit true roots first. Any remaining component is malformed/cyclic;
+  // sever its back edge for display without changing retained conversation data.
+  const seeds = [...turns.filter(t => !t.parent_id || !byId.has(t.parent_id)), ...turns];
+  for (const seed of seeds) {
+    if (nodes.has(seed.id)) continue;
+    const stack = [{ id: seed.id, parent: null as string | null, depth: 0, exit: false }];
+    while (stack.length) {
+      const item = stack.pop()!;
+      if (item.exit) {
+        const childNodes = (children.get(item.id) ?? [])
+          .filter(id => nodes.get(id)?.parent === item.id).map(id => nodes.get(id)!);
+        nodes.get(item.id)!.x = childNodes.length
+          ? (childNodes[0].x + childNodes[childNodes.length - 1].x) / 2
+          : 106 + leaves++ * 196;
+        continue;
+      }
+      if (nodes.has(item.id)) continue;
+      nodes.set(item.id, { x: 0, depth: item.depth, parent: item.parent });
+      order.push(item.id);
+      depth = Math.max(depth, item.depth);
+      stack.push({ ...item, exit: true });
+      for (const id of [...(children.get(item.id) ?? [])].reverse()) {
+        if (!nodes.has(id)) stack.push({ id, parent: item.id, depth: item.depth + 1, exit: false });
+      }
+    }
+  }
+  return { nodes, order, width: Math.max(320, leaves * 196 + 16), height: (depth + 1) * 100 + 80 };
+}
+
+
 export function ChatTree({
   turns,
   tip,
@@ -112,6 +165,18 @@ export function ChatTree({
   tip: string | null;
   onSelect: (id: string) => void;
 }) {
+  const [botanical, setBotanical] = useState(() => {
+    try { return localStorage.getItem("hickory.conversation-tree") === "botanical"; }
+    catch { return false; }
+  });
+  const [zoom, setZoom] = useState(1);
+  const pickStyle = (next: boolean) => {
+    setBotanical(next);
+    try { localStorage.setItem("hickory.conversation-tree", next ? "botanical" : "compact"); }
+    catch { /* The current view still works without storage. */ }
+  };
+  const tree = useMemo(() => botanicalLayout(botanical ? turns : []), [turns, botanical]);
+  const turnsById = useMemo(() => new Map(turns.map(t => [t.id, t])), [turns]);
   // gitGraph wants newest first, each node naming its parents.
   const ordered = useMemo(() => [...turns].reverse(), [turns]);
   const rows = useMemo(
@@ -131,6 +196,47 @@ export function ChatTree({
       <p className="muted chat-empty">No turns yet — nothing to zoom out of.</p>
     );
   return (
+    <section aria-label="Conversation branches">
+      <div className="hickory-tree__controls" role="group" aria-label="Conversation tree style">
+        <button type="button" className="btn-link" aria-pressed={!botanical} onClick={() => pickStyle(false)}>Compact</button>
+        <button type="button" className="btn-link" aria-pressed={botanical} onClick={() => pickStyle(true)}>Hickory tree · experiment</button>
+        {botanical && <>
+          <button type="button" className="btn-link" aria-label="Zoom out tree" disabled={zoom <= .5} onClick={() => setZoom(z => Math.max(.5, z - .25))}>−</button>
+          <button type="button" className="btn-link" aria-label="Reset tree zoom" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
+          <button type="button" className="btn-link" aria-label="Zoom in tree" disabled={zoom >= 1.5} onClick={() => setZoom(z => Math.min(1.5, z + .25))}>+</button>
+        </>}
+      </div>
+      {botanical ? <>
+        <p className="muted">Roots below, new growth above. Choose a turn to continue its branch.</p>
+        <div className="hickory-tree__canvas" tabIndex={0} role="region" aria-label="Hickory conversation tree">
+          <svg width={tree.width * zoom} height={tree.height * zoom} viewBox={`0 0 ${tree.width} ${tree.height}`}>
+            {tree.order.map(id => {
+              const node = tree.nodes.get(id)!;
+              const y = tree.height - 70 - node.depth * 100;
+              const parent = node.parent ? tree.nodes.get(node.parent) : null;
+              const py = parent ? tree.height - 70 - parent.depth * 100 : tree.height - 15;
+              const px = parent?.x ?? node.x;
+              return <path key={id} aria-hidden="true" className={`hickory-tree__branch${onPath.has(id) ? " hickory-tree__branch--on" : ""}`}
+                strokeWidth={parent ? 4 : 9} d={`M ${px} ${py} C ${px} ${(py + y) / 2}, ${node.x} ${(py + y) / 2}, ${node.x} ${y}`} />;
+            })}
+            {tree.order.map(id => {
+              const turn = turnsById.get(id)!;
+              const node = tree.nodes.get(id)!;
+              const y = tree.height - 70 - node.depth * 100;
+              return <g key={id}>
+                <path aria-hidden="true" className="hickory-tree__leaf" d={`M ${node.x + 76} ${y - 18} q 4 -28 27 -28 q 0 23 -27 28 Z`} />
+                <foreignObject x={node.x - 86} y={y - 29} width={172} height={58}>
+                  <button type="button" className="hickory-tree__node" aria-current={id === tip ? "true" : undefined}
+                    title={turn.prompt} onClick={() => onSelect(id)}>
+                    <span>{turn.prompt || "Untitled turn"}</span>
+                    <span className="muted">{id === tip ? "Current · " : ""}{turn.status === "running" ? "running" : turn.status === "error" ? "failed" : turn.model}</span>
+                  </button>
+                </foreignObject>
+              </g>;
+            })}
+          </svg>
+        </div>
+      </> : (
     <ol
       className="chat-tree"
       style={{ ["--chat-graph" as string]: `${graphPx}px` }}
@@ -192,6 +298,8 @@ export function ChatTree({
         );
       })}
     </ol>
+      )}
+    </section>
   );
 }
 </storycode:copy>

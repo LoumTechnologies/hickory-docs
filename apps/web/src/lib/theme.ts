@@ -1,4 +1,4 @@
-// The UI theme: which of the three token sets in styles.css dresses the app.
+// The UI theme: which of the token sets in styles.css dresses the app.
 // A presentation preference, so it persists per browser (localStorage), with
 // the operating system’s light/dark preference used when unset or unrecognisable.
 //
@@ -7,14 +7,14 @@
 // right theme; this module is the same logic for everything after that
 // (initial React mount, and re-application when the settings picker saves).
 
-export type Theme = "dark" | "warm-dark" | "light";
+export type Theme = "dark" | "warm-dark" | "light" | "fern" | "forest";
 
 export const THEME_KEY = "hickory.theme";
 
-export const THEMES: readonly Theme[] = ["dark", "warm-dark", "light"];
+export const THEMES: readonly Theme[] = ["dark", "warm-dark", "light", "fern", "forest"];
 
 const isTheme = (value: unknown): value is Theme =>
-  value === "dark" || value === "warm-dark" || value === "light";
+  value === "dark" || value === "warm-dark" || value === "light" || value === "fern" || value === "forest";
 
 /** Prefer a saved choice; otherwise follow the operating system. */
 export function loadTheme(
@@ -50,7 +50,7 @@ export function applyTheme(theme: Theme, doc: Document = document): void {
   doc.documentElement.dataset.theme = theme;
   doc
     .querySelector('meta[name="color-scheme"]')
-    ?.setAttribute("content", theme === "light" ? "light" : "dark");
+    ?.setAttribute("content", theme === "light" || theme === "fern" ? "light" : "dark");
 }
 
 const watchedDocuments = new WeakSet<Document>();

@@ -9,16 +9,32 @@ This page owns the output construction and the explained fragments below. Source
 ## `apps/web/src/styles.css`
 
 Hickory Docs — restrained, tool-grade UI. System fonts, no framework.
-Theming: three explicit themes selected by `data-theme` on <html>
+Theming: five explicit themes selected by `data-theme` on <html>
 
 Related contracts: [A Generated Picture Shows As A Picture](../../../../guarantees/authoring/a-generated-picture-shows-as-a-picture/contract.md), [A Table Is A Dataset And A Paragraph](../../../../guarantees/authoring/a-table-is-a-dataset-and-a-paragraph/contract.md), [An Equation Renders And Shows Its Source](../../../../guarantees/authoring/an-equation-renders-and-shows-its-source/contract.md), [An Ingested Scaffold Opens As A Tree](../../../../guarantees/authoring/an-ingested-scaffold-opens-as-a-tree/contract.md), [Every Hover Hint Is Drawn In The App Theme](../../../../guarantees/authoring/every-hover-hint-is-drawn-in-the-app-theme/contract.md), [Markdown Quotes And Task Lists Are Read As Prose](../../../../guarantees/authoring/markdown-quotes-and-task-lists-are-read-as-prose/contract.md), [The editor keeps its space](../../../../guarantees/authoring/the-editor-keeps-its-space/contract.md), [The Gutters Never Skip A Number](../../../../guarantees/authoring/the-gutters-never-skip-a-number/contract.md), [The Measure Says What It Measures](../../../../guarantees/authoring/the-measure-says-what-it-measures/contract.md), [A Breakpoint That Is Not Bound Yet Is Not Refused](../../../../guarantees/debugging/a-breakpoint-that-is-not-bound-yet-is-not-refused/contract.md), [A Hover Is Rendered, Not Dumped](../../../../guarantees/editor-intelligence/a-hover-is-rendered-not-dumped/contract.md), [Stepping A Table Replays The Order The Host Chose](../../../../guarantees/execution/stepping-a-table-replays-the-order-the-host-chose/contract.md), [Ingested Bytes Are Editable And Never Report As Yours](../../../../guarantees/lineage/ingested-bytes-are-not-yours/contract.md), [Three Provenances Are Drawn Apart, And Any Subset Can Be Shown](../../../../guarantees/lineage/three-provenances-are-drawn-apart/contract.md).
 
 This literal construction preserves embedded document syntax and exact file bytes. Its internal reasoning boundaries still need editorial review.
 
+### Compare botanical themes without changing the reading layout
+
+Fern keeps a warm near-white ground with sage surfaces; Forest uses green charcoal
+with moss accents. These are optional explorations for engineers reading and
+editing long documents. Existing logo assets, system fonts, type scale, spacing
+and radii stay shared. No bitmap imagery or font download is required. Change
+`--bg`, `--bg-raised`, `--bg-sunken`, `--fg`, `--fg-muted`, `--border` and the
+accent tokens to refine either direction. Semantic status colors and syntax hues
+inherit the established light or dark family rather than making all code green.
+
+Computed sRGB contrast against the base background: Fern body 11.29:1, muted
+5.50:1, accent 5.73:1; Forest body 12.58:1, muted 7.07:1, accent 8.61:1.
+These measurements cover those text pairs, not every inherited syntax token or
+translucent overlay. The botanical tree uses HTML buttons for keyboard selection;
+its leaf shapes are decorative and current-turn text supplements its border.
+
 <storycode:entry path="apps/web/src/styles.css">
 /* Hickory Docs — restrained, tool-grade UI. System fonts, no framework. */
 
-/* Theming: three explicit themes selected by `data-theme` on <html>
+/* Theming: five explicit themes selected by `data-theme` on <html>
    (lib/theme.ts; a pre-bundle inline script in index.html sets it before
    first paint). `:root` carries the DEFAULT theme — "dark", a cool
    editor-grade palette — so an unset or garbage value can never flash the
@@ -104,7 +120,8 @@ This literal construction preserves embedded document syntax and exact file byte
 }
 
 /* "light" — the original warm paper palette. */
-:root[data-theme="light"] {
+:root[data-theme="light"],
+:root[data-theme="fern"] {
   color-scheme: light;
   --bg: #faf9f7;
   --bg-raised: #ffffff;
@@ -212,6 +229,65 @@ This literal construction preserves embedded document syntax and exact file byte
   --search-hit: #5c4a22;
   --search-hit-on: #8f7333;
 }
+
+/* Botanical alternatives reuse the established semantic/syntax palette for their
+   light/dark family. These tokens swap the working surfaces, not typography or
+   density: a theme change never moves the document under the reader. */
+:root[data-theme="fern"] {
+  color-scheme: light;
+  --bg: #f3f5ee;
+  --bg-raised: #fafbf6;
+  --bg-sunken: #e8ede2;
+  --fg: #28382c;
+  --fg-muted: #586750;
+  --border: #cbd4c3;
+  --accent: #426943;
+  --accent-2: #516e7a;
+  --neutral-bg: #e1e8da;
+  --select-bg: #d3e1c9;
+  --search-hit: #e9dfb5;
+  --search-hit-on: #d5c787;
+  --tok-keyword: #426943;
+  --tok-tag: #426943;
+  --tok-comment: #65735e;
+  --tok-meta: #65735e;
+  --ribbon-0: #426943;
+}
+:root[data-theme="forest"] {
+  color-scheme: dark;
+  --bg: #1b2521;
+  --bg-raised: #222e27;
+  --bg-sunken: #16201c;
+  --fg: #e0e8de;
+  --fg-muted: #a3b29f;
+  --border: #3c4c3f;
+  --accent: #aec892;
+  --accent-2: #9cbdbe;
+  --neutral-bg: #2c3b30;
+  --ok-bg: #243b2b;
+  --term-bg: #131c18;
+  --select-bg: #40553b;
+  --search-hit: #554c2e;
+  --search-hit-on: #75663b;
+  --tok-keyword: #aec892;
+  --tok-type: #9cbdbe;
+  --tok-tag: #aec892;
+  --tok-comment: #a3b29f;
+  --tok-meta: #a3b29f;
+  --ribbon-0: #aec892;
+}
+
+.hickory-tree__controls { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; padding: .35rem .5rem; }
+.hickory-tree__controls button[aria-pressed="true"] { color: var(--accent); font-weight: 600; }
+.hickory-tree__canvas { overflow: auto; max-height: 65vh; min-height: 180px; background: var(--bg-sunken); border-radius: 6px; }
+.hickory-tree__canvas svg { display: block; margin: auto; }
+.hickory-tree__branch { fill: none; stroke: var(--fg-muted); opacity: .35; stroke-linecap: round; }
+.hickory-tree__branch--on { stroke: var(--accent); opacity: .9; }
+.hickory-tree__leaf { fill: var(--accent); opacity: .6; }
+.hickory-tree__node { width: 172px; height: 58px; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-raised); color: var(--fg); text-align: left; font: inherit; font-size: 12px; padding: 6px 9px; cursor: pointer; }
+.hickory-tree__node[aria-current="true"] { border: 2px solid var(--accent); }
+.hickory-tree__node:hover, .hickory-tree__node:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.hickory-tree__node span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 * {
   box-sizing: border-box;

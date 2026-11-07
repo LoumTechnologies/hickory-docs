@@ -28,12 +28,12 @@ Captured SHA-256: `53f32f322dde289c3305662d0eae43cd15b82b189c0e8183fd721dfdee016
         } catch (e) {
           /* storage disabled: keep the default */
         }
-        if (theme !== "dark" && theme !== "warm-dark" && theme !== "light") {
+        if (theme !== "dark" && theme !== "warm-dark" && theme !== "light" && theme !== "fern" && theme !== "forest") {
           theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
         }
         document.documentElement.dataset.theme = theme;
         var meta = document.querySelector('meta[name="color-scheme"]');
-        if (meta) meta.setAttribute("content", theme === "light" ? "light" : "dark");
+        if (meta) meta.setAttribute("content", theme === "light" || theme === "fern" ? "light" : "dark");
       })();
     </script>
     <!-- The landing page is reached from ads, link shares, and community

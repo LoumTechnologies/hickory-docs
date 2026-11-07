@@ -231,6 +231,8 @@ function AppearanceSection() {
             { value: "dark", label: "Dark", title: "Cool, editor-grade dark (default)" },
             { value: "warm-dark", label: "Warm dark", title: "The warm sepia dark palette" },
             { value: "light", label: "Light", title: "Warm paper light palette" },
+            { value: "fern", label: "Fern", title: "Soft botanical light: sage, linen and deep green" },
+            { value: "forest", label: "Forest", title: "Woodland dark: moss, charcoal and warm leaf accents" },
           ]}
         />
         <ChoiceRow

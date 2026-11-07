@@ -31,6 +31,7 @@ import {
   SLASH_HELP,
 } from "./ChatDock";
 import { api } from "../api/client";
+import { botanicalLayout, ChatTree } from "./ChatTree";
 import { AgentStatusBar } from "../shell/AgentStatus";
 import { acpApi } from "../api/acp";
 import type { AgentTotals, AgentTurn, AgentTurnsResponse } from "../api/types";
@@ -234,6 +235,36 @@ describe("live stream", () => {
 });
 
 describe("conversation tree", () => {
+  it("spreads forks, retains missing-parent roots and terminates cycles", () => {
+    const graph = botanicalLayout(TREE);
+    expect(graph.nodes.get("root")!.depth).toBe(0);
+    expect(graph.nodes.get("a")!.depth).toBe(1);
+    expect(graph.nodes.get("a")!.x).toBeLessThan(graph.nodes.get("b")!.x);
+    const malformed = botanicalLayout([turn("x", "y"), turn("y", "x"), turn("orphan", "missing")]);
+    expect(malformed.nodes.size).toBe(3);
+    expect(malformed.nodes.get("orphan")!.parent).toBeNull();
+  });
+
+  it("switches readings, selects retained turns and remembers the experiment", () => {
+    localStorage.removeItem("hickory.conversation-tree");
+    const onSelect = vi.fn();
+    const view = render(<ChatTree turns={TREE} tip="a2" onSelect={onSelect} />);
+    fireEvent.click(screen.getByRole("button", { name: "Hickory tree · experiment" }));
+    expect(localStorage.getItem("hickory.conversation-tree")).toBe("botanical");
+    const canvas = screen.getByRole("region", { name: "Hickory conversation tree" });
+    expect(canvas.querySelectorAll("button").length).toBe(TREE.length);
+    fireEvent.click(canvas.querySelector('button[aria-current="true"]')!);
+    expect(onSelect).toHaveBeenCalledWith("a2");
+    fireEvent.click(screen.getByRole("button", { name: "Zoom out tree" }));
+    expect(screen.getByRole("button", { name: "Reset tree zoom" }).textContent).toBe("75%");
+    view.unmount();
+    render(<ChatTree turns={TREE} tip="a2" onSelect={onSelect} />);
+    expect(screen.getByRole("region", { name: "Hickory conversation tree" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Compact" }));
+    expect(screen.getByRole("list", { name: "Conversation tree" })).toBeTruthy();
+    localStorage.removeItem("hickory.conversation-tree");
+  });
+
   it("shows the path from the root to the selected tip, oldest first", () => {
     expect(branchOf(TREE, "a2").map((t) => t.id)).toEqual(["root", "a", "a2"]);
     expect(branchOf(TREE, "b2").map((t) => t.id)).toEqual(["root", "b", "b2"]);

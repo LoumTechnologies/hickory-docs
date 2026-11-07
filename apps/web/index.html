@@ -12,6 +12,8 @@
         background: #1e2227; color: #dde3ea; font: 16px system-ui, sans-serif; }
       :root[data-theme="light"] .boot-status { background: #faf9f7; color: #21201d; }
       :root[data-theme="warm-dark"] .boot-status { background: #161512; color: #e6e3dc; }
+      :root[data-theme="fern"] .boot-status { background: #f3f5ee; color: #28382c; }
+      :root[data-theme="forest"] .boot-status { background: #1b2521; color: #e0e8de; }
     </style>
     <!-- Resolve saved choice or OS appearance before first paint.
          Keep this in sync with src/lib/theme.ts. -->
@@ -23,12 +25,12 @@
         } catch (e) {
           /* storage disabled: keep the default */
         }
-        if (theme !== "dark" && theme !== "warm-dark" && theme !== "light") {
+        if (theme !== "dark" && theme !== "warm-dark" && theme !== "light" && theme !== "fern" && theme !== "forest") {
           theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
         }
         document.documentElement.dataset.theme = theme;
         var meta = document.querySelector('meta[name="color-scheme"]');
-        if (meta) meta.setAttribute("content", theme === "light" ? "light" : "dark");
+        if (meta) meta.setAttribute("content", theme === "light" || theme === "fern" ? "light" : "dark");
       })();
     </script>
   </head>

@@ -24,7 +24,7 @@ describe("theme persistence", () => {
 
   it("round-trips each saved choice over the opposite system preference", () => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
-    for (const theme of ["light", "warm-dark", "dark"] as const) {
+    for (const theme of ["light", "warm-dark", "dark", "fern", "forest"] as const) {
       saveTheme(theme);
       expect(localStorage.getItem(THEME_KEY)).toBe(theme);
       expect(loadTheme()).toBe(theme);
@@ -72,14 +72,14 @@ describe("applying a theme to the document", () => {
     const script = html.match(/<script>([\s\S]*?)<\/script>/)![1];
     for (const matches of [true, false]) {
       vi.stubGlobal("matchMedia", vi.fn(() => ({ matches })));
-      for (const stored of [null, "invalid", "dark", "warm-dark", "light"]) {
+      for (const stored of [null, "invalid", "dark", "warm-dark", "light", "fern", "forest"]) {
         if (stored === null) localStorage.removeItem(THEME_KEY);
         else localStorage.setItem(THEME_KEY, stored);
         const doc = document.implementation.createHTMLDocument();
         doc.head.innerHTML = '<meta name="color-scheme" content="dark">';
         new Function("document", script)(doc);
         expect(doc.documentElement.dataset.theme).toBe(loadTheme());
-        expect(doc.querySelector("meta")!.content).toBe(loadTheme() === "light" ? "light" : "dark");
+        expect(doc.querySelector("meta")!.content).toBe(["light", "fern"].includes(loadTheme()) ? "light" : "dark");
       }
     }
   });

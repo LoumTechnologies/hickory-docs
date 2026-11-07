@@ -156,6 +156,59 @@ test("startup is an editable unsaved introduction that expands on demand", async
   await expect(editor).not.toContainText(introductionHeading);
   await expect(editor).toBeFocused();
 });
+
+
+test("botanical themes switch immediately and survive a reload", async ({ page }) => {
+  test.skip(!process.env.HICKORY_E2E_URL, "Run against a local Hickory web app.");
+  await page.goto("/#/settings");
+  for (const [label, value, background, scheme] of [
+    ["Fern", "fern", "rgb(243, 245, 238)", "light"],
+    ["Forest", "forest", "rgb(27, 37, 33)", "dark"],
+  ]) {
+    await page.getByRole("group", { name: "Theme", exact: true }).getByRole("button", { name: label, exact: true }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", value);
+    await expect(page.locator("body")).toHaveCSS("background-color", background);
+    await expect(page.locator("html")).toHaveCSS("color-scheme", scheme);
+    await page.reload();
+    await expect(page.getByRole("button", { name: label, exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("body")).toHaveCSS("background-color", background);
+  }
+});
+
+
+// The demo API seeds retained turns; every interaction below uses the app UI.
+test("botanical conversation tree keeps branches selectable and the compact reading available", async ({ page }) => {
+  test.skip(process.env.HICKORY_E2E_MOCK !== "1", "Run against npm run dev:mock with HICKORY_E2E_MOCK=1.");
+  test.setTimeout(45000);
+  await page.goto("/");
+  await expect(page.locator(".cm-content").first()).toBeVisible();
+  await page.evaluate(async () => {
+    // Setup uses the demo transport because its API is in-browser.
+    const { request } = await import("/src/api/client.ts");
+    const root = await request("POST", "/api/docs/workspace/agent", { prompt: "A calm writing space" }) as { session_id: string };
+    await request("POST", "/api/docs/workspace/agent", { prompt: "Explore botanical themes", parent_id: root.session_id });
+    await request("POST", "/api/docs/workspace/agent", { prompt: "Explore growing branches", parent_id: root.session_id });
+    window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "show-agent" }));
+  });
+  const agent = page.getByRole("region", { name: "Agent chat" });
+  await expect(agent).toBeVisible();
+  await agent.locator('summary[aria-label="Conversation actions"]').click();
+  await agent.getByRole("button", { name: "Tree", exact: true }).click();
+  await agent.getByRole("button", { name: "Hickory tree · experiment" }).click();
+  const tree = agent.getByRole("region", { name: "Hickory conversation tree" });
+  await expect(tree.getByRole("button")).toHaveCount(3);
+  const alternative = tree.getByRole("button", { name: /Explore botanical themes/ });
+  await alternative.click();
+  // Selection returns to the retained conversation, just like compact mode.
+  await expect(tree).toHaveCount(0);
+  await agent.locator('summary[aria-label="Conversation actions"]').click();
+  await agent.getByRole("button", { name: "Tree", exact: true }).click();
+  await expect(alternative).toHaveAttribute("aria-current", "true");
+  await agent.getByRole("button", { name: "Zoom out tree" }).click();
+  await expect(agent.getByRole("button", { name: "Reset tree zoom" })).toHaveText("75%");
+  await agent.getByRole("button", { name: "Compact", exact: true }).click();
+  await expect(agent.getByRole("list", { name: "Conversation tree" }).getByRole("button")).toHaveCount(3);
+});
 </storycode:copy>
 
 ### Assemble `apps/web/e2e/startup.spec.ts`

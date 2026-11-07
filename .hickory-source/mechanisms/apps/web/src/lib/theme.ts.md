@@ -13,7 +13,7 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <a id="f-952a43adabdb-Theme"></a>
 ### `Theme`
 
-The UI theme: which of the three token sets in styles.css dresses the app.
+The UI theme: which of the token sets in styles.css dresses the app.
 A presentation preference, so it persists per browser (localStorage), with
 the operating system’s light/dark preference used when unset or unrecognisable.
 Applied as `data-theme` on <html>. An inline script in index.html applies
@@ -22,7 +22,7 @@ right theme; this module is the same logic for everything after that
 (initial React mount, and re-application when the settings picker saves).
 
 <storycode:copy id="f-952a43adabdb-Theme">
-// The UI theme: which of the three token sets in styles.css dresses the app.
+// The UI theme: which of the token sets in styles.css dresses the app.
 // A presentation preference, so it persists per browser (localStorage), with
 // the operating system’s light/dark preference used when unset or unrecognisable.
 //
@@ -31,7 +31,7 @@ right theme; this module is the same logic for everything after that
 // right theme; this module is the same logic for everything after that
 // (initial React mount, and re-application when the settings picker saves).
 
-export type Theme = "dark" | "warm-dark" | "light";
+export type Theme = "dark" | "warm-dark" | "light" | "fern" | "forest";
 
 </storycode:copy>
 <a id="f-952a43adabdb-THEME_KEY"></a>
@@ -44,8 +44,13 @@ export const THEME_KEY = "hickory.theme";
 <a id="f-952a43adabdb-THEMES"></a>
 ### `THEMES`
 
+Retain existing identifiers so saved preferences survive. Fern and Forest are
+optional light/dark botanical readings; both startup HTML scripts must recognize
+them before the bundle loads. The persistence and first-paint tests below cover
+every choice over both operating-system preferences.
+
 <storycode:copy id="f-952a43adabdb-THEMES">
-export const THEMES: readonly Theme[] = ["dark", "warm-dark", "light"];
+export const THEMES: readonly Theme[] = ["dark", "warm-dark", "light", "fern", "forest"];
 
 </storycode:copy>
 <a id="f-952a43adabdb-isTheme"></a>
@@ -53,7 +58,7 @@ export const THEMES: readonly Theme[] = ["dark", "warm-dark", "light"];
 
 <storycode:copy id="f-952a43adabdb-isTheme">
 const isTheme = (value: unknown): value is Theme =>
-  value === "dark" || value === "warm-dark" || value === "light";
+  value === "dark" || value === "warm-dark" || value === "light" || value === "fern" || value === "forest";
 
 </storycode:copy>
 <a id="f-952a43adabdb-loadTheme"></a>
@@ -111,7 +116,7 @@ export function applyTheme(theme: Theme, doc: Document = document): void {
   doc.documentElement.dataset.theme = theme;
   doc
     .querySelector('meta[name="color-scheme"]')
-    ?.setAttribute("content", theme === "light" ? "light" : "dark");
+    ?.setAttribute("content", theme === "light" || theme === "fern" ? "light" : "dark");
 }
 
 </storycode:copy>
@@ -192,7 +197,7 @@ describe("theme persistence", () => {
 
   it("round-trips each saved choice over the opposite system preference", () => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
-    for (const theme of ["light", "warm-dark", "dark"] as const) {
+    for (const theme of ["light", "warm-dark", "dark", "fern", "forest"] as const) {
       saveTheme(theme);
       expect(localStorage.getItem(THEME_KEY)).toBe(theme);
       expect(loadTheme()).toBe(theme);
@@ -251,14 +256,14 @@ describe("applying a theme to the document", () => {
     const script = html.match(/<script>([\s\S]*?)<\/script>/)![1];
     for (const matches of [true, false]) {
       vi.stubGlobal("matchMedia", vi.fn(() => ({ matches })));
-      for (const stored of [null, "invalid", "dark", "warm-dark", "light"]) {
+      for (const stored of [null, "invalid", "dark", "warm-dark", "light", "fern", "forest"]) {
         if (stored === null) localStorage.removeItem(THEME_KEY);
         else localStorage.setItem(THEME_KEY, stored);
         const doc = document.implementation.createHTMLDocument();
         doc.head.innerHTML = '<meta name="color-scheme" content="dark">';
         new Function("document", script)(doc);
         expect(doc.documentElement.dataset.theme).toBe(loadTheme());
-        expect(doc.querySelector("meta")!.content).toBe(loadTheme() === "light" ? "light" : "dark");
+        expect(doc.querySelector("meta")!.content).toBe(["light", "fern"].includes(loadTheme()) ? "light" : "dark");
       }
     }
   });

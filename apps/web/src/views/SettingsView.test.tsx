@@ -192,13 +192,13 @@ describe("the settings view", () => {
 });
 
 describe("the appearance section", () => {
-  it("offers the three themes with dark pressed by default", async () => {
+  it("offers the five themes with dark pressed by default", async () => {
     render(<SettingsView />);
     expect(await screen.findByRole("group", { name: "Theme" })).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Dark" }).getAttribute("aria-pressed"),
     ).toBe("true");
-    for (const label of ["Warm dark", "Light"]) {
+    for (const label of ["Warm dark", "Light", "Fern", "Forest"]) {
       expect(
         screen.getByRole("button", { name: label }).getAttribute("aria-pressed"),
       ).toBe("false");
@@ -216,6 +216,11 @@ describe("the appearance section", () => {
     fireEvent.click(screen.getByRole("button", { name: "Warm dark" }));
     expect(document.documentElement.dataset.theme).toBe("warm-dark");
     expect(loadTheme()).toBe("warm-dark");
+    for (const [label, value] of [["Fern", "fern"], ["Forest", "forest"]]) {
+      fireEvent.click(screen.getByRole("button", { name: label }));
+      expect(document.documentElement.dataset.theme).toBe(value);
+      expect(loadTheme()).toBe(value);
+    }
   });
 
   it("shows the three display toggles that used to live in the toolbar", async () => {
