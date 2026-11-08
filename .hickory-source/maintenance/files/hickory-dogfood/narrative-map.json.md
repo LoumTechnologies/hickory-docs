@@ -150598,6 +150598,20 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/apps/android-simple/app/src/test/java/com/hickorydocs/simple/ParityTest.kt.md",
       "symbol": "simple-android-debug-witnesses",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-native-search-model",
+      "output": "apps/apple-simple/Sources/NativeEditor.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/NativeEditor.swift.md",
+      "symbol": "simple-native-search-model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-android-search-model",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt.md",
+      "symbol": "simple-android-search-model",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

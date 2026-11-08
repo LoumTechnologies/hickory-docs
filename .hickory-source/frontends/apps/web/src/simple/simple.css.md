@@ -137,6 +137,11 @@ footer { border-top: 1px solid GrayText; padding: 3px 9px; font-size: 11px; over
 .launch-profile-picker { position: absolute; width: min(400px, calc(100vw - 16px)); max-height: 80vh; overflow: auto; padding: 12px; background: Canvas; border: 1px solid GrayText; box-shadow: 0 4px 12px #0003; }
 .launch-profile-picker header { display: flex; justify-content: space-between; }
 .launch-profile-option { display: grid; gap: 4px; padding: 8px 0; border-top: 1px solid GrayText; }
+/* Search floats above text; opening it leaves editor geometry and scroll intact. */
+.editor-cm-host .cm-editor { position: relative; }
+.editor-cm-host .cm-panels-top { position: absolute; top: 0; right: 0; z-index: 20; max-width: 100%; border: 1px solid GrayText; box-shadow: 0 4px 12px #0003; }
+.editor-cm-host .cm-search { max-width: 360px; padding: 6px; background: Canvas; color: CanvasText; }
+.editor-cm-host .cm-search input { max-width: 100%; }
 </ui:copy>
 
 Semantic classes need their own compact palette because this frontend does not load the primary workspace stylesheet. Use system light/dark colors so a server token becomes visibly colored without delaying text opening.

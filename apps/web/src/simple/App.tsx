@@ -4,7 +4,7 @@ import { PlainDebugHosts } from "../debug/plainDebugHosts";
 import { onOpenLocation, revealLine } from "../lib/revealLine";
 import type { FileNode } from "../api/types";
 import { Buffers } from "./buffers";
-import { Document } from "./Document";
+import { Document, openFind } from "./Document";
 import { Terminal, TerminalSession } from "./Terminal";
 import { Agent, AgentSession } from "./Agent";
 import { activate, groups, initialLayout, isGroup, move, remove, split, update, dock, dropEdge, type Edge, type Axis, type Layout } from "./layout";
@@ -89,6 +89,8 @@ export function App() {
       <button onClick={() => { void loadFiles(); }}>Refresh files</button>
       <button disabled={!buffer || buffer.readonly || !buffer.dirty || buffer.saving} onClick={() => { void buffer?.save(); }}>Save</button>
       <button disabled={!active} onClick={() => active && close(active)}>Close tab</button>
+    </div></details><details><summary>Edit</summary><div className="menu">
+      <button disabled={!buffer} onClick={() => buffer && openFind(buffer)}>Find and replace</button>
     </div></details><details><summary>View</summary><div className="menu">
       <button onClick={() => openTab("files")}>Files</button><button onClick={() => openTab("agent")}>Agent</button>
       <button onClick={() => { void openTerminal(); }}>Terminal</button>

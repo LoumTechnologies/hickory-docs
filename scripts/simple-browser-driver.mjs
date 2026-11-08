@@ -53,6 +53,16 @@ try {
             return { heading: style(".cm-md-h1"), bold: style(".cm-md-strong"), italic: style(".cm-md-em"), size: parseFloat(getComputedStyle(element).fontSize) };
           }); break;
         }
+        case "search-open": await menu("Edit", "Find and replace"); break;
+        case "search-query":
+          await page.getByLabel("Find", { exact: true }).fill(request.query);
+          await page.getByLabel("Find", { exact: true }).dispatchEvent("change");
+          await page.getByLabel("regexp", { exact: true }).setChecked(!!request.regex);
+          await page.getByLabel("Replace", { exact: true }).fill(request.replacement);
+          await page.getByLabel("Replace", { exact: true }).dispatchEvent("change"); break;
+        case "search-replace-all": await page.getByRole("button", { name: "replace all", exact: true }).click(); break;
+        case "search-close": await page.getByLabel("close", { exact: true }).click(); break;
+        case "editor-size": value = await editor(request.path).locator("..").evaluate(node => ({ width: node.clientWidth, height: node.clientHeight })); break;
         case "fold":
         case "unfold": {
           const pane = editor(request.path).locator("xpath=ancestor::div[contains(@class, 'editor-row')][1]");

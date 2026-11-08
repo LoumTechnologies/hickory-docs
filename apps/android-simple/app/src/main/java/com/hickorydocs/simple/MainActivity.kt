@@ -21,6 +21,7 @@ class MainActivity : ComponentActivity() {
         setContent { MaterialTheme { Surface { SimpleWorkspace(viewModel(), intent.getStringExtra("hickory_api_origin")) } } }
     }
 }
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable fun SimpleWorkspace(workspace: Workspace, initialAddress: String? = null) {
     var connection by remember { mutableStateOf(workspace.engine == null) }
     val scope = rememberCoroutineScope()
@@ -34,6 +35,10 @@ class MainActivity : ComponentActivity() {
     Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding().onPreviewKeyEvent {
         if (it.type == KeyEventType.KeyDown && it.key == Key.S && (it.isCtrlPressed || it.isMetaPressed)) {
             scope.launch { workspace.save() }; true
+        } else if (it.type == KeyEventType.KeyDown && it.key == Key.F && (it.isCtrlPressed || it.isMetaPressed)) {
+            workspace.currentBuffer?.showFind = true; workspace.currentBuffer != null
+        } else if (it.type == KeyEventType.KeyDown && it.key == Key.Escape && workspace.currentBuffer?.showFind == true) {
+            workspace.currentBuffer?.closeFind(); true
         } else false
     }) {
         Row(Modifier.fillMaxWidth().height(32.dp)) {
@@ -43,6 +48,7 @@ class MainActivity : ComponentActivity() {
                 "Save" to { scope.launch { workspace.save() }; Unit },
                 "Close tab" to { workspace.active?.let(workspace::close); Unit }
             ))
+            CommandMenu("Edit", listOf("Find and replace" to { workspace.currentBuffer?.showFind = true; Unit }))
             CommandMenu("View", listOf(
                 "Files" to { workspace.show("files") }, "Agent" to { workspace.show("agent") },
                 "Terminal" to { scope.launch { workspace.openTerminal() }; Unit },

@@ -72,12 +72,8 @@ private typealias FoldFont = UIFont
         }
         buffer.renderLanguage = { [weak self] tokens, source in self?.paint(tokens, source: source) }
         buffer.applyLanguageCompletion = { [weak self] range, insert, source, selection in
-            guard let self, !self.buffer.readOnly, !self.text.hasMarkedText(), self.text.string == source,
-                  self.text.selectedRange() == selection, NSMaxRange(range) <= (source as NSString).length,
-                  self.text.shouldChangeText(in: range, replacementString: insert) else { return false }
-            self.text.textStorage?.replaceCharacters(in: range, with: insert)
-            self.text.setSelectedRange(NSRange(location: range.location + (insert as NSString).length, length: 0))
-            self.text.didChangeText(); return true
+            guard let self, self.text.selectedRange() == selection else { return false }
+            return self.applySourceEdits([NativeSourceEdit(range: range, text: insert)], source: source)
         }
         buffer.revealDebugLine = { [weak self] line in
             guard let self, let offset = languageOffset(self.buffer.text, ["line": line, "character": 0]) else { return }
@@ -87,8 +83,25 @@ private typealias FoldFont = UIFont
         observer = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.contentView, queue: .main) { [weak self] _ in Task { @MainActor in self?.measureDebugLines() } }
         text.layoutManager?.delegate = folding
         buffer.toggleFold = { [weak self] line in self?.toggleFold(line) }
+        buffer.focusSource = { [weak self] in guard let self else { return }; self.text.window?.makeFirstResponder(self.text) }
+        buffer.applySourceEdits = { [weak self] edits, source in self?.applySourceEdits(edits, source: source) ?? false }
+        buffer.selectSourceRange = { [weak self] range, source in self?.selectSourceRange(range, source: source) ?? false }
         paint(buffer.language?.tokens ?? [], source: buffer.text)
         measureDebugLines()
+    }
+    func selectSourceRange(_ range: NSRange, source: String) -> Bool {
+        guard text.string == source, buffer.text == source, !text.hasMarkedText(),
+              validSourceEdits([NativeSourceEdit(range: range, text: "")], length: (source as NSString).length) else { return false }
+        unfoldAll(); text.setSelectedRange(range); buffer.selection = range; text.scrollRangeToVisible(range); return true
+    }
+    func applySourceEdits(_ edits: [NativeSourceEdit], source: String) -> Bool {
+        guard !buffer.readOnly, text.isEditable, text.string == source, buffer.text == source, !text.hasMarkedText(),
+              validSourceEdits(edits, length: (source as NSString).length) else { return false }
+        unfoldAll(); text.breakUndoCoalescing()
+        let undo = text.undoManager; undo?.beginUndoGrouping()
+        defer { undo?.endUndoGrouping(); text.breakUndoCoalescing() }
+        for edit in edits.sorted(by: { $0.range.location > $1.range.location }) { text.insertText(edit.text, replacementRange: edit.range) }
+        buffer.selection = text.selectedRange(); buffer.text = text.string; measureDebugLines(); return true
     }
     func toggleFold(_ line: Int) {
         guard let header = simpleFoldRanges(text.string).first(where: { $0.line == line }) else { return }
@@ -219,12 +232,8 @@ import UIKit
         }
         buffer.renderLanguage = { [weak self] tokens, source in self?.paint(tokens, source: source) }
         buffer.applyLanguageCompletion = { [weak self] range, insert, source, selection in
-            guard let self, !self.buffer.readOnly, self.text.markedTextRange == nil, self.text.text == source,
-                  self.text.selectedRange == selection,
-                  let start = self.text.position(from: self.text.beginningOfDocument, offset: range.location),
-                  let end = self.text.position(from: start, offset: range.length), let target = self.text.textRange(from: start, to: end) else { return false }
-            self.text.replace(target, withText: insert)
-            self.buffer.selection = self.text.selectedRange; self.buffer.text = self.text.text; return true
+            guard let self, self.text.selectedRange == selection else { return false }
+            return self.applySourceEdits([NativeSourceEdit(range: range, text: insert)], source: source)
         }
         buffer.revealDebugLine = { [weak self] line in
             guard let self, let offset = languageOffset(self.buffer.text, ["line": line, "character": 0]) else { return }
@@ -232,8 +241,31 @@ import UIKit
         }
         text.layoutManager.delegate = folding
         buffer.toggleFold = { [weak self] line in self?.toggleFold(line) }
+        buffer.focusSource = { [weak self] in self?.text.becomeFirstResponder() }
+        buffer.applySourceEdits = { [weak self] edits, source in self?.applySourceEdits(edits, source: source) ?? false }
+        buffer.selectSourceRange = { [weak self] range, source in self?.selectSourceRange(range, source: source) ?? false }
         paint(buffer.language?.tokens ?? [], source: buffer.text)
         measureDebugLines()
+    }
+    func selectSourceRange(_ range: NSRange, source: String) -> Bool {
+        guard text.text == source, buffer.text == source, text.markedTextRange == nil,
+              validSourceEdits([NativeSourceEdit(range: range, text: "")], length: (source as NSString).length) else { return false }
+        unfoldAll(); text.selectedRange = range; buffer.selection = range; text.scrollRangeToVisible(range); return true
+    }
+    func applySourceEdits(_ edits: [NativeSourceEdit], source: String) -> Bool {
+        guard !buffer.readOnly, text.isEditable, text.text == source, buffer.text == source, text.markedTextRange == nil,
+              validSourceEdits(edits, length: (source as NSString).length) else { return false }
+        let replacements: [(UITextRange, String)] = edits.sorted(by: { $0.range.location > $1.range.location }).compactMap { edit in
+            guard let start = text.position(from: text.beginningOfDocument, offset: edit.range.location),
+                  let end = text.position(from: start, offset: edit.range.length), let target = text.textRange(from: start, to: end) else { return nil }
+            return (target, edit.text)
+        }
+        guard replacements.count == edits.count else { return false }
+        unfoldAll()
+        let undo = text.undoManager; undo?.beginUndoGrouping()
+        defer { undo?.endUndoGrouping() }
+        for (target, replacement) in replacements { text.replace(target, withText: replacement) }
+        textViewDidChange(text); return true
     }
     func toggleFold(_ line: Int) {
         guard let header = simpleFoldRanges(text.text ?? "").first(where: { $0.line == line }) else { return }
@@ -338,6 +370,109 @@ struct NativeEditor: UIViewRepresentable {
 }
 #endif
 
+struct NativeSourceEdit: Equatable, Sendable { var range: NSRange; var text: String }
+struct NativeSearchRequest: Equatable, Sendable {
+    var source: String; var query: String; var replacement: String; var caseSensitive: Bool; var regex: Bool
+}
+struct NativeSearchResult: Sendable {
+    var edits: [NativeSourceEdit] = []; var error = ""
+}
+func nativeSearch(_ request: NativeSearchRequest) -> NativeSearchResult {
+    guard !request.query.isEmpty else { return NativeSearchResult() }
+    do {
+        let pattern = request.regex ? request.query : NSRegularExpression.escapedPattern(for: request.query)
+        let expression = try NSRegularExpression(pattern: pattern, options: request.caseSensitive ? [.anchorsMatchLines] : [.anchorsMatchLines, .caseInsensitive])
+        let source = request.source as NSString
+        var result = NativeSearchResult()
+        expression.enumerateMatches(in: request.source, options: .reportProgress, range: NSRange(location: 0, length: source.length)) { match, _, stop in
+            if Task.isCancelled { stop.pointee = true; return }
+            guard let match, match.range.length > 0 else { return }
+            guard result.edits.count < 10_000 else { result = NativeSearchResult(error: "Too many matches. Narrow your search before replacing."); stop.pointee = true; return }
+            let groups = (0..<match.numberOfRanges).map { index -> String in
+                let range = match.range(at: index); return range.location == NSNotFound ? "" : source.substring(with: range)
+            }
+            let replacement = request.regex ? nativeSearchReplacement(request.replacement, groups) : request.replacement
+            result.edits.append(NativeSourceEdit(range: match.range, text: replacement))
+        }
+        return result
+    } catch { return NativeSearchResult(error: "Invalid regular expression. Check the pattern and try again.") }
+}
+// Use the editor's $1 / $& / $$ replacement vocabulary rather than ICU templates.
+func nativeSearchReplacement(_ template: String, _ groups: [String]) -> String {
+    let expression = try! NSRegularExpression(pattern: #"\$([$&]|\d+)"#)
+    let source = template as NSString
+    var result = template
+    for token in expression.matches(in: template, range: NSRange(location: 0, length: source.length)).reversed() {
+        let key = source.substring(with: token.range(at: 1))
+        var value = source.substring(with: token.range)
+        if key == "$" { value = "$" }
+        else if key == "&" { value = groups.first ?? "" }
+        else {
+            for length in stride(from: key.count, through: 1, by: -1) {
+                if let number = Int(key.prefix(length)), number > 0, number < groups.count {
+                    value = groups[number] + key.dropFirst(length); break
+                }
+            }
+        }
+        result = (result as NSString).replacingCharacters(in: token.range, with: value)
+    }
+    return result
+}
+func validSourceEdits(_ edits: [NativeSourceEdit], length: Int) -> Bool {
+    var end = 0
+    for edit in edits.sorted(by: { $0.range.location < $1.range.location }) {
+        guard edit.range.location >= end, edit.range.location <= length, edit.range.length >= 0, edit.range.length <= length - edit.range.location else { return false }
+        end = edit.range.location + edit.range.length
+    }
+    return !edits.isEmpty
+}
+struct NativeFindPanel: View {
+    @Bindable var buffer: DocumentBuffer
+    @State private var result = NativeSearchResult()
+    @State private var measured: NativeSearchRequest?
+    @State private var notice = ""
+    @FocusState private var queryFocused: Bool
+    private var request: NativeSearchRequest { NativeSearchRequest(source: buffer.text, query: buffer.findQuery, replacement: buffer.findReplacement, caseSensitive: buffer.findCase, regex: buffer.findRegex) }
+    private var current: Bool { measured == request && result.error.isEmpty }
+    private func move(_ backwards: Bool = false) {
+        guard current, !result.edits.isEmpty else { return }
+        let selection = buffer.selection
+        let match = backwards ? (result.edits.last { NSMaxRange($0.range) <= selection.location } ?? result.edits.last!) : (result.edits.first { $0.range.location >= NSMaxRange(selection) } ?? result.edits.first!)
+        if buffer.selectSourceRange?(match.range, request.source) != true { notice = "Text changed or input is composing. Finish typing and search again." }
+    }
+    private func replace(_ all: Bool) {
+        guard current, !buffer.readOnly else { return }
+        let edits = all ? result.edits : result.edits.filter { $0.range == buffer.selection }
+        guard !edits.isEmpty else { move(); return }
+        if buffer.applySourceEdits?(edits, request.source) != true { notice = "Replacement refused. Finish typing and search the current text again." }
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack { Text("Find and replace").font(.caption); Spacer(); Button("×") { buffer.closeFind() }.accessibilityLabel("Close search") }
+            TextField("Find", text: $buffer.findQuery).focused($queryFocused).onSubmit { move() }.accessibilityLabel("Find")
+            TextField("Replace with", text: $buffer.findReplacement).accessibilityLabel("Replace with").disabled(buffer.readOnly)
+            HStack { Toggle("Match case", isOn: $buffer.findCase); Toggle("Regex", isOn: $buffer.findRegex) }.toggleStyle(.switch)
+            HStack { Button("Previous") { move(true) }; Button("Next") { move() }
+                Button("Replace") { replace(false) }.disabled(buffer.readOnly)
+                Button("Replace all") { replace(true) }.disabled(buffer.readOnly)
+            }.disabled(!current || result.edits.isEmpty)
+            Text(!notice.isEmpty ? notice : measured != request ? "Searching…" : !result.error.isEmpty ? result.error : "\(result.edits.count) matches").font(.caption).accessibilityLabel("Search status")
+            if buffer.readOnly { Text("Read-only · searching is available").font(.caption) }
+        }.padding(8).background(.regularMaterial).overlay(Rectangle().stroke(.secondary.opacity(0.4))).shadow(radius: 4)
+            .onAppear { queryFocused = true }
+            .onKeyPress(.escape) { buffer.closeFind(); return .handled }
+            .task(id: request) {
+                let snapshot = request; measured = nil; notice = ""
+                try? await Task.sleep(for: .milliseconds(100))
+                guard !Task.isCancelled else { return }
+                let job = Task.detached(priority: .userInitiated) { nativeSearch(snapshot) }
+                let found = await withTaskCancellationHandler(operation: { await job.value }, onCancel: { job.cancel() })
+                guard !Task.isCancelled, request == snapshot else { return }
+                result = found; measured = snapshot
+            }
+    }
+}
+
 struct LanguageEditor: View {
     var buffer: DocumentBuffer
     var debugger: NativeDebugger?
@@ -394,6 +529,14 @@ struct LanguageEditor: View {
                         }
                     }.padding().frame(width: 330)
                 }
+        }.overlay(alignment: .topTrailing) {
+            if buffer.showFind {
+                GeometryReader { geometry in
+                    ScrollView { NativeFindPanel(buffer: buffer) }
+                        .frame(width: min(360, max(0, geometry.size.width - 8)), height: min(240, max(0, geometry.size.height - 8)))
+                        .padding(4).frame(maxWidth: .infinity, alignment: .trailing)
+                }
+            }
         }
     }
 }

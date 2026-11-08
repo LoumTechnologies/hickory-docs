@@ -23,6 +23,15 @@ import Observation
     @ObservationIgnored var applyLanguageCompletion: ((NSRange, String, String, NSRange) -> Bool)?
     @ObservationIgnored var selection = NSRange(location: 0, length: 0)
     var visibleDebugLines: [DebugLine] = []
+    @ObservationIgnored var focusSource: (() -> Void)?
+    func closeFind() { showFind = false; focusSource?() }
+    var showFind = false
+    var findQuery = ""
+    var findReplacement = ""
+    var findCase = false
+    var findRegex = false
+    @ObservationIgnored var selectSourceRange: ((NSRange, String) -> Bool)?
+    @ObservationIgnored var applySourceEdits: (([NativeSourceEdit], String) -> Bool)?
     var foldedLines: Set<Int> = []
     @ObservationIgnored var toggleFold: ((Int) -> Void)?
     @ObservationIgnored var revealDebugLine: ((Int) -> Void)?

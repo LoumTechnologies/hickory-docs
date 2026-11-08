@@ -9,6 +9,7 @@ Each document owns a TextFieldState, including selection and undo, while the Vie
 package com.hickorydocs.simple
 
 import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.ui.text.TextRange
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -22,6 +23,25 @@ import java.util.UUID
 
 class DocumentBuffer(val file: FileNode, loaded: FileText) {
     val state = TextFieldState(loaded.content)
+    var focusSource: (() -> Unit)? = null
+    fun closeFind() { showFind = false; focusSource?.invoke() }
+    var showFind by mutableStateOf(false)
+    var findQuery by mutableStateOf("")
+    var findReplacement by mutableStateOf("")
+    var findCase by mutableStateOf(false)
+    var findRegex by mutableStateOf(false)
+    fun selectSourceRange(from: Int, to: Int, source: String): Boolean {
+        if (text != source || state.composition != null || !validSourceEdits(listOf(NativeSourceEdit(from, to, "")), source.length)) return false
+        clearFolds(); state.edit { selection = TextRange(from, to) }
+        debugReveal = source.take(from).count { it == '\n' } to ((debugReveal?.second ?: 0) + 1)
+        return true
+    }
+    fun applySourceEdits(edits: List<NativeSourceEdit>, source: String): Boolean {
+        if (readOnly || text != source || state.composition != null || !validSourceEdits(edits, source.length)) return false
+        clearFolds()
+        state.edit { edits.sortedByDescending { it.from }.forEach { replace(it.from, it.to, it.text) } }
+        return true
+    }
     var foldSource by mutableStateOf<String?>(null)
     var foldedLines by mutableStateOf<Set<Int>>(emptySet())
     fun activeFolds(): List<SimpleFold> = if (foldSource == text) simpleFoldRanges(text).filter { it.line in foldedLines } else emptyList()

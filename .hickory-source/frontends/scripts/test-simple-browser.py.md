@@ -7,6 +7,8 @@ The acceptance flow launches an isolated real engine on an ephemeral port, then 
 
 The focused `--debug-only` path launches a real Python adapter, places a line breakpoint, moves the paused tab, steps and checks inline values before stopping. It requires an installed Python debugger and a working Chromium host; a startup failure is not a passing debugger witness.
 
+The focused `--search-only` flow uses menu commands and visible search fields, checks editor dimensions, saves exact regex replacement bytes to the workspace, and undoes through the real editor. The browser driver owns platform selectors; this acceptance flow imports no frontend implementation.
+
 The focused `--fold-only` flow clicks the visible right-hand line menu, saves while folded, moves the same editor to another pane, unfolds and undoes. Its assertions read actual workspace bytes and visible content through the driver; no framework state is imported. Native gesture adapters are not implemented by this browser witness.
 
 <ui:copy id="simple-0799b7d31b-0">
@@ -92,6 +94,21 @@ def debug_acceptance(driver):
     driver.act("debug-stop")
     eventually(lambda: not any("paused" in state for state in driver.act("debug-state")), True)
 
+def search_acceptance(driver, folder):
+    path = "search.txt"
+    source = (folder / path).read_text()
+    driver.act("open", path=path)
+    size = driver.act("editor-size", path=path)
+    driver.act("search-open")
+    assert driver.act("editor-size", path=path) == size
+    driver.act("search-query", query=r"name=(\d+)", replacement="$1", regex=True)
+    driver.act("search-replace-all")
+    driver.act("save")
+    eventually(lambda: (folder / path).read_text(), "😀 12\n34\n")
+    driver.act("search-close")
+    driver.act("undo", path=path)
+    eventually(lambda: driver.act("content", path=path), source)
+
 def folding_acceptance(driver, folder):
     path = "fold.txt"
     source = (folder / path).read_text()
@@ -175,6 +192,7 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix="hickory-simple-") as temporary:
         folder = Path(temporary) / "workspace"; folder.mkdir()
         (folder / "notes.txt").write_text("before")
+        (folder / "search.txt").write_text("😀 name=12\nname=34\n")
         (folder / "fold.txt").write_text("function main() {\n  first()\n  second()\n}\n")
         (folder / "source.md").write_text('<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n# A literate document\n\n**bold** and *italic*\n</h:doc>\n')
         (folder / "debug.py").write_text("value = 1\nvalue += 1\nprint(value)\n")
@@ -187,7 +205,10 @@ if __name__ == "__main__":
             backend = origin(engine)
             vite = start(["node", "node_modules/vite/bin/vite.js", "--config", "vite.simple.config.ts", "--host", "127.0.0.1", "--port", str(ui_port), "--strictPort"], cwd=ROOT / "apps/web", env={**environment, "HICKORY_API_ORIGIN": backend}); processes.append(vite)
             driver = BrowserDriver(origin(vite) + "/simple.html")
-            if "--fold-only" in sys.argv:
+            if "--search-only" in sys.argv:
+                search_acceptance(driver, folder)
+                print("Browser: regex replacement, exact saved source, stationary search and undo passed")
+            elif "--fold-only" in sys.argv:
                 folding_acceptance(driver, folder)
                 print("Browser: folding, exact saved source, moved folds and undo passed")
             elif "--debug-only" in sys.argv:

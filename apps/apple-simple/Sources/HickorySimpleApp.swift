@@ -25,6 +25,9 @@ import SwiftUI
                 Button("Save") { Task { await workspace.save() } }.keyboardShortcut("s").disabled(workspace.currentBuffer == nil || workspace.currentBuffer?.readOnly == true)
                 Button("Close tab") { if let active = workspace.active { workspace.close(active) } }.keyboardShortcut("w")
             }
+            CommandGroup(after: .textEditing) {
+                Button("Find and replace") { workspace.currentBuffer?.showFind = true }.keyboardShortcut("f").disabled(workspace.currentBuffer == nil)
+            }
             CommandMenu("Panes") {
                 Button("Files") { workspace.show("files") }; Button("Agent") { workspace.show("agent") }; Button("Terminal") { Task { await workspace.openTerminal() } }
                 Button("Split right") { workspace.split("horizontal") }; Button("Split below") { workspace.split("vertical") }

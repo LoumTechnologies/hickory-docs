@@ -16,6 +16,31 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+    @Test fun nativeSourceEditsAreOneUndoAndRejectStaleAndReadonly() {
+        val source = "name=12\nname=34\n"
+        val file = FileNode("search.txt", "search.txt", false, emptyList(), null, null)
+        val buffer = DocumentBuffer(file, FileText(source, "base"))
+        val edits = nativeSearch(NativeSearchRequest(source, "name=(\\d+)", "$1", true, true)).edits
+        assertTrue(buffer.applySourceEdits(edits, source)); assertEquals("12\n34\n", buffer.text)
+        assertFalse(buffer.applySourceEdits(edits, source))
+        buffer.state.undoState.undo(); assertEquals(source, buffer.text)
+        val generated = DocumentBuffer(file.copy(generatedBy = "owner"), FileText(source, "base"))
+        assertFalse(generated.applySourceEdits(edits, source)); assertEquals(source, generated.text)
+        assertTrue(generated.selectSourceRange(8, 12, source)); assertEquals(8, generated.state.selection.min)
+    }
+    @Test fun nativeSearchUnicodeCapturesAndRefusals() {
+        val request = NativeSearchRequest("😀 NAME=12\nname=34\n", "name=(\\d+)", "$1 $$ $&", false, true)
+        val result = nativeSearch(request)
+        assertEquals(listOf(3, 11), result.edits.map { it.from })
+        assertEquals(listOf("12 $ NAME=12", "34 $ name=34"), result.edits.map { it.text })
+        assertTrue(nativeSearch(request.copy(query = "[")).error.isNotEmpty())
+        assertTrue(nativeSearch(request.copy(query = "^")).edits.isEmpty())
+        assertTrue(nativeSearch(request.copy(regex = false, query = "\\n")).edits.isEmpty())
+        val many = nativeSearch(request.copy(source = "a".repeat(10_001), query = "a", regex = false))
+        assertTrue(many.error.isNotEmpty()); assertTrue(many.edits.isEmpty())
+        assertFalse(validSourceEdits(listOf(NativeSourceEdit(4, 20, "")), 5))
+    }
     @Test fun foldProjectionPreservesSourceAndOffsets() {
         val source = "😀 header\n\tchild\n        nested\n\nnext\n"
         val ranges = simpleFoldRanges(source)

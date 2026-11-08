@@ -67333,7 +67333,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "simple-7fad175521-0",
-        "simple-apple-language-preview"
+        "simple-native-search-model",
+        "simple-apple-language-preview",
+        "simple-apple-debug-rail"
       ]
     },
     "apps/apple-simple/Sources/AgentPane.swift": {
@@ -67533,9 +67535,11 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "simple-0d1e071614-0",
-        "simple-0d1e071614-1",
+        "simple-android-pane-edges",
+        "simple-android-search-model",
         "simple-android-language-preview",
-        "simple-android-pane-edges"
+        "simple-0d1e071614-1",
+        "simple-android-debug-rail"
       ]
     },
     "apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentPane.kt": {

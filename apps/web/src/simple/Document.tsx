@@ -3,6 +3,7 @@ import { Compartment, EditorState, StateEffect } from "@codemirror/state";
 import { EditorView, keymap, drawSelection, lineNumbers } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { codeFolding, foldKeymap, foldService, foldEffect, unfoldEffect, foldedRanges, foldable } from "@codemirror/language";
+import { search, searchKeymap, openSearchPanel, SearchQuery, setSearchQuery } from "@codemirror/search";
 import { completionKeymap, startCompletion } from "@codemirror/autocomplete";
 import { useWorkspaceLsp } from "../lsp/useLsp";
 import { lspSupport, setLspDiagnostics, diagnosticRanges } from "../lsp/cmLsp";
@@ -44,6 +45,7 @@ function localFold(state: EditorState, from: number) {
   return ranges.get(state.doc.lineAt(from).to) ?? null;
 }
 const editors = new WeakMap<Buffer, { view: EditorView; language: Compartment; prose: Compartment }>();
+export function openFind(buffer: Buffer) { const view = editors.get(buffer)?.view; if (view) openSearchPanel(view); }
 export function Document({ buffer }: { buffer: Buffer }) {
   const host = useRef<HTMLDivElement>(null);
   useSyncExternalStore(buffer.subscribe, buffer.snapshot);
@@ -64,9 +66,13 @@ export function Document({ buffer }: { buffer: Buffer }) {
     if (!cached) {
       const language = new Compartment(), prose = new Compartment();
       const view = new EditorView({ state: EditorState.create({ doc: buffer.text, extensions: [
-        history(), drawSelection(), lineNumbers(), codeFolding(),
+        history(), drawSelection(), lineNumbers(), codeFolding(), search({ top: true, literal: true }),
+        EditorState.transactionExtender.of(tr => {
+          const query = tr.effects.find(effect => effect.is(setSearchQuery))?.value as SearchQuery | undefined;
+          return query && !query.literal ? { effects: setSearchQuery.of(new SearchQuery({ ...query, literal: true })) } : null;
+        }),
         foldService.of(localFold), EditorView.lineWrapping, language.of([]), prose.of([]),
-        keymap.of([{ key: "Ctrl-Space", run: startCompletion }, ...foldKeymap, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
+        keymap.of([{ key: "Ctrl-Space", run: startCompletion }, ...searchKeymap, ...foldKeymap, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
         EditorState.readOnly.of(buffer.readonly), EditorView.editable.of(!buffer.readonly),
         EditorView.contentAttributes.of({ "aria-label": buffer.file.path }),
         EditorView.updateListener.of(update => { if (update.docChanged) buffer.edit(update.state.doc.toString()); }),

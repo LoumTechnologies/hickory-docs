@@ -19,7 +19,7 @@ import { EditorView } from "@codemirror/view";
 import { foldedRanges } from "@codemirror/language";
 import { undo } from "@codemirror/commands";
 import { currentCompletions } from "@codemirror/autocomplete";
-import { Document, simpleFoldRanges } from "./Document";
+import { Document, simpleFoldRanges, openFind } from "./Document";
 vi.mock("../debug/launchProfiles", () => ({ launchWithProfiles: vi.fn(async (_query, start, options) => { if (options.isCurrent()) start({ id: "test", fingerprint: "test" }); }) }));
 import { IDLE_SESSION } from "../debug/useDebugger";
 import { useFollowingDebugSession } from "../debug/plainDebugHosts";
@@ -64,6 +64,40 @@ describe("shared frontend layout contract", () => {
 
 
 // Contract: .hickory-source/frontends/contract.md — logical line numbers are immediate.
+describe("simple search and replace", () => {
+  it("uses the real search panel for regex replace-all and one-step undo", async () => {
+    const source = "😀 name=12\nname=34\n";
+    const buffer = new Buffer({ path: "search.txt", name: "search.txt", dir: false }, source, "hash", () => {});
+    const screen = render(createElement(Document, { buffer }));
+    try {
+      act(() => openFind(buffer));
+      fireEvent.change(await screen.findByLabelText("Find"), { target: { value: "name=(\\d+)" } });
+      fireEvent.click(screen.getByLabelText("regexp"));
+      fireEvent.change(screen.getByLabelText("Replace"), { target: { value: "$1" } });
+      fireEvent.click(screen.getByRole("button", { name: "replace all" }));
+      expect(buffer.text).toBe("😀 12\n34\n");
+      const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+      act(() => { undo(view); });
+      expect(buffer.text).toBe(source);
+      expect(view.state.doc.toString()).toBe(source);
+    } finally { screen.unmount(); }
+  });
+  it("keeps backslashes literal and hides replacement controls in read-only documents", async () => {
+    const source = "literal \\n and newline\n";
+    const buffer = new Buffer({ path: "readonly.txt", name: "readonly.txt", dir: false, generated_by: "owner" }, source, "hash", () => {});
+    const screen = render(createElement(Document, { buffer }));
+    try {
+      act(() => openFind(buffer));
+      fireEvent.change(await screen.findByLabelText("Find"), { target: { value: "\\n" } });
+      fireEvent.click(screen.getByRole("button", { name: "next" }));
+      const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+      expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe("\\n");
+      expect(screen.queryByLabelText("Replace")).toBeNull();
+      expect(buffer.text).toBe(source); expect(buffer.dirty).toBe(false);
+    } finally { screen.unmount(); }
+  });
+});
+
 describe("simple folding", () => {
   it("finds nested indentation regions with UTF-16 offsets and excludes blank tails", () => {
     const source = "😀 header\n\tchild\n        nested\n\nnext\n";

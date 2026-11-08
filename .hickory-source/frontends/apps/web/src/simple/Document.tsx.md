@@ -9,6 +9,8 @@ The minimap reserves forty units beside the text rather than overlaying readable
 
 After text is visible, Markdown files load and attach the existing display-only prose decorations independently of LSP. Headings, bold and italic update with typing without rewriting source or rebuilding the editor. Fenced code stays literal; plain files keep their original appearance.
 
+Search uses CodeMirror’s native search transactions and keymap. The panel is an absolute overlay, so showing it cannot resize the cached editor. Literal search treats backslashes as text; regex mode enables capture replacements. Read-only policy stays in editor state and search navigation reveals folded matches.
+
 The editor installs CodeMirror folding with its initial text. A linear indentation scan supplies regions without waiting for a parser or server; the existing LSP compartment may add language-specific regions later. Only visible headers become right-rail menu actions. Folding changes editor decorations rather than buffer bytes, and the existing cached view keeps folds across tab moves. The same anchored menu combines launch and fold commands when they share a line.
 
 <ui:copy id="simple-1a4a59fc95-0">
@@ -17,6 +19,7 @@ import { Compartment, EditorState, StateEffect } from "@codemirror/state";
 import { EditorView, keymap, drawSelection, lineNumbers } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { codeFolding, foldKeymap, foldService, foldEffect, unfoldEffect, foldedRanges, foldable } from "@codemirror/language";
+import { search, searchKeymap, openSearchPanel, SearchQuery, setSearchQuery } from "@codemirror/search";
 import { completionKeymap, startCompletion } from "@codemirror/autocomplete";
 import { useWorkspaceLsp } from "../lsp/useLsp";
 import { lspSupport, setLspDiagnostics, diagnosticRanges } from "../lsp/cmLsp";
@@ -58,6 +61,7 @@ function localFold(state: EditorState, from: number) {
   return ranges.get(state.doc.lineAt(from).to) ?? null;
 }
 const editors = new WeakMap<Buffer, { view: EditorView; language: Compartment; prose: Compartment }>();
+export function openFind(buffer: Buffer) { const view = editors.get(buffer)?.view; if (view) openSearchPanel(view); }
 export function Document({ buffer }: { buffer: Buffer }) {
   const host = useRef<HTMLDivElement>(null);
   useSyncExternalStore(buffer.subscribe, buffer.snapshot);
@@ -78,9 +82,13 @@ export function Document({ buffer }: { buffer: Buffer }) {
     if (!cached) {
       const language = new Compartment(), prose = new Compartment();
       const view = new EditorView({ state: EditorState.create({ doc: buffer.text, extensions: [
-        history(), drawSelection(), lineNumbers(), codeFolding(),
+        history(), drawSelection(), lineNumbers(), codeFolding(), search({ top: true, literal: true }),
+        EditorState.transactionExtender.of(tr => {
+          const query = tr.effects.find(effect => effect.is(setSearchQuery))?.value as SearchQuery | undefined;
+          return query && !query.literal ? { effects: setSearchQuery.of(new SearchQuery({ ...query, literal: true })) } : null;
+        }),
         foldService.of(localFold), EditorView.lineWrapping, language.of([]), prose.of([]),
-        keymap.of([{ key: "Ctrl-Space", run: startCompletion }, ...foldKeymap, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
+        keymap.of([{ key: "Ctrl-Space", run: startCompletion }, ...searchKeymap, ...foldKeymap, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
         EditorState.readOnly.of(buffer.readonly), EditorView.editable.of(!buffer.readonly),
         EditorView.contentAttributes.of({ "aria-label": buffer.file.path }),
         EditorView.updateListener.of(update => { if (update.docChanged) buffer.edit(update.state.doc.toString()); }),

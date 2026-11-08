@@ -6,6 +6,39 @@ import AppKit
 @testable import HickorySimple
 
 final class ParityTests: XCTestCase {
+    func testNativeSearchUnicodeCapturesAndRefusals() {
+        let request = NativeSearchRequest(source: "😀 NAME=12\nname=34\n", query: #"name=(\d+)"#, replacement: "$1 $$ $&", caseSensitive: false, regex: true)
+        let result = nativeSearch(request)
+        XCTAssertTrue(result.error.isEmpty)
+        XCTAssertEqual(result.edits.map(\.range.location), [3, 11])
+        XCTAssertEqual(result.edits.map(\.text), ["12 $ NAME=12", "34 $ name=34"])
+        var invalid = request; invalid.query = "["; XCTAssertFalse(nativeSearch(invalid).error.isEmpty)
+        var zero = request; zero.query = "^"; XCTAssertTrue(nativeSearch(zero).edits.isEmpty)
+        var literal = request; literal.regex = false; literal.query = #"\n"#; XCTAssertTrue(nativeSearch(literal).edits.isEmpty)
+        var many = request; many.regex = false; many.query = "a"; many.source = String(repeating: "a", count: 10_001)
+        XCTAssertFalse(nativeSearch(many).error.isEmpty); XCTAssertTrue(nativeSearch(many).edits.isEmpty)
+        XCTAssertFalse(validSourceEdits([NativeSourceEdit(range: NSRange(location: 4, length: 20), text: "")], length: 5))
+    }
+    #if os(macOS)
+    @MainActor func testNativeSearchReplacementIsOneUndoAndRejectsStaleSource() {
+        let source = "name=12\nname=34\n"
+        let file = FileNode(name: "search.txt", path: "search.txt", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "base"))
+        let editor = MacEditor(buffer)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = editor.scroll; window.makeFirstResponder(editor.text)
+        defer { window.orderOut(nil) }
+        let result = nativeSearch(NativeSearchRequest(source: source, query: #"name=(\d+)"#, replacement: "$1", caseSensitive: true, regex: true))
+        XCTAssertTrue(editor.applySourceEdits(result.edits, source: source)); XCTAssertEqual(buffer.text, "12\n34\n")
+        XCTAssertFalse(editor.applySourceEdits(result.edits, source: source))
+        XCTAssertNotNil(editor.text.undoManager); XCTAssertTrue(editor.text.undoManager?.canUndo == true)
+        editor.text.undoManager?.undo()
+        XCTAssertEqual(editor.text.string, source); XCTAssertEqual(buffer.text, source)
+        editor.toggleFold(0)
+        XCTAssertTrue(editor.selectSourceRange(NSRange(location: 8, length: 4), source: source))
+        XCTAssertEqual(editor.text.selectedRange(), NSRange(location: 8, length: 4))
+    }
+    #endif
     struct Fixture: Decodable { var cases: [Scenario]; var edgeCases: [EdgeCase] }
     struct EdgeCase: Decodable { var x: Double; var y: Double; var edge: String? }
     struct Scenario: Decodable { var axes: [String]?; var name: String; var steps: [Step]; var expected: [[String]] }

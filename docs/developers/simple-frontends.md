@@ -30,6 +30,12 @@ The macOS recipe builds a locally signed `Hickory Simple.app` under `target/simp
 
 The Apple build requires full Xcode. `simple-dev` honors `DEVELOPER_DIR` and otherwise finds Xcode under `/Applications` if command-line tools are selected. For standalone build/test recipes, set `DEVELOPER_DIR` to your installed Xcode's `Contents/Developer` directory when needed. `xcodegen` is needed for the iOS project. Run `just simple-build ios`, then open `target/apple-simple-xcode/HickorySimple.xcodeproj` for device or simulator work. Device signing is not configured by this comparison scaffold.
 
+## Find and replace
+
+Choose **Edit → Find and replace**, or press Cmd-F on Apple and Ctrl-F elsewhere. The floating panel offers next/previous, case sensitivity, regex search and replace-one/all without moving the document. Native Replace first selects the next match when the selection is not already a match; click it again to replace. Regex replacements accept `$1` for a capture, `$&` for the whole match and `$$` for a dollar sign. Replace-all is one undo step. Read-only documents support searching.
+
+Native matching runs in the background, ignores zero-width matches, and asks you to narrow searches above 10,000 matches rather than replacing a partial result set. Regex syntax beyond the common subset follows the platform engine. Search state follows the document across pane moves.
+
 ## Fold code
 
 Open the right-hand `⋯` menu beside an indented block's header and choose **Fold** or **Unfold**. Apple and Android also offer **Unfold all** in that menu. Browser editors support CodeMirror's fold shortcuts (Ctrl-Shift-[ / Ctrl-Shift-], or Command-Option-[ / Command-Option-] on Mac). Folds are local display state and do not change saved source. Native edits unfold regions; an edit touching hidden text reveals it first, so repeat the edit after inspecting it. Folding works on read-only files too.

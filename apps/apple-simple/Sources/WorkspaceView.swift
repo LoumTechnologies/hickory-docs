@@ -21,6 +21,9 @@ struct WorkspaceView: View {
                     Button("Save") { Task { await workspace.save() } }.disabled(workspace.currentBuffer == nil)
                     Button("Close tab") { if let active = workspace.active { workspace.close(active) } }
                 }
+                Menu("Edit") {
+                    Button("Find and replace") { workspace.currentBuffer?.showFind = true }.keyboardShortcut("f").disabled(workspace.currentBuffer == nil)
+                }
                 PaneMenu(workspace: workspace)
                 Spacer()
             }.padding(.horizontal, 8).frame(height: 32)

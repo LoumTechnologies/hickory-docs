@@ -26,6 +26,10 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.draganddrop.*
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.TextStyle
@@ -161,6 +165,95 @@ private const val TAB_MIME = "application/vnd.hickorydocs.tab"
     }
 }
 
+data class NativeSourceEdit(val from: Int, val to: Int, val text: String)
+data class NativeSearchRequest(val source: String, val query: String, val replacement: String, val caseSensitive: Boolean, val regex: Boolean)
+data class NativeSearchResult(val edits: List<NativeSourceEdit> = emptyList(), val error: String = "")
+fun nativeSearchReplacement(template: String, groups: List<String>): String = Regex("\\$([$&]|\\d+)").replace(template) { token ->
+    val key = token.groupValues[1]
+    when (key) {
+        "$" -> "$"
+        "&" -> groups.firstOrNull() ?: ""
+        else -> (key.length downTo 1).firstNotNullOfOrNull { length ->
+            key.take(length).toIntOrNull()?.takeIf { it > 0 && it < groups.size }?.let { groups[it] + key.drop(length) }
+        } ?: token.value
+    }
+}
+fun nativeSearch(request: NativeSearchRequest): NativeSearchResult {
+    if (request.query.isEmpty()) return NativeSearchResult()
+    return try {
+        val options = if (request.caseSensitive) setOf(RegexOption.MULTILINE) else setOf(RegexOption.MULTILINE, RegexOption.IGNORE_CASE)
+        val expression = Regex(if (request.regex) request.query else Regex.escape(request.query), options)
+        val edits = mutableListOf<NativeSourceEdit>()
+        for (match in expression.findAll(request.source)) {
+            if (match.value.isEmpty()) continue
+            if (edits.size >= 10_000) return NativeSearchResult(error = "Too many matches. Narrow your search before replacing.")
+            edits.add(NativeSourceEdit(match.range.first, match.range.last + 1, if (request.regex) nativeSearchReplacement(request.replacement, match.groupValues) else request.replacement))
+        }
+        NativeSearchResult(edits)
+    } catch (_: java.util.regex.PatternSyntaxException) { NativeSearchResult(error = "Invalid regular expression. Check the pattern and try again.") }
+}
+fun validSourceEdits(edits: List<NativeSourceEdit>, length: Int): Boolean {
+    var end = 0
+    for (edit in edits.sortedBy { it.from }) {
+        if (edit.from < end || edit.to < edit.from || edit.to > length) return false
+        end = edit.to
+    }
+    return edits.isNotEmpty()
+}
+@Composable private fun NativeFindPanel(buffer: DocumentBuffer, modifier: Modifier = Modifier) {
+    val request = NativeSearchRequest(buffer.text, buffer.findQuery, buffer.findReplacement, buffer.findCase, buffer.findRegex)
+    var measured by remember { mutableStateOf<NativeSearchRequest?>(null) }
+    var result by remember { mutableStateOf(NativeSearchResult()) }
+    var notice by remember { mutableStateOf("") }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    LaunchedEffect(request) {
+        measured = null; notice = ""
+        kotlinx.coroutines.delay(100)
+        val found = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { nativeSearch(request) }
+        result = found; measured = request
+    }
+    val current = measured == request && result.error.isEmpty()
+    fun move(backwards: Boolean = false) {
+        if (!current || result.edits.isEmpty()) return
+        val selection = buffer.state.selection
+        val match = if (backwards) result.edits.lastOrNull { it.to <= selection.min } ?: result.edits.last()
+            else result.edits.firstOrNull { it.from >= selection.max } ?: result.edits.first()
+        if (!buffer.selectSourceRange(match.from, match.to, request.source)) notice = "Text changed or input is composing. Finish typing and search again."
+    }
+    fun replace(all: Boolean) {
+        if (!current || buffer.readOnly) return
+        val selection = buffer.state.selection
+        val edits = if (all) result.edits else result.edits.filter { it.from == selection.min && it.to == selection.max }
+        if (edits.isEmpty()) { move(); return }
+        if (!buffer.applySourceEdits(edits, request.source)) notice = "Replacement refused. Finish typing and search the current text again."
+    }
+    Surface(modifier.widthIn(max = 360.dp).heightIn(max = 360.dp), tonalElevation = 4.dp, shadowElevation = 4.dp) {
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Find and replace", modifier = Modifier.weight(1f), fontSize = 12.sp)
+                TextButton(onClick = { buffer.closeFind() }) { Text("Close search") }
+            }
+            OutlinedTextField(buffer.findQuery, { buffer.findQuery = it }, label = { Text("Find") }, singleLine = true, modifier = Modifier.fillMaxWidth().focusRequester(focus))
+            OutlinedTextField(buffer.findReplacement, { buffer.findReplacement = it }, label = { Text("Replace with") }, singleLine = true, enabled = !buffer.readOnly, modifier = Modifier.fillMaxWidth())
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(buffer.findCase, { buffer.findCase = it }); Text("Match case", fontSize = 12.sp)
+                Checkbox(buffer.findRegex, { buffer.findRegex = it }); Text("Regex", fontSize = 12.sp)
+            }
+            Row {
+                TextButton(enabled = current && result.edits.isNotEmpty(), onClick = { move(true) }) { Text("Previous") }
+                TextButton(enabled = current && result.edits.isNotEmpty(), onClick = { move() }) { Text("Next") }
+            }
+            Row {
+                TextButton(enabled = current && result.edits.isNotEmpty() && !buffer.readOnly, onClick = { replace(false) }) { Text("Replace") }
+                TextButton(enabled = current && result.edits.isNotEmpty() && !buffer.readOnly, onClick = { replace(true) }) { Text("Replace all") }
+            }
+            Text(if (notice.isNotEmpty()) notice else if (measured != request) "Searching…" else if (result.error.isNotEmpty()) result.error else "${result.edits.size} matches", fontSize = 12.sp, modifier = Modifier.semantics { contentDescription = "Search status" })
+            if (buffer.readOnly) Text("Read-only · searching is available", fontSize = 12.sp)
+        }
+    }
+}
+
 data class SimpleFold(val line: Int, val from: Int, val to: Int)
 fun simpleFoldRanges(source: String): List<SimpleFold> {
     data class Header(val line: Int, val indent: Int, val end: Int)
@@ -201,11 +294,18 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable private fun LanguageEditor(buffer: DocumentBuffer, debug: NativeDebugger?, modifier: Modifier = Modifier) {
+    val editorFocus = remember(buffer) { FocusRequester() }
+    DisposableEffect(buffer, editorFocus) {
+        val focus: () -> Unit = { editorFocus.requestFocus(); Unit }
+        buffer.focusSource = focus
+        onDispose { if (buffer.focusSource === focus) buffer.focusSource = null }
+    }
     val scroll = rememberScrollState()
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
     val color = MaterialTheme.colorScheme.primary
     val source = buffer.text
+    val selection = buffer.state.selection
     val folds = buffer.activeFolds()
     val display = foldDisplay(source, folds)
     var textLayout by remember(buffer) { mutableStateOf<TextLayoutResult?>(null) }
@@ -270,7 +370,7 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
                     }
                     if (toString() == source) outerFolds(folds).asReversed().forEach { replace(it.from, it.to, " …") }
                 },
-                modifier = Modifier.weight(1f).fillMaxHeight().padding(8.dp).semantics { contentDescription = buffer.file.path },
+                modifier = Modifier.weight(1f).fillMaxHeight().padding(8.dp).focusRequester(editorFocus).semantics { contentDescription = buffer.file.path },
                 textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false))
             Canvas(Modifier.width(40.dp).fillMaxHeight().semantics {
@@ -298,11 +398,13 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
                 Text("Local colors and document words; native LSP is not connected.", fontSize = 11.sp, modifier = Modifier.width(250.dp).padding(8.dp))
                 source.split(Regex("[^A-Za-z0-9_]+")).asSequence().filter { it.length > 2 }.distinct().sorted().take(30).forEach { word ->
                     DropdownMenuItem(text = { Text(word) }, enabled = !buffer.readOnly, onClick = {
-                        buffer.state.edit { replace(selection.min, selection.max, word) }; menu = false
+                        if (buffer.state.selection == selection) buffer.applySourceEdits(listOf(NativeSourceEdit(selection.min, selection.max, word)), source)
+                        menu = false
                     })
                 }
             }
         }
+        if (buffer.showFind) NativeFindPanel(buffer, Modifier.align(Alignment.TopEnd).padding(4.dp).widthIn(max = 360.dp).fillMaxWidth())
     }
 }
 @Composable private fun PaneContent(workspace: Workspace, tab: String?, group: String) {
