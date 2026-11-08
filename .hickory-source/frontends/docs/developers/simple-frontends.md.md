@@ -122,6 +122,19 @@ The complete automated browser acceptance suite could not launch Chromium becaus
 The JSON pane scenarios in `apps/simple-contract/layout-cases.json` are executed by all three languages. They establish command-model parity, not device gesture equivalence. Native IME, accessibility, drag/drop and editor-state preservation still need platform UI acceptance. The Android SDK/Gradle build and iOS simulator build must pass before claiming those targets run successfully.
 
 Build output stays in `target/`, `apps/web/dist-simple/` and ignored Android build directories. No stable release or installed old frontend is replaced. Broad regression checks remain a maintainer action; use `just checks-status` to inspect asynchronous post-commit checks.
+
+All simple frontends use the existing DAP transport for plain files and Hickory file blocks. Choose the right-side Debug icon, then use the controls beside the paused line. Breakpoints, inline values, stack selection, watches and inline expression evaluation share the main debugger implementation. Save edits before launching. The session survives switching or moving tabs. On macOS, iOS and Android, choose a line’s right-side action button to open the floating grid. Choose Debug, then a file block and launch profile when requested. One active native session belongs to the workspace and survives tab switching. A paused line shows live values beside the rail; evaluate expressions and manage watches inside its popover. Locals belong to the stopped top frame; selecting a caller clears those locals while watches evaluate in the selected frame. Unsupported targets and missing adapters report setup details without blocking editing. Breakpoint dots distinguish pending, bound and refused stops.
+
+Run the focused live witness with `python3 scripts/test-simple-browser.py --debug-only`; it needs a working Chromium host and Python debugger. On this host Chromium aborts during macOS Mach-port registration, and installing debugpy failed at PyPI DNS resolution. Live adapter and native UI acceptance remain unverified.
+
+Focused native checks:
+
+- `swift test --package-path apps/apple-simple --scratch-path target/apple-simple-spm --filter NativeDebugTests`
+- `target/simple-android-gradle :app:testDebugUnitTest --tests com.hickorydocs.simple.NativeDebugTest` after the existing Gradle wrapper helper is built and dependencies are available.
+
+Set `HICKORY_NATIVE_DEBUG_ORIGIN` to a reachable engine serving a `debug.py` fixture containing `value = 1`, `value += 1`, and `print(value)` on separate lines, with the Python adapter installed, to run the opt-in native transport witnesses. They use each actual native client through profile resolution, the binary debug channel, breakpoint pause, step, watch evaluation and stop, and assert the source buffer remains unchanged. Without that variable the live cases explicitly skip; controller fixtures still run.
+
+Six browser witnesses, three Swift controller witnesses and one Kotlin controller witness passed for this extension. macOS built; the shared Apple source type-checked for iOS simulator; Android source and focused tests compiled with the cached Kotlin/Compose compiler. The Gradle compile attempt was blocked while resolving OkHttp from Maven by DNS failure; the cached compiler check is not an APK build. These checks do not prove native pointer geometry, IME, accessibility or device behavior.
 </ui:copy>
 
 ## Assemble the maintained output

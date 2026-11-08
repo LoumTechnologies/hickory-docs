@@ -3,6 +3,8 @@
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
+Workspace debugger hosts remain mounted above tab content, so stepping into another file or moving the launch tab cannot destroy its session. Cross-file stop requests open the existing tree entry and queue the adapter line for the mounted editor.
+
 The shell owns layout and commands. Documents remain in the buffer store when hidden or moved. File reads publish into their requested tab group without changing the currently focused group when a late reply arrives.
 
 Pane content classifies internal tab drags before embedded text controls can consume their payload. An edge drop invokes docking; the center appends the existing tab to this group without adding a split. The half-pane preview is pointer-transparent and never reflows the content. Recompute the edge at drop time rather than trusting an old hover position.
@@ -12,6 +14,8 @@ Each tab accepts a drop before itself; the surrounding strip remains the append 
 <ui:copy id="simple-e8a50a27b2-0">
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
+import { PlainDebugHosts } from "../debug/plainDebugHosts";
+import { onOpenLocation, revealLine } from "../lib/revealLine";
 import type { FileNode } from "../api/types";
 import { Buffers } from "./buffers";
 import { Document } from "./Document";
@@ -63,6 +67,13 @@ export function App() {
       setStatus(file.generated_by ? "Generated file · read-only" : file.path);
     } catch (error) { setNotice(`${String(error)} Refresh files and try opening ${file.path} again.`); }
   }
+  useEffect(() => onOpenLocation(location => {
+    const find = (nodes: FileNode[]): FileNode | undefined => {
+      for (const node of nodes) { if (node.path === location.path) return node; const child = find(node.children ?? []); if (child) return child; }
+    };
+    const file = find(tree);
+    if (file) { void open(file).then(() => revealLine(file.path, location.line)); }
+  }), [tree, layout, focused]);
   function close(tab: string) {
     const candidate = buffers.values.get(tab);
     if (candidate?.dirty || candidate?.saving) { setNotice("Unsaved edits retained. Save this document before closing its tab."); return; }
@@ -92,6 +103,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
     return document ? <Document buffer={document} /> : null;
   }
   return <main>
+    <PlainDebugHosts />
     <nav aria-label="Menu" onClick={event => { if ((event.target as HTMLElement).closest("button")) event.currentTarget.querySelectorAll("details[open]").forEach(menu => menu.removeAttribute("open")); }}><details><summary>File</summary><div className="menu">
       <button onClick={() => { void loadFiles(); }}>Refresh files</button>
       <button disabled={!buffer || buffer.readonly || !buffer.dirty || buffer.saving} onClick={() => { void buffer?.save(); }}>Save</button>

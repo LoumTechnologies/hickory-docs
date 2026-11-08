@@ -150507,6 +150507,48 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/apps/apple-simple/Sources/WorkspaceView.swift.md",
       "symbol": "simple-mac-tab-drop-surfaces",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-apple-debug-session",
+      "output": "apps/apple-simple/Sources/Engine.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Engine.swift.md",
+      "symbol": "simple-apple-debug-session",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-apple-debug-rail",
+      "output": "apps/apple-simple/Sources/NativeEditor.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/NativeEditor.swift.md",
+      "symbol": "simple-apple-debug-rail",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-android-debug-session",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt.md",
+      "symbol": "simple-android-debug-session",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-android-debug-rail",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt.md",
+      "symbol": "simple-android-debug-rail",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-apple-debug-witnesses",
+      "output": "apps/apple-simple/Tests/SaveTests.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Tests/SaveTests.swift.md",
+      "symbol": "simple-apple-debug-witnesses",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-android-debug-witnesses",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/ParityTest.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/test/java/com/hickorydocs/simple/ParityTest.kt.md",
+      "symbol": "simple-android-debug-witnesses",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

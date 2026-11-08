@@ -22,6 +22,8 @@ import Observation
     @ObservationIgnored var renderLanguage: (([NativeSemanticToken], String) -> Void)?
     @ObservationIgnored var applyLanguageCompletion: ((NSRange, String, String, NSRange) -> Bool)?
     @ObservationIgnored var selection = NSRange(location: 0, length: 0)
+    var visibleDebugLines: [DebugLine] = []
+    @ObservationIgnored var revealDebugLine: ((Int) -> Void)?
     var language: NativeLanguage?
     var hash: String
     var saving = false
@@ -47,6 +49,7 @@ import Observation
     var files: [FileNode] = []
     var buffers: [String: DocumentBuffer] = [:]
     var status = "Connect to a Hickory workspace server"
+    var debugger: NativeDebugger?
     var engine: Engine?
     var address = ProcessInfo.processInfo.environment["HICKORY_API_ORIGIN"] ?? ""
     var connecting = false
@@ -57,7 +60,7 @@ import Observation
     private var generation = UUID()
     var active: String? { layout.nodes[focused]?.active }
     var currentBuffer: DocumentBuffer? { active.flatMap { buffers[$0] } }
-    var hasUnsavedChanges: Bool { !agent.prompt.isEmpty || !terminal.input.isEmpty || agent.running || terminal.sending || buffers.values.contains { $0.dirty || $0.saving } }
+    var hasUnsavedChanges: Bool { !agent.prompt.isEmpty || !terminal.input.isEmpty || agent.running || terminal.sending || buffers.values.contains { $0.dirty || $0.saving } || debugger?.active == true }
     func connect() async -> Bool {
         guard !connecting else { return false }
         guard !hasUnsavedChanges else { status = "Save documents and send or clear draft messages before changing workspace servers."; return false }
@@ -66,8 +69,10 @@ import Observation
             let next = try Engine(address: address)
             let tree = try await next.files()
             agent.turns = []; agent.error = ""; terminal.id = nil; terminal.screen = ""; terminal.error = ""
+            debugger?.close()
             for buffer in buffers.values { buffer.language?.close() }
-            generation = UUID(); engine = next; files = tree.tree; buffers = [:]; opening = []
+            generation = UUID(); engine = next; debugger = NativeDebugger(engine: next)
+            debugger?.onLocation = { [weak self] path, line in Task { await self?.revealDebug(path, line: line) } }; files = tree.tree; buffers = [:]; opening = []
             layout = PaneLayout(); focused = "document-group"; status = tree.root
             return true
         } catch { status = error.localizedDescription; return false }
@@ -104,6 +109,19 @@ Opening and saving retain request identity. A server switch rejects stale reads.
                 layout.activate(file.path, in: live); focused = live; status = file.path
             }
         } catch { if current == generation { status = "\(error.localizedDescription) Refresh files and try opening \(file.path) again." } }
+    }
+    func revealDebug(_ path: String, line: Int) async {
+        func find(_ nodes: [FileNode]) -> FileNode? {
+            for node in nodes { if node.path == path { return node }; if let child = find(node.children ?? []) { return child } }; return nil
+        }
+        guard let file = find(files) else { return }
+        await open(file)
+        if let buffer = buffers[path] { debugger?.rememberSource(buffer) }
+        // Mount the existing editor before applying a source-line reveal.
+        for _ in 0..<20 {
+            if let reveal = buffers[path]?.revealDebugLine { reveal(line); return }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
     }
     func openTerminal() async {
         guard let engine else { status = "Connect to a workspace server before opening Terminal."; return }

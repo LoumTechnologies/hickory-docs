@@ -15,13 +15,16 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 class DocumentBuffer(val file: FileNode, loaded: FileText) {
     val state = TextFieldState(loaded.content)
     var base by mutableStateOf(loaded.content)
     var hash = loaded.hash
+    var debugReveal by mutableStateOf<Pair<Int, Int>?>(null)
     var saving by mutableStateOf(false)
     var error by mutableStateOf("")
     val text get() = state.text.toString()
@@ -43,6 +46,7 @@ class Workspace : ViewModel() {
     var files by mutableStateOf<List<FileNode>>(emptyList())
     val buffers = mutableStateMapOf<String, DocumentBuffer>()
     var status by mutableStateOf("Connect to a Hickory workspace server")
+    var debugger by mutableStateOf<NativeDebugger?>(null)
     var engine by mutableStateOf<Engine?>(null)
     var address by mutableStateOf("")
     var connecting by mutableStateOf(false)
@@ -53,7 +57,7 @@ class Workspace : ViewModel() {
     val terminal = TerminalSession()
     val active get() = layout.nodes[focused]?.active
     val currentBuffer get() = buffers[active]
-    val hasUnsavedChanges get() = agent.prompt.isNotEmpty() || terminal.input.isNotEmpty() || agent.running || terminal.sending || buffers.values.any { it.dirty || it.saving }
+    val hasUnsavedChanges get() = agent.prompt.isNotEmpty() || terminal.input.isNotEmpty() || agent.running || terminal.sending || buffers.values.any { it.dirty || it.saving } || debugger?.active == true
     suspend fun connect(): Boolean {
         if (connecting) return false
         if (hasUnsavedChanges) { status = "Save documents and send or clear draft messages before changing workspace servers."; return false }
@@ -61,6 +65,8 @@ class Workspace : ViewModel() {
         try {
             val next = Engine(address); val (root, tree) = next.files()
             agent.turns = emptyList(); agent.error = ""; terminal.id = null; terminal.screen = ""; terminal.error = ""
+            debugger?.close(); debugger = NativeDebugger(next, viewModelScope)
+            debugger?.onLocation = { path, line -> viewModelScope.launch { revealDebug(path, line) } }
             generation = UUID.randomUUID(); engine = next; files = tree; buffers.clear(); opening.clear()
             layout = PaneLayout(); focused = "document-group"; status = root
             return true
@@ -100,6 +106,12 @@ Opening reads raw text once. Closing dirty tabs refuses, matching the other fron
         catch (failure: Exception) { if (generation == current) status = "${failure.message} Refresh files and try opening ${file.path} again." }
         finally { if (generation == current) opening.remove(file.path) }
     }
+    suspend fun revealDebug(path: String, line: Int) {
+        fun find(nodes: List<FileNode>): FileNode? { nodes.forEach { if (it.path == path) return it; find(it.children)?.let { child -> return child } }; return null }
+        val file = find(files) ?: return
+        open(file); buffers[path]?.let { buffer -> debugger?.rememberSource(buffer); buffer.debugReveal = line to ((buffer.debugReveal?.second ?: 0) + 1) }
+    }
+    override fun onCleared() { debugger?.close(); super.onCleared() }
     suspend fun openTerminal() {
         val server = engine ?: run { status = "Connect to a workspace server before opening Terminal."; return }
         show("terminal"); terminal.open(server)

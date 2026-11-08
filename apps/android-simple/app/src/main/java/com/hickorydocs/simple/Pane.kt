@@ -23,6 +23,9 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
@@ -152,12 +155,21 @@ private const val TAB_MIME = "application/vnd.hickorydocs.tab"
     }
 }
 
-@Composable private fun LanguageEditor(buffer: DocumentBuffer, modifier: Modifier = Modifier) {
+@Composable private fun LanguageEditor(buffer: DocumentBuffer, debug: NativeDebugger?, modifier: Modifier = Modifier) {
     val scroll = rememberScrollState()
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
     val color = MaterialTheme.colorScheme.primary
     val source = buffer.text
+    var textLayout by remember(buffer) { mutableStateOf<TextLayoutResult?>(null) }
+    val paused = if (debug?.sourceMatches(buffer) == true) debug.line(buffer.file.path) else null
+    val pauseColor = MaterialTheme.colorScheme.primary.copy(alpha = .14f)
+    LaunchedEffect(buffer.debugReveal, textLayout) {
+        val request = buffer.debugReveal ?: return@LaunchedEffect
+        val layout = textLayout ?: return@LaunchedEffect
+        val offset = debugLineOffset(source, request.first) ?: return@LaunchedEffect
+        if (layout.layoutInput.text.text == source) scroll.scrollTo(layout.getLineTop(layout.getLineForOffset(offset)).toInt().coerceAtLeast(0))
+    }
     val keywords = remember { Regex("\\b(func|fun|fn|let|val|var|const|class|struct|import|return|if|else|true|false|def)\\b") }
     val highlighting by produceState<Pair<String, List<IntRange>>>("" to emptyList(), source) {
         value = source to kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
@@ -168,7 +180,12 @@ private const val TAB_MIME = "application/vnd.hickorydocs.tab"
         Row(Modifier.fillMaxSize()) {
             BasicTextField(state = buffer.state, readOnly = buffer.readOnly,
                 scrollState = scroll,
+                onTextLayout = { getResult -> textLayout = getResult() },
                 outputTransformation = OutputTransformation {
+                    if (paused != null) {
+                        val start = debugLineOffset(source, paused)
+                        if (start != null && toString() == source) addStyle(SpanStyle(background = pauseColor), start, source.indexOf('\n', start).let { if (it < 0) source.length else it })
+                    }
                     if (highlighting.first == toString()) highlighting.second.forEach { range ->
                         addStyle(SpanStyle(color = color), range.first, range.last + 1)
                     }
@@ -191,8 +208,9 @@ private const val TAB_MIME = "application/vnd.hickorydocs.tab"
                 val total = scroll.maxValue.toFloat() + scroll.viewportSize
                 if (total > 0) drawRect(color.copy(alpha = .15f), Offset(0f, scroll.value / total * size.height), Size(size.width, maxOf(4f, scroll.viewportSize / total * size.height)))
             }
+            if (debug != null) NativeDebugRail(buffer, debug, textLayout, scroll)
         }
-        Box(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(end = 42.dp)) {
+        Box(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(end = if (debug != null) 66.dp else 42.dp)) {
             Text("⌘", modifier = Modifier.background(MaterialTheme.colorScheme.surface).clickable { menu = true }.padding(4.dp).semantics { contentDescription = "Language preview" })
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 Text("Language UI preview", modifier = Modifier.padding(8.dp))
@@ -214,7 +232,7 @@ private const val TAB_MIME = "application/vnd.hickorydocs.tab"
         null -> Text("Open a file or move a tab here", modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         else -> workspace.buffers[tab]?.let { buffer ->
             Column(Modifier.fillMaxSize()) {
-                LanguageEditor(buffer, Modifier.weight(1f).fillMaxWidth().onFocusChanged { if (it.isFocused) workspace.focused = group })
+                LanguageEditor(buffer, workspace.debugger, Modifier.weight(1f).fillMaxWidth().onFocusChanged { if (it.isFocused) workspace.focused = group })
                 if (buffer.error.isNotEmpty()) Text(buffer.error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(6.dp))
             }
         }
@@ -229,6 +247,75 @@ private const val TAB_MIME = "application/vnd.hickorydocs.tab"
                 Text((if (expanded) "▾ " else "▸ ") + node.name, fontSize = 13.sp, modifier = Modifier.clickable { expanded = !expanded }.padding(vertical = 4.dp))
                 if (expanded) Column(Modifier.padding(start = 12.dp)) { FileRows(node.children, workspace) }
             } else Text(node.name, fontSize = 13.sp, modifier = Modifier.clickable { scope.launch { workspace.open(node) } }.padding(vertical = 4.dp))
+        }
+    }
+}
+fun debugLineOffset(source: String, line: Int): Int? {
+    if (line < 0) return null
+    var offset = 0
+    repeat(line) { val next = source.indexOf('\n', offset); if (next < 0) return null; offset = next + 1 }
+    return offset
+}
+@OptIn(ExperimentalLayoutApi::class)
+@Composable private fun NativeDebugRail(buffer: DocumentBuffer, debug: NativeDebugger, layout: TextLayoutResult?, scroll: ScrollState) {
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    var opened by remember(buffer) { mutableStateOf<Int?>(null) }
+    var expression by remember(buffer) { mutableStateOf("") }
+    var condition by remember(buffer) { mutableStateOf("") }
+    val paused = if (debug.sourceMatches(buffer)) debug.line(buffer.file.path) else null
+    BoxWithConstraints(Modifier.width(24.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceContainer)) {
+        val height = with(density) { maxHeight.toPx() }
+        if (layout != null && layout.layoutInput.text.text == buffer.text) {
+            val first = layout.getLineForVerticalPosition(scroll.value.toFloat())
+            val last = layout.getLineForVerticalPosition(scroll.value + height)
+            for (visual in first..last) {
+                val offset = layout.getLineStart(visual)
+                if (offset > 0 && buffer.text[offset - 1] != '\n') continue
+                val line = buffer.text.take(offset).count { it == '\n' }
+                val top = layout.getLineTop(visual) - scroll.value + with(density) { 8.dp.toPx() }
+                if (top < 0 || top > height) continue
+                val held = debug.breakpoints[buffer.file.path]?.firstOrNull { it.optInt("line", -1) == line }
+                val glyph = when { line == paused -> "⋯"; line == 0 -> "▷"; held == null -> "·"; held.optString("state") == "refused" -> "○"; held.optString("state") == "bound" -> "●"; else -> "◌" }
+                Box(Modifier.offset { IntOffset(0, top.toInt()) }) {
+                    Text(glyph, fontSize = 13.sp, modifier = Modifier.width(24.dp).height(18.dp).clickable { opened = line }.semantics { contentDescription = "Debug actions on line ${line + 1}" })
+                    DropdownMenu(expanded = opened == line, onDismissRequest = { opened = null }) {
+                        Column(Modifier.width(300.dp).heightIn(max = 460.dp).verticalScroll(rememberScrollState()).padding(8.dp)) {
+                            Text("Line ${line + 1} · ${debug.status}", fontSize = 12.sp)
+                            if (!debug.sourceMatches(buffer)) Text("Save edited text before launching. Values belong to the source that ran.", fontSize = 12.sp)
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                TextButton(enabled = !debug.active && !buffer.dirty && !buffer.saving, onClick = { scope.launch { debug.prepare(buffer, line) } }) { Text("Debug") }
+                                TextButton(onClick = { debug.toggle(buffer.file.path, line) }) { Text("Breakpoint") }
+                                if (debug.status == "paused") {
+                                    listOf("Continue" to "continue", "Step over" to "over", "Step in" to "in", "Step out" to "out").forEach { (label, how) -> TextButton(onClick = { debug.step(how) }) { Text(label) } }
+                                    if (debug.capabilities.optBoolean("step_back")) TextButton(onClick = { debug.step("back") }) { Text("Step back") }
+                                }
+                                if (debug.active) TextButton(onClick = { debug.stop() }) { Text("Stop") }
+                            }
+                            if (debug.owner == buffer.file.path) debug.targets.forEach { target -> TextButton(onClick = { scope.launch { debug.prepare(buffer, program = target.path) } }) { Text("Debug file ${target.path}") } }
+                            debug.profiles.forEach { profile -> TextButton(onClick = { debug.launch(profile); opened = null }) { Text("Debug ${profile.optString("name")}") } }
+                            if (debug.offer != null) TextButton(onClick = { scope.launch { debug.install() } }) { Text("Install debugger") }
+                            if (debug.message.isNotBlank()) Text(debug.message, fontSize = 12.sp)
+                            if (debug.capabilities.optBoolean("conditional_breakpoints")) {
+                                OutlinedTextField(value = condition, onValueChange = { condition = it }, label = { Text("Breakpoint condition") })
+                                TextButton(onClick = { debug.toggle(buffer.file.path, line, condition) }) { Text("Apply condition") }
+                            }
+                            if (debug.status == "paused") {
+                                OutlinedTextField(value = expression, onValueChange = { expression = it }, label = { Text("Expression") })
+                                Row { TextButton(onClick = { debug.evaluate(expression) }) { Text("Evaluate") }; TextButton(onClick = { debug.evaluate(expression, true) }) { Text("Watch") } }
+                                debug.frames.forEach { frame -> TextButton(onClick = { debug.select(frame) }) { Text(frame.optString("name", "Frame")) } }
+                                debug.variables.forEach { variable -> Text("${variable.optString("name")} = ${variable.optString("value")}", fontSize = 12.sp) }
+                                debug.values.forEach { (key, value) -> Row { Text("$key = $value", modifier = Modifier.weight(1f)); if (key in debug.watches) TextButton(onClick = { debug.removeWatch(key) }) { Text("×") } } }
+                            }
+                        }
+                    }
+                    if (line == paused && debug.variables.isNotEmpty()) {
+                        Text(debug.variables.take(3).joinToString("  ") { "${it.optString("name")} = ${it.optString("value")}" },
+                            fontSize = 11.sp, fontFamily = FontFamily.Monospace, maxLines = 1,
+                            modifier = Modifier.offset(x = (-224).dp).width(220.dp).background(MaterialTheme.colorScheme.surfaceContainer).padding(3.dp).semantics { contentDescription = "Paused values" })
+                    }
+                }
+            }
         }
     }
 }

@@ -11,7 +11,7 @@ After text is visible, Markdown files load and attach the existing display-only 
 
 <ui:copy id="simple-1a4a59fc95-0">
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Compartment, EditorState } from "@codemirror/state";
+import { Compartment, EditorState, StateEffect } from "@codemirror/state";
 import { EditorView, keymap, drawSelection } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { completionKeymap } from "@codemirror/autocomplete";
@@ -22,10 +22,29 @@ import { completions } from "../lsp/completion";
 import { positionToUtf16, utf16ToPosition } from "../lsp/positions";
 import { sameDocumentUri } from "../lsp/documentUri";
 import { Buffer } from "./buffers";
+import { languageFromPath } from "../editor/languages";
+import { isDebuggable } from "../debug/languages";
+import { useFollowingDebugSession } from "../debug/plainDebugHosts";
+import { IDLE_SESSION } from "../debug/useDebugger";
+import { debugEditor, debugStateEffects, revealLine } from "../debug/cmDebug";
+import { DebugLaunchRail } from "../debug/DebugRail";
+import { DebugStrip } from "../debug/DebugStrip";
+import { observationSourceChanged } from "../debug/observations";
+import { api } from "../api/client";
+import { launchWithProfiles } from "../debug/launchProfiles";
+import { claimReveal, onRevealLine, openLocation } from "../lib/revealLine";
 const editors = new WeakMap<Buffer, { view: EditorView; language: Compartment; prose: Compartment }>();
 export function Document({ buffer }: { buffer: Buffer }) {
   const host = useRef<HTMLDivElement>(null);
   useSyncExternalStore(buffer.subscribe, buffer.snapshot);
+  const [view, setView] = useState<EditorView | null>(null);
+  const language = languageFromPath(buffer.file.path);
+  const literate = /\.(md|markdown)$/i.test(buffer.file.path);
+  const debuggable = literate || isDebuggable(language);
+  const debug = useFollowingDebugSession(buffer.file.path) ?? IDLE_SESSION;
+  const debugRef = useRef(debug); debugRef.current = debug;
+  const changed = buffer.dirty || observationSourceChanged(debug.reading, buffer.text);
+  const [debugNotice, setDebugNotice] = useState("");
   const session = useWorkspaceLsp(buffer.file.path, buffer.text);
   const [capabilities, refreshCapabilities] = useState(0);
   useEffect(() => session.client?.onServerCapabilities(() => refreshCapabilities(value => value + 1)), [session.client]);
@@ -44,6 +63,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
       cached = { view, language, prose }; editors.set(buffer, cached);
     }
     host.current?.append(cached.view.dom);
+    setView(cached.view);
     return () => { cached.view.dom.remove(); };
   }, [buffer]);
   useEffect(() => {
@@ -73,8 +93,58 @@ export function Document({ buffer }: { buffer: Buffer }) {
     ]) });
     return () => { view.dispatch({ effects: language.reconfigure([]) }); };
   }, [buffer, session.client, session.uri, session.ready, capabilities]);
+  // Attach debugger state to the existing editor. Callbacks read the current
+  // session so tab moves and incoming DAP events cannot retain obsolete verbs.
+  useEffect(() => {
+    if (!view || !debuggable) return;
+    const compartment = new Compartment();
+    view.dispatch({ effects: StateEffect.appendConfig.of(compartment.of(debugEditor({ language: literate ? undefined : language,
+      onToggleBreakpoint: line => debugRef.current.toggleBreakpoint(line),
+      onSelectFrame: id => debugRef.current.selectFrame(id),
+      onEvaluate: expression => debugRef.current.query(expression),
+      evaluationOwner: () => debugRef.current.reading,
+      onAddWatch: expression => debugRef.current.addWatch(expression),
+      onSetBreakpointCondition: (line, patch) => debugRef.current.setBreakpointCondition(line, patch),
+    }))) });
+    return () => { view.dispatch({ effects: compartment.reconfigure([]) }); };
+  }, [view, debuggable, language, literate]);
+  useEffect(() => {
+    if (!view || !debuggable) return;
+    view.dispatch({ effects: debugStateEffects(changed ? { ...debug, pausedLine: null, variables: [], frames: [], watches: [] } : debug) });
+    if (!changed && debug.pausedLine !== null) {
+      const line = view.state.doc.line(Math.max(1, Math.min(view.state.doc.lines, debug.pausedLine + 1)));
+      view.dispatch({ effects: EditorView.scrollIntoView(line.from, { y: "nearest" }) });
+    }
+  }, [view, debuggable, debug, changed]);
+  useEffect(() => {
+    if (!view) return;
+    const reveal = () => { const line = claimReveal(buffer.file.path); if (line !== null) revealLine(view, line - 1); };
+    reveal(); return onRevealLine(path => { if (path === buffer.file.path) reveal(); });
+  }, [view, buffer]);
+  const start = async (program?: string) => {
+    if (buffer.dirty || buffer.saving) { setDebugNotice("Save this file before debugging so the debugger runs the text shown here."); return; }
+    setDebugNotice("");
+    const source = buffer.text, target = literate ? program : undefined;
+    await launchWithProfiles({ uri: `hick:///${buffer.file.path}`, program: target, ...(literate ? { expected_document: source } : { expected_source: source }) },
+      profile => debugRef.current.start(target, {}, undefined, profile),
+      { isCurrent: () => !!view?.dom.isConnected && buffer.text === source && !buffer.dirty && !buffer.saving });
+  };
   return <div className="document-body">
-    <div className="editor-row"><div ref={host} className="editor-host" /><Minimap buffer={buffer} /></div>
+    <div className="editor-row"><div ref={host} className="editor-host editor-cm-host" /><Minimap buffer={buffer} />
+      {debuggable && <DebugLaunchRail view={view} plainPath={literate ? undefined : buffer.file.path} enabled={["idle", "finished", "failed"].includes(debug.status)} onStart={start} />}
+    </div>
+    {debuggable && view && <DebugStrip editorView={view} pausedLine={changed ? null : debug.pausedLine}
+      status={debug.status} program={debug.program} message={debug.message} offerInstall={debug.offerInstall}
+      onInstall={offer => api.installTool(offer.kind, offer.language).then(() => undefined)}
+      capabilities={debug.capabilities} frames={debug.frames} selectedFrame={debug.selectedFrame}
+      watches={debug.watches} exitCode={debug.exitCode} buildOutput={debug.buildOutput}
+      onSelectFrame={id => { debug.selectFrame(id); const frame = debug.frames.find(item => item.id === id);
+        if (frame?.line != null) revealLine(view, frame.line);
+        else if (frame?.source && frame.source_line != null) openLocation(frame.source, frame.source_line + 1); }}
+      onStep={debug.step} onJumpHere={() => debug.jumpTo(view.state.doc.lineAt(view.state.selection.main.head).number - 1)}
+      onStart={() => start(debug.program ?? undefined)} onStop={debug.stop} onAddWatch={() => { const expression = window.prompt("Expression to watch"); if (expression) debug.addWatch(expression); }}
+      exceptionFilters={debug.exceptionFilters} onToggleExceptionFilter={debug.toggleExceptionFilter} onRemoveWatch={debug.removeWatch} />}
+    {debugNotice && <div role="alert" className="notice">{debugNotice}</div>}
     {buffer.error && <div role="alert" className="notice">{buffer.error}</div>}
   </div>;
 }
@@ -122,6 +192,10 @@ function Minimap({ buffer }: { buffer: Buffer }) {
     onKeyDown={event => { if (event.key === "Home" || event.key === "End") { event.preventDefault(); jump(event.key === "Home" ? 0 : 1); } }} />;
 }
 </ui:copy>
+
+## Attach the existing DAP session without replacing text
+
+The browser simple editor now borrows the workspace debugger for supported plain-file languages and Hickory file blocks. Its host lives above the tab, while a compartment attaches breakpoints, paused lines, values and expression evaluation after the readable editor mounts. Callbacks dereference the latest session; moving the DOM preserves undo and selection. Dirty text suppresses positional observations and refuses launch until saved, because the workspace adapter executes saved files. The right rail is a fixed column and its menus float over content. Hickory blocks use the existing source-line mapping and choose their generated path as the launch target. The native frontends use the same engine debug protocol through workspace-owned controllers and fixed native rails.
 
 ## Assemble the maintained output
 

@@ -7,6 +7,8 @@ Read the exact same layout scenarios as Swift. These are focused model witnesses
 
 The Markdown witnesses check actual rendered emphasis, literal code and HTML safety, then edit and undo inside the retained document editor. A plain-file counterexample protects ordinary source text from accidental prose formatting. These component checks do not establish native rendering.
 
+The inline DAP witnesses attach a controlled paused session after text is visible, exercise real editor decorations and action buttons, retain undo, and refuse an unsaved launch. They do not establish a live adapter connection.
+
 <ui:copy id="simple-c6aff51ad5-0">
 // Contract: .hickory-source/frontends/contract.md
 import { createElement } from "react";
@@ -15,6 +17,10 @@ import { EditorView } from "@codemirror/view";
 import { undo } from "@codemirror/commands";
 import { startCompletion, currentCompletions } from "@codemirror/autocomplete";
 import { Document } from "./Document";
+vi.mock("../debug/launchProfiles", () => ({ launchWithProfiles: vi.fn(async (_query, start, options) => { if (options.isCurrent()) start({ id: "test", fingerprint: "test" }); }) }));
+import { IDLE_SESSION } from "../debug/useDebugger";
+import { useFollowingDebugSession } from "../debug/plainDebugHosts";
+vi.mock("../debug/plainDebugHosts", () => ({ useFollowingDebugSession: vi.fn(() => null), PlainDebugHosts: () => null }));
 import { MarkdownMessage } from "./Agent";
 import { App } from "./App";
 import { useWorkspaceLsp } from "../lsp/useLsp";
@@ -53,6 +59,53 @@ describe("shared frontend layout contract", () => {
   });
 });
 
+
+describe("simple inline DAP debugging", () => {
+  it("launches the generated target from a literate file block", async () => {
+    const start = vi.fn();
+    vi.mocked(useFollowingDebugSession).mockReturnValue({ ...IDLE_SESSION, start });
+    const text = '<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n<h:file path="hello.py">\nprint(1)\n</h:file>\n</h:doc>\n';
+    const screen = render(createElement(Document, { buffer: new Buffer({ path: "source.md", name: "source.md", dir: false }, text, "hash", () => {}) }));
+    try {
+      fireEvent.click(await screen.findByRole("button", { name: "Debug hello.py" }));
+      await waitFor(() => expect(start).toHaveBeenCalledWith("hello.py", {}, undefined, { id: "test", fingerprint: "test" }));
+    } finally { screen.unmount(); vi.mocked(useFollowingDebugSession).mockReturnValue(null); }
+  });
+  it("attaches paused values and controls without replacing the editor or its undo", async () => {
+    const buffer = new Buffer({ path: "sample.py", name: "sample.py", dir: false }, "value = 1\nprint(value)", "hash", () => {});
+    const toggleBreakpoint = vi.fn(), step = vi.fn(), stop = vi.fn();
+    const screen = render(createElement(Document, { buffer }));
+    const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+    try {
+      act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: "\n" } }));
+      act(() => { undo(view); });
+      vi.mocked(useFollowingDebugSession).mockReturnValue({ ...IDLE_SESSION, status: "paused", pausedLine: 1,
+        variables: [{ name: "value", value: "1", type: "int", variables_reference: 0 }], toggleBreakpoint, step, stop });
+      screen.rerender(createElement(Document, { buffer }));
+      expect(EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)).toBe(view);
+      await waitFor(() => expect(screen.container.querySelector(".cm-debug-value")?.textContent).toContain("value = 1"));
+      fireEvent.click(screen.getByRole("button", { name: "Step over" })); expect(step).toHaveBeenCalledWith("over");
+      fireEvent.click(screen.getByRole("button", { name: "Stop" })); expect(stop).toHaveBeenCalledOnce();
+      act(() => view.dispatch({ changes: { from: 0, insert: "# changed\n" } }));
+      await waitFor(() => expect(screen.container.querySelector(".cm-debug-value")).toBeNull());
+      act(() => { undo(view); }); expect(buffer.text).toBe("value = 1\nprint(value)");
+    } finally { screen.unmount(); vi.mocked(useFollowingDebugSession).mockReturnValue(null); }
+  });
+  it("refuses launching unsaved text and offers no launch for prose", async () => {
+    const start = vi.fn();
+    vi.mocked(useFollowingDebugSession).mockReturnValue({ ...IDLE_SESSION, start });
+    const buffer = new Buffer({ path: "sample.py", name: "sample.py", dir: false }, "print(1)", "hash", () => {});
+    buffer.edit("print(2)");
+    const screen = render(createElement(Document, { buffer }));
+    try {
+      fireEvent.click(await screen.findByRole("button", { name: "Debug sample.py" }));
+      await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Save this file"));
+      expect(start).not.toHaveBeenCalled();
+      screen.rerender(createElement(Document, { buffer: new Buffer({ path: "notes.txt", name: "notes.txt", dir: false }, "prose", "hash", () => {}) }));
+      expect(screen.queryByRole("button", { name: "Debug notes.txt" })).toBeNull();
+    } finally { screen.unmount(); vi.mocked(useFollowingDebugSession).mockReturnValue(null); }
+  });
+});
 </ui:copy>
 
 ## Exercise delayed language attachment in a real editor instance

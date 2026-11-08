@@ -93,10 +93,79 @@ class ParityTest {
 }
 </ui:copy>
 
+## Exercise native launch validation and late events
+
+The focused Android witnesses use real HTTP requests to a local fixture for profile resolution, then capture only the socket send seam while driving the session state. They check source expectations, conditions carried to moved breakpoints, cross-file stops, stale-session refusal, evaluation frame identity and Stop during pending launch. HICKORY_NATIVE_DEBUG_ORIGIN enables the separate real-engine/adapter witness. These checks do not establish touch geometry or IME behavior.
+
+<ui:copy id="simple-android-debug-witnesses">
+class NativeDebugTest {
+    private fun file() = FileNode("main.py", "main.py", false, emptyList(), null, null)
+    @Test fun nativeDebugSessionAndPendingStop() = kotlinx.coroutines.runBlocking {
+        val listener = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+        var captured = JSONObject()
+        listener.createContext("/api/launch-profiles") { exchange ->
+            captured = JSONObject(exchange.requestBody.bufferedReader().readText())
+            val bytes = """{"profiles":[{"id":"python","name":"Python","can_debug":true,"program":"main.py"}],"fingerprint":"current"}""".toByteArray()
+            exchange.sendResponseHeaders(200, bytes.size.toLong()); exchange.responseBody.use { it.write(bytes) }
+        }
+        listener.createContext("/api/docs/managed/render") { exchange ->
+            val bytes = """{"blocks":[{"kind":"file","path":"main.py","span":[0,1]}]}""".toByteArray()
+            exchange.sendResponseHeaders(200, bytes.size.toLong()); exchange.responseBody.use { it.write(bytes) }
+        }; listener.start()
+        val debug = NativeDebugger(Engine("http://127.0.0.1:${listener.address.port}"), this)
+        try {
+            val buffer = DocumentBuffer(file(), FileText("value = 1\nprint(value)\n", "hash"))
+            val requests = mutableListOf<JSONObject>(); debug.emitForTest = { requests.add(it) }
+            debug.prepare(buffer); assertEquals(buffer.text, captured.getString("expected_source"))
+            debug.toggle("main.py", 0, "value > 0"); debug.launch(debug.profiles.first())
+            debug.receive(JSONObject("""{"event":"started","doc":"hick:///other.py","session":"wrong"}""")); assertNull(debug.sessionID)
+            debug.receive(JSONObject("""{"event":"started","doc":"hick:///main.py","session":"ours","breakpoints":[{"line":0,"moved_to":1,"state":"bound"}]}"""))
+            assertEquals("value > 0", debug.breakpoints["main.py"]!!.first().getString("condition"))
+            assertEquals(1, debug.breakpoints["main.py"]!!.first().getInt("line"))
+            debug.receive(JSONObject("""{"event":"stopped","session":"old","line":0}""")); assertEquals("running", debug.status)
+            var revealed = ""; debug.onLocation = { path, line -> revealed = "$path:$line" }
+            debug.receive(JSONObject("""{"event":"stopped","session":"ours","line":null,"frames":[{"id":7,"name":"helper","source":"helper.py","source_line":2}],"variables":[{"name":"value","value":"1"}]}"""))
+            assertEquals("helper.py:2", revealed); assertEquals(2, debug.line("helper.py"))
+            val helper = DocumentBuffer(FileNode("helper.py", "helper.py", false, emptyList(), null, null), FileText("before", "base"))
+            debug.rememberSource(helper); assertTrue(debug.sourceMatches(helper))
+            helper.state.edit { replace(0, length, "saved replacement") }; helper.base = helper.text
+            assertFalse(debug.sourceMatches(helper))
+            debug.evaluate("value", true); assertEquals(7, requests.last().getInt("frame"))
+            debug.step("over"); assertEquals("over", requests.last().getString("how")); assertTrue(debug.variables.isEmpty())
+            debug.receive(JSONObject("""{"event":"value","session":"ours","expression":"value","value":"old"}""")); assertTrue(debug.values.isEmpty())
+            debug.close(); debug.prepare(buffer); debug.launch(debug.profiles.first()); requests.clear(); debug.stop()
+            assertEquals("stopping", debug.status); assertTrue(requests.isEmpty())
+            debug.receive(JSONObject("""{"event":"started","doc":"hick:///main.py","session":"late","breakpoints":[]}"""))
+            assertEquals("stop", requests.last().getString("op")); assertEquals("late", requests.last().getString("session"))
+            buffer.state.edit { append("edited") }; debug.close(); debug.prepare(buffer)
+            assertTrue(debug.message.contains("Save this file")); assertFalse(debug.sourceMatches(buffer))
+            val managed = DocumentBuffer(FileNode("source.md", "source.md", false, emptyList(), "managed", null), FileText("<h:file path=\"main.py\">print(1)</h:file>", "base"))
+            debug.prepare(managed)
+            assertEquals("main.py", captured.getString("program")); assertEquals(managed.text, captured.getString("expected_document")); assertFalse(captured.has("expected_source"))
+        } finally { debug.close(); listener.stop(0) }
+    }
+    @Test fun liveNativeDebugChannel() = kotlinx.coroutines.runBlocking {
+        val origin = System.getenv("HICKORY_NATIVE_DEBUG_ORIGIN")
+        org.junit.Assume.assumeNotNull(origin)
+        val engine = Engine(origin!!); val file = FileNode("debug.py", "debug.py", false, emptyList(), null, null)
+        val loaded = engine.file(file); val buffer = DocumentBuffer(file, loaded); val debug = NativeDebugger(engine, this)
+        try {
+            debug.prepare(buffer); assertTrue(debug.message, debug.profiles.isNotEmpty()); debug.toggle(file.path, 1); debug.launch(debug.profiles.first())
+            suspend fun paused() { repeat(200) { if (debug.status == "paused" || debug.status == "failed") return; kotlinx.coroutines.delay(50) } }
+            paused(); assertEquals(debug.message, "paused", debug.status); debug.step("over"); paused()
+            assertEquals(debug.message, "paused", debug.status); assertTrue(debug.variables.isNotEmpty())
+            debug.evaluate("value", true); repeat(100) { if (debug.values["value"] == null) kotlinx.coroutines.delay(50) }
+            assertNotNull(debug.values["value"]); assertEquals(loaded.content, buffer.text); assertFalse(buffer.dirty)
+            debug.stop(); repeat(100) { if (debug.active) kotlinx.coroutines.delay(50) }; assertFalse(debug.message, debug.active)
+        } finally { debug.close() }
+    }
+}
+</ui:copy>
+
 ## Assemble the maintained output
 
 Keep construction order explicit; the explanations above describe the decisions at each boundary.
 
-<ui:file path="apps/android-simple/app/src/test/java/com/hickorydocs/simple/ParityTest.kt"><ui:paste select="#simple-de002213e5-0"/></ui:file>
+<ui:file path="apps/android-simple/app/src/test/java/com/hickorydocs/simple/ParityTest.kt"><ui:paste select="#simple-de002213e5-0"/><ui:paste select="#simple-android-debug-witnesses"/></ui:file>
 
 </ui:doc>

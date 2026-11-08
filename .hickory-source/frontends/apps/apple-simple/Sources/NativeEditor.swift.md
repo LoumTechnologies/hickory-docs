@@ -17,6 +17,7 @@ import AppKit
     let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
     let text = NSTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
     let buffer: DocumentBuffer
+    private var observer: NSObjectProtocol?
     init(_ buffer: DocumentBuffer) {
         self.buffer = buffer
         super.init()
@@ -45,13 +46,35 @@ import AppKit
             self.text.setSelectedRange(NSRange(location: range.location + (insert as NSString).length, length: 0))
             self.text.didChangeText(); return true
         }
+        buffer.revealDebugLine = { [weak self] line in
+            guard let self, let offset = languageOffset(self.buffer.text, ["line": line, "character": 0]) else { return }
+            self.text.scrollRangeToVisible(NSRange(location: offset, length: 0))
+        }
+        scroll.contentView.postsBoundsChangedNotifications = true
+        observer = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.contentView, queue: .main) { [weak self] _ in Task { @MainActor in self?.measureDebugLines() } }
         paint(buffer.language?.tokens ?? [], source: buffer.text)
+        measureDebugLines()
     }
-    func textDidChange(_ notification: Notification) { buffer.selection = text.selectedRange(); buffer.text = text.string }
+    func textDidChange(_ notification: Notification) { buffer.selection = text.selectedRange(); buffer.text = text.string; measureDebugLines() }
     func textViewDidChangeSelection(_ notification: Notification) { buffer.selection = text.selectedRange() }
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         guard NSStringFromSelector(commandSelector) == "complete:" else { return false }
         Task { await buffer.language?.complete() }; return true
+    }
+    func measureDebugLines() {
+        guard let manager = text.layoutManager, let container = text.textContainer else { return }
+        manager.ensureLayout(for: container)
+        let source = text.string as NSString, origin = text.textContainerOrigin
+        let visible = text.visibleRect.offsetBy(dx: -origin.x, dy: -origin.y)
+        let glyphs = manager.glyphRange(forBoundingRect: visible, in: container)
+        var rows: [DebugLine] = []
+        manager.enumerateLineFragments(forGlyphRange: glyphs) { rect, _, _, range, _ in
+            let offset = manager.characterIndexForGlyph(at: range.location)
+            guard offset == 0 || source.character(at: offset - 1) == 10 else { return }
+            let line = source.substring(to: offset).filter { $0 == "\n" }.count
+            rows.append(DebugLine(line: line, y: rect.minY + origin.y - self.scroll.contentView.bounds.minY, height: rect.height))
+        }
+        if rows != buffer.visibleDebugLines { buffer.visibleDebugLines = rows }
     }
     private func paint(_ tokens: [NativeSemanticToken], source: String) {
         guard text.string == source, !text.hasMarkedText(), let storage = text.textStorage else { return }
@@ -97,7 +120,10 @@ struct NativeEditor: NSViewRepresentable {
         EditorCache.views[buffer.id] = editor
         return MacEditorHost(editor.scroll)
     }
-    func updateNSView(_ view: NSView, context: Context) { (view as? MacEditorHost)?.attach(); view.needsLayout = true }
+    func updateNSView(_ view: NSView, context: Context) {
+        (view as? MacEditorHost)?.attach(); view.needsLayout = true
+        Task { @MainActor in EditorCache.views[buffer.id]?.measureDebugLines() }
+    }
 }
 #else
 import UIKit
@@ -127,10 +153,31 @@ import UIKit
             self.text.replace(target, withText: insert)
             self.buffer.selection = self.text.selectedRange; self.buffer.text = self.text.text; return true
         }
+        buffer.revealDebugLine = { [weak self] line in
+            guard let self, let offset = languageOffset(self.buffer.text, ["line": line, "character": 0]) else { return }
+            self.text.scrollRangeToVisible(NSRange(location: offset, length: 0))
+        }
         paint(buffer.language?.tokens ?? [], source: buffer.text)
+        measureDebugLines()
     }
-    func textViewDidChange(_ textView: UITextView) { buffer.selection = textView.selectedRange; buffer.text = textView.text }
+    func textViewDidChange(_ textView: UITextView) { buffer.selection = textView.selectedRange; buffer.text = textView.text; measureDebugLines() }
     func textViewDidChangeSelection(_ textView: UITextView) { buffer.selection = textView.selectedRange }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) { measureDebugLines() }
+    func measureDebugLines() {
+        let manager = text.layoutManager, container = text.textContainer
+        manager.ensureLayout(for: container)
+        let source = (text.text ?? "") as NSString, inset = text.textContainerInset
+        let visible = CGRect(x: 0, y: text.contentOffset.y - inset.top, width: text.bounds.width, height: text.bounds.height)
+        let glyphs = manager.glyphRange(forBoundingRect: visible, in: container)
+        var rows: [DebugLine] = []
+        manager.enumerateLineFragments(forGlyphRange: glyphs) { rect, _, _, range, _ in
+            let offset = manager.characterIndexForGlyph(at: range.location)
+            guard offset == 0 || source.character(at: offset - 1) == 10 else { return }
+            let line = source.substring(to: offset).filter { $0 == "\n" }.count
+            rows.append(DebugLine(line: line, y: rect.minY + inset.top - self.text.contentOffset.y, height: rect.height))
+        }
+        if rows != buffer.visibleDebugLines { buffer.visibleDebugLines = rows }
+    }
     private func paint(_ tokens: [NativeSemanticToken], source: String) {
         guard text.text == source, text.markedTextRange == nil else { return }
         let storage = text.textStorage
@@ -174,7 +221,10 @@ struct NativeEditor: UIViewRepresentable {
         EditorCache.views[buffer.id] = editor
         return MobileEditorHost(editor.text)
     }
-    func updateUIView(_ view: UIView, context: Context) { (view as? MobileEditorHost)?.attach(); view.setNeedsLayout() }
+    func updateUIView(_ view: UIView, context: Context) {
+        (view as? MobileEditorHost)?.attach(); view.setNeedsLayout()
+        Task { @MainActor in EditorCache.views[buffer.id]?.measureDebugLines() }
+    }
 }
 #endif
 
@@ -187,6 +237,7 @@ AppKit and UIKit keep their own text views above. The language session supplies 
 <ui:copy id="simple-apple-language-preview">
 struct LanguageEditor: View {
     var buffer: DocumentBuffer
+    var debugger: NativeDebugger?
     var body: some View {
         HStack(spacing: 0) {
             NativeEditor(buffer: buffer)
@@ -203,6 +254,7 @@ struct LanguageEditor: View {
                     .accessibilityLabel("Document minimap")
                     .accessibilityAdjustableAction { direction in buffer.navigate?(direction == .increment ? 1 : 0) }
             }.frame(width: 40)
+            if let debugger { NativeDebugRail(buffer: buffer, debug: debugger).frame(width: 24) }
         }.overlay(alignment: .topTrailing) {
             Button("⌁") {
                 #if os(macOS)
@@ -236,10 +288,83 @@ struct LanguageEditor: View {
 }
 </ui:copy>
 
+## Anchor debug actions to the native text layout
+
+The fixed right rail measures actual visible logical lines, including wrapped text and scroll offset. Each line owns one button; the paused line uses a ⋯ popover with an adaptive grid of controls, so a tall action stack cannot move the next line's icon. Values appear as an overlay beside the stopped line and never enter the editable string. The same SwiftUI rail serves macOS and iOS. Native editor instances, selection and undo are untouched when debug events arrive.
+
+<ui:copy id="simple-apple-debug-rail">
+struct NativeDebugRail: View {
+    var buffer: DocumentBuffer
+    var debug: NativeDebugger
+    @State private var opened: Int?
+    @State private var expression = ""
+    @State private var condition = ""
+    private var paused: Int? { debug.sourceMatches(buffer) ? debug.line(in: buffer.file.path) : nil }
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .topLeading) {
+                ForEach(buffer.visibleDebugLines.filter { $0.y >= 0 && $0.y < geometry.size.height }, id: \.line) { row in
+                    let held = debug.breakpoints[buffer.file.path]?.first(where: { $0["line"] as? Int == row.line })
+                    let glyph = row.line == paused ? "⋯" : row.line == 0 ? "▷" : held == nil ? "·" : (held?["state"] as? String == "refused" ? "○" : held?["state"] as? String == "bound" ? "●" : "◌")
+                    Button(glyph) { opened = row.line }
+                        .buttonStyle(.plain).font(.system(size: 13)).frame(width: 24, height: min(18, row.height))
+                        .accessibilityLabel("Debug actions on line \(row.line + 1)")
+                        .position(x: 12, y: row.y + min(18, row.height) / 2)
+                        .popover(isPresented: Binding(get: { opened == row.line }, set: { if !$0 { opened = nil } })) {
+                            controls(row.line).padding(10).frame(width: 310)
+                        }
+                    if row.line == paused, !debug.variables.isEmpty {
+                        Text(debug.variables.prefix(3).map { "\($0["name"] as? String ?? "") = \($0["value"] as? String ?? "")" }.joined(separator: "  "))
+                            .font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1)
+                            .padding(3).background(.regularMaterial).frame(width: 220, alignment: .trailing)
+                            .offset(x: -224, y: row.y).allowsHitTesting(false).accessibilityLabel("Paused values")
+                    }
+                }
+            }
+        }.background(.quaternary.opacity(0.2))
+    }
+    @ViewBuilder private func controls(_ line: Int) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Line \(line + 1) · \(debug.status)").font(.caption)
+            if !debug.sourceMatches(buffer) { Text("Save edited text before launching. Values belong to the source that ran.").font(.caption) }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 86))], spacing: 5) {
+                Button("Debug") { Task { await debug.prepare(buffer, line: line) } }.disabled(debug.active || buffer.dirty || buffer.saving)
+                Button("Breakpoint") { debug.toggle(buffer.file.path, line: line) }
+                if debug.status == "paused" {
+                    Button("Continue") { debug.step("continue") }; Button("Step over") { debug.step("over") }
+                    Button("Step in") { debug.step("in") }; Button("Step out") { debug.step("out") }
+                    if debug.capabilities["step_back"] as? Bool == true { Button("Step back") { debug.step("back") } }
+                }
+                if debug.active { Button("Stop") { debug.stop() } }
+            }
+            if debug.owner == buffer.file.path { ForEach(debug.targets) { target in Button("Debug file \(target.path)") { Task { await debug.prepare(buffer, program: target.path) } } } }
+            ForEach(debug.profiles) { profile in Button("Debug \(profile.name)") { debug.launch(profile); opened = nil } }
+            if debug.offer != nil { Button("Install debugger") { Task { await debug.install() } } }
+            if !debug.message.isEmpty { Text(debug.message).font(.caption).textSelection(.enabled) }
+            if debug.capabilities["conditional_breakpoints"] as? Bool == true {
+                TextField("Breakpoint condition", text: $condition)
+                Button("Apply condition") { debug.toggle(buffer.file.path, line: line, condition: condition) }
+            }
+            if debug.status == "paused" {
+                TextField("Expression", text: $expression)
+                HStack { Button("Evaluate") { debug.evaluate(expression) }; Button("Watch") { debug.evaluate(expression, watch: true) } }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(debug.frames.enumerated()), id: \.offset) { _, frame in Button(frame["name"] as? String ?? "Frame") { debug.select(frame) } }
+                        ForEach(Array(debug.variables.enumerated()), id: \.offset) { _, variable in Text("\(variable["name"] as? String ?? "") = \(variable["value"] as? String ?? "")").textSelection(.enabled) }
+                        ForEach(debug.values.keys.sorted(), id: \.self) { key in HStack { Text("\(key) = \(debug.values[key] ?? "…")"); if debug.watches.contains(key) { Button("×") { debug.watches.removeAll { $0 == key }; debug.values.removeValue(forKey: key) }.accessibilityLabel("Remove watch \(key)") } } }
+                    }
+                }.frame(maxHeight: 180)
+            }
+        }
+    }
+}
+</ui:copy>
+
 ## Assemble the maintained output
 
 Keep construction order explicit; the explanations above describe the decisions at each boundary.
 
-<ui:file path="apps/apple-simple/Sources/NativeEditor.swift"><ui:paste select="#simple-7fad175521-0"/><ui:paste select="#simple-apple-language-preview"/></ui:file>
+<ui:file path="apps/apple-simple/Sources/NativeEditor.swift"><ui:paste select="#simple-7fad175521-0"/><ui:paste select="#simple-apple-language-preview"/><ui:paste select="#simple-apple-debug-rail"/></ui:file>
 
 </ui:doc>

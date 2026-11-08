@@ -6,6 +6,7 @@ final class ResponseProtocol: URLProtocol {
     static var requestedURL: URL?
     static var status = 200
     static var response = Data()
+    static var responsesByPath: [String: Data] = [:]
     static var captured: [String: Any] = [:]
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -24,7 +25,7 @@ final class ResponseProtocol: URLProtocol {
         Self.captured = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
         let response = HTTPURLResponse(url: request.url!, statusCode: Self.status, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Self.response)
+        client?.urlProtocol(self, didLoad: Self.responsesByPath[request.url!.path] ?? Self.response)
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
@@ -84,4 +85,77 @@ final class SaveTests: XCTestCase {
         XCTAssertEqual(session.input, "echo hello"); XCTAssertTrue(session.error.contains("not retried"))
     }
 
+}
+final class NativeDebugTests: XCTestCase {
+    @MainActor func testNativeDebugRejectsOtherSessionAndCarriesBoundCondition() throws {
+        let debug = NativeDebugger(engine: try Engine(address: "http://fixture.invalid"))
+        debug.owner = "main.py"; debug.launchSource = "value = 1\nprint(value)\n"; debug.status = "starting"
+        var requests: [[String: Any]] = []; debug.emitForTest = { requests.append($0) }
+        debug.toggle("main.py", line: 0, condition: "value > 0")
+        debug.receive(["event": "started", "doc": "hick:///other.py", "session": "wrong"])
+        XCTAssertNil(debug.sessionID)
+        debug.receive(["event": "started", "doc": "hick:///main.py", "session": "ours", "breakpoints": [["line": 0, "moved_to": 1, "state": "bound"]]])
+        XCTAssertEqual(debug.breakpoints["main.py"]?.first?["condition"] as? String, "value > 0")
+        XCTAssertEqual(debug.breakpoints["main.py"]?.first?["line"] as? Int, 1)
+        var revealed = ""; debug.onLocation = { path, line in revealed = "\(path):\(line)" }
+        debug.receive(["event": "stopped", "session": "old", "line": 0]); XCTAssertEqual(debug.status, "running")
+        debug.receive(["event": "stopped", "session": "ours", "line": NSNull(), "frames": [["id": 7, "name": "helper", "source": "helper.py", "source_line": 2]], "variables": [["name": "value", "value": "1"]]])
+        XCTAssertEqual(revealed, "helper.py:2"); XCTAssertEqual(debug.line(in: "helper.py"), 2)
+        let helper = DocumentBuffer(file: FileNode(name: "helper.py", path: "helper.py", dir: false), text: FileText(path: "helper.py", content: "before", hash: "base"))
+        debug.rememberSource(helper); XCTAssertTrue(debug.sourceMatches(helper))
+        helper.text = "saved replacement"; helper.base = helper.text
+        XCTAssertFalse(debug.sourceMatches(helper), "Saving changed callee text must not reattach old positional values")
+        debug.evaluate("value", watch: true); XCTAssertEqual(requests.last?["frame"] as? Int, 7)
+        debug.step("over"); XCTAssertEqual(requests.last?["how"] as? String, "over"); XCTAssertTrue(debug.variables.isEmpty)
+        debug.receive(["event": "value", "session": "ours", "expression": "value", "value": "old"]); XCTAssertTrue(debug.values.isEmpty)
+        debug.receive(["event": "finished", "session": "ours"]); debug.step("over"); XCTAssertNil(debug.sessionID); XCTAssertEqual(debug.status, "finished")
+    }
+    @MainActor func testStopWhileStartingStopsTheAcknowledgedSession() throws {
+        let debug = NativeDebugger(engine: try Engine(address: "http://fixture.invalid"))
+        debug.owner = "main.py"; debug.status = "starting"
+        var requests: [[String: Any]] = []; debug.emitForTest = { requests.append($0) }
+        debug.stop(); XCTAssertEqual(debug.status, "stopping"); XCTAssertTrue(requests.isEmpty)
+        debug.receive(["event": "started", "doc": "hick:///main.py", "session": "late", "breakpoints": []])
+        XCTAssertEqual(requests.last?["op"] as? String, "stop"); XCTAssertEqual(requests.last?["session"] as? String, "late")
+        debug.receive(["event": "ended", "session": "late"]); XCTAssertEqual(debug.status, "finished")
+    }
+    @MainActor func testLiterateLaunchUsesDocumentExpectationAndRejectsUnsavedText() async throws {
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [ResponseProtocol.self]
+        let engine = try Engine(address: "http://fixture.invalid", session: URLSession(configuration: config))
+        let debug = NativeDebugger(engine: engine)
+        let source = "# Prose\n<h:file path=\"main.py\">\nprint(1)\n</h:file>\n"
+        let file = FileNode(name: "source.md", path: "source.md", dir: false, doc_id: "managed")
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "base"))
+        ResponseProtocol.status = 200
+        ResponseProtocol.response = Data(#"{"profiles":[{"id":"python","name":"Python","can_debug":true,"program":"main.py"}],"fingerprint":"current"}"#.utf8)
+        defer { ResponseProtocol.responsesByPath = [:] }
+        ResponseProtocol.responsesByPath["/api/docs/managed/render"] = try JSONSerialization.data(withJSONObject: ["blocks": [["kind": "file", "path": "main.py", "span": [8, source.utf8.count]]]])
+        await debug.prepare(buffer, line: 2)
+        XCTAssertEqual(ResponseProtocol.captured["program"] as? String, "main.py")
+        XCTAssertEqual(ResponseProtocol.captured["expected_document"] as? String, source)
+        XCTAssertNil(ResponseProtocol.captured["expected_source"])
+        XCTAssertEqual(debug.profiles.count, 1)
+        buffer.text += "edited"; await debug.prepare(buffer)
+        XCTAssertTrue(debug.message.contains("Save this file")); XCTAssertFalse(debug.sourceMatches(buffer))
+    }
+    @MainActor func testLiveNativeDebugChannel() async throws {
+        guard let origin = ProcessInfo.processInfo.environment["HICKORY_NATIVE_DEBUG_ORIGIN"] else { throw XCTSkip("Set HICKORY_NATIVE_DEBUG_ORIGIN for a real backend with debugpy installed") }
+        let engine = try Engine(address: origin), file = FileNode(name: "debug.py", path: "debug.py", dir: false)
+        let loaded = try await engine.file(file), buffer = DocumentBuffer(file: file, text: loaded)
+        let debug = NativeDebugger(engine: engine); defer { debug.close() }
+        await debug.prepare(buffer); let profile = try XCTUnwrap(debug.profiles.first, debug.message)
+        debug.toggle(file.path, line: 1); debug.launch(profile)
+        for _ in 0..<200 { if debug.status == "paused" || debug.status == "failed" { break }; try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(debug.status, "paused", debug.message)
+        guard debug.status == "paused" else { return }
+        debug.step("over")
+        for _ in 0..<200 { if debug.status == "paused" || debug.status == "failed" { break }; try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(debug.status, "paused", debug.message); XCTAssertFalse(debug.variables.isEmpty)
+        debug.evaluate("value", watch: true)
+        for _ in 0..<100 { if debug.values["value"] != nil { break }; try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertNotNil(debug.values["value"]); XCTAssertEqual(buffer.text, loaded.content); XCTAssertFalse(buffer.dirty)
+        debug.stop()
+        for _ in 0..<100 { if !debug.active { break }; try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertFalse(debug.active, debug.message)
+    }
 }

@@ -5,6 +5,10 @@ import { EditorView } from "@codemirror/view";
 import { undo } from "@codemirror/commands";
 import { startCompletion, currentCompletions } from "@codemirror/autocomplete";
 import { Document } from "./Document";
+vi.mock("../debug/launchProfiles", () => ({ launchWithProfiles: vi.fn(async (_query, start, options) => { if (options.isCurrent()) start({ id: "test", fingerprint: "test" }); }) }));
+import { IDLE_SESSION } from "../debug/useDebugger";
+import { useFollowingDebugSession } from "../debug/plainDebugHosts";
+vi.mock("../debug/plainDebugHosts", () => ({ useFollowingDebugSession: vi.fn(() => null), PlainDebugHosts: () => null }));
 import { MarkdownMessage } from "./Agent";
 import { App } from "./App";
 import { useWorkspaceLsp } from "../lsp/useLsp";
@@ -43,6 +47,53 @@ describe("shared frontend layout contract", () => {
   });
 });
 
+
+describe("simple inline DAP debugging", () => {
+  it("launches the generated target from a literate file block", async () => {
+    const start = vi.fn();
+    vi.mocked(useFollowingDebugSession).mockReturnValue({ ...IDLE_SESSION, start });
+    const text = '<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n<h:file path="hello.py">\nprint(1)\n</h:file>\n</h:doc>\n';
+    const screen = render(createElement(Document, { buffer: new Buffer({ path: "source.md", name: "source.md", dir: false }, text, "hash", () => {}) }));
+    try {
+      fireEvent.click(await screen.findByRole("button", { name: "Debug hello.py" }));
+      await waitFor(() => expect(start).toHaveBeenCalledWith("hello.py", {}, undefined, { id: "test", fingerprint: "test" }));
+    } finally { screen.unmount(); vi.mocked(useFollowingDebugSession).mockReturnValue(null); }
+  });
+  it("attaches paused values and controls without replacing the editor or its undo", async () => {
+    const buffer = new Buffer({ path: "sample.py", name: "sample.py", dir: false }, "value = 1\nprint(value)", "hash", () => {});
+    const toggleBreakpoint = vi.fn(), step = vi.fn(), stop = vi.fn();
+    const screen = render(createElement(Document, { buffer }));
+    const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+    try {
+      act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: "\n" } }));
+      act(() => { undo(view); });
+      vi.mocked(useFollowingDebugSession).mockReturnValue({ ...IDLE_SESSION, status: "paused", pausedLine: 1,
+        variables: [{ name: "value", value: "1", type: "int", variables_reference: 0 }], toggleBreakpoint, step, stop });
+      screen.rerender(createElement(Document, { buffer }));
+      expect(EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)).toBe(view);
+      await waitFor(() => expect(screen.container.querySelector(".cm-debug-value")?.textContent).toContain("value = 1"));
+      fireEvent.click(screen.getByRole("button", { name: "Step over" })); expect(step).toHaveBeenCalledWith("over");
+      fireEvent.click(screen.getByRole("button", { name: "Stop" })); expect(stop).toHaveBeenCalledOnce();
+      act(() => view.dispatch({ changes: { from: 0, insert: "# changed\n" } }));
+      await waitFor(() => expect(screen.container.querySelector(".cm-debug-value")).toBeNull());
+      act(() => { undo(view); }); expect(buffer.text).toBe("value = 1\nprint(value)");
+    } finally { screen.unmount(); vi.mocked(useFollowingDebugSession).mockReturnValue(null); }
+  });
+  it("refuses launching unsaved text and offers no launch for prose", async () => {
+    const start = vi.fn();
+    vi.mocked(useFollowingDebugSession).mockReturnValue({ ...IDLE_SESSION, start });
+    const buffer = new Buffer({ path: "sample.py", name: "sample.py", dir: false }, "print(1)", "hash", () => {});
+    buffer.edit("print(2)");
+    const screen = render(createElement(Document, { buffer }));
+    try {
+      fireEvent.click(await screen.findByRole("button", { name: "Debug sample.py" }));
+      await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Save this file"));
+      expect(start).not.toHaveBeenCalled();
+      screen.rerender(createElement(Document, { buffer: new Buffer({ path: "notes.txt", name: "notes.txt", dir: false }, "prose", "hash", () => {}) }));
+      expect(screen.queryByRole("button", { name: "Debug notes.txt" })).toBeNull();
+    } finally { screen.unmount(); vi.mocked(useFollowingDebugSession).mockReturnValue(null); }
+  });
+});
 describe("simple Markdown formatting", () => {
   it("renders nested emphasis and headings while leaving code and HTML literal", () => {
     const screen = render(createElement(MarkdownMessage, { text: "# Title **bold**\n\n***both*** and a_b_c and \`**code**\`\n\n~~~\n# literal **code**\n~~~\n\n<script>alert(1)</script>" }));

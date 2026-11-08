@@ -68,6 +68,18 @@ class BrowserDriver:
         try: self.act("quit")
         finally: stop(self.process)
 
+def debug_acceptance(driver):
+    driver.act("open", path="debug.py")
+    driver.act("debug-breakpoint", line=2)
+    driver.act("debug-start", path="debug.py")
+    eventually(lambda: any("paused" in state for state in driver.act("debug-state")), True)
+    driver.act("split"); driver.act("move")
+    assert any("paused" in state for state in driver.act("debug-state"))
+    driver.act("debug-step")
+    eventually(lambda: any("value =" in value for value in driver.act("debug-values")), True)
+    driver.act("debug-stop")
+    eventually(lambda: not any("paused" in state for state in driver.act("debug-state")), True)
+
 def markdown_acceptance(driver):
     driver.act("open", path="source.md")
     formatting = driver.act("markdown-formatting", path="source.md")
@@ -135,6 +147,7 @@ if __name__ == "__main__":
         folder = Path(temporary) / "workspace"; folder.mkdir()
         (folder / "notes.txt").write_text("before")
         (folder / "source.md").write_text('<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n# A literate document\n\n**bold** and *italic*\n</h:doc>\n')
+        (folder / "debug.py").write_text("value = 1\nvalue += 1\nprint(value)\n")
         environment = {**os.environ, "HICKORY_STATE_DIR": str(Path(temporary) / "state")}
         try:
             with socket.socket() as reservation:
@@ -144,7 +157,10 @@ if __name__ == "__main__":
             backend = origin(engine)
             vite = start(["node", "node_modules/vite/bin/vite.js", "--config", "vite.simple.config.ts", "--host", "127.0.0.1", "--port", str(ui_port), "--strictPort"], cwd=ROOT / "apps/web", env={**environment, "HICKORY_API_ORIGIN": backend}); processes.append(vite)
             driver = BrowserDriver(origin(vite) + "/simple.html")
-            if "--markdown-only" in sys.argv:
+            if "--debug-only" in sys.argv:
+                debug_acceptance(driver)
+                print("Browser: inline DAP pause, moved session, step values and stop passed")
+            elif "--markdown-only" in sys.argv:
                 markdown_acceptance(driver)
                 print("Browser: Markdown headings, bold and italic passed")
             else:

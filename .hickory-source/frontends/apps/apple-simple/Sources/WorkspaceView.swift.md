@@ -241,7 +241,7 @@ struct PaneView: View {
             AgentPane(engine: workspace.engine, session: workspace.agent)
         } else if let tab, let buffer = workspace.buffers[tab] {
             VStack(spacing: 0) {
-                LanguageEditor(buffer: buffer).id(buffer.id)
+                LanguageEditor(buffer: buffer, debugger: workspace.debugger).id(buffer.id)
                 if !buffer.error.isEmpty { Text(buffer.error).font(.caption).foregroundStyle(.red).padding(6).textSelection(.enabled) }
             }
         } else {

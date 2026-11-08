@@ -292,3 +292,215 @@ func decodeNativeTokens(_ data: [Int], legend: [String], source: String) -> [Nat
         showingSuggestions = false
     }
 }
+func nativeDebugURI(_ path: String) -> String { "hick:///" + path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) }
+struct DebugLine: Equatable { var line: Int; var y: Double; var height: Double }
+struct NativeDebugProfile: Decodable, Identifiable {
+    var id: String; var name: String; var program: String?; var can_debug: Bool
+}
+struct NativeDebugTarget: Identifiable { var path: String; var line: Int; var end: Int; var id: String { "\(path):\(line)" } }
+struct NativeDebugRender: Decodable {
+    struct Block: Decodable { var kind: String; var path: String?; var span: [Int]? }
+    var blocks: [Block]
+}
+struct NativeDebugCatalog: Decodable { var profiles: [NativeDebugProfile]; var fingerprint: String }
+@MainActor @Observable final class NativeDebugger {
+    var status = "idle"
+    var message = ""
+    var owner = ""
+    var sessionID: String?
+    var frames: [[String: Any]] = []
+    var variables: [[String: Any]] = []
+    var capabilities: [String: Any] = [:]
+    var breakpoints: [String: [[String: Any]]] = [:]
+    var values: [String: String] = [:]
+    var watches: [String] = []
+    var profiles: [NativeDebugProfile] = []
+    var targets: [NativeDebugTarget] = []
+    private var launchProgram: String?
+    var catalog: NativeDebugCatalog?
+    var launchSource = ""
+    private var sourceSnapshots: [String: String] = [:]
+    var pausedLine: Int?
+    var selectedFrame: Int?
+    var offer: [String: String]?
+    @ObservationIgnored var onLocation: ((String, Int) -> Void)?
+    @ObservationIgnored var emitForTest: (([String: Any]) -> Void)?
+    private let engine: Engine
+    private weak var launchBuffer: DocumentBuffer?
+    private var socket: URLSessionWebSocketTask?
+    private var receiver: Task<Void, Never>?
+    private var sender: Task<Void, Never>?
+    private var epoch = UUID()
+    private var topVariables: [[String: Any]] = []
+    private var stopPending = false
+    init(engine: Engine) { self.engine = engine }
+    var active: Bool { ["starting", "running", "paused", "stopping"].contains(status) }
+    func line(in path: String) -> Int? {
+        guard status == "paused" else { return nil }
+        let frame = frames.first(where: { $0["id"] as? Int == selectedFrame }) ?? frames.first
+        if path == owner, frame?["in_document"] as? Bool == true { return frame?["line"] as? Int }
+        if frame?["source"] as? String == path { return frame?["source_line"] as? Int }
+        return path == owner && selectedFrame == frames.first?["id"] as? Int ? pausedLine : nil
+    }
+    func sourceMatches(_ buffer: DocumentBuffer) -> Bool { !buffer.dirty && buffer.text == (buffer.file.path == owner ? launchSource : sourceSnapshots[buffer.file.path]) }
+    func rememberSource(_ buffer: DocumentBuffer) {
+        if active && sourceSnapshots[buffer.file.path] == nil { sourceSnapshots[buffer.file.path] = buffer.base }
+    }
+    func prepare(_ buffer: DocumentBuffer, line: Int = 0, program: String? = nil) async {
+        guard !active else { message = "Stop the current debugger before launching another program."; return }
+        guard !buffer.dirty, !buffer.saving else { message = "Save this file before debugging so the adapter runs the displayed text."; return }
+        close(); let current = epoch
+        owner = buffer.file.path; launchBuffer = buffer; launchSource = buffer.text; sourceSnapshots = [owner: launchSource]; message = "Resolving launch targets…"; profiles = []; targets = []
+        do {
+            let literate = buffer.file.doc_id != nil || ["md", "markdown"].contains((owner as NSString).pathExtension.lowercased())
+            var target = program
+            if literate && target == nil {
+                guard let id = buffer.file.doc_id else { message = "Refresh files to discover this document before choosing a file block to debug."; return }
+                let rendered: NativeDebugRender = try await engine.request("GET", "/api/docs/" + id + "/render")
+                guard epoch == current, buffer.text == launchSource, !buffer.dirty else { return }
+                targets = rendered.blocks.compactMap { block in
+                    guard block.kind == "file", let path = block.path, let span = block.span, span.count == 2,
+                          span[0] >= 0, span[1] >= span[0], span[1] <= launchSource.utf8.count else { return nil }
+                    return NativeDebugTarget(path: path, line: launchSource.utf8.prefix(span[0]).filter { $0 == 10 }.count,
+                        end: launchSource.utf8.prefix(span[1]).filter { $0 == 10 }.count)
+                }
+                target = targets.first(where: { $0.line <= line && line <= $0.end })?.path
+                guard target != nil else { message = targets.isEmpty ? "No file blocks to debug. Add a supported file block and save this document." : "Choose the file block to debug."; return }
+            }
+            launchProgram = target
+            var query: [String: Any] = ["uri": nativeDebugURI(owner), literate ? "expected_document" : "expected_source": launchSource]
+            if let target { query["program"] = target }
+            let result: NativeDebugCatalog = try await engine.request("POST", "/api/launch-profiles", body: query)
+            guard epoch == current, buffer.text == launchSource, !buffer.dirty else { return }
+            catalog = result; profiles = result.profiles.filter(\.can_debug)
+            message = profiles.isEmpty ? "No debug launch targets. Configure a debug profile in this project and try again." : "Choose a debug target."
+        } catch { if epoch == current { message = "\(error.localizedDescription) Save or refresh this file and try debugging again." } }
+    }
+    func launch(_ profile: NativeDebugProfile) {
+        guard let buffer = launchBuffer, let catalog, profiles.contains(where: { $0.id == profile.id }),
+              buffer.text == launchSource, !buffer.dirty, !buffer.saving, !active else {
+            message = "The source or launch target changed. Save and choose Debug again."; return
+        }
+        status = "starting"; message = ""; profiles = []; values = [:]; variables = []; frames = []; pausedLine = nil; offer = nil
+        var url = URLComponents(url: engine.origin, resolvingAgainstBaseURL: false)!
+        url.scheme = engine.origin.scheme == "https" ? "wss" : "ws"; url.path = "/api/ws"; url.queryItems = [URLQueryItem(name: "doc", value: "workspace")]
+        let socket = engine.session.webSocketTask(with: url.url!); self.socket = socket; let current = epoch; socket.resume()
+        receiver = Task { [weak self] in
+            do {
+                while !Task.isCancelled {
+                    let frame = try await socket.receive()
+                    guard let self, self.epoch == current else { return }
+                    if case .data(let bytes) = frame, bytes.first == 3,
+                       let event = try? JSONSerialization.jsonObject(with: bytes.dropFirst()) as? [String: Any] { self.receive(event) }
+                }
+            } catch { if let self, self.epoch == current, !Task.isCancelled { self.fail("Debugger disconnected: \(error.localizedDescription). Stop or reconnect explicitly; commands were not retried.") } }
+        }
+        var request: [String: Any] = ["op": "start", "doc": nativeDebugURI(owner), "breakpoints": breakpoints[owner] ?? [],
+            "profile": ["id": profile.id, "fingerprint": catalog.fingerprint]]
+        if let launchProgram { request["program"] = launchProgram }
+        request["sources"] = Dictionary(uniqueKeysWithValues: breakpoints.filter { $0.key != owner }.map { (nativeDebugURI($0.key), $0.value) })
+        send(request)
+    }
+    private func send(_ request: [String: Any]) {
+        if let emitForTest { emitForTest(request); return }
+        guard let socket, let bytes = try? JSONSerialization.data(withJSONObject: request) else { return }
+        let previous = sender, current = epoch
+        sender = Task { [weak self] in
+            await previous?.value
+            guard !Task.isCancelled, let self, self.epoch == current else { return }
+            do { try await socket.send(.data(Data([3]) + bytes)) }
+            catch { if self.epoch == current { self.fail("Debugger command failed: \(error.localizedDescription). Reconnect explicitly; it was not retried.") } }
+        }
+    }
+    private func fail(_ detail: String) { status = "failed"; message = detail; sessionID = nil; pausedLine = nil; variables = []; frames = []; values = [:] }
+    func close() {
+        epoch = UUID(); receiver?.cancel(); sender?.cancel(); socket?.cancel(with: .normalClosure, reason: nil); socket = nil
+        stopPending = false; sessionID = nil; status = "idle"; pausedLine = nil; frames = []; variables = []; values = [:]; profiles = []
+    }
+    // Session-bearing events from an old run cannot paint a new launch.
+    func receive(_ event: [String: Any]) {
+        guard let kind = event["event"] as? String else { return }
+        if ["started", "build"].contains(kind) || (kind == "failed" && event["session"] is NSNull) {
+            guard event["doc"] as? String == nativeDebugURI(owner), ["starting", "stopping"].contains(status) else { return }
+        } else { guard let id = event["session"] as? String, id == sessionID else { return } }
+        switch kind {
+        case "started":
+            sessionID = event["session"] as? String; capabilities = event["capabilities"] as? [String: Any] ?? [:]; status = "running"
+            bind(event["breakpoints"] as? [[String: Any]] ?? [], path: owner)
+            if stopPending { stopPending = false; stop() }
+        case "stopped":
+            status = "paused"; frames = event["frames"] as? [[String: Any]] ?? []; variables = event["variables"] as? [[String: Any]] ?? []; topVariables = variables
+            pausedLine = event["line"] as? Int; selectedFrame = event["selected_frame"] as? Int ?? frames.first?["id"] as? Int
+            if let top = frames.first, let path = top["source"] as? String, let line = top["source_line"] as? Int,
+               !path.hasPrefix("/"), !path.contains(":") { onLocation?(path, line) }
+            else if let pausedLine { onLocation?(owner, pausedLine) }
+            for expression in watches { evaluate(expression, watch: true) }
+        case "breakpoints": bind(event["breakpoints"] as? [[String: Any]] ?? [], path: owner)
+        case "source_breakpoints":
+            if let source = event["source"] as? String, source.hasPrefix("hick:///") { bind(event["breakpoints"] as? [[String: Any]] ?? [], path: String(source.dropFirst(8))) }
+        case "value":
+            if status == "paused", let expression = event["expression"] as? String, let value = event["value"] as? String { values[expression] = value }
+        case "finished", "ended": status = "finished"; sessionID = nil; pausedLine = nil; variables = []; frames = []; values = [:]
+        case "failed":
+            offer = event["offer_install"] as? [String: String]
+            if sessionID == nil { fail(event["message"] as? String ?? "Debug launch failed. Check the adapter installation and try again.") }
+            else { message = (event["message"] as? String ?? "Debug command failed.") + " Review the paused state before trying again." }
+        case "build": message = (event["events"] as? [[String: Any]] ?? []).compactMap { $0["data"] as? String }.joined()
+        default: break
+        }
+    }
+    private func bind(_ statuses: [[String: Any]], path: String) {
+        let held = breakpoints[path] ?? []
+        breakpoints[path] = statuses.map { status in
+            var result = held.first(where: { ($0["line"] as? Int) == (status["line"] as? Int) }) ?? [:]
+            result.merge(status) { _, latest in latest }
+            if let moved = status["moved_to"] as? Int { result["line"] = moved }
+            return result
+        }
+    }
+    func toggle(_ path: String, line: Int, condition: String? = nil) {
+        guard line >= 0 else { return }
+        var held = breakpoints[path] ?? []
+        if let index = held.firstIndex(where: { $0["line"] as? Int == line }) {
+            if let condition { held[index]["condition"] = condition } else { held.remove(at: index) }
+        } else { var mark: [String: Any] = ["line": line]; if let condition { mark["condition"] = condition }; held.append(mark) }
+        breakpoints[path] = held
+        if let sessionID {
+            send(path == owner ? ["op": "breakpoints", "session": sessionID, "breakpoints": held] : ["op": "source_breakpoints", "session": sessionID, "source": nativeDebugURI(path), "breakpoints": held])
+        }
+    }
+    func step(_ how: String) {
+        guard status == "paused", let sessionID else { return }
+        var request: [String: Any] = ["op": "step", "session": sessionID, "how": how]
+        if let selectedFrame { request["frame"] = selectedFrame }
+        status = "running"; pausedLine = nil; variables = []; values = [:]; send(request)
+    }
+    func stop() {
+        guard let sessionID else {
+            if status == "starting" || status == "stopping" { stopPending = true; status = "stopping"; message = "Stopping as soon as the adapter acknowledges launch…" }
+            return
+        }
+        status = "stopping"; pausedLine = nil; variables = []; values = [:]; send(["op": "stop", "session": sessionID])
+    }
+    func evaluate(_ expression: String, watch: Bool = false) {
+        guard status == "paused", let sessionID, !expression.isEmpty else { return }
+        if watch && !watches.contains(expression) { watches.append(expression) }
+        var request: [String: Any] = ["op": "eval", "session": sessionID, "expression": expression, "context": watch ? "watch" : "repl"]
+        if let selectedFrame { request["frame"] = selectedFrame }; send(request)
+    }
+    func select(_ frame: [String: Any]) {
+        selectedFrame = frame["id"] as? Int
+        variables = selectedFrame == frames.first?["id"] as? Int ? topVariables : []; values = [:]
+        for expression in watches { evaluate(expression, watch: true) }
+        if let path = frame["source"] as? String, let line = frame["source_line"] as? Int, !path.hasPrefix("/"), !path.contains(":") { onLocation?(path, line) }
+        else if let line = frame["line"] as? Int { onLocation?(owner, line) }
+    }
+    func install() async {
+        guard let offer else { return }; let current = epoch
+        do {
+            struct Installed: Decodable { var installed: String; var path: String }
+            let _: Installed = try await engine.request("POST", "/api/install", body: ["kind": offer["kind"] ?? "dap", "language": offer["language"] ?? ""])
+            if epoch == current { self.offer = nil; message = "Debugger installed. Choose Debug again to launch the current saved source." }
+        } catch { if epoch == current { message = "\(error.localizedDescription) Check the adapter installation and retry." } }
+    }
+}

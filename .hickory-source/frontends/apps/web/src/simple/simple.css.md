@@ -93,7 +93,39 @@ footer { border-top: 1px solid GrayText; padding: 3px 9px; font-size: 11px; over
 .markdown-message h3 { font-size: 1.2em; }
 .markdown-message h4, .markdown-message h5, .markdown-message h6 { font-size: 1.05em; }
 .markdown-message :is(h1,h2,h3,h4,h5,h6) { margin: .6em 0 .3em; line-height: 1.3; }
+/* A fixed right column keeps debugger controls out of the text layout. */
+.cm-debug-rail { position: relative; flex: 0 0 24px; width: 24px; z-index: 8; border-left: 1px solid GrayText; background: Canvas; }
+.cm-debug-rail__group { position: absolute; left: 0; width: 24px; }
+.cm-debug-rail:has(.is-active) > :not(.is-active) { display: none; }
+.cm-debug-rail .debug-strip { display: flex; flex-direction: column; gap: 2px; }
+.cm-debug-rail .debug-icon, .cm-debug-rail summary { display: grid; place-items: center; width: 24px; height: 22px; padding: 0; cursor: pointer; }
+.cm-debug-rail summary { list-style: none; }
+.cm-debug-rail .debug-strip__dot { display: none; }
+.cm-debug-rail .debug-strip__status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.cm-debug-rail .more-actions__items, .cm-debug-rail .debug-strip__error, .cm-debug-rail .debug-strip__missing {
+  position: absolute; right: calc(100% + 6px); top: var(--debug-menu-top, 0px); z-index: 30;
+  width: min(22rem, 65vw); max-height: var(--debug-available, 60vh); overflow: auto;
+  padding: 8px; border: 1px solid GrayText; background: Canvas; box-shadow: 0 4px 12px #0003;
+}
+.cm-debug-rail .more-actions__items { display: grid; gap: 4px; }
+.cm-debug-rail .more-actions__items .debug-strip__error { position: static; width: auto; }
+.cm-debug-value { color: GrayText; margin-left: 12px; font-style: italic; white-space: pre; }
+.cm-paused-line { background: color-mix(in srgb, Highlight 15%, Canvas); }
+.cm-paused-arrow { color: Highlight; }
+.cm-bp, .cm-bp-ghost { display: inline-block; width: 9px; height: 9px; margin-top: 5px; border-radius: 50%; }
+.cm-bp { background: #d33; }
+.cm-bp-pending { opacity: .5; }
+.cm-bp-broken { background: transparent; border: 1px solid #d33; }
+.cm-breakpoint-gutter:hover .cm-bp-ghost { background: #a66; }
+.cm-bp-editor, .cm-inline-eval { padding: 6px; background: Canvas; border: 1px solid GrayText; }
+.cm-bp-editor-row { display: flex; gap: 6px; }
+.launch-profile-backdrop { position: fixed; inset: 0; z-index: 100; }
+.launch-profile-picker { position: absolute; width: min(400px, calc(100vw - 16px)); max-height: 80vh; overflow: auto; padding: 12px; background: Canvas; border: 1px solid GrayText; box-shadow: 0 4px 12px #0003; }
+.launch-profile-picker header { display: flex; justify-content: space-between; }
+.launch-profile-option { display: grid; gap: 4px; padding: 8px 0; border-top: 1px solid GrayText; }
 </ui:copy>
+
+Semantic classes need their own compact palette because this frontend does not load the primary workspace stylesheet. Use system light/dark colors so a server token becomes visibly colored without delaying text opening.
 
 ## Assemble the maintained output
 

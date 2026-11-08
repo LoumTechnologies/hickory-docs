@@ -67,6 +67,16 @@ try {
           value = await map.evaluate(element => element.getBoundingClientRect().width);
           break;
         }
+        case "debug-start":
+          await page.getByRole("button", { name: `Debug ${request.path}`, exact: true }).click(); break;
+        case "debug-step":
+          await page.getByRole("button", { name: "Step over", exact: true }).click(); break;
+        case "debug-stop":
+          await page.getByRole("button", { name: "Stop", exact: true }).click(); break;
+        case "debug-state": value = await page.locator(".debug-strip__status").allTextContents(); break;
+        case "debug-values": value = await page.locator(".cm-debug-value").allTextContents(); break;
+        case "debug-breakpoint":
+          await page.getByLabel(`Set breakpoint on line ${request.line}`, { exact: true }).click(); break;
         case "save": await menu("File", "Save"); break;
         case "split": await menu("View", "Split below"); break;
         case "move": await menu("View", "Move tab to next group"); break;
