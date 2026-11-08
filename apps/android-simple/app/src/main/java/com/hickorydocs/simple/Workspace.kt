@@ -78,7 +78,11 @@ class Workspace : ViewModel() {
             val text = server.file(file)
             if (generation != current) return
             buffers[file.path] = DocumentBuffer(file, text)
-            if (newestOpen[target] == file.path) { layout = layout.activate(file.path, target); status = file.path }
+            if (newestOpen[target] == file.path) {
+                // The original pane may have closed while the request was pending.
+                val live = layout.groups().firstOrNull { it.id == target }?.id ?: layout.groups().first().id
+                layout = layout.activate(file.path, live); focused = live; status = file.path
+            }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { if (generation == current) status = "${failure.message} Refresh files and try opening ${file.path} again." }
         finally { if (generation == current) opening.remove(file.path) }
@@ -95,6 +99,7 @@ class Workspace : ViewModel() {
         val buffer = buffers[tab]
         if (buffer != null && (buffer.dirty || buffer.saving)) { status = "Unsaved edits retained. Save this document before closing its tab."; return }
         layout = layout.remove(tab)
+        if (layout.groups().none { it.id == focused }) focused = layout.groups().first().id
     }
     fun split(axis: String) {
         val id = UUID.randomUUID().toString(); layout = layout.split(focused, axis, id); focused = "retained-$id"

@@ -7,10 +7,17 @@ Tab strips are drag sources and targets. Their fixed height prevents content ref
 
 The minimap reserves forty units beside the text rather than overlaying readable lines. Its navigation changes scroll, never saved bytes. Language controls float over the editor and do not reflow it. Browser capabilities use the existing LSP client and its snapshot guards; native keyword and word-list previews deliberately do not claim semantic results. Native styling does not replace text, preserving the platform undo and selection model. Preview coloring skips very large files instead of delaying readable text indefinitely.
 
+A custom tab MIME type keeps a center drop from being treated as text insertion by the editor. Content-edge nodes accept platform drags without installing pointer gestures over the editor. Left/right strips own the corners, matching the shared normalized edge rule. A half-pane preview is drawn behind the drop zones only while targeted. Docking revalidates current layout membership and focuses the newly created group only on success.
+
+Tab and strip drop targets share one validator and insertion command. A tab supplies an insert-before anchor; the strip supplies no anchor and appends. Target callbacks draw an overlay marker without changing widths. RememberUpdatedState keeps platform drag callbacks attached to the current composition. Only internally labeled tab drags with a live tab identity are accepted.
+
+Reserve a small blank slot at the end of the strip even when tabs overflow, so append remains reachable by horizontal scrolling. It is always present and does not resize during a drag.
+
 <ui:copy id="simple-0d1e071614-0">
 package com.hickorydocs.simple
 
 import android.content.ClipData
+import android.content.ClipDescription
 import androidx.compose.foundation.*
 import androidx.compose.foundation.draganddrop.dragAndDropSource
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
@@ -38,6 +45,24 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 
+private const val TAB_MIME = "application/vnd.hickorydocs.tab"
+
+@Composable private fun tabDropTarget(workspace: Workspace, group: String, before: String?, targeted: (Boolean) -> Unit): DragAndDropTarget {
+    val latestTargeted by rememberUpdatedState(targeted)
+    return remember(workspace, group, before) { object : DragAndDropTarget {
+        override fun onEntered(event: DragAndDropEvent) { latestTargeted(true) }
+        override fun onExited(event: DragAndDropEvent) { latestTargeted(false) }
+        override fun onEnded(event: DragAndDropEvent) { latestTargeted(false) }
+        override fun onDrop(event: DragAndDropEvent): Boolean {
+            latestTargeted(false)
+            val clip = event.toAndroidDragEvent().clipData ?: return false
+            if (clip.itemCount != 1 || !clip.description.hasMimeType(TAB_MIME) || clip.description.label?.toString() != "hickory-tab") return false
+            val tab = clip.getItemAt(0).text?.toString() ?: return false
+            if (workspace.layout.groups().none { tab in it.tabs }) return false
+            workspace.layout = workspace.layout.move(tab, group, before); workspace.focused = group; return true
+        }
+    } }
+}
 @OptIn(ExperimentalFoundationApi::class)
 @Composable fun Pane(workspace: Workspace, id: String) {
     val node = workspace.layout.nodes[id] ?: return
@@ -67,29 +92,86 @@ import kotlinx.coroutines.launch
         }
         return
     }
-    val target = remember(workspace, id) { object : DragAndDropTarget {
-        override fun onDrop(event: DragAndDropEvent): Boolean {
-            val clip = event.toAndroidDragEvent().clipData ?: return false
-            val tab = clip.getItemAt(0).text?.toString() ?: return false
-            if (workspace.layout.groups().none { tab in it.tabs }) return false
-            workspace.layout = workspace.layout.move(tab, id); workspace.focused = id; return true
-        }
-    } }
+    var dropBefore by remember { mutableStateOf<String?>(null) }
+    val target = tabDropTarget(workspace, id, null) { if (it) dropBefore = null }
     Column(Modifier.fillMaxSize().onFocusChanged { if (it.hasFocus) workspace.focused = id }.focusGroup()) {
         Row(Modifier.fillMaxWidth().height(29.dp).background(MaterialTheme.colorScheme.surfaceContainer)
-            .dragAndDropTarget(shouldStartDragAndDrop = { true }, target = target).horizontalScroll(rememberScrollState())) {
+            .dragAndDropTarget(shouldStartDragAndDrop = { TAB_MIME in it.mimeTypes() }, target = target).horizontalScroll(rememberScrollState())) {
             val activeColor = MaterialTheme.colorScheme.primary
             node.tabs.forEach { tab ->
+                val tabTarget = tabDropTarget(workspace, id, tab) { targeted ->
+                    if (targeted) dropBefore = tab else if (dropBefore == tab) dropBefore = null
+                }
                 Row(Modifier.background(if (node.active == tab) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer)
-                    .drawWithContent { drawContent(); if (node.active == tab) drawRect(activeColor, size = Size(size.width, 2.dp.toPx())) }
-                    .dragAndDropSource { _ -> DragAndDropTransferData(ClipData.newPlainText("hickory-tab", tab)) }) {
+                    .drawWithContent {
+                        drawContent()
+                        if (node.active == tab) drawRect(activeColor, size = Size(size.width, 2.dp.toPx()))
+                        if (dropBefore == tab) drawRect(activeColor, size = Size(2.dp.toPx(), size.height))
+                    }
+                    .dragAndDropTarget(shouldStartDragAndDrop = { TAB_MIME in it.mimeTypes() }, target = tabTarget)
+                    .dragAndDropSource { _ -> DragAndDropTransferData(ClipData(ClipDescription("hickory-tab", arrayOf(TAB_MIME)), ClipData.Item(tab))) }) {
                     Text(workspace.label(tab), fontSize = 13.sp, modifier = Modifier.clickable { workspace.layout = workspace.layout.activate(tab, id); workspace.focused = id }.padding(horizontal = 7.dp, vertical = 5.dp))
                     Text("×", modifier = Modifier.clickable { workspace.close(tab) }.semantics { contentDescription = "Close ${workspace.label(tab)}" }.padding(horizontal = 6.dp, vertical = 5.dp))
                 }
             }
+            Spacer(Modifier.width(20.dp).height(29.dp))
         }
         HorizontalDivider()
-        Box(Modifier.weight(1f).fillMaxWidth()) { PaneContent(workspace, node.active, id) }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            PaneContent(workspace, node.active, id)
+            PaneEdges(workspace, id)
+        }
+    }
+}
+
+</ui:copy>
+
+## Dock a tab at a pane edge
+
+The four edge drop targets use the same twenty-percent regions as the shared classifier. The central region appends to the existing group without adding a split, and previews the whole pane. Their nodes handle drag events, without pointer gestures that would consume normal editing. The shaded half is a preview rather than a new child in the layout. On drop, validate the internally labeled tab against the current layout before creating or focusing the new group.
+
+<ui:copy id="simple-android-pane-edges">
+@Composable private fun PaneEdges(workspace: Workspace, group: String) {
+    var selected by remember { mutableStateOf<String?>(null) }
+    val color = MaterialTheme.colorScheme.primary
+    Box(Modifier.fillMaxSize()) {
+        selected?.let { edge ->
+            val preview = when (edge) {
+                "left" -> Modifier.align(androidx.compose.ui.Alignment.CenterStart).fillMaxWidth(.5f).fillMaxHeight()
+                "right" -> Modifier.align(androidx.compose.ui.Alignment.CenterEnd).fillMaxWidth(.5f).fillMaxHeight()
+                "top" -> Modifier.align(androidx.compose.ui.Alignment.TopCenter).fillMaxWidth().fillMaxHeight(.5f)
+                "bottom" -> Modifier.align(androidx.compose.ui.Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(.5f)
+                else -> Modifier.fillMaxSize()
+            }
+            Box(preview.background(color.copy(alpha = .18f)).border(2.dp, color))
+        }
+        listOf("left", "right", "top", "bottom", "center").forEach { edge ->
+            val target = remember(workspace, group, edge) { object : DragAndDropTarget {
+                override fun onEntered(event: DragAndDropEvent) { selected = edge }
+                override fun onExited(event: DragAndDropEvent) { if (selected == edge) selected = null }
+                override fun onEnded(event: DragAndDropEvent) { selected = null }
+                override fun onDrop(event: DragAndDropEvent): Boolean {
+                    selected = null
+                    val clip = event.toAndroidDragEvent().clipData ?: return false
+                    if (clip.itemCount != 1 || !clip.description.hasMimeType(TAB_MIME) || clip.description.label?.toString() != "hickory-tab") return false
+                    val tab = clip.getItemAt(0).text?.toString() ?: return false
+                    if (workspace.layout.groups().none { it.id == group } || workspace.layout.groups().none { tab in it.tabs }) return false
+                    val id = if (edge == "center") group else java.util.UUID.randomUUID().toString()
+                    val next = if (edge == "center") workspace.layout.move(tab, group) else workspace.layout.dock(tab, group, edge, id)
+                    if (next === workspace.layout) return false
+                    workspace.layout = next; workspace.focused = id; return true
+                }
+            } }
+            val zone = when (edge) {
+                "left" -> Modifier.align(androidx.compose.ui.Alignment.CenterStart).fillMaxWidth(.2f).fillMaxHeight()
+                "right" -> Modifier.align(androidx.compose.ui.Alignment.CenterEnd).fillMaxWidth(.2f).fillMaxHeight()
+                "top" -> Modifier.align(androidx.compose.ui.Alignment.TopCenter).fillMaxWidth(.6f).fillMaxHeight(.2f)
+                "bottom" -> Modifier.align(androidx.compose.ui.Alignment.BottomCenter).fillMaxWidth(.6f).fillMaxHeight(.2f)
+                else -> Modifier.align(androidx.compose.ui.Alignment.Center).fillMaxWidth(.6f).fillMaxHeight(.6f)
+            }
+            // These nodes handle platform drags only; normal editor pointer input passes through.
+            Box(zone.dragAndDropTarget(shouldStartDragAndDrop = { TAB_MIME in it.mimeTypes() }, target = target))
+        }
     }
 }
 
@@ -191,6 +273,6 @@ Compose text state is owned by the document buffer rather than remembered inside
 
 Keep construction order explicit; the explanations above describe the decisions at each boundary.
 
-<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt"><ui:paste select="#simple-0d1e071614-0"/><ui:paste select="#simple-android-language-preview"/><ui:paste select="#simple-0d1e071614-1"/></ui:file>
+<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt"><ui:paste select="#simple-0d1e071614-0"/><ui:paste select="#simple-android-pane-edges"/><ui:paste select="#simple-android-language-preview"/><ui:paste select="#simple-0d1e071614-1"/></ui:file>
 
 </ui:doc>

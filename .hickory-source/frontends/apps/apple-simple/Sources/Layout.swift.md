@@ -3,11 +3,19 @@
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
-The tree stores tab identities, never text views. Branches have two child identities and a clamped proportion. Leaves remain valid when empty, making them stable drop targets.
+The tree stores tab identities, never text views. Branches have two child identities and a clamped proportion. A temporary empty leaf supports the explicit Split command. After a successful close, move or dock, empty leaves disappear and siblings fill their rectangle; if no tabs remain, one empty root stays available.
+
+Docking first validates a live source/target, direction and fresh node identities. Only then do we remove the tab and wrap the remaining destination in an equal split. Left/top put the new group first; right/bottom put it second. The outer twenty percent is a target, with horizontal edges owning corners. Collapse only after insertion, so a same-pane move does not destroy its destination. The root identity follows its surviving child, while editor and group identities remain stable.
+
+Drops use a destination tab identity as an optional insertion anchor. Validate it before removing the source; compute its index afterward, so forward and backward moves use the same rule. An absent anchor appends, while a self-drop leaves selection unchanged. This only changes layout membership, never document buffers.
 
 <ui:copy id="simple-bcf63acd46-0">
 import Foundation
 
+func dropEdge(_ x: Double, _ y: Double) -> String? {
+    guard x.isFinite, y.isFinite, (0...1).contains(x), (0...1).contains(y) else { return nil }
+    return x < 0.2 ? "left" : x > 0.8 ? "right" : y < 0.2 ? "top" : y > 0.8 ? "bottom" : nil
+}
 struct PaneNode: Identifiable, Equatable {
     var id: String
     var tabs: [String] = []
@@ -18,13 +26,14 @@ struct PaneNode: Identifiable, Equatable {
     var ratio: Double = 0.5
 }
 struct PaneLayout {
+    var rootID = "root"
     var nodes: [String: PaneNode] = [
         "root": PaneNode(id: "root", axis: "horizontal", first: "files-group", second: "document-group", ratio: 0.22),
         "files-group": PaneNode(id: "files-group", tabs: ["files"], active: "files"),
         "document-group": PaneNode(id: "document-group")
     ]
-    func groups(_ id: String = "root") -> [PaneNode] {
-        guard let node = nodes[id] else { return [] }
+    func groups(_ id: String? = nil) -> [PaneNode] {
+        guard let node = nodes[id ?? rootID] else { return [] }
         if let first = node.first, let second = node.second { return groups(first) + groups(second) }
         return [node]
     }
@@ -33,7 +42,31 @@ struct PaneLayout {
         if !node.tabs.contains(tab) { node.tabs.append(tab) }
         node.active = tab; nodes[group] = node
     }
+    // Preserve node identities when a sibling takes over the freed rectangle.
+    // Sweep unreachable nodes too, so retired drop targets cannot be reused.
+    private mutating func collapse() {
+        func live(_ id: String) -> String? {
+            guard let node = nodes[id] else { return nil }
+            guard let first = node.first, let second = node.second else { return node.tabs.isEmpty ? nil : id }
+            let a = live(first), b = live(second)
+            if let a, let b { nodes[id]?.first = a; nodes[id]?.second = b; return id }
+            return a ?? b
+        }
+        if let surviving = live(rootID) { rootID = surviving }
+        else { nodes[rootID] = PaneNode(id: rootID) }
+        var kept: [String: PaneNode] = [:]
+        func retain(_ id: String) {
+            guard let node = nodes[id] else { return }
+            kept[id] = node
+            if let a = node.first, let b = node.second { retain(a); retain(b) }
+        }
+        retain(rootID); nodes = kept
+    }
     mutating func remove(_ tab: String) {
+        guard groups().contains(where: { $0.tabs.contains(tab) }) else { return }
+        detach(tab); collapse()
+    }
+    private mutating func detach(_ tab: String) {
         for group in groups() where group.tabs.contains(tab) {
             var changed = group
             changed.tabs.removeAll { $0 == tab }
@@ -46,9 +79,29 @@ struct PaneLayout {
 Validate a move before removing membership. Splitting replaces the leaf position with a branch and moves its content to a new leaf; document identity is unchanged.
 
 <ui:copy id="simple-bcf63acd46-1">
-    mutating func move(_ tab: String, to target: String) {
-        guard groups().contains(where: { $0.id == target }), groups().contains(where: { $0.tabs.contains(tab) }) else { return }
-        remove(tab); activate(tab, in: target)
+    mutating func move(_ tab: String, to target: String, before: String? = nil) {
+        guard let destination = groups().first(where: { $0.id == target }),
+              groups().contains(where: { $0.tabs.contains(tab) }),
+              before == nil || destination.tabs.contains(before!), before != tab else { return }
+        detach(tab)
+        guard var node = nodes[target] else { return }
+        let index = before.flatMap { node.tabs.firstIndex(of: $0) } ?? node.tabs.count
+        node.tabs.insert(tab, at: index); node.active = tab; nodes[target] = node
+        collapse()
+    }
+    @discardableResult mutating func dock(_ tab: String, to target: String, edge: String, newID: String) -> String? {
+        let retained = "retained-" + newID
+        guard ["left", "right", "top", "bottom"].contains(edge), !newID.isEmpty,
+              nodes[newID] == nil, nodes[retained] == nil,
+              groups().contains(where: { $0.id == target }), groups().contains(where: { $0.tabs.contains(tab) }) else { return nil }
+        detach(tab)
+        var old = nodes[target]!; old.id = retained; nodes[retained] = old
+        nodes[newID] = PaneNode(id: newID, tabs: [tab], active: tab)
+        let leading = edge == "left" || edge == "top"
+        nodes[target] = PaneNode(id: target, axis: edge == "left" || edge == "right" ? "horizontal" : "vertical",
+                                 first: leading ? newID : retained, second: leading ? retained : newID)
+        collapse()
+        return newID
     }
     mutating func split(_ group: String, axis: String, newID: String) -> String? {
         guard var old = nodes[group], old.axis == nil else { return nil }

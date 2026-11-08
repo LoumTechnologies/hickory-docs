@@ -32,7 +32,11 @@ The Apple build requires full Xcode. `simple-dev` honors `DEVELOPER_DIR` and oth
 
 ## Shared first slice
 
-All three provide a file tree, UTF-8 text documents, source editing for literate documents, guarded saves, a workspace agent conversation, a terminal, tab closing, recursive right/below splits, resizing, tab dragging and a **Move tab to next group** alternative. Use the File and View/Panes menus; no permanent feature toolbar is added. Generated outputs are read-only until source-mapped editing is connected. Save refuses conflicts and retains local edits. Dirty tabs refuse to close. Workspace lifetime retains document buffers and unsent agent messages when tabs move or hide.
+All three provide a file tree, UTF-8 text documents, source editing for literate documents, guarded saves, a workspace agent conversation, a terminal, tab closing, recursive right/below splits, resizing, tab dragging and a **Move tab to next group** alternative. To split by dragging, drop a tab near the left, right, top or bottom edge of pane content. The shaded half shows where the new pane will appear. The outer twenty percent triggers splitting; left/right own corners. The new pane gets the existing tab and focus. An empty source group closes automatically, and its sibling fills the freed space. Closing a group’s last tab does the same. If all tabs close, one reusable empty root remains. The explicit Split command can create a temporary empty destination. A center drop adds the dragged tab to the existing group and activates it without splitting that area.
+
+To reorder, drag a tab onto the tab it should precede. Drop onto unused strip space to append. The same gesture inserts tabs at a chosen position in another pane. The insertion mark overlays the target edge without moving content.
+
+Use the File and View/Panes menus; no permanent feature toolbar is added. Generated outputs are read-only until source-mapped editing is connected. Save refuses conflicts and retains local edits. Dirty tabs refuse to close. Workspace lifetime retains document buffers and unsent agent messages when tabs move or hide.
 
 The terminal uses a real backend PTY and its emulated plain-text screen. It accepts line input, Interrupt and EOF; moving or hiding it retains its process and unsent input. Full ANSI color rendering, cursor-key interaction with full-screen terminal programs and terminal scrollback navigation are outside this matched first slice.
 
@@ -40,11 +44,49 @@ The agent uses the configured Python backend. Configure providers with the exist
 
 The browser attaches the existing workspace LSP bridge after opening text: semantic colors, completion (Ctrl-Space), hover, signature help and inlay hints are available when a language server supports them. Same-document definition navigation is connected; cross-file navigation, rename and code actions remain outside this slice. Diagnostics are not displayed yet because publications have no source revision to guard against stale results.
 
-Apple and Android expose a **Language preview** popover over the editor. It explicitly uses local keyword coloring and document-word suggestions, not a connected native language server. Choose a word to replace the current selection through the normal editor edit path; generated files remain read-only. Keyword preview coloring is bounded to 200,000 UTF-16 units. These previews establish UI feasibility, not semantic correctness or native LSP parity.
+Apple now attaches the existing backend LSP channel after text opens. Semantic colors use server-returned token ranges; the footer reports the span count or why colors are unavailable. Click **Language completions** (⌁) with the caret in code, or use the native Complete command (Option-Escape on macOS). Suggestions come from the language server and replace only the current source/selection snapshot through native undo. Snippet completions and additional/multi-file edits are excluded from this slice. Hover, diagnostics and the broader browser language action set are not connected in the Apple editor yet.
+
+For Python in a fresh comparison workspace, install the real server once:
+
+```sh
+target/debug/hick lsp install python --root .dev/simple/project
+```
+
+Use your selected workspace path when `HICKORY_PROJECT_DIR` differs. The installer requests managed Python 3.12; system Python 3.9 cannot install current basedpyright. The server lives under that workspace's ignored `.hick-cache/servers/`. Missing servers leave text readable and report an unavailable/empty-result state, with Retry in the completion popover.
+
+Android still exposes a **Language preview** popover using local keyword coloring and document-word suggestions, not a native LSP transport. Its keyword preview is bounded to 200,000 UTF-16 units. This remains UI feasibility evidence rather than semantic correctness.
 
 All targets have a fixed-width minimap beside the editor. Click/tap to navigate; browser and Apple also support dragging. Browser keyboard users can focus the minimap and use Home/End; native minimaps expose accessibility adjustment. Browser and Android indicate the visible region. Apple currently shows document density without a viewport marker.
 
 Rich literate rendering, backend capability menus, provenance, debugging, file operations, layout persistence and crash recovery are not included yet. This is an iteration baseline, not full parity with the old frontend. Native spellcheck, input methods and platform keyboard behavior may differ. No speed or memory superiority has been established by this scaffold.
+
+## Empty pane cleanup, 2026-11-07
+
+Closing a group’s last tab or moving it elsewhere removes that group and its split branch; surviving siblings keep their identities and proportions. Collapse runs after the complete operation, preserving same-group reorders. Retired native nodes are removed from the index, and focus falls back to a surviving group after close. Pending file opens choose a live destination if their original pane disappeared.
+
+The focused checks pass 33 shared layout scenarios in TypeScript, Swift and Kotlin, including nested collapse, sole-tab docking, center merging and closing/reopening the last root. All 65 focused browser witnesses pass, including center merge reducing the pane count while preserving the editor, unsaved text, selection and undo. The native Mac walkthrough observed sole-tab edge docking without an empty source, closing the last document expanding Files, reopening after collapse, and a center merge to one group with visible text and undo restoring an unsaved edit to its saved baseline. No document was saved. This is manual Mac acceptance; iOS and Android gestures remain device acceptance work.
+
+The earlier snapshots below describe behavior before automatic empty-pane cleanup.
+
+## Native Apple verification after the reported UI failure, 2026-11-07
+
+A native Mac walkthrough observed real right, left, top and bottom tab drops over the embedded editor. The Mac tracker now uses window-local drag/up events, not a container-of-buttons SwiftUI drag or a system pasteboard session. A follow-up walkthrough moved a right-hand tab into the center of the left pane: both documents became tabs in that existing group, the source group stayed empty, and no split was added. Dragging the joined tab before its neighbor also reordered the strip. The same walkthrough observed basedpyright returning 29 semantic spans in `debugging.md`, completed `quan` to `quantity`, and undid/redid the completion back to the saved buffer baseline without saving a document file. These are manual computer-use observations, not unattended UI tests.
+
+The native-channel XCTest witness uses `HICKORY_NATIVE_LSP_ORIGIN` to connect to a real backend with the Python server installed. It checks semantic tokens and completion after changing plain Python source, and tokens/completion through Markdown projection. The focused real-clangd backend witness enters through document processing to ensure resync does not close a surviving plain file. Other platform gestures still need device acceptance.
+
+The final center-drop checks passed 61 focused browser witnesses, 13 Swift witnesses (including both real Python language-channel cases), and 29 shared layout scenarios in Kotlin. Apple source type-checked for the iOS simulator, complete Android source compiled with Kotlin/Compose, and TypeScript checking and the browser bundle passed. Earlier verification snapshots below record their scope at that stage.
+
+## Edge docking verification, 2026-11-07
+
+All 27 shared layout scenarios and fifteen edge-coordinate cases passed in TypeScript, Swift and Kotlin. They check all four directions, resulting split axes and tab order, nested splits, empty groups and invalid payload/target/ID refusals. All 58 focused browser witnesses passed, including edge drops in all four directions while retaining the same editor, unsaved text, selection and undo. TypeScript checking and the browser bundle passed.
+
+Ten Swift witnesses passed, Apple source type-checked for the iOS simulator, and complete Android source compiled with the installed Kotlin/Compose compiler. The real-backend browser driver now has all four edge-drop gestures, but this host still aborts Chromium during macOS bootstrap registration before the UI runs. Native provider delivery, gestures, hover geometry and layout remain device acceptance work; neither model parity nor synthetic DOM events prove them.
+
+## Tab reordering verification, 2026-11-07
+
+All eleven shared layout scenarios passed in TypeScript, Swift and Kotlin. They cover forward/backward ordering, append, cross-pane insertion, self-drops, stale anchors and foreign tab identities. All 23 focused browser witnesses passed, including workspace drag/drop events that verify insertion rather than parent-strip append, unchanged editor identity, retained unsaved text and working undo. TypeScript checking and the browser bundle passed.
+
+The ten Swift witnesses passed, the shared Apple source type-checked for iOS simulator, and the complete Android source compiled with the installed Kotlin/Compose compiler. The real browser acceptance driver now drags tabs in both directions, but Chromium still aborts during macOS bootstrap registration before the UI runs. Native drag gestures and insertion-marker layout remain device acceptance work; compiled source and synthetic DOM events do not prove gesture equivalence. APK packaging remains subject to the Maven dependency limitation below.
 
 ## Language UI verification, 2026-11-07
 

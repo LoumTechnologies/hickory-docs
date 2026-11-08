@@ -67298,7 +67298,10 @@
       "construction": "fragments",
       "fragments": [
         "simple-ff9425b170-0",
-        "simple-ff9425b170-1"
+        "simple-ff9425b170-1",
+        "simple-apple-language-transport",
+        "simple-apple-language-session",
+        "simple-apple-language-snapshots"
       ]
     },
     "apps/apple-simple/Sources/Workspace.swift": {
@@ -67346,7 +67349,12 @@
       "construction": "fragments",
       "fragments": [
         "simple-80f4e5a1a0-0",
-        "simple-80f4e5a1a0-1"
+        "simple-80f4e5a1a0-1",
+        "simple-apple-pane-edge-drop",
+        "simple-apple-file-rows",
+        "simple-mac-native-tab-drag",
+        "simple-mac-tab-pointer-source",
+        "simple-mac-tab-drop-surfaces"
       ]
     },
     "apps/apple-simple/Sources/HickorySimpleApp.swift": {
@@ -67518,7 +67526,8 @@
       "fragments": [
         "simple-0d1e071614-0",
         "simple-0d1e071614-1",
-        "simple-android-language-preview"
+        "simple-android-language-preview",
+        "simple-android-pane-edges"
       ]
     },
     "apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentPane.kt": {

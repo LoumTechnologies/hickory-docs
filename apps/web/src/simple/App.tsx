@@ -5,7 +5,7 @@ import { Buffers } from "./buffers";
 import { Document } from "./Document";
 import { Terminal, TerminalSession } from "./Terminal";
 import { Agent, AgentSession } from "./Agent";
-import { activate, groups, initialLayout, isGroup, move, remove, split, update, type Axis, type Layout } from "./layout";
+import { activate, groups, initialLayout, isGroup, move, remove, split, update, dock, dropEdge, type Edge, type Axis, type Layout } from "./layout";
 export function App() {
   const [layout, setLayout] = useState<Layout>(initialLayout);
   const [focused, setFocused] = useState("document-group");
@@ -32,12 +32,12 @@ export function App() {
   async function openTerminal() { openTab("terminal"); await terminal.open(); }
   function openTab(tab: string) {
     const owner = groups(layout).find(group => group.tabs.includes(tab));
-    const target = owner?.id ?? focused;
+    const target = owner?.id ?? currentGroup.id;
     setLayout(current => activate(current, target, tab)); setFocused(target);
   }
   async function open(file: FileNode) {
     const target = groups(layout).find(group => group.id === focused && !group.tabs.includes("files"))?.id
-      ?? groups(layout).find(group => !group.tabs.includes("files"))?.id ?? focused;
+      ?? groups(layout).find(group => !group.tabs.includes("files"))?.id ?? currentGroup.id;
     requested.current.set(target, file.path);
     setFocused(target);
     try {
@@ -45,7 +45,8 @@ export function App() {
       if (requested.current.get(target) !== file.path) return;
       setLayout(current => {
         const owner = groups(current).find(group => group.tabs.includes(file.path));
-        return activate(current, owner?.id ?? target, file.path);
+        const live = owner?.id ?? groups(current).find(group => group.id === target)?.id ?? groups(current)[0].id;
+        return activate(current, live, file.path);
       });
       setStatus(file.generated_by ? "Generated file · read-only" : file.path);
     } catch (error) { setNotice(`${String(error)} Refresh files and try opening ${file.path} again.`); }
@@ -55,7 +56,7 @@ export function App() {
     if (candidate?.dirty || candidate?.saving) { setNotice("Unsaved edits retained. Save this document before closing its tab."); return; }
     setLayout(current => remove(current, tab));
   }
-  function divide(axis: Axis) { setLayout(current => split(current, focused, axis, crypto.randomUUID())); }
+  function divide(axis: Axis) { setLayout(current => split(current, currentGroup.id, axis, crypto.randomUUID())); }
   function nextGroup() {
     if (!active) return;
     const leaves = groups(layout), index = leaves.findIndex(group => group.id === focused), target = leaves[(index + 1) % leaves.length].id;
@@ -85,8 +86,12 @@ export function App() {
       <button disabled={!active || groups(layout).length < 2} onClick={nextGroup}>Move tab to next group</button>
     </div></details><span className="app-name">Hickory Simple</span></nav>
     <div className="workspace"><LayoutView node={layout} focused={focused} focus={setFocused} label={label} content={content} close={close}
-      drop={(tab, target) => { setLayout(current => move(current, tab, target)); setFocused(target); }}
+      drop={(tab, target, before) => { setLayout(current => move(current, tab, target, before)); setFocused(target); }}
       activate={(group, tab) => { setLayout(current => activate(current, group, tab)); setFocused(group); }}
+      dock={(tab, target, edge) => {
+        const id = crypto.randomUUID(), next = dock(layout, tab, target, edge, id);
+        if (next !== layout) { setLayout(next); setFocused(id); }
+      }}
       resize={(id, ratio) => setLayout(current => update(current, id, node => isGroup(node) ? node : { ...node, ratio }))} /></div>
     <footer role="status">{notice ? `${notice} · ` : ""}{buffer ? `${buffer.file.path} · ${buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
   </main>;
@@ -99,20 +104,56 @@ function Tree({ nodes, open }: { nodes: FileNode[]; open: (file: FileNode) => vo
 interface LayoutProps {
   node: Layout; focused: string; focus: (id: string) => void; label: (tab: string) => string;
   content: (tab: string) => React.ReactNode; close: (tab: string) => void;
-  drop: (tab: string, target: string) => void; activate: (group: string, tab: string) => void;
+  drop: (tab: string, target: string, before?: string) => void; activate: (group: string, tab: string) => void;
+  dock: (tab: string, target: string, edge: Edge) => void;
   resize: (id: string, ratio: number) => void;
 }
 function LayoutView(props: LayoutProps) {
   const { node } = props;
   const host = useRef<HTMLDivElement>(null);
+  const [edge, setEdge] = useState<Edge | null>(null);
+  const [overPane, setOverPane] = useState(false);
+  const [dropBefore, setDropBefore] = useState<string | null>(null);
+  useEffect(() => {
+    const clear = () => { setEdge(null); setOverPane(false); setDropBefore(null); };
+    window.addEventListener("dragend", clear);
+    return () => window.removeEventListener("dragend", clear);
+  }, []);
   if (isGroup(node)) return <section className={`group ${props.focused === node.id ? "focused" : ""}`} onFocusCapture={() => props.focus(node.id)}>
-    <div className="tabs" role="tablist" aria-label="Pane tabs" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); props.drop(event.dataTransfer.getData("application/x-hickory-tab"), node.id); }}>
-      {node.tabs.map(tab => <div className="tab" data-active={tab === node.active} key={tab} draggable onDragStart={event => event.dataTransfer.setData("application/x-hickory-tab", tab)}>
+    <div className="tabs" role="tablist" aria-label="Pane tabs"
+      onDragOver={event => { if (event.dataTransfer.types.includes("application/x-hickory-tab")) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } }}
+      onDrop={event => { event.preventDefault(); setDropBefore(null); props.drop(event.dataTransfer.getData("application/x-hickory-tab"), node.id); }}>
+
+      {node.tabs.map(tab => <div className="tab" data-active={tab === node.active} data-drop-before={dropBefore === tab} key={tab} draggable
+        onDragStart={event => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("application/x-hickory-tab", tab); }}
+        onDragEnd={() => setDropBefore(null)}
+        onDragLeave={() => setDropBefore(current => current === tab ? null : current)}
+        onDragOver={event => { if (event.dataTransfer.types.includes("application/x-hickory-tab")) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "move"; setDropBefore(tab); } }}
+        onDrop={event => { event.preventDefault(); event.stopPropagation(); setDropBefore(null); props.drop(event.dataTransfer.getData("application/x-hickory-tab"), node.id, tab); }}>
         <button role="tab" aria-selected={tab === node.active} onClick={() => props.activate(node.id, tab)}>{props.label(tab)}</button>
         <button aria-label={`Close ${props.label(tab)}`} onClick={() => props.close(tab)}>×</button>
       </div>)}
     </div>
-    <div className="pane" role="tabpanel" onPointerDown={() => props.focus(node.id)}>{node.active ? props.content(node.active) : <p className="empty">Open a file or move a tab here</p>}</div>
+    <div className="pane" role="tabpanel" data-drop-edge={overPane ? edge ?? "center" : undefined} onPointerDown={() => props.focus(node.id)}
+      onDragOverCapture={event => {
+        if (!event.dataTransfer.types.includes("application/x-hickory-tab")) return;
+        event.preventDefault(); event.stopPropagation(); setOverPane(true);
+        const rect = event.currentTarget.getBoundingClientRect();
+        setEdge(dropEdge((event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height));
+        event.dataTransfer.dropEffect = "move";
+      }}
+      onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) { setEdge(null); setOverPane(false); } }}
+      onDropCapture={event => {
+        if (!event.dataTransfer.types.includes("application/x-hickory-tab")) return;
+        event.preventDefault(); event.stopPropagation(); setEdge(null); setOverPane(false);
+        const rect = event.currentTarget.getBoundingClientRect();
+        const selected = dropEdge((event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height);
+        const tab = event.dataTransfer.getData("application/x-hickory-tab");
+        if (selected) props.dock(tab, node.id, selected); else props.drop(tab, node.id);
+      }}>
+      {node.active ? props.content(node.active) : <p className="empty">Open a file or move a tab here</p>}
+      {overPane && <div className={`pane-drop-preview ${edge ?? "center"}`} aria-hidden="true" />}
+    </div>
   </section>;
   const horizontal = node.axis === "horizontal";
   function resize(event: React.PointerEvent<HTMLDivElement>) {

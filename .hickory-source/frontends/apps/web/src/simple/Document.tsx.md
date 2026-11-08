@@ -7,6 +7,8 @@ CodeMirror owns typing, selection, scroll and undo. Cache the editor by buffer i
 
 The minimap reserves forty units beside the text rather than overlaying readable lines. Its navigation changes scroll, never saved bytes. Language controls float over the editor and do not reflow it. Browser capabilities use the existing LSP client and its snapshot guards; native keyword and word-list previews deliberately do not claim semantic results. Native styling does not replace text, preserving the platform undo and selection model. Preview coloring skips very large files instead of delaying readable text indefinitely.
 
+After text is visible, Markdown files load and attach the existing display-only prose decorations independently of LSP. Headings, bold and italic update with typing without rewriting source or rebuilding the editor. Fenced code stays literal; plain files keep their original appearance.
+
 <ui:copy id="simple-1a4a59fc95-0">
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Compartment, EditorState } from "@codemirror/state";
@@ -20,7 +22,7 @@ import { completions } from "../lsp/completion";
 import { positionToUtf16, utf16ToPosition } from "../lsp/positions";
 import { sameDocumentUri } from "../lsp/documentUri";
 import { Buffer } from "./buffers";
-const editors = new WeakMap<Buffer, { view: EditorView; language: Compartment }>();
+const editors = new WeakMap<Buffer, { view: EditorView; language: Compartment; prose: Compartment }>();
 export function Document({ buffer }: { buffer: Buffer }) {
   const host = useRef<HTMLDivElement>(null);
   useSyncExternalStore(buffer.subscribe, buffer.snapshot);
@@ -30,19 +32,28 @@ export function Document({ buffer }: { buffer: Buffer }) {
   useLayoutEffect(() => {
     let cached = editors.get(buffer);
     if (!cached) {
-      const language = new Compartment();
+      const language = new Compartment(), prose = new Compartment();
       const view = new EditorView({ state: EditorState.create({ doc: buffer.text, extensions: [
-        history(), drawSelection(), EditorView.lineWrapping, language.of([]),
+        history(), drawSelection(), EditorView.lineWrapping, language.of([]), prose.of([]),
         keymap.of([...completionKeymap, ...defaultKeymap, ...historyKeymap]),
         EditorState.readOnly.of(buffer.readonly), EditorView.editable.of(!buffer.readonly),
         EditorView.contentAttributes.of({ "aria-label": buffer.file.path }),
         EditorView.updateListener.of(update => { if (update.docChanged) buffer.edit(update.state.doc.toString()); }),
         EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { overflow: "auto", fontFamily: "ui-monospace, monospace", fontSize: "13px" } }),
       ] }) });
-      cached = { view, language }; editors.set(buffer, cached);
+      cached = { view, language, prose }; editors.set(buffer, cached);
     }
     host.current?.append(cached.view.dom);
     return () => { cached.view.dom.remove(); };
+  }, [buffer]);
+  useEffect(() => {
+    if (!/\.(md|markdown)$/i.test(buffer.file.path)) return;
+    let cancelled = false;
+    void import("../editor/markdownStyling").then(({ markdownStyling }) => {
+      const cached = editors.get(buffer);
+      if (!cancelled && cached) cached.view.dispatch({ effects: cached.prose.reconfigure(markdownStyling()) });
+    }).catch(() => { /* Readable source remains available if styling cannot load. */ });
+    return () => { cancelled = true; };
   }, [buffer]);
   useEffect(() => {
     const cached = editors.get(buffer);

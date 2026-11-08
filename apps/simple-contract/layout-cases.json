@@ -30,10 +30,8 @@
           "files"
         ],
         [
+          "notes.md",
           "agent"
-        ],
-        [
-          "notes.md"
         ]
       ]
     },
@@ -87,8 +85,7 @@
         [
           "files",
           "notes.md"
-        ],
-        []
+        ]
       ]
     },
     {
@@ -115,11 +112,1064 @@
         [
           "files"
         ],
-        [],
         [
           "terminal"
         ]
       ]
+    },
+    {
+      "name": "reorder backward before a live tab",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.md"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.md"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "c.md"
+        },
+        {
+          "op": "move",
+          "group": 1,
+          "tab": "c.md",
+          "before": "a.md"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ],
+        [
+          "c.md",
+          "a.md",
+          "b.md"
+        ]
+      ]
+    },
+    {
+      "name": "reorder forward resolves anchor after removal",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.md"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.md"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "c.md"
+        },
+        {
+          "op": "move",
+          "group": 1,
+          "tab": "a.md",
+          "before": "c.md"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ],
+        [
+          "b.md",
+          "a.md",
+          "c.md"
+        ]
+      ]
+    },
+    {
+      "name": "drop on empty strip space appends",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.md"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.md"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "c.md"
+        },
+        {
+          "op": "move",
+          "group": 1,
+          "tab": "a.md"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ],
+        [
+          "b.md",
+          "c.md",
+          "a.md"
+        ]
+      ]
+    },
+    {
+      "name": "cross pane drop inserts before a tab",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.md"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.md"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "c.md"
+        },
+        {
+          "op": "move",
+          "group": 0,
+          "tab": "b.md",
+          "before": "files"
+        }
+      ],
+      "expected": [
+        [
+          "b.md",
+          "files"
+        ],
+        [
+          "a.md",
+          "c.md"
+        ]
+      ]
+    },
+    {
+      "name": "self drop preserves ordering",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.md"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.md"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "c.md"
+        },
+        {
+          "op": "move",
+          "group": 1,
+          "tab": "a.md",
+          "before": "a.md"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ],
+        [
+          "a.md",
+          "b.md",
+          "c.md"
+        ]
+      ]
+    },
+    {
+      "name": "stale insertion anchor loses no tab",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.md"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.md"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "c.md"
+        },
+        {
+          "op": "move",
+          "group": 1,
+          "tab": "a.md",
+          "before": "missing"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ],
+        [
+          "a.md",
+          "b.md",
+          "c.md"
+        ]
+      ]
+    },
+    {
+      "name": "foreign drag creates no tab",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.md"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.md"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "c.md"
+        },
+        {
+          "op": "move",
+          "group": 1,
+          "tab": "unknown",
+          "before": "a.md"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ],
+        [
+          "a.md",
+          "b.md",
+          "c.md"
+        ]
+      ]
+    },
+    {
+      "name": "dock within pane at left",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.txt"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.txt"
+        },
+        {
+          "op": "dock",
+          "group": 1,
+          "tab": "b.txt",
+          "edge": "left",
+          "id": "docked"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ],
+        [
+          "b.txt"
+        ],
+        [
+          "a.txt"
+        ]
+      ],
+      "axes": [
+        "horizontal",
+        "horizontal"
+      ]
+    },
+    {
+      "name": "dock from another pane at left",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.txt"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.txt"
+        },
+        {
+          "op": "dock",
+          "group": 0,
+          "tab": "b.txt",
+          "edge": "left",
+          "id": "docked"
+        }
+      ],
+      "expected": [
+        [
+          "b.txt"
+        ],
+        [
+          "files"
+        ],
+        [
+          "a.txt"
+        ]
+      ],
+      "axes": [
+        "horizontal",
+        "horizontal"
+      ]
+    },
+    {
+      "name": "dock within pane at right",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.txt"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.txt"
+        },
+        {
+          "op": "dock",
+          "group": 1,
+          "tab": "b.txt",
+          "edge": "right",
+          "id": "docked"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ],
+        [
+          "a.txt"
+        ],
+        [
+          "b.txt"
+        ]
+      ],
+      "axes": [
+        "horizontal",
+        "horizontal"
+      ]
+    },
+    {
+      "name": "dock from another pane at right",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.txt"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.txt"
+        },
+        {
+          "op": "dock",
+          "group": 0,
+          "tab": "b.txt",
+          "edge": "right",
+          "id": "docked"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ],
+        [
+          "b.txt"
+        ],
+        [
+          "a.txt"
+        ]
+      ],
+      "axes": [
+        "horizontal",
+        "horizontal"
+      ]
+    },
+    {
+      "name": "dock within pane at top",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.txt"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.txt"
+        },
+        {
+          "op": "dock",
+          "group": 1,
+          "tab": "b.txt",
+          "edge": "top",
+          "id": "docked"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ],
+        [
+          "b.txt"
+        ],
+        [
+          "a.txt"
+        ]
+      ],
+      "axes": [
+        "horizontal",
+        "vertical"
+      ]
+    },
+    {
+      "name": "dock from another pane at top",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.txt"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.txt"
+        },
+        {
+          "op": "dock",
+          "group": 0,
+          "tab": "b.txt",
+          "edge": "top",
+          "id": "docked"
+        }
+      ],
+      "expected": [
+        [
+          "b.txt"
+        ],
+        [
+          "files"
+        ],
+        [
+          "a.txt"
+        ]
+      ],
+      "axes": [
+        "horizontal",
+        "vertical"
+      ]
+    },
+    {
+      "name": "dock within pane at bottom",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.txt"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.txt"
+        },
+        {
+          "op": "dock",
+          "group": 1,
+          "tab": "b.txt",
+          "edge": "bottom",
+          "id": "docked"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ],
+        [
+          "a.txt"
+        ],
+        [
+          "b.txt"
+        ]
+      ],
+      "axes": [
+        "horizontal",
+        "vertical"
+      ]
+    },
+    {
+      "name": "dock from another pane at bottom",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.txt"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.txt"
+        },
+        {
+          "op": "dock",
+          "group": 0,
+          "tab": "b.txt",
+          "edge": "bottom",
+          "id": "docked"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ],
+        [
+          "b.txt"
+        ],
+        [
+          "a.txt"
+        ]
+      ],
+      "axes": [
+        "horizontal",
+        "vertical"
+      ]
+    },
+    {
+      "name": "docking the sole tab collapses its empty original pane",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.txt"
+        },
+        {
+          "op": "dock",
+          "group": 1,
+          "tab": "a.txt",
+          "edge": "right",
+          "id": "sole"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ],
+        [
+          "a.txt"
+        ]
+      ],
+      "axes": [
+        "horizontal"
+      ]
+    },
+    {
+      "name": "docking into an empty pane",
+      "steps": [
+        {
+          "op": "dock",
+          "group": 1,
+          "tab": "files",
+          "edge": "top",
+          "id": "empty"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ]
+      ],
+      "axes": []
+    },
+    {
+      "name": "docking into an already split workspace nests once",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.txt"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.txt"
+        },
+        {
+          "op": "dock",
+          "group": 1,
+          "tab": "b.txt",
+          "edge": "right",
+          "id": "one"
+        },
+        {
+          "op": "dock",
+          "group": 2,
+          "tab": "a.txt",
+          "edge": "bottom",
+          "id": "two"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ],
+        [
+          "b.txt"
+        ],
+        [
+          "a.txt"
+        ]
+      ],
+      "axes": [
+        "horizontal",
+        "vertical"
+      ]
+    },
+    {
+      "name": "docking rejects a colliding node identity",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.txt"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.txt"
+        },
+        {
+          "op": "dock",
+          "group": 1,
+          "tab": "b.txt",
+          "edge": "right",
+          "id": "files-group"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ],
+        [
+          "a.txt",
+          "b.txt"
+        ]
+      ],
+      "axes": [
+        "horizontal"
+      ]
+    },
+    {
+      "name": "docking rejects an unknown source",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.txt"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.txt"
+        },
+        {
+          "op": "dock",
+          "group": 1,
+          "tab": "foreign",
+          "edge": "right",
+          "id": "missing"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ],
+        [
+          "a.txt",
+          "b.txt"
+        ]
+      ],
+      "axes": [
+        "horizontal"
+      ]
+    },
+    {
+      "name": "docking rejects a stale branch target",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.txt"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.txt"
+        },
+        {
+          "op": "dock",
+          "target": "root",
+          "tab": "b.txt",
+          "edge": "right",
+          "id": "stale"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ],
+        [
+          "a.txt",
+          "b.txt"
+        ]
+      ],
+      "axes": [
+        "horizontal"
+      ]
+    },
+    {
+      "name": "docking rejects a non-cardinal edge",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.txt"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.txt"
+        },
+        {
+          "op": "dock",
+          "group": 1,
+          "tab": "b.txt",
+          "edge": "middle",
+          "id": "bad-edge"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ],
+        [
+          "a.txt",
+          "b.txt"
+        ]
+      ],
+      "axes": [
+        "horizontal"
+      ]
+    },
+    {
+      "name": "docking rejects an empty new identity",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.txt"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.txt"
+        },
+        {
+          "op": "dock",
+          "group": 1,
+          "tab": "b.txt",
+          "edge": "right",
+          "id": ""
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ],
+        [
+          "a.txt",
+          "b.txt"
+        ]
+      ],
+      "axes": [
+        "horizontal"
+      ]
+    },
+    {
+      "name": "center drop joins an existing tab group without another split",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a.txt"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b.txt"
+        },
+        {
+          "op": "split",
+          "group": 1,
+          "axis": "horizontal",
+          "id": "other"
+        },
+        {
+          "op": "move",
+          "group": 2,
+          "tab": "b.txt"
+        },
+        {
+          "op": "move",
+          "group": 1,
+          "tab": "b.txt"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ],
+        [
+          "a.txt",
+          "b.txt"
+        ]
+      ],
+      "axes": [
+        "horizontal"
+      ]
+    },
+    {
+      "name": "center drop can fill an empty group without splitting",
+      "steps": [
+        {
+          "op": "move",
+          "group": 1,
+          "tab": "files"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ]
+      ],
+      "axes": []
+    },
+    {
+      "name": "closing the last document promotes Files",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a"
+        },
+        {
+          "op": "remove",
+          "tab": "a"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ]
+      ],
+      "axes": []
+    },
+    {
+      "name": "closing every tab retains one reusable empty root",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a"
+        },
+        {
+          "op": "remove",
+          "tab": "files"
+        },
+        {
+          "op": "remove",
+          "tab": "a"
+        },
+        {
+          "op": "open",
+          "group": 0,
+          "tab": "b"
+        }
+      ],
+      "expected": [
+        [
+          "b"
+        ]
+      ],
+      "axes": []
+    },
+    {
+      "name": "same group sole tab move preserves destination",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a"
+        },
+        {
+          "op": "move",
+          "group": 1,
+          "tab": "a"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ],
+        [
+          "a"
+        ]
+      ],
+      "axes": [
+        "horizontal"
+      ]
+    },
+    {
+      "name": "nested close promotes sibling and removes abandoned split",
+      "steps": [
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "a"
+        },
+        {
+          "op": "open",
+          "group": 1,
+          "tab": "b"
+        },
+        {
+          "op": "dock",
+          "group": 1,
+          "tab": "b",
+          "edge": "bottom",
+          "id": "nested"
+        },
+        {
+          "op": "remove",
+          "tab": "a"
+        },
+        {
+          "op": "remove",
+          "tab": "b"
+        }
+      ],
+      "expected": [
+        [
+          "files"
+        ]
+      ],
+      "axes": []
+    }
+  ],
+  "edgeCases": [
+    {
+      "x": 0,
+      "y": 0.5,
+      "edge": "left"
+    },
+    {
+      "x": 0.1,
+      "y": 0.5,
+      "edge": "left"
+    },
+    {
+      "x": 0.9,
+      "y": 0.5,
+      "edge": "right"
+    },
+    {
+      "x": 1,
+      "y": 0.5,
+      "edge": "right"
+    },
+    {
+      "x": 0.5,
+      "y": 0,
+      "edge": "top"
+    },
+    {
+      "x": 0.5,
+      "y": 0.1,
+      "edge": "top"
+    },
+    {
+      "x": 0.5,
+      "y": 0.9,
+      "edge": "bottom"
+    },
+    {
+      "x": 0.5,
+      "y": 1,
+      "edge": "bottom"
+    },
+    {
+      "x": 0.1,
+      "y": 0.1,
+      "edge": "left"
+    },
+    {
+      "x": 0.9,
+      "y": 0.9,
+      "edge": "right"
+    },
+    {
+      "x": 0.2,
+      "y": 0.5,
+      "edge": null
+    },
+    {
+      "x": 0.8,
+      "y": 0.5,
+      "edge": null
+    },
+    {
+      "x": 0.5,
+      "y": 0.5,
+      "edge": null
+    },
+    {
+      "x": -0.1,
+      "y": 0.5,
+      "edge": null
+    },
+    {
+      "x": 0.5,
+      "y": 1.1,
+      "edge": null
     }
   ]
 }

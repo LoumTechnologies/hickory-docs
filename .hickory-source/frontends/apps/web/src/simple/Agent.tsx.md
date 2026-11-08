@@ -5,10 +5,47 @@ For maintainers iterating on the equivalent Apple, Android and browser editor fr
 
 The workspace owns the session so moving or hiding its tab retains the unsent prompt and in-flight send. The first agent surface uses the configured Python backend and the existing durable turn history. It does not connect providers, retry sends, or fabricate replies. Refreshing is local to this pane and stops when unmounted.
 
+Render prompts and answers through the installed Markdown parser. Walk its syntax tree into a small allowlist of React elements so nested emphasis and headings follow Markdown boundaries, while code stays literal. Unknown constructs remain text; raw HTML never executes. Rendering only observes the retained messages.
+
 <ui:copy id="simple-981c695688-0">
-import { useEffect, useSyncExternalStore } from "react";
+import { createElement, useEffect, useSyncExternalStore, type ReactNode } from "react";
+import { markdownLanguage } from "@codemirror/lang-markdown";
+import type { SyntaxNode } from "@lezer/common";
 import { api } from "../api/client";
 import type { AgentTurn } from "../api/agentTypes";
+export function MarkdownMessage({ text }: { text: string }) {
+  const render = (node: SyntaxNode): ReactNode => {
+    const literal = text.slice(node.from, node.to);
+    if (node.name === "FencedCode" || node.name === "CodeBlock") {
+      const body = node.getChildren("CodeText").map(child => text.slice(child.from, child.to)).join("\n");
+      return <pre key={node.from}><code>{body}</code></pre>;
+    }
+    if (node.name === "InlineCode") {
+      const marks = node.getChildren("CodeMark");
+      let body = text.slice(marks[0].to, marks.at(-1)!.from).replace(/\n/g, " ");
+      if (/^ .* $/.test(body) && /[^ ]/.test(body)) body = body.slice(1, -1);
+      return <code key={node.from}>{body}</code>;
+    }
+    if (node.name === "Escape") return literal.slice(1);
+    const heading = /^(?:ATX|Setext)Heading([1-6])$/.exec(node.name);
+    const tags: Record<string, string> = { Paragraph: "p", StrongEmphasis: "strong", Emphasis: "em",
+      BulletList: "ul", OrderedList: "ol", ListItem: "li", Blockquote: "blockquote" };
+    const tag = heading ? `h${heading[1]}` : tags[node.name];
+    // Unhandled syntax, including HTML and links, remains readable literal text.
+    // Only known tags enter the DOM; message text never becomes HTML or a URL.
+    if (!tag && node.name !== "Document") return literal;
+    const children: ReactNode[] = [];
+    let offset = node.from;
+    for (let child = node.firstChild; child; child = child.nextSibling) {
+      if (child.from > offset) children.push(text.slice(offset, child.from));
+      if (!["HeaderMark", "EmphasisMark", "ListMark", "QuoteMark"].includes(child.name)) children.push(render(child));
+      offset = child.to;
+    }
+    if (offset < node.to) children.push(text.slice(offset, node.to));
+    return tag ? createElement(tag, { key: node.from }, ...children) : children;
+  };
+  return <div className="message markdown-message">{render(markdownLanguage.parser.parse(text).topNode)}</div>;
+}
 export class AgentSession {
   turns: AgentTurn[] = [];
   prompt = "";
@@ -57,8 +94,8 @@ Conversation controls belong inside the agent pane. Stop requests are explicit; 
 <ui:copy id="simple-981c695688-1">
   return <div className="agent-body">
     <div className="conversation" aria-label="Conversation">{turns.map(turn => <article key={turn.id}>
-      <p><strong>You</strong></p><p className="message">{turn.prompt}</p>
-      <p><strong>Agent · {turn.status}</strong></p><p className="message">{turn.answer ?? turn.error ?? (turn.status === "running" ? "Working…" : "")}</p>
+      <p><strong>You</strong></p><MarkdownMessage text={turn.prompt} />
+      <p><strong>Agent · {turn.status}</strong></p><MarkdownMessage text={turn.answer ?? turn.error ?? (turn.status === "running" ? "Working…" : "")} />
     </article>)}</div>
     {error && <div role="alert" className="notice">{error}</div>}
     <form onSubmit={event => { event.preventDefault(); void session.send(); }}>

@@ -150444,6 +150444,69 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/apps/web/src/simple/parity.test.ts.md",
       "symbol": "simple-language-attachment-witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-android-pane-edges",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt.md",
+      "symbol": "simple-android-pane-edges",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-apple-pane-edge-drop",
+      "output": "apps/apple-simple/Sources/WorkspaceView.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/WorkspaceView.swift.md",
+      "symbol": "simple-apple-pane-edge-drop",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-apple-file-rows",
+      "output": "apps/apple-simple/Sources/WorkspaceView.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/WorkspaceView.swift.md",
+      "symbol": "simple-apple-file-rows",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-apple-language-transport",
+      "output": "apps/apple-simple/Sources/Engine.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Engine.swift.md",
+      "symbol": "simple-apple-language-transport",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-mac-native-tab-drag",
+      "output": "apps/apple-simple/Sources/WorkspaceView.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/WorkspaceView.swift.md",
+      "symbol": "simple-mac-native-tab-drag",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-apple-language-session",
+      "output": "apps/apple-simple/Sources/Engine.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Engine.swift.md",
+      "symbol": "simple-apple-language-session",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-apple-language-snapshots",
+      "output": "apps/apple-simple/Sources/Engine.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Engine.swift.md",
+      "symbol": "simple-apple-language-snapshots",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-mac-tab-pointer-source",
+      "output": "apps/apple-simple/Sources/WorkspaceView.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/WorkspaceView.swift.md",
+      "symbol": "simple-mac-tab-pointer-source",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-mac-tab-drop-surfaces",
+      "output": "apps/apple-simple/Sources/WorkspaceView.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/WorkspaceView.swift.md",
+      "symbol": "simple-mac-tab-drop-surfaces",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

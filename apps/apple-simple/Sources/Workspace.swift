@@ -5,13 +5,16 @@ import Observation
     let id = UUID()
     let file: FileNode
     var text: String {
-        didSet { let changed = text != base; if dirty != changed { dirty = changed } }
+        didSet { let changed = text != base; if dirty != changed { dirty = changed }; if text != oldValue { language?.changed() } }
     }
     @ObservationIgnored var base: String {
         didSet { let changed = text != base; if dirty != changed { dirty = changed } }
     }
-    @ObservationIgnored var complete: ((String) -> Void)?
     @ObservationIgnored var navigate: ((Double) -> Void)?
+    @ObservationIgnored var renderLanguage: (([NativeSemanticToken], String) -> Void)?
+    @ObservationIgnored var applyLanguageCompletion: ((NSRange, String, String, NSRange) -> Bool)?
+    @ObservationIgnored var selection = NSRange(location: 0, length: 0)
+    var language: NativeLanguage?
     var hash: String
     var saving = false
     var error = ""
@@ -30,6 +33,7 @@ import Observation
     }
 }
 @MainActor @Observable final class Workspace {
+    var draggingTab: String?
     var layout = PaneLayout()
     var focused = "document-group"
     var files: [FileNode] = []
@@ -54,6 +58,7 @@ import Observation
             let next = try Engine(address: address)
             let tree = try await next.files()
             agent.turns = []; agent.error = ""; terminal.id = nil; terminal.screen = ""; terminal.error = ""
+            for buffer in buffers.values { buffer.language?.close() }
             generation = UUID(); engine = next; files = tree.tree; buffers = [:]; opening = []
             layout = PaneLayout(); focused = "document-group"; status = tree.root
             return true
@@ -77,8 +82,14 @@ import Observation
         do {
             let text = try await engine.file(file)
             guard current == generation else { return }
-            buffers[file.path] = DocumentBuffer(file: file, text: text)
-            if newestOpen[target] == file.path { layout.activate(file.path, in: target); status = file.path }
+            let buffer = DocumentBuffer(file: file, text: text)
+            buffers[file.path] = buffer
+            buffer.language = NativeLanguage(engine: engine, buffer: buffer); buffer.language?.start()
+            if newestOpen[target] == file.path {
+                // A close or move can retire the requested pane while text loads.
+                let live = layout.groups().first(where: { $0.id == target })?.id ?? layout.groups()[0].id
+                layout.activate(file.path, in: live); focused = live; status = file.path
+            }
         } catch { if current == generation { status = "\(error.localizedDescription) Refresh files and try opening \(file.path) again." } }
     }
     func openTerminal() async {
@@ -94,6 +105,7 @@ import Observation
             status = "Unsaved edits retained. Save this document before closing its tab."; return
         }
         layout.remove(tab)
+        if !layout.groups().contains(where: { $0.id == focused }) { focused = layout.groups()[0].id }
     }
     func split(_ axis: String) {
         if let retained = layout.split(focused, axis: axis, newID: UUID().uuidString) { focused = retained }

@@ -10,7 +10,7 @@ import { completions } from "../lsp/completion";
 import { positionToUtf16, utf16ToPosition } from "../lsp/positions";
 import { sameDocumentUri } from "../lsp/documentUri";
 import { Buffer } from "./buffers";
-const editors = new WeakMap<Buffer, { view: EditorView; language: Compartment }>();
+const editors = new WeakMap<Buffer, { view: EditorView; language: Compartment; prose: Compartment }>();
 export function Document({ buffer }: { buffer: Buffer }) {
   const host = useRef<HTMLDivElement>(null);
   useSyncExternalStore(buffer.subscribe, buffer.snapshot);
@@ -20,19 +20,28 @@ export function Document({ buffer }: { buffer: Buffer }) {
   useLayoutEffect(() => {
     let cached = editors.get(buffer);
     if (!cached) {
-      const language = new Compartment();
+      const language = new Compartment(), prose = new Compartment();
       const view = new EditorView({ state: EditorState.create({ doc: buffer.text, extensions: [
-        history(), drawSelection(), EditorView.lineWrapping, language.of([]),
+        history(), drawSelection(), EditorView.lineWrapping, language.of([]), prose.of([]),
         keymap.of([...completionKeymap, ...defaultKeymap, ...historyKeymap]),
         EditorState.readOnly.of(buffer.readonly), EditorView.editable.of(!buffer.readonly),
         EditorView.contentAttributes.of({ "aria-label": buffer.file.path }),
         EditorView.updateListener.of(update => { if (update.docChanged) buffer.edit(update.state.doc.toString()); }),
         EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { overflow: "auto", fontFamily: "ui-monospace, monospace", fontSize: "13px" } }),
       ] }) });
-      cached = { view, language }; editors.set(buffer, cached);
+      cached = { view, language, prose }; editors.set(buffer, cached);
     }
     host.current?.append(cached.view.dom);
     return () => { cached.view.dom.remove(); };
+  }, [buffer]);
+  useEffect(() => {
+    if (!/\.(md|markdown)$/i.test(buffer.file.path)) return;
+    let cancelled = false;
+    void import("../editor/markdownStyling").then(({ markdownStyling }) => {
+      const cached = editors.get(buffer);
+      if (!cancelled && cached) cached.view.dispatch({ effects: cached.prose.reconfigure(markdownStyling()) });
+    }).catch(() => { /* Readable source remains available if styling cannot load. */ });
+    return () => { cancelled = true; };
   }, [buffer]);
   useEffect(() => {
     const cached = editors.get(buffer);

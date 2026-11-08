@@ -5,7 +5,6 @@ import AppKit
     let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
     let text = NSTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
     let buffer: DocumentBuffer
-    private var highlighting: Task<Void, Never>?
     init(_ buffer: DocumentBuffer) {
         self.buffer = buffer
         super.init()
@@ -19,53 +18,80 @@ import AppKit
         text.string = buffer.text; text.isEditable = !buffer.readOnly; text.allowsUndo = true
         text.setAccessibilityLabel(buffer.file.path); text.delegate = self
         scroll.hasVerticalScroller = true; scroll.documentView = text
-        buffer.complete = { [weak self] word in
-            guard let self, !self.buffer.readOnly else { return }
-            let range = self.text.selectedRange()
-            if self.text.shouldChangeText(in: range, replacementString: word) {
-                self.text.textStorage?.replaceCharacters(in: range, with: word); self.text.didChangeText()
-                self.text.setSelectedRange(NSRange(location: range.location + (word as NSString).length, length: 0))
-            }
-        }
         buffer.navigate = { [weak self] fraction in
             guard let self else { return }
             let source = self.text.string as NSString
             let offset = min(source.length, max(0, Int(Double(source.length) * fraction)))
             self.text.scrollRangeToVisible(source.lineRange(for: NSRange(location: offset, length: 0)))
         }
-        paint()
-    }
-    func textDidChange(_ notification: Notification) { buffer.text = text.string; paint() }
-    private func paint() {
-        highlighting?.cancel()
-        let source = text.string
-        highlighting = Task { [weak self] in
-            let ranges = await Task.detached { previewKeywords(source) }.value
-            guard !Task.isCancelled, let self, self.text.string == source,
-                  let storage = self.text.textStorage else { return }
-            storage.beginEditing()
-            storage.addAttribute(.foregroundColor, value: NSColor.textColor, range: NSRange(location: 0, length: storage.length))
-            for range in ranges { storage.addAttribute(.foregroundColor, value: NSColor.systemPurple, range: range) }
-            storage.endEditing()
-            self.text.typingAttributes[.foregroundColor] = NSColor.textColor
+        buffer.renderLanguage = { [weak self] tokens, source in self?.paint(tokens, source: source) }
+        buffer.applyLanguageCompletion = { [weak self] range, insert, source, selection in
+            guard let self, !self.buffer.readOnly, !self.text.hasMarkedText(), self.text.string == source,
+                  self.text.selectedRange() == selection, NSMaxRange(range) <= (source as NSString).length,
+                  self.text.shouldChangeText(in: range, replacementString: insert) else { return false }
+            self.text.textStorage?.replaceCharacters(in: range, with: insert)
+            self.text.setSelectedRange(NSRange(location: range.location + (insert as NSString).length, length: 0))
+            self.text.didChangeText(); return true
         }
+        paint(buffer.language?.tokens ?? [], source: buffer.text)
+    }
+    func textDidChange(_ notification: Notification) { buffer.selection = text.selectedRange(); buffer.text = text.string }
+    func textViewDidChangeSelection(_ notification: Notification) { buffer.selection = text.selectedRange() }
+    func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        guard NSStringFromSelector(commandSelector) == "complete:" else { return false }
+        Task { await buffer.language?.complete() }; return true
+    }
+    private func paint(_ tokens: [NativeSemanticToken], source: String) {
+        guard text.string == source, !text.hasMarkedText(), let storage = text.textStorage else { return }
+        storage.beginEditing()
+        storage.addAttribute(.foregroundColor, value: NSColor.textColor, range: NSRange(location: 0, length: storage.length))
+        for token in tokens where NSMaxRange(token.range) <= storage.length {
+            let color: NSColor
+            switch token.kind {
+            case "keyword", "type", "class", "struct": color = .systemPurple
+            case "function", "method": color = .systemBlue
+            case "string": color = .systemGreen
+            case "number": color = .systemOrange
+            case "comment": color = .secondaryLabelColor
+            default: color = .systemTeal
+            }
+            storage.addAttribute(.foregroundColor, value: color, range: token.range)
+        }
+        storage.endEditing(); text.typingAttributes[.foregroundColor] = NSColor.textColor
     }
 }
 @MainActor private enum EditorCache { static var views: [UUID: MacEditor] = [:] }
+// SwiftUI owns a fresh host at each tree location. The cached editor moves
+// between hosts, so teardown of an old representable cannot detach the new one.
+private final class MacEditorHost: NSView {
+    let content: NSView
+    init(_ content: NSView) { self.content = content; super.init(frame: .zero) }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func attach() {
+        guard window != nil else { return }
+        if content.superview !== self { content.removeFromSuperview(); addSubview(content) }
+        content.frame = bounds
+    }
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); attach() }
+    override func layout() { super.layout(); attach() }
+}
 struct NativeEditor: NSViewRepresentable {
     let buffer: DocumentBuffer
-    func makeNSView(context: Context) -> NSScrollView {
-        if let current = EditorCache.views[buffer.id] { return current.scroll }
-        let editor = MacEditor(buffer); EditorCache.views[buffer.id] = editor; return editor.scroll
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSView, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 600, height: proposal.height ?? 400)
     }
-    func updateNSView(_ view: NSScrollView, context: Context) {}
+    func makeNSView(context: Context) -> NSView {
+        let editor = EditorCache.views[buffer.id] ?? MacEditor(buffer)
+        EditorCache.views[buffer.id] = editor
+        return MacEditorHost(editor.scroll)
+    }
+    func updateNSView(_ view: NSView, context: Context) { (view as? MacEditorHost)?.attach(); view.needsLayout = true }
 }
 #else
 import UIKit
 @MainActor private final class MobileEditor: NSObject, UITextViewDelegate {
     let text = UITextView()
     let buffer: DocumentBuffer
-    private var highlighting: Task<Void, Never>?
     init(_ buffer: DocumentBuffer) {
         self.buffer = buffer
         super.init()
@@ -74,54 +100,74 @@ import UIKit
         text.smartQuotesType = .no; text.smartDashesType = .no; text.smartInsertDeleteType = .no
         text.text = buffer.text; text.isEditable = !buffer.readOnly; text.alwaysBounceVertical = true
         text.accessibilityLabel = buffer.file.path; text.delegate = self
-        buffer.complete = { [weak self] word in
-            guard let self, !self.buffer.readOnly else { return }
-            self.text.insertText(word)
-        }
         buffer.navigate = { [weak self] fraction in
             guard let self else { return }
             let source = self.text.text as NSString
             let offset = min(source.length, max(0, Int(Double(source.length) * fraction)))
             self.text.scrollRangeToVisible(source.lineRange(for: NSRange(location: offset, length: 0)))
         }
-        paint()
-    }
-    func textViewDidChange(_ textView: UITextView) { buffer.text = textView.text; paint() }
-    private func paint() {
-        highlighting?.cancel()
-        let source = text.text ?? ""
-        highlighting = Task { [weak self] in
-            let ranges = await Task.detached { previewKeywords(source) }.value
-            guard !Task.isCancelled, let self, self.text.text == source else { return }
-            let storage = self.text.textStorage
-            storage.beginEditing()
-            storage.addAttribute(.foregroundColor, value: UIColor.label, range: NSRange(location: 0, length: storage.length))
-            for range in ranges { storage.addAttribute(.foregroundColor, value: UIColor.systemPurple, range: range) }
-            storage.endEditing()
-            self.text.typingAttributes[.foregroundColor] = UIColor.label
+        buffer.renderLanguage = { [weak self] tokens, source in self?.paint(tokens, source: source) }
+        buffer.applyLanguageCompletion = { [weak self] range, insert, source, selection in
+            guard let self, !self.buffer.readOnly, self.text.markedTextRange == nil, self.text.text == source,
+                  self.text.selectedRange == selection,
+                  let start = self.text.position(from: self.text.beginningOfDocument, offset: range.location),
+                  let end = self.text.position(from: start, offset: range.length), let target = self.text.textRange(from: start, to: end) else { return false }
+            self.text.replace(target, withText: insert)
+            self.buffer.selection = self.text.selectedRange; self.buffer.text = self.text.text; return true
         }
+        paint(buffer.language?.tokens ?? [], source: buffer.text)
+    }
+    func textViewDidChange(_ textView: UITextView) { buffer.selection = textView.selectedRange; buffer.text = textView.text }
+    func textViewDidChangeSelection(_ textView: UITextView) { buffer.selection = textView.selectedRange }
+    private func paint(_ tokens: [NativeSemanticToken], source: String) {
+        guard text.text == source, text.markedTextRange == nil else { return }
+        let storage = text.textStorage
+        storage.beginEditing()
+        storage.addAttribute(.foregroundColor, value: UIColor.label, range: NSRange(location: 0, length: storage.length))
+        for token in tokens where NSMaxRange(token.range) <= storage.length {
+            let color: UIColor
+            switch token.kind {
+            case "keyword", "type", "class", "struct": color = .systemPurple
+            case "function", "method": color = .systemBlue
+            case "string": color = .systemGreen
+            case "number": color = .systemOrange
+            case "comment": color = .secondaryLabel
+            default: color = .systemTeal
+            }
+            storage.addAttribute(.foregroundColor, value: color, range: token.range)
+        }
+        storage.endEditing(); text.typingAttributes[.foregroundColor] = UIColor.label
     }
 }
 @MainActor private enum EditorCache { static var views: [UUID: MobileEditor] = [:] }
+private final class MobileEditorHost: UIView {
+    let content: UIView
+    init(_ content: UIView) { self.content = content; super.init(frame: .zero) }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func attach() {
+        guard window != nil else { return }
+        if content.superview !== self { content.removeFromSuperview(); addSubview(content) }
+        content.frame = bounds
+    }
+    override func didMoveToWindow() { super.didMoveToWindow(); attach() }
+    override func layoutSubviews() { super.layoutSubviews(); attach() }
+}
 struct NativeEditor: UIViewRepresentable {
     let buffer: DocumentBuffer
-    func makeUIView(context: Context) -> UITextView {
-        if let current = EditorCache.views[buffer.id] { return current.text }
-        let editor = MobileEditor(buffer); EditorCache.views[buffer.id] = editor; return editor.text
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIView, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 600, height: proposal.height ?? 400)
     }
-    func updateUIView(_ view: UITextView, context: Context) {}
+    func makeUIView(context: Context) -> UIView {
+        let editor = EditorCache.views[buffer.id] ?? MobileEditor(buffer)
+        EditorCache.views[buffer.id] = editor
+        return MobileEditorHost(editor.text)
+    }
+    func updateUIView(_ view: UIView, context: Context) { (view as? MobileEditorHost)?.attach(); view.setNeedsLayout() }
 }
 #endif
 
-// The preview deliberately recognizes a small keyword vocabulary, not language semantics.
-func previewKeywords(_ source: String) -> [NSRange] {
-    guard source.utf16.count <= 200_000,
-          let regex = try? NSRegularExpression(pattern: "\\b(func|fun|fn|let|val|var|const|class|struct|import|return|if|else|true|false|def)\\b") else { return [] }
-    return regex.matches(in: source, range: NSRange(source.startIndex..., in: source)).map(\.range)
-}
 struct LanguageEditor: View {
     var buffer: DocumentBuffer
-    @State private var suggestions = false
     var body: some View {
         HStack(spacing: 0) {
             NativeEditor(buffer: buffer)
@@ -139,21 +185,32 @@ struct LanguageEditor: View {
                     .accessibilityAdjustableAction { direction in buffer.navigate?(direction == .increment ? 1 : 0) }
             }.frame(width: 40)
         }.overlay(alignment: .topTrailing) {
-            Button("⌘") { suggestions.toggle() }.accessibilityLabel("Language preview")
+            Button("⌁") {
+                #if os(macOS)
+                NSApp.activate()
+                #endif
+                Task { await buffer.language?.complete() }
+            }.accessibilityLabel("Language completions")
+                .help(buffer.language?.status ?? "Language services not connected")
                 .padding(4).background(.regularMaterial).padding(.trailing, 42)
-                .popover(isPresented: $suggestions) {
+                .popover(isPresented: Binding(get: { buffer.language?.showingSuggestions ?? false }, set: { buffer.language?.showingSuggestions = $0 })) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Language UI preview").font(.headline)
-                        Text("Local keyword colors and document words. Native LSP transport is not connected.").font(.caption)
-                        Text("Choose a word to insert at the selection.").font(.caption)
-                        ScrollView {
-                            VStack(alignment: .leading) {
-                                ForEach(Array(Set(buffer.text.components(separatedBy: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_")).inverted).filter { $0.count > 2 })).sorted().prefix(30), id: \.self) { word in
-                                    Button(word) { buffer.complete?(word); suggestions = false }.disabled(buffer.readOnly)
-                                }
-                            }
-                        }.frame(maxHeight: 220)
-                    }.padding().frame(width: 270)
+                        Text("Language server completions").font(.headline)
+                        Text(buffer.language?.status ?? "Language services not connected").font(.caption).textSelection(.enabled)
+                        if let language = buffer.language {
+                            ScrollView {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    ForEach(language.suggestions) { item in
+                                        Button { language.accept(item) } label: {
+                                            VStack(alignment: .leading) { Text(item.label).font(.system(.body, design: .monospaced)); Text(item.detail).font(.caption).foregroundStyle(.secondary) }
+                                        }.disabled(buffer.readOnly)
+                                    }
+                                }.frame(maxWidth: .infinity, alignment: .leading)
+                            }.frame(height: 180)
+                            Button("Retry language services") { language.start() }
+                            Text("Python needs basedpyright installed in this workspace. Snippets and multi-file completion edits are not applied here.").font(.caption)
+                        }
+                    }.padding().frame(width: 330)
                 }
         }
     }

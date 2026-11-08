@@ -55,3 +55,29 @@ footer { border-top: 1px solid GrayText; padding: 3px 9px; font-size: 11px; over
 .cm-st-comment { color: GrayText; font-style: italic; }
 .cm-lsp-signature, .cm-lsp-hover { background: Canvas; color: CanvasText; padding: 6px; border: 1px solid GrayText; max-width: min(400px, 80vw); }
 :root { --text-muted: GrayText; --lsp-highlight: #8090b02d; }
+.tab[data-drop-before=true]::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 2px; background: Highlight; pointer-events: none; z-index: 2; }
+.tabs::after { content: ""; flex: 1 0 20px; min-height: 28px; }
+.pane { position: relative; }
+.pane-drop-preview { position: absolute; pointer-events: none; z-index: 30; background: color-mix(in srgb, Highlight 18%, transparent); border: 2px solid Highlight; }
+.pane-drop-preview.left { inset: 0 50% 0 0; }
+.pane-drop-preview.right { inset: 0 0 0 50%; }
+.pane-drop-preview.top { inset: 0 0 50% 0; }
+.pane-drop-preview.bottom { inset: 50% 0 0 0; }
+.pane-drop-preview.center { inset: 0; }
+.cm-md-heading { font-weight: 650; line-height: 1.3; }
+.cm-md-h1 { font-size: 1.8em; }
+.cm-md-h2 { font-size: 1.45em; }
+.cm-md-h3 { font-size: 1.2em; }
+.cm-md-h4, .cm-md-h5, .cm-md-h6 { font-size: 1.05em; }
+.cm-md-mark { opacity: .55; font-weight: 400; }
+.cm-md-strong { font-weight: 700; }
+.cm-md-em { font-style: italic; }
+.cm-md-code, .markdown-message code { font-family: ui-monospace, monospace; background: color-mix(in srgb, CanvasText 6%, Canvas); }
+.markdown-message { white-space: normal; }
+.markdown-message p { white-space: pre-wrap; margin: .5em 0; }
+.markdown-message pre { white-space: pre; overflow: auto; padding: 8px; }
+.markdown-message h1 { font-size: 1.8em; }
+.markdown-message h2 { font-size: 1.45em; }
+.markdown-message h3 { font-size: 1.2em; }
+.markdown-message h4, .markdown-message h5, .markdown-message h6 { font-size: 1.05em; }
+.markdown-message :is(h1,h2,h3,h4,h5,h6) { margin: .6em 0 .3em; line-height: 1.3; }

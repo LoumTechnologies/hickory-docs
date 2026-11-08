@@ -3,7 +3,7 @@
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
-The acceptance flow launches an isolated real engine on an ephemeral port, then a Vite process and a browser adapter. No agent prompt is sent. Disk assertions cover successful plain/literate saves and conflict refusal; UI assertions cover moved document undo and moved agent drafts.
+The acceptance flow launches an isolated real engine on an ephemeral port, then a Vite process and a browser adapter. No agent prompt is sent. Computed browser styles verify Markdown heading size, bold weight and italics on an opened literate document. Run `python3 scripts/test-simple-browser.py --markdown-only` for the focused formatting witness. Chat formatting and HTML safety have component witnesses; this real-engine flow does not claim provider-message coverage. Disk assertions cover successful plain/literate saves and conflict refusal; UI assertions cover moved document undo and moved agent drafts.
 
 <ui:copy id="simple-0799b7d31b-0">
 # Contract: .hickory-source/frontends/contract.md
@@ -16,6 +16,7 @@ import re
 import signal
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -75,6 +76,14 @@ class BrowserDriver:
         try: self.act("quit")
         finally: stop(self.process)
 
+def markdown_acceptance(driver):
+    driver.act("open", path="source.md")
+    formatting = driver.act("markdown-formatting", path="source.md")
+    assert formatting["heading"]["size"] > formatting["size"]
+    assert int(formatting["bold"]["weight"]) >= 650
+    assert formatting["bold"]["text"] == "bold"
+    assert formatting["italic"]["italic"] == "italic"
+
 def acceptance(driver, folder):
     plain = folder / "notes.txt"
     driver.act("open", path="notes.txt")
@@ -88,6 +97,21 @@ def acceptance(driver, folder):
     assert driver.act("content", path="notes.txt") == "before saved later"
     driver.act("undo", path="notes.txt")
     eventually(lambda: driver.act("content", path="notes.txt"), "before saved")
+    driver.act("open", path="source.md")
+    driver.act("reorder-tab", path="source.md", before="notes.txt")
+    eventually(lambda: driver.act("tab-order", path="notes.txt"), ["source.md", "notes.txt"])
+    driver.act("reorder-tab", path="notes.txt", before="source.md")
+    eventually(lambda: driver.act("tab-order", path="notes.txt"), ["notes.txt", "source.md"])
+    panes = driver.act("pane-count")
+    for edge in ["left", "right", "top", "bottom"]:
+        driver.act("dock-tab", path="notes.txt", target="source.md", edge=edge)
+        if edge == "left": panes += 1
+        eventually(lambda: driver.act("pane-count"), panes)
+        assert driver.act("content", path="notes.txt") == "before saved"
+    driver.act("dock-tab", path="notes.txt", target="source.md", edge="center")
+    panes -= 1
+    eventually(lambda: driver.act("pane-count"), panes)
+    eventually(lambda: driver.act("tab-order", path="notes.txt"), ["source.md", "notes.txt"])
     driver.act("append", path="notes.txt", text=" local")
     driver.act("close-tab")
     assert any("notes.txt" in tab for tab in driver.act("tabs"))
@@ -118,7 +142,7 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix="hickory-simple-") as temporary:
         folder = Path(temporary) / "workspace"; folder.mkdir()
         (folder / "notes.txt").write_text("before")
-        (folder / "source.md").write_text('<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n# A literate document\n</h:doc>\n')
+        (folder / "source.md").write_text('<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n# A literate document\n\n**bold** and *italic*\n</h:doc>\n')
         environment = {**os.environ, "HICKORY_STATE_DIR": str(Path(temporary) / "state")}
         try:
             with socket.socket() as reservation:
@@ -128,8 +152,13 @@ if __name__ == "__main__":
             backend = origin(engine)
             vite = start(["node", "node_modules/vite/bin/vite.js", "--config", "vite.simple.config.ts", "--host", "127.0.0.1", "--port", str(ui_port), "--strictPort"], cwd=ROOT / "apps/web", env={**environment, "HICKORY_API_ORIGIN": backend}); processes.append(vite)
             driver = BrowserDriver(origin(vite) + "/simple.html")
-            acceptance(driver, folder)
-            print("Browser: real plain/literate saves, conflict refusal, moved undo and agent draft passed")
+            if "--markdown-only" in sys.argv:
+                markdown_acceptance(driver)
+                print("Browser: Markdown headings, bold and italic passed")
+            else:
+                markdown_acceptance(driver)
+                acceptance(driver, folder)
+                print("Browser: real plain/literate saves, conflict refusal, moved undo and agent draft passed")
         finally:
             if driver: driver.close()
             for process in reversed(processes): stop(process)

@@ -99,3 +99,196 @@ struct Engine {
     }
 
 }
+import Observation
+
+struct NativeSemanticToken { var range: NSRange; var kind: String }
+struct NativeCompletion: Identifiable {
+    var id: Int
+    var label: String
+    var detail: String
+    var range: NSRange
+    var insert: String
+    var source: String
+    var selection: NSRange
+}
+func languageURI(_ path: String) -> String {
+    var parts = URLComponents(); parts.scheme = "hick"; parts.host = ""; parts.path = "/" + path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    return parts.url!.absoluteString
+}
+func languageOffset(_ source: String, _ position: [String: Any]) -> Int? {
+    guard let line = position["line"] as? Int, let character = position["character"] as? Int, line >= 0, character >= 0 else { return nil }
+    let lines = source.components(separatedBy: "\n")
+    guard line < lines.count, character <= lines[line].utf16.count else { return nil }
+    return lines.prefix(line).reduce(0) { $0 + $1.utf16.count + 1 } + character
+}
+func languagePosition(_ source: String, _ offset: Int) -> [String: Int] {
+    let text = source as NSString, end = min(text.length, max(0, offset))
+    var line = 0, start = 0
+    for index in 0..<end where text.character(at: index) == 10 { line += 1; start = index + 1 }
+    return ["line": line, "character": end - start]
+}
+func decodeNativeTokens(_ data: [Int], legend: [String], source: String) -> [NativeSemanticToken] {
+    guard data.count % 5 == 0 else { return [] }
+    let lines = source.components(separatedBy: "\n")
+    var starts = [0]
+    for line in lines.dropLast() { starts.append(starts.last! + line.utf16.count + 1) }
+    var row = 0, column = 0, result: [NativeSemanticToken] = []
+    for index in stride(from: 0, to: data.count, by: 5) {
+        let delta = data[index], start = data[index + 1], length = data[index + 2], type = data[index + 3]
+        guard delta >= 0, start >= 0, length > 0, delta <= lines.count, start <= source.utf16.count else { return [] }
+        row += delta; column = delta == 0 ? column + start : start
+        guard row < lines.count, column <= lines[row].utf16.count, length <= lines[row].utf16.count - column,
+              type >= 0, type < legend.count else { continue }
+        result.append(NativeSemanticToken(range: NSRange(location: starts[row] + column, length: length), kind: legend[type]))
+    }
+    return result
+}
+@MainActor @Observable final class NativeLanguage {
+    var status = "Language server connecting…"
+    var tokens: [NativeSemanticToken] = []
+    var suggestions: [NativeCompletion] = []
+    var showingSuggestions = false
+    private weak var buffer: DocumentBuffer?
+    private let engine: Engine
+    private let uri: String
+    private var socket: URLSessionWebSocketTask?
+    private var receiveTask: Task<Void, Never>?
+    private var sendTask: Task<Void, Never>?
+    private var refreshTask: Task<Void, Never>?
+    private var pending: [Int: CheckedContinuation<Any, Error>] = [:]
+    private var nextID = 1
+    private var version = 1
+    private var sent = ""
+    private var legend: [String] = []
+    private var epoch = UUID()
+    init(engine: Engine, buffer: DocumentBuffer) { self.engine = engine; self.buffer = buffer; uri = languageURI(buffer.file.path) }
+    func start() {
+        close(); epoch = UUID(); let current = epoch
+        var url = URLComponents(url: engine.origin, resolvingAgainstBaseURL: false)!
+        url.scheme = engine.origin.scheme == "https" ? "wss" : "ws"; url.path = "/api/ws"; url.queryItems = [URLQueryItem(name: "doc", value: "workspace")]
+        let socket = engine.session.webSocketTask(with: url.url!); self.socket = socket
+        status = "Language server connecting…"; socket.resume()
+        receiveTask = Task { [weak self] in
+            do {
+                while !Task.isCancelled {
+                    let message = try await socket.receive()
+                    guard let self, self.epoch == current else { return }
+                    if case .data(let bytes) = message, bytes.first == 2,
+                       let object = try JSONSerialization.jsonObject(with: bytes.dropFirst()) as? [String: Any] { self.receive(object) }
+                }
+            } catch { if let self, self.epoch == current, !Task.isCancelled { self.failed(error) } }
+        }
+        sent = buffer?.text ?? ""; version = 1
+        notify("textDocument/didOpen", ["textDocument": ["uri": uri, "languageId": "hick", "version": version, "text": sent]])
+        changed()
+    }
+    func close() {
+        epoch = UUID(); receiveTask?.cancel(); refreshTask?.cancel(); sendTask?.cancel()
+        socket?.cancel(with: .normalClosure, reason: nil); socket = nil
+        let waits = pending; pending.removeAll(); for continuation in waits.values { continuation.resume(throwing: CancellationError()) }
+    }
+    private func failed(_ error: Error) {
+        status = "Language services unavailable: \(error.localizedDescription). Reconnect or retry."
+        let waits = pending; pending.removeAll(); for continuation in waits.values { continuation.resume(throwing: error) }
+    }
+    private func receive(_ object: [String: Any]) {
+        if let id = object["id"] as? Int, let continuation = pending.removeValue(forKey: id) {
+            if let error = object["error"] as? [String: Any] { continuation.resume(throwing: EngineError(message: error["message"] as? String ?? "Language request refused")) }
+            else { continuation.resume(returning: object["result"] ?? NSNull()) }
+        } else if object["method"] as? String == "hick/serverCapabilities",
+                  let params = object["params"] as? [String: Any], let caps = params["capabilities"] as? [String: Any] {
+            legend = ((caps["semanticTokensProvider"] as? [String: Any])?["legend"] as? [String: Any])?["tokenTypes"] as? [String] ?? []
+            status = "LSP connected; checking semantic colors…"; changed()
+        }
+    }
+    private func send(_ message: [String: Any]) {
+        guard let socket, let bytes = try? JSONSerialization.data(withJSONObject: message) else { return }
+        let previous = sendTask, current = epoch
+        sendTask = Task { [weak self] in
+            await previous?.value
+            guard !Task.isCancelled else { return }
+            do { try await socket.send(.data(Data([2]) + bytes)) }
+            catch { if let self, self.epoch == current { self.failed(error) } }
+        }
+    }
+    private func notify(_ method: String, _ params: [String: Any]) { send(["jsonrpc": "2.0", "method": method, "params": params]) }
+    private func request(_ method: String, _ params: [String: Any]) async throws -> Any {
+        guard socket != nil else { throw EngineError(message: "Language connection is closed. Retry language services.") }
+        let id = nextID; nextID += 1
+        return try await withCheckedThrowingContinuation { continuation in
+            pending[id] = continuation; send(["jsonrpc": "2.0", "id": id, "method": method, "params": params])
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(12))
+                self?.pending.removeValue(forKey: id)?.resume(throwing: EngineError(message: "Language request timed out. Check the server installation and retry."))
+            }
+        }
+    }
+    private func sync() {
+        guard let text = buffer?.text, text != sent else { return }
+        sent = text; version += 1
+        notify("textDocument/didChange", ["textDocument": ["uri": uri, "version": version], "contentChanges": [["text": text]]])
+    }
+    func changed() {
+        refreshTask?.cancel(); tokens = []; suggestions = []
+        if let buffer { buffer.renderLanguage?([], buffer.text) }
+        let current = epoch
+        refreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let self, !Task.isCancelled, self.epoch == current else { return }
+            self.sync()
+            guard let source = self.buffer?.text else { return }
+            for attempt in 0..<5 {
+                guard !Task.isCancelled, self.buffer?.text == source, self.epoch == current else { return }
+                do {
+                    let result = try await self.request("textDocument/semanticTokens/full", ["textDocument": ["uri": self.uri]]) as? [String: Any]
+                    guard !Task.isCancelled, self.buffer?.text == source, self.epoch == current else { return }
+                    self.tokens = decodeNativeTokens(result?["data"] as? [Int] ?? [], legend: self.legend, source: source)
+                    self.buffer?.renderLanguage?(self.tokens, source)
+                    self.status = self.tokens.isEmpty ? "LSP: no semantic tokens. Check language-server installation." : "LSP · \(self.tokens.count) semantic spans"
+                    if !self.tokens.isEmpty || attempt == 4 { return }
+                } catch { if !Task.isCancelled, self.epoch == current { self.status = "Language colors unavailable: \(error.localizedDescription)" }; return }
+                try? await Task.sleep(for: .milliseconds(700))
+            }
+        }
+    }
+    func complete() async {
+        showingSuggestions = true; suggestions = []
+        guard let buffer, !buffer.readOnly else { return }
+        sync(); let source = buffer.text, selection = buffer.selection, current = epoch
+        status = "Requesting LSP completion…"
+        do {
+            // The bridge prepares virtual files asynchronously after full-text sync.
+            // Keep the popup responsive while typing settles; never use an obsolete position.
+            try await Task.sleep(for: .milliseconds(350))
+            guard self.buffer?.text == source, self.buffer?.selection == selection, epoch == current else { return }
+            let result = try await request("textDocument/completion", ["textDocument": ["uri": uri], "position": languagePosition(source, selection.location)])
+            guard self.buffer?.text == source, self.buffer?.selection == selection, epoch == current else { return }
+            let items = result as? [[String: Any]] ?? (result as? [String: Any])?["items"] as? [[String: Any]] ?? []
+            let ns = source as NSString
+            var prefix = min(selection.location, ns.length)
+            while prefix > 0, let scalar = UnicodeScalar(ns.character(at: prefix - 1)), CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_")).contains(scalar) { prefix -= 1 }
+            let typed = ns.substring(with: NSRange(location: prefix, length: max(0, selection.location - prefix))).lowercased()
+            for (index, item) in items.enumerated() {
+                guard let label = item["label"] as? String, label.lowercased().hasPrefix(typed), item["insertTextFormat"] as? Int != 2,
+                      (item["additionalTextEdits"] as? [Any] ?? []).isEmpty else { continue }
+                var range = NSRange(location: prefix, length: NSMaxRange(selection) - prefix)
+                var insert = item["insertText"] as? String ?? label
+                if let edit = item["textEdit"] as? [String: Any] {
+                    guard let raw = edit["range"] as? [String: Any], let start = raw["start"] as? [String: Any], let end = raw["end"] as? [String: Any],
+                          let from = languageOffset(source, start), let to = languageOffset(source, end), from <= to, let replacement = edit["newText"] as? String else { continue }
+                    range = NSRange(location: from, length: to - from); insert = replacement
+                }
+                suggestions.append(NativeCompletion(id: index, label: label, detail: item["detail"] as? String ?? "Language server", range: range, insert: insert, source: source, selection: selection))
+                if suggestions.count >= 100 { break }
+            }
+            status = suggestions.isEmpty ? "LSP returned no simple completions here. Check cursor and server installation." : "LSP · \(suggestions.count) completions"
+        } catch { if epoch == current { status = "Completion unavailable: \(error.localizedDescription)" } }
+    }
+    func accept(_ completion: NativeCompletion) {
+        guard let buffer, !buffer.readOnly, buffer.text == completion.source, buffer.selection == completion.selection,
+              buffer.applyLanguageCompletion?(completion.range, completion.insert, completion.source, completion.selection) == true else {
+            status = "Suggestion is out of date. Request completions again."; return
+        }
+        showingSuggestions = false
+    }
+}

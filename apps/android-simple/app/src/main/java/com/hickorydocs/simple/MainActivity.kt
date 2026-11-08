@@ -51,7 +51,7 @@ class MainActivity : ComponentActivity() {
             ))
         }
         HorizontalDivider()
-        Box(Modifier.weight(1f)) { Pane(workspace, "root") }
+        Box(Modifier.weight(1f)) { Pane(workspace, workspace.layout.rootID) }
         HorizontalDivider()
         Row(Modifier.fillMaxWidth().height(24.dp).padding(horizontal = 8.dp)) {
             Text(workspace.status, fontSize = 11.sp, maxLines = 1, modifier = Modifier.weight(1f))

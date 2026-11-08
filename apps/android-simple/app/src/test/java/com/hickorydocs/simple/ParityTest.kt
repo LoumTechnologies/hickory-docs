@@ -8,16 +8,23 @@ import org.junit.Test
 class ParityTest {
     @Test fun sharedLayoutScenarios() {
         val fixture = javaClass.classLoader!!.getResource("layout-cases.json")!!.readText()
-        val scenarios = JSONObject(fixture).getJSONArray("cases")
+        val decoded = JSONObject(fixture)
+        val points = decoded.getJSONArray("edgeCases")
+        for (i in 0 until points.length()) {
+            val point = points.getJSONObject(i)
+            assertEquals(if (point.isNull("edge")) null else point.getString("edge"), dropEdge(point.getDouble("x"), point.getDouble("y")))
+        }
+        val scenarios = decoded.getJSONArray("cases")
         for (index in 0 until scenarios.length()) {
             val scenario = scenarios.getJSONObject(index); var layout = PaneLayout()
             val steps = scenario.getJSONArray("steps")
             for (stepIndex in 0 until steps.length()) {
                 val step = steps.getJSONObject(stepIndex)
-                val group = if (step.has("group")) layout.groups()[step.getInt("group")].id else ""
+                val group = if (step.has("target")) step.getString("target") else if (step.has("group")) layout.groups()[step.getInt("group")].id else ""
                 layout = when (step.getString("op")) {
                     "open" -> layout.activate(step.getString("tab"), group)
-                    "move" -> layout.move(step.getString("tab"), group)
+                    "move" -> layout.move(step.getString("tab"), group, step.optString("before").takeIf { it.isNotEmpty() })
+                    "dock" -> layout.dock(step.getString("tab"), group, step.getString("edge"), step.getString("id"))
                     "remove" -> layout.remove(step.getString("tab"))
                     "split" -> layout.split(group, step.getString("axis"), step.getString("id"))
                     else -> error("Unknown shared operation")
@@ -27,6 +34,14 @@ class ParityTest {
             val actual = layout.groups().map { it.tabs }
             val wanted = (0 until expected.length()).map { group -> val tabs = expected.getJSONArray(group); (0 until tabs.length()).map(tabs::getString) }
             assertEquals(scenario.getString("name"), wanted, actual)
+            fun axes(id: String): List<String> {
+                val node = layout.nodes.getValue(id)
+                return if (node.axis == null) emptyList() else listOf(node.axis) + axes(node.first!!) + axes(node.second!!)
+            }
+            if (scenario.has("axes")) {
+                val expectedAxes = scenario.getJSONArray("axes")
+                assertEquals((0 until expectedAxes.length()).map(expectedAxes::getString), axes(layout.rootID))
+            }
             layout.groups().forEach { assertTrue(it.active == null || it.active in it.tabs) }
         }
     }

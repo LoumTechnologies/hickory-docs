@@ -27,11 +27,40 @@ try {
         case "open":
           await page.getByRole("button", { name: request.path, exact: true }).click();
           await editor(request.path).waitFor(); break;
+        case "dock-tab": {
+          const source = page.getByRole("tab", { name: request.path, exact: true }).locator("..");
+          const pane = page.getByRole("tab", { name: request.target, exact: true }).locator("../..").locator("..").getByRole("tabpanel");
+          const box = await pane.boundingBox();
+          if (!box) throw new Error("Target pane has no visible bounds");
+          const position = { x: request.edge === "left" ? 5 : request.edge === "right" ? box.width - 5 : box.width / 2,
+            y: request.edge === "top" ? 5 : request.edge === "bottom" ? box.height - 5 : box.height / 2 };
+          await source.dragTo(pane, { targetPosition: position }); break;
+        }
+        case "pane-count": value = await page.getByRole("tabpanel").count(); break;
+        case "reorder-tab": {
+          const source = page.getByRole("tab", { name: request.path, exact: true }).locator("..");
+          const target = page.getByRole("tab", { name: request.before, exact: true }).locator("..");
+          await source.dragTo(target); break;
+        }
+        case "tab-order": value = await page.getByRole("tab", { name: request.path, exact: true }).locator("../..").getByRole("tab").allTextContents(); break;
         case "append":
           await editor(request.path).click();
           await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
           await page.keyboard.insertText(request.text); break;
         case "content": value = await editor(request.path).innerText(); break;
+        case "markdown-formatting": {
+          const content = editor(request.path);
+          await content.locator(".cm-md-h1").waitFor();
+          value = await content.evaluate(element => {
+            const style = selector => {
+              const node = element.querySelector(selector);
+              if (!node) return null;
+              const css = getComputedStyle(node);
+              return { text: node.textContent, weight: css.fontWeight, italic: css.fontStyle, size: parseFloat(css.fontSize) };
+            };
+            return { heading: style(".cm-md-h1"), bold: style(".cm-md-strong"), italic: style(".cm-md-em"), size: parseFloat(getComputedStyle(element).fontSize) };
+          }); break;
+        }
         case "minimap": {
           const map = page.getByRole("navigation", { name: "Document minimap", exact: true }).last();
           await map.focus(); await map.press("End");
