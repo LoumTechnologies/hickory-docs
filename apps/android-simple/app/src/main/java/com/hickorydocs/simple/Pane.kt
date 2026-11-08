@@ -1,5 +1,9 @@
 package com.hickorydocs.simple
 
+import android.graphics.Paint
+import android.graphics.Typeface
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import android.content.ClipData
 import android.content.ClipDescription
 import androidx.compose.foundation.*
@@ -16,6 +20,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.draganddrop.*
@@ -178,6 +183,28 @@ private const val TAB_MIME = "application/vnd.hickorydocs.tab"
     }
     Box(modifier) {
         Row(Modifier.fillMaxSize()) {
+            val numberColor = MaterialTheme.colorScheme.onSurfaceVariant
+            val numberPaint = remember { Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                typeface = Typeface.MONOSPACE; textAlign = Paint.Align.RIGHT
+            } }
+            Canvas(Modifier.width((maxOf(3, (source.count { it == '\n' } + 1).toString().length) * 8 + 12).dp)
+                .fillMaxHeight().clipToBounds()) {
+                val layout = textLayout
+                if (layout != null && layout.layoutInput.text.text == source) {
+                    numberPaint.color = numberColor.toArgb(); numberPaint.textSize = 13.sp.toPx()
+                    val first = layout.getLineForVerticalPosition((scroll.value - 8.dp.toPx()).coerceAtLeast(0f))
+                    val last = layout.getLineForVerticalPosition(scroll.value + size.height)
+                    // Wrapped rows share a logical number; only draw at the logical start.
+                    for (visual in first..last) {
+                        val offset = layout.getLineStart(visual)
+                        if (offset == 0 || source[offset - 1] == '\n') {
+                            val logical = source.take(offset).count { it == '\n' } + 1
+                            val baseline = layout.getLineBaseline(visual) - scroll.value + 8.dp.toPx()
+                            drawContext.canvas.nativeCanvas.drawText(logical.toString(), size.width - 6.dp.toPx(), baseline, numberPaint)
+                        }
+                    }
+                }
+            }
             BasicTextField(state = buffer.state, readOnly = buffer.readOnly,
                 scrollState = scroll,
                 onTextLayout = { getResult -> textLayout = getResult() },

@@ -48,6 +48,24 @@ describe("shared frontend layout contract", () => {
 });
 
 
+// Contract: .hickory-source/frontends/contract.md — logical line numbers are immediate.
+describe("simple line numbers", () => {
+  it("numbers empty and trailing lines, updating through edits and undo", async () => {
+    const buffer = new Buffer({ path: "numbers.txt", name: "numbers.txt", dir: false }, "", "hash", () => {});
+    const screen = render(createElement(Document, { buffer }));
+    try {
+      const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+      const numbers = () => Array.from(screen.container.querySelectorAll(".cm-lineNumbers .cm-gutterElement"))
+        .filter(node => (node as HTMLElement).style.visibility !== "hidden").map(node => node.textContent);
+      await waitFor(() => expect(numbers()).toEqual(["1"]));
+      act(() => view.dispatch({ changes: { from: 0, insert: "first\nsecond\n" } }));
+      await waitFor(() => expect(numbers()).toEqual(["1", "2", "3"]));
+      act(() => { undo(view); });
+      await waitFor(() => expect(numbers()).toEqual(["1"]));
+    } finally { screen.unmount(); }
+  });
+});
+
 describe("simple inline DAP debugging", () => {
   it("launches the generated target from a literate file block", async () => {
     const start = vi.fn();

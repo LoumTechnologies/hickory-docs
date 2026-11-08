@@ -12,7 +12,7 @@ After text is visible, Markdown files load and attach the existing display-only 
 <ui:copy id="simple-1a4a59fc95-0">
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Compartment, EditorState, StateEffect } from "@codemirror/state";
-import { EditorView, keymap, drawSelection } from "@codemirror/view";
+import { EditorView, keymap, drawSelection, lineNumbers } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { completionKeymap, startCompletion } from "@codemirror/autocomplete";
 import { useWorkspaceLsp } from "../lsp/useLsp";
@@ -53,7 +53,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
     if (!cached) {
       const language = new Compartment(), prose = new Compartment();
       const view = new EditorView({ state: EditorState.create({ doc: buffer.text, extensions: [
-        history(), drawSelection(), EditorView.lineWrapping, language.of([]), prose.of([]),
+        history(), drawSelection(), lineNumbers(), EditorView.lineWrapping, language.of([]), prose.of([]),
         keymap.of([{ key: "Ctrl-Space", run: startCompletion }, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
         EditorState.readOnly.of(buffer.readonly), EditorView.editable.of(!buffer.readonly),
         EditorView.contentAttributes.of({ "aria-label": buffer.file.path }),
@@ -155,6 +155,8 @@ export function Document({ buffer }: { buffer: Buffer }) {
   </div>;
 }
 </ui:copy>
+
+The line-number extension mounts with readable text, before language or debugger capabilities. CodeMirror aligns numbers with logical lines through wrapping, scrolling and edits, including an empty final line. It shares the cached editor so attaching capabilities cannot reset numbering or undo.
 
 ## Navigate without editing
 

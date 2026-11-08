@@ -1,7 +1,7 @@
 import SwiftUI
 #if os(macOS)
 import AppKit
-@MainActor private final class MacEditor: NSObject, NSTextViewDelegate {
+@MainActor final class MacEditor: NSObject, NSTextViewDelegate {
     let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
     let text = NSTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
     let buffer: DocumentBuffer
@@ -62,6 +62,14 @@ import AppKit
             let line = source.substring(to: offset).filter { $0 == "\n" }.count
             rows.append(DebugLine(line: line, y: rect.minY + origin.y - self.scroll.contentView.bounds.minY, height: rect.height))
         }
+        // TextKit exposes a separate fragment for an empty document or trailing newline.
+        if source.length == 0 || source.character(at: source.length - 1) == 10 {
+            let rect = manager.extraLineFragmentRect
+            if rect.height > 0 {
+                rows.append(DebugLine(line: source.substring(to: source.length).filter { $0 == "\n" }.count,
+                    y: rect.minY + origin.y - scroll.contentView.bounds.minY, height: rect.height))
+            }
+        }
         if rows != buffer.visibleDebugLines { buffer.visibleDebugLines = rows }
     }
     private func paint(_ tokens: [NativeSemanticToken], source: String) {
@@ -88,7 +96,8 @@ import AppKit
 // between hosts, so teardown of an old representable cannot detach the new one.
 private final class MacEditorHost: NSView {
     let content: NSView
-    init(_ content: NSView) { self.content = content; super.init(frame: .zero) }
+    let measure: () -> Void
+    init(_ content: NSView, measure: @escaping () -> Void) { self.content = content; self.measure = measure; super.init(frame: .zero) }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     func attach() {
         guard window != nil else { return }
@@ -96,7 +105,7 @@ private final class MacEditorHost: NSView {
         content.frame = bounds
     }
     override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); attach() }
-    override func layout() { super.layout(); attach() }
+    override func layout() { super.layout(); attach(); Task { @MainActor in measure() } }
 }
 struct NativeEditor: NSViewRepresentable {
     let buffer: DocumentBuffer
@@ -106,7 +115,7 @@ struct NativeEditor: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let editor = EditorCache.views[buffer.id] ?? MacEditor(buffer)
         EditorCache.views[buffer.id] = editor
-        return MacEditorHost(editor.scroll)
+        return MacEditorHost(editor.scroll) { [weak editor] in editor?.measureDebugLines() }
     }
     func updateNSView(_ view: NSView, context: Context) {
         (view as? MacEditorHost)?.attach(); view.needsLayout = true
@@ -164,6 +173,13 @@ import UIKit
             let line = source.substring(to: offset).filter { $0 == "\n" }.count
             rows.append(DebugLine(line: line, y: rect.minY + inset.top - self.text.contentOffset.y, height: rect.height))
         }
+        if source.length == 0 || source.character(at: source.length - 1) == 10 {
+            let rect = manager.extraLineFragmentRect
+            if rect.height > 0 {
+                rows.append(DebugLine(line: source.substring(to: source.length).filter { $0 == "\n" }.count,
+                    y: rect.minY + inset.top - text.contentOffset.y, height: rect.height))
+            }
+        }
         if rows != buffer.visibleDebugLines { buffer.visibleDebugLines = rows }
     }
     private func paint(_ tokens: [NativeSemanticToken], source: String) {
@@ -189,7 +205,8 @@ import UIKit
 @MainActor private enum EditorCache { static var views: [UUID: MobileEditor] = [:] }
 private final class MobileEditorHost: UIView {
     let content: UIView
-    init(_ content: UIView) { self.content = content; super.init(frame: .zero) }
+    let measure: () -> Void
+    init(_ content: UIView, measure: @escaping () -> Void) { self.content = content; self.measure = measure; super.init(frame: .zero) }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     func attach() {
         guard window != nil else { return }
@@ -197,7 +214,7 @@ private final class MobileEditorHost: UIView {
         content.frame = bounds
     }
     override func didMoveToWindow() { super.didMoveToWindow(); attach() }
-    override func layoutSubviews() { super.layoutSubviews(); attach() }
+    override func layoutSubviews() { super.layoutSubviews(); attach(); Task { @MainActor in measure() } }
 }
 struct NativeEditor: UIViewRepresentable {
     let buffer: DocumentBuffer
@@ -207,7 +224,7 @@ struct NativeEditor: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let editor = EditorCache.views[buffer.id] ?? MobileEditor(buffer)
         EditorCache.views[buffer.id] = editor
-        return MobileEditorHost(editor.text)
+        return MobileEditorHost(editor.text) { [weak editor] in editor?.measureDebugLines() }
     }
     func updateUIView(_ view: UIView, context: Context) {
         (view as? MobileEditorHost)?.attach(); view.setNeedsLayout()
@@ -221,6 +238,14 @@ struct LanguageEditor: View {
     var debugger: NativeDebugger?
     var body: some View {
         HStack(spacing: 0) {
+            GeometryReader { geometry in
+                Canvas { context, size in
+                    for row in buffer.visibleDebugLines where row.y + row.height > 0 && row.y < size.height {
+                        context.draw(Text(String(row.line + 1)).font(.system(size: 13, design: .monospaced)).foregroundColor(.secondary),
+                            at: CGPoint(x: size.width - 6, y: row.y + row.height / 2), anchor: .trailing)
+                    }
+                }.clipped().allowsHitTesting(false).accessibilityHidden(true)
+            }.frame(width: CGFloat(max(3, String(buffer.text.filter { $0 == "\n" }.count + 1).count)) * 8 + 12)
             NativeEditor(buffer: buffer)
             GeometryReader { geometry in
                 Canvas { context, size in

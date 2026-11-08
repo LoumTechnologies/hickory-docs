@@ -16,6 +16,10 @@ Reserve a small blank slot at the end of the strip even when tabs overflow, so a
 <ui:copy id="simple-0d1e071614-0">
 package com.hickorydocs.simple
 
+import android.graphics.Paint
+import android.graphics.Typeface
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import android.content.ClipData
 import android.content.ClipDescription
 import androidx.compose.foundation.*
@@ -32,6 +36,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.draganddrop.*
@@ -184,6 +189,8 @@ The four edge drop targets use the same twenty-percent regions as the shared cla
 
 Compute keyword ranges on a background dispatcher and tag them with their source snapshot. OutputTransformation paints only matching results and never changes backing text. Document-word suggestions are an explicit local preview. Selection replacement uses TextFieldState.edit, while minimap navigation changes only its retained scroll state. Neither capability grants permission to edit generated files.
 
+The left line-number canvas reads the text field's actual layout and scroll state, so wrapped continuations do not receive a second number. Draw at the measured baseline with the same font size and top padding. A stale layout is ignored until the current text is measured; the editable text remains available. The gutter reserves three digits and grows for larger documents without mounting a second scrolling view.
+
 <ui:copy id="simple-android-language-preview">
 @Composable private fun LanguageEditor(buffer: DocumentBuffer, debug: NativeDebugger?, modifier: Modifier = Modifier) {
     val scroll = rememberScrollState()
@@ -208,6 +215,28 @@ Compute keyword ranges on a background dispatcher and tag them with their source
     }
     Box(modifier) {
         Row(Modifier.fillMaxSize()) {
+            val numberColor = MaterialTheme.colorScheme.onSurfaceVariant
+            val numberPaint = remember { Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                typeface = Typeface.MONOSPACE; textAlign = Paint.Align.RIGHT
+            } }
+            Canvas(Modifier.width((maxOf(3, (source.count { it == '\n' } + 1).toString().length) * 8 + 12).dp)
+                .fillMaxHeight().clipToBounds()) {
+                val layout = textLayout
+                if (layout != null && layout.layoutInput.text.text == source) {
+                    numberPaint.color = numberColor.toArgb(); numberPaint.textSize = 13.sp.toPx()
+                    val first = layout.getLineForVerticalPosition((scroll.value - 8.dp.toPx()).coerceAtLeast(0f))
+                    val last = layout.getLineForVerticalPosition(scroll.value + size.height)
+                    // Wrapped rows share a logical number; only draw at the logical start.
+                    for (visual in first..last) {
+                        val offset = layout.getLineStart(visual)
+                        if (offset == 0 || source[offset - 1] == '\n') {
+                            val logical = source.take(offset).count { it == '\n' } + 1
+                            val baseline = layout.getLineBaseline(visual) - scroll.value + 8.dp.toPx()
+                            drawContext.canvas.nativeCanvas.drawText(logical.toString(), size.width - 6.dp.toPx(), baseline, numberPaint)
+                        }
+                    }
+                }
+            }
             BasicTextField(state = buffer.state, readOnly = buffer.readOnly,
                 scrollState = scroll,
                 onTextLayout = { getResult -> textLayout = getResult() },

@@ -1,5 +1,8 @@
 // Contract: .hickory-source/frontends/contract.md
 import XCTest
+#if os(macOS)
+import AppKit
+#endif
 @testable import HickorySimple
 
 final class ParityTests: XCTestCase {
@@ -7,6 +10,22 @@ final class ParityTests: XCTestCase {
     struct EdgeCase: Decodable { var x: Double; var y: Double; var edge: String? }
     struct Scenario: Decodable { var axes: [String]?; var name: String; var steps: [Step]; var expected: [[String]] }
     struct Step: Decodable { var op: String; var group: Int?; var tab: String?; var axis: String?; var id: String?; var before: String?; var edge: String?; var target: String? }
+    #if os(macOS)
+    @MainActor func testLogicalLineGutterUsesNativeWrappedLayout() {
+        let file = FileNode(name: "numbers.txt", path: "numbers.txt", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: "", hash: "base"))
+        let editor = MacEditor(buffer)
+        editor.text.textContainer?.containerSize = NSSize(width: 120, height: CGFloat.greatestFiniteMagnitude)
+        for source in ["", "one\ntwo\n", String(repeating: "word ", count: 30) + "\nlast\n"] {
+            editor.text.string = source
+            editor.measureDebugLines()
+            XCTAssertEqual(buffer.visibleDebugLines.map(\.line), Array(0...source.filter { $0 == "\n" }.count))
+            XCTAssertTrue(zip(buffer.visibleDebugLines, buffer.visibleDebugLines.dropFirst()).allSatisfy { $0.y < $1.y })
+        }
+        // Wrapping adds visual height without adding logical numbers.
+        XCTAssertGreaterThan(buffer.visibleDebugLines[1].y - buffer.visibleDebugLines[0].y, buffer.visibleDebugLines[0].height * 2)
+    }
+    #endif
     func testSharedLayoutScenarios() throws {
         let apps = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let data = try Data(contentsOf: apps.appendingPathComponent("simple-contract/layout-cases.json"))

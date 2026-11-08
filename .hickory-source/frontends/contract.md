@@ -9,6 +9,8 @@ Opening text does not wait for rendering, provenance, debugging or language serv
 
 A plain save includes its original content hash. A literate save includes its original source as both room and disk expectation. Failed saves retain edits. A successful reply marks only the submitted snapshot saved; typing during that request remains dirty. Save and agent mutations are never automatically replayed by these frontends after transport failure.
 
+Every text document has a left line-number gutter, starting at 1, including empty documents and the empty line after a final newline. Numbers follow logical lines through edits, scrolling and wrapping; wrapped continuations have no additional number. The number gutter is separate from the right contextual-action rail.
+
 Every document has an interactive fixed-width minimap. The browser attaches existing LSP features independently of text opening, without reconstructing its editor. Apple uses the real backend LSP channel for native semantic colors and simple completions; Android retains the explicitly labeled local preview. Suggestions obey read-only checks and use native edit paths. A preview is not evidence of a connected native server. Cross-file language navigation, Android LSP transport and revision-safe diagnostics remain future work.
 
 The browser document editor styles Markdown headings, bold and italics as source is typed, retaining editable delimiters and original bytes. Browser conversation prompts and answers render headings and nested emphasis; inline and fenced code remain literal, and HTML is displayed as text. This formatting extension currently applies to the browser frontend.
