@@ -15,7 +15,7 @@ import { createElement } from "react";
 import { render, waitFor, act, fireEvent } from "@testing-library/react";
 import { EditorView } from "@codemirror/view";
 import { undo } from "@codemirror/commands";
-import { startCompletion, currentCompletions } from "@codemirror/autocomplete";
+import { currentCompletions } from "@codemirror/autocomplete";
 import { Document } from "./Document";
 vi.mock("../debug/launchProfiles", () => ({ launchWithProfiles: vi.fn(async (_query, start, options) => { if (options.isCurrent()) start({ id: "test", fingerprint: "test" }); }) }));
 import { IDLE_SESSION } from "../debug/useDebugger";
@@ -246,12 +246,13 @@ describe("simple editor capability attachment", () => {
     try {
       act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: "\nla" }, selection: { anchor: 12 } }));
       const selected = view.state.selection.main.head;
-      vi.mocked(useWorkspaceLsp).mockReturnValue({ client, uri: "hick:///sample.ts", ready: true, diagnostics: [] });
+      vi.mocked(useWorkspaceLsp).mockReturnValue({ client, uri: "hick:///sample.ts", ready: true, diagnostics: [{ range: { start: { line: 0, character: 4 }, end: { line: 0, character: 5 } }, severity: 1, message: "Example type error" }] });
       screen.rerender(createElement(Document, { buffer }));
       expect(EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)).toBe(view);
       expect(view.state.selection.main.head).toBe(selected);
       await waitFor(() => expect(screen.container.querySelector(".cm-st-keyword")?.textContent).toBe("let"));
-      act(() => { startCompletion(view); });
+      await waitFor(() => expect(screen.container.querySelector(".cm-lsp-error")?.textContent).toBe("a"));
+      fireEvent.keyDown(view.contentDOM, { key: " ", code: "Space", ctrlKey: true });
       await waitFor(() => expect(currentCompletions(view.state).some(option => option.label === "languageValue")).toBe(true));
       fireEvent.keyDown(screen.getByRole("navigation", { name: "Document minimap" }), { key: "End" });
       expect(view.state.selection.main.head).toBe(selected);

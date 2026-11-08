@@ -110,6 +110,10 @@ The launch runner’s three target-selection and process-cleanup tests passed. T
 
 The complete automated browser acceptance suite could not launch Chromium because this host refused macOS bootstrap registration. `xcodebuild` also aborted in the host before compilation. The complete Android source compiled with Studio’s bundled Kotlin and Compose compiler against the installed platform 37.0 and cached AndroidX dependencies. Gradle 9.3.1 is downloaded and the scoped commands find it in Studio’s cache. APK assembly remains unverified because shell DNS failures blocked remaining Maven dependencies, including Kotlin build tools 2.2.10. Run the platform builds after those tools are ready; model tests are not substitutes for them.
 
+## Try a real language server
+
+Use [the TypeScript playground](../../examples/simple-lsp/README.md) for local server setup and concrete completion, hover, semantic-color and diagnostic probes in the browser.
+
 ## Focused checks
 
 - `cargo test --locked -p hickory-cli --example simple_dev`: launch-target selection and real subprocess cleanup.

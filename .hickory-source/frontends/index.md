@@ -54,4 +54,5 @@ Each client reads text before requesting optional capabilities. A save uses the 
 <ui:include file="scripts/simple-android-gradle.rs.md" />
 <ui:include file="crates/hickory-cli/examples/simple_dev.rs.md" />
 <ui:include file="scripts/simple-window-layout.swift.md" />
+<ui:include file="simple-lsp.md" />
 </ui:doc>

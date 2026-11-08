@@ -1,0 +1,12 @@
+{
+  "name": "hickory-simple-lsp",
+  "private": true,
+  "scripts": {
+    "check": "tsc --noEmit",
+    "start": "tsc && node dist/main.js"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "typescript-language-server": "5.0.0"
+  }
+}

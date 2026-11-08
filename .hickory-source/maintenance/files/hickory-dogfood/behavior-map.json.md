@@ -67699,6 +67699,83 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "simple-1805c24098-1",
         "simple-1805c24098-2"
       ]
+    },
+    "examples/simple-lsp/package.json": {
+      "source": ".hickory-source/frontends/simple-lsp.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "example",
+      "sha256": "f74333ada9fdaa83bc828c91eed0051e625e7d56101b1ec05ae9f5b9af08e156",
+      "construction": "fragments",
+      "fragments": [
+        "simple-lsp-0"
+      ]
+    },
+    "examples/simple-lsp/.gitignore": {
+      "source": ".hickory-source/frontends/simple-lsp.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "example",
+      "sha256": "790e3169bc19b046fe55ba1da6d13b976c28363c8c00462a2195fe5faf260910",
+      "construction": "fragments",
+      "fragments": [
+        "simple-lsp-1"
+      ]
+    },
+    "examples/simple-lsp/tsconfig.json": {
+      "source": ".hickory-source/frontends/simple-lsp.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "example",
+      "sha256": "6cf91df2deb65e0e60e73df2da2e1b264e11486e9fe25ad0c52c701617be12fb",
+      "construction": "fragments",
+      "fragments": [
+        "simple-lsp-2"
+      ]
+    },
+    "examples/simple-lsp/src/catalog.ts": {
+      "source": ".hickory-source/frontends/simple-lsp.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "example",
+      "sha256": "f2869b683893f4a722fadfe37b0acba0d15d7e0c55f19b78e7dd5f6902770dd2",
+      "construction": "fragments",
+      "fragments": [
+        "simple-lsp-3"
+      ]
+    },
+    "examples/simple-lsp/src/main.ts": {
+      "source": ".hickory-source/frontends/simple-lsp.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "example",
+      "sha256": "905996d12817bf46125b4243b3abb40c724f127a4e27388ff3b71b3df213704d",
+      "construction": "fragments",
+      "fragments": [
+        "simple-lsp-4"
+      ]
+    },
+    "examples/simple-lsp/README.md": {
+      "source": ".hickory-source/frontends/simple-lsp.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "example",
+      "sha256": "76eb525aac1fb20c0b15aad47e1092a3314c02e0ef2bfcc84a9f4d62b8390ba8",
+      "construction": "fragments",
+      "fragments": [
+        "simple-lsp-5"
+      ]
+    },
+    "examples/simple-lsp/package-lock.json": {
+      "source": ".hickory-source/frontends/simple-lsp.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "example",
+      "sha256": "4c8ecc4d6bd3e58db23dfb6e3788a960715e85d8fa5c94faeedb48e1fe3d4696",
+      "construction": "fragments",
+      "fragments": [
+        "simple-lsp-lock"
+      ]
     }
   },
   "evidence_records": [

@@ -14,9 +14,9 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } fr
 import { Compartment, EditorState, StateEffect } from "@codemirror/state";
 import { EditorView, keymap, drawSelection } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { completionKeymap } from "@codemirror/autocomplete";
+import { completionKeymap, startCompletion } from "@codemirror/autocomplete";
 import { useWorkspaceLsp } from "../lsp/useLsp";
-import { lspSupport } from "../lsp/cmLsp";
+import { lspSupport, setLspDiagnostics, diagnosticRanges } from "../lsp/cmLsp";
 import { lspFeatures } from "../lsp/cmLspFeatures";
 import { completions } from "../lsp/completion";
 import { positionToUtf16, utf16ToPosition } from "../lsp/positions";
@@ -54,7 +54,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
       const language = new Compartment(), prose = new Compartment();
       const view = new EditorView({ state: EditorState.create({ doc: buffer.text, extensions: [
         history(), drawSelection(), EditorView.lineWrapping, language.of([]), prose.of([]),
-        keymap.of([...completionKeymap, ...defaultKeymap, ...historyKeymap]),
+        keymap.of([{ key: "Ctrl-Space", run: startCompletion }, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
         EditorState.readOnly.of(buffer.readonly), EditorView.editable.of(!buffer.readonly),
         EditorView.contentAttributes.of({ "aria-label": buffer.file.path }),
         EditorView.updateListener.of(update => { if (update.docChanged) buffer.edit(update.state.doc.toString()); }),
@@ -93,6 +93,12 @@ export function Document({ buffer }: { buffer: Buffer }) {
     ]) });
     return () => { view.dispatch({ effects: language.reconfigure([]) }); };
   }, [buffer, session.client, session.uri, session.ready, capabilities]);
+  useEffect(() => {
+    const cached = editors.get(buffer);
+    if (!cached || !session.client || !session.ready) return;
+    cached.view.dispatch({ effects: setLspDiagnostics.of(diagnosticRanges(session.diagnostics,
+      position => positionToUtf16(cached.view.state.doc.toString(), position))) });
+  }, [buffer, session.client, session.ready, session.diagnostics, capabilities]);
   // Attach debugger state to the existing editor. Callbacks read the current
   // session so tab moves and incoming DAP events cannot retain obsolete verbs.
   useEffect(() => {
@@ -192,6 +198,8 @@ function Minimap({ buffer }: { buffer: Buffer }) {
     onKeyDown={event => { if (event.key === "Home" || event.key === "End") { event.preventDefault(); jump(event.key === "Home" ? 0 : 1); } }} />;
 }
 </ui:copy>
+
+The same server session publishes diagnostics independently of semantic tokens. Map them into the existing editor after its language compartment attaches, so errors become hoverable marks without replacing the buffer. Bind Ctrl-Space explicitly because the completion navigation keymap only handles an already open menu.
 
 ## Attach the existing DAP session without replacing text
 

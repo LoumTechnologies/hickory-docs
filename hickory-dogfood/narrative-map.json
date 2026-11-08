@@ -150501,6 +150501,55 @@
       "basis": "explained-behavior"
     },
     {
+      "id": "simple-lsp-0",
+      "output": "examples/simple-lsp/package.json",
+      "page": ".hickory-source/frontends/simple-lsp.md",
+      "symbol": "simple-lsp-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-lsp-1",
+      "output": "examples/simple-lsp/.gitignore",
+      "page": ".hickory-source/frontends/simple-lsp.md",
+      "symbol": "simple-lsp-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-lsp-2",
+      "output": "examples/simple-lsp/tsconfig.json",
+      "page": ".hickory-source/frontends/simple-lsp.md",
+      "symbol": "simple-lsp-2",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-lsp-3",
+      "output": "examples/simple-lsp/src/catalog.ts",
+      "page": ".hickory-source/frontends/simple-lsp.md",
+      "symbol": "simple-lsp-3",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-lsp-4",
+      "output": "examples/simple-lsp/src/main.ts",
+      "page": ".hickory-source/frontends/simple-lsp.md",
+      "symbol": "simple-lsp-4",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-lsp-5",
+      "output": "examples/simple-lsp/README.md",
+      "page": ".hickory-source/frontends/simple-lsp.md",
+      "symbol": "simple-lsp-5",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-lsp-lock",
+      "output": "examples/simple-lsp/package-lock.json",
+      "page": ".hickory-source/frontends/simple-lsp.md",
+      "symbol": "simple-lsp-lock",
+      "basis": "explained-behavior"
+    },
+    {
       "id": "simple-apple-debug-session",
       "output": "apps/apple-simple/Sources/Engine.swift",
       "page": ".hickory-source/frontends/apps/apple-simple/Sources/Engine.swift.md",
