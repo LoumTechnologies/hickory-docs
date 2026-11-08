@@ -30,6 +30,12 @@ The macOS recipe builds a locally signed `Hickory Simple.app` under `target/simp
 
 The Apple build requires full Xcode. `simple-dev` honors `DEVELOPER_DIR` and otherwise finds Xcode under `/Applications` if command-line tools are selected. For standalone build/test recipes, set `DEVELOPER_DIR` to your installed Xcode's `Contents/Developer` directory when needed. `xcodegen` is needed for the iOS project. Run `just simple-build ios`, then open `target/apple-simple-xcode/HickorySimple.xcodeproj` for device or simulator work. Device signing is not configured by this comparison scaffold.
 
+## Fold code
+
+Open the right-hand `⋯` menu beside an indented block's header and choose **Fold** or **Unfold**. Apple and Android also offer **Unfold all** in that menu. Browser editors support CodeMirror's fold shortcuts (Ctrl-Shift-[ / Ctrl-Shift-], or Command-Option-[ / Command-Option-] on Mac). Folds are local display state and do not change saved source. Native edits unfold regions; an edit touching hidden text reveals it first, so repeat the edit after inspecting it. Folding works on read-only files too.
+
+Local folding recognizes indentation, with a tab counting as four columns. Browser language services may supply additional syntax-aware regions. Unindented native blocks do not yet have syntax-aware folding.
+
 ## Shared first slice
 
 All three provide a file tree, UTF-8 text documents, source editing for literate documents, guarded saves, a workspace agent conversation, a terminal, tab closing, recursive right/below splits, resizing, tab dragging and a **Move tab to next group** alternative. To split by dragging, drop a tab near the left, right, top or bottom edge of pane content. The shaded half shows where the new pane will appear. The outer twenty percent triggers splitting; left/right own corners. The new pane gets the existing tab and focus. An empty source group closes automatically, and its sibling fills the freed space. Closing a group’s last tab does the same. If all tabs close, one reusable empty root remains. The explicit Split command can create a temporary empty destination. A center drop adds the dragged tab to the existing group and activates it without splitting that area.

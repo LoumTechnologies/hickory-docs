@@ -61,6 +61,16 @@ try {
             return { heading: style(".cm-md-h1"), bold: style(".cm-md-strong"), italic: style(".cm-md-em"), size: parseFloat(getComputedStyle(element).fontSize) };
           }); break;
         }
+        case "fold":
+        case "unfold": {
+          const pane = editor(request.path).locator("xpath=ancestor::div[contains(@class, 'editor-row')][1]");
+          const summary = pane.getByLabel(`Line actions on line ${request.line}`, { exact: true });
+          const details = summary.locator("..");
+          if (!(await details.getAttribute("open") !== null)) await summary.click();
+          await pane.getByRole("button", { name: `${request.action === "fold" ? "Fold" : "Unfold"} line ${request.line}`, exact: true }).click();
+          break;
+        }
+        case "fold-count": value = await editor(request.path).locator(".cm-foldPlaceholder").count(); break;
         case "minimap": {
           const map = page.getByRole("navigation", { name: "Document minimap", exact: true }).last();
           await map.focus(); await map.press("End");

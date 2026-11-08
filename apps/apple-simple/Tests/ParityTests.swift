@@ -11,6 +11,31 @@ final class ParityTests: XCTestCase {
     struct Scenario: Decodable { var axes: [String]?; var name: String; var steps: [Step]; var expected: [[String]] }
     struct Step: Decodable { var op: String; var group: Int?; var tab: String?; var axis: String?; var id: String?; var before: String?; var edge: String?; var target: String? }
     #if os(macOS)
+    @MainActor func testFoldingPreservesSourceAndProtectsHiddenEdits() {
+        let source = "func main() {\n    first()\n    second()\n}\n"
+        let file = FileNode(name: "fold.swift", path: "fold.swift", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "base"))
+        let editor = MacEditor(buffer)
+        let before = buffer.visibleDebugLines.first { $0.line == 3 }!.y
+        editor.toggleFold(0)
+        XCTAssertEqual(editor.text.string, source); XCTAssertEqual(buffer.text, source); XCTAssertFalse(buffer.dirty)
+        XCTAssertEqual(buffer.foldedLines, [0])
+        XCTAssertFalse(buffer.visibleDebugLines.contains { $0.line == 1 || $0.line == 2 })
+        XCTAssertLessThan(buffer.visibleDebugLines.first { $0.line == 3 }!.y, before)
+        editor.toggleFold(0)
+        XCTAssertEqual(buffer.visibleDebugLines.first { $0.line == 3 }!.y, before, accuracy: 0.1)
+        XCTAssertTrue(buffer.foldedLines.isEmpty)
+        editor.toggleFold(0)
+        XCTAssertFalse(editor.textView(editor.text, shouldChangeTextIn: NSRange(location: source.utf16.count / 2, length: 1), replacementString: ""))
+        XCTAssertTrue(buffer.foldedLines.isEmpty); XCTAssertEqual(editor.text.string, source)
+    }
+    func testIndentationFoldOffsets() {
+        let source = "😀 header\n\tchild\n        nested\n\nnext\n"
+        let ranges = simpleFoldRanges(source)
+        XCTAssertEqual(ranges.map(\.line), [0, 1])
+        XCTAssertEqual(ranges.map { (source as NSString).substring(with: $0.range) }, ["\n\tchild\n        nested", "\n        nested"])
+        XCTAssertTrue(simpleFoldRanges("one\ntwo\n").isEmpty)
+    }
     @MainActor func testLogicalLineGutterUsesNativeWrappedLayout() {
         let file = FileNode(name: "numbers.txt", path: "numbers.txt", dir: false)
         let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: "", hash: "base"))

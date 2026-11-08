@@ -68,8 +68,11 @@ export function DebugRailGroup({ view, at, sticky = false, children }: {
 }
 
 /** A single right-hand action column shared by launch icons and live controls. */
-export function DebugLaunchRail({ view, onStart, onProfiles, plainPath, enabled = true }: {
-  view: EditorView | null; onStart?: (path: string, at?: number) => void; onProfiles?: (path: string, at?: number) => void; plainPath?: string; enabled?: boolean;
+// Optional line actions share the launch slot instead of creating a second column.
+// A single anchored overflow button opens the floating grid, so folding controls
+// cannot push the next line's icon down or change the editor's width.
+export function DebugLaunchRail({ view, onStart, onProfiles, plainPath, enabled = true, actions = [] }: {
+  view: EditorView | null; onStart?: (path: string, at?: number) => void; onProfiles?: (path: string, at?: number) => void; plainPath?: string; enabled?: boolean; actions?: { at: number; label: string; run: () => void }[];
 }) {
   const targets: { path: string; at: number; end: number }[] = [];
   if (view && onStart && enabled) {
@@ -103,7 +106,18 @@ export function DebugLaunchRail({ view, onStart, onProfiles, plainPath, enabled 
   }, [view, plainPath]);
   return <div className="cm-debug-rail" aria-label="Script debugging">
     {controls.error && <p role="alert">{controls.error}</p>}
-    {view && targets.map(target => <DebugRailGroup key={`${target.path}:${target.at}`} view={view} at={target.at}>
+    {view && actions.map(action => {
+      const launch = targets.find(target => target.at === action.at);
+      return <DebugRailGroup key={`fold:${action.at}`} view={view} at={action.at}>
+        <details className="more-actions"><summary aria-label={`Line actions on line ${view.state.doc.lineAt(action.at).number}`} style={{ height: view.defaultLineHeight }}>⋯</summary>
+          <div className="more-actions__items">
+            <button type="button" onClick={action.run}>{action.label}</button>
+            {launch && <button type="button" onClick={() => start(launch)}>Debug {launch.path}</button>}
+          </div>
+        </details>
+      </DebugRailGroup>;
+    })}
+    {view && targets.filter(target => !actions.some(action => action.at === target.at)).map(target => <DebugRailGroup key={`${target.path}:${target.at}`} view={view} at={target.at}>
       <button type="button" className="cm-debug-start debug-icon" aria-label={`Debug ${target.path}`}
         data-tip={`Debug ${target.path} · installs the debugger if needed`} onClick={() => start(target)}>▷</button>
       {onProfiles && <button type="button" className="debug-icon" aria-label={`Launch profiles for ${target.path}`} data-tip="Choose a Run or Debug profile" onClick={()=>start(target, true)}>⋯</button>}

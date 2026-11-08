@@ -16,6 +16,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @Test fun foldProjectionPreservesSourceAndOffsets() {
+        val source = "😀 header\n\tchild\n        nested\n\nnext\n"
+        val ranges = simpleFoldRanges(source)
+        assertEquals(listOf(0, 1), ranges.map { it.line })
+        assertEquals(listOf("\n\tchild\n        nested", "\n        nested"), ranges.map { source.substring(it.from, it.to) })
+        val display = foldDisplay(source, ranges)
+        assertEquals("😀 header …\n\nnext\n", display)
+        assertEquals(source.indexOf("next"), foldSourceOffset(display.indexOf("next"), ranges))
+        assertEquals(source, foldDisplay(source, emptyList()))
+        assertTrue(simpleFoldRanges("one\ntwo\n").isEmpty())
+    }
     @Test fun sharedLayoutScenarios() {
         val fixture = javaClass.classLoader!!.getResource("layout-cases.json")!!.readText()
         val decoded = JSONObject(fixture)

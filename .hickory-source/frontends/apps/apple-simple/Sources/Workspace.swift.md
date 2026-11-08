@@ -23,6 +23,8 @@ import Observation
     @ObservationIgnored var applyLanguageCompletion: ((NSRange, String, String, NSRange) -> Bool)?
     @ObservationIgnored var selection = NSRange(location: 0, length: 0)
     var visibleDebugLines: [DebugLine] = []
+    var foldedLines: Set<Int> = []
+    @ObservationIgnored var toggleFold: ((Int) -> Void)?
     @ObservationIgnored var revealDebugLine: ((Int) -> Void)?
     var language: NativeLanguage?
     var hash: String

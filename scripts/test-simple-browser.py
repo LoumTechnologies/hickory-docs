@@ -80,6 +80,23 @@ def debug_acceptance(driver):
     driver.act("debug-stop")
     eventually(lambda: not any("paused" in state for state in driver.act("debug-state")), True)
 
+def folding_acceptance(driver, folder):
+    path = "fold.txt"
+    source = (folder / path).read_text()
+    driver.act("open", path=path)
+    driver.act("append", path=path, text="tail")
+    driver.act("fold", path=path, line=1)
+    eventually(lambda: driver.act("fold-count", path=path), 1)
+    driver.act("save")
+    eventually(lambda: (folder / path).read_text(), source + "tail")
+    driver.act("split"); driver.act("move")
+    eventually(lambda: driver.act("fold-count", path=path), 1)
+    driver.act("unfold", path=path, line=1)
+    eventually(lambda: driver.act("fold-count", path=path), 0)
+    assert driver.act("content", path=path) == source + "tail"
+    driver.act("undo", path=path)
+    eventually(lambda: driver.act("content", path=path), source)
+
 def markdown_acceptance(driver):
     driver.act("open", path="source.md")
     formatting = driver.act("markdown-formatting", path="source.md")
@@ -146,6 +163,7 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix="hickory-simple-") as temporary:
         folder = Path(temporary) / "workspace"; folder.mkdir()
         (folder / "notes.txt").write_text("before")
+        (folder / "fold.txt").write_text("function main() {\n  first()\n  second()\n}\n")
         (folder / "source.md").write_text('<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n# A literate document\n\n**bold** and *italic*\n</h:doc>\n')
         (folder / "debug.py").write_text("value = 1\nvalue += 1\nprint(value)\n")
         environment = {**os.environ, "HICKORY_STATE_DIR": str(Path(temporary) / "state")}
@@ -157,7 +175,10 @@ if __name__ == "__main__":
             backend = origin(engine)
             vite = start(["node", "node_modules/vite/bin/vite.js", "--config", "vite.simple.config.ts", "--host", "127.0.0.1", "--port", str(ui_port), "--strictPort"], cwd=ROOT / "apps/web", env={**environment, "HICKORY_API_ORIGIN": backend}); processes.append(vite)
             driver = BrowserDriver(origin(vite) + "/simple.html")
-            if "--debug-only" in sys.argv:
+            if "--fold-only" in sys.argv:
+                folding_acceptance(driver, folder)
+                print("Browser: folding, exact saved source, moved folds and undo passed")
+            elif "--debug-only" in sys.argv:
                 debug_acceptance(driver)
                 print("Browser: inline DAP pause, moved session, step values and stop passed")
             elif "--markdown-only" in sys.argv:

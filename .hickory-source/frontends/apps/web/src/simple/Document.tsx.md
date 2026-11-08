@@ -9,11 +9,14 @@ The minimap reserves forty units beside the text rather than overlaying readable
 
 After text is visible, Markdown files load and attach the existing display-only prose decorations independently of LSP. Headings, bold and italic update with typing without rewriting source or rebuilding the editor. Fenced code stays literal; plain files keep their original appearance.
 
+The editor installs CodeMirror folding with its initial text. A linear indentation scan supplies regions without waiting for a parser or server; the existing LSP compartment may add language-specific regions later. Only visible headers become right-rail menu actions. Folding changes editor decorations rather than buffer bytes, and the existing cached view keeps folds across tab moves. The same anchored menu combines launch and fold commands when they share a line.
+
 <ui:copy id="simple-1a4a59fc95-0">
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Compartment, EditorState, StateEffect } from "@codemirror/state";
 import { EditorView, keymap, drawSelection, lineNumbers } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import { codeFolding, foldKeymap, foldService, foldEffect, unfoldEffect, foldedRanges, foldable } from "@codemirror/language";
 import { completionKeymap, startCompletion } from "@codemirror/autocomplete";
 import { useWorkspaceLsp } from "../lsp/useLsp";
 import { lspSupport, setLspDiagnostics, diagnosticRanges } from "../lsp/cmLsp";
@@ -33,10 +36,32 @@ import { observationSourceChanged } from "../debug/observations";
 import { api } from "../api/client";
 import { launchWithProfiles } from "../debug/launchProfiles";
 import { claimReveal, onRevealLine, openLocation } from "../lib/revealLine";
+export function simpleFoldRanges(source: string): { line: number; from: number; to: number }[] {
+  const rows = source.split("\n"), stack: { line: number; indent: number; from: number }[] = [];
+  const ranges: { line: number; from: number; to: number }[] = [];
+  let offset = 0, last = -1;
+  for (let line = 0; line <= rows.length; line++) {
+    const row = rows[line], indent = row === undefined ? -1 : row.match(/^[ \t]*/)![0].replace(/\t/g, "    ").length;
+    if (row !== undefined && !row.trim()) { offset += row.length + 1; continue; }
+    while (stack.length && stack[stack.length - 1].indent >= indent) {
+      const header = stack.pop()!;
+      if (last > header.from) ranges.push({ line: header.line, from: header.from, to: last });
+    }
+    if (row !== undefined) { last = offset + row.length; stack.push({ line, indent, from: last }); offset = last + 1; }
+  }
+  return ranges.sort((a, b) => a.from - b.from);
+}
+const foldCache = new WeakMap<EditorState["doc"], Map<number, { from: number; to: number }>>();
+function localFold(state: EditorState, from: number) {
+  let ranges = foldCache.get(state.doc);
+  if (!ranges) { ranges = new Map(simpleFoldRanges(state.doc.toString()).map(range => [range.from, range])); foldCache.set(state.doc, ranges); }
+  return ranges.get(state.doc.lineAt(from).to) ?? null;
+}
 const editors = new WeakMap<Buffer, { view: EditorView; language: Compartment; prose: Compartment }>();
 export function Document({ buffer }: { buffer: Buffer }) {
   const host = useRef<HTMLDivElement>(null);
   useSyncExternalStore(buffer.subscribe, buffer.snapshot);
+  const [, refreshFolds] = useState(0);
   const [view, setView] = useState<EditorView | null>(null);
   const language = languageFromPath(buffer.file.path);
   const literate = /\.(md|markdown)$/i.test(buffer.file.path);
@@ -53,8 +78,9 @@ export function Document({ buffer }: { buffer: Buffer }) {
     if (!cached) {
       const language = new Compartment(), prose = new Compartment();
       const view = new EditorView({ state: EditorState.create({ doc: buffer.text, extensions: [
-        history(), drawSelection(), lineNumbers(), EditorView.lineWrapping, language.of([]), prose.of([]),
-        keymap.of([{ key: "Ctrl-Space", run: startCompletion }, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
+        history(), drawSelection(), lineNumbers(), codeFolding(),
+        foldService.of(localFold), EditorView.lineWrapping, language.of([]), prose.of([]),
+        keymap.of([{ key: "Ctrl-Space", run: startCompletion }, ...foldKeymap, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
         EditorState.readOnly.of(buffer.readonly), EditorView.editable.of(!buffer.readonly),
         EditorView.contentAttributes.of({ "aria-label": buffer.file.path }),
         EditorView.updateListener.of(update => { if (update.docChanged) buffer.edit(update.state.doc.toString()); }),
@@ -127,6 +153,27 @@ export function Document({ buffer }: { buffer: Buffer }) {
     const reveal = () => { const line = claimReveal(buffer.file.path); if (line !== null) revealLine(view, line - 1); };
     reveal(); return onRevealLine(path => { if (path === buffer.file.path) reveal(); });
   }, [view, buffer]);
+  useEffect(() => {
+    if (!view) return;
+    const plugin = EditorView.updateListener.of(update => {
+      if (update.docChanged || update.viewportChanged || update.transactions.some(tr => tr.effects.length)) refreshFolds(value => value + 1);
+    });
+    const compartment = new Compartment();
+    view.dispatch({ effects: StateEffect.appendConfig.of(compartment.of(plugin)) });
+    return () => { view.dispatch({ effects: compartment.reconfigure([]) }); };
+  }, [view]);
+  const foldingActions: { at: number; label: string; run: () => void }[] = [];
+  if (view) {
+    // Enumerate only visible logical headers; CodeMirror's height map owns folded geometry.
+    for (const block of view.viewportLineBlocks) {
+      const line = view.state.doc.lineAt(block.from), range = foldable(view.state, line.from, line.to);
+      let folded: { from: number; to: number } | null = null;
+      foldedRanges(view.state).between(line.from, line.to, (from, to) => { folded = { from, to }; });
+      const target = folded ?? range, snapshot = view.state.doc;
+      if (target) foldingActions.push({ at: line.from, label: `${folded ? "Unfold" : "Fold"} line ${line.number}`,
+        run: () => { if (view.state.doc === snapshot) view.dispatch({ effects: (folded ? unfoldEffect : foldEffect).of(target) }); } });
+    }
+  }
   const start = async (program?: string) => {
     if (buffer.dirty || buffer.saving) { setDebugNotice("Save this file before debugging so the debugger runs the text shown here."); return; }
     setDebugNotice("");
@@ -137,7 +184,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
   };
   return <div className="document-body">
     <div className="editor-row"><div ref={host} className="editor-host editor-cm-host" /><Minimap buffer={buffer} />
-      {debuggable && <DebugLaunchRail view={view} plainPath={literate ? undefined : buffer.file.path} enabled={["idle", "finished", "failed"].includes(debug.status)} onStart={start} />}
+      <DebugLaunchRail actions={foldingActions} view={view} plainPath={debuggable && !literate ? buffer.file.path : undefined} enabled={["idle", "finished", "failed"].includes(debug.status)} onStart={debuggable ? start : undefined} />
     </div>
     {debuggable && view && <DebugStrip editorView={view} pausedLine={changed ? null : debug.pausedLine}
       status={debug.status} program={debug.program} message={debug.message} offerInstall={debug.offerInstall}

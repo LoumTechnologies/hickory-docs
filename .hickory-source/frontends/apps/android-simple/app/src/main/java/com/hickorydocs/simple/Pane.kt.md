@@ -27,6 +27,7 @@ import androidx.compose.foundation.draganddrop.dragAndDropSource
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.text.input.InputTransformation
 import androidx.compose.foundation.text.input.OutputTransformation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.geometry.Offset
@@ -191,16 +192,60 @@ Compute keyword ranges on a background dispatcher and tag them with their source
 
 The left line-number canvas reads the text field's actual layout and scroll state, so wrapped continuations do not receive a second number. Draw at the measured baseline with the same font size and top padding. A stale layout is ignored until the current text is measured; the editable text remains available. The gutter reserves three digits and grows for larger documents without mounting a second scrolling view.
 
+Compose retains source in TextFieldState and applies outermost folds through OutputTransformation; the displayed ellipsis never enters saved bytes. Measured text uses displayed offsets, so convert those offsets back to source for line numbers and debugger menus. Nested folded headers keep their state while a parent hides them. Source-revision equality retires stale positions after programmatic edits. InputTransformation reveals folds on typing and refuses an edit that intersects hidden bytes before it can be committed. Line popovers reuse the existing right-hand column.
+
 <ui:copy id="simple-android-language-preview">
+data class SimpleFold(val line: Int, val from: Int, val to: Int)
+fun simpleFoldRanges(source: String): List<SimpleFold> {
+    data class Header(val line: Int, val indent: Int, val end: Int)
+    val rows = source.split('\n'); val stack = mutableListOf<Header>(); val result = mutableListOf<SimpleFold>()
+    var offset = 0; var last = -1
+    for (line in 0..rows.size) {
+        val row = rows.getOrNull(line)
+        if (row != null && row.isBlank()) { offset += row.length + 1; continue }
+        val indent = row?.takeWhile { it == ' ' || it == '\t' }?.sumOf { if (it == '\t') 4 else 1 } ?: -1
+        while (stack.isNotEmpty() && stack.last().indent >= indent) {
+            val header = stack.removeAt(stack.lastIndex)
+            if (last > header.end) result.add(SimpleFold(header.line, header.end, last))
+        }
+        if (row != null) { last = offset + row.length; stack.add(Header(line, indent, last)); offset = last + 1 }
+    }
+    return result.sortedBy { it.from }
+}
+// Only outermost folds change displayed offsets; nested state survives unfolding its parent.
+fun outerFolds(ranges: List<SimpleFold>): List<SimpleFold> {
+    var end = -1
+    return ranges.sortedBy { it.from }.filter { if (it.from >= end) { end = it.to; true } else false }
+}
+fun foldDisplay(source: String, ranges: List<SimpleFold>): String {
+    val result = StringBuilder(source)
+    outerFolds(ranges).asReversed().forEach { result.replace(it.from, it.to, " …") }
+    return result.toString()
+}
+fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
+    var removed = 0
+    for (range in outerFolds(ranges)) {
+        val start = range.from - removed
+        if (displayOffset <= start) break
+        if (displayOffset < start + 2) return range.from
+        removed += range.to - range.from - 2
+    }
+    return displayOffset + removed
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable private fun LanguageEditor(buffer: DocumentBuffer, debug: NativeDebugger?, modifier: Modifier = Modifier) {
     val scroll = rememberScrollState()
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
     val color = MaterialTheme.colorScheme.primary
     val source = buffer.text
+    val folds = buffer.activeFolds()
+    val display = foldDisplay(source, folds)
     var textLayout by remember(buffer) { mutableStateOf<TextLayoutResult?>(null) }
     val paused = if (debug?.sourceMatches(buffer) == true) debug.line(buffer.file.path) else null
     val pauseColor = MaterialTheme.colorScheme.primary.copy(alpha = .14f)
+    LaunchedEffect(buffer.debugReveal) { if (buffer.debugReveal != null) buffer.clearFolds() }
     LaunchedEffect(buffer.debugReveal, textLayout) {
         val request = buffer.debugReveal ?: return@LaunchedEffect
         val layout = textLayout ?: return@LaunchedEffect
@@ -222,13 +267,13 @@ The left line-number canvas reads the text field's actual layout and scroll stat
             Canvas(Modifier.width((maxOf(3, (source.count { it == '\n' } + 1).toString().length) * 8 + 12).dp)
                 .fillMaxHeight().clipToBounds()) {
                 val layout = textLayout
-                if (layout != null && layout.layoutInput.text.text == source) {
+                if (layout != null && layout.layoutInput.text.text == display) {
                     numberPaint.color = numberColor.toArgb(); numberPaint.textSize = 13.sp.toPx()
                     val first = layout.getLineForVerticalPosition((scroll.value - 8.dp.toPx()).coerceAtLeast(0f))
                     val last = layout.getLineForVerticalPosition(scroll.value + size.height)
                     // Wrapped rows share a logical number; only draw at the logical start.
                     for (visual in first..last) {
-                        val offset = layout.getLineStart(visual)
+                        val offset = foldSourceOffset(layout.getLineStart(visual), folds)
                         if (offset == 0 || source[offset - 1] == '\n') {
                             val logical = source.take(offset).count { it == '\n' } + 1
                             val baseline = layout.getLineBaseline(visual) - scroll.value + 8.dp.toPx()
@@ -239,6 +284,15 @@ The left line-number canvas reads the text field's actual layout and scroll stat
             }
             BasicTextField(state = buffer.state, readOnly = buffer.readOnly,
                 scrollState = scroll,
+                inputTransformation = InputTransformation {
+                    val hiddenEdit = (0 until changes.changeCount).any { index ->
+                        val changed = changes.getOriginalRange(index)
+                        folds.any { range -> changed.min < range.to && changed.max > range.from || changed.collapsed && changed.min in range.from until range.to }
+                    }
+                    if (hiddenEdit) revertAllChanges()
+                    // Retire display state after the input transaction, outside its receiver.
+                    scope.launch { buffer.clearFolds() }
+                },
                 onTextLayout = { getResult -> textLayout = getResult() },
                 outputTransformation = OutputTransformation {
                     if (paused != null) {
@@ -248,6 +302,7 @@ The left line-number canvas reads the text field's actual layout and scroll stat
                     if (highlighting.first == toString()) highlighting.second.forEach { range ->
                         addStyle(SpanStyle(color = color), range.first, range.last + 1)
                     }
+                    if (toString() == source) outerFolds(folds).asReversed().forEach { replace(it.from, it.to, " …") }
                 },
                 modifier = Modifier.weight(1f).fillMaxHeight().padding(8.dp).semantics { contentDescription = buffer.file.path },
                 textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface),
@@ -255,8 +310,9 @@ The left line-number canvas reads the text field's actual layout and scroll stat
             Canvas(Modifier.width(40.dp).fillMaxHeight().semantics {
                 contentDescription = "Document minimap"
                 progressBarRangeInfo = ProgressBarRangeInfo(if (scroll.maxValue > 0) scroll.value.toFloat() / scroll.maxValue else 0f, 0f..1f)
-                setProgress { fraction -> scope.launch { scroll.scrollTo((fraction.coerceIn(0f, 1f) * scroll.maxValue).toInt()) }; true }
+                setProgress { fraction -> buffer.clearFolds(); scope.launch { scroll.scrollTo((fraction.coerceIn(0f, 1f) * scroll.maxValue).toInt()) }; true }
             }.pointerInput(scroll) { detectTapGestures { point ->
+                buffer.clearFolds()
                 scope.launch { scroll.scrollTo((point.y / size.height.coerceAtLeast(1) * scroll.maxValue).toInt().coerceIn(0, scroll.maxValue)) }
             } }) {
                 val lines = source.lineSequence().toList()
@@ -334,20 +390,23 @@ fun debugLineOffset(source: String, line: Int): Int? {
     var opened by remember(buffer) { mutableStateOf<Int?>(null) }
     var expression by remember(buffer) { mutableStateOf("") }
     var condition by remember(buffer) { mutableStateOf("") }
+    val folds = buffer.activeFolds()
+    val display = foldDisplay(buffer.text, folds)
+    val candidates = simpleFoldRanges(buffer.text).associateBy { it.line }
     val paused = if (debug.sourceMatches(buffer)) debug.line(buffer.file.path) else null
     BoxWithConstraints(Modifier.width(24.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceContainer)) {
         val height = with(density) { maxHeight.toPx() }
-        if (layout != null && layout.layoutInput.text.text == buffer.text) {
+        if (layout != null && layout.layoutInput.text.text == display) {
             val first = layout.getLineForVerticalPosition(scroll.value.toFloat())
             val last = layout.getLineForVerticalPosition(scroll.value + height)
             for (visual in first..last) {
-                val offset = layout.getLineStart(visual)
+                val offset = foldSourceOffset(layout.getLineStart(visual), folds)
                 if (offset > 0 && buffer.text[offset - 1] != '\n') continue
                 val line = buffer.text.take(offset).count { it == '\n' }
                 val top = layout.getLineTop(visual) - scroll.value + with(density) { 8.dp.toPx() }
                 if (top < 0 || top > height) continue
                 val held = debug.breakpoints[buffer.file.path]?.firstOrNull { it.optInt("line", -1) == line }
-                val glyph = when { line == paused -> "⋯"; line == 0 -> "▷"; held == null -> "·"; held.optString("state") == "refused" -> "○"; held.optString("state") == "bound" -> "●"; else -> "◌" }
+                val glyph = when { line in candidates -> "⋯"; line == paused -> "⋯"; line == 0 -> "▷"; held == null -> "·"; held.optString("state") == "refused" -> "○"; held.optString("state") == "bound" -> "●"; else -> "◌" }
                 Box(Modifier.offset { IntOffset(0, top.toInt()) }) {
                     Text(glyph, fontSize = 13.sp, modifier = Modifier.width(24.dp).height(18.dp).clickable { opened = line }.semantics { contentDescription = "Debug actions on line ${line + 1}" })
                     DropdownMenu(expanded = opened == line, onDismissRequest = { opened = null }) {
@@ -355,6 +414,8 @@ fun debugLineOffset(source: String, line: Int): Int? {
                             Text("Line ${line + 1} · ${debug.status}", fontSize = 12.sp)
                             if (!debug.sourceMatches(buffer)) Text("Save edited text before launching. Values belong to the source that ran.", fontSize = 12.sp)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (line in candidates) TextButton(onClick = { buffer.toggleFold(line); opened = null }) { Text(if (buffer.foldedLines.contains(line)) "Unfold" else "Fold") }
+                                if (folds.isNotEmpty()) TextButton(onClick = { buffer.clearFolds(); opened = null }) { Text("Unfold all") }
                                 TextButton(enabled = !debug.active && !buffer.dirty && !buffer.saving, onClick = { scope.launch { debug.prepare(buffer, line) } }) { Text("Debug") }
                                 TextButton(onClick = { debug.toggle(buffer.file.path, line) }) { Text("Breakpoint") }
                                 if (debug.status == "paused") {

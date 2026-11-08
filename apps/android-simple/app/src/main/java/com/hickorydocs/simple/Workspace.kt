@@ -14,6 +14,15 @@ import java.util.UUID
 
 class DocumentBuffer(val file: FileNode, loaded: FileText) {
     val state = TextFieldState(loaded.content)
+    var foldSource by mutableStateOf<String?>(null)
+    var foldedLines by mutableStateOf<Set<Int>>(emptySet())
+    fun activeFolds(): List<SimpleFold> = if (foldSource == text) simpleFoldRanges(text).filter { it.line in foldedLines } else emptyList()
+    fun clearFolds() { foldSource = null; foldedLines = emptySet() }
+    fun toggleFold(line: Int) {
+        if (foldSource != text) clearFolds()
+        foldSource = text
+        foldedLines = if (line in foldedLines) foldedLines - line else foldedLines + line
+    }
     var base by mutableStateOf(loaded.content)
     var hash = loaded.hash
     var debugReveal by mutableStateOf<Pair<Int, Int>?>(null)

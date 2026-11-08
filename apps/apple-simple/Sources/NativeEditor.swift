@@ -1,10 +1,54 @@
 import SwiftUI
 #if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
+struct SimpleFold: Equatable {
+    var line: Int
+    var range: NSRange
+}
+func simpleFoldRanges(_ source: String) -> [SimpleFold] {
+    let rows = source.components(separatedBy: "\n")
+    var stack: [(line: Int, indent: Int, end: Int)] = [], result: [SimpleFold] = []
+    var offset = 0, last = -1
+    for line in 0...rows.count {
+        let row = line < rows.count ? rows[line] : nil
+        if let row, row.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { offset += row.utf16.count + 1; continue }
+        let indent = row.map { $0.prefix { $0 == " " || $0 == "\t" }.reduce(0) { $0 + ($1 == "\t" ? 4 : 1) } } ?? -1
+        while let header = stack.last, header.indent >= indent {
+            stack.removeLast()
+            if last > header.end { result.append(SimpleFold(line: header.line, range: NSRange(location: header.end, length: last - header.end))) }
+        }
+        if let row { last = offset + row.utf16.count; stack.append((line, indent, last)); offset = last + 1 }
+    }
+    return result.sorted { $0.range.location < $1.range.location }
+}
+#if os(macOS)
+private typealias FoldFont = NSFont
+#else
+private typealias FoldFont = UIFont
+#endif
+@MainActor private final class FoldLayout: NSObject, @preconcurrency NSLayoutManagerDelegate {
+    var ranges: [NSRange] = []
+    func contains(_ offset: Int) -> Bool { ranges.contains { NSLocationInRange(offset, $0) } }
+    func layoutManager(_ manager: NSLayoutManager, shouldGenerateGlyphs glyphs: UnsafePointer<CGGlyph>, properties: UnsafePointer<NSLayoutManager.GlyphProperty>, characterIndexes: UnsafePointer<Int>, font: FoldFont, forGlyphRange range: NSRange) -> Int {
+        guard !ranges.isEmpty else { return 0 }
+        var props = Array(UnsafeBufferPointer(start: properties, count: range.length))
+        for i in 0..<range.length where contains(characterIndexes[i]) { props[i] = .null }
+        props.withUnsafeBufferPointer { manager.setGlyphs(glyphs, properties: $0.baseAddress!, characterIndexes: characterIndexes, font: font, forGlyphRange: range) }
+        return range.length
+    }
+    func layoutManager(_ manager: NSLayoutManager, shouldUse action: NSLayoutManager.ControlCharacterAction, forControlCharacterAt index: Int) -> NSLayoutManager.ControlCharacterAction {
+        contains(index) ? .zeroAdvancement : action
+    }
+}
+#if os(macOS)
 @MainActor final class MacEditor: NSObject, NSTextViewDelegate {
     let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
     let text = NSTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
     let buffer: DocumentBuffer
+    private let folding = FoldLayout()
     private var observer: NSObjectProtocol?
     init(_ buffer: DocumentBuffer) {
         self.buffer = buffer
@@ -21,6 +65,7 @@ import AppKit
         scroll.hasVerticalScroller = true; scroll.documentView = text
         buffer.navigate = { [weak self] fraction in
             guard let self else { return }
+            self.unfoldAll()
             let source = self.text.string as NSString
             let offset = min(source.length, max(0, Int(Double(source.length) * fraction)))
             self.text.scrollRangeToVisible(source.lineRange(for: NSRange(location: offset, length: 0)))
@@ -36,15 +81,44 @@ import AppKit
         }
         buffer.revealDebugLine = { [weak self] line in
             guard let self, let offset = languageOffset(self.buffer.text, ["line": line, "character": 0]) else { return }
-            self.text.scrollRangeToVisible(NSRange(location: offset, length: 0))
+            self.unfoldAll(); self.text.scrollRangeToVisible(NSRange(location: offset, length: 0))
         }
         scroll.contentView.postsBoundsChangedNotifications = true
         observer = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.contentView, queue: .main) { [weak self] _ in Task { @MainActor in self?.measureDebugLines() } }
+        text.layoutManager?.delegate = folding
+        buffer.toggleFold = { [weak self] line in self?.toggleFold(line) }
         paint(buffer.language?.tokens ?? [], source: buffer.text)
         measureDebugLines()
     }
-    func textDidChange(_ notification: Notification) { buffer.selection = text.selectedRange(); buffer.text = text.string; measureDebugLines() }
-    func textViewDidChangeSelection(_ notification: Notification) { buffer.selection = text.selectedRange() }
+    func toggleFold(_ line: Int) {
+        guard let header = simpleFoldRanges(text.string).first(where: { $0.line == line }) else { return }
+        if let index = folding.ranges.firstIndex(of: header.range) { folding.ranges.remove(at: index); buffer.foldedLines.remove(line) }
+        else {
+            guard !text.hasMarkedText() else { return }
+            let selection = text.selectedRange()
+            if NSIntersectionRange(selection, header.range).length > 0 || NSLocationInRange(selection.location, header.range) { text.setSelectedRange(NSRange(location: header.range.location, length: 0)) }
+            folding.ranges.append(header.range); buffer.foldedLines.insert(line)
+        }
+        invalidateFolds()
+    }
+    private func invalidateFolds() {
+        let manager = text.layoutManager!
+        manager.invalidateGlyphs(forCharacterRange: NSRange(location: 0, length: (text.string as NSString).length), changeInLength: 0, actualCharacterRange: nil)
+        measureDebugLines()
+    }
+    private func unfoldAll() {
+        guard !folding.ranges.isEmpty else { return }
+        folding.ranges = []; buffer.foldedLines = []; invalidateFolds()
+    }
+    func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        let hidden = folding.ranges.contains { NSIntersectionRange($0, affectedCharRange).length > 0 || NSLocationInRange(affectedCharRange.location, $0) }
+        unfoldAll(); return !hidden
+    }
+    func textDidChange(_ notification: Notification) { unfoldAll(); buffer.selection = text.selectedRange(); buffer.text = text.string; measureDebugLines() }
+    func textViewDidChangeSelection(_ notification: Notification) {
+        if folding.ranges.contains(where: { text.selectedRange().location > $0.location && NSLocationInRange(text.selectedRange().location, $0) }) { unfoldAll() }
+        buffer.selection = text.selectedRange()
+    }
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         guard NSStringFromSelector(commandSelector) == "complete:" else { return false }
         Task { await buffer.language?.complete() }; return true
@@ -58,7 +132,7 @@ import AppKit
         var rows: [DebugLine] = []
         manager.enumerateLineFragments(forGlyphRange: glyphs) { rect, _, _, range, _ in
             let offset = manager.characterIndexForGlyph(at: range.location)
-            guard offset == 0 || source.character(at: offset - 1) == 10 else { return }
+            guard !self.folding.contains(offset), offset == 0 || source.character(at: offset - 1) == 10 else { return }
             let line = source.substring(to: offset).filter { $0 == "\n" }.count
             rows.append(DebugLine(line: line, y: rect.minY + origin.y - self.scroll.contentView.bounds.minY, height: rect.height))
         }
@@ -125,7 +199,8 @@ struct NativeEditor: NSViewRepresentable {
 #else
 import UIKit
 @MainActor private final class MobileEditor: NSObject, UITextViewDelegate {
-    let text = UITextView()
+    let text = UITextView(usingTextLayoutManager: false)
+    private let folding = FoldLayout()
     let buffer: DocumentBuffer
     init(_ buffer: DocumentBuffer) {
         self.buffer = buffer
@@ -137,6 +212,7 @@ import UIKit
         text.accessibilityLabel = buffer.file.path; text.delegate = self
         buffer.navigate = { [weak self] fraction in
             guard let self else { return }
+            self.unfoldAll()
             let source = self.text.text as NSString
             let offset = min(source.length, max(0, Int(Double(source.length) * fraction)))
             self.text.scrollRangeToVisible(source.lineRange(for: NSRange(location: offset, length: 0)))
@@ -152,13 +228,42 @@ import UIKit
         }
         buffer.revealDebugLine = { [weak self] line in
             guard let self, let offset = languageOffset(self.buffer.text, ["line": line, "character": 0]) else { return }
-            self.text.scrollRangeToVisible(NSRange(location: offset, length: 0))
+            self.unfoldAll(); self.text.scrollRangeToVisible(NSRange(location: offset, length: 0))
         }
+        text.layoutManager.delegate = folding
+        buffer.toggleFold = { [weak self] line in self?.toggleFold(line) }
         paint(buffer.language?.tokens ?? [], source: buffer.text)
         measureDebugLines()
     }
-    func textViewDidChange(_ textView: UITextView) { buffer.selection = textView.selectedRange; buffer.text = textView.text; measureDebugLines() }
-    func textViewDidChangeSelection(_ textView: UITextView) { buffer.selection = textView.selectedRange }
+    func toggleFold(_ line: Int) {
+        guard let header = simpleFoldRanges(text.text ?? "").first(where: { $0.line == line }) else { return }
+        if let index = folding.ranges.firstIndex(of: header.range) { folding.ranges.remove(at: index); buffer.foldedLines.remove(line) }
+        else {
+            guard text.markedTextRange == nil else { return }
+            let selection = text.selectedRange
+            if NSIntersectionRange(selection, header.range).length > 0 || NSLocationInRange(selection.location, header.range) { text.selectedRange = NSRange(location: header.range.location, length: 0) }
+            folding.ranges.append(header.range); buffer.foldedLines.insert(line)
+        }
+        invalidateFolds()
+    }
+    private func invalidateFolds() {
+        let manager = text.layoutManager
+        manager.invalidateGlyphs(forCharacterRange: NSRange(location: 0, length: ((text.text ?? "") as NSString).length), changeInLength: 0, actualCharacterRange: nil)
+        measureDebugLines()
+    }
+    private func unfoldAll() {
+        guard !folding.ranges.isEmpty else { return }
+        folding.ranges = []; buffer.foldedLines = []; invalidateFolds()
+    }
+    func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+        let hidden = folding.ranges.contains { NSIntersectionRange($0, range).length > 0 || NSLocationInRange(range.location, $0) }
+        unfoldAll(); return !hidden
+    }
+    func textViewDidChange(_ textView: UITextView) { unfoldAll(); buffer.selection = textView.selectedRange; buffer.text = textView.text; measureDebugLines() }
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        if folding.ranges.contains(where: { textView.selectedRange.location > $0.location && NSLocationInRange(textView.selectedRange.location, $0) }) { unfoldAll() }
+        buffer.selection = textView.selectedRange
+    }
     func scrollViewDidScroll(_ scrollView: UIScrollView) { measureDebugLines() }
     func measureDebugLines() {
         let manager = text.layoutManager, container = text.textContainer
@@ -169,7 +274,7 @@ import UIKit
         var rows: [DebugLine] = []
         manager.enumerateLineFragments(forGlyphRange: glyphs) { rect, _, _, range, _ in
             let offset = manager.characterIndexForGlyph(at: range.location)
-            guard offset == 0 || source.character(at: offset - 1) == 10 else { return }
+            guard !self.folding.contains(offset), offset == 0 || source.character(at: offset - 1) == 10 else { return }
             let line = source.substring(to: offset).filter { $0 == "\n" }.count
             rows.append(DebugLine(line: line, y: rect.minY + inset.top - self.text.contentOffset.y, height: rect.height))
         }
@@ -300,11 +405,12 @@ struct NativeDebugRail: View {
     @State private var condition = ""
     private var paused: Int? { debug.sourceMatches(buffer) ? debug.line(in: buffer.file.path) : nil }
     var body: some View {
+        let foldHeaders = Set(simpleFoldRanges(buffer.text).map(\.line))
         GeometryReader { geometry in
             ZStack(alignment: .topLeading) {
                 ForEach(buffer.visibleDebugLines.filter { $0.y >= 0 && $0.y < geometry.size.height }, id: \.line) { row in
                     let held = debug.breakpoints[buffer.file.path]?.first(where: { $0["line"] as? Int == row.line })
-                    let glyph = row.line == paused ? "⋯" : row.line == 0 ? "▷" : held == nil ? "·" : (held?["state"] as? String == "refused" ? "○" : held?["state"] as? String == "bound" ? "●" : "◌")
+                    let glyph = foldHeaders.contains(row.line) ? "⋯" : row.line == paused ? "⋯" : row.line == 0 ? "▷" : held == nil ? "·" : (held?["state"] as? String == "refused" ? "○" : held?["state"] as? String == "bound" ? "●" : "◌")
                     Button(glyph) { opened = row.line }
                         .buttonStyle(.plain).font(.system(size: 13)).frame(width: 24, height: min(18, row.height))
                         .accessibilityLabel("Debug actions on line \(row.line + 1)")
@@ -327,6 +433,10 @@ struct NativeDebugRail: View {
             Text("Line \(line + 1) · \(debug.status)").font(.caption)
             if !debug.sourceMatches(buffer) { Text("Save edited text before launching. Values belong to the source that ran.").font(.caption) }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 86))], spacing: 5) {
+                if simpleFoldRanges(buffer.text).contains(where: { $0.line == line }) {
+                    Button(buffer.foldedLines.contains(line) ? "Unfold" : "Fold") { buffer.toggleFold?(line); opened = nil }
+                }
+                if !buffer.foldedLines.isEmpty { Button("Unfold all") { for header in Array(buffer.foldedLines) { buffer.toggleFold?(header) }; opened = nil } }
                 Button("Debug") { Task { await debug.prepare(buffer, line: line) } }.disabled(debug.active || buffer.dirty || buffer.saving)
                 Button("Breakpoint") { debug.toggle(buffer.file.path, line: line) }
                 if debug.status == "paused" {
