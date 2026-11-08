@@ -90,6 +90,7 @@ sessions/
 
 # Independent frontend comparison build products.
 /apps/web/dist-simple/
+/apps/apple-simple/Sources/Resources/katex/
 /apps/apple-simple/.build/
 /apps/apple-simple/.swiftpm/
 /apps/android-simple/.gradle/

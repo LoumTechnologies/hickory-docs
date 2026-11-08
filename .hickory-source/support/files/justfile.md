@@ -950,6 +950,7 @@ literate-check:
 simple-build platform="browser":
     #!/usr/bin/env bash
     set -euo pipefail
+    python3 scripts/prepare-simple-resources.py
     case {{quote(platform)}} in
       browser) cd apps/web; npx vite build --config vite.simple.config.ts ;;
       apple) swift build --package-path apps/apple-simple --scratch-path target/apple-simple-spm ;;
@@ -962,6 +963,7 @@ simple-build platform="browser":
 simple-test platform="browser":
     #!/usr/bin/env bash
     set -euo pipefail
+    python3 scripts/prepare-simple-resources.py
     case {{quote(platform)}} in
       browser) cd apps/web; npx tsc -b --noEmit; npx vitest run src/simple/parity.test.ts; npx vite build --config vite.simple.config.ts ;;
       apple) swift test --package-path apps/apple-simple --scratch-path target/apple-simple-spm; swiftc scripts/simple-window-layout.swift -o target/simple-window-layout; target/simple-window-layout --self-test ;;

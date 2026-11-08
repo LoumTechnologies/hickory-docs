@@ -21,7 +21,12 @@ targets:
     type: application
     platform: macOS
     deploymentTarget: "14.0"
-    sources: [Sources]
+    sources:
+      - path: Sources
+        excludes: [Resources]
+      - path: Sources/Resources
+        type: folder
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hickorydocs.simple.mac
@@ -29,7 +34,12 @@ targets:
     type: application
     platform: iOS
     deploymentTarget: "17.0"
-    sources: [Sources]
+    sources:
+      - path: Sources
+        excludes: [Resources]
+      - path: Sources/Resources
+        type: folder
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hickorydocs.simple.mobile

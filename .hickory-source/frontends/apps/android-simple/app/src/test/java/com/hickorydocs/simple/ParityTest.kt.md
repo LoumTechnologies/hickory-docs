@@ -16,6 +16,28 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test fun realNativeLanguageChannel() {
+        val origin = System.getenv("HICKORY_NATIVE_LSP_ORIGIN")
+        org.junit.Assume.assumeTrue("Set HICKORY_NATIVE_LSP_ORIGIN for the real backend witness", !origin.isNullOrEmpty())
+        val dispatcher = kotlinx.coroutines.newSingleThreadContext("native-language-witness")
+        try { kotlinx.coroutines.runBlocking(dispatcher) {
+            val scope = kotlinx.coroutines.CoroutineScope(dispatcher + kotlinx.coroutines.SupervisorJob())
+            val file = FileNode("native-language-check.py", "native-language-check.py", false, emptyList(), null, null)
+            val buffer = DocumentBuffer(file, FileText("counter = 1\nprint(counter)\n", "base"))
+            val service = NativeLanguage(Engine(origin!!), buffer, scope); buffer.language = service
+            try {
+                service.start()
+                for (attempt in 0 until 100) { if (service.tokens.isNotEmpty()) break; androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications(); kotlinx.coroutines.delay(100) }
+                assertTrue(service.status, service.tokens.isNotEmpty())
+                buffer.state.edit { selection = androidx.compose.ui.text.TextRange(2) }
+                service.inspect(); assertTrue("Real Python hover should describe counter", service.hover.isNotEmpty())
+                buffer.state.edit { replace(0, length, "counter = 1\ncou"); selection = androidx.compose.ui.text.TextRange(length) }
+                androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+                service.complete(); assertTrue(service.status, service.suggestions.any { it.label == "counter" })
+            } finally { service.close(); scope.coroutineContext[kotlinx.coroutines.Job]?.cancel() }
+        } } finally { dispatcher.close() }
+    }
     @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
     @Test fun nativeSourceEditsAreOneUndoAndRejectStaleAndReadonly() {
         val source = "name=12\nname=34\n"
@@ -28,6 +50,57 @@ class ParityTest {
         val generated = DocumentBuffer(file.copy(generatedBy = "owner"), FileText(source, "base"))
         assertFalse(generated.applySourceEdits(edits, source)); assertEquals(source, generated.text)
         assertTrue(generated.selectSourceRange(8, 12, source)); assertEquals(8, generated.state.selection.min)
+    }
+    @Test fun inlineMarkupKeepsSourceCoordinatesAndLiteralPayloads() {
+        val source = "# Heading\r\n**bold** and `**literal**`\r\n| Name | Value |\r\n| --- | --- |\r\n| 😀 | a\\|b |\r\n```md\r\n# raw\r\n```\r\n<h:math>\r\nx^2\r\n</h:math>\r\n"
+        val result = computeInlineMarkup(source, "source.md")
+        assertEquals(4, inlineLineAt(source.indexOf("😀"), result.lineStarts))
+        assertEquals(source, result.source); assertEquals(1, result.marks.count { it.kind == "heading" }); assertEquals(1, result.marks.count { it.kind == "strong" })
+        assertEquals(listOf("Name", "Value", "😀", "a|b"), result.cells.map { it.value })
+        assertEquals("😀", source.substring(result.cells[2].from, result.cells[2].to))
+        assertFalse(result.cells.any { it.value.contains('\r') }); assertEquals(1, result.equations.size)
+        assertEquals("\r\nx^2\r\n", result.equations[0].body)
+        assertTrue(computeInlineMarkup("$5 and $6", "money.md").equations.isEmpty())
+        assertTrue(computeInlineMarkup(source, "code.py").marks.isEmpty()); assertEquals("a\\|b", inlineCellText("a|b"))
+    }
+    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+    @Test fun inlineCSVRetainsQuotedMultilineRanges() {
+        val body = "\nName,Value\r\n\"a,b\",\"two\nlines\"\r\nlast,"
+        val cells = inlineCSVCells(body, 0, 10, ",")
+        assertEquals(listOf("Name", "Value", "a,b", "two\nlines", "last", ""), cells.map { it.value })
+        assertEquals(2, inlineCells("| ``a|`b`` | c |", 0, 0).size)
+        assertEquals(4, cells.last().line)
+        assertEquals("\"a,\"\"b\"", inlineCellText("a,\"b", "csv"))
+        assertTrue(inlineCSVCells("\"unterminated", 0, 0, ",").isEmpty())
+    }
+    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+    @Test fun inlineCellEditsAreSourceGuardedAndUndoable() {
+        val source = "# Heading\n\n| A | B |\n| --- | --- |\n| x | y |\n"
+        val buffer = DocumentBuffer(FileNode("styled.md", "styled.md", false, emptyList(), null, null), FileText(source, "base"))
+        val cell = computeInlineMarkup(source, "styled.md").cells.last()
+        assertTrue(buffer.applySourceEdits(listOf(NativeSourceEdit(cell.from, cell.to, inlineCellText("a|b"))), source))
+        assertEquals(source.replace("| x | y |", "| x | a\\|b |"), buffer.text)
+        assertFalse(buffer.applySourceEdits(listOf(NativeSourceEdit(cell.from, cell.to, "stale")), source))
+        buffer.state.undoState.undo(); assertEquals(source, buffer.text)
+    }
+    @Test fun languageDiagnosticPositionsRequireCurrentVersion() {
+        val item = JSONObject().put("message", "error").put("range", JSONObject().put("start", JSONObject().put("line", 0).put("character", 3)).put("end", JSONObject().put("line", 0).put("character", 4)))
+        val params = JSONObject().put("diagnostics", org.json.JSONArray().put(item))
+        assertNull(decodeNativeDiagnostics(params, "😀 x", 2).first().from)
+        params.put("version", 1); assertNull(decodeNativeDiagnostics(params, "😀 x", 2).first().from)
+        params.put("version", 2); assertEquals(3, decodeNativeDiagnostics(params, "😀 x", 2).first().from)
+        assertEquals("hick:///a%20space.py", languageURI("a space.py"))
+        assertNull(languageOffset("😀 x", JSONObject().put("line", 0).put("character", 5)))
+    }
+    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+    @Test fun multipleSelectionsReplaceAndUndoAtomically() {
+        val source = "one one"
+        val buffer = DocumentBuffer(FileNode("multi.txt", "multi.txt", false, emptyList(), null, null), FileText(source, "base"))
+        assertTrue(buffer.selectMultiple(listOf(NativeSourceEdit(0, 3, ""), NativeSourceEdit(4, 7, "")), source))
+        assertTrue(buffer.replaceMultiple("two")); assertEquals("two two", buffer.text)
+        assertEquals(listOf(3, 7), buffer.multiRanges.map { it.from })
+        buffer.state.undoState.undo(); assertEquals(source, buffer.text)
+        assertFalse(buffer.selectMultiple(listOf(NativeSourceEdit(0, 3, ""), NativeSourceEdit(1, 4, "")), source))
     }
     @Test fun nativeSearchUnicodeCapturesAndRefusals() {
         val request = NativeSearchRequest("😀 NAME=12\nname=34\n", "name=(\\d+)", "$1 $$ $&", false, true)

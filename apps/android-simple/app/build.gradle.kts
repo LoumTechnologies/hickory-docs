@@ -8,6 +8,7 @@ android {
     defaultConfig { applicationId = "com.hickorydocs.simple"; minSdk = 26; targetSdk = 36; versionCode = 1; versionName = "0.1.0" }
     buildFeatures { compose = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
+    sourceSets["main"].assets.srcDir("../../apple-simple/Sources/Resources")
     sourceSets["test"].resources.srcDir("../../simple-contract")
 }
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }

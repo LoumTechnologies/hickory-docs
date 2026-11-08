@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 struct FileNode: Codable, Identifiable {
     var name: String
@@ -12,7 +13,7 @@ struct FileNode: Codable, Identifiable {
 struct FileTree: Decodable { var root: String; var tree: [FileNode] }
 struct FileText: Decodable { var path: String; var content: String; var hash: String }
 struct FileSaved: Decodable { var path: String; var hash: String }
-struct SavedDocument: Decodable { var source: String }
+struct SavedDocument: Decodable { var source: String; var updated_at: String? }
 struct AgentTurn: Decodable, Identifiable {
     var id: String
     var prompt: String
@@ -101,7 +102,33 @@ struct Engine {
 }
 import Observation
 
+struct InlineReceiptEvent: Decodable { var kind: String; var data: String }
+struct InlineReceipt: Decodable, Identifiable {
+    var kind: String; var span: [Int]; var command: String?; var status: String?; var transcript: [InlineReceiptEvent]?
+    var id: Int { span.first ?? -1 }
+}
+struct InlineReceiptPage: Decodable { var document: String; var source_hash: String; var blocks: [InlineReceipt] }
+func nativeSourceHash(_ source: String) -> String { SHA256.hash(data: Data(source.utf8)).map { String(format: "%02x", $0) }.joined() }
 struct NativeSemanticToken { var range: NSRange; var kind: String }
+struct NativeDiagnostic: Identifiable {
+    var id: Int; var message: String; var severity: Int; var range: NSRange?
+}
+func nativeMarkupText(_ value: Any?) -> String {
+    if let text = value as? String { return text }
+    if let rows = value as? [Any] { return rows.map { nativeMarkupText($0) }.filter { !$0.isEmpty }.joined(separator: "\n\n") }
+    if let object = value as? [String: Any] { return object["value"] as? String ?? object["label"] as? String ?? "" }
+    return ""
+}
+func decodeNativeDiagnostics(_ params: [String: Any], source: String, expectedVersion: Int) -> [NativeDiagnostic] {
+    // Unversioned diagnostics remain readable messages, never positional authority.
+    let located = params["version"] as? Int == expectedVersion
+    return (params["diagnostics"] as? [[String: Any]] ?? []).enumerated().map { index, item in
+        var range: NSRange?
+        if located, let raw = item["range"] as? [String: Any], let start = raw["start"] as? [String: Any], let end = raw["end"] as? [String: Any],
+           let from = languageOffset(source, start), let to = languageOffset(source, end), from <= to { range = NSRange(location: from, length: to - from) }
+        return NativeDiagnostic(id: index, message: item["message"] as? String ?? "Language diagnostic", severity: item["severity"] as? Int ?? 1, range: range)
+    }
+}
 struct NativeCompletion: Identifiable {
     var id: Int
     var label: String
@@ -148,6 +175,14 @@ func decodeNativeTokens(_ data: [Int], legend: [String], source: String) -> [Nat
     var tokens: [NativeSemanticToken] = []
     var suggestions: [NativeCompletion] = []
     var showingSuggestions = false
+    var diagnostics: [NativeDiagnostic] = []
+    var diagnosticSource = ""
+    var hover = ""
+    var signature = ""
+    var inlayHints: [String] = []
+    var inspectionSource = ""
+    var inspectionSelection = NSRange(location: 0, length: 0)
+    private var inspectionID = UUID()
     private weak var buffer: DocumentBuffer?
     private let engine: Engine
     private let uri: String
@@ -183,6 +218,7 @@ func decodeNativeTokens(_ data: [Int], legend: [String], source: String) -> [Nat
         changed()
     }
     func close() {
+        diagnostics = []; diagnosticSource = ""; hover = ""; signature = ""; inlayHints = []; inspectionID = UUID()
         epoch = UUID(); receiveTask?.cancel(); refreshTask?.cancel(); sendTask?.cancel()
         socket?.cancel(with: .normalClosure, reason: nil); socket = nil
         let waits = pending; pending.removeAll(); for continuation in waits.values { continuation.resume(throwing: CancellationError()) }
@@ -192,6 +228,12 @@ func decodeNativeTokens(_ data: [Int], legend: [String], source: String) -> [Nat
         let waits = pending; pending.removeAll(); for continuation in waits.values { continuation.resume(throwing: error) }
     }
     private func receive(_ object: [String: Any]) {
+        if object["method"] as? String == "textDocument/publishDiagnostics", let params = object["params"] as? [String: Any],
+           params["uri"] as? String == uri, let buffer, buffer.text == sent {
+            if let incoming = params["version"] as? Int, incoming != version { return }
+            diagnostics = decodeNativeDiagnostics(params, source: sent, expectedVersion: version); diagnosticSource = sent
+            return
+        }
         if let id = object["id"] as? Int, let continuation = pending.removeValue(forKey: id) {
             if let error = object["error"] as? [String: Any] { continuation.resume(throwing: EngineError(message: error["message"] as? String ?? "Language request refused")) }
             else { continuation.resume(returning: object["result"] ?? NSNull()) }
@@ -229,7 +271,8 @@ func decodeNativeTokens(_ data: [Int], legend: [String], source: String) -> [Nat
         notify("textDocument/didChange", ["textDocument": ["uri": uri, "version": version], "contentChanges": [["text": text]]])
     }
     func changed() {
-        refreshTask?.cancel(); tokens = []; suggestions = []
+        refreshTask?.cancel(); tokens = []; suggestions = []; diagnostics = []; diagnosticSource = ""
+        hover = ""; signature = ""; inlayHints = []; inspectionSource = ""; inspectionID = UUID()
         if let buffer { buffer.renderLanguage?([], buffer.text) }
         let current = epoch
         refreshTask = Task { [weak self] in
@@ -250,6 +293,39 @@ func decodeNativeTokens(_ data: [Int], legend: [String], source: String) -> [Nat
                 try? await Task.sleep(for: .milliseconds(700))
             }
         }
+    }
+    func inspect() async {
+        showingSuggestions = true
+        guard let buffer else { return }
+        sync(); let source = buffer.text, selection = buffer.selection, current = epoch, id = UUID()
+        inspectionID = id; hover = ""; signature = ""; inlayHints = []; inspectionSource = source; inspectionSelection = selection
+        let position = languagePosition(source, selection.location)
+        await withTaskGroup(of: Void.self) { group in
+            for method in ["textDocument/hover", "textDocument/signatureHelp", "textDocument/inlayHint"] {
+                group.addTask { @MainActor [weak self] in
+                    guard let self else { return }
+                    var params: [String: Any] = ["textDocument": ["uri": self.uri], "position": position]
+                    if method == "textDocument/inlayHint" { params["range"] = ["start": ["line": 0, "character": 0], "end": languagePosition(source, source.utf16.count)] }
+                    guard let result = try? await self.request(method, params), self.epoch == current, self.inspectionID == id,
+                          self.buffer?.text == source, self.buffer?.selection == selection else { return }
+                    if method == "textDocument/hover" { self.hover = nativeMarkupText((result as? [String: Any])?["contents"]) }
+                    if method == "textDocument/signatureHelp" {
+                        self.signature = ((result as? [String: Any])?["signatures"] as? [[String: Any]] ?? []).compactMap { $0["label"] as? String }.joined(separator: "\n")
+                    }
+                    if method == "textDocument/inlayHint" {
+                        self.inlayHints = (result as? [[String: Any]] ?? []).prefix(200).compactMap { hint in
+                            guard let pos = hint["position"] as? [String: Any], languageOffset(source, pos) != nil else { return nil }
+                            let label = hint["label"] as? String ?? (hint["label"] as? [[String: Any]] ?? []).compactMap { $0["value"] as? String }.joined()
+                            return "Line \((pos["line"] as? Int ?? 0) + 1): \(label)"
+                        }
+                    }
+                }
+            }
+        }
+    }
+    func reveal(_ diagnostic: NativeDiagnostic) {
+        guard let buffer, buffer.text == diagnosticSource, let range = diagnostic.range else { return }
+        _ = buffer.selectSourceRange?(range, diagnosticSource)
     }
     func complete() async {
         showingSuggestions = true; suggestions = []

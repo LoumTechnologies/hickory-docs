@@ -13,7 +13,7 @@ import Observation
     let id = UUID()
     let file: FileNode
     var text: String {
-        didSet { let changed = text != base; if dirty != changed { dirty = changed }; if text != oldValue { language?.changed() } }
+        didSet { let changed = text != base; if dirty != changed { dirty = changed }; if text != oldValue { language?.changed(); refreshInline() } }
     }
     @ObservationIgnored var base: String {
         didSet { let changed = text != base; if dirty != changed { dirty = changed } }
@@ -22,9 +22,103 @@ import Observation
     @ObservationIgnored var renderLanguage: (([NativeSemanticToken], String) -> Void)?
     @ObservationIgnored var applyLanguageCompletion: ((NSRange, String, String, NSRange) -> Bool)?
     @ObservationIgnored var selection = NSRange(location: 0, length: 0)
+    @ObservationIgnored var receiptEngine: Engine?
+    var receiptSource = ""
+    var receipts: [InlineReceipt] = []
+    var receiptNotice = ""
+    func refreshReceipts() async {
+        guard let engine = receiptEngine, let id = file.doc_id else { return }
+        guard !dirty else { receiptNotice = "Save current source to view matching recorded output."; return }
+        let source = text; receiptNotice = "Loading recorded output…"
+        do {
+            let page: InlineReceiptPage = try await engine.request("GET", "/api/docs/" + id + "/render")
+            guard text == source, !dirty, page.document == id, page.source_hash.replacingOccurrences(of: "sha256:", with: "") == nativeSourceHash(source) else {
+                receiptNotice = "Recorded output belongs to another source revision. Save or refresh before retrying."; return
+            }
+            receipts = page.blocks.filter { $0.kind == "exec" }; receiptSource = source; receiptNotice = ""
+        } catch { if text == source { receiptNotice = "Recorded output unavailable. Retry after checking the server." } }
+    }
+    func receipts(on line: Int) -> [InlineReceipt] {
+        guard receiptSource == text, !dirty else { return [] }
+        let bytes = Array(text.utf8)
+        return receipts.filter { $0.span.count == 2 && $0.span[0] >= 0 && $0.span[1] >= $0.span[0] && $0.span[1] <= bytes.count && bytes.prefix($0.span[0]).filter { $0 == 10 }.count == line }
+    }
+    var inlineMarkup = InlineSnapshot(source: "")
+    @ObservationIgnored var renderMarkup: (() -> Void)?
+    @ObservationIgnored private var inlineTask: Task<Void, Never>?
+    func refreshInline() {
+        inlineTask?.cancel(); let source = text, path = file.path
+        inlineTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(100))
+            guard !Task.isCancelled else { return }
+            let job = Task.detached { computeInlineMarkup(source, path: path) }
+            let result = await withTaskCancellationHandler(operation: { await job.value }, onCancel: { job.cancel() })
+            guard !Task.isCancelled, let self, self.text == source else { return }
+            self.inlineMarkup = result; self.renderMarkup?()
+        }
+    }
     var visibleDebugLines: [DebugLine] = []
     @ObservationIgnored var focusSource: (() -> Void)?
     func closeFind() { showFind = false; focusSource?() }
+    var multiSource = ""
+    var multiRanges: [NSRange] = []
+    var multiRects: [CGRect] = []
+    var showMulti = false
+    var multiText = ""
+    @ObservationIgnored var applyingMulti = false
+    func selectRectangle() {
+        let start = languagePosition(text, selection.location), end = languagePosition(text, NSMaxRange(selection))
+        let rows = text.components(separatedBy: "\n")
+        guard end["line"]! - start["line"]! < 256 else { return }
+        let left = min(start["character"]!, end["character"]!), right = max(start["character"]!, end["character"]!)
+        let ranges = (start["line"]!...end["line"]!).compactMap { row -> NSRange? in
+            let from = languageOffset(text, ["line": row, "character": min(left, rows[row].utf16.count)])!
+            let to = languageOffset(text, ["line": row, "character": min(right, rows[row].utf16.count)])!
+            return NSRange(location: from, length: to - from)
+        }
+        _ = selectMultiple(ranges, source: text)
+    }
+    func addCursor(_ direction: Int) {
+        let active = multiSource == text ? multiRanges : []
+        let anchor = (direction > 0 ? active.last : active.first)?.location ?? selection.location
+        let pos = languagePosition(text, anchor), rows = text.components(separatedBy: "\n")
+        let row = pos["line"]! + direction
+        guard rows.indices.contains(row), let offset = languageOffset(text, ["line": row, "character": min(pos["character"]!, rows[row].utf16.count)]) else { return }
+        _ = selectMultiple((multiSource == text && !multiRanges.isEmpty ? multiRanges : [selection]) + [NSRange(location: offset, length: 0)], source: text)
+    }
+    func clearMulti() { multiSource = ""; multiRanges = []; multiRects = [] }
+    func selectMultiple(_ ranges: [NSRange], source: String) -> Bool {
+        let sorted = Array(Set(ranges)).sorted { $0.location < $1.location }
+        guard text == source, sorted.count > 1, sorted.count <= 256,
+              validSourceEdits(sorted.map { NativeSourceEdit(range: $0, text: "") }, length: source.utf16.count) else { return false }
+        applyingMulti = true; defer { applyingMulti = false }
+        guard selectSourceRange?(sorted[0], source) == true else { return false }
+        multiSource = source; multiRanges = sorted; return true
+    }
+    func replaceMultiple(_ replacement: String, affected: NSRange? = nil) -> Bool {
+        guard !readOnly, multiSource == text, multiRanges.count > 1 else { return false }
+        let source = text as NSString
+        var ranges = multiRanges
+        if let affected, let primary = ranges.first, affected != primary {
+            guard replacement.isEmpty, primary.length == 0 else { clearMulti(); return false }
+            if NSMaxRange(affected) == primary.location {
+                ranges = ranges.map { $0.length == 0 && $0.location > 0 ? source.rangeOfComposedCharacterSequence(at: $0.location - 1) : $0 }
+            } else if affected.location == primary.location {
+                ranges = ranges.map { $0.length == 0 && $0.location < source.length ? source.rangeOfComposedCharacterSequence(at: $0.location) : $0 }
+            } else { clearMulti(); return false }
+        }
+        let edits = ranges.map { NativeSourceEdit(range: $0, text: replacement) }
+        guard validSourceEdits(edits, length: source.length) else { return false }
+        applyingMulti = true; defer { applyingMulti = false }
+        guard applySourceEdits?(edits, text) == true else { return false }
+        var delta = 0
+        let carets = ranges.map { range -> NSRange in
+            let caret = NSRange(location: range.location + delta + replacement.utf16.count, length: 0)
+            delta += replacement.utf16.count - range.length; return caret
+        }
+        multiSource = text; multiRanges = carets
+        _ = selectSourceRange?(carets[0], text); return true
+    }
     var showFind = false
     var findQuery = ""
     var findReplacement = ""
@@ -42,7 +136,7 @@ import Observation
     private(set) var dirty = false
     var readOnly: Bool { file.generated_by != nil }
     init(file: FileNode, text: FileText) {
-        self.file = file; self.text = text.content; base = text.content; hash = text.hash
+        self.file = file; self.text = text.content; base = text.content; hash = text.hash; refreshInline()
     }
     func save(using engine: Engine) async {
         guard dirty, !saving, !readOnly else { return }
@@ -113,6 +207,7 @@ Opening and saving retain request identity. A server switch rejects stale reads.
             guard current == generation else { return }
             let buffer = DocumentBuffer(file: file, text: text)
             buffers[file.path] = buffer
+            buffer.receiptEngine = engine
             buffer.language = NativeLanguage(engine: engine, buffer: buffer); buffer.language?.start()
             if newestOpen[target] == file.path {
                 // A close or move can retire the requested pane while text loads.

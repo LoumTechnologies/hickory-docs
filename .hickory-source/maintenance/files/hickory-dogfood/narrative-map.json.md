@@ -150612,6 +150612,62 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt.md",
       "symbol": "simple-android-search-model",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-android-language-service",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt.md",
+      "symbol": "simple-android-language-service",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-inline-model-0",
+      "output": "apps/apple-simple/Sources/InlineMarkup.swift",
+      "page": ".hickory-source/frontends/inline-editing.md",
+      "symbol": "simple-inline-model-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-inline-model-1",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/InlineMarkup.kt",
+      "page": ".hickory-source/frontends/inline-editing.md",
+      "symbol": "simple-inline-model-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-inline-math-0",
+      "output": "apps/apple-simple/Sources/Resources/math.html",
+      "page": ".hickory-source/frontends/inline-editing.md",
+      "symbol": "simple-inline-math-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-inline-math-1",
+      "output": "scripts/prepare-simple-resources.py",
+      "page": ".hickory-source/frontends/inline-editing.md",
+      "symbol": "simple-inline-math-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-inline-math-2",
+      "output": "apps/apple-simple/Sources/InlineMath.swift",
+      "page": ".hickory-source/frontends/inline-editing.md",
+      "symbol": "simple-inline-math-2",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-inline-math-3",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/InlineMath.kt",
+      "page": ".hickory-source/frontends/inline-editing.md",
+      "symbol": "simple-inline-math-3",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-inline-browser-owners",
+      "output": "apps/web/src/simple/RichInline.tsx",
+      "page": ".hickory-source/frontends/inline-editing.md",
+      "symbol": "simple-inline-browser-owners",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

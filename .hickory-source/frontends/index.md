@@ -2,8 +2,9 @@
 # Compare three small editor frontends
 
 <ui:include file="contract.md" />
+<ui:include file="inline-editing.md" />
 
-The Apple SwiftUI app, Android Jetpack Compose app and React browser entry share the existing engine, not the old workspace shell. Start with the same commands and safety boundaries on both. Files, documents, the workspace agent and terminal are the only pane kinds. Literate documents initially show editable source text; generated outputs remain readable but read-only. Inline DAP debugging now shares the existing engine protocol across the browser, macOS, iOS and Android. Rich literate rendering and backend capability menus remain subsequent parity work.
+The Apple SwiftUI app, Android Jetpack Compose app and React browser entry share the existing engine, not the old workspace shell. Start with the same commands and safety boundaries on both. Files, documents, the workspace agent and terminal are the only pane kinds. Literate documents initially show editable source text; generated outputs remain readable but read-only. Inline DAP debugging now shares the existing engine protocol across the browser, macOS, iOS and Android. Inline presentation now reuses browser rich widgets and native source-attached controls; backend capability menus remain subsequent parity work.
 
 Each client reads text before requesting optional capabilities. A save uses the revision loaded by that buffer, never a revision fetched just before writing. Failed saves retain edits. Moving a tab retains its buffer identity. Agent sends are explicit and are not retried automatically. The initial conversation uses the configured Python backend and refreshes completed turns; token streaming and other agent backends are outside this slice.
 

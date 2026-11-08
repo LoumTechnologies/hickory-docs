@@ -2,10 +2,42 @@
 import XCTest
 #if os(macOS)
 import AppKit
+import WebKit
 #endif
 @testable import HickorySimple
 
 final class ParityTests: XCTestCase {
+    func testInlineMarkupKeepsSourceCoordinatesAndLiteralPayloads() {
+        let source = "# Heading\r\n**bold** and `**literal**`\r\n| Name | Value |\r\n| --- | --- |\r\n| 😀 | a\\|b |\r\n```md\r\n# raw\r\n```\r\n<h:math>\r\nx^2\r\n</h:math>\r\n"
+        let result = computeInlineMarkup(source, path: "source.md")
+        XCTAssertEqual(result.source, source)
+        XCTAssertEqual(inlineLineAt((source as NSString).range(of: "😀").location, starts: result.lineStarts), 4)
+        XCTAssertEqual(result.marks.filter { $0.kind == "heading" }.count, 1)
+        XCTAssertEqual(result.marks.filter { $0.kind == "strong" }.count, 1)
+        XCTAssertEqual(result.cells.map(\.value), ["Name", "Value", "😀", "a|b"])
+        XCTAssertEqual((source as NSString).substring(with: result.cells[2].range), "😀")
+        XCTAssertFalse(result.cells.contains { $0.value.contains("\r") })
+        XCTAssertEqual(result.equations.count, 1)
+        XCTAssertEqual((source as NSString).substring(with: result.equations[0].range), "\r\nx^2\r\n")
+        XCTAssertTrue(computeInlineMarkup("$5 and $6", path: "money.md").equations.isEmpty)
+        XCTAssertTrue(computeInlineMarkup(source, path: "code.py").marks.isEmpty)
+        XCTAssertEqual(inlineCellText("a|b"), "a\\|b")
+        let csv = "\nName,Value\r\n\"a,b\",\"two\nlines\"\r\nlast,"
+        let cells = inlineCSVCells(csv, line: 0, offset: 10, delimiter: ",")
+        XCTAssertEqual(cells.map(\.value), ["Name", "Value", "a,b", "two\nlines", "last", ""])
+        XCTAssertEqual(inlineCells("| ``a|`b`` | c |", line: 0, offset: 0).count, 2)
+        XCTAssertEqual(cells.last?.line, 4)
+        XCTAssertEqual(inlineCellText("a,\"b", format: "csv"), "\"a,\"\"b\"")
+        XCTAssertTrue(inlineCSVCells("\"unterminated", line: 0, offset: 0, delimiter: ",").isEmpty)
+
+    }
+    func testLanguageDiagnosticPositionsRequireCurrentVersion() {
+        let item: [String: Any] = ["message": "error", "range": ["start": ["line": 0, "character": 3], "end": ["line": 0, "character": 4]]]
+        XCTAssertNil(decodeNativeDiagnostics(["diagnostics": [item]], source: "😀 x", expectedVersion: 2).first?.range)
+        XCTAssertNil(decodeNativeDiagnostics(["version": 1, "diagnostics": [item]], source: "😀 x", expectedVersion: 2).first?.range)
+        XCTAssertEqual(decodeNativeDiagnostics(["version": 2, "diagnostics": [item]], source: "😀 x", expectedVersion: 2).first?.range, NSRange(location: 3, length: 1))
+        XCTAssertEqual(nativeMarkupText([["language": "python", "value": "def x()"], "detail"]), "def x()\n\ndetail")
+    }
     func testNativeSearchUnicodeCapturesAndRefusals() {
         let request = NativeSearchRequest(source: "😀 NAME=12\nname=34\n", query: #"name=(\d+)"#, replacement: "$1 $$ $&", caseSensitive: false, regex: true)
         let result = nativeSearch(request)
@@ -20,6 +52,49 @@ final class ParityTests: XCTestCase {
         XCTAssertFalse(validSourceEdits([NativeSourceEdit(range: NSRange(location: 4, length: 20), text: "")], length: 5))
     }
     #if os(macOS)
+    @MainActor func testNativeEquationTypesetter() async throws {
+        guard ProcessInfo.processInfo.environment["HICKORY_NATIVE_WEBVIEW_TEST"] == "1" else { throw XCTSkip("Enable the focused native WebKit witness explicitly") }
+        let coordinator = MathCoordinator(); coordinator.source = "x^2 + 1"
+        let view = makeMathView(coordinator)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 150), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = view; defer { view.stopLoading(); window.orderOut(nil) }
+        for _ in 0..<100 { if coordinator.ready { break }; try await Task.sleep(for: .milliseconds(100)) }
+        XCTAssertTrue(coordinator.ready, "Local math page did not load")
+        let rendered = try await view.evaluateJavaScript("Boolean(document.querySelector('.katex'))") as? Bool
+        XCTAssertEqual(rendered, true)
+        coordinator.source = #"\href{javascript:alert(1)}{click}"#; coordinator.display(view)
+        let links = try await view.evaluateJavaScript("document.querySelectorAll('a').length") as? Int
+        XCTAssertEqual(links, 0)
+    }
+    @MainActor func testInlinePresentationAndCellEditPreserveNativeState() {
+        let source = "# Heading\n\n| A | B |\n| --- | --- |\n| x | y |\n"
+        let file = FileNode(name: "styled.md", path: "styled.md", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "base"))
+        let editor = MacEditor(buffer)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = editor.scroll; window.makeFirstResponder(editor.text); defer { window.orderOut(nil) }
+        editor.text.setSelectedRange(NSRange(location: 2, length: 0))
+        buffer.inlineMarkup = computeInlineMarkup(source, path: file.path); buffer.renderMarkup?()
+        XCTAssertEqual(editor.text.string, source); XCTAssertEqual(editor.text.selectedRange().location, 2)
+        XCTAssertGreaterThan((editor.text.textStorage?.attribute(.font, at: 2, effectiveRange: nil) as? NSFont)?.pointSize ?? 0, 13)
+        let cell = buffer.inlineMarkup.cells.last!
+        XCTAssertTrue(editor.applySourceEdits([NativeSourceEdit(range: cell.range, text: inlineCellText("a|b"))], source: source))
+        XCTAssertEqual(buffer.text, source.replacingOccurrences(of: "| x | y |", with: "| x | a\\|b |"))
+        editor.text.undoManager?.undo(); XCTAssertEqual(buffer.text, source)
+    }
+    @MainActor func testMultipleSelectionsTypeAndUndoAtomically() {
+        let source = "one one"
+        let file = FileNode(name: "multi.txt", path: "multi.txt", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "base"))
+        let editor = MacEditor(buffer)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = editor.scroll; window.makeFirstResponder(editor.text); defer { window.orderOut(nil) }
+        XCTAssertTrue(buffer.selectMultiple([NSRange(location: 0, length: 3), NSRange(location: 4, length: 3)], source: source))
+        XCTAssertFalse(editor.textView(editor.text, shouldChangeTextIn: NSRange(location: 0, length: 3), replacementString: "two"))
+        XCTAssertEqual(buffer.text, "two two"); XCTAssertEqual(buffer.multiRanges.map(\.location), [3, 7])
+        editor.text.undoManager?.undo(); XCTAssertEqual(buffer.text, source)
+        XCTAssertFalse(buffer.selectMultiple([NSRange(location: 0, length: 3), NSRange(location: 1, length: 3)], source: source))
+    }
     @MainActor func testNativeSearchReplacementIsOneUndoAndRejectsStaleSource() {
         let source = "name=12\nname=34\n"
         let file = FileNode(name: "search.txt", path: "search.txt", dir: false)
@@ -137,6 +212,8 @@ final class ParityTests: XCTestCase {
         service.start(); defer { service.close() }
         for _ in 0..<100 { if !service.tokens.isEmpty { break }; try await Task.sleep(for: .milliseconds(100)) }
         XCTAssertFalse(service.tokens.isEmpty, service.status)
+        buffer.selection = NSRange(location: 2, length: 0); await service.inspect()
+        XCTAssertFalse(service.hover.isEmpty, "The real Python hover should describe counter")
         buffer.text = "counter = 1\ncou"; buffer.selection = NSRange(location: buffer.text.utf16.count, length: 0)
         await service.complete()
         XCTAssertTrue(service.suggestions.contains { $0.label == "counter" }, service.status)

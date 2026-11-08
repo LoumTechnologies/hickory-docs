@@ -5,7 +5,7 @@ For maintainers iterating on the equivalent Apple, Android and browser editor fr
 
 Tab strips are drag sources and targets. Their fixed height prevents content reflow. A remembered drop target consults the current workspace instead of capturing a stale layout snapshot.
 
-The minimap reserves forty units beside the text rather than overlaying readable lines. Its navigation changes scroll, never saved bytes. Language controls float over the editor and do not reflow it. Browser capabilities use the existing LSP client and its snapshot guards; native keyword and word-list previews deliberately do not claim semantic results. Native styling does not replace text, preserving the platform undo and selection model. Preview coloring skips very large files instead of delaying readable text indefinitely.
+The minimap reserves forty units beside the text rather than overlaying readable lines. Its navigation changes scroll, never saved bytes. Language controls float over the editor and do not reflow it. Browser capabilities use the existing LSP client and its snapshot guards; native semantic results use the real backend channel, with a labeled local preview when unavailable. Native styling does not replace text, preserving the platform undo and selection model. Preview coloring skips very large files instead of delaying readable text indefinitely.
 
 A custom tab MIME type keeps a center drop from being treated as text insertion by the editor. Content-edge nodes accept platform drags without installing pointer gestures over the editor. Left/right strips own the corners, matching the shared normalized edge rule. A half-pane preview is drawn behind the drop zones only while targeted. Docking revalidates current layout membership and focuses the newly created group only on success.
 
@@ -46,6 +46,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.TextStyle
@@ -53,6 +54,8 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -192,7 +195,7 @@ The four edge drop targets use the same twenty-percent regions as the shared cla
 
 ## Attach display capabilities to the retained text field
 
-Compute keyword ranges on a background dispatcher and tag them with their source snapshot. OutputTransformation paints only matching results and never changes backing text. Document-word suggestions are an explicit local preview. Selection replacement uses TextFieldState.edit, while minimap navigation changes only its retained scroll state. Neither capability grants permission to edit generated files.
+Compute keyword ranges on a background dispatcher and tag them with their source snapshot. OutputTransformation paints only matching results and never changes backing text. Document-word suggestions are an explicit fallback preview; connected language tools use server results. Selection replacement uses TextFieldState.edit, while minimap navigation changes only its retained scroll state. Neither capability grants permission to edit generated files.
 
 The left line-number canvas reads the text field's actual layout and scroll state, so wrapped continuations do not receive a second number. Draw at the measured baseline with the same font size and top padding. A stale layout is ignored until the current text is measured; the editable text remains available. The gutter reserves three digits and grows for larger documents without mounting a second scrolling view.
 
@@ -295,6 +298,9 @@ The floating panel below computes on a background dispatcher and checks its exac
                 TextButton(enabled = current && result.edits.isNotEmpty() && !buffer.readOnly, onClick = { replace(false) }) { Text("Replace") }
                 TextButton(enabled = current && result.edits.isNotEmpty() && !buffer.readOnly, onClick = { replace(true) }) { Text("Replace all") }
             }
+            TextButton(enabled = current && result.edits.size > 1, onClick = {
+                if (buffer.selectMultiple(result.edits, request.source)) buffer.closeFind() else notice = "Select between 2 and 256 current matches."
+            }) { Text("Select all matches") }
             Text(if (notice.isNotEmpty()) notice else if (measured != request) "Searching…" else if (result.error.isNotEmpty()) result.error else "${result.edits.size} matches", fontSize = 12.sp, modifier = Modifier.semantics { contentDescription = "Search status" })
             if (buffer.readOnly) Text("Read-only · searching is available", fontSize = 12.sp)
         }
@@ -324,6 +330,7 @@ fun outerFolds(ranges: List<SimpleFold>): List<SimpleFold> {
     return ranges.sortedBy { it.from }.filter { if (it.from >= end) { end = it.to; true } else false }
 }
 fun foldDisplay(source: String, ranges: List<SimpleFold>): String {
+    if (ranges.isEmpty()) return source
     val result = StringBuilder(source)
     outerFolds(ranges).asReversed().forEach { result.replace(it.from, it.to, " …") }
     return result.toString()
@@ -352,6 +359,14 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
     var menu by remember { mutableStateOf(false) }
     val color = MaterialTheme.colorScheme.primary
     val source = buffer.text
+    val service = buffer.language
+    val semantic = service?.tokens.orEmpty()
+    val semanticSource = service?.tokenSource
+    val inline = buffer.inlineMarkup
+    LaunchedEffect(buffer, source) {
+        val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { computeInlineMarkup(source, buffer.file.path) }
+        if (buffer.text == source) buffer.inlineMarkup = result
+    }
     val selection = buffer.state.selection
     val folds = buffer.activeFolds()
     val display = foldDisplay(source, folds)
@@ -363,7 +378,10 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
         val request = buffer.debugReveal ?: return@LaunchedEffect
         val layout = textLayout ?: return@LaunchedEffect
         val offset = debugLineOffset(source, request.first) ?: return@LaunchedEffect
-        if (layout.layoutInput.text.text == source) scroll.scrollTo(layout.getLineTop(layout.getLineForOffset(offset)).toInt().coerceAtLeast(0))
+        if (layout.layoutInput.text.text == source && buffer.text == source) {
+            scroll.scrollTo(layout.getLineTop(layout.getLineForOffset(offset)).toInt().coerceAtLeast(0))
+            if (buffer.debugReveal == request) buffer.debugReveal = null
+        }
     }
     val keywords = remember { Regex("\\b(func|fun|fn|let|val|var|const|class|struct|import|return|if|else|true|false|def)\\b") }
     val highlighting by produceState<Pair<String, List<IntRange>>>("" to emptyList(), source) {
@@ -388,7 +406,7 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
                     for (visual in first..last) {
                         val offset = foldSourceOffset(layout.getLineStart(visual), folds)
                         if (offset == 0 || source[offset - 1] == '\n') {
-                            val logical = source.take(offset).count { it == '\n' } + 1
+                            val logical = (if (inline.source == source) inlineLineAt(offset, inline.lineStarts) else source.take(offset).count { it == '\n' }) + 1
                             val baseline = layout.getLineBaseline(visual) - scroll.value + 8.dp.toPx()
                             drawContext.canvas.nativeCanvas.drawText(logical.toString(), size.width - 6.dp.toPx(), baseline, numberPaint)
                         }
@@ -404,7 +422,7 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
                     }
                     if (hiddenEdit) revertAllChanges()
                     // Retire display state after the input transaction, outside its receiver.
-                    scope.launch { buffer.clearFolds() }
+                    scope.launch { buffer.clearFolds(); if (!buffer.applyingMulti) buffer.clearMulti() }
                 },
                 onTextLayout = { getResult -> textLayout = getResult() },
                 outputTransformation = OutputTransformation {
@@ -415,9 +433,33 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
                     if (highlighting.first == toString()) highlighting.second.forEach { range ->
                         addStyle(SpanStyle(color = color), range.first, range.last + 1)
                     }
+                    if (semanticSource == toString()) semantic.forEach { token -> addStyle(SpanStyle(color = color), token.from, token.to) }
+                    if (inline.source == toString()) inline.marks.forEach { mark ->
+                        val style = when (mark.kind) {
+                            "heading" -> SpanStyle(fontSize = maxOf(14, 25 - mark.level * 2).sp, fontWeight = FontWeight.SemiBold)
+                            "strong" -> SpanStyle(fontWeight = FontWeight.Bold)
+                            "em", "math" -> SpanStyle(fontStyle = FontStyle.Italic)
+                            else -> SpanStyle(fontFamily = FontFamily.Monospace)
+                        }
+                        addStyle(style, mark.from, mark.to)
+                    }
                     if (toString() == source) outerFolds(folds).asReversed().forEach { replace(it.from, it.to, " …") }
                 },
-                modifier = Modifier.weight(1f).fillMaxHeight().padding(8.dp).focusRequester(editorFocus).semantics { contentDescription = buffer.file.path },
+                modifier = Modifier.weight(1f).fillMaxHeight().padding(8.dp).focusRequester(editorFocus).onPreviewKeyEvent { event ->
+                    val key = event.nativeKeyEvent
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.Spacebar && event.isCtrlPressed) {
+                        menu = true; scope.launch { service?.inspect() }; scope.launch { service?.complete() }; true
+                    } else if (buffer.multiSource == source && buffer.multiRanges.size > 1 && event.type == KeyEventType.KeyDown && !event.isCtrlPressed && !event.isMetaPressed && !event.isAltPressed && key.device?.isVirtual == false && key.unicodeChar > 0 && buffer.state.composition == null) {
+                        buffer.replaceMultiple(String(Character.toChars(key.unicodeChar))); true
+                    } else false
+                }.drawWithContent {
+                    drawContent()
+                    val layout = textLayout
+                    if (buffer.multiSource == source && layout?.layoutInput?.text?.text == source) buffer.multiRanges.drop(1).forEach { range ->
+                        if (range.from == range.to) { val rect = layout.getCursorRect(range.from); drawLine(color, Offset(rect.left, rect.top - scroll.value), Offset(rect.left, rect.bottom - scroll.value), 2f) }
+                        else { val path = layout.getPathForRange(range.from, range.to); path.translate(Offset(0f, -scroll.value.toFloat())); drawPath(path, color.copy(alpha = .2f)) }
+                    }
+                }.clipToBounds().semantics { contentDescription = buffer.file.path },
                 textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false))
             Canvas(Modifier.width(40.dp).fillMaxHeight().semantics {
@@ -439,18 +481,39 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
             if (debug != null) NativeDebugRail(buffer, debug, textLayout, scroll)
         }
         Box(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(end = if (debug != null) 66.dp else 42.dp)) {
-            Text("⌘", modifier = Modifier.background(MaterialTheme.colorScheme.surface).clickable { menu = true }.padding(4.dp).semantics { contentDescription = "Language preview" })
+            Text("⌘", modifier = Modifier.background(MaterialTheme.colorScheme.surface).clickable {
+                menu = true; scope.launch { service?.inspect() }; scope.launch { service?.complete() }
+            }.padding(4.dp).semantics { contentDescription = "Language tools" })
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                Text("Language UI preview", modifier = Modifier.padding(8.dp))
-                Text("Local colors and document words; native LSP is not connected.", fontSize = 11.sp, modifier = Modifier.width(250.dp).padding(8.dp))
-                source.split(Regex("[^A-Za-z0-9_]+")).asSequence().filter { it.length > 2 }.distinct().sorted().take(30).forEach { word ->
-                    DropdownMenuItem(text = { Text(word) }, enabled = !buffer.readOnly, onClick = {
-                        if (buffer.state.selection == selection) buffer.applySourceEdits(listOf(NativeSourceEdit(selection.min, selection.max, word)), source)
-                        menu = false
-                    })
+                Column(Modifier.width(320.dp).heightIn(max = 460.dp).verticalScroll(rememberScrollState()).padding(8.dp)) {
+                    Text("Language tools", fontSize = 14.sp)
+                    Text(service?.status ?: "Language services not connected. Reconnect the workspace.", fontSize = 11.sp)
+                    if (service?.inspectionSource == source && service.inspectionSelection == buffer.state.selection) {
+                        if (service.hover.isNotEmpty()) Text(service.hover, fontSize = 12.sp)
+                        if (service.signature.isNotEmpty()) Text(service.signature, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                        service.inlays.take(50).forEach { Text(it, fontSize = 11.sp) }
+                    }
+                    if (service?.diagnosticSource == source) service.diagnostics.forEach { item ->
+                        if (item.from != null && item.to != null) TextButton(onClick = { buffer.selectSourceRange(item.from, item.to, source) }) { Text(item.message) }
+                        else Text(item.message + " (server message; source version unavailable)", fontSize = 12.sp)
+                    }
+                    service?.suggestions?.forEach { item ->
+                        TextButton(enabled = !buffer.readOnly, onClick = { if (service.accept(item)) menu = false }) {
+                            Column { Text(item.label, fontFamily = FontFamily.Monospace); Text(item.detail, fontSize = 11.sp) }
+                        }
+                    }
+                    TextButton(onClick = { scope.launch { service?.inspect() }; scope.launch { service?.complete() } }) { Text("Refresh language tools") }
+                    TextButton(onClick = { service?.start() }) { Text("Retry language services") }
                 }
             }
         }
+        if (buffer.multiSource == source && buffer.multiRanges.size > 1) Row(Modifier.align(Alignment.TopStart).background(MaterialTheme.colorScheme.surface)) {
+            TextButton(onClick = { buffer.showMulti = true }) { Text("${buffer.multiRanges.size} selections") }
+            TextButton(onClick = { buffer.clearMulti() }) { Text("Clear selections") }
+        }
+        if (buffer.showMulti) AlertDialog(onDismissRequest = { buffer.showMulti = false }, title = { Text("Edit selections") }, text = {
+            OutlinedTextField(buffer.multiText, { buffer.multiText = it }, label = { Text("Insert at selections") })
+        }, confirmButton = { TextButton(enabled = !buffer.readOnly, onClick = { buffer.replaceMultiple(buffer.multiText); buffer.showMulti = false; buffer.focusSource?.invoke() }) { Text("Apply to selections") } }, dismissButton = { TextButton(onClick = { buffer.showMulti = false }) { Text("Cancel") } })
         if (buffer.showFind) NativeFindPanel(buffer, Modifier.align(Alignment.TopEnd).padding(4.dp).widthIn(max = 360.dp).fillMaxWidth())
     }
 }
@@ -505,6 +568,8 @@ fun debugLineOffset(source: String, line: Int): Int? {
     var opened by remember(buffer) { mutableStateOf<Int?>(null) }
     var expression by remember(buffer) { mutableStateOf("") }
     var condition by remember(buffer) { mutableStateOf("") }
+    val source = buffer.text
+    val starts = buffer.inlineMarkup.takeIf { it.source == source }?.lineStarts
     val folds = buffer.activeFolds()
     val display = foldDisplay(buffer.text, folds)
     val candidates = simpleFoldRanges(buffer.text).associateBy { it.line }
@@ -517,16 +582,48 @@ fun debugLineOffset(source: String, line: Int): Int? {
             for (visual in first..last) {
                 val offset = foldSourceOffset(layout.getLineStart(visual), folds)
                 if (offset > 0 && buffer.text[offset - 1] != '\n') continue
-                val line = buffer.text.take(offset).count { it == '\n' }
+                val line = starts?.let { inlineLineAt(offset, it) } ?: source.take(offset).count { it == '\n' }
                 val top = layout.getLineTop(visual) - scroll.value + with(density) { 8.dp.toPx() }
                 if (top < 0 || top > height) continue
                 val held = debug.breakpoints[buffer.file.path]?.firstOrNull { it.optInt("line", -1) == line }
-                val glyph = when { line in candidates -> "⋯"; line == paused -> "⋯"; line == 0 -> "▷"; held == null -> "·"; held.optString("state") == "refused" -> "○"; held.optString("state") == "bound" -> "●"; else -> "◌" }
+                val glyph = when { line in candidates || buffer.inlineMarkup.source == buffer.text && (buffer.inlineMarkup.cells.any { it.line == line } || buffer.inlineMarkup.equations.any { it.line == line }) -> "⋯"; line == paused -> "⋯"; line == 0 -> "▷"; held == null -> "·"; held.optString("state") == "refused" -> "○"; held.optString("state") == "bound" -> "●"; else -> "◌" }
                 Box(Modifier.offset { IntOffset(0, top.toInt()) }) {
-                    Text(glyph, fontSize = 13.sp, modifier = Modifier.width(24.dp).height(18.dp).clickable { opened = line }.semantics { contentDescription = "Debug actions on line ${line + 1}" })
+                    Text(glyph, fontSize = 13.sp, modifier = Modifier.width(24.dp).height(18.dp).clickable { opened = line; scope.launch { buffer.refreshReceipts() } }.semantics { contentDescription = "Debug actions on line ${line + 1}" })
                     DropdownMenu(expanded = opened == line, onDismissRequest = { opened = null }) {
                         Column(Modifier.width(300.dp).heightIn(max = 460.dp).verticalScroll(rememberScrollState()).padding(8.dp)) {
                             Text("Line ${line + 1} · ${debug.status}", fontSize = 12.sp)
+                            if (buffer.inlineMarkup.source == buffer.text) buffer.inlineMarkup.equations.filter { it.line == line }.take(4).forEach { equation ->
+                                key(buffer.text, equation.from) {
+                                    var draft by remember { mutableStateOf(equation.body) }
+                                    NativeMathView(draft, Modifier.fillMaxWidth().height(120.dp))
+                                    OutlinedTextField(draft, { draft = it }, label = { Text("LaTeX") }, enabled = !buffer.readOnly)
+                                    TextButton(enabled = !buffer.readOnly && draft != equation.body, onClick = {
+                                        buffer.applySourceEdits(listOf(NativeSourceEdit(equation.from, equation.to, draft)), buffer.inlineMarkup.source)
+                                    }) { Text("Apply equation") }
+                                }
+                            }
+                            if (buffer.inlineMarkup.source == buffer.text && (buffer.inlineMarkup.cells.count { it.line == line } > 32 || buffer.inlineMarkup.equations.count { it.line == line } > 4)) Text("More items remain editable in source.", fontSize = 12.sp)
+                            if (buffer.inlineMarkup.source == buffer.text) buffer.inlineMarkup.cells.filter { it.line == line }.take(32).forEach { cell ->
+                                key(buffer.text, cell.from) {
+                                    var draft by remember { mutableStateOf(cell.value) }
+                                    var error by remember { mutableStateOf("") }
+                                    OutlinedTextField(draft, { draft = it }, label = { Text("Column ${cell.column + 1}") }, enabled = !buffer.readOnly)
+                                    TextButton(enabled = !buffer.readOnly && draft != cell.value, onClick = {
+                                        if (!buffer.applySourceEdits(listOf(NativeSourceEdit(cell.from, cell.to, inlineCellText(draft, cell.format, cell.delimiter))), buffer.inlineMarkup.source)) error = "Table changed. Reopen this row and try again."
+                                    }) { Text("Apply cell") }
+                                    if (error.isNotEmpty()) Text(error, fontSize = 12.sp)
+                                }
+                            }
+                            buffer.receiptsOn(line).forEach { receipt ->
+                                Text("Recorded output · " + receipt.optString("status", "unrecorded"), fontSize = 12.sp)
+                                Text(receipt.optString("command"), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                                val transcript = receipt.optJSONArray("transcript") ?: org.json.JSONArray()
+                                val output = (0 until transcript.length()).joinToString("") { transcript.getJSONObject(it).optString("data") }
+                                Text(output.take(50_000), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                                if (output.length > 50_000) Text("Output truncated in this control.", fontSize = 11.sp)
+                            }
+                            if (buffer.receiptNotice.isNotEmpty()) Text(buffer.receiptNotice, fontSize = 12.sp)
+                            if (buffer.file.docID != null) TextButton(onClick = { scope.launch { buffer.refreshReceipts() } }) { Text("Refresh recorded output") }
                             if (!debug.sourceMatches(buffer)) Text("Save edited text before launching. Values belong to the source that ran.", fontSize = 12.sp)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 if (line in candidates) TextButton(onClick = { buffer.toggleFold(line); opened = null }) { Text(if (buffer.foldedLines.contains(line)) "Unfold" else "Fold") }

@@ -1,0 +1,15 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'nonce-hickory-math'; style-src 'self' 'unsafe-inline'; font-src 'self' data:;">
+<link rel="stylesheet" href="katex/katex.min.css"><style>html{color-scheme:light dark;font:14px system-ui}body{margin:8px}#formula{overflow:auto;padding:8px}#status{font-size:11px}</style>
+</head><body><div id="formula" aria-label="Typeset equation"></div><div id="status" role="status"></div>
+<script nonce="hickory-math" src="katex/katex.min.js"></script><script nonce="hickory-math">
+globalThis.renderMath = function (formula) {
+  const node = document.getElementById('formula'), status = document.getElementById('status');
+  node.textContent = formula;
+  if (typeof katex === 'undefined') { status.textContent = 'Math engine unavailable. Run npm --prefix apps/web ci and python3 scripts/prepare-simple-resources.py, then rebuild.'; return; }
+  if (formula.length > 4000) { status.textContent = 'Equation is too large to typeset here. Its source remains editable.'; return; }
+  try { katex.render(formula, node, {throwOnError:false, trust:false, strict:'warn', displayMode:true, maxExpand:1000}); status.textContent = ''; }
+  catch (_) { node.textContent = formula; status.textContent = 'Check the LaTeX expression.'; }
+};
+</script></body></html>

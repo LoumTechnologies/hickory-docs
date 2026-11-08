@@ -54,9 +54,9 @@ The terminal uses a real backend PTY and its emulated plain-text screen. It acce
 
 The agent uses the configured Python backend. Configure providers with the existing frontend; this first slice does not implement agent installation, provider settings, permission-review surfaces, or token streaming. It refreshes durable conversation history and provides explicit Send and Stop. No provider is required to edit files.
 
-The browser attaches the existing workspace LSP bridge after opening text: semantic colors, completion (Ctrl-Space), hover, signature help and inlay hints are available when a language server supports them. Same-document definition navigation is connected; cross-file navigation, rename and code actions remain outside this slice. Diagnostics are not displayed yet because publications have no source revision to guard against stale results.
+The browser attaches the existing workspace LSP bridge after opening text: semantic colors, completion (Ctrl-Space), hover, signature help and inlay hints are available when a language server supports them. Same-document definition navigation is connected; cross-file navigation, rename and code actions remain outside this slice. The browser uses its existing diagnostic decoration path; the native tools below treat unversioned diagnostic messages conservatively.
 
-Apple now attaches the existing backend LSP channel after text opens. Semantic colors use server-returned token ranges; the footer reports the span count or why colors are unavailable. Click **Language completions** (⌁) with the caret in code, or use the native Complete command (Option-Escape on macOS). Suggestions come from the language server and replace only the current source/selection snapshot through native undo. Snippet completions and additional/multi-file edits are excluded from this slice. Hover, diagnostics and the broader browser language action set are not connected in the Apple editor yet.
+Apple and Android attach the real backend LSP channel after text opens. **Edit → Language tools** (Ctrl-Space) opens completions, diagnostics, hover, signature help and inlay information. Each optional request has independent failure handling. Results require the same source/selection/connection snapshot. Unversioned diagnostics are messages without clickable ranges. Completions use native undo; snippets and additional edits remain unsupported.
 
 For Python in a fresh comparison workspace, install the real server once:
 
@@ -66,11 +66,13 @@ target/debug/hick lsp install python --root .dev/simple/project
 
 Use your selected workspace path when `HICKORY_PROJECT_DIR` differs. The installer requests managed Python 3.12; system Python 3.9 cannot install current basedpyright. The server lives under that workspace's ignored `.hick-cache/servers/`. Missing servers leave text readable and report an unavailable/empty-result state, with Retry in the completion popover.
 
-Android still exposes a **Language preview** popover using local keyword coloring and document-word suggestions, not a native LSP transport. Its keyword preview is bounded to 200,000 UTF-16 units. This remains UI feasibility evidence rather than semantic correctness.
+Native multi-selection commands include Find → Select all matches, column selection and add-cursor above/below, with a 256-selection limit. Apple ordinary typing and Android physical-keyboard typing broadcast atomically; Android touch input uses Apply to selections. Starting IME composition clears secondary selections.
+
+Rich editing stays inline. Browser mounts the established table, equation and output widgets in the existing editor. Native source stays visible with Markdown fonts and line-attached table/CSV and equation editors. Contextual Apply operations are source guarded and undoable. Local KaTeX resources are prepared by `python3 scripts/prepare-simple-resources.py` from the locked web dependency; missing resources leave equation source readable. Optional native styling is bounded to 200,000 UTF-16 units. Recorded outputs are displayed only after verifying the render response's document and source hash; viewing them never reruns code.
 
 All targets have a fixed-width minimap beside the editor. Click/tap to navigate; browser and Apple also support dragging. Browser keyboard users can focus the minimap and use Home/End; native minimaps expose accessibility adjustment. Browser and Android indicate the visible region. Apple currently shows document density without a viewport marker.
 
-Rich literate rendering, backend capability menus, provenance, debugging, file operations, layout persistence and crash recovery are not included yet. This is an iteration baseline, not full parity with the old frontend. Native spellcheck, input methods and platform keyboard behavior may differ. No speed or memory superiority has been established by this scaffold.
+Full native WYSIWYG, backend capability menus, provenance, file operations, layout persistence and crash recovery are not included yet. This is an iteration baseline, not full parity with the old frontend. Native spellcheck, input methods and platform keyboard behavior may differ. No speed or memory superiority has been established by this scaffold.
 
 ## Empty pane cleanup, 2026-11-07
 

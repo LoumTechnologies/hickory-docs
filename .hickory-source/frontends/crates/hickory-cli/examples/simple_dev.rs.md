@@ -305,6 +305,9 @@ async fn frontend(
     api: &str,
     port: Option<u16>,
 ) -> Result<()> {
+    session
+        .run(&mut cmd("python3", &["scripts/prepare-simple-resources.py"]))
+        .await?;
     match platform {
         "browser" => {
             let web = root.join("apps/web");

@@ -67492,7 +67492,8 @@
       "construction": "fragments",
       "fragments": [
         "simple-38d4bd61a8-0",
-        "simple-38d4bd61a8-1"
+        "simple-38d4bd61a8-1",
+        "simple-android-language-service"
       ]
     },
     "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Workspace.kt": {
@@ -67771,6 +67772,83 @@
       "construction": "fragments",
       "fragments": [
         "simple-lsp-lock"
+      ]
+    },
+    "apps/apple-simple/Sources/InlineMarkup.swift": {
+      "source": ".hickory-source/frontends/inline-editing.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "843ba53ec48eb8adf86932b2f599cdd756bb95db58aa96ab9c5931d87a66539b",
+      "construction": "fragments",
+      "fragments": [
+        "simple-inline-model-0"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/InlineMarkup.kt": {
+      "source": ".hickory-source/frontends/inline-editing.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "dd4e7af2ac7ade23b39a7d286b3380ecc9017bd05fead6ece6c3c8c556557603",
+      "construction": "fragments",
+      "fragments": [
+        "simple-inline-model-1"
+      ]
+    },
+    "apps/apple-simple/Sources/Resources/math.html": {
+      "source": ".hickory-source/frontends/inline-editing.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "bd23fbbc1a6c191a3dd2bf36e35eb773d40a87709fe45834e5fa0906ee23786f",
+      "construction": "fragments",
+      "fragments": [
+        "simple-inline-math-0"
+      ]
+    },
+    "scripts/prepare-simple-resources.py": {
+      "source": ".hickory-source/frontends/inline-editing.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "dfe7db8796c3dc1cb4b50148004f7fe5566c8144bd0457c544b112590615c0f9",
+      "construction": "fragments",
+      "fragments": [
+        "simple-inline-math-1"
+      ]
+    },
+    "apps/apple-simple/Sources/InlineMath.swift": {
+      "source": ".hickory-source/frontends/inline-editing.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "8cf655f7bf831e7e17edc9b04dbe9e2b882fd99ad60f840501a8ad619848f08a",
+      "construction": "fragments",
+      "fragments": [
+        "simple-inline-math-2"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/InlineMath.kt": {
+      "source": ".hickory-source/frontends/inline-editing.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "abfc700fbe4fdcad2edec1654d491b4fabd7c9f4094f15d1c0d3c36eded62161",
+      "construction": "fragments",
+      "fragments": [
+        "simple-inline-math-3"
+      ]
+    },
+    "apps/web/src/simple/RichInline.tsx": {
+      "source": ".hickory-source/frontends/inline-editing.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "ccf75ecac2c8e1123ca6377a0d1c49c3fc1447318debebc6646fef88a574793c",
+      "construction": "fragments",
+      "fragments": [
+        "simple-inline-browser-owners"
       ]
     }
   },

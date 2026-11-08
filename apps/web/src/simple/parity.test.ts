@@ -1,5 +1,9 @@
 // Contract: .hickory-source/frontends/contract.md
-import { createElement } from "react";
+import { createElement, Fragment } from "react";
+import { within } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import katex from "katex";
+import { RichOwners } from "./RichInline";
 import { render, waitFor, act, fireEvent } from "@testing-library/react";
 import { EditorView } from "@codemirror/view";
 import { foldedRanges } from "@codemirror/language";
@@ -50,6 +54,42 @@ describe("shared frontend layout contract", () => {
 
 
 // Contract: .hickory-source/frontends/contract.md — logical line numbers are immediate.
+describe("simple inline rich editing", () => {
+  it("uses the established table grid in place and keeps source edits undoable", async () => {
+    const source = "Intro.\n\n| Name | Count |\n| --- | --- |\n| North | 120 |\n\nAfter.";
+    const buffers = new Buffers(() => {});
+    const buffer = new Buffer({ path: "grid.md", name: "grid.md", dir: false }, source, "hash", () => {});
+    buffers.values.set(buffer.file.path, buffer);
+    const screen = render(createElement(Fragment, null, createElement(Document, { buffer }), createElement(RichOwners, { buffers })));
+    try {
+      const root = () => Array.from(screen.container.querySelectorAll("*")).map(node => node.shadowRoot).find(shadow => shadow?.querySelector('[data-testid="table-panel"]'));
+      await waitFor(() => expect(root(), buffer.error).toBeTruthy(), { timeout: 10000 });
+      const table = within(root()! as unknown as HTMLElement);
+      fireEvent.doubleClick(table.getByText("120"));
+      const input = table.getByRole("textbox", { name: "Cell contents" });
+      fireEvent.change(input, { target: { value: "121" } }); fireEvent.keyDown(input, { key: "Enter" });
+      await waitFor(() => expect(buffer.text).toBe(source.replace("120", "121")));
+      const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+      act(() => { undo(view); }); await waitFor(() => expect(buffer.text).toBe(source));
+      fireEvent.click(table.getByRole("button", { name: "Edit source" }));
+      await waitFor(() => expect(root()).toBeUndefined()); expect(view.state.doc.toString()).toBe(source);
+    } finally { screen.unmount(); }
+  }, 15000);
+  it("typesets local math without trusting HTML or URL macros", () => {
+    const html = new TextDecoder().decode(readFileSync("../apple-simple/Sources/Resources/math.html"));
+    const script = /<script nonce="hickory-math">([\s\S]*?)<\/script>/.exec(html)![1];
+    const host = document.createElement("div"); host.innerHTML = '<div id="formula"></div><div id="status"></div>';
+    const page = { getElementById: (id: string) => host.querySelector(`#${id}`) };
+    const renderer = new Function("katex", "document", script + ";return globalThis.renderMath;")(katex, page) as (text: string) => void;
+    try {
+      renderer("x^2 + 1"); expect(host.querySelector(".katex")).not.toBeNull();
+      renderer("\\href{javascript:alert(1)}{click}"); expect(host.querySelector("a")).toBeNull();
+      renderer('</script><img src=x onerror=alert(1)>'); expect(host.querySelector("img,script")).toBeNull();
+      renderer("x".repeat(4001)); expect(host.querySelector("#status")!.textContent).toContain("too large");
+    } finally { delete (globalThis as unknown as { renderMath?: unknown }).renderMath; }
+  });
+});
+
 describe("simple search and replace", () => {
   it("uses the real search panel for regex replace-all and one-step undo", async () => {
     const source = "😀 name=12\nname=34\n";

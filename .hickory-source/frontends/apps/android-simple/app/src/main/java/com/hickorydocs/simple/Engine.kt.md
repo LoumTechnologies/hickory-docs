@@ -19,6 +19,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -291,10 +292,201 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
 }
 </ui:copy>
 
+## Attach the real language channel after readable text
+
+Each buffer owns a channel-2 JSON-RPC session. WebSocket callbacks re-enter the workspace scope, reject old connection epochs, and fail pending requests on teardown. Snapshot observation synchronizes inactive documents too. Semantic colors, diagnostics, hover, signature help, inlay hints and completions have independent source guards; an unsupported request cannot prevent another capability from attaching. Unversioned diagnostics remain non-positional messages. Completion acceptance uses the same guarded undo transaction as search.
+
+<ui:copy id="simple-android-language-service">
+data class NativeLanguageSpan(val from: Int, val to: Int, val kind: String)
+data class NativeLanguageDiagnostic(val message: String, val from: Int?, val to: Int?)
+data class NativeLanguageCompletion(val label: String, val detail: String, val edit: NativeSourceEdit, val source: String, val selection: androidx.compose.ui.text.TextRange)
+fun languageURI(path: String): String = java.net.URI("hick", "", "/" + path.trimStart('/'), null).toASCIIString()
+fun languageOffset(source: String, position: JSONObject): Int? {
+    val line = position.optInt("line", -1); val column = position.optInt("character", -1)
+    val rows = source.split('\n')
+    if (line !in rows.indices || column < 0 || column > rows[line].length) return null
+    return rows.take(line).sumOf { it.length + 1 } + column
+}
+fun languagePosition(source: String, offset: Int): JSONObject {
+    val prefix = source.take(offset.coerceIn(0, source.length))
+    return JSONObject().put("line", prefix.count { it == '\n' }).put("character", prefix.length - prefix.lastIndexOf('\n') - 1)
+}
+fun nativeMarkupText(value: Any?): String = when (value) {
+    is String -> value
+    is JSONArray -> (0 until value.length()).map { nativeMarkupText(value.opt(it)) }.filter { it.isNotEmpty() }.joinToString("\n\n")
+    is JSONObject -> value.optString("value", value.optString("label", ""))
+    else -> ""
+}
+fun decodeNativeDiagnostics(params: JSONObject, source: String, expectedVersion: Int): List<NativeLanguageDiagnostic> {
+    val located = params.has("version") && params.optInt("version", -1) == expectedVersion
+    return (params.optJSONArray("diagnostics") ?: JSONArray()).objects().map { item ->
+        val range = item.optJSONObject("range")
+        val from = if (located) range?.optJSONObject("start")?.let { languageOffset(source, it) } else null
+        val to = if (located) range?.optJSONObject("end")?.let { languageOffset(source, it) } else null
+        NativeLanguageDiagnostic(item.optString("message", "Language diagnostic"), from?.takeIf { to != null && it <= to }, to?.takeIf { from != null && from <= it })
+    }
+}
+class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuffer, private val scope: CoroutineScope) {
+    var status by mutableStateOf("Language server connecting…")
+    var tokens by mutableStateOf<List<NativeLanguageSpan>>(emptyList())
+    var tokenSource by mutableStateOf("")
+    var diagnostics by mutableStateOf<List<NativeLanguageDiagnostic>>(emptyList())
+    var diagnosticSource by mutableStateOf("")
+    var suggestions by mutableStateOf<List<NativeLanguageCompletion>>(emptyList())
+    var hover by mutableStateOf("")
+    var signature by mutableStateOf("")
+    var inlays by mutableStateOf<List<String>>(emptyList())
+    var inspectionSource by mutableStateOf("")
+    var inspectionSelection by mutableStateOf(androidx.compose.ui.text.TextRange.Zero)
+    private val uri = languageURI(buffer.file.path)
+    private var socket: WebSocket? = null
+    private var epoch = 0
+    private var inspection = 0
+    private var version = 1
+    private var sent = ""
+    private var nextID = 1
+    private var legend = emptyList<String>()
+    private var opened = false
+    private var refresh: kotlinx.coroutines.Job? = null
+    private var watcher: kotlinx.coroutines.Job? = null
+    private val pending = mutableMapOf<Int, kotlinx.coroutines.CompletableDeferred<Any>>()
+    fun start() {
+        close(); val current = epoch; sent = buffer.text; version = 1
+        socket = languageHTTP.newWebSocket(Request.Builder().url(engine.debugURL).build(), object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) { scope.launch {
+                if (epoch != current) { webSocket.close(1000, "obsolete"); return@launch }
+                opened = true
+                notify("textDocument/didOpen", JSONObject().put("textDocument", JSONObject().put("uri", uri).put("languageId", "hick").put("version", version).put("text", sent)))
+                changed()
+            } }
+            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                val raw = bytes.toByteArray(); if (raw.size < 2 || raw[0] != 2.toByte()) return
+                val message = runCatching { JSONObject(raw.copyOfRange(1, raw.size).toString(Charsets.UTF_8)) }.getOrNull() ?: return
+                scope.launch { if (epoch == current) receive(message) }
+            }
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { scope.launch {
+                if (epoch == current) { status = "Language services unavailable: ${t.message}. Retry language services."; opened = false; failPending() }
+            } }
+        })
+        watcher = scope.launch { androidx.compose.runtime.snapshotFlow { buffer.text }.collect { changed() } }
+    }
+    fun close() {
+        epoch++; inspection++; refresh?.cancel(); watcher?.cancel(); socket?.close(1000, "closed"); socket = null; opened = false; failPending()
+        tokens = emptyList(); diagnostics = emptyList(); suggestions = emptyList(); hover = ""; signature = ""; inlays = emptyList()
+    }
+    private fun failPending() { val waits = pending.values.toList(); pending.clear(); waits.forEach { it.cancel() } }
+    private fun send(message: JSONObject) { check(opened && socket?.send((byteArrayOf(2) + message.toString().toByteArray(Charsets.UTF_8)).toByteString()) == true) { "Language connection is closed. Retry language services." } }
+    private fun notify(method: String, params: JSONObject) { send(JSONObject().put("jsonrpc", "2.0").put("method", method).put("params", params)) }
+    private suspend fun request(method: String, params: JSONObject): Any {
+        val id = nextID++; val answer = kotlinx.coroutines.CompletableDeferred<Any>(); pending[id] = answer
+        try { send(JSONObject().put("jsonrpc", "2.0").put("id", id).put("method", method).put("params", params)); return kotlinx.coroutines.withTimeout(12000) { answer.await() } }
+        finally { pending.remove(id) }
+    }
+    private fun doc() = JSONObject().put("uri", uri)
+    private fun sync() {
+        if (sent == buffer.text) return
+        sent = buffer.text; version++
+        notify("textDocument/didChange", JSONObject().put("textDocument", doc().put("version", version)).put("contentChanges", JSONArray().put(JSONObject().put("text", sent))))
+    }
+    private fun receive(message: JSONObject) {
+        if (message.has("id")) {
+            val answer = pending.remove(message.optInt("id")) ?: return
+            if (message.has("error")) answer.completeExceptionally(IllegalStateException(message.optJSONObject("error")?.optString("message")))
+            else answer.complete(message.opt("result") ?: JSONObject.NULL)
+        } else if (message.optString("method") == "hick/serverCapabilities") {
+            val raw = message.optJSONObject("params")?.optJSONObject("capabilities")?.optJSONObject("semanticTokensProvider")?.optJSONObject("legend")?.optJSONArray("tokenTypes")
+            legend = if (raw == null) emptyList() else (0 until raw.length()).map { raw.getString(it) }
+            status = "LSP connected"; changed()
+        } else if (message.optString("method") == "textDocument/publishDiagnostics") {
+            val params = message.optJSONObject("params") ?: return
+            if (params.optString("uri") != uri || sent != buffer.text || params.has("version") && params.optInt("version", -1) != version) return
+            diagnostics = decodeNativeDiagnostics(params, sent, version); diagnosticSource = sent
+        }
+    }
+    fun changed() {
+        refresh?.cancel(); tokens = emptyList(); tokenSource = ""; diagnostics = emptyList(); diagnosticSource = ""; suggestions = emptyList(); hover = ""; signature = ""; inlays = emptyList(); inspectionSource = ""; inspection++
+        if (!opened) return
+        val current = epoch
+        refresh = scope.launch {
+            kotlinx.coroutines.delay(300); sync(); val source = buffer.text
+            try {
+                for (attempt in 0 until 5) {
+                val result = request("textDocument/semanticTokens/full", JSONObject().put("textDocument", doc())) as? JSONObject
+                if (epoch != current || buffer.text != source) return@launch
+                val data = result?.optJSONArray("data") ?: JSONArray(); var line = 0; var column = 0
+                val spans = mutableListOf<NativeLanguageSpan>()
+                if (data.length() % 5 == 0) for (index in 0 until data.length() step 5) {
+                    val delta = data.optInt(index, -1); val start = data.optInt(index + 1, -1); val length = data.optInt(index + 2, -1); val type = data.optInt(index + 3, -1)
+                    if (delta < 0 || start < 0 || delta > source.length || start > source.length) { spans.clear(); break }
+                    line += delta; column = if (delta == 0) column + start else start
+                    if (length <= 0 || length > source.length || type !in legend.indices) continue
+                    val from = languageOffset(source, JSONObject().put("line", line).put("character", column)) ?: continue
+                    val to = languageOffset(source, JSONObject().put("line", line).put("character", column + length)) ?: continue
+                    spans.add(NativeLanguageSpan(from, to, legend[type]))
+                }
+                tokens = spans; tokenSource = source; status = "LSP · ${spans.size} semantic spans"
+                if (spans.isNotEmpty() || attempt == 4) break
+                kotlinx.coroutines.delay(700)
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (error: Exception) { if (epoch == current) status = "Language colors unavailable: ${error.message}. Retry language services." }
+        }
+    }
+    suspend fun inspect() {
+        if (!opened) return
+        sync(); val source = buffer.text; val selection = buffer.state.selection; val current = epoch; val id = ++inspection
+        inspectionSource = source; inspectionSelection = selection; hover = ""; signature = ""; inlays = emptyList()
+        kotlinx.coroutines.coroutineScope {
+            for (method in listOf("textDocument/hover", "textDocument/signatureHelp", "textDocument/inlayHint")) launch {
+                val params = JSONObject().put("textDocument", doc()).put("position", languagePosition(source, selection.min))
+                if (method == "textDocument/inlayHint") params.put("range", JSONObject().put("start", languagePosition(source, 0)).put("end", languagePosition(source, source.length)))
+                val result = try { request(method, params) } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled } catch (_: Exception) { return@launch }
+                if (epoch != current || inspection != id || buffer.text != source || buffer.state.selection != selection) return@launch
+                when (method) {
+                    "textDocument/hover" -> hover = nativeMarkupText((result as? JSONObject)?.opt("contents"))
+                    "textDocument/signatureHelp" -> signature = ((result as? JSONObject)?.optJSONArray("signatures") ?: JSONArray()).objects().joinToString("\n") { it.optString("label") }
+                    else -> inlays = ((result as? JSONArray) ?: JSONArray()).objects().take(200).mapNotNull { hint ->
+                        val pos = hint.optJSONObject("position") ?: return@mapNotNull null
+                        if (languageOffset(source, pos) == null) return@mapNotNull null
+                        val label = hint.opt("label"); val text = if (label is JSONArray) label.objects().joinToString("") { it.optString("value") } else label?.toString().orEmpty()
+                        "Line ${pos.optInt("line") + 1}: $text"
+                    }
+                }
+            }
+        }
+    }
+    suspend fun complete() {
+        if (!opened || buffer.readOnly) return
+        sync(); val source = buffer.text; val selection = buffer.state.selection; val current = epoch
+        try {
+            kotlinx.coroutines.delay(350)
+            val result = request("textDocument/completion", JSONObject().put("textDocument", doc()).put("position", languagePosition(source, selection.min)))
+            if (epoch != current || buffer.text != source || buffer.state.selection != selection) return
+            val items = result as? JSONArray ?: (result as? JSONObject)?.optJSONArray("items") ?: JSONArray()
+            var prefix = selection.min
+            while (prefix > 0 && (source[prefix - 1].isLetterOrDigit() || source[prefix - 1] == '_')) prefix--
+            val typed = source.substring(prefix, selection.min).lowercase()
+            suggestions = items.objects().mapNotNull { item ->
+                if (!item.optString("label").lowercase().startsWith(typed)) return@mapNotNull null
+                if (item.optInt("insertTextFormat", 1) == 2 || (item.optJSONArray("additionalTextEdits")?.length() ?: 0) > 0) return@mapNotNull null
+                val label = item.optString("label"); val raw = item.optJSONObject("textEdit"); val range = raw?.optJSONObject("range")
+                val from = if (raw == null) prefix else range?.optJSONObject("start")?.let { languageOffset(source, it) } ?: return@mapNotNull null
+                val to = if (raw == null) selection.max else range?.optJSONObject("end")?.let { languageOffset(source, it) } ?: return@mapNotNull null
+                if (from > to) return@mapNotNull null
+                NativeLanguageCompletion(label, item.optString("detail"), NativeSourceEdit(from, to, raw?.optString("newText") ?: item.optString("insertText", label)), source, selection)
+            }.take(100)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (error: Exception) { if (epoch == current) status = "Completion unavailable: ${error.message}. Retry language services." }
+    }
+    fun accept(item: NativeLanguageCompletion): Boolean = buffer.state.selection == item.selection && buffer.applySourceEdits(listOf(item.edit), item.source)
+    companion object { private val languageHTTP = OkHttpClient() }
+}
+</ui:copy>
+
 ## Assemble the maintained output
 
 Keep construction order explicit; the explanations above describe the decisions at each boundary.
 
-<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt"><ui:paste select="#simple-38d4bd61a8-0"/><ui:paste select="#simple-38d4bd61a8-1"/><ui:paste select="#simple-android-debug-session"/></ui:file>
+<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt"><ui:paste select="#simple-38d4bd61a8-0"/><ui:paste select="#simple-38d4bd61a8-1"/><ui:paste select="#simple-android-debug-session"/><ui:paste select="#simple-android-language-service"/></ui:file>
 
 </ui:doc>

@@ -16,7 +16,7 @@ The editor installs CodeMirror folding with its initial text. A linear indentati
 <ui:copy id="simple-1a4a59fc95-0">
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Compartment, EditorState, StateEffect } from "@codemirror/state";
-import { EditorView, keymap, drawSelection, lineNumbers } from "@codemirror/view";
+import { EditorView, keymap, drawSelection, lineNumbers, rectangularSelection, crosshairCursor } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { codeFolding, foldKeymap, foldService, foldEffect, unfoldEffect, foldedRanges, foldable } from "@codemirror/language";
 import { search, searchKeymap, openSearchPanel, SearchQuery, setSearchQuery } from "@codemirror/search";
@@ -60,7 +60,9 @@ function localFold(state: EditorState, from: number) {
   if (!ranges) { ranges = new Map(simpleFoldRanges(state.doc.toString()).map(range => [range.from, range])); foldCache.set(state.doc, ranges); }
   return ranges.get(state.doc.lineAt(from).to) ?? null;
 }
-const editors = new WeakMap<Buffer, { view: EditorView; language: Compartment; prose: Compartment }>();
+const editors = new WeakMap<Buffer, { view: EditorView; language: Compartment; prose: Compartment; richAttached?: boolean }>();
+export const SIMPLE_EDITOR_ATTACHED = "hickory:simple-editor-attached";
+export function editorForBuffer(buffer: Buffer) { return editors.get(buffer); }
 export function openFind(buffer: Buffer) { const view = editors.get(buffer)?.view; if (view) openSearchPanel(view); }
 export function Document({ buffer }: { buffer: Buffer }) {
   const host = useRef<HTMLDivElement>(null);
@@ -82,7 +84,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
     if (!cached) {
       const language = new Compartment(), prose = new Compartment();
       const view = new EditorView({ state: EditorState.create({ doc: buffer.text, extensions: [
-        history(), drawSelection(), lineNumbers(), codeFolding(), search({ top: true, literal: true }),
+        history(), drawSelection(), EditorState.allowMultipleSelections.of(true), rectangularSelection(), crosshairCursor(), lineNumbers(), codeFolding(), search({ top: true, literal: true }),
         EditorState.transactionExtender.of(tr => {
           const query = tr.effects.find(effect => effect.is(setSearchQuery))?.value as SearchQuery | undefined;
           return query && !query.literal ? { effects: setSearchQuery.of(new SearchQuery({ ...query, literal: true })) } : null;
@@ -94,18 +96,19 @@ export function Document({ buffer }: { buffer: Buffer }) {
         EditorView.updateListener.of(update => { if (update.docChanged) buffer.edit(update.state.doc.toString()); }),
         EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { overflow: "auto", fontFamily: "ui-monospace, monospace", fontSize: "13px" } }),
       ] }) });
-      cached = { view, language, prose }; editors.set(buffer, cached);
+      cached = { view, language, prose }; editors.set(buffer, cached); window.dispatchEvent(new Event(SIMPLE_EDITOR_ATTACHED));
     }
     host.current?.append(cached.view.dom);
+    window.dispatchEvent(new Event(SIMPLE_EDITOR_ATTACHED));
     setView(cached.view);
     return () => { cached.view.dom.remove(); };
   }, [buffer]);
   useEffect(() => {
-    if (!/\.(md|markdown)$/i.test(buffer.file.path)) return;
+    if (!/\.(md|markdown)$/i.test(buffer.file.path) || buffer.text.length > 200_000) return;
     let cancelled = false;
     void import("../editor/markdownStyling").then(({ markdownStyling }) => {
       const cached = editors.get(buffer);
-      if (!cancelled && cached) cached.view.dispatch({ effects: cached.prose.reconfigure(markdownStyling()) });
+      if (!cancelled && cached && !cached.richAttached) cached.view.dispatch({ effects: cached.prose.reconfigure(markdownStyling()) });
     }).catch(() => { /* Readable source remains available if styling cannot load. */ });
     return () => { cancelled = true; };
   }, [buffer]);

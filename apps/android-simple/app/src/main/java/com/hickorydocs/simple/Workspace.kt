@@ -14,9 +14,77 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 
 class DocumentBuffer(val file: FileNode, loaded: FileText) {
+    var receiptEngine: Engine? = null
+    var receiptSource by mutableStateOf("")
+    var receipts by mutableStateOf<List<org.json.JSONObject>>(emptyList())
+    var receiptNotice by mutableStateOf("")
+    suspend fun refreshReceipts() {
+        val engine = receiptEngine ?: return; val id = file.docID ?: return
+        if (dirty) { receiptNotice = "Save current source to view matching recorded output."; return }
+        val source = text; receiptNotice = "Loading recorded output…"
+        try {
+            val page = engine.request("GET", "/api/docs/$id/render")
+            val expected = java.security.MessageDigest.getInstance("SHA-256").digest(source.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+            if (text != source || dirty || page.optString("document") != id || page.optString("source_hash").removePrefix("sha256:") != expected) {
+                receiptNotice = "Recorded output belongs to another source revision. Save or refresh before retrying."; return
+            }
+            val blocks = page.optJSONArray("blocks") ?: org.json.JSONArray()
+            receipts = (0 until blocks.length()).map { blocks.getJSONObject(it) }.filter { it.optString("kind") == "exec" }; receiptSource = source; receiptNotice = ""
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (_: Exception) { if (text == source) receiptNotice = "Recorded output unavailable. Retry after checking the server." }
+    }
+    fun receiptsOn(line: Int): List<org.json.JSONObject> {
+        if (receiptSource != text || dirty) return emptyList()
+        val bytes = text.toByteArray(Charsets.UTF_8)
+        return receipts.filter { block -> val span = block.optJSONArray("span"); span != null && span.length() == 2 && span.optInt(0, -1) in 0..bytes.size && span.optInt(1, -1) in span.getInt(0)..bytes.size && bytes.take(span.getInt(0)).count { it == 10.toByte() } == line }
+    }
+    var inlineMarkup by mutableStateOf(InlineSnapshot(""))
+    var language: NativeLanguage? = null
     val state = TextFieldState(loaded.content)
     var focusSource: (() -> Unit)? = null
     fun closeFind() { showFind = false; focusSource?.invoke() }
+    var multiSource by mutableStateOf("")
+    var multiRanges by mutableStateOf<List<NativeSourceEdit>>(emptyList())
+    var multiText by mutableStateOf("")
+    var showMulti by mutableStateOf(false)
+    var applyingMulti = false
+    fun selectRectangle() {
+        val start = languagePosition(text, state.selection.min); val end = languagePosition(text, state.selection.max)
+        if (end.getInt("line") - start.getInt("line") >= 256) return
+        val rows = text.split('\n'); val left = minOf(start.getInt("character"), end.getInt("character")); val right = maxOf(start.getInt("character"), end.getInt("character"))
+        val ranges = (start.getInt("line")..end.getInt("line")).map { line ->
+            NativeSourceEdit(languageOffset(text, org.json.JSONObject().put("line", line).put("character", minOf(left, rows[line].length)))!!, languageOffset(text, org.json.JSONObject().put("line", line).put("character", minOf(right, rows[line].length)))!!, "")
+        }
+        selectMultiple(ranges, text)
+    }
+    fun addCursor(direction: Int) {
+        val active = if (multiSource == text) multiRanges else emptyList()
+        val anchor = (if (direction > 0) active.lastOrNull() else active.firstOrNull())?.from ?: state.selection.min
+        val pos = languagePosition(text, anchor); val rows = text.split('\n'); val line = pos.getInt("line") + direction
+        if (line !in rows.indices) return
+        val at = languageOffset(text, org.json.JSONObject().put("line", line).put("character", minOf(pos.getInt("character"), rows[line].length)))!!
+        selectMultiple((if (multiSource == text && multiRanges.isNotEmpty()) multiRanges else listOf(NativeSourceEdit(state.selection.min, state.selection.max, ""))) + NativeSourceEdit(at, at, ""), text)
+    }
+    fun clearMulti() { multiSource = ""; multiRanges = emptyList() }
+    fun selectMultiple(ranges: List<NativeSourceEdit>, source: String): Boolean {
+        val sorted = ranges.map { it.copy(text = "") }.distinct().sortedBy { it.from }
+        if (source != text || sorted.size !in 2..256 || !validSourceEdits(sorted, source.length)) return false
+        applyingMulti = true
+        try { if (!selectSourceRange(sorted.first().from, sorted.first().to, source)) return false; multiSource = source; multiRanges = sorted; return true }
+        finally { applyingMulti = false }
+    }
+    fun replaceMultiple(replacement: String): Boolean {
+        if (readOnly || multiSource != text || multiRanges.size < 2) return false
+        val ranges = multiRanges; val source = text
+        applyingMulti = true
+        try {
+            if (!applySourceEdits(ranges.map { it.copy(text = replacement) }, source)) return false
+            var delta = 0
+            val carets = ranges.map { range -> val at = range.from + delta + replacement.length; delta += replacement.length - (range.to - range.from); NativeSourceEdit(at, at, "") }
+            multiSource = text; multiRanges = carets
+            selectSourceRange(carets.first().from, carets.first().to, text); return true
+        } finally { applyingMulti = false }
+    }
     var showFind by mutableStateOf(false)
     var findQuery by mutableStateOf("")
     var findReplacement by mutableStateOf("")
@@ -24,12 +92,14 @@ class DocumentBuffer(val file: FileNode, loaded: FileText) {
     var findRegex by mutableStateOf(false)
     fun selectSourceRange(from: Int, to: Int, source: String): Boolean {
         if (text != source || state.composition != null || !validSourceEdits(listOf(NativeSourceEdit(from, to, "")), source.length)) return false
+        if (!applyingMulti) clearMulti()
         clearFolds(); state.edit { selection = TextRange(from, to) }
         debugReveal = source.take(from).count { it == '\n' } to ((debugReveal?.second ?: 0) + 1)
         return true
     }
     fun applySourceEdits(edits: List<NativeSourceEdit>, source: String): Boolean {
         if (readOnly || text != source || state.composition != null || !validSourceEdits(edits, source.length)) return false
+        if (!applyingMulti) clearMulti()
         clearFolds()
         state.edit { edits.sortedByDescending { it.from }.forEach { replace(it.from, it.to, it.text) } }
         return true
@@ -88,7 +158,7 @@ class Workspace : ViewModel() {
             agent.turns = emptyList(); agent.error = ""; terminal.id = null; terminal.screen = ""; terminal.error = ""
             debugger?.close(); debugger = NativeDebugger(next, viewModelScope)
             debugger?.onLocation = { path, line -> viewModelScope.launch { revealDebug(path, line) } }
-            generation = UUID.randomUUID(); engine = next; files = tree; buffers.clear(); opening.clear()
+            buffers.values.forEach { it.language?.close() }; generation = UUID.randomUUID(); engine = next; files = tree; buffers.clear(); opening.clear()
             layout = PaneLayout(); focused = "document-group"; status = root
             return true
         } catch (cancelled: CancellationException) { throw cancelled }
@@ -112,7 +182,10 @@ class Workspace : ViewModel() {
         try {
             val text = server.file(file)
             if (generation != current) return
-            buffers[file.path] = DocumentBuffer(file, text)
+            val buffer = DocumentBuffer(file, text)
+            buffers[file.path] = buffer
+            buffer.receiptEngine = server
+            buffer.language = NativeLanguage(server, buffer, viewModelScope); buffer.language?.start()
             if (newestOpen[target] == file.path) {
                 // The original pane may have closed while the request was pending.
                 val live = layout.groups().firstOrNull { it.id == target }?.id ?: layout.groups().first().id
@@ -127,7 +200,7 @@ class Workspace : ViewModel() {
         val file = find(files) ?: return
         open(file); buffers[path]?.let { buffer -> debugger?.rememberSource(buffer); buffer.debugReveal = line to ((buffer.debugReveal?.second ?: 0) + 1) }
     }
-    override fun onCleared() { debugger?.close(); super.onCleared() }
+    override fun onCleared() { buffers.values.forEach { it.language?.close() }; debugger?.close(); super.onCleared() }
     suspend fun openTerminal() {
         val server = engine ?: run { status = "Connect to a workspace server before opening Terminal."; return }
         show("terminal"); terminal.open(server)

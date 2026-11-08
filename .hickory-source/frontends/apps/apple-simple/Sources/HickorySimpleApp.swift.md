@@ -35,6 +35,13 @@ import SwiftUI
             }
             CommandGroup(after: .textEditing) {
                 Button("Find and replace") { workspace.currentBuffer?.showFind = true }.keyboardShortcut("f").disabled(workspace.currentBuffer == nil)
+                Button("Language tools") {
+                    Task { await workspace.currentBuffer?.language?.inspect() }
+                    Task { await workspace.currentBuffer?.language?.complete() }
+                }.keyboardShortcut(.space, modifiers: .control).disabled(workspace.currentBuffer == nil)
+                Button("Column selection") { workspace.currentBuffer?.selectRectangle() }.disabled(workspace.currentBuffer == nil)
+                Button("Add cursor below") { workspace.currentBuffer?.addCursor(1) }.keyboardShortcut(.downArrow, modifiers: [.command, .option]).disabled(workspace.currentBuffer == nil)
+                Button("Add cursor above") { workspace.currentBuffer?.addCursor(-1) }.keyboardShortcut(.upArrow, modifiers: [.command, .option]).disabled(workspace.currentBuffer == nil)
             }
             CommandMenu("Panes") {
                 Button("Files") { workspace.show("files") }; Button("Agent") { workspace.show("agent") }; Button("Terminal") { Task { await workspace.openTerminal() } }

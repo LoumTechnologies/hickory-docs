@@ -48,7 +48,9 @@ class MainActivity : ComponentActivity() {
                 "Save" to { scope.launch { workspace.save() }; Unit },
                 "Close tab" to { workspace.active?.let(workspace::close); Unit }
             ))
-            CommandMenu("Edit", listOf("Find and replace" to { workspace.currentBuffer?.showFind = true; Unit }))
+            CommandMenu("Edit", listOf("Find and replace" to { workspace.currentBuffer?.showFind = true; Unit },
+                "Column selection" to { workspace.currentBuffer?.selectRectangle(); Unit },
+                "Add cursor below" to { workspace.currentBuffer?.addCursor(1); Unit }, "Add cursor above" to { workspace.currentBuffer?.addCursor(-1); Unit }))
             CommandMenu("View", listOf(
                 "Files" to { workspace.show("files") }, "Agent" to { workspace.show("agent") },
                 "Terminal" to { scope.launch { workspace.openTerminal() }; Unit },

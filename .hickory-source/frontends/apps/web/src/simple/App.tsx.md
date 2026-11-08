@@ -18,6 +18,7 @@ import { PlainDebugHosts } from "../debug/plainDebugHosts";
 import { onOpenLocation, revealLine } from "../lib/revealLine";
 import type { FileNode } from "../api/types";
 import { Buffers } from "./buffers";
+import { RichOwners } from "./RichInline";
 import { Document, openFind } from "./Document";
 import { Terminal, TerminalSession } from "./Terminal";
 import { Agent, AgentSession } from "./Agent";
@@ -104,6 +105,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
   }
   return <main>
     <PlainDebugHosts />
+    <RichOwners buffers={buffers} />
     <nav aria-label="Menu" onClick={event => { if ((event.target as HTMLElement).closest("button")) event.currentTarget.querySelectorAll("details[open]").forEach(menu => menu.removeAttribute("open")); }}><details><summary>File</summary><div className="menu">
       <button onClick={() => { void loadFiles(); }}>Refresh files</button>
       <button disabled={!buffer || buffer.readonly || !buffer.dirty || buffer.saving} onClick={() => { void buffer?.save(); }}>Save</button>
