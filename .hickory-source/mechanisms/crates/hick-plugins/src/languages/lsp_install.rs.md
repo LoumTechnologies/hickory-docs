@@ -11,6 +11,8 @@ This page owns the output construction and the explained fragments below. Source
 <a id="f-867d2716fa76-PYTHON"></a>
 ### `PYTHON`
 
+Use a managed Python 3.12 for the server environment: the macOS system Python can still be 3.9, while current basedpyright requires Python 3.10 or newer. uv reuses an installed compatible interpreter or obtains that declared version; the package remains confined to the project server prefix.
+
 <storycode:copy id="f-867d2716fa76-PYTHON">
 use crate::{Asset, Installer};
 pub static PYTHON: Installer = Installer {
@@ -20,7 +22,7 @@ pub static PYTHON: Installer = Installer {
     // A real virtualenv rather than a --target install: the console
     // scripts land in bin/, which is where discovery already looks, and
     // `pyvenv.cfg` is how it recognises a virtualenv at all.
-    command: "uv venv --allow-existing {prefix}/python && uv pip install --python {prefix}/python/bin/python basedpyright",
+    command: "uv venv --allow-existing --python 3.12 {prefix}/python && uv pip install --python {prefix}/python/bin/python basedpyright",
     // The answer to "why not pyright": pyright implements no semantic
     // tokens, no inlay hints and no folding ranges — those live in
     // Pylance, which is licensed for Microsoft's editors only.

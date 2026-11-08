@@ -234,7 +234,18 @@ impl HickBackend {
         // A file that is not a document is not woven: it is its own virtual
         // file, and its language server is asked about it by its real name.
         if !is_hick_document(hick_uri, source) {
-            self.close_vfiles_for(hick_uri, &[hick_uri.clone()]).await;
+            let retained = self
+                .documents
+                .read()
+                .await
+                .get(hick_uri)
+                .is_some_and(|entry| entry.open_vfiles == [hick_uri.clone()]);
+            if !retained {
+                self.close_vfiles_for(hick_uri, &[]).await;
+                if let Some(entry) = self.documents.write().await.get_mut(hick_uri) {
+                    entry.open_vfiles.clear();
+                }
+            }
             self.process_plain_file(hick_uri, source).await;
             return;
         }
@@ -1642,6 +1653,9 @@ impl LanguageServer for HickBackend {
             .as_ref()
             .and_then(|folders| folders.first().map(|f| f.uri.clone()))
             .or(params.root_uri);
+        if let Some(path) = root.as_ref().and_then(|uri| uri.to_file_path().ok()) {
+            crate::server_config::load_from_workspace(&path);
+        }
         *self.workspace_root.write().await = root;
         Ok(InitializeResult {
             capabilities: ServerCapabilities {

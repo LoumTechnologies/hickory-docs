@@ -313,6 +313,8 @@ continues to describe generated project files. Stage the editor-only body beside
 those files, use its untrimmed content even for a declared project, and retire its
 child index entry when the delimiter pair disappears.
 
+An ordinary file already synchronized to its own URI must remain open across typing. Closing it and then choosing didChange from the retained membership sends a change to a document the child has just forgotten. Keep that one live mapping; only a transition from projected files closes the old set. The real-clangd resynchronization witness now enters through process_document, covering this decision rather than bypassing it through the child helper.
+
 <storycode:copy id="f-c936496a03c1-impl-HickBackend">
 impl HickBackend {
     pub fn new(client: Client) -> Self {
@@ -385,7 +387,18 @@ impl HickBackend {
         // A file that is not a document is not woven: it is its own virtual
         // file, and its language server is asked about it by its real name.
         if !is_hick_document(hick_uri, source) {
-            self.close_vfiles_for(hick_uri, &[hick_uri.clone()]).await;
+            let retained = self
+                .documents
+                .read()
+                .await
+                .get(hick_uri)
+                .is_some_and(|entry| entry.open_vfiles == [hick_uri.clone()]);
+            if !retained {
+                self.close_vfiles_for(hick_uri, &[]).await;
+                if let Some(entry) = self.documents.write().await.get_mut(hick_uri) {
+                    entry.open_vfiles.clear();
+                }
+            }
             self.process_plain_file(hick_uri, source).await;
             return;
         }
@@ -1875,6 +1888,9 @@ impl LanguageServer for HickBackend {
             .as_ref()
             .and_then(|folders| folders.first().map(|f| f.uri.clone()))
             .or(params.root_uri);
+        if let Some(path) = root.as_ref().and_then(|uri| uri.to_file_path().ok()) {
+            crate::server_config::load_from_workspace(&path);
+        }
         *self.workspace_root.write().await = root;
         Ok(InitializeResult {
             capabilities: ServerCapabilities {

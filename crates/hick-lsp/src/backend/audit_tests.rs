@@ -430,15 +430,10 @@ async fn unchanged_plain_sync_keeps_real_clangd_quickfix_and_changed_source_inva
         "int square(int value) { return value * value; }\nint main() { return square(3) }\n";
     std::fs::write(&path, source).unwrap();
     let uri = Url::from_file_path(&path).unwrap();
-    let root = Url::from_directory_path(directory.path())
-        .unwrap()
-        .to_string();
     let (service, _socket) = tower_lsp::LspService::new(HickBackend::new);
     let backend = service.inner();
     backend.spawn_notification_handler();
-    backend
-        .process_file_at(&uri, &uri, source, "cpp", root.clone())
-        .await;
+    backend.process_document(&uri, source).await;
     tokio::time::timeout(std::time::Duration::from_secs(15), async {
         loop {
             if backend
@@ -458,9 +453,7 @@ async fn unchanged_plain_sync_keeps_real_clangd_quickfix_and_changed_source_inva
     let before = backend.vfile_index.read().await[&uri]
         .provider_diagnostics
         .clone();
-    backend
-        .process_file_at(&uri, &uri, source, "cpp", root.clone())
-        .await;
+    backend.process_document(&uri, source).await;
     assert_eq!(
         backend.vfile_index.read().await[&uri].provider_diagnostics,
         before
@@ -480,9 +473,7 @@ async fn unchanged_plain_sync_keeps_real_clangd_quickfix_and_changed_source_inva
         "same-source resync must retain the real provider fix: {actions:?}"
     );
     let changed = source.replace("square(3) }", "square(3); }");
-    backend
-        .process_file_at(&uri, &uri, &changed, "cpp", root)
-        .await;
+    backend.process_document(&uri, &changed).await;
     assert!(
         backend.vfile_index.read().await[&uri]
             .provider_diagnostics

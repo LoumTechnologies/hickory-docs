@@ -44,6 +44,13 @@ pub fn project_root() -> &'static std::path::Path {
         .unwrap_or_else(|| Path::new("."))
 }
 
+/// Use the initialized workspace as the child-server installation root.
+/// Idempotent and first-call-wins, like document-based discovery.
+pub fn load_from_workspace(root: &Path) {
+    OVERRIDES.get_or_init(|| find_and_parse(root).unwrap_or_default());
+    let _ = ROOT.set(root.to_path_buf());
+}
+
 /// Load overrides from the nearest `.hick-lsp.json` at or above `doc_path`.
 ///
 /// Idempotent and first-call-wins; later calls are no-ops.
