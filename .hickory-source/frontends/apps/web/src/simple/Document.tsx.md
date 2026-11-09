@@ -11,14 +11,14 @@ After text is visible, Markdown files load and attach the existing display-only 
 
 Search uses CodeMirror’s native search transactions and keymap. The panel is an absolute overlay, so showing it cannot resize the cached editor. Literal search treats backslashes as text; regex mode enables capture replacements. Read-only policy stays in editor state and search navigation reveals folded matches.
 
-The editor installs CodeMirror folding with its initial text. A linear indentation scan supplies regions without waiting for a parser or server; the existing LSP compartment may add language-specific regions later. Only visible headers become right-rail menu actions. Folding changes editor decorations rather than buffer bytes, and the existing cached view keeps folds across tab moves. The same anchored menu combines launch and fold commands when they share a line.
+The editor installs CodeMirror folding with its initial text. A linear indentation scan supplies regions without waiting for a parser or server; the existing LSP compartment may add language-specific regions later. A dedicated left gutter shows − on expanded headers and + on collapsed headers. CodeMirror anchors these controls to its measured lines. Folding changes editor decorations rather than buffer bytes, and the existing cached view keeps folds across tab moves. Debug launch actions keep their separate right-hand rail.
 
 <ui:copy id="simple-1a4a59fc95-0">
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Compartment, EditorState, StateEffect } from "@codemirror/state";
 import { EditorView, keymap, drawSelection, lineNumbers, rectangularSelection, crosshairCursor } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { codeFolding, foldKeymap, foldService, foldEffect, unfoldEffect, foldedRanges, foldable } from "@codemirror/language";
+import { codeFolding, foldKeymap, foldService, foldGutter } from "@codemirror/language";
 import { search, searchKeymap, openSearchPanel, SearchQuery, setSearchQuery } from "@codemirror/search";
 import { completionKeymap, startCompletion } from "@codemirror/autocomplete";
 import { useWorkspaceLsp } from "../lsp/useLsp";
@@ -67,7 +67,6 @@ export function openFind(buffer: Buffer) { const view = editors.get(buffer)?.vie
 export function Document({ buffer }: { buffer: Buffer }) {
   const host = useRef<HTMLDivElement>(null);
   useSyncExternalStore(buffer.subscribe, buffer.snapshot);
-  const [, refreshFolds] = useState(0);
   const [view, setView] = useState<EditorView | null>(null);
   const language = languageFromPath(buffer.file.path);
   const literate = /\.(md|markdown)$/i.test(buffer.file.path);
@@ -84,7 +83,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
     if (!cached) {
       const language = new Compartment(), prose = new Compartment();
       const view = new EditorView({ state: EditorState.create({ doc: buffer.text, extensions: [
-        history(), drawSelection(), EditorState.allowMultipleSelections.of(true), rectangularSelection(), crosshairCursor(), lineNumbers(), codeFolding(), search({ top: true, literal: true }),
+        history(), drawSelection(), EditorState.allowMultipleSelections.of(true), rectangularSelection(), crosshairCursor(), lineNumbers(), codeFolding(), foldGutter({ openText: "−", closedText: "+" }), search({ top: true, literal: true }),
         EditorState.transactionExtender.of(tr => {
           const query = tr.effects.find(effect => effect.is(setSearchQuery))?.value as SearchQuery | undefined;
           return query && !query.literal ? { effects: setSearchQuery.of(new SearchQuery({ ...query, literal: true })) } : null;
@@ -164,27 +163,6 @@ export function Document({ buffer }: { buffer: Buffer }) {
     const reveal = () => { const line = claimReveal(buffer.file.path); if (line !== null) revealLine(view, line - 1); };
     reveal(); return onRevealLine(path => { if (path === buffer.file.path) reveal(); });
   }, [view, buffer]);
-  useEffect(() => {
-    if (!view) return;
-    const plugin = EditorView.updateListener.of(update => {
-      if (update.docChanged || update.viewportChanged || update.transactions.some(tr => tr.effects.length)) refreshFolds(value => value + 1);
-    });
-    const compartment = new Compartment();
-    view.dispatch({ effects: StateEffect.appendConfig.of(compartment.of(plugin)) });
-    return () => { view.dispatch({ effects: compartment.reconfigure([]) }); };
-  }, [view]);
-  const foldingActions: { at: number; label: string; run: () => void }[] = [];
-  if (view) {
-    // Enumerate only visible logical headers; CodeMirror's height map owns folded geometry.
-    for (const block of view.viewportLineBlocks) {
-      const line = view.state.doc.lineAt(block.from), range = foldable(view.state, line.from, line.to);
-      let folded: { from: number; to: number } | null = null;
-      foldedRanges(view.state).between(line.from, line.to, (from, to) => { folded = { from, to }; });
-      const target = folded ?? range, snapshot = view.state.doc;
-      if (target) foldingActions.push({ at: line.from, label: `${folded ? "Unfold" : "Fold"} line ${line.number}`,
-        run: () => { if (view.state.doc === snapshot) view.dispatch({ effects: (folded ? unfoldEffect : foldEffect).of(target) }); } });
-    }
-  }
   const start = async (program?: string) => {
     if (buffer.dirty || buffer.saving) { setDebugNotice("Save this file before debugging so the debugger runs the text shown here."); return; }
     setDebugNotice("");
@@ -195,7 +173,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
   };
   return <div className="document-body">
     <div className="editor-row"><div ref={host} className="editor-host editor-cm-host" /><Minimap buffer={buffer} />
-      <DebugLaunchRail actions={foldingActions} view={view} plainPath={debuggable && !literate ? buffer.file.path : undefined} enabled={["idle", "finished", "failed"].includes(debug.status)} onStart={debuggable ? start : undefined} />
+      <DebugLaunchRail view={view} plainPath={debuggable && !literate ? buffer.file.path : undefined} enabled={["idle", "finished", "failed"].includes(debug.status)} onStart={debuggable ? start : undefined} />
     </div>
     {debuggable && view && <DebugStrip editorView={view} pausedLine={changed ? null : debug.pausedLine}
       status={debug.status} program={debug.program} message={debug.message} offerInstall={debug.offerInstall}

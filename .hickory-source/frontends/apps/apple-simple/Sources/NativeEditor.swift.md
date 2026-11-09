@@ -13,7 +13,7 @@ Search matches are computed off the main actor against an exact source/options s
 
 Fold state belongs to the cached native editor. Discover indentation regions with a stack and UTF-16 ranges, matching TextKit's character indices. The layout delegate marks folded glyphs null and suppresses their control-character advancement, retaining the original text storage for saves, selection, language services and undo. Hidden rows are omitted from the measured rails. Before an edit, retire the folds; refuse the first edit if it would touch hidden bytes so a collapsed selection cannot silently erase unseen code. Reveals unfold first. UIKit explicitly uses TextKit 1 so the same delegate mechanism is available on both Apple platforms.
 
-The line-action popover shares the debugger slot and offers Fold/Unfold without adding a new column. Nested ranges remain independent, and folding is allowed on read-only files because it writes no source. This is indentation-based folding, not a claim of native language-server fold support.
+A fixed-width left gutter offers − to fold and + to unfold each visible header. It uses the same measured rows as line numbers so scrolling, wrapping and hidden rows keep controls anchored. Debugger actions stay on the right. Nested ranges remain independent, and folding is allowed on read-only files because it writes no source. This is indentation-based folding, not a claim of native language-server fold support.
 
 ## Compute search proposals without touching the editor
 
@@ -618,6 +618,17 @@ struct LanguageEditor: View {
     var body: some View {
         HStack(spacing: 0) {
             GeometryReader { geometry in
+                let headers = Set(simpleFoldRanges(buffer.text).map(\.line))
+                ZStack(alignment: .topLeading) {
+                    ForEach(buffer.visibleDebugLines.filter { headers.contains($0.line) && $0.y >= 0 && $0.y < geometry.size.height }, id: \.line) { row in
+                        Button(buffer.foldedLines.contains(row.line) ? "+" : "−") { buffer.toggleFold?(row.line) }
+                            .buttonStyle(.plain).font(.system(size: 13)).frame(width: 24, height: min(18, row.height))
+                            .accessibilityLabel("\(buffer.foldedLines.contains(row.line) ? "Unfold" : "Fold") line \(row.line + 1)")
+                            .position(x: 12, y: row.y + row.height / 2)
+                    }
+                }.clipped()
+            }.frame(width: 24)
+            GeometryReader { geometry in
                 Canvas { context, size in
                     for row in buffer.visibleDebugLines where row.y + row.height > 0 && row.y < size.height {
                         context.draw(Text(String(row.line + 1)).font(.system(size: 13, design: .monospaced)).foregroundColor(.secondary),
@@ -740,12 +751,11 @@ struct NativeDebugRail: View {
     @State private var condition = ""
     private var paused: Int? { debug.sourceMatches(buffer) ? debug.line(in: buffer.file.path) : nil }
     var body: some View {
-        let foldHeaders = Set(simpleFoldRanges(buffer.text).map(\.line))
         GeometryReader { geometry in
             ZStack(alignment: .topLeading) {
                 ForEach(buffer.visibleDebugLines.filter { $0.y >= 0 && $0.y < geometry.size.height }, id: \.line) { row in
                     let held = debug.breakpoints[buffer.file.path]?.first(where: { $0["line"] as? Int == row.line })
-                    let glyph = (foldHeaders.contains(row.line) || buffer.inlineMarkup.source == buffer.text && (buffer.inlineMarkup.cells.contains { $0.line == row.line } || buffer.inlineMarkup.equations.contains { $0.line == row.line })) ? "⋯" : row.line == paused ? "⋯" : row.line == 0 ? "▷" : held == nil ? "·" : (held?["state"] as? String == "refused" ? "○" : held?["state"] as? String == "bound" ? "●" : "◌")
+                    let glyph = (buffer.inlineMarkup.source == buffer.text && (buffer.inlineMarkup.cells.contains { $0.line == row.line } || buffer.inlineMarkup.equations.contains { $0.line == row.line })) ? "⋯" : row.line == paused ? "⋯" : row.line == 0 ? "▷" : held == nil ? "·" : (held?["state"] as? String == "refused" ? "○" : held?["state"] as? String == "bound" ? "●" : "◌")
                     Button(glyph) { opened = row.line; Task { await buffer.refreshReceipts() } }
                         .buttonStyle(.plain).font(.system(size: 13)).frame(width: 24, height: min(18, row.height))
                         .accessibilityLabel("Debug actions on line \(row.line + 1)")
@@ -786,10 +796,6 @@ struct NativeDebugRail: View {
             if buffer.file.doc_id != nil { Button("Refresh recorded output") { Task { await buffer.refreshReceipts() } } }
             if !debug.sourceMatches(buffer) { Text("Save edited text before launching. Values belong to the source that ran.").font(.caption) }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 86))], spacing: 5) {
-                if simpleFoldRanges(buffer.text).contains(where: { $0.line == line }) {
-                    Button(buffer.foldedLines.contains(line) ? "Unfold" : "Fold") { buffer.toggleFold?(line); opened = nil }
-                }
-                if !buffer.foldedLines.isEmpty { Button("Unfold all") { for header in Array(buffer.foldedLines) { buffer.toggleFold?(header) }; opened = nil } }
                 Button("Debug") { Task { await debug.prepare(buffer, line: line) } }.disabled(debug.active || buffer.dirty || buffer.saving)
                 Button("Breakpoint") { debug.toggle(buffer.file.path, line: line) }
                 if debug.status == "paused" {

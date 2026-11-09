@@ -74,10 +74,21 @@ try {
         case "fold":
         case "unfold": {
           const pane = editor(request.path).locator("xpath=ancestor::div[contains(@class, 'editor-row')][1]");
-          const summary = pane.getByLabel(`Line actions on line ${request.line}`, { exact: true });
-          const details = summary.locator("..");
-          if (!(await details.getAttribute("open") !== null)) await summary.click();
-          await pane.getByRole("button", { name: `${request.action === "fold" ? "Fold" : "Unfold"} line ${request.line}`, exact: true }).click();
+          const number = pane.locator(".cm-lineNumbers .cm-gutterElement").getByText(String(request.line), { exact: true });
+          const row = await number.boundingBox();
+          if (!row) throw new Error("Fold header is not visible");
+          const markers = pane.locator(`.cm-foldGutter span[title="${request.action === "fold" ? "Fold" : "Unfold"} line"]`);
+          let clicked = false;
+          for (const marker of await markers.all()) {
+            const box = await marker.boundingBox();
+            if (box && Math.abs(box.y + box.height / 2 - row.y - row.height / 2) < row.height / 2) {
+              if (await marker.textContent() !== (request.action === "fold" ? "−" : "+")) throw new Error("Unexpected fold icon");
+              const content = await editor(request.path).locator(".cm-content").boundingBox();
+              if (!content || box.x + box.width > content.x) throw new Error("Fold icon must be left of text");
+              await marker.click(); clicked = true; break;
+            }
+          }
+          if (!clicked) throw new Error("No fold icon on requested line");
           break;
         }
         case "fold-count": value = await editor(request.path).locator(".cm-foldPlaceholder").count(); break;

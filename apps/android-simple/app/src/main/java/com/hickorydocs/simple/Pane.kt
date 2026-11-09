@@ -344,6 +344,28 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
     }
     Box(modifier) {
         Row(Modifier.fillMaxSize()) {
+            BoxWithConstraints(Modifier.width(24.dp).fillMaxHeight().clipToBounds()) {
+                val density = LocalDensity.current
+                val layout = textLayout
+                val headers = simpleFoldRanges(source).associateBy { it.line }
+                val height = with(density) { maxHeight.toPx() }
+                if (layout != null && layout.layoutInput.text.text == display) {
+                    val first = layout.getLineForVerticalPosition(scroll.value.toFloat())
+                    val last = layout.getLineForVerticalPosition(scroll.value + height)
+                    for (visual in first..last) {
+                        val offset = foldSourceOffset(layout.getLineStart(visual), folds)
+                        if (offset > 0 && source[offset - 1] != '\n') continue
+                        val line = source.take(offset).count { it == '\n' }
+                        if (line !in headers) continue
+                        val top = layout.getLineTop(visual) - scroll.value + with(density) { 8.dp.toPx() }
+                        if (top < 0 || top > height) continue
+                        val folded = line in buffer.foldedLines
+                        Text(if (folded) "+" else "−", fontSize = 13.sp,
+                            modifier = Modifier.offset { IntOffset(0, top.toInt()) }.width(24.dp).height(18.dp)
+                                .clickable { buffer.toggleFold(line) }.semantics { contentDescription = "${if (folded) "Unfold" else "Fold"} line ${line + 1}" })
+                    }
+                }
+            }
             val numberColor = MaterialTheme.colorScheme.onSurfaceVariant
             val numberPaint = remember { Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 typeface = Typeface.MONOSPACE; textAlign = Paint.Align.RIGHT
@@ -513,7 +535,6 @@ fun debugLineOffset(source: String, line: Int): Int? {
     val starts = buffer.inlineMarkup.takeIf { it.source == source }?.lineStarts
     val folds = buffer.activeFolds()
     val display = foldDisplay(buffer.text, folds)
-    val candidates = simpleFoldRanges(buffer.text).associateBy { it.line }
     val paused = if (debug.sourceMatches(buffer)) debug.line(buffer.file.path) else null
     BoxWithConstraints(Modifier.width(24.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceContainer)) {
         val height = with(density) { maxHeight.toPx() }
@@ -527,7 +548,7 @@ fun debugLineOffset(source: String, line: Int): Int? {
                 val top = layout.getLineTop(visual) - scroll.value + with(density) { 8.dp.toPx() }
                 if (top < 0 || top > height) continue
                 val held = debug.breakpoints[buffer.file.path]?.firstOrNull { it.optInt("line", -1) == line }
-                val glyph = when { line in candidates || buffer.inlineMarkup.source == buffer.text && (buffer.inlineMarkup.cells.any { it.line == line } || buffer.inlineMarkup.equations.any { it.line == line }) -> "⋯"; line == paused -> "⋯"; line == 0 -> "▷"; held == null -> "·"; held.optString("state") == "refused" -> "○"; held.optString("state") == "bound" -> "●"; else -> "◌" }
+                val glyph = when { buffer.inlineMarkup.source == buffer.text && (buffer.inlineMarkup.cells.any { it.line == line } || buffer.inlineMarkup.equations.any { it.line == line }) -> "⋯"; line == paused -> "⋯"; line == 0 -> "▷"; held == null -> "·"; held.optString("state") == "refused" -> "○"; held.optString("state") == "bound" -> "●"; else -> "◌" }
                 Box(Modifier.offset { IntOffset(0, top.toInt()) }) {
                     Text(glyph, fontSize = 13.sp, modifier = Modifier.width(24.dp).height(18.dp).clickable { opened = line; scope.launch { buffer.refreshReceipts() } }.semantics { contentDescription = "Debug actions on line ${line + 1}" })
                     DropdownMenu(expanded = opened == line, onDismissRequest = { opened = null }) {
@@ -567,8 +588,6 @@ fun debugLineOffset(source: String, line: Int): Int? {
                             if (buffer.file.docID != null) TextButton(onClick = { scope.launch { buffer.refreshReceipts() } }) { Text("Refresh recorded output") }
                             if (!debug.sourceMatches(buffer)) Text("Save edited text before launching. Values belong to the source that ran.", fontSize = 12.sp)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                if (line in candidates) TextButton(onClick = { buffer.toggleFold(line); opened = null }) { Text(if (buffer.foldedLines.contains(line)) "Unfold" else "Fold") }
-                                if (folds.isNotEmpty()) TextButton(onClick = { buffer.clearFolds(); opened = null }) { Text("Unfold all") }
                                 TextButton(enabled = !debug.active && !buffer.dirty && !buffer.saving, onClick = { scope.launch { debug.prepare(buffer, line) } }) { Text("Debug") }
                                 TextButton(onClick = { debug.toggle(buffer.file.path, line) }) { Text("Breakpoint") }
                                 if (debug.status == "paused") {

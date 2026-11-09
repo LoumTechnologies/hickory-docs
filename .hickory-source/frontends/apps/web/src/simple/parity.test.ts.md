@@ -7,7 +7,7 @@ Read the exact same layout scenarios as Swift. These are focused model witnesses
 
 The Markdown witnesses check actual rendered emphasis, literal code and HTML safety, then edit and undo inside the retained document editor. A plain-file counterexample protects ordinary source text from accidental prose formatting. These component checks do not establish native rendering.
 
-The folding witnesses exercise the shared right-hand menu and CodeMirror fold state, preserving the document and undo history. Indentation discovery is local and uses UTF-16 positions, including tabs and Unicode. These are component checks, not native gesture evidence.
+The folding witnesses exercise the dedicated left plus/minus gutter and CodeMirror fold state, preserving the document and undo history. Indentation discovery is local and uses UTF-16 positions, including tabs and Unicode. These are component checks, not native gesture evidence.
 
 The inline DAP witnesses attach a controlled paused session after text is visible, exercise real editor decorations and action buttons, retain undo, and refuse an unsaved launch. They do not establish a live adapter connection.
 
@@ -153,19 +153,22 @@ describe("simple folding", () => {
     expect(ranges.map(range => source.slice(range.from, range.to))).toEqual(["\n\tchild\n        nested", "\n        nested"]);
     expect(simpleFoldRanges("one\ntwo\n")).toEqual([]);
   });
-  it("folds and unfolds from the shared line menu without changing source, dirty state or undo", async () => {
+  it("folds and unfolds from the left plus/minus gutter without changing source, dirty state or undo", async () => {
     const source = "function main() {\n  first()\n  second()\n}\n";
     const buffer = new Buffer({ path: "fold.txt", name: "fold.txt", dir: false }, source, "hash", () => {});
     const screen = render(createElement(Document, { buffer }));
     try {
       const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
-      // jsdom has no layout; give the measured right rail a visible viewport.
-      Object.defineProperty(screen.container.querySelector(".cm-debug-rail")!, "clientHeight", { value: 400 });
-      fireEvent.click(await screen.findByLabelText("Line actions on line 1"));
-      fireEvent.click(await screen.findByRole("button", { name: "Fold line 1" }));
+      const gutter = screen.container.querySelector(".cm-foldGutter")!;
+      expect(gutter.closest(".cm-gutters")).not.toBeNull();
+      expect(screen.queryByRole("button", { name: "Fold line 1" })).toBeNull();
+      const marker = () => gutter.querySelector(".cm-gutterElement:not([style*=\"visibility\"]) span[title]")!;
+      await waitFor(() => expect(marker()?.textContent).toBe("−"));
+      fireEvent.click(marker());
       await waitFor(() => expect(foldedRanges(view.state).size).toBe(1));
       expect(view.state.doc.toString()).toBe(source); expect(buffer.dirty).toBe(false);
-      fireEvent.click(await screen.findByRole("button", { name: "Unfold line 1" }));
+      await waitFor(() => expect(marker().textContent).toBe("+"));
+      fireEvent.click(marker());
       await waitFor(() => expect(foldedRanges(view.state).size).toBe(0));
       act(() => view.dispatch({ changes: { from: source.length, insert: "typed" } }));
       act(() => { undo(view); });
