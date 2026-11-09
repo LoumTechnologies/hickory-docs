@@ -302,6 +302,8 @@ The session opens only after the buffer exists. Closing or reconnecting retires 
 
 ## Apply results only to the source and selection that requested them
 
+An empty semantic-token or completion response establishes only that the bridge answered; it does not establish whether a child server is installed. Keep these statuses descriptive and point to Language tools for the workspace setup command.
+
 Typing clears old colors and schedules a quiet-period refresh. Providers can start late, so semantic reads retry a bounded number of times without delaying text opening. Completion requests are debounced after synchronization, filter unsupported edit shapes and retain their exact source/selection snapshot. The native edit callback makes the final permission and revision check. No language result saves a file.
 
 <ui:copy id="simple-apple-language-snapshots">
@@ -327,7 +329,7 @@ Typing clears old colors and schedules a quiet-period refresh. Providers can sta
                     guard !Task.isCancelled, self.buffer?.text == source, self.epoch == current else { return }
                     self.tokens = decodeNativeTokens(result?["data"] as? [Int] ?? [], legend: self.legend, source: source)
                     self.buffer?.renderLanguage?(self.tokens, source)
-                    self.status = self.tokens.isEmpty ? "LSP: no semantic tokens. Check language-server installation." : "LSP · \(self.tokens.count) semantic spans"
+                    self.status = self.tokens.isEmpty ? "LSP connected; no semantic colors for this file. Open Language tools for setup or retry." : "LSP · \(self.tokens.count) semantic spans"
                     if !self.tokens.isEmpty || attempt == 4 { return }
                 } catch { if !Task.isCancelled, self.epoch == current { self.status = "Language colors unavailable: \(error.localizedDescription)" }; return }
                 try? await Task.sleep(for: .milliseconds(700))
@@ -397,7 +399,7 @@ Typing clears old colors and schedules a quiet-period refresh. Providers can sta
                 suggestions.append(NativeCompletion(id: index, label: label, detail: item["detail"] as? String ?? "Language server", range: range, insert: insert, source: source, selection: selection))
                 if suggestions.count >= 100 { break }
             }
-            status = suggestions.isEmpty ? "LSP returned no simple completions here. Check cursor and server installation." : "LSP · \(suggestions.count) completions"
+            status = suggestions.isEmpty ? "No supported completions at this position. Open Language tools for setup or retry." : "LSP · \(suggestions.count) completions"
         } catch { if epoch == current { status = "Completion unavailable: \(error.localizedDescription)" } }
     }
     func accept(_ completion: NativeCompletion) {

@@ -691,7 +691,7 @@ struct LanguageEditor: View {
                                 }.frame(maxWidth: .infinity, alignment: .leading)
                             }.frame(height: 180)
                             Button("Retry language services") { language.start() }
-                            Text("Python needs basedpyright installed in this workspace. Snippets and multi-file completion edits are not applied here.").font(.caption)
+                            Text("For Python, run hick lsp install python from the workspace folder, then choose Retry language services. This installs basedpyright for colors and IntelliSense. Snippets and multi-file completion edits are not applied here.").font(.caption)
                         }
                     }.padding() }.frame(width: 350, height: 420)
                 }

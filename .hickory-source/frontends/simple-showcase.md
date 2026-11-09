@@ -481,12 +481,26 @@ assets (the launcher prepares them from installed web dependencies).
 
 ## Real language services
 
+The default Python playground does not install language servers automatically.
+Its native code colors and IntelliSense need basedpyright in this workspace;
+servers installed in a different demo do not carry over. Use the same
+`HICKORY_PROJECT_DIR` in each launcher when comparing platforms.
+
 Install Python's real server for the prepared workspace:
 
 ```sh
 target/debug/hick lsp install python --root "$PWD/.dev/simple-ui/project"
 ```
 
+A launcher can attach to the engine already running for an installed desktop
+app. If that older engine does not support the current editor correctly, keep
+its open sessions intact and launch a separate development engine:
+
+```sh
+HICKORY_STATE_DIR="$PWD/.dev/simple-ui/engine" just simple-dev apple
+```
+
+Use that same state directory and project directory for a browser comparison.
 Restart/Retry language services, then open `orders.py`:
 
 1. Inspect semantic colors on `Product`, `LineItem`, parameters and variables.

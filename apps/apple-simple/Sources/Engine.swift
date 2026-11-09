@@ -287,7 +287,7 @@ func decodeNativeTokens(_ data: [Int], legend: [String], source: String) -> [Nat
                     guard !Task.isCancelled, self.buffer?.text == source, self.epoch == current else { return }
                     self.tokens = decodeNativeTokens(result?["data"] as? [Int] ?? [], legend: self.legend, source: source)
                     self.buffer?.renderLanguage?(self.tokens, source)
-                    self.status = self.tokens.isEmpty ? "LSP: no semantic tokens. Check language-server installation." : "LSP · \(self.tokens.count) semantic spans"
+                    self.status = self.tokens.isEmpty ? "LSP connected; no semantic colors for this file. Open Language tools for setup or retry." : "LSP · \(self.tokens.count) semantic spans"
                     if !self.tokens.isEmpty || attempt == 4 { return }
                 } catch { if !Task.isCancelled, self.epoch == current { self.status = "Language colors unavailable: \(error.localizedDescription)" }; return }
                 try? await Task.sleep(for: .milliseconds(700))
@@ -357,7 +357,7 @@ func decodeNativeTokens(_ data: [Int], legend: [String], source: String) -> [Nat
                 suggestions.append(NativeCompletion(id: index, label: label, detail: item["detail"] as? String ?? "Language server", range: range, insert: insert, source: source, selection: selection))
                 if suggestions.count >= 100 { break }
             }
-            status = suggestions.isEmpty ? "LSP returned no simple completions here. Check cursor and server installation." : "LSP · \(suggestions.count) completions"
+            status = suggestions.isEmpty ? "No supported completions at this position. Open Language tools for setup or retry." : "LSP · \(suggestions.count) completions"
         } catch { if epoch == current { status = "Completion unavailable: \(error.localizedDescription)" } }
     }
     func accept(_ completion: NativeCompletion) {
