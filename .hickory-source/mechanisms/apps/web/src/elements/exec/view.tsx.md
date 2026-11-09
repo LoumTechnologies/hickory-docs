@@ -13,6 +13,10 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <a id="f-b875f66d311d-execView"></a>
 ### `execView`
 
+Cached stdout is a readable receipt even when timed transcript events are absent.
+Prefer an explicitly saved source output when present; otherwise show the backend
+recording, without starting a run.
+
 <storycode:copy id="f-b875f66d311d-execView">
 import { CellPanel } from "../../components/CellPanel";
 import { matchExecBlock } from "../../lib/blockMatch";
@@ -25,11 +29,11 @@ export const execView: ElementView = {
   render(slot, cx) {
     const block = matchExecBlock({ span: slot.span, index: slot.index }, cx.execBlocks);
     const running = block ? cx.runningCells.has(block.id) : false;
-    if (slot.outputOnly && !block?.transcript?.length && slot.recordedOutput === undefined && !block?.runError && !running) return null;
+    if (slot.outputOnly && !block?.transcript?.length && slot.recordedOutput === undefined && block?.recorded_output === undefined && !block?.runError && !running) return null;
     return (
       <CellPanel
         block={block}
-        recordedOutput={slot.recordedOutput}
+        recordedOutput={slot.recordedOutput ?? block?.recorded_output}
         running={running}
         command={slot.outputOnly ? undefined : slot.text}
         replay={cx.replaying.includes(slot.at)}

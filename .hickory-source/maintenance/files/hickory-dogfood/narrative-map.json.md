@@ -150668,6 +150668,48 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/inline-editing.md",
       "symbol": "simple-inline-browser-owners",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-showcase-0",
+      "output": "examples/simple-ui/orders.py",
+      "page": ".hickory-source/frontends/simple-showcase.md",
+      "symbol": "simple-showcase-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-showcase-1",
+      "output": "examples/simple-ui/test_orders.py",
+      "page": ".hickory-source/frontends/simple-showcase.md",
+      "symbol": "simple-showcase-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-showcase-2",
+      "output": "examples/simple-ui/scratch.txt",
+      "page": ".hickory-source/frontends/simple-showcase.md",
+      "symbol": "simple-showcase-2",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-showcase-3",
+      "output": "examples/simple-ui/data/catalog.csv",
+      "page": ".hickory-source/frontends/simple-showcase.md",
+      "symbol": "simple-showcase-3",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-showcase-5",
+      "output": "examples/simple-ui/.gitignore",
+      "page": ".hickory-source/frontends/simple-showcase.md",
+      "symbol": "simple-showcase-5",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-showcase-6",
+      "output": "examples/simple-ui/prepare.py",
+      "page": ".hickory-source/frontends/simple-showcase.md",
+      "symbol": "simple-showcase-6",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

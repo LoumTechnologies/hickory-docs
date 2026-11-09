@@ -1,0 +1,110 @@
+Search playground — café 😀
+
+name=notebook count=2
+name=pen count=3
+name=guide count=1
+
+TOKEN north TOKEN
+TOKEN south TOKEN
+TOKEN west  TOKEN
+
+sku       quantity  state
+notebook  2         pending
+pen       3         pending
+guide     1         pending
+
+order
+    customer
+        name: Ada
+        city: Montréal
+    delivery
+        method: standard
+        instructions: Leave the package beside the blue door.
+    items
+        notebook
+            quantity: 2
+        pen
+            quantity: 3
+
+This deliberately long logical line wraps in a narrow pane. Resize or split the editor and check that the left gutter gives this whole paragraph one number, while the right action stays attached to its first visual row. Undo should restore your edits after moving the tab into another pane.
+
+Checkpoint 001: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 002: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 003: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 004: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 005: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 006: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 007: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 008: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 009: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 010: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 011: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 012: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 013: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 014: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 015: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 016: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 017: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 018: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 019: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 020: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 021: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 022: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 023: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 024: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 025: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 026: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 027: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 028: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 029: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 030: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 031: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 032: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 033: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 034: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 035: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 036: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 037: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 038: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 039: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 040: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 041: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 042: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 043: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 044: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 045: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 046: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 047: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 048: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 049: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 050: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 051: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 052: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 053: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 054: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 055: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 056: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 057: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 058: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 059: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 060: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 061: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 062: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 063: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 064: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 065: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 066: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 067: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 068: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 069: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 070: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 071: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 072: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 073: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 074: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 075: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 076: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 077: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 078: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 079: scroll the minimap, search for this number, and return to the first line.
+Checkpoint 080: scroll the minimap, search for this number, and return to the first line.

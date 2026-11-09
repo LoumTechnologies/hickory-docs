@@ -126,9 +126,9 @@ Semantic-token ranges use UTF-16, including surrogate pairs. Decode against the 
 <ui:copy id="simple-apple-language-transport">
 import Observation
 
-struct InlineReceiptEvent: Decodable { var kind: String; var data: String }
+struct InlineReceiptEvent: Decodable { var kind: String; var data: String? }
 struct InlineReceipt: Decodable, Identifiable {
-    var kind: String; var span: [Int]; var command: String?; var status: String?; var transcript: [InlineReceiptEvent]?
+    var kind: String; var span: [Int]; var command: String?; var status: String?; var transcript: [InlineReceiptEvent]?; var recorded_output: String?
     var id: Int { span.first ?? -1 }
 }
 struct InlineReceiptPage: Decodable { var document: String; var source_hash: String; var blocks: [InlineReceipt] }

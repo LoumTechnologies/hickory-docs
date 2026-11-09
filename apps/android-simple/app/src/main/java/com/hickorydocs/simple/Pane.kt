@@ -559,7 +559,7 @@ fun debugLineOffset(source: String, line: Int): Int? {
                                 Text("Recorded output · " + receipt.optString("status", "unrecorded"), fontSize = 12.sp)
                                 Text(receipt.optString("command"), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
                                 val transcript = receipt.optJSONArray("transcript") ?: org.json.JSONArray()
-                                val output = (0 until transcript.length()).joinToString("") { transcript.getJSONObject(it).optString("data") }
+                                val output = if (receipt.has("recorded_output")) receipt.optString("recorded_output") else (0 until transcript.length()).map { transcript.getJSONObject(it) }.filter { it.optString("kind") in listOf("out", "err") }.joinToString("") { it.optString("data") }
                                 Text(output.take(50_000), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
                                 if (output.length > 50_000) Text("Output truncated in this control.", fontSize = 11.sp)
                             }

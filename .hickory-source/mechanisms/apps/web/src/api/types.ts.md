@@ -82,6 +82,8 @@ export type Block =
       image?: string;
       command: string;
       span: [number, number];
+      /** Cached stdout without invented timing; distinct from live events. */
+      recorded_output?: string;
       transcript?: TranscriptEvent[];
       expect?: { match: "exact" | "regex-lines"; body: string };
       /** Present when this cell owns a `<hick:ingested>` child — the same

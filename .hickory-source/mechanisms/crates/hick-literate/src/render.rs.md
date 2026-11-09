@@ -659,6 +659,10 @@ fn selector_matches(selector: &str, fragment: &HickTag) -> bool {
 <a id="f-4a7f39f68eb8-exec_block"></a>
 ### `exec_block`
 
+Cached recordings preserve stdout but have no timed events. Project that text as
+`recorded_output`, separate from a live transcript, so readers can display the
+actual retained bytes without inventing timestamps or executing the cell.
+
 <storycode:copy id="f-4a7f39f68eb8-exec_block">
 fn exec_block(tag: &HickTag, input: &BlockModelInput<'_>) -> Block {
     let container = tag_attr(tag, "container").unwrap_or_default();
@@ -723,12 +727,17 @@ fn exec_block(tag: &HickTag, input: &BlockModelInput<'_>) -> Block {
         .with("image", images_of(input.doc).get(&container))
         .with("command", command_text(tag).trim())
         .with("container", container)
+        .with(
+            "recorded_output",
+            entry
+                .filter(|entry| entry.events.is_empty())
+                .map(|entry| &entry.output),
+        )
         .with("transcript", transcript)
         .with("expect", expect)
         .with("ingested", ingested)
         .with("status", status)
 }
-
 </storycode:copy>
 <a id="f-4a7f39f68eb8-tests"></a>
 ### `tests`
@@ -751,6 +760,34 @@ mod tests {
             never_run: &never_run,
             stale: &stale,
         })
+    }
+
+    #[test]
+    fn cached_stdout_is_projected_without_inventing_timed_events() {
+        let doc = hick_lang::parse("<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\">\n<h:exec container=\"c\">printf hi</h:exec>\n</h:doc>").unwrap();
+        let mut transcripts = Transcripts::new();
+        transcripts.insert(
+            "c".into(),
+            vec![hickory_executor::ExecTranscriptEntry {
+                commands: vec!["printf hi".into()],
+                output: "hi".into(),
+                events: Vec::new(),
+                source_line: Some(2),
+            }],
+        );
+        let blocks = build_block_model(&BlockModelInput {
+            doc: &doc,
+            transcripts: &transcripts,
+            expectations: &[],
+            files: None,
+            never_run: &crate::NeverRun::new(),
+            stale: &std::collections::BTreeMap::new(),
+        });
+        let value = serde_json::to_value(blocks.iter().find(|block| block.kind == "exec").unwrap())
+            .unwrap();
+        assert_eq!(value["recorded_output"], "hi");
+        assert_eq!(value["status"], "ok");
+        assert!(value.get("transcript").is_none());
     }
 
     // Protects docs/guarantees/authoring/a-diagram-names-what-proves-it.md:

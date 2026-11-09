@@ -75,6 +75,13 @@ describe("simple inline rich editing", () => {
       await waitFor(() => expect(root()).toBeUndefined()); expect(view.state.doc.toString()).toBe(source);
     } finally { screen.unmount(); }
   }, 15000);
+  it("shows cached stdout when timed transcript events are absent", async () => {
+    const { execView } = await import("../elements/exec/view");
+    const slot = { span: [0, 20], index: 0, at: 0, text: "python3 orders.py", outputOnly: true } as import("../editor/rendered").RenderedSlot;
+    const context = { execBlocks: [{ kind: "exec", id: "python:1", container: "python", command: slot.text, span: [0, 20], status: "ok", recorded_output: "Order: $18.80\nItems: 5\n" }], runningCells: new Set<string>(), replaying: [] } as unknown as import("../elements/types").SlotContext;
+    const screen = render(execView.render(slot, context));
+    try { expect(screen.getByText(/Order: \$18.80/)).toBeTruthy(); } finally { screen.unmount(); }
+  });
   it("typesets local math without trusting HTML or URL macros", () => {
     const html = new TextDecoder().decode(readFileSync("../apple-simple/Sources/Resources/math.html"));
     const script = /<script nonce="hickory-math">([\s\S]*?)<\/script>/.exec(html)![1];

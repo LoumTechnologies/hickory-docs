@@ -733,7 +733,7 @@ struct NativeDebugRail: View {
             ForEach(buffer.receipts(on: line)) { receipt in
                 Text("Recorded output · " + (receipt.status ?? "unrecorded")).font(.caption)
                 Text(receipt.command ?? "").font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                let output = (receipt.transcript ?? []).map(\.data).joined()
+                let output = receipt.recorded_output ?? (receipt.transcript ?? []).filter { $0.kind == "out" || $0.kind == "err" }.compactMap(\.data).joined()
                 Text(String(output.prefix(50_000))).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                 if output.count > 50_000 { Text("Output truncated in this control.").font(.caption) }
             }

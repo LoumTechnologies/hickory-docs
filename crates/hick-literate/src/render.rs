@@ -513,12 +513,17 @@ fn exec_block(tag: &HickTag, input: &BlockModelInput<'_>) -> Block {
         .with("image", images_of(input.doc).get(&container))
         .with("command", command_text(tag).trim())
         .with("container", container)
+        .with(
+            "recorded_output",
+            entry
+                .filter(|entry| entry.events.is_empty())
+                .map(|entry| &entry.output),
+        )
         .with("transcript", transcript)
         .with("expect", expect)
         .with("ingested", ingested)
         .with("status", status)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -536,6 +541,34 @@ mod tests {
             never_run: &never_run,
             stale: &stale,
         })
+    }
+
+    #[test]
+    fn cached_stdout_is_projected_without_inventing_timed_events() {
+        let doc = hick_lang::parse("<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\">\n<h:exec container=\"c\">printf hi</h:exec>\n</h:doc>").unwrap();
+        let mut transcripts = Transcripts::new();
+        transcripts.insert(
+            "c".into(),
+            vec![hickory_executor::ExecTranscriptEntry {
+                commands: vec!["printf hi".into()],
+                output: "hi".into(),
+                events: Vec::new(),
+                source_line: Some(2),
+            }],
+        );
+        let blocks = build_block_model(&BlockModelInput {
+            doc: &doc,
+            transcripts: &transcripts,
+            expectations: &[],
+            files: None,
+            never_run: &crate::NeverRun::new(),
+            stale: &std::collections::BTreeMap::new(),
+        });
+        let value = serde_json::to_value(blocks.iter().find(|block| block.kind == "exec").unwrap())
+            .unwrap();
+        assert_eq!(value["recorded_output"], "hi");
+        assert_eq!(value["status"], "ok");
+        assert!(value.get("transcript").is_none());
     }
 
     // Protects docs/guarantees/authoring/a-diagram-names-what-proves-it.md:

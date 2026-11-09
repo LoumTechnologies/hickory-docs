@@ -41,6 +41,12 @@ final class ParityTests: XCTestCase {
         XCTAssertTrue(inlineCSVCells("\"unterminated", line: 0, offset: 0, delimiter: ",").isEmpty)
 
     }
+    func testRecordedOutputDecodesCachedTextAndExitEvents() throws {
+        let bytes = Data(#"{"document":"demo","source_hash":"hash","blocks":[{"kind":"exec","span":[0,4],"recorded_output":"saved stdout","transcript":[{"kind":"exit","code":0}]}]}"#.utf8)
+        let page = try JSONDecoder().decode(InlineReceiptPage.self, from: bytes)
+        XCTAssertEqual(page.blocks.first?.recorded_output, "saved stdout")
+        XCTAssertNil(page.blocks.first?.transcript?.first?.data)
+    }
     func testLanguageDiagnosticPositionsRequireCurrentVersion() {
         let item: [String: Any] = ["message": "error", "range": ["start": ["line": 0, "character": 3], "end": ["line": 0, "character": 4]]]
         XCTAssertNil(decodeNativeDiagnostics(["diagnostics": [item]], source: "😀 x", expectedVersion: 2).first?.range)

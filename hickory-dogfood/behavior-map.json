@@ -67850,6 +67850,90 @@
       "fragments": [
         "simple-inline-browser-owners"
       ]
+    },
+    "examples/simple-ui/orders.py": {
+      "source": ".hickory-source/frontends/simple-showcase.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "example",
+      "sha256": "25f33e822360f94120dd21341b6dc4cbd5675b8c1a8225f24eb19271b7bb9448",
+      "construction": "fragments",
+      "fragments": [
+        "simple-showcase-0"
+      ]
+    },
+    "examples/simple-ui/test_orders.py": {
+      "source": ".hickory-source/frontends/simple-showcase.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "example",
+      "sha256": "dfd7827ec412fef085bc56575b8a277075ebc32a620806acc5ff52047c323a99",
+      "construction": "fragments",
+      "fragments": [
+        "simple-showcase-1"
+      ]
+    },
+    "examples/simple-ui/scratch.txt": {
+      "source": ".hickory-source/frontends/simple-showcase.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "example",
+      "sha256": "d7fa8420cd98370719bd8fa9cbf303d4316953dc74e93b462015fd26bfae7a55",
+      "construction": "fragments",
+      "fragments": [
+        "simple-showcase-2"
+      ]
+    },
+    "examples/simple-ui/data/catalog.csv": {
+      "source": ".hickory-source/frontends/simple-showcase.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "example",
+      "sha256": "9fd6de3367a67f601163c200d792aa5088c6c29c1c8dee8e421f8e92c90b7f67",
+      "construction": "fragments",
+      "fragments": [
+        "simple-showcase-3"
+      ]
+    },
+    "examples/simple-ui/workbook.md": {
+      "source": ".hickory-source/frontends/simple-showcase.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "example",
+      "sha256": "452299de23f39d27666f7825d381b6e3f53772d5480ceb7f9c1d4c24b0d6791a",
+      "construction": "entry",
+      "fragments": []
+    },
+    "examples/simple-ui/.gitignore": {
+      "source": ".hickory-source/frontends/simple-showcase.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "example",
+      "sha256": "e1e72c3513a0d76c163fd7f62828cfcd21d4c8104ea882263f906218cf236258",
+      "construction": "fragments",
+      "fragments": [
+        "simple-showcase-5"
+      ]
+    },
+    "examples/simple-ui/prepare.py": {
+      "source": ".hickory-source/frontends/simple-showcase.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "example",
+      "sha256": "751ac9ad42822579a1c43cf888261b6996c14ac2ef0d64c76d4f3b4aba724538",
+      "construction": "fragments",
+      "fragments": [
+        "simple-showcase-6"
+      ]
+    },
+    "examples/simple-ui/README.md": {
+      "source": ".hickory-source/frontends/simple-showcase.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "example",
+      "sha256": "6e559e6fe15525db2607db804e8ee7cd95599161aa01c80caee7b225382ec406",
+      "construction": "entry",
+      "fragments": []
     }
   },
   "evidence_records": [
