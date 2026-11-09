@@ -18,7 +18,7 @@ The browser hot-reloads its React source. Native source changes require a rebuil
 
 Each command starts a local workspace backend and opens the chosen frontend with its address already configured. Keep the command running while comparing; Ctrl-C stops the frontend session and disconnects the backend. Browser windows and previously running simulator windows remain open, but their development server/session stops. The original frontend is untouched.
 
-The default workspace is `.dev/simple/project`, seeded idempotently and shared across these commands. Saved edits survive relaunch. Set `HICKORY_PROJECT_DIR=/absolute/path` to compare using another folder. Concurrent frontends can attach to the same workspace engine; each gets its own callback port. This is a host-backed comparison setup, not an embedded mobile Rust engine or a cloud requirement.
+The default workspace is the feature showcase at `.dev/simple-ui/project`, shared across these commands. First launch prepares it from `examples/simple-ui`, generates its outputs and records the sample cell. Later launches reuse the folder without overwriting saved edits. See [the sample walkthrough](../../examples/simple-ui/README.md) for the feature tour and optional services. Set `HICKORY_PROJECT_DIR=/absolute/path` to compare using another folder. Concurrent frontends can attach to the same workspace engine; each gets its own callback port. This is a host-backed comparison setup, not an embedded mobile Rust engine or a cloud requirement.
 
 Android requires Android Studioâ€™s initial project sync, an installed SDK, and a connected authorized device or an AVD created in Device Manager. The runner builds, installs and opens the debug app, and forwards its backend port over ADB. One connected device is selected automatically; set `ANDROID_SERIAL` when several are attached. With none attached, the runner boots the sole AVD, or the one named by `HICKORY_ANDROID_AVD`. It removes its forwarding and stops the test app on exit; an emulator it started is stopped too. It leaves existing emulators and the shared ADB server running.
 
@@ -61,7 +61,7 @@ Apple and Android attach the real backend LSP channel after text opens. **Edit â
 For Python in a fresh comparison workspace, install the real server once:
 
 ```sh
-target/debug/hick lsp install python --root .dev/simple/project
+target/debug/hick lsp install python --root .dev/simple-ui/project
 ```
 
 Use your selected workspace path when `HICKORY_PROJECT_DIR` differs. The installer requests managed Python 3.12; system Python 3.9 cannot install current basedpyright. The server lives under that workspace's ignored `.hick-cache/servers/`. Missing servers leave text readable and report an unavailable/empty-result state, with Retry in the completion popover.

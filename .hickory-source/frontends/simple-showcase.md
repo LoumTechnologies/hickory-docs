@@ -430,15 +430,18 @@ Language servers, debug adapters and an agent provider are optional services.
 From the Hickory repository root:
 
 ```sh
-cargo build --locked -p hickory-cli --bin hick
-python3 examples/simple-ui/prepare.py --record
-HICKORY_PROJECT_DIR="$PWD/.dev/simple-ui/project" just simple-dev browser
+just simple-dev browser
 ```
 
-`--record` runs the supplied Python cell on your host using the local executor,
-and caches its actual output. Omit it to weave without executing; the output
-card will then be unrecorded. Preparation refuses to overwrite an existing
-workspace. Use `--dest /path/to/a/new/folder` for another fresh copy.
+The default is `.dev/simple-ui/project`. First launch builds the CLI, prepares a
+copy, generates its files and records the supplied Python cell on your host using
+the local executor. Later launches reuse the folder and preserve your edits.
+Set `HICKORY_PROJECT_DIR=/absolute/path` to use another existing project.
+
+For another fresh copy, run `python3 examples/simple-ui/prepare.py --record --dest /path/to/a/new/folder` after building the CLI. The optional `--record`
+executes the sample cell and caches actual output. Omit it to weave without
+executing; the output card will then be unrecorded. Preparation refuses to
+overwrite an existing workspace.
 
 Use `apple`, `ios`, `android` or `all` instead of `browser` to select the existing
 platform launcher. Native launchers require their platform SDK/device setup.

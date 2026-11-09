@@ -3,7 +3,7 @@
 
 For maintainers iterating on the equivalent Apple and browser editor frontends.
 
-The comparison runner is a host-side development tool. It uses the desktop engine attachment protocol; a phone still connects to this host over ADB or simulator loopback. Handle engine-daemon arguments before parsing frontend arguments so the existing self-spawning engine works. Ctrl-C and SIGTERM cancel setup as well as the running frontend, then run teardown. The `all` mode seeds once and starts four ordinary platform launchers against that folder; each attaches to the same workspace engine with its own callback origin. If a platform exits, stop its peers instead of leaving a misleading partial comparison running. Graceful child shutdown lets nested launchers clean their own process groups before a forced stop.
+The comparison runner is a host-side development tool. It uses the desktop engine attachment protocol; a phone still connects to this host over ADB or simulator loopback. Handle engine-daemon arguments before parsing frontend arguments so the existing self-spawning engine works. Ctrl-C and SIGTERM cancel setup as well as the running frontend, then run teardown. The `all` mode prepares the sample once and starts four ordinary platform launchers against that folder; each attaches to the same workspace engine with its own callback origin. If a platform exits, stop its peers instead of leaving a misleading partial comparison running. Graceful child shutdown lets nested launchers clean their own process groups before a forced stop.
 
 <ui:copy id="simple-3119f25e95-0">
 use anyhow::{Context, Result, bail, ensure};
@@ -196,29 +196,52 @@ fn cmd(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Command {
 
 </ui:copy>
 
-Seed a persistent comparison workspace without overwriting user changes, or honor HICKORY_PROJECT_DIR. The callback listens on an OS-assigned loopback port. Configure the browser origin before starting its proxy; strictPort prevents Vite silently moving to a disallowed origin. A native launch passes the origin as startup configuration rather than asking the user to copy a port. On macOS, wrap the built executable in a named, ad-hoc-signed app bundle so AppKit has a real application identity. Launch it through macOS Launch Services with `open -n -W` so foreground activation works as a normal app. Pass the backend origin and development host PID explicitly; the app watches that host and terminates when it exits. Supervise the waiting `open` process as an owned child; use a per-launch directory to avoid replacing a running app’s executable.
+Use the prepared simple UI showcase by default. Only a missing default workspace triggers the fixture preparation and its explicit recorded sample run; existing folders retain all edits and cached services. An explicit HICKORY_PROJECT_DIR must already exist and bypasses sample preparation. The all-platform supervisor passes its chosen folder to each child, so preparation happens once. The callback listens on an OS-assigned loopback port. Configure the browser origin before starting its proxy; strictPort prevents Vite silently moving to a disallowed origin. A native launch passes the origin as startup configuration rather than asking the user to copy a port. On macOS, wrap the built executable in a named, ad-hoc-signed app bundle so AppKit has a real application identity. Launch it through macOS Launch Services with `open -n -W` so foreground activation works as a normal app. Pass the backend origin and development host PID explicitly; the app watches that host and terminates when it exits. Supervise the waiting `open` process as an owned child; use a per-launch directory to avoid replacing a running app’s executable.
 
 <ui:copy id="simple-3119f25e95-2">
+fn project_directory(root: &Path, supplied: Option<PathBuf>) -> Result<(PathBuf, bool)> {
+    if let Some(path) = supplied {
+        let path = path
+            .canonicalize()
+            .context("HICKORY_PROJECT_DIR must be an existing folder")?;
+        ensure!(
+            path.is_dir(),
+            "HICKORY_PROJECT_DIR must be a directory: {}",
+            path.display()
+        );
+        return Ok((path, false));
+    }
+    let path = root.join(".dev/simple-ui/project");
+    let prepare = !path.try_exists()?;
+    ensure!(
+        prepare || path.is_dir(),
+        "Default sample workspace must be a directory: {}",
+        path.display()
+    );
+    Ok((path, prepare))
+}
+
 async fn launch(platform: &str, session: &mut Session) -> Result<()> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .canonicalize()?;
     env::set_current_dir(&root)?;
-    let scratch = root.join(".dev/simple");
-    let project = if let Some(path) = env::var_os("HICKORY_PROJECT_DIR") {
-        PathBuf::from(path)
-            .canonicalize()
-            .context("HICKORY_PROJECT_DIR must be an existing folder")?
-    } else {
+    let (project, prepare) =
+        project_directory(&root, env::var_os("HICKORY_PROJECT_DIR").map(PathBuf::from))?;
+    if prepare {
         session
-            .run(
-                cmd("bash", &["scripts/dev-seed.sh"])
-                    .env("HICKORY_SEED_ROOT", &scratch)
-                    .env("HICKORY_SEED_WEAVE", "0"),
-            )
+            .run(&mut cmd(
+                "cargo",
+                &["build", "--locked", "-p", "hickory-cli", "--bin", "hick"],
+            ))
             .await?;
-        scratch.join("project")
-    };
+        session
+            .run(&mut cmd(
+                "python3",
+                &["examples/simple-ui/prepare.py", "--record"],
+            ))
+            .await?;
+    }
     ensure!(
         project.is_dir(),
         "Workspace must be a directory: {}",
@@ -306,7 +329,10 @@ async fn frontend(
     port: Option<u16>,
 ) -> Result<()> {
     session
-        .run(&mut cmd("python3", &["scripts/prepare-simple-resources.py"]))
+        .run(&mut cmd(
+            "python3",
+            &["scripts/prepare-simple-resources.py"],
+        ))
         .await?;
     match platform {
         "browser" => {
@@ -731,12 +757,47 @@ async fn ios(session: &mut Session, api: &str) -> Result<()> {
 }
 </ui:copy>
 
-These focused witnesses check target selection refusals and prove cleanup kills a real owned descendant. They do not simulate an APK install or establish device UI acceptance. Run cargo test -p hickory-cli --example simple_dev to execute this scope.
+These focused witnesses check default workspace reuse, explicit override refusals, target selection refusals and prove cleanup kills a real owned descendant. They do not simulate an APK install or establish device UI acceptance. Run cargo test -p hickory-cli --example simple_dev to execute this scope.
 
 <ui:copy id="simple-3119f25e95-5">
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn default_project_prepares_once_and_preserves_saved_edits() {
+        let root = tempfile::tempdir().unwrap();
+        let expected = root.path().join(".dev/simple-ui/project");
+        assert_eq!(
+            project_directory(root.path(), None).unwrap(),
+            (expected.clone(), true)
+        );
+        std::fs::create_dir_all(&expected).unwrap();
+        let edited = expected.join("orders.py");
+        std::fs::write(&edited, "user edits").unwrap();
+        assert_eq!(
+            project_directory(root.path(), None).unwrap(),
+            (expected.clone(), false)
+        );
+        assert_eq!(std::fs::read_to_string(&edited).unwrap(), "user edits");
+        std::fs::remove_dir_all(&expected).unwrap();
+        std::fs::write(&expected, "not a folder").unwrap();
+        assert!(project_directory(root.path(), None).is_err());
+    }
+    #[test]
+    fn explicit_project_bypasses_preparation_and_rejects_invalid_paths() {
+        let root = tempfile::tempdir().unwrap();
+        let custom = root.path().join("custom");
+        std::fs::create_dir(&custom).unwrap();
+        assert_eq!(
+            project_directory(root.path(), Some(custom.clone())).unwrap(),
+            (custom.canonicalize().unwrap(), false)
+        );
+        assert!(!root.path().join(".dev").exists());
+        assert!(project_directory(root.path(), Some(root.path().join("missing"))).is_err());
+        let file = root.path().join("file");
+        std::fs::write(&file, "text").unwrap();
+        assert!(project_directory(root.path(), Some(file)).is_err());
+    }
     #[test]
     fn refuses_ambiguous_or_unauthorized_android_targets() {
         let devices = "List of devices attached\na\tdevice\nb\tdevice\nc\tunauthorized\n";
