@@ -632,23 +632,25 @@ struct LanguageEditor: View {
                         Text("Language tools").font(.headline)
                         Text(buffer.language?.status ?? "Language services not connected").font(.caption).textSelection(.enabled)
                         if let language = buffer.language {
-                            if language.inspectionSource == buffer.text && language.inspectionSelection == buffer.selection {
+                            if !language.hover.isEmpty || !language.signature.isEmpty {
+                                Text("Last received information; refresh for current position.").font(.caption).foregroundStyle(.secondary)
                                 if !language.hover.isEmpty { Text(language.hover).textSelection(.enabled) }
                                 if !language.signature.isEmpty { Text(language.signature).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
                             }
-                            if language.diagnosticSource == buffer.text {
+                            if !language.diagnostics.isEmpty {
+                                if language.diagnosticSource != buffer.text { Text("Cached diagnostics; refresh pending.").font(.caption) }
                                 ForEach(Array(language.diagnostics.prefix(100))) { item in
-                                    if item.range != nil { Button(item.message) { language.reveal(item) } }
+                                    if item.range != nil { Button(item.message) { language.reveal(item) }.disabled(language.diagnosticSource != buffer.text) }
                                     else { Text(item.message + " (server message; source version unavailable)").font(.caption).textSelection(.enabled) }
                                 }
                             }
-                            if language.inspectionSource == buffer.text && language.inspectionSelection == buffer.selection { ForEach(Array(language.inlayHints.prefix(50).enumerated()), id: \.offset) { _, hint in Text(hint).font(.caption) } }
+                            if !language.inlayHints.isEmpty { Text("Last received inlay information").font(.caption); ForEach(Array(language.inlayHints.prefix(50).enumerated()), id: \.offset) { _, hint in Text(hint).font(.caption) } }
                             ScrollView {
                                 VStack(alignment: .leading, spacing: 4) {
                                     ForEach(language.suggestions) { item in
                                         Button { language.accept(item) } label: {
                                             VStack(alignment: .leading) { Text(item.label).font(.system(.body, design: .monospaced)); Text(item.detail).font(.caption).foregroundStyle(.secondary) }
-                                        }.disabled(buffer.readOnly)
+                                        }.disabled(item.source != buffer.text || item.selection != buffer.selection || buffer.readOnly)
                                     }
                                 }.frame(maxWidth: .infinity, alignment: .leading)
                             }.frame(height: 180)

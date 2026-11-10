@@ -203,9 +203,32 @@ Versioned diagnostic ranges are usable only when the server version equals the n
 The session opens only after the buffer exists. Closing or reconnecting retires its epoch, cancels background tasks and fails pending requests; an old socket cannot publish into the replacement session. The server capability announcement supplies the semantic legend. Outgoing frames stay ordered on channel 2, while other backend channels are ignored.
 
 <ui:copy id="simple-apple-language-session">
+// Rebase display-only spans through the smallest UTF-16 replacement. Discard
+// crossed tokens; retain the tentative classification when typing inside one token.
+func rebaseNativeTokens(_ tokens: [NativeSemanticToken], from old: String, to new: String) -> [NativeSemanticToken] {
+    let before = Array(old.utf16), after = Array(new.utf16)
+    var prefix = 0, suffix = 0
+    while prefix < min(before.count, after.count), before[prefix] == after[prefix] { prefix += 1 }
+    while suffix < min(before.count, after.count) - prefix,
+          before[before.count - suffix - 1] == after[after.count - suffix - 1] { suffix += 1 }
+    let end = before.count - suffix, shift = after.count - before.count
+    return tokens.compactMap { token in
+        guard token.range.location >= 0, token.range.length > 0, NSMaxRange(token.range) <= before.count else { return nil }
+        if NSMaxRange(token.range) <= prefix { return token }
+        if token.range.location <= prefix, NSMaxRange(token.range) >= end,
+           token.range.length + shift > 0, !after[prefix..<(after.count - suffix)].contains(10) {
+            return NativeSemanticToken(range: NSRange(location: token.range.location, length: token.range.length + shift), kind: token.kind)
+        }
+        if token.range.location >= end {
+            return NativeSemanticToken(range: NSRange(location: token.range.location + shift, length: token.range.length), kind: token.kind)
+        }
+        return nil
+    }
+}
 @MainActor @Observable final class NativeLanguage {
     var status = "Language server connecting…"
     var tokens: [NativeSemanticToken] = []
+    var tokenSource = ""
     var suggestions: [NativeCompletion] = []
     var showingSuggestions = false
     var diagnostics: [NativeDiagnostic] = []
@@ -216,6 +239,7 @@ The session opens only after the buffer exists. Closing or reconnecting retires 
     var inspectionSource = ""
     var inspectionSelection = NSRange(location: 0, length: 0)
     private var inspectionID = UUID()
+    private var completionID = UUID()
     private weak var buffer: DocumentBuffer?
     private let engine: Engine
     private let uri: String
@@ -304,7 +328,7 @@ The session opens only after the buffer exists. Closing or reconnecting retires 
 
 An empty semantic-token or completion response establishes only that the bridge answered; it does not establish whether a child server is installed. Keep these statuses descriptive and point to Language tools for the workspace setup command.
 
-Typing clears old colors and schedules a quiet-period refresh. Providers can start late, so semantic reads retry a bounded number of times without delaying text opening. Completion requests are debounced after synchronization, filter unsupported edit shapes and retain their exact source/selection snapshot. The native edit callback makes the final permission and revision check. No language result saves a file.
+Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet-period refresh. A single-line edit contained within one token keeps that tentative classification with a resized range; edits crossing token boundaries discard affected spans. Unchanged prefix and suffix colors stay visible. A null/error response retains that cache; an explicit empty token array can replace it after the bounded startup retries. Language-tool text and suggestions remain visible as cached results, while exact source/selection guards still control navigation and completion acceptance. Inspection replies replace each capability independently; the panel labels their contents as last received information rather than claiming that cached text describes the current cursor. Providers can start late, so semantic reads retry a bounded number of times without delaying text opening. Completion requests are debounced after synchronization, filter unsupported edit shapes and retain their exact source/selection snapshot. The native edit callback makes the final permission and revision check. No language result saves a file.
 
 <ui:copy id="simple-apple-language-snapshots">
     private func sync() {
@@ -313,24 +337,35 @@ Typing clears old colors and schedules a quiet-period refresh. Providers can sta
         notify("textDocument/didChange", ["textDocument": ["uri": uri, "version": version], "contentChanges": [["text": text]]])
     }
     func changed() {
-        refreshTask?.cancel(); tokens = []; suggestions = []; diagnostics = []; diagnosticSource = ""
-        hover = ""; signature = ""; inlayHints = []; inspectionSource = ""; inspectionID = UUID()
-        if let buffer { buffer.renderLanguage?([], buffer.text) }
+        refreshTask?.cancel(); inspectionID = UUID(); completionID = UUID()
+        if let buffer {
+            tokens = rebaseNativeTokens(tokens, from: tokenSource, to: buffer.text)
+            tokenSource = buffer.text
+            buffer.renderLanguage?(tokens, buffer.text)
+        }
         let current = epoch
         refreshTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
             guard let self, !Task.isCancelled, self.epoch == current else { return }
             self.sync()
+            if self.showingSuggestions {
+                Task { [weak self] in await self?.inspect() }
+                Task { [weak self] in await self?.complete() }
+            }
             guard let source = self.buffer?.text else { return }
             for attempt in 0..<5 {
                 guard !Task.isCancelled, self.buffer?.text == source, self.epoch == current else { return }
                 do {
                     let result = try await self.request("textDocument/semanticTokens/full", ["textDocument": ["uri": self.uri]]) as? [String: Any]
                     guard !Task.isCancelled, self.buffer?.text == source, self.epoch == current else { return }
-                    self.tokens = decodeNativeTokens(result?["data"] as? [Int] ?? [], legend: self.legend, source: source)
-                    self.buffer?.renderLanguage?(self.tokens, source)
+                    let data = result?["data"] as? [Int]
+                    let fresh = decodeNativeTokens(data ?? [], legend: self.legend, source: source)
+                    if !fresh.isEmpty || (attempt == 4 && data?.isEmpty == true) {
+                        self.tokens = fresh; self.tokenSource = source
+                        self.buffer?.renderLanguage?(self.tokens, source)
+                    }
                     self.status = self.tokens.isEmpty ? "LSP connected; no semantic colors for this file. Open Language tools for setup or retry." : "LSP · \(self.tokens.count) semantic spans"
-                    if !self.tokens.isEmpty || attempt == 4 { return }
+                    if !fresh.isEmpty || attempt == 4 { return }
                 } catch { if !Task.isCancelled, self.epoch == current { self.status = "Language colors unavailable: \(error.localizedDescription)" }; return }
                 try? await Task.sleep(for: .milliseconds(700))
             }
@@ -340,7 +375,7 @@ Typing clears old colors and schedules a quiet-period refresh. Providers can sta
         showingSuggestions = true
         guard let buffer else { return }
         sync(); let source = buffer.text, selection = buffer.selection, current = epoch, id = UUID()
-        inspectionID = id; hover = ""; signature = ""; inlayHints = []; inspectionSource = source; inspectionSelection = selection
+        inspectionID = id; inspectionSource = source; inspectionSelection = selection
         let position = languagePosition(source, selection.location)
         await withTaskGroup(of: Void.self) { group in
             for method in ["textDocument/hover", "textDocument/signatureHelp", "textDocument/inlayHint"] {
@@ -348,7 +383,7 @@ Typing clears old colors and schedules a quiet-period refresh. Providers can sta
                     guard let self else { return }
                     var params: [String: Any] = ["textDocument": ["uri": self.uri], "position": position]
                     if method == "textDocument/inlayHint" { params["range"] = ["start": ["line": 0, "character": 0], "end": languagePosition(source, source.utf16.count)] }
-                    guard let result = try? await self.request(method, params), self.epoch == current, self.inspectionID == id,
+                    guard let result = try? await self.request(method, params), !(result is NSNull), self.epoch == current, self.inspectionID == id,
                           self.buffer?.text == source, self.buffer?.selection == selection else { return }
                     if method == "textDocument/hover" { self.hover = nativeMarkupText((result as? [String: Any])?["contents"]) }
                     if method == "textDocument/signatureHelp" {
@@ -370,22 +405,25 @@ Typing clears old colors and schedules a quiet-period refresh. Providers can sta
         _ = buffer.selectSourceRange?(range, diagnosticSource)
     }
     func complete() async {
-        showingSuggestions = true; suggestions = []
+        showingSuggestions = true
         guard let buffer, !buffer.readOnly else { return }
-        sync(); let source = buffer.text, selection = buffer.selection, current = epoch
-        status = "Requesting LSP completion…"
+        sync(); let source = buffer.text, selection = buffer.selection, current = epoch, id = UUID()
+        completionID = id
+        status = "Updating completions; showing last received results…"
         do {
             // The bridge prepares virtual files asynchronously after full-text sync.
             // Keep the popup responsive while typing settles; never use an obsolete position.
             try await Task.sleep(for: .milliseconds(350))
-            guard self.buffer?.text == source, self.buffer?.selection == selection, epoch == current else { return }
+            guard self.buffer?.text == source, self.buffer?.selection == selection, epoch == current, completionID == id else { return }
             let result = try await request("textDocument/completion", ["textDocument": ["uri": uri], "position": languagePosition(source, selection.location)])
-            guard self.buffer?.text == source, self.buffer?.selection == selection, epoch == current else { return }
+            guard self.buffer?.text == source, self.buffer?.selection == selection, epoch == current, completionID == id else { return }
+            guard !(result is NSNull) else { return }
             let items = result as? [[String: Any]] ?? (result as? [String: Any])?["items"] as? [[String: Any]] ?? []
             let ns = source as NSString
             var prefix = min(selection.location, ns.length)
             while prefix > 0, let scalar = UnicodeScalar(ns.character(at: prefix - 1)), CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_")).contains(scalar) { prefix -= 1 }
             let typed = ns.substring(with: NSRange(location: prefix, length: max(0, selection.location - prefix))).lowercased()
+            var fresh: [NativeCompletion] = []
             for (index, item) in items.enumerated() {
                 guard let label = item["label"] as? String, label.lowercased().hasPrefix(typed), item["insertTextFormat"] as? Int != 2,
                       (item["additionalTextEdits"] as? [Any] ?? []).isEmpty else { continue }
@@ -396,9 +434,10 @@ Typing clears old colors and schedules a quiet-period refresh. Providers can sta
                           let from = languageOffset(source, start), let to = languageOffset(source, end), from <= to, let replacement = edit["newText"] as? String else { continue }
                     range = NSRange(location: from, length: to - from); insert = replacement
                 }
-                suggestions.append(NativeCompletion(id: index, label: label, detail: item["detail"] as? String ?? "Language server", range: range, insert: insert, source: source, selection: selection))
-                if suggestions.count >= 100 { break }
+                fresh.append(NativeCompletion(id: index, label: label, detail: item["detail"] as? String ?? "Language server", range: range, insert: insert, source: source, selection: selection))
+                if fresh.count >= 100 { break }
             }
+            suggestions = fresh
             status = suggestions.isEmpty ? "No supported completions at this position. Open Language tools for setup or retry." : "LSP · \(suggestions.count) completions"
         } catch { if epoch == current { status = "Completion unavailable: \(error.localizedDescription)" } }
     }

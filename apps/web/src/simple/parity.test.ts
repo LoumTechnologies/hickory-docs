@@ -7,7 +7,7 @@ import { RichOwners } from "./RichInline";
 import { render, waitFor, act, fireEvent } from "@testing-library/react";
 import { EditorView } from "@codemirror/view";
 import { foldedRanges } from "@codemirror/language";
-import { undo } from "@codemirror/commands";
+import { undo, isolateHistory } from "@codemirror/commands";
 import { currentCompletions } from "@codemirror/autocomplete";
 import { Document, simpleFoldRanges, openFind } from "./Document";
 vi.mock("../debug/launchProfiles", () => ({ launchWithProfiles: vi.fn(async (_query, start, options) => { if (options.isCurrent()) start({ id: "test", fingerprint: "test" }); }) }));
@@ -340,9 +340,11 @@ describe("tab drop placement", () => {
 
 describe("simple editor capability attachment", () => {
   it("attaches server colors and completion after typing without replacing selection or undo", async () => {
+    let colorRequests = 0; let holdColors = false;
     const channel = createLspChannel({ send(frame) {
       const message = decodeLspFrame(frame);
       if (!message || !("method" in message) || !("id" in message)) return;
+      if (message.method === "textDocument/semanticTokens/full") { colorRequests++; if (holdColors) return; }
       const result = message.method === "textDocument/semanticTokens/full" ? { data: [0, 0, 3, 0, 0] }
         : message.method === "textDocument/completion" ? [{ label: "languageValue", insertText: "languageValue" }] : [];
       queueMicrotask(() => channel.handleFrame(encodeLspFrame({ jsonrpc: "2.0", id: message.id, result })));
@@ -365,6 +367,14 @@ describe("simple editor capability attachment", () => {
       await waitFor(() => expect(screen.container.querySelector(".cm-lsp-error")?.textContent).toBe("a"));
       fireEvent.keyDown(view.contentDOM, { key: " ", code: "Space", ctrlKey: true });
       await waitFor(() => expect(currentCompletions(view.state).some(option => option.label === "languageValue")).toBe(true));
+      // A delayed server must not remove colors from unchanged text while typing.
+      holdColors = true;
+      const beforeRefresh = colorRequests;
+      act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: " pending" }, annotations: isolateHistory.of("full") }));
+      expect(screen.container.querySelector(".cm-st-keyword")?.textContent).toBe("let");
+      await waitFor(() => expect(colorRequests).toBeGreaterThan(beforeRefresh));
+      expect(screen.container.querySelector(".cm-st-keyword")?.textContent).toBe("let");
+      act(() => { undo(view); });
       fireEvent.keyDown(screen.getByRole("navigation", { name: "Document minimap" }), { key: "End" });
       expect(view.state.selection.main.head).toBe(selected);
       act(() => { undo(view); });

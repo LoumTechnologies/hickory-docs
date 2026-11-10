@@ -68,6 +68,20 @@ class BrowserDriver:
         try: self.act("quit")
         finally: stop(self.process)
 
+def language_cache_acceptance(driver, folder):
+    # Requires the real Python language server; never substitutes canned tokens.
+    path = "cache.py"
+    original = (folder / path).read_text()
+    driver.act("open", path=path)
+    eventually(lambda: "counter" in driver.act("semantic-colors", path=path), True)
+    for _ in range(3):
+        colors = driver.act("append-with-cached-colors", path=path, text="\n# pending")
+        assert "counter" in colors, "An edit cleared cached semantic colors"
+    assert (folder / path).read_text() == original, "Language refresh must not save edits"
+    driver.act("undo", path=path)
+    assert "counter" in driver.act("semantic-colors", path=path)
+
+
 def debug_acceptance(driver):
     driver.act("open", path="debug.py")
     driver.act("debug-breakpoint", line=2)
@@ -181,6 +195,7 @@ if __name__ == "__main__":
         (folder / "search.txt").write_text("😀 name=12\nname=34\n")
         (folder / "fold.txt").write_text("function main() {\n  first()\n  second()\n}\n")
         (folder / "source.md").write_text('<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n# A literate document\n\n**bold** and *italic*\n</h:doc>\n')
+        (folder / "cache.py").write_text("counter = 1\nprint(counter)\n")
         (folder / "debug.py").write_text("value = 1\nvalue += 1\nprint(value)\n")
         environment = {**os.environ, "HICKORY_STATE_DIR": str(Path(temporary) / "state")}
         try:
@@ -191,7 +206,10 @@ if __name__ == "__main__":
             backend = origin(engine)
             vite = start(["node", "node_modules/vite/bin/vite.js", "--config", "vite.simple.config.ts", "--host", "127.0.0.1", "--port", str(ui_port), "--strictPort"], cwd=ROOT / "apps/web", env={**environment, "HICKORY_API_ORIGIN": backend}); processes.append(vite)
             driver = BrowserDriver(origin(vite) + "/simple.html")
-            if "--search-only" in sys.argv:
+            if "--language-cache-only" in sys.argv:
+                language_cache_acceptance(driver, folder)
+                print("Browser: real Python colors retained across typing and undo; disk unchanged")
+            elif "--search-only" in sys.argv:
                 search_acceptance(driver, folder)
                 print("Browser: regex replacement, exact saved source, stationary search and undo passed")
             elif "--fold-only" in sys.argv:

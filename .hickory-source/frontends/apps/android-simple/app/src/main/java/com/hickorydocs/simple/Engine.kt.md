@@ -296,6 +296,8 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
 
 Each buffer owns a channel-2 JSON-RPC session. WebSocket callbacks re-enter the workspace scope, reject old connection epochs, and fail pending requests on teardown. Snapshot observation synchronizes inactive documents too. Semantic colors, diagnostics, hover, signature help, inlay hints and completions have independent source guards; an unsupported request cannot prevent another capability from attaching. Unversioned diagnostics remain non-positional messages. Completion acceptance uses the same guarded undo transaction as search.
 
+Typing must not tear down language features. Keep a display cache per buffer and rebase unchanged UTF-16 prefix/suffix spans before the debounce. Retain a tentative classification for a single-line edit contained inside one token, resizing its range; discard spans crossed by the replacement. Null or failed reads retain the cache; an explicit empty array can clear it after startup retries. Inspection and completion text remain available while refreshing; only exact source/selection matches authorize actions. Inspection replies replace each capability independently; the panel labels cached text as last received information.
+
 <ui:copy id="simple-android-language-service">
 data class NativeLanguageSpan(val from: Int, val to: Int, val kind: String)
 data class NativeLanguageDiagnostic(val message: String, val from: Int?, val to: Int?)
@@ -326,6 +328,23 @@ fun decodeNativeDiagnostics(params: JSONObject, source: String, expectedVersion:
         NativeLanguageDiagnostic(item.optString("message", "Language diagnostic"), from?.takeIf { to != null && it <= to }, to?.takeIf { from != null && from <= it })
     }
 }
+// UTF-16 display cache, never an authority for completion edits or navigation.
+fun rebaseNativeTokens(tokens: List<NativeLanguageSpan>, old: String, new: String): List<NativeLanguageSpan> {
+    var prefix = 0; var suffix = 0
+    while (prefix < minOf(old.length, new.length) && old[prefix] == new[prefix]) prefix++
+    while (suffix < minOf(old.length, new.length) - prefix && old[old.length - suffix - 1] == new[new.length - suffix - 1]) suffix++
+    val end = old.length - suffix; val shift = new.length - old.length
+    return tokens.mapNotNull { token ->
+        when {
+            token.from < 0 || token.to <= token.from || token.to > old.length -> null
+            token.to <= prefix -> token
+            token.from <= prefix && token.to >= end && token.to - token.from + shift > 0 &&
+                !new.substring(prefix, new.length - suffix).contains('\n') -> token.copy(to = token.to + shift)
+            token.from >= end -> token.copy(from = token.from + shift, to = token.to + shift)
+            else -> null
+        }
+    }
+}
 class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuffer, private val scope: CoroutineScope) {
     var status by mutableStateOf("Language server connecting…")
     var tokens by mutableStateOf<List<NativeLanguageSpan>>(emptyList())
@@ -342,6 +361,7 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
     private var socket: WebSocket? = null
     private var epoch = 0
     private var inspection = 0
+    private var completion = 0
     private var version = 1
     private var sent = ""
     private var nextID = 1
@@ -371,7 +391,7 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
         watcher = scope.launch { androidx.compose.runtime.snapshotFlow { buffer.text }.collect { changed() } }
     }
     fun close() {
-        epoch++; inspection++; refresh?.cancel(); watcher?.cancel(); socket?.close(1000, "closed"); socket = null; opened = false; failPending()
+        epoch++; inspection++; completion++; refresh?.cancel(); watcher?.cancel(); socket?.close(1000, "closed"); socket = null; opened = false; failPending()
         tokens = emptyList(); diagnostics = emptyList(); suggestions = emptyList(); hover = ""; signature = ""; inlays = emptyList()
     }
     private fun failPending() { val waits = pending.values.toList(); pending.clear(); waits.forEach { it.cancel() } }
@@ -404,11 +424,15 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
         }
     }
     fun changed() {
-        refresh?.cancel(); tokens = emptyList(); tokenSource = ""; diagnostics = emptyList(); diagnosticSource = ""; suggestions = emptyList(); hover = ""; signature = ""; inlays = emptyList(); inspectionSource = ""; inspection++
+        refresh?.cancel(); inspection++; completion++
+        tokens = rebaseNativeTokens(tokens, tokenSource, buffer.text); tokenSource = buffer.text
         if (!opened) return
         val current = epoch
         refresh = scope.launch {
             kotlinx.coroutines.delay(300); sync(); val source = buffer.text
+            if (inspectionSource.isNotEmpty() || suggestions.isNotEmpty()) {
+                scope.launch { inspect() }; scope.launch { complete() }
+            }
             try {
                 for (attempt in 0 until 5) {
                 val result = request("textDocument/semanticTokens/full", JSONObject().put("textDocument", doc())) as? JSONObject
@@ -424,7 +448,10 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
                     val to = languageOffset(source, JSONObject().put("line", line).put("character", column + length)) ?: continue
                     spans.add(NativeLanguageSpan(from, to, legend[type]))
                 }
-                tokens = spans; tokenSource = source; status = "LSP · ${spans.size} semantic spans"
+                if (spans.isNotEmpty() || (attempt == 4 && result?.optJSONArray("data")?.length() == 0)) {
+                    tokens = spans; tokenSource = source
+                }
+                status = "LSP · ${tokens.size} semantic spans"
                 if (spans.isNotEmpty() || attempt == 4) break
                 kotlinx.coroutines.delay(700)
                 }
@@ -435,33 +462,34 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
     suspend fun inspect() {
         if (!opened) return
         sync(); val source = buffer.text; val selection = buffer.state.selection; val current = epoch; val id = ++inspection
-        inspectionSource = source; inspectionSelection = selection; hover = ""; signature = ""; inlays = emptyList()
+        inspectionSource = source; inspectionSelection = selection
         kotlinx.coroutines.coroutineScope {
             for (method in listOf("textDocument/hover", "textDocument/signatureHelp", "textDocument/inlayHint")) launch {
                 val params = JSONObject().put("textDocument", doc()).put("position", languagePosition(source, selection.min))
                 if (method == "textDocument/inlayHint") params.put("range", JSONObject().put("start", languagePosition(source, 0)).put("end", languagePosition(source, source.length)))
                 val result = try { request(method, params) } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled } catch (_: Exception) { return@launch }
-                if (epoch != current || inspection != id || buffer.text != source || buffer.state.selection != selection) return@launch
+                if (result == JSONObject.NULL || epoch != current || inspection != id || buffer.text != source || buffer.state.selection != selection) return@launch
                 when (method) {
-                    "textDocument/hover" -> hover = nativeMarkupText((result as? JSONObject)?.opt("contents"))
-                    "textDocument/signatureHelp" -> signature = ((result as? JSONObject)?.optJSONArray("signatures") ?: JSONArray()).objects().joinToString("\n") { it.optString("label") }
-                    else -> inlays = ((result as? JSONArray) ?: JSONArray()).objects().take(200).mapNotNull { hint ->
+                    "textDocument/hover" -> { hover = nativeMarkupText((result as? JSONObject)?.opt("contents")) }
+                    "textDocument/signatureHelp" -> { signature = ((result as? JSONObject)?.optJSONArray("signatures") ?: JSONArray()).objects().joinToString("\n") { it.optString("label") } }
+                    else -> { inlays = ((result as? JSONArray) ?: JSONArray()).objects().take(200).mapNotNull { hint ->
                         val pos = hint.optJSONObject("position") ?: return@mapNotNull null
                         if (languageOffset(source, pos) == null) return@mapNotNull null
                         val label = hint.opt("label"); val text = if (label is JSONArray) label.objects().joinToString("") { it.optString("value") } else label?.toString().orEmpty()
                         "Line ${pos.optInt("line") + 1}: $text"
-                    }
+                    } }
                 }
             }
         }
     }
     suspend fun complete() {
         if (!opened || buffer.readOnly) return
-        sync(); val source = buffer.text; val selection = buffer.state.selection; val current = epoch
+        sync(); val source = buffer.text; val selection = buffer.state.selection; val current = epoch; val id = ++completion
         try {
             kotlinx.coroutines.delay(350)
             val result = request("textDocument/completion", JSONObject().put("textDocument", doc()).put("position", languagePosition(source, selection.min)))
-            if (epoch != current || buffer.text != source || buffer.state.selection != selection) return
+            if (epoch != current || completion != id || buffer.text != source || buffer.state.selection != selection) return
+            if (result == JSONObject.NULL) return
             val items = result as? JSONArray ?: (result as? JSONObject)?.optJSONArray("items") ?: JSONArray()
             var prefix = selection.min
             while (prefix > 0 && (source[prefix - 1].isLetterOrDigit() || source[prefix - 1] == '_')) prefix--

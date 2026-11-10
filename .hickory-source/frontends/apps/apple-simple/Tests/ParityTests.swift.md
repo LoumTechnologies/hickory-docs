@@ -3,6 +3,8 @@
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
+The language-cache witnesses retain colors on unchanged Unicode text, exercise a real AppKit edit/undo and the refresh task with a closed channel, and reject stale completion writes. They do not prove live-provider or mobile gesture behavior.
+
 The gutter witness lays out real AppKit text, including wrapped text and empty final fragments, and checks the logical rows used to draw numbers. It does not verify UIKit or Compose rendering.
 
 These cases consume the same JSON as the browser tests. They check user-visible tab membership and active-tab validity independently of view framework and internal split identifiers.
@@ -47,6 +49,60 @@ final class ParityTests: XCTestCase {
         XCTAssertEqual(page.blocks.first?.recorded_output, "saved stdout")
         XCTAssertNil(page.blocks.first?.transcript?.first?.data)
     }
+    #if os(macOS)
+    @MainActor func testLanguageCacheKeepsAppKitColorsSelectionAndUndoWhileRefreshing() throws {
+        let original = "def f():\n    return 1\n"
+        let file = FileNode(name: "a.py", path: "a.py", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: original, hash: "base"))
+        let service = NativeLanguage(engine: try Engine(address: "http://fixture.invalid"), buffer: buffer)
+        buffer.language = service; service.tokenSource = original
+        service.tokens = [NativeSemanticToken(range: NSRange(location: 0, length: 3), kind: "keyword")]
+        let editor = MacEditor(buffer)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = editor.scroll; window.makeFirstResponder(editor.text)
+        defer { service.close(); window.orderOut(nil) }
+        XCTAssertTrue(editor.applySourceEdits([NativeSourceEdit(range: NSRange(location: 0, length: 0), text: "# 😀\n")], source: original))
+        XCTAssertEqual(editor.text.string, "# 😀\n" + original)
+        let selection = editor.text.selectedRange()
+        buffer.renderMarkup?()
+        XCTAssertEqual(editor.text.selectedRange(), selection)
+        XCTAssertEqual(editor.text.textStorage?.attribute(.foregroundColor, at: 5, effectiveRange: nil) as? NSColor, NSColor.systemPurple)
+        editor.text.undoManager?.undo()
+        XCTAssertEqual(editor.text.string, original)
+        XCTAssertEqual(editor.text.textStorage?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor, NSColor.systemPurple)
+    }
+    // Cached display is provisional; writes still require the exact snapshot.
+    @MainActor func testLanguageCacheSurvivesEditsAndRejectsStaleCompletion() async throws {
+        let original = "def f():\n    value = 1\n"
+        let file = FileNode(name: "a.py", path: "a.py", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: original, hash: "base"))
+        let service = NativeLanguage(engine: try Engine(address: "http://fixture.invalid"), buffer: buffer)
+        buffer.language = service
+        service.tokens = [NativeSemanticToken(range: NSRange(location: 0, length: 3), kind: "keyword"), NativeSemanticToken(range: NSRange(location: 13, length: 5), kind: "variable")]
+        service.tokenSource = original; service.hover = "value: int"; service.signature = "f()"
+        service.diagnosticSource = original
+        let item = NativeCompletion(id: 1, label: "value", detail: "", range: NSRange(location: 13, length: 5), insert: "value", source: original, selection: buffer.selection)
+        service.suggestions = [item]
+        defer { service.close() }
+        var writes = 0
+        buffer.applyLanguageCompletion = { _, _, _, _ in writes += 1; return true }
+        buffer.text = "# 😀\n" + original
+        XCTAssertEqual(service.tokens.map(\.range.location), [5, 18])
+        XCTAssertEqual(service.hover, "value: int"); XCTAssertEqual(service.signature, "f()")
+        XCTAssertEqual(service.suggestions.count, 1)
+        service.accept(item); XCTAssertEqual(writes, 0)
+        // Let the real refresh task run with a closed channel: failure retains display.
+        try await Task.sleep(for: .milliseconds(450))
+        XCTAssertEqual(service.tokens.map(\.range.location), [5, 18])
+        XCTAssertEqual(service.hover, "value: int"); XCTAssertEqual(service.suggestions.count, 1)
+        // Undo/repeated edits rebase from the last displayed source, not the last server source.
+        buffer.text = original
+        XCTAssertEqual(service.tokens.map(\.range.location), [0, 13])
+        XCTAssertEqual(rebaseNativeTokens(service.tokens, from: original, to: "def f():\n  other = 1\n").map(\.range.location), [0])
+        XCTAssertEqual(rebaseNativeTokens(service.tokens, from: original, to: "def f():\n    valxue = 1\n").last?.range, NSRange(location: 13, length: 6))
+        XCTAssertTrue(rebaseNativeTokens(service.tokens, from: original, to: "").isEmpty)
+    }
+    #endif
     func testLanguageDiagnosticPositionsRequireCurrentVersion() {
         let item: [String: Any] = ["message": "error", "range": ["start": ["line": 0, "character": 3], "end": ["line": 0, "character": 4]]]
         XCTAssertNil(decodeNativeDiagnostics(["diagnostics": [item]], source: "😀 x", expectedVersion: 2).first?.range)

@@ -47,6 +47,15 @@ try {
           await editor(request.path).click();
           await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
           await page.keyboard.insertText(request.text); break;
+        case "semantic-colors": value = await editor(request.path).locator('[class*="cm-st-"]').allTextContents(); break;
+        case "append-with-cached-colors": {
+          const content = editor(request.path);
+          await content.click();
+          await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
+          await page.keyboard.insertText(request.text);
+          value = await content.locator('[class*="cm-st-"]').allTextContents();
+          break;
+        }
         case "content": value = await editor(request.path).innerText(); break;
         case "markdown-formatting": {
           const content = editor(request.path);

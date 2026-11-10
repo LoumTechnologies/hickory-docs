@@ -313,8 +313,9 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
     val color = MaterialTheme.colorScheme.primary
     val source = buffer.text
     val service = buffer.language
-    val semantic = service?.tokens.orEmpty()
-    val semanticSource = service?.tokenSource
+    // Compose can observe typing before the service watcher runs. Rebase here too
+    // so that frame uses the cache instead of briefly showing uncolored text.
+    val semantic = service?.let { rebaseNativeTokens(it.tokens, it.tokenSource, source) }.orEmpty()
     val inline = buffer.inlineMarkup
     LaunchedEffect(buffer, source) {
         val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { computeInlineMarkup(source, buffer.file.path) }
@@ -342,6 +343,7 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
             if (source.length <= 200_000) keywords.findAll(source).map { it.range }.toList() else emptyList()
         }
     }
+    val lexical = rebaseNativeTokens(highlighting.second.map { NativeLanguageSpan(it.first, it.last + 1, "keyword") }, highlighting.first, source)
     Box(modifier) {
         Row(Modifier.fillMaxSize()) {
             BoxWithConstraints(Modifier.width(24.dp).fillMaxHeight().clipToBounds()) {
@@ -405,10 +407,10 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
                         val start = debugLineOffset(source, paused)
                         if (start != null && toString() == source) addStyle(SpanStyle(background = pauseColor), start, source.indexOf('\n', start).let { if (it < 0) source.length else it })
                     }
-                    if (highlighting.first == toString()) highlighting.second.forEach { range ->
-                        addStyle(SpanStyle(color = color), range.first, range.last + 1)
+                    if (source == toString()) lexical.forEach { token ->
+                        addStyle(SpanStyle(color = color), token.from, token.to)
                     }
-                    if (semanticSource == toString()) semantic.forEach { token -> addStyle(SpanStyle(color = color), token.from, token.to) }
+                    if (source == toString()) semantic.forEach { token -> addStyle(SpanStyle(color = color), token.from, token.to) }
                     if (inline.source == toString()) inline.marks.forEach { mark ->
                         val style = when (mark.kind) {
                             "heading" -> SpanStyle(fontSize = maxOf(14, 25 - mark.level * 2).sp, fontWeight = FontWeight.SemiBold)
@@ -463,17 +465,18 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
                 Column(Modifier.width(320.dp).heightIn(max = 460.dp).verticalScroll(rememberScrollState()).padding(8.dp)) {
                     Text("Language tools", fontSize = 14.sp)
                     Text(service?.status ?: "Language services not connected. Reconnect the workspace.", fontSize = 11.sp)
-                    if (service?.inspectionSource == source && service.inspectionSelection == buffer.state.selection) {
+                    if (service != null) {
+                        Text("Last received information; refresh for current position.", fontSize = 11.sp)
                         if (service.hover.isNotEmpty()) Text(service.hover, fontSize = 12.sp)
                         if (service.signature.isNotEmpty()) Text(service.signature, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
                         service.inlays.take(50).forEach { Text(it, fontSize = 11.sp) }
                     }
-                    if (service?.diagnosticSource == source) service.diagnostics.forEach { item ->
-                        if (item.from != null && item.to != null) TextButton(onClick = { buffer.selectSourceRange(item.from, item.to, source) }) { Text(item.message) }
+                    if (service != null) service.diagnostics.forEach { item ->
+                        if (item.from != null && item.to != null) TextButton(enabled = service.diagnosticSource == source, onClick = { buffer.selectSourceRange(item.from, item.to, service.diagnosticSource) }) { Text(item.message) }
                         else Text(item.message + " (server message; source version unavailable)", fontSize = 12.sp)
                     }
                     service?.suggestions?.forEach { item ->
-                        TextButton(enabled = !buffer.readOnly, onClick = { if (service.accept(item)) menu = false }) {
+                        TextButton(enabled = !buffer.readOnly && item.source == source && item.selection == buffer.state.selection, onClick = { if (service.accept(item)) menu = false }) {
                             Column { Text(item.label, fontFamily = FontFamily.Monospace); Text(item.detail, fontSize = 11.sp) }
                         }
                     }

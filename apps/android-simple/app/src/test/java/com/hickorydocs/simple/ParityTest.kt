@@ -6,6 +6,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @Test fun languageCacheMapsUnchangedUtf16Regions() {
+        val original = "def f():\n    value = 1\n"
+        val spans = listOf(NativeLanguageSpan(0, 3, "keyword"), NativeLanguageSpan(13, 18, "variable"))
+        val inserted = "# 😀\n" + original
+        val shifted = rebaseNativeTokens(spans, original, inserted)
+        assertEquals(listOf(5, 18), shifted.map { it.from })
+        assertEquals(spans, rebaseNativeTokens(shifted, inserted, original))
+        assertEquals(listOf(spans[0]), rebaseNativeTokens(spans, original, "def f():\n  other = 1\n"))
+        assertEquals(NativeLanguageSpan(13, 19, "variable"), rebaseNativeTokens(spans, original, "def f():\n    valxue = 1\n").last())
+        assertTrue(rebaseNativeTokens(spans, original, "").isEmpty())
+        assertEquals(spans, rebaseNativeTokens(spans, original, original))
+    }
+
     @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     @Test fun realNativeLanguageChannel() {
         val origin = System.getenv("HICKORY_NATIVE_LSP_ORIGIN")
