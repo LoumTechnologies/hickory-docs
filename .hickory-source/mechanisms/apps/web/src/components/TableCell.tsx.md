@@ -15,11 +15,31 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 
 One editable or selected cell in TablePanel's grid.
 
+Arrow navigation transfers a collapsed caret to the next input. Vertical movement
+measures the prefix before the current caret in the actual input font, then picks
+the nearest grapheme boundary in the target. Short and empty targets clamp; emoji
+and combining sequences remain intact. Horizontal entry uses the target's end
+or beginning. Enter/Tab retain the existing commit-and-select behavior.
+
 <storycode:copy id="f-59dbc5d33133-TableCellProps">
 // One editable or selected cell in TablePanel's grid.
 
 import type React from "react";
 
+export function tableCaretOffset(text: string, x: number, measure: (text: string) => number): number {
+  const boundaries = [0]; let offset = 0;
+  for (const { segment } of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)) { offset += segment.length; boundaries.push(offset); }
+  let low = 0, high = boundaries.length - 1;
+  while (low < high) { const mid = Math.floor((low + high) / 2); if (measure(text.slice(0, boundaries[mid])) < x) low = mid + 1; else high = mid; }
+  if (low > 0 && Math.abs(measure(text.slice(0, boundaries[low - 1])) - x) <= Math.abs(measure(text.slice(0, boundaries[low])) - x)) low--;
+  return boundaries[low];
+}
+export function tableTextMeasure(input: HTMLInputElement): { measure: (text: string) => number; dispose: () => void } {
+  const span = document.createElement("span"), style = getComputedStyle(input);
+  Object.assign(span.style, { position: "fixed", visibility: "hidden", whiteSpace: "pre", font: style.font, letterSpacing: style.letterSpacing });
+  document.body.append(span);
+  return { measure: text => { span.textContent = text; return span.getBoundingClientRect().width; }, dispose: () => span.remove() };
+}
 export interface TableCellProps {
   row: number;
   column: number;
@@ -44,6 +64,7 @@ export interface TableCellProps {
   onPoint: (event: React.KeyboardEvent<HTMLInputElement>) => boolean;
   onKeys: (event: React.KeyboardEvent) => void;
   onMove: (dRow: number, dColumn: number) => void;
+  onArrow: (dRow: number, dColumn: number, input: HTMLInputElement) => void;
   onDone: () => void;
   onCancel: () => void;
 }
@@ -77,6 +98,7 @@ export function TableCell({
   onPoint,
   onKeys,
   onMove,
+  onArrow,
   onDone,
   onCancel,
 }: TableCellProps) {
@@ -126,6 +148,7 @@ export function TableCell({
       onChange={(event) => onDraft(event.target.value)}
       onBlur={onDone}
       onKeyDown={(event) => {
+        if (event.nativeEvent.isComposing) return;
         if (event.key.startsWith("Arrow") && onPoint(event)) {
           event.preventDefault();
           return;
@@ -141,14 +164,14 @@ export function TableCell({
           onCancel();
         } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
           event.preventDefault();
-          onMove(event.key === "ArrowDown" ? 1 : -1, 0);
+          onArrow(event.key === "ArrowDown" ? 1 : -1, 0, event.currentTarget);
         } else if (
           event.key === "ArrowLeft" &&
           (event.currentTarget.selectionStart ?? 0) === 0 &&
           (event.currentTarget.selectionEnd ?? 0) === 0
         ) {
           event.preventDefault();
-          onMove(0, -1);
+          onArrow(0, -1, event.currentTarget);
         } else if (
           event.key === "ArrowRight" &&
           (event.currentTarget.selectionStart ?? draft.length) ===
@@ -156,7 +179,7 @@ export function TableCell({
           (event.currentTarget.selectionEnd ?? draft.length) === draft.length
         ) {
           event.preventDefault();
-          onMove(0, 1);
+          onArrow(0, 1, event.currentTarget);
         }
       }}
     />

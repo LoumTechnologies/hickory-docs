@@ -94,7 +94,6 @@ describe("simple inline rich editing", () => {
       const grid = within(table);
       fireEvent.click(grid.getByRole("gridcell", { name: "Café" }));
       fireEvent.keyDown(grid.getByRole("gridcell", { name: "Café" }), { key: "ArrowRight" });
-      fireEvent.keyDown(grid.getByRole("gridcell", { name: "a,b" }), { key: "Enter" });
       const input = grid.getByRole("textbox", { name: "Cell contents" });
       fireEvent.change(input, { target: { value: 'two,"quotes"' } });
       fireEvent.keyDown(input, { key: "Enter" });

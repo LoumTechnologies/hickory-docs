@@ -47,6 +47,67 @@ final class ParityTests: XCTestCase {
         XCTAssertTrue(inlineCSVCells("\"unterminated", line: 0, offset: 0, delimiter: ",").isEmpty)
 
     }
+    func testGridCaretEntryUsesVisualColumnAndWholeGraphemes() {
+        // Contract: .hickory-source/frontends/contract.md
+        let measure: (String) -> CGFloat = { CGFloat($0.utf16.count * 5) }
+        XCTAssertEqual(gridCaretOffset("a😀é", request: GridCaretRequest(x: 14), measure: measure), 3)
+        XCTAssertEqual(gridCaretOffset("a😀é", request: GridCaretRequest(x: 100), measure: measure), 5)
+        XCTAssertEqual(gridCaretOffset("", request: GridCaretRequest(x: 100), measure: measure), 0)
+        XCTAssertEqual(gridCaretOffset("previous", request: GridCaretRequest(edge: -1), measure: measure), 8)
+        XCTAssertEqual(gridCaretOffset("next", request: GridCaretRequest(edge: 1), measure: measure), 0)
+    }
+    #if os(macOS)
+    @MainActor func testGridArrowsTransferNativeCaretBetweenCells() async throws {
+        // Contract: .hickory-source/frontends/contract.md
+        let source = "| WWWW | z |\n| --- | --- |\n| iiiiiii | target |"
+        let file = FileNode(name: "grid.md", path: "grid.md", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "base"))
+        buffer.inlineMarkup = computeInlineMarkup(source, path: file.path)
+        let table = try XCTUnwrap(inlineTables(buffer.inlineMarkup).first)
+        let host = NSHostingView(rootView: NativeTableGrid(table: table, source: source, buffer: buffer))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 180), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host; host.layoutSubtreeIfNeeded(); defer { window.orderOut(nil) }
+        func find(_ view: NSView, _ value: String) -> NSTextField? {
+            if let field = view as? NSTextField, field.stringValue == value { return field }
+            return view.subviews.lazy.compactMap { find($0, value) }.first
+        }
+        for _ in 0..<20 { if find(host, "WWWW") != nil { break }; try await Task.sleep(for: .milliseconds(10)) }
+        let first = try XCTUnwrap(find(host, "WWWW"))
+        XCTAssertTrue(window.makeFirstResponder(first))
+        let editor = try XCTUnwrap(first.currentEditor() as? NSTextView)
+        editor.setSelectedRange(NSRange(location: 1, length: 0))
+        let delegate = try XCTUnwrap(first.delegate as? GridCellField.Coordinator)
+        XCTAssertTrue(delegate.control(first, textView: editor, doCommandBy: NSSelectorFromString("moveDown:")))
+        for _ in 0..<20 { if (window.firstResponder as? NSTextView)?.string == "iiiiiii" { break }; try await Task.sleep(for: .milliseconds(10)) }
+        let destination = try XCTUnwrap(window.firstResponder as? NSTextView)
+        let font = NSFont.systemFont(ofSize: 13)
+        let x = ("W" as NSString).size(withAttributes: [.font: font]).width
+        let expected = gridCaretOffset("iiiiiii", request: GridCaretRequest(x: x)) { ($0 as NSString).size(withAttributes: [.font: font]).width }
+        XCTAssertEqual(destination.string, "iiiiiii")
+        XCTAssertEqual(destination.selectedRange(), NSRange(location: expected, length: 0))
+        let second = try XCTUnwrap(find(host, "iiiiiii"))
+        let secondDelegate = try XCTUnwrap(second.delegate as? GridCellField.Coordinator)
+        XCTAssertTrue(secondDelegate.control(second, textView: destination, doCommandBy: NSSelectorFromString("moveRight:")))
+        for _ in 0..<20 { if (window.firstResponder as? NSTextView)?.string == "target" { break }; try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual((window.firstResponder as? NSTextView)?.string, "target")
+        XCTAssertEqual((window.firstResponder as? NSTextView)?.selectedRange(), NSRange(location: 0, length: 0))
+    }
+    @MainActor func testGridFieldArrowEntryCollapsesNativeSelection() async throws {
+        // Contract: .hickory-source/frontends/contract.md
+        let request = GridCaretRequest(edge: -1)
+        let field = GridCellField(text: .constant("Café 😀"), request: request, readOnly: false, onFocus: {}, onCommit: {}, onArrow: { _, _, _ in })
+        let host = NSHostingView(rootView: field)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 40), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host; host.layoutSubtreeIfNeeded(); defer { window.orderOut(nil) }
+        for _ in 0..<20 {
+            if let editor = window.firstResponder as? NSTextView, editor.string == "Café 😀" {
+                XCTAssertEqual(editor.selectedRange(), NSRange(location: 7, length: 0)); return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTFail("The destination cell did not receive a collapsed native caret")
+    }
+    #endif
     func testDiffPresentationKeepsPatchTextLiteral() {
         // Contract: .hickory-source/frontends/contract.md
         let source = "```diff\n-old **text**\n+new **text**\n```"

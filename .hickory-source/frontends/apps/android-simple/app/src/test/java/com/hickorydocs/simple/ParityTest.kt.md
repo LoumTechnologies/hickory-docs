@@ -36,6 +36,14 @@ class ParityTest {
         assertEquals(2, editorSourceOffset(4, tabs))
     }
 
+    @Test fun tableArrowEntryKeepsCollapsedCaret() {
+        // Contract: .hickory-source/frontends/contract.md
+        assertEquals(androidx.compose.ui.text.TextRange(2), gridCaretSelection("wide", 10f, 0) { 2 })
+        assertEquals(androidx.compose.ui.text.TextRange(1), gridCaretSelection("x", 100f, 0) { 99 })
+        assertEquals(androidx.compose.ui.text.TextRange(0), gridCaretSelection("", 100f, 0) { 99 })
+        assertEquals(androidx.compose.ui.text.TextRange(4), gridCaretSelection("left", 0f, -1) { error("Not a vertical move") })
+        assertEquals(androidx.compose.ui.text.TextRange(0), gridCaretSelection("right", 0f, 1) { error("Not a vertical move") })
+    }
     @Test fun diffPresentationKeepsPatchTextLiteral() {
         // Contract: .hickory-source/frontends/contract.md
         val source = "```diff\n-old **text**\n+new **text**\n```"

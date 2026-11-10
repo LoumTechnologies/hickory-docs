@@ -160,6 +160,7 @@ def table_acceptance(driver, folder):
     assert driver.act("resize-gutter") >= 64
     driver.act("open", path="stock.csv")
     assert driver.act("table-keys", before="Pen", keys=["ArrowRight"]) == "30"
+    assert driver.act("table-caret") == {"start": 0, "end": 0}
     driver.act("table-edit", before="30", value="31")
     driver.act("save")
     eventually(lambda: (folder / "stock.csv").read_text(), 'Product,Stock\nPen,31\n')

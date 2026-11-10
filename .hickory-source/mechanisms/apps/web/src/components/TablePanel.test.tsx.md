@@ -30,6 +30,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { api } from "../api/client";
 
 import { TablePanel } from "./TablePanel";
+import { tableCaretOffset } from "./TableCell";
 
 afterEach(() => {
   cleanup();
@@ -205,16 +206,60 @@ describe("editing a cell", () => {
     expect(document.querySelector(".table-panel__cell--selected")!.textContent).toBe("36");
   });
 
+  it("keeps a collapsed visual caret on arrow entry, clamping short cells", () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const bounds = HTMLElement.prototype.getBoundingClientRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.tagName === "SPAN" && this.style.visibility === "hidden") {
+        const width = [...(this.textContent ?? "")].reduce((sum, c) => sum + (c === "i" ? 2 : c === "W" ? 10 : 6), 0);
+        return { x: 0, y: 0, top: 0, left: 0, right: width, bottom: 20, width, height: 20, toJSON: () => ({}) };
+      }
+      return bounds.call(this);
+    });
+    grid({ source: "WWWW,z\niiiiiii,target\nx,last\n" });
+    const input = open("WWWW"); input.setSelectionRange(1, 1);
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    const current = () => document.querySelector<HTMLInputElement>(".table-panel__input")!;
+    expect(current().value).toBe("iiiiiii"); expect([current().selectionStart, current().selectionEnd]).toEqual([5, 5]);
+    fireEvent.keyDown(current(), { key: "ArrowDown" });
+    expect(current().value).toBe("x"); expect([current().selectionStart, current().selectionEnd]).toEqual([1, 1]);
+    fireEvent.keyDown(current(), { key: "ArrowUp" });
+    expect(current().value).toBe("iiiiiii"); expect(current().selectionStart).toBe(3);
+    current().setSelectionRange(7, 7); fireEvent.keyDown(current(), { key: "ArrowRight" });
+    expect(current().value).toBe("target"); expect([current().selectionStart, current().selectionEnd]).toEqual([0, 0]);
+    fireEvent.keyDown(current(), { key: "ArrowLeft" });
+    expect(current().value).toBe("iiiiiii"); expect([current().selectionStart, current().selectionEnd]).toEqual([7, 7]);
+  });
+  it("arrow navigation from a selected cell opens a collapsed destination caret", () => {
+    // Contract: .hickory-source/frontends/contract.md
+    grid();
+    const selected = screen.getByText("Ada"); fireEvent.click(selected);
+    fireEvent.keyDown(selected, { key: "ArrowRight" });
+    const input = document.querySelector<HTMLInputElement>(".table-panel__input")!;
+    expect(input.value).toBe("36"); expect([input.selectionStart, input.selectionEnd]).toEqual([0, 0]);
+  });
+  it("leaves composing caret arrows with the input method", () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const onChange = vi.fn(); grid({ onChange });
+    const input = open("Ada");
+    fireEvent.keyDown(input, { key: "ArrowDown", isComposing: true });
+    expect(document.querySelector(".table-panel__input")).toBe(input);
+    expect(input.value).toBe("Ada"); expect(onChange).not.toHaveBeenCalled();
+  });
+  it("clamps visual caret positions to complete graphemes and empty text", () => {
+    // Contract: .hickory-source/frontends/contract.md
+    expect(tableCaretOffset("a😀é", 14, text => text.length * 5)).toBe(3);
+    expect(tableCaretOffset("a😀é", 100, text => text.length * 5)).toBe(5);
+    expect(tableCaretOffset("", 100, text => text.length * 5)).toBe(0);
+  });
   it("moves between cells with the arrows rather than inside the text", () => {
     // A grid where Up puts the caret at the start of the field is a grid
     // nobody can navigate.
     grid();
     fireEvent.keyDown(open("Ada"), { key: "ArrowDown" });
-    // Committing and stepping leaves the arrived-at cell SELECTED, not open:
-    // an editor that opened it would swallow the next keystroke as a
-    // replacement of what was already there.
-    expect(document.querySelector(".table-panel__input")).toBeNull();
-    expect(document.querySelector(".table-panel__cell--selected")!.textContent).toBe("Grace");
+    const arrived = document.querySelector<HTMLInputElement>(".table-panel__input")!;
+    expect(arrived.value).toBe("Grace");
+    expect(arrived.selectionStart).toBe(arrived.selectionEnd);
   });
 });
 
@@ -397,8 +442,8 @@ describe("selection, which is what a toolbar can act on", () => {
 ### `expression_statement`
 
 <storycode:copy id="f-694220ace684-expression_statement-8">
-describe("moving around without opening a cell", () => {
-  const selected = () => document.querySelector(".table-panel__cell--selected")!.textContent;
+describe("keyboard navigation and selected-cell commands", () => {
+  const selected = () => document.querySelector<HTMLInputElement>(".table-panel__input")?.value ?? document.querySelector(".table-panel__cell--selected")!.textContent;
 
   it("moves with the arrows", () => {
     grid();
@@ -915,8 +960,8 @@ describe("Enter, while a cell is open", () => {
     input.setSelectionRange(0, 0);
     fireEvent.keyDown(input, { key: "ArrowLeft" });
     expect(name()).toBe("A2");
-    fireEvent.doubleClick(cell("Ada"));
     const right = document.querySelector(".table-panel__input") as HTMLInputElement;
+    expect(right.value).toBe("Ada"); expect([right.selectionStart, right.selectionEnd]).toEqual([3, 3]);
     right.setSelectionRange(right.value.length, right.value.length);
     fireEvent.keyDown(right, { key: "ArrowRight" });
     expect(name()).toBe("B2");

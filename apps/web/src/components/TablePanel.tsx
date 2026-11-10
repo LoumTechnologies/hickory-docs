@@ -46,7 +46,7 @@ import { fittedRows, intrinsic } from "../lib/tableFit";
 import { ContextMenu } from "./ContextMenu";
 import { FormulaDebugger } from "./FormulaDebugger";
 import { TableSizeDialog } from "./TableSizeDialog";
-import { TableCell } from "./TableCell";
+import { TableCell, tableCaretOffset, tableTextMeasure } from "./TableCell";
 import { UiCheckbox } from "./UiCheckbox";
 import { FeatureSettings } from "./FeatureSettings";
 import { useTableLayout } from "./useTableLayout";
@@ -303,6 +303,7 @@ export function TablePanel({
   // Where to leave the caret after a reference is written in. Applied in an
   // effect because the input has not re-rendered with the new text yet.
   const [caretWanted, setCaretWanted] = useState<number | null>(null);
+  const arrowCaret = useRef<{ x: number; edge: number } | null>(null);
   const rangeAnchor = useRef<CellAt | null>(null);
   const rangeDragged = useRef(false);
   const cut = useRef<{ from: CellAt; rows: number; columns: number } | null>(
@@ -324,12 +325,22 @@ export function TablePanel({
   useEffect(() => {
     if (caretWanted === null) return;
     const input = activeInput();
-    input?.focus();
-    input?.setSelectionRange(caretWanted, caretWanted);
+    if (input) {
+      input.focus();
+      const request = arrowCaret.current;
+      let caret = caretWanted;
+      if (request) {
+        const widths = tableTextMeasure(input);
+        try { caret = request.edge < 0 ? input.value.length : request.edge > 0 ? 0 : tableCaretOffset(input.value, request.x, widths.measure); }
+        finally { widths.dispose(); }
+      }
+      input.setSelectionRange(caret, caret);
+    }
+    arrowCaret.current = null;
     setCaretWanted(null);
     // `activeInput` is read, not depended on: it is a getter over two refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [caretWanted, draft]);
+  }, [caretWanted, draft, selection]);
 
   // A drag ends wherever the button comes up, including outside the grid —
   // otherwise releasing over the toolbar leaves the grid selecting forever.
@@ -441,6 +452,23 @@ export function TablePanel({
     // this one's to replace.
     pointed.current = null;
     setPointer(null);
+  };
+
+  // Arrow entry continues editing with a collapsed caret. Enter/Tab below
+  // retain commit-and-select; range extension remains a Shift-arrow operation.
+  const arrowAndMove = (at: CellAt, dRow: number, dColumn: number, input: HTMLInputElement) => {
+    if (!commit(at, draft)) return;
+    const row = Math.max(0, Math.min(at.row + dRow, height - 1));
+    const column = Math.max(0, Math.min(at.column + dColumn, width - 1));
+    if (row === at.row && column === at.column) return;
+    const widths = tableTextMeasure(input);
+    try {
+      const offset = input.selectionDirection === "backward" ? input.selectionStart ?? 0 : input.selectionEnd ?? 0;
+      arrowCaret.current = { x: widths.measure(input.value.slice(0, offset)), edge: dColumn };
+      // Resolve against the destination's font after its input mounts: a header
+      // can have different glyph widths from the body row beneath it.
+      edit(row, column); setCaretWanted(0);
+    } finally { widths.dispose(); }
   };
 
   const moveTo = (row: number, column: number) => {
@@ -798,7 +826,11 @@ export function TablePanel({
       const column =
         from.column + (key === "ArrowRight" ? 1 : key === "ArrowLeft" ? -1 : 0);
       if (event.shiftKey) extend(row, column);
-      else moveTo(row, column);
+      else if (editable) {
+        const next = moveTo(row, column);
+        edit(next.row, next.column);
+        setCaretWanted(key === "ArrowLeft" ? cellAt(table, next.row, next.column).length : 0);
+      } else moveTo(row, column);
     } else if (key === "a" && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
       selectAll();
@@ -1359,6 +1391,7 @@ export function TablePanel({
                           onMove={(dRow, dColumn) =>
                             commitAndMove({ row, column }, dRow, dColumn)
                           }
+                          onArrow={(dRow, dColumn, input) => arrowAndMove({ row, column }, dRow, dColumn, input)}
                           onDone={stopEditing}
                           onCancel={() => setEditing(false)}
                         />

@@ -18,6 +18,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -377,7 +379,18 @@ fun tableColumnName(index: Int): String {
     while (value > 0) { value--; name = ('A' + value % 26) + name; value /= 26 }
     return name
 }
+// Native layout supplies the hit-test offset; policy always returns a collapsed,
+// bounded selection so focus cannot turn navigation into select-all replacement.
+fun gridCaretSelection(text: String, x: Float, edge: Int, offsetAtX: (Float) -> Int): TextRange {
+    val offset = if (edge < 0) text.length else if (edge > 0) 0 else offsetAtX(x)
+    return TextRange(offset.coerceIn(0, text.length))
+}
+private data class GridCaretRequest(val row: Int, val column: Int, val x: Float, val edge: Int, val serial: Int)
 @Composable private fun InlineTableGrid(table: InlineTable, source: String, buffer: DocumentBuffer, modifier: Modifier = Modifier) {
+    var navigation by remember { mutableStateOf<GridCaretRequest?>(null) }
+    var navigationSerial by remember { mutableStateOf(0) }
+    val list = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     val focus = remember(table.rows.map { it.size }) { table.rows.map { row -> row.map { FocusRequester() } } }
     Column(modifier.background(MaterialTheme.colorScheme.surface).border(1.dp, MaterialTheme.colorScheme.outlineVariant).semantics { contentDescription = "Inline table grid" }) {
         Row(Modifier.fillMaxWidth().height(28.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -385,7 +398,7 @@ fun tableColumnName(index: Int): String {
             OutlinedButton(onClick = { buffer.sourceTable = table.from }) { Text("Edit source text", fontSize = 12.sp) }
         }
         Box(Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
-          LazyColumn(Modifier.width((32 + 140 * table.rows.maxOf { it.size }).dp).fillMaxHeight()) {
+          LazyColumn(Modifier.width((32 + 140 * table.rows.maxOf { it.size }).dp).fillMaxHeight(), state = list) {
             item { Row {
                 Text("#", modifier = Modifier.width(32.dp).height(28.dp))
                 repeat(table.rows.maxOf { it.size }) { column -> Text(tableColumnName(column), fontSize = 12.sp, modifier = Modifier.width(140.dp).height(28.dp).border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(4.dp)) }
@@ -394,29 +407,54 @@ fun tableColumnName(index: Int): String {
                 Row {
                     Text("${row + 1}", fontSize = 12.sp, modifier = Modifier.width(32.dp).height(28.dp).padding(4.dp))
                     cells.forEach { cell -> key(cell.column) {
-                        var draft by remember(cell.value) { mutableStateOf(cell.value) }
+                        var draft by remember { mutableStateOf(TextFieldValue(cell.value)) }
+                        var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+                        var applied by remember { mutableStateOf<Int?>(null) }
+                        LaunchedEffect(cell.value) { if (draft.text != cell.value) draft = TextFieldValue(cell.value, TextRange(draft.selection.end.coerceAtMost(cell.value.length))) }
+                        LaunchedEffect(navigation, layout) {
+                            val request = navigation
+                            val measured = layout
+                            if (request != null && request.row == row && request.column == cell.column && applied != request.serial && measured != null && measured.layoutInput.text.text == draft.text) {
+                                val caret = gridCaretSelection(draft.text, request.x, request.edge) { measured.getOffsetForPosition(Offset(it, 0f)) }
+                                draft = draft.copy(selection = caret); applied = request.serial
+                                focus[row][cell.column].requestFocus()
+                                if (navigation?.serial == request.serial) navigation = null
+                            }
+                        }
                         var notice by remember { mutableStateOf("") }
                         var focused by remember { mutableStateOf(false) }
-                        val commit = { if (draft != cell.value && !buffer.applySourceEdits(listOf(NativeSourceEdit(cell.from, cell.to, inlineCellText(draft, cell.format, cell.delimiter))), source)) notice = "Table changed. Reopen the cell and try again." }
+                        val commit = { if (draft.text != cell.value && !buffer.applySourceEdits(listOf(NativeSourceEdit(cell.from, cell.to, inlineCellText(draft.text, cell.format, cell.delimiter))), source)) notice = "Table changed. Reopen the cell and try again." }
                         val latestCommit by rememberUpdatedState(commit)
                         DisposableEffect(Unit) { onDispose { latestCommit() } }
-                        BasicTextField(value = draft, onValueChange = { draft = it }, readOnly = buffer.readOnly, singleLine = true,
+                        BasicTextField(value = draft, onValueChange = { draft = it }, readOnly = buffer.readOnly, singleLine = true, onTextLayout = { layout = it },
                             keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { commit() }), keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
                             textStyle = TextStyle(fontSize = 13.sp, fontWeight = if (row == 0) FontWeight.SemiBold else FontWeight.Normal, color = MaterialTheme.colorScheme.onSurface),
                             modifier = Modifier.width(140.dp).height(28.dp).border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(4.dp)
                                 .focusRequester(focus[row][cell.column])
                                 .onPreviewKeyEvent { event ->
-                                    if (event.type != KeyEventType.KeyDown) false else {
+                                    if (event.type != KeyEventType.KeyDown || draft.composition != null) false else {
                                         val delta = when (event.key) { Key.DirectionUp -> -1 to 0; Key.DirectionDown -> 1 to 0; Key.DirectionLeft -> 0 to -1; Key.DirectionRight -> 0 to 1; else -> null }
                                         if (delta == null) false else {
+                                            val measured = layout
+                                            val x = measured?.getCursorRect(draft.selection.end.coerceAtMost(measured.layoutInput.text.length))?.left ?: 0f
                                             commit()
                                             val nextRow = (row + delta.first).coerceIn(table.rows.indices)
                                             val nextColumn = (cell.column + delta.second).coerceIn(table.rows[nextRow].indices)
-                                            focus[nextRow][nextColumn].requestFocus(); true
+                                            if (nextRow != row || nextColumn != cell.column) {
+                                                navigationSerial += 1
+                                                val request = GridCaretRequest(nextRow, nextColumn, x, delta.second, navigationSerial)
+                                                navigation = request
+                                                if (list.layoutInfo.visibleItemsInfo.none { it.index == nextRow + 1 }) scope.launch { if (navigation?.serial == request.serial) list.scrollToItem(nextRow + 1) }
+                                            }
+                                            true
                                         }
                                     }
                                 }
-                                .onFocusChanged { state -> val wasFocused = focused; focused = state.isFocused; if (wasFocused && !focused) commit() }
+                                .onFocusChanged { state ->
+                                    val wasFocused = focused; focused = state.isFocused
+                                    if (focused && navigation?.let { it.row != row || it.column != cell.column } == true) navigation = null
+                                    if (wasFocused && !focused) commit()
+                                }
                                 .semantics { contentDescription = "Row ${row + 1}, column ${tableColumnName(cell.column)}"; if (notice.isNotEmpty()) error(notice) })
                     } }
                 }

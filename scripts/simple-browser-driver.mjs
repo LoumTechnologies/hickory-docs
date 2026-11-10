@@ -52,17 +52,22 @@ try {
         case "table-edit": {
           const table = page.getByTestId("table-panel");
           await table.waitFor();
-          await table.getByRole("gridcell", { name: request.before, exact: true }).dblclick();
-          const input = table.getByRole("textbox", { name: "Cell contents" });
+          const active = table.locator(".table-panel__input");
+          if (!await active.count() || await active.inputValue() !== request.before) await table.getByRole("gridcell", { name: request.before, exact: true }).dblclick();
+          const input = table.locator(".table-panel__input");
           await input.fill(request.value); await input.press("Enter");
           await table.getByRole("gridcell", { name: request.value, exact: true }).waitFor(); break;
         }
         case "table-keys": {
           const table = page.getByTestId("table-panel");
-          await table.getByRole("gridcell", { name: request.before, exact: true }).click();
+          const input = table.locator(".table-panel__input");
+          if (await input.count() && await input.inputValue() === request.before) await input.focus();
+          else await table.getByRole("gridcell", { name: request.before, exact: true }).click();
           for (const key of request.keys) await page.keyboard.press(key);
-          value = await table.locator(".table-panel__cell--selected").textContent(); break;
+          value = await table.locator(".table-panel__input").count() ? await table.locator(".table-panel__input").inputValue() : await table.locator(".table-panel__cell--selected").textContent(); break;
         }
+        case "table-caret":
+          value = await page.locator(".table-panel__input").evaluate(input => ({ start: input.selectionStart, end: input.selectionEnd })); break;
         case "table-grid":
           await page.getByRole("button", { name: /Edit tables? as grids?/ }).click();
           await page.getByTestId("table-panel").waitFor(); break;
