@@ -381,6 +381,9 @@ fun tableColumnName(index: Int): String {
 }
 // Native layout supplies the hit-test offset; policy always returns a collapsed,
 // bounded selection so focus cannot turn navigation into select-all replacement.
+fun gridHorizontalExit(selection: TextRange, length: Int, direction: Int): Boolean =
+    selection.collapsed && selection.start in 0..length &&
+        (if (direction < 0) selection.start == 0 else direction > 0 && selection.end == length)
 fun gridCaretSelection(text: String, x: Float, edge: Int, offsetAtX: (Float) -> Int): TextRange {
     val offset = if (edge < 0) text.length else if (edge > 0) 0 else offsetAtX(x)
     return TextRange(offset.coerceIn(0, text.length))
@@ -432,9 +435,9 @@ private data class GridCaretRequest(val row: Int, val column: Int, val x: Float,
                             modifier = Modifier.width(140.dp).height(28.dp).border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(4.dp)
                                 .focusRequester(focus[row][cell.column])
                                 .onPreviewKeyEvent { event ->
-                                    if (event.type != KeyEventType.KeyDown || draft.composition != null) false else {
+                                    if (event.type != KeyEventType.KeyDown || draft.composition != null || event.isShiftPressed || event.isCtrlPressed || event.isAltPressed || event.isMetaPressed) false else {
                                         val delta = when (event.key) { Key.DirectionUp -> -1 to 0; Key.DirectionDown -> 1 to 0; Key.DirectionLeft -> 0 to -1; Key.DirectionRight -> 0 to 1; else -> null }
-                                        if (delta == null) false else {
+                                        if (delta == null || delta.second != 0 && !gridHorizontalExit(draft.selection, draft.text.length, delta.second)) false else {
                                             val measured = layout
                                             val x = measured?.getCursorRect(draft.selection.end.coerceAtMost(measured.layoutInput.text.length))?.left ?: 0f
                                             commit()

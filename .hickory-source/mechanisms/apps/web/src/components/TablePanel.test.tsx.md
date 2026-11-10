@@ -246,6 +246,19 @@ describe("editing a cell", () => {
     expect(document.querySelector(".table-panel__input")).toBe(input);
     expect(input.value).toBe("Ada"); expect(onChange).not.toHaveBeenCalled();
   });
+  it("leaves interior and modified horizontal caret keys to the text field", () => {
+    // Contract: .hickory-source/frontends/contract.md
+    grid(); const input = open("Ada");
+    input.setSelectionRange(2, 2);
+    expect(fireEvent.keyDown(input, { key: "ArrowLeft" })).toBe(true);
+    expect(fireEvent.keyDown(input, { key: "ArrowRight" })).toBe(true);
+    input.setSelectionRange(0, 0);
+    expect(fireEvent.keyDown(input, { key: "ArrowLeft", shiftKey: true })).toBe(true);
+    input.setSelectionRange(3, 3);
+    expect(fireEvent.keyDown(input, { key: "ArrowRight", ctrlKey: true })).toBe(true);
+    expect(document.querySelector(".table-panel__input")).toBe(input);
+    expect(input.value).toBe("Ada");
+  });
   it("clamps visual caret positions to complete graphemes and empty text", () => {
     // Contract: .hickory-source/frontends/contract.md
     expect(tableCaretOffset("a😀é", 14, text => text.length * 5)).toBe(3);

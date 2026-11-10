@@ -73,6 +73,30 @@ final class ParityTests: XCTestCase {
         XCTAssertEqual(gridCaretOffset("next", request: GridCaretRequest(edge: 1), measure: measure), 0)
     }
     #if os(macOS)
+    @MainActor func testGridHorizontalKeysMoveWithinTextBeforeLeavingCell() async throws {
+        // Contract: .hickory-source/frontends/contract.md
+        var exits: [Int] = []
+        let field = GridCellField(text: .constant("abcd"), request: nil, readOnly: false, onFocus: {}, onCommit: {}, onArrow: { _, dc, _ in exits.append(dc) })
+        let host = NSHostingView(rootView: field)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 40), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host; host.layoutSubtreeIfNeeded(); defer { window.orderOut(nil) }
+        func find(_ view: NSView) -> NSTextField? { (view as? NSTextField) ?? view.subviews.lazy.compactMap { find($0) }.first }
+        for _ in 0..<20 { if find(host) != nil { break }; try await Task.sleep(for: .milliseconds(10)) }
+        let control = try XCTUnwrap(find(host)); XCTAssertTrue(window.makeFirstResponder(control))
+        let editor = try XCTUnwrap(control.currentEditor() as? NSTextView)
+        editor.setSelectedRange(NSRange(location: 2, length: 0))
+        editor.doCommand(by: NSSelectorFromString("moveLeft:"))
+        XCTAssertEqual(editor.selectedRange(), NSRange(location: 1, length: 0)); XCTAssertTrue(exits.isEmpty)
+        editor.doCommand(by: NSSelectorFromString("moveRight:"))
+        XCTAssertEqual(editor.selectedRange(), NSRange(location: 2, length: 0)); XCTAssertTrue(exits.isEmpty)
+        editor.setSelectedRange(NSRange(location: 1, length: 2))
+        editor.doCommand(by: NSSelectorFromString("moveLeft:"))
+        XCTAssertEqual(editor.selectedRange(), NSRange(location: 1, length: 0)); XCTAssertTrue(exits.isEmpty)
+        editor.setSelectedRange(NSRange(location: 0, length: 0))
+        editor.doCommand(by: NSSelectorFromString("moveLeft:")); XCTAssertEqual(exits, [-1])
+        editor.setSelectedRange(NSRange(location: 4, length: 0))
+        editor.doCommand(by: NSSelectorFromString("moveRight:")); XCTAssertEqual(exits, [-1, 1])
+    }
     @MainActor func testGridArrowsTransferNativeCaretBetweenCells() async throws {
         // Contract: .hickory-source/frontends/contract.md
         let source = "| WWWW | z |\n| --- | --- |\n| iiiiiii | target |"
@@ -103,6 +127,8 @@ final class ParityTests: XCTestCase {
         XCTAssertEqual(destination.selectedRange(), NSRange(location: expected, length: 0))
         let second = try XCTUnwrap(find(host, "iiiiiii"))
         let secondDelegate = try XCTUnwrap(second.delegate as? GridCellField.Coordinator)
+        XCTAssertFalse(secondDelegate.control(second, textView: destination, doCommandBy: NSSelectorFromString("moveRight:")))
+        destination.setSelectedRange(NSRange(location: 7, length: 0))
         XCTAssertTrue(secondDelegate.control(second, textView: destination, doCommandBy: NSSelectorFromString("moveRight:")))
         for _ in 0..<20 { if (window.firstResponder as? NSTextView)?.string == "target" { break }; try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertEqual((window.firstResponder as? NSTextView)?.string, "target")

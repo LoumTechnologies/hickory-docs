@@ -124,6 +124,7 @@ export function TableCell({
           event.preventDefault();
           return;
         }
+        if ((event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) && ["ArrowLeft", "ArrowRight"].includes(event.key)) return;
         if (event.key === "Enter") {
           event.preventDefault();
           onMove(event.shiftKey ? -1 : 1, 0);

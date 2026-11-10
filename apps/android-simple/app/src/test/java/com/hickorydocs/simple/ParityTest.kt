@@ -24,6 +24,17 @@ class ParityTest {
         assertEquals(2, editorSourceOffset(4, tabs))
     }
 
+    @Test fun tableHorizontalArrowsLeaveInteriorAndSelectionsNative() {
+        // Contract: .hickory-source/frontends/contract.md
+        assertFalse(gridHorizontalExit(androidx.compose.ui.text.TextRange(2), 4, -1))
+        assertFalse(gridHorizontalExit(androidx.compose.ui.text.TextRange(2), 4, 1))
+        assertFalse(gridHorizontalExit(androidx.compose.ui.text.TextRange(0, 4), 4, -1))
+        assertFalse(gridHorizontalExit(androidx.compose.ui.text.TextRange(0, 4), 4, 1))
+        assertTrue(gridHorizontalExit(androidx.compose.ui.text.TextRange(0), 4, -1))
+        assertTrue(gridHorizontalExit(androidx.compose.ui.text.TextRange(4), 4, 1))
+        assertFalse(gridHorizontalExit(androidx.compose.ui.text.TextRange(0), 4, 1))
+        assertFalse(gridHorizontalExit(androidx.compose.ui.text.TextRange(4), 4, -1))
+    }
     @Test fun tableArrowEntryKeepsCollapsedCaret() {
         // Contract: .hickory-source/frontends/contract.md
         assertEquals(androidx.compose.ui.text.TextRange(2), gridCaretSelection("wide", 10f, 0) { 2 })

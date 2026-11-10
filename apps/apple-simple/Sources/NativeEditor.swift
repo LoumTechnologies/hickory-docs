@@ -63,6 +63,12 @@ func tableColumnName(_ index: Int) -> String {
 }
 // Navigation carries a visual column, not a text selection. Match a grapheme
 // boundary nearest that column, clamping short/empty cells without splitting emoji.
+// Only a collapsed caret at the text edge belongs to table navigation. Let
+// native text editing handle interior motion and collapse/extend selections.
+func gridHorizontalExit(_ selection: NSRange, length: Int, direction: Int) -> Bool {
+    selection.length == 0 && selection.location >= 0 && selection.location <= length &&
+        (direction < 0 ? selection.location == 0 : direction > 0 && selection.location == length)
+}
 struct GridCaretRequest: Equatable { var id = UUID(); var x: CGFloat = 0; var edge = 0 }
 func gridCaretOffset(_ text: String, request: GridCaretRequest, measure: (String) -> CGFloat) -> Int {
     let ns = text as NSString
@@ -135,8 +141,12 @@ struct GridCellField: NSViewRepresentable {
             switch NSStringFromSelector(command) {
             case "moveUp:": delta = (-1, 0)
             case "moveDown:": delta = (1, 0)
-            case "moveLeft:": delta = (0, -1)
-            case "moveRight:": delta = (0, 1)
+            case "moveLeft:":
+                guard gridHorizontalExit(textView.selectedRange(), length: (textView.string as NSString).length, direction: -1) else { return false }
+                delta = (0, -1)
+            case "moveRight:":
+                guard gridHorizontalExit(textView.selectedRange(), length: (textView.string as NSString).length, direction: 1) else { return false }
+                delta = (0, 1)
             case "insertNewline:": parent.onCommit(); return true
             default: return false
             }
@@ -153,7 +163,15 @@ final class GridKeyboardField: UITextField {
     var onArrow: ((Int, Int) -> Void)?
     override var keyCommands: [UIKeyCommand]? {
         guard markedTextRange == nil else { return super.keyCommands }
-        return ([UIKeyCommand.inputUpArrow, UIKeyCommand.inputDownArrow, UIKeyCommand.inputLeftArrow, UIKeyCommand.inputRightArrow].map {
+        var inputs = [UIKeyCommand.inputUpArrow, UIKeyCommand.inputDownArrow]
+        if let selected = selectedTextRange {
+            let start = offset(from: beginningOfDocument, to: selected.start)
+            let end = offset(from: beginningOfDocument, to: selected.end)
+            let range = NSRange(location: start, length: end - start), length = (text ?? "").utf16.count
+            if gridHorizontalExit(range, length: length, direction: -1) { inputs.append(UIKeyCommand.inputLeftArrow) }
+            if gridHorizontalExit(range, length: length, direction: 1) { inputs.append(UIKeyCommand.inputRightArrow) }
+        }
+        return (inputs.map {
             let command = UIKeyCommand(input: $0, modifierFlags: [], action: #selector(arrow(_:))); command.wantsPriorityOverSystemBehavior = true; return command
         }) + (super.keyCommands ?? [])
     }
