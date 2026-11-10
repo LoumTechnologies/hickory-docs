@@ -25,6 +25,11 @@ nav summary { list-style: none; cursor: pointer; padding: 3px; }
 .pane, .document-body, .editor-host { min-height: 0; height: 100%; overflow: hidden; }
 .document-body { display: flex; flex-direction: column; }
 .editor-host { flex: 1; }
+.editor-cm-host .cm-content { padding-left: 0; padding-right: 0; }
+.editor-cm-host .cm-line { padding-left: 4px; padding-right: 4px; }
+.editor-cm-host .cm-lineNumbers .cm-gutterElement { min-width: 0; padding: 0 2px; }
+.editor-cm-host .cm-foldGutter .cm-gutterElement { padding: 0 1px; }
+.editor-cm-host .cm-breakpoint-gutter { width: 11px; }
 .resize { background: color-mix(in srgb, CanvasText 13%, Canvas); touch-action: none; }
 .horizontal > .resize { cursor: col-resize; }
 .vertical > .resize { cursor: row-resize; }

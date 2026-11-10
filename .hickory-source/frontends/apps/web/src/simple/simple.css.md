@@ -5,6 +5,11 @@ For maintainers iterating on the equivalent Apple, Android and browser editor fr
 
 Use one fixed menu row, flexible content and one status row. Tabs and gutter widths remain stable when actions appear. Narrow screens retain all commands and allow scrolling the workspace rather than dropping capabilities.
 
+Keep the text close to the left edge: line numbers grow only with their digits,
+fold controls use a narrow slot, and the breakpoint column fits its nine-pixel dot.
+Use a four-pixel text inset rather than a separate reading margin. These rules
+are scoped to the simple editor so other editor surfaces retain their own layout.
+
 Markdown styling stays scoped to decorated prose and conversation elements; terminal output and fenced code retain literal text. Heading sizes distinguish levels while inline emphasis changes only the relevant spans.
 
 Reserve a small blank slot at the end of the strip even when tabs overflow, so append remains reachable by horizontal scrolling. It is always present and does not resize during a drag.
@@ -37,6 +42,11 @@ nav summary { list-style: none; cursor: pointer; padding: 3px; }
 .pane, .document-body, .editor-host { min-height: 0; height: 100%; overflow: hidden; }
 .document-body { display: flex; flex-direction: column; }
 .editor-host { flex: 1; }
+.editor-cm-host .cm-content { padding-left: 0; padding-right: 0; }
+.editor-cm-host .cm-line { padding-left: 4px; padding-right: 4px; }
+.editor-cm-host .cm-lineNumbers .cm-gutterElement { min-width: 0; padding: 0 2px; }
+.editor-cm-host .cm-foldGutter .cm-gutterElement { padding: 0 1px; }
+.editor-cm-host .cm-breakpoint-gutter { width: 11px; }
 .resize { background: color-mix(in srgb, CanvasText 13%, Canvas); touch-action: none; }
 .horizontal > .resize { cursor: col-resize; }
 .vertical > .resize { cursor: row-resize; }
