@@ -66,6 +66,14 @@ try {
           for (const key of request.keys) await page.keyboard.press(key);
           value = await table.locator(".table-panel__input").count() ? await table.locator(".table-panel__input").inputValue() : await table.locator(".table-panel__cell--selected").textContent(); break;
         }
+        case "table-open-caret": {
+          const table = page.getByTestId("table-panel");
+          await table.getByRole("gridcell", { name: request.before, exact: true }).dblclick();
+          const input = table.locator(".table-panel__input");
+          await input.press(process.platform === "darwin" ? "Meta+ArrowLeft" : "Home");
+          for (let i = 0; i < request.offset; i++) await input.press("ArrowRight");
+          break;
+        }
         case "table-caret":
           value = await page.locator(".table-panel__input").evaluate(input => ({ start: input.selectionStart, end: input.selectionEnd })); break;
         case "table-grid":

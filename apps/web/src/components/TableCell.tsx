@@ -37,6 +37,7 @@ export interface TableCellProps {
   onSelect: (event: React.MouseEvent) => void;
   onEdit: () => void;
   onDraft: (value: string) => void;
+  onCaretActivity: () => void;
   onPoint: (event: React.KeyboardEvent<HTMLInputElement>) => boolean;
   onKeys: (event: React.KeyboardEvent) => void;
   onMove: (dRow: number, dColumn: number) => void;
@@ -66,6 +67,7 @@ export function TableCell({
   onSelect,
   onEdit,
   onDraft,
+  onCaretActivity,
   onPoint,
   onKeys,
   onMove,
@@ -118,9 +120,12 @@ export function TableCell({
       value={draft}
       onChange={(event) => onDraft(event.target.value)}
       onBlur={onDone}
+      onPointerDown={onCaretActivity}
       onKeyDown={(event) => {
+        if (["ArrowLeft", "ArrowRight", "Home", "End", "Tab", "Enter"].includes(event.key) || (["ArrowUp", "ArrowDown"].includes(event.key) && (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey))) onCaretActivity();
         if (event.nativeEvent.isComposing) return;
         if (event.key.startsWith("Arrow") && onPoint(event)) {
+          onCaretActivity();
           event.preventDefault();
           return;
         }

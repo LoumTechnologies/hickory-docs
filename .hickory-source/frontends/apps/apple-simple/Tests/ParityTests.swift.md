@@ -73,6 +73,48 @@ final class ParityTests: XCTestCase {
         XCTAssertEqual(gridCaretOffset("next", request: GridCaretRequest(edge: 1), measure: measure), 0)
     }
     #if os(macOS)
+    @MainActor func testGridVerticalGoalSurvivesShortCellAndResetsOnHorizontalMotionOrEdit() async throws {
+        // Contract: .hickory-source/frontends/contract.md
+        let source = "| abcdefghijk | z |\n| --- | --- |\n| x | short |\n| abcdefghijklm | long |"
+        let file = FileNode(name: "goal.md", path: "goal.md", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "base"))
+        buffer.applyTableEdit = { edit, expected in
+            guard buffer.text == expected else { return false }
+            buffer.text = (expected as NSString).replacingCharacters(in: edit.range, with: edit.text); return true
+        }
+        let table = try XCTUnwrap(inlineTables(computeInlineMarkup(source, path: file.path)).first)
+        let host = NSHostingView(rootView: NativeTableGrid(table: table, source: source, buffer: buffer))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 220), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host; host.layoutSubtreeIfNeeded(); defer { window.orderOut(nil); buffer.applyTableEdit = nil }
+        func find(_ view: NSView) -> NSTextField? {
+            if let field = view as? NSTextField, field.stringValue == "abcdefghijk" { return field }
+            return view.subviews.lazy.compactMap { find($0) }.first
+        }
+        for _ in 0..<20 { if find(host) != nil { break }; try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(find(host))))
+        func arrived(_ text: String) async throws -> NSTextView {
+            for _ in 0..<30 {
+                if let editor = window.firstResponder as? NSTextView, editor.string == text { return editor }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            throw NSError(domain: "Caret did not enter " + text, code: 1)
+        }
+        let first = try await arrived("abcdefghijk"); first.setSelectedRange(NSRange(location: 8, length: 0))
+        first.doCommand(by: NSSelectorFromString("moveDown:"))
+        let short = try await arrived("x"); XCTAssertEqual(short.selectedRange(), NSRange(location: 1, length: 0))
+        short.doCommand(by: NSSelectorFromString("moveDown:"))
+        let long = try await arrived("abcdefghijklm"); XCTAssertEqual(long.selectedRange(), NSRange(location: 8, length: 0))
+        long.doCommand(by: NSSelectorFromString("moveUp:"))
+        let shortAgain = try await arrived("x"); shortAgain.doCommand(by: NSSelectorFromString("moveLeft:"))
+        XCTAssertEqual(shortAgain.selectedRange(), NSRange(location: 0, length: 0))
+        shortAgain.doCommand(by: NSSelectorFromString("moveDown:"))
+        let reset = try await arrived("abcdefghijklm"); XCTAssertEqual(reset.selectedRange(), NSRange(location: 0, length: 0))
+        reset.doCommand(by: NSSelectorFromString("moveUp:"))
+        let edited = try await arrived("x"); edited.insertText("abcde", replacementRange: NSRange(location: 0, length: 1))
+        XCTAssertEqual(edited.selectedRange(), NSRange(location: 5, length: 0))
+        edited.doCommand(by: NSSelectorFromString("moveDown:"))
+        let afterEdit = try await arrived("abcdefghijklm"); XCTAssertEqual(afterEdit.selectedRange(), NSRange(location: 5, length: 0))
+    }
     @MainActor func testGridHorizontalKeysMoveWithinTextBeforeLeavingCell() async throws {
         // Contract: .hickory-source/frontends/contract.md
         var exits: [Int] = []

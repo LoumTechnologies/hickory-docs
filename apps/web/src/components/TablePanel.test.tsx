@@ -98,6 +98,17 @@ describe("what the grid shows", () => {
   });
 });
 
+const mockCaretWidths = () => {
+    const bounds = HTMLElement.prototype.getBoundingClientRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.tagName === "SPAN" && this.style.visibility === "hidden") {
+        const width = [...(this.textContent ?? "")].reduce((sum, c) => sum + (c === "i" ? 2 : c === "W" ? 10 : 6), 0);
+        return { x: 0, y: 0, top: 0, left: 0, right: width, bottom: 20, width, height: 20, toJSON: () => ({}) };
+      }
+      return bounds.call(this);
+    });
+};
+
 describe("editing a cell", () => {
   it("writes back a CSV that changed only the line it touched", () => {
     // The file underneath is still a file somebody reads in a diff.
@@ -147,27 +158,39 @@ describe("editing a cell", () => {
 
   it("keeps a collapsed visual caret on arrow entry, clamping short cells", () => {
     // Contract: .hickory-source/frontends/contract.md
-    const bounds = HTMLElement.prototype.getBoundingClientRect;
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-      if (this.tagName === "SPAN" && this.style.visibility === "hidden") {
-        const width = [...(this.textContent ?? "")].reduce((sum, c) => sum + (c === "i" ? 2 : c === "W" ? 10 : 6), 0);
-        return { x: 0, y: 0, top: 0, left: 0, right: width, bottom: 20, width, height: 20, toJSON: () => ({}) };
-      }
-      return bounds.call(this);
-    });
-    grid({ source: "WWWW,z\niiiiiii,target\nx,last\n" });
+    mockCaretWidths();
+    grid({ source: "WWWW,z\niiiiiii,target\nx,last\nWWWWWW,end\n" });
     const input = open("WWWW"); input.setSelectionRange(1, 1);
     fireEvent.keyDown(input, { key: "ArrowDown" });
     const current = () => document.querySelector<HTMLInputElement>(".table-panel__input")!;
     expect(current().value).toBe("iiiiiii"); expect([current().selectionStart, current().selectionEnd]).toEqual([5, 5]);
     fireEvent.keyDown(current(), { key: "ArrowDown" });
     expect(current().value).toBe("x"); expect([current().selectionStart, current().selectionEnd]).toEqual([1, 1]);
+    fireEvent.keyDown(current(), { key: "ArrowDown" });
+    expect(current().value).toBe("WWWWWW"); expect([current().selectionStart, current().selectionEnd]).toEqual([1, 1]);
     fireEvent.keyDown(current(), { key: "ArrowUp" });
-    expect(current().value).toBe("iiiiiii"); expect(current().selectionStart).toBe(3);
+    expect(current().value).toBe("x"); expect(current().selectionStart).toBe(1);
+    fireEvent.keyDown(current(), { key: "ArrowUp" });
+    expect(current().value).toBe("iiiiiii"); expect(current().selectionStart).toBe(5);
     current().setSelectionRange(7, 7); fireEvent.keyDown(current(), { key: "ArrowRight" });
     expect(current().value).toBe("target"); expect([current().selectionStart, current().selectionEnd]).toEqual([0, 0]);
     fireEvent.keyDown(current(), { key: "ArrowLeft" });
     expect(current().value).toBe("iiiiiii"); expect([current().selectionStart, current().selectionEnd]).toEqual([7, 7]);
+  });
+  it.each(["horizontal", "edit", "pointer"])("resets the preferred vertical caret after %s activity on a short cell", action => {
+    // Contract: .hickory-source/frontends/contract.md
+    mockCaretWidths(); grid({ source: "WWWW,z\nx,short\niiiiiiiiiiii,long\n" });
+    const first = open("WWWW"); first.setSelectionRange(1, 1);
+    fireEvent.keyDown(first, { key: "ArrowDown" });
+    const short = document.querySelector<HTMLInputElement>(".table-panel__input")!;
+    expect(short.value).toBe("x"); expect(short.selectionStart).toBe(1);
+    let expected = 3;
+    if (action === "horizontal") { fireEvent.keyDown(short, { key: "ArrowLeft" }); short.setSelectionRange(0, 0); expected = 0; }
+    else if (action === "edit") { fireEvent.change(short, { target: { value: "xxxx" } }); short.setSelectionRange(3, 3); expected = 9; }
+    else fireEvent.pointerDown(short);
+    fireEvent.keyDown(short, { key: "ArrowDown" });
+    const arrived = document.querySelector<HTMLInputElement>(".table-panel__input")!;
+    expect(arrived.value).toBe("iiiiiiiiiiii"); expect([arrived.selectionStart, arrived.selectionEnd]).toEqual([expected, expected]);
   });
   it("arrow navigation from a selected cell opens a collapsed destination caret", () => {
     // Contract: .hickory-source/frontends/contract.md

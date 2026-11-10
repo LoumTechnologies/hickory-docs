@@ -167,6 +167,16 @@ def table_acceptance(driver, folder):
     driver.act("table-source")
     assert "Pen,31" in driver.act("content", path="stock.csv")
     driver.act("table-grid")
+    driver.act("open", path="caret.csv")
+    driver.act("table-open-caret", before="abcdefghijk", offset=8)
+    assert driver.act("table-caret") == {"start": 8, "end": 8}
+    assert driver.act("table-keys", before="abcdefghijk", keys=["ArrowDown"]) == "x"
+    assert driver.act("table-caret") == {"start": 1, "end": 1}
+    assert driver.act("table-keys", before="x", keys=["ArrowDown"]) == "abcdefghijklm"
+    assert driver.act("table-caret") == {"start": 8, "end": 8}
+    driver.act("table-keys", before="abcdefghijklm", keys=["ArrowUp", "ArrowLeft", "ArrowDown"])
+    assert driver.act("table-caret") == {"start": 0, "end": 0}
+    assert (folder / "caret.csv").read_text() == "Label,Count\nabcdefghijk,1\nx,2\nabcdefghijklm,3\n"
 
 def markdown_acceptance(driver):
     driver.act("open", path="source.md")
@@ -241,6 +251,7 @@ if __name__ == "__main__":
         (folder / "source.md").write_text('<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n# A literate document\n\n**bold** and *italic*\n</h:doc>\n')
         (folder / "table.md").write_text('<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\nBefore\n\n| A | B |\n| --- | ---: |\n| café 😀 | 120 |\n\nAfter\n</h:doc>\n')
         (folder / "stock.csv").write_text('Product,Stock\nPen,30\n')
+        (folder / "caret.csv").write_text("Label,Count\nabcdefghijk,1\nx,2\nabcdefghijklm,3\n")
         (folder / "cache.py").write_text("counter = 1\nprint(counter)\n")
         (folder / "debug.py").write_text("value = 1\nvalue += 1\nprint(value)\n")
         environment = {**os.environ, "HICKORY_STATE_DIR": str(Path(temporary) / "state")}

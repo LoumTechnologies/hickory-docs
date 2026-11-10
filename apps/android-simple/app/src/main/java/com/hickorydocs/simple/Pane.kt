@@ -11,6 +11,9 @@ import androidx.compose.foundation.draganddrop.dragAndDropSource
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.text.input.InputTransformation
 import androidx.compose.foundation.text.input.OutputTransformation
 import androidx.compose.ui.text.SpanStyle
@@ -388,10 +391,17 @@ fun gridCaretSelection(text: String, x: Float, edge: Int, offsetAtX: (Float) -> 
     val offset = if (edge < 0) text.length else if (edge > 0) 0 else offsetAtX(x)
     return TextRange(offset.coerceIn(0, text.length))
 }
+class GridVerticalCaretGoal {
+    private var x: Float? = null
+    fun position(measured: Float): Float = (x ?: measured).also { x = it }
+    fun reset() { x = null }
+}
 private data class GridCaretRequest(val row: Int, val column: Int, val x: Float, val edge: Int, val serial: Int)
 @Composable private fun InlineTableGrid(table: InlineTable, source: String, buffer: DocumentBuffer, modifier: Modifier = Modifier) {
     var navigation by remember { mutableStateOf<GridCaretRequest?>(null) }
     var navigationSerial by remember { mutableStateOf(0) }
+    val verticalGoal = remember { GridVerticalCaretGoal() }
+    var caretTarget by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val focus = remember(table.rows.map { it.size }) { table.rows.map { row -> row.map { FocusRequester() } } }
@@ -429,23 +439,27 @@ private data class GridCaretRequest(val row: Int, val column: Int, val x: Float,
                         val commit = { if (draft.text != cell.value && !buffer.applySourceEdits(listOf(NativeSourceEdit(cell.from, cell.to, inlineCellText(draft.text, cell.format, cell.delimiter))), source)) notice = "Table changed. Reopen the cell and try again." }
                         val latestCommit by rememberUpdatedState(commit)
                         DisposableEffect(Unit) { onDispose { latestCommit() } }
-                        BasicTextField(value = draft, onValueChange = { draft = it }, readOnly = buffer.readOnly, singleLine = true, onTextLayout = { layout = it },
+                        BasicTextField(value = draft, onValueChange = { if (it.text != draft.text || it.selection != draft.selection) verticalGoal.reset(); draft = it }, readOnly = buffer.readOnly, singleLine = true, onTextLayout = { layout = it },
                             keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { commit() }), keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
                             textStyle = TextStyle(fontSize = 13.sp, fontWeight = if (row == 0) FontWeight.SemiBold else FontWeight.Normal, color = MaterialTheme.colorScheme.onSurface),
                             modifier = Modifier.width(140.dp).height(28.dp).border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(4.dp)
                                 .focusRequester(focus[row][cell.column])
+                                .pointerInput(buffer) { awaitEachGesture { awaitFirstDown(requireUnconsumed = false); verticalGoal.reset(); waitForUpOrCancellation() } }
                                 .onPreviewKeyEvent { event ->
+                                    if (event.type == KeyEventType.KeyDown && (event.key in listOf(Key.DirectionLeft, Key.DirectionRight, Key.MoveHome, Key.MoveEnd) || (event.key in listOf(Key.DirectionUp, Key.DirectionDown) && (event.isShiftPressed || event.isCtrlPressed || event.isAltPressed || event.isMetaPressed)))) verticalGoal.reset()
                                     if (event.type != KeyEventType.KeyDown || draft.composition != null || event.isShiftPressed || event.isCtrlPressed || event.isAltPressed || event.isMetaPressed) false else {
                                         val delta = when (event.key) { Key.DirectionUp -> -1 to 0; Key.DirectionDown -> 1 to 0; Key.DirectionLeft -> 0 to -1; Key.DirectionRight -> 0 to 1; else -> null }
                                         if (delta == null || delta.second != 0 && !gridHorizontalExit(draft.selection, draft.text.length, delta.second)) false else {
                                             val measured = layout
-                                            val x = measured?.getCursorRect(draft.selection.end.coerceAtMost(measured.layoutInput.text.length))?.left ?: 0f
+                                            val actualX = measured?.getCursorRect(draft.selection.end.coerceAtMost(measured.layoutInput.text.length))?.left ?: 0f
+                                            val x = if (delta.second == 0) verticalGoal.position(actualX) else actualX
                                             commit()
                                             val nextRow = (row + delta.first).coerceIn(table.rows.indices)
                                             val nextColumn = (cell.column + delta.second).coerceIn(table.rows[nextRow].indices)
                                             if (nextRow != row || nextColumn != cell.column) {
                                                 navigationSerial += 1
                                                 val request = GridCaretRequest(nextRow, nextColumn, x, delta.second, navigationSerial)
+                                                caretTarget = nextRow to nextColumn
                                                 navigation = request
                                                 if (list.layoutInfo.visibleItemsInfo.none { it.index == nextRow + 1 }) scope.launch { if (navigation?.serial == request.serial) list.scrollToItem(nextRow + 1) }
                                             }
@@ -455,6 +469,7 @@ private data class GridCaretRequest(val row: Int, val column: Int, val x: Float,
                                 }
                                 .onFocusChanged { state ->
                                     val wasFocused = focused; focused = state.isFocused
+                                    if (focused && caretTarget != (row to cell.column)) { verticalGoal.reset(); caretTarget = row to cell.column }
                                     if (focused && navigation?.let { it.row != row || it.column != cell.column } == true) navigation = null
                                     if (wasFocused && !focused) commit()
                                 }

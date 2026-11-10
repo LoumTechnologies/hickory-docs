@@ -24,6 +24,13 @@ class ParityTest {
         assertEquals(2, editorSourceOffset(4, tabs))
     }
 
+    @Test fun tableVerticalGoalSurvivesClampingUntilExplicitReset() {
+        // Contract: .hickory-source/frontends/contract.md
+        val goal = GridVerticalCaretGoal()
+        assertEquals(80f, goal.position(80f)); assertEquals(80f, goal.position(6f)); assertEquals(80f, goal.position(60f))
+        goal.reset(); assertEquals(6f, goal.position(6f))
+        goal.reset(); assertEquals(0f, goal.position(0f)); assertEquals(0f, goal.position(30f))
+    }
     @Test fun tableHorizontalArrowsLeaveInteriorAndSelectionsNative() {
         // Contract: .hickory-source/frontends/contract.md
         assertFalse(gridHorizontalExit(androidx.compose.ui.text.TextRange(2), 4, -1))

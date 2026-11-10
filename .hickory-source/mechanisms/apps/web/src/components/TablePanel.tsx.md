@@ -420,6 +420,7 @@ export function TablePanel({
   // effect because the input has not re-rendered with the new text yet.
   const [caretWanted, setCaretWanted] = useState<number | null>(null);
   const arrowCaret = useRef<{ x: number; edge: number } | null>(null);
+  const preferredCaretX = useRef<number | null>(null);
   const rangeAnchor = useRef<CellAt | null>(null);
   const rangeDragged = useRef(false);
   const cut = useRef<{ from: CellAt; rows: number; columns: number } | null>(
@@ -560,6 +561,7 @@ export function TablePanel({
     from: "grid" | "bar" = "grid",
   ) => {
     if (!editable) return;
+    preferredCaretX.current = null;
     setSelection(cellSelection(row, column));
     setDraft(seed ?? cellAt(table, row, column));
     setEntryFrom(from);
@@ -570,6 +572,8 @@ export function TablePanel({
     setPointer(null);
   };
 
+  // Retain the original visual goal across short cells; only explicit caret
+  // activity or editing clears it. A clamped destination is not a new goal.
   // Arrow entry continues editing with a collapsed caret. Enter/Tab below
   // retain commit-and-select; range extension remains a Shift-arrow operation.
   const arrowAndMove = (at: CellAt, dRow: number, dColumn: number, input: HTMLInputElement) => {
@@ -580,10 +584,12 @@ export function TablePanel({
     const widths = tableTextMeasure(input);
     try {
       const offset = input.selectionDirection === "backward" ? input.selectionStart ?? 0 : input.selectionEnd ?? 0;
-      arrowCaret.current = { x: widths.measure(input.value.slice(0, offset)), edge: dColumn };
+      const measured = widths.measure(input.value.slice(0, offset));
+      const goal = dColumn === 0 ? preferredCaretX.current ?? measured : measured;
+      arrowCaret.current = { x: goal, edge: dColumn };
       // Resolve against the destination's font after its input mounts: a header
       // can have different glyph widths from the body row beneath it.
-      edit(row, column); setCaretWanted(0);
+      edit(row, column); preferredCaretX.current = dColumn === 0 ? goal : null; setCaretWanted(0);
     } finally { widths.dispose(); }
   };
 
@@ -827,6 +833,7 @@ export function TablePanel({
    * is dropped — the next arrow leaves from the edited cell again, and the
    * next click writes a fresh reference rather than replacing the last. */
   const typed = (text: string) => {
+    preferredCaretX.current = null;
     setPointer(null);
     setDraft(text);
   };
@@ -1500,6 +1507,7 @@ export function TablePanel({
                           }}
                           onEdit={() => edit(row, column)}
                           onDraft={typed}
+                          onCaretActivity={() => { preferredCaretX.current = null; }}
                           onPoint={pointKey}
                           onKeys={(event) =>
                             onSelectedKeyDown(event, { row, column })

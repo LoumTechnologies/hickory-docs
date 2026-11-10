@@ -5,6 +5,7 @@ struct NativeTableGrid: View {
     var table: InlineTable; var source: String; var buffer: DocumentBuffer
     @State private var caretTarget: Int?
     @State private var caretRequest = GridCaretRequest()
+    @State private var preferredX: CGFloat?
     var body: some View {
         VStack(spacing: 0) {
             HStack { Text("Table").font(.caption); Spacer(); Button("Edit source text") { buffer.sourceTable = table.id }.buttonStyle(.bordered) }.frame(height: 28).padding(.horizontal, 6)
@@ -20,13 +21,15 @@ struct NativeTableGrid: View {
                         HStack(spacing: 0) {
                             Text(String(row + 1)).font(.caption).frame(width: 32, height: 28)
                             ForEach(table.rows[row].indices, id: \.self) { column in
-                                NativeGridCell(cell: table.rows[row][column], row: row, source: source, buffer: buffer, request: caretTarget == row * 10000 + column ? caretRequest : nil, onFocus: { if caretTarget != row * 10000 + column { caretTarget = nil } }, move: { dr, dc, x in
+                                NativeGridCell(cell: table.rows[row][column], row: row, source: source, buffer: buffer, request: caretTarget == row * 10000 + column ? caretRequest : nil, onFocus: { if caretTarget != row * 10000 + column { caretTarget = nil; preferredX = nil } }, move: { dr, dc, x in
                                     let nextRow = min(max(0, row + dr), table.rows.count - 1)
                                     let nextColumn = min(max(0, column + dc), table.rows[nextRow].count - 1)
                                     guard nextRow != row || nextColumn != column else { return }
-                                    caretRequest = GridCaretRequest(x: x, edge: dc)
+                                    let goal = dc == 0 ? preferredX ?? x : x
+                                    preferredX = dc == 0 ? goal : nil
+                                    caretRequest = GridCaretRequest(x: goal, edge: dc)
                                     caretTarget = nextRow * 10000 + nextColumn
-                                }).frame(width: 140, height: 28).border(.secondary.opacity(0.3))
+                                }, onCaretActivity: { preferredX = nil }).frame(width: 140, height: 28).border(.secondary.opacity(0.3))
                             }
                         }
                     }
@@ -89,6 +92,7 @@ private struct NativeGridCell: View {
     @State private var draft = ""
     @State private var notice = ""
     var request: GridCaretRequest?; var onFocus: () -> Void; var move: (Int, Int, CGFloat) -> Void
+    var onCaretActivity: () -> Void = {}
     @State private var committing = false
     private func commit() {
         guard !committing, draft != cell.value else { return }
@@ -97,7 +101,7 @@ private struct NativeGridCell: View {
     }
     var body: some View {
         GridCellField(text: $draft, request: request, readOnly: buffer.readOnly, onFocus: onFocus, onCommit: commit,
-            onArrow: { dr, dc, x in commit(); move(dr, dc, x) })
+            onArrow: { dr, dc, x in commit(); move(dr, dc, x) }, onCaretActivity: onCaretActivity)
             .padding(.horizontal, 5)
             .accessibilityLabel("Row \(row + 1), column \(tableColumnName(cell.column))")
             .onAppear { draft = cell.value }.onChange(of: cell.value) { _, value in draft = value }
@@ -109,6 +113,7 @@ import AppKit
 struct GridCellField: NSViewRepresentable {
     @Binding var text: String
     var request: GridCaretRequest?; var readOnly: Bool; var onFocus: () -> Void; var onCommit: () -> Void; var onArrow: (Int, Int, CGFloat) -> Void
+    var onCaretActivity: () -> Void = {}
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSTextField {
         let field = NSTextField(); field.isBordered = false; field.drawsBackground = false
@@ -122,6 +127,7 @@ struct GridCellField: NSViewRepresentable {
         guard let request, context.coordinator.applied != request.id else { return }
         DispatchQueue.main.async { [weak field, weak coordinator = context.coordinator] in
             guard let field, let coordinator, coordinator.parent.request?.id == request.id, let window = field.window else { return }
+            coordinator.applyingRequest = true; defer { coordinator.applyingRequest = false }
             window.makeFirstResponder(field)
             guard let editor = field.currentEditor() as? NSTextView else { return }
             let font = field.font ?? .systemFont(ofSize: 13)
@@ -130,15 +136,35 @@ struct GridCellField: NSViewRepresentable {
         }
     }
     final class Coordinator: NSObject, NSTextFieldDelegate {
-        var parent: GridCellField; var applied: UUID?
+        var parent: GridCellField; var applied: UUID?; var applyingRequest = false
         init(_ parent: GridCellField) { self.parent = parent }
-        func controlTextDidBeginEditing(_ notification: Notification) { parent.onFocus() }
-        func controlTextDidChange(_ notification: Notification) { if let field = notification.object as? NSTextField { parent.text = field.stringValue } }
-        func controlTextDidEndEditing(_ notification: Notification) { parent.onCommit() }
+        private var mouseMonitor: Any?
+        deinit { if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) } }
+        func controlTextDidBeginEditing(_ notification: Notification) {
+            if !applyingRequest { parent.onCaretActivity() }
+            parent.onFocus()
+            if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
+            if let field = notification.object as? NSTextField, let editor = field.currentEditor() as? NSTextView {
+                mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged]) { [weak self, weak editor] event in
+                    if let editor, event.window === editor.window, editor.bounds.contains(editor.convert(event.locationInWindow, from: nil)) { self?.parent.onCaretActivity() }
+                    return event
+                }
+            }
+        }
+        func controlTextDidChange(_ notification: Notification) {
+            if !applyingRequest { parent.onCaretActivity() }
+            if let field = notification.object as? NSTextField { parent.text = field.stringValue }
+        }
+        func controlTextDidEndEditing(_ notification: Notification) {
+            if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor); self.mouseMonitor = nil }
+            parent.onCommit()
+        }
         func control(_ control: NSControl, textView: NSTextView, doCommandBy command: Selector) -> Bool {
             guard !textView.hasMarkedText() else { return false }
+            let name = NSStringFromSelector(command)
+            if name != "moveUp:" && name != "moveDown:" { parent.onCaretActivity() }
             let delta: (Int, Int)
-            switch NSStringFromSelector(command) {
+            switch name {
             case "moveUp:": delta = (-1, 0)
             case "moveDown:": delta = (1, 0)
             case "moveLeft:":
@@ -161,6 +187,8 @@ struct GridCellField: NSViewRepresentable {
 import UIKit
 final class GridKeyboardField: UITextField {
     var onArrow: ((Int, Int) -> Void)?
+    var onCaretActivity: (() -> Void)?
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { onCaretActivity?(); super.touchesBegan(touches, with: event) }
     override var keyCommands: [UIKeyCommand]? {
         guard markedTextRange == nil else { return super.keyCommands }
         var inputs = [UIKeyCommand.inputUpArrow, UIKeyCommand.inputDownArrow]
@@ -182,9 +210,11 @@ final class GridKeyboardField: UITextField {
 struct GridCellField: UIViewRepresentable {
     @Binding var text: String
     var request: GridCaretRequest?; var readOnly: Bool; var onFocus: () -> Void; var onCommit: () -> Void; var onArrow: (Int, Int, CGFloat) -> Void
+    var onCaretActivity: () -> Void = {}
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIView(context: Context) -> GridKeyboardField {
         let field = GridKeyboardField(); field.font = .systemFont(ofSize: 13); field.borderStyle = .none
+        field.onCaretActivity = { [weak coordinator = context.coordinator] in coordinator?.parent.onCaretActivity() }
         field.delegate = context.coordinator; field.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
         field.onArrow = { [weak field, weak coordinator = context.coordinator] dr, dc in
             guard let field, let coordinator else { return }
@@ -197,22 +227,28 @@ struct GridCellField: UIViewRepresentable {
     }
     func updateUIView(_ field: GridKeyboardField, context: Context) {
         context.coordinator.parent = self
-        if field.text != text { field.text = text }
+        if field.text != text { context.coordinator.applyingRequest = true; field.text = text; context.coordinator.applyingRequest = false }
         field.isEnabled = !readOnly
         guard let request, context.coordinator.applied != request.id else { return }
         DispatchQueue.main.async { [weak field, weak coordinator = context.coordinator] in
             guard let field, let coordinator, coordinator.parent.request?.id == request.id, field.window != nil else { return }
+            coordinator.applyingRequest = true; defer { coordinator.applyingRequest = false }
             field.becomeFirstResponder()
             let offset = gridCaretOffset(field.text ?? "", request: request) { ($0 as NSString).size(withAttributes: [.font: field.font ?? UIFont.systemFont(ofSize: 13)]).width }
-            if let position = field.position(from: field.beginningOfDocument, offset: offset) { field.selectedTextRange = field.textRange(from: position, to: position) }
+            if let position = field.position(from: field.beginningOfDocument, offset: offset) { field.selectedTextRange = field.textRange(from: position, to: position); coordinator.lastSelection = NSRange(location: offset, length: 0) }
             coordinator.applied = request.id
         }
     }
     final class Coordinator: NSObject, UITextFieldDelegate {
-        var parent: GridCellField; var applied: UUID?
+        var parent: GridCellField; var applied: UUID?; var applyingRequest = false; var lastSelection: NSRange?
         init(_ parent: GridCellField) { self.parent = parent }
-        @objc func changed(_ field: UITextField) { parent.text = field.text ?? "" }
-        func textFieldDidBeginEditing(_ textField: UITextField) { parent.onFocus() }
+        @objc func changed(_ field: UITextField) { parent.onCaretActivity(); parent.text = field.text ?? "" }
+        func textFieldDidChangeSelection(_ textField: UITextField) {
+            let selection = textField.selectedTextRange.map { NSRange(location: textField.offset(from: textField.beginningOfDocument, to: $0.start), length: textField.offset(from: $0.start, to: $0.end)) }
+            if !applyingRequest && textField.isFirstResponder && selection != nil && selection != lastSelection { parent.onCaretActivity() }
+            lastSelection = selection
+        }
+        func textFieldDidBeginEditing(_ textField: UITextField) { if !applyingRequest { parent.onCaretActivity() }; parent.onFocus() }
         func textFieldDidEndEditing(_ textField: UITextField) { parent.onCommit() }
         func textFieldShouldReturn(_ textField: UITextField) -> Bool { parent.onCommit(); return false }
     }
