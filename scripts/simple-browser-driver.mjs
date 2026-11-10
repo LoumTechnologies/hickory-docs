@@ -48,6 +48,17 @@ try {
           value = await content.locator('[class*="cm-st-"]').allTextContents();
           break;
         }
+        case "table-edit": {
+          const table = page.getByTestId("table-panel");
+          await table.waitFor();
+          await table.getByRole("gridcell", { name: request.before, exact: true }).dblclick();
+          const input = table.getByRole("textbox", { name: "Cell contents" });
+          await input.fill(request.value); await input.press("Enter");
+          await table.getByRole("gridcell", { name: request.value, exact: true }).waitFor(); break;
+        }
+        case "table-source":
+          await page.getByRole("button", { name: "Edit source", exact: true }).click();
+          await page.getByTestId("table-panel").waitFor({ state: "detached" }); break;
         case "content": value = await editor(request.path).innerText(); break;
         case "markdown-formatting": {
           const content = editor(request.path);

@@ -82,11 +82,86 @@ func validSourceEdits(_ edits: [NativeSourceEdit], length: Int) -> Bool {
 
 The controllers below own composition, selection, permission and undo checks. Search and completion use the same callback, so neither gains a separate bypass around native editing policy.
 
-<ui:copy id="simple-7fad175521-0">
+## Replace table source with a source-backed grid
+
+The spreadsheet is a child view inside the retained native text view. It shows lettered columns, numbered rows and editable cells, with a bounded viewport for large tables. Before a grid commit, make the source view the native undo owner and retain its selection and viewport through the following scan. A focus-loss commit cannot reenter itself. Return or leaving a cell commits through the same source snapshot and permission checks as other contextual edits. Revealing source changes presentation only. The [AppKit witness](../Tests/ParityTests.swift.md) checks the grid's actual frame, the position of following prose, source identity and undo; it does not certify iOS gestures.
+
+<ui:copy id="simple-native-table-grid">
 import SwiftUI
+// The grid is hosted inside the text view at a source-backed layout anchor.
+// Cell commits go through the editor's snapshot/permission guard and native undo.
+struct NativeTableGrid: View {
+    var table: InlineTable; var source: String; var buffer: DocumentBuffer
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack { Text("Table").font(.caption); Spacer(); Button("Edit source") { buffer.tableSourceVisible = true } }.frame(height: 28).padding(.horizontal, 6)
+            ScrollView([.horizontal, .vertical]) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 0) {
+                        Text("#").frame(width: 32, height: 28)
+                        ForEach(0..<(table.rows.map(\.count).max() ?? 0), id: \.self) { column in
+                            Text(tableColumnName(column)).font(.system(size: 12, weight: .semibold)).frame(width: 140, height: 28).border(.secondary.opacity(0.3))
+                        }
+                    }
+                    ForEach(table.rows.indices, id: \.self) { row in
+                        HStack(spacing: 0) {
+                            Text(String(row + 1)).font(.caption).frame(width: 32, height: 28)
+                            ForEach(table.rows[row]) { cell in
+                                NativeGridCell(cell: cell, row: row, source: source, buffer: buffer).frame(width: 140, height: 28).border(.secondary.opacity(0.3))
+                            }
+                        }
+                    }
+                }
+            }
+        }.background(.background).border(.secondary.opacity(0.4)).accessibilityElement(children: .contain).accessibilityLabel("Inline table grid")
+    }
+}
+func tableEditSelection(_ selection: NSRange, edit: NativeSourceEdit) -> NSRange {
+    let delta = edit.text.utf16.count - edit.range.length
+    func map(_ offset: Int) -> Int {
+        if offset <= edit.range.location { return offset }
+        if offset >= NSMaxRange(edit.range) { return offset + delta }
+        return edit.range.location + edit.text.utf16.count
+    }
+    let start = map(selection.location), end = map(NSMaxRange(selection))
+    return NSRange(location: start, length: max(0, end - start))
+}
+func tableColumnName(_ index: Int) -> String {
+    var value = index + 1, name = ""
+    while value > 0 { value -= 1; name = String(UnicodeScalar(65 + value % 26)!) + name; value /= 26 }
+    return name
+}
+private struct NativeGridCell: View {
+    var cell: InlineCell; var row: Int; var source: String; var buffer: DocumentBuffer
+    @State private var draft = ""
+    @State private var notice = ""
+    @FocusState private var focused: Bool
+    @State private var committing = false
+    private func commit() {
+        guard !committing, draft != cell.value else { return }
+        committing = true; defer { committing = false }
+        if buffer.applyTableEdit?(NativeSourceEdit(range: cell.range, text: inlineCellText(draft)), source) != true { notice = "Table changed. Reopen the cell and try again." }
+    }
+    var body: some View {
+        TextField("", text: $draft).textFieldStyle(.plain).font(.system(size: 13))
+            .padding(.horizontal, 5).disabled(buffer.readOnly)
+            .accessibilityLabel("Row \(row + 1), column \(tableColumnName(cell.column))")
+            .onAppear { draft = cell.value }.onChange(of: cell.value) { _, value in draft = value }
+            .focused($focused).onChange(of: focused) { wasFocused, isFocused in if wasFocused && !isFocused { commit() } }
+            .onSubmit { commit() }.help(notice.isEmpty ? "Edit cell; press Return to apply" : notice)
+    }
+}
+</ui:copy>
+
+TextKit keeps the first source character as a layout anchor with the grid's height. Null glyphs and zero control-character advancement remove the remaining source rows from layout. The hosting view occupies that reserved rectangle, so the table replaces its lines instead of covering readable prose. Source edits retire obsolete ranges immediately; background scanning attaches current ranges again without rewriting text. A new source edit aimed into hidden table bytes first reveals them and refuses that edit. Registered native undo/redo is already an authorized reversal of the editor’s own change; allow it through the hidden-byte guard so a rebuilt grid cannot consume the undo without changing text.
+
+<ui:copy id="simple-7fad175521-0">
 #if os(macOS)
 import AppKit
 final class SimpleMacTextView: NSTextView {
+    override func accessibilityChildren() -> [Any]? {
+        (super.accessibilityChildren() ?? []) + subviews.filter { $0 is NSHostingView<NativeTableGrid> }
+    }
     var willCompose: (() -> Void)?
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) { willCompose?(); super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange) }
 }
@@ -124,9 +199,11 @@ private typealias FoldFont = UIFont
 #endif
 @MainActor private final class FoldLayout: NSObject, @preconcurrency NSLayoutManagerDelegate {
     var ranges: [NSRange] = []
-    func contains(_ offset: Int) -> Bool { ranges.contains { NSLocationInRange(offset, $0) } }
+    var tables: [InlineTable] = []
+    func tableContains(_ offset: Int) -> Bool { tables.contains { offset > $0.range.location && NSLocationInRange(offset, $0.range) } }
+    func contains(_ offset: Int) -> Bool { tableContains(offset) || ranges.contains { NSLocationInRange(offset, $0) } }
     func layoutManager(_ manager: NSLayoutManager, shouldGenerateGlyphs glyphs: UnsafePointer<CGGlyph>, properties: UnsafePointer<NSLayoutManager.GlyphProperty>, characterIndexes: UnsafePointer<Int>, font: FoldFont, forGlyphRange range: NSRange) -> Int {
-        guard !ranges.isEmpty else { return 0 }
+        guard !ranges.isEmpty || !tables.isEmpty else { return 0 }
         var props = Array(UnsafeBufferPointer(start: properties, count: range.length))
         for i in 0..<range.length where contains(characterIndexes[i]) { props[i] = .null }
         props.withUnsafeBufferPointer { manager.setGlyphs(glyphs, properties: $0.baseAddress!, characterIndexes: characterIndexes, font: font, forGlyphRange: range) }
@@ -142,6 +219,14 @@ private typealias FoldFont = UIFont
     let text = SimpleMacTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
     let buffer: DocumentBuffer
     private let folding = FoldLayout()
+    private var tableViewport: CGPoint?
+    private var tableSource = ""
+    private var tableSourceVisible = false
+    #if os(macOS)
+    private var tableViews: [Int: NSHostingView<NativeTableGrid>] = [:]
+    #else
+    private var tableViews: [Int: UIHostingController<NativeTableGrid>] = [:]
+    #endif
     private var paintedInlineSource = ""
     private var hadInlineFonts = false
     private var observer: NSObjectProtocol?
@@ -167,7 +252,7 @@ private typealias FoldFont = UIFont
             self.text.scrollRangeToVisible(source.lineRange(for: NSRange(location: offset, length: 0)))
         }
         buffer.renderLanguage = { [weak self] tokens, source in self?.paint(tokens, source: source) }
-        buffer.renderMarkup = { [weak self] in guard let self else { return }; self.paint(self.buffer.language?.tokens ?? [], source: self.buffer.text) }
+        buffer.renderMarkup = { [weak self] in guard let self else { return }; self.paint(self.buffer.language?.tokens ?? [], source: self.buffer.text); self.measureDebugLines() }
         buffer.applyLanguageCompletion = { [weak self] range, insert, source, selection in
             guard let self, self.text.selectedRange() == selection else { return false }
             return self.applySourceEdits([NativeSourceEdit(range: range, text: insert)], source: source)
@@ -182,6 +267,7 @@ private typealias FoldFont = UIFont
         buffer.toggleFold = { [weak self] line in self?.toggleFold(line) }
         buffer.focusSource = { [weak self] in guard let self else { return }; self.text.window?.makeFirstResponder(self.text) }
         buffer.applySourceEdits = { [weak self] edits, source in self?.applySourceEdits(edits, source: source) ?? false }
+        buffer.applyTableEdit = { [weak self] edit, source in self?.applyTableEdit(edit, source: source) ?? false }
         buffer.selectSourceRange = { [weak self] range, source in self?.selectSourceRange(range, source: source) ?? false }
         paint(buffer.language?.tokens ?? [], source: buffer.text)
         measureDebugLines()
@@ -190,7 +276,17 @@ private typealias FoldFont = UIFont
         guard text.string == source, buffer.text == source, !text.hasMarkedText(),
               validSourceEdits([NativeSourceEdit(range: range, text: "")], length: (source as NSString).length) else { return false }
         if !buffer.applyingMulti { buffer.clearMulti() }
-        unfoldAll(); text.setSelectedRange(range); buffer.selection = range; text.scrollRangeToVisible(range); return true
+        buffer.tableSourceVisible = true; unfoldAll(); text.setSelectedRange(range); buffer.selection = range; text.scrollRangeToVisible(range); return true
+    }
+    func applyTableEdit(_ edit: NativeSourceEdit, source: String) -> Bool {
+        guard buffer.text == source, !buffer.readOnly else { return false }
+        let selection = text.selectedRange(), viewport = scroll.contentView.bounds.origin
+        text.window?.makeFirstResponder(text)
+        guard applySourceEdits([edit], source: source) else { return false }
+        text.setSelectedRange(tableEditSelection(selection, edit: edit))
+        tableViewport = viewport
+        scroll.contentView.scroll(to: viewport); scroll.reflectScrolledClipView(scroll.contentView)
+        return true
     }
     func applySourceEdits(_ edits: [NativeSourceEdit], source: String) -> Bool {
         guard !buffer.readOnly, text.isEditable, text.string == source, buffer.text == source, !text.hasMarkedText(),
@@ -226,12 +322,12 @@ private typealias FoldFont = UIFont
     }
     func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
         if buffer.applyingMulti { return true }
-        if text.undoManager?.isUndoing == true || text.undoManager?.isRedoing == true { buffer.clearMulti() }
+        if text.undoManager?.isUndoing == true || text.undoManager?.isRedoing == true { buffer.clearMulti(); unfoldAll(); return true }
         if buffer.multiSource == buffer.text, buffer.multiRanges.count > 1, let replacementString, !text.hasMarkedText() {
             _ = buffer.replaceMultiple(replacementString, affected: affectedCharRange); return false
         }
-        let hidden = folding.ranges.contains { NSIntersectionRange($0, affectedCharRange).length > 0 || NSLocationInRange(affectedCharRange.location, $0) }
-        unfoldAll(); return !hidden
+        let hidden = folding.tables.contains { NSIntersectionRange($0.range, affectedCharRange).length > 0 || NSLocationInRange(affectedCharRange.location, $0.range) } || folding.ranges.contains { NSIntersectionRange($0, affectedCharRange).length > 0 || NSLocationInRange(affectedCharRange.location, $0) }
+        if hidden { buffer.tableSourceVisible = true }; unfoldAll(); return !hidden
     }
     func textDidChange(_ notification: Notification) { if !buffer.applyingMulti { buffer.clearMulti() }; unfoldAll(); buffer.selection = text.selectedRange(); buffer.text = text.string; measureDebugLines() }
     func textViewDidChangeSelection(_ notification: Notification) {
@@ -244,6 +340,7 @@ private typealias FoldFont = UIFont
         Task { await buffer.language?.complete() }; return true
     }
     func measureDebugLines() {
+        presentTables()
         guard let manager = text.layoutManager, let container = text.textContainer else { return }
         let source = text.string as NSString, origin = text.textContainerOrigin
         let visible = text.visibleRect.offsetBy(dx: -origin.x, dy: -origin.y)
@@ -276,6 +373,45 @@ private typealias FoldFont = UIFont
         }
         if selections != buffer.multiRects { buffer.multiRects = selections }
         if rows != buffer.visibleDebugLines { buffer.visibleDebugLines = rows }
+    }
+
+    private func presentTables() {
+        let source = text.string
+        let storage = text.textStorage!
+        if tableSource != source || tableSourceVisible != buffer.tableSourceVisible || folding.tables.isEmpty && buffer.inlineMarkup.source == source && !inlineTables(buffer.inlineMarkup).isEmpty && !buffer.tableSourceVisible {
+            tableSource = source; tableSourceVisible = buffer.tableSourceVisible
+            storage.beginEditing()
+            for table in folding.tables {
+                let range = NSIntersectionRange(table.range, NSRange(location: 0, length: storage.length))
+                if range.length > 0 { storage.addAttribute(.foregroundColor, value: NSColor.textColor, range: range) }
+            }
+            storage.removeAttribute(.paragraphStyle, range: NSRange(location: 0, length: storage.length))
+            folding.tables = buffer.inlineMarkup.source == source && !buffer.tableSourceVisible ? inlineTables(buffer.inlineMarkup) : []
+            for table in folding.tables {
+                let style = NSMutableParagraphStyle(); style.minimumLineHeight = table.height; style.maximumLineHeight = table.height
+                storage.addAttribute(.paragraphStyle, value: style, range: NSRange(location: table.range.location, length: 1))
+                storage.addAttribute(.foregroundColor, value: NSColor.clear, range: table.range)
+            }
+            storage.endEditing()
+            text.layoutManager!.invalidateGlyphs(forCharacterRange: NSRange(location: 0, length: storage.length), changeInLength: 0, actualCharacterRange: nil)
+            let live = Set(folding.tables.map(\.id))
+            for id in Array(tableViews.keys) where !live.contains(id) { tableViews[id]?.removeFromSuperview(); tableViews.removeValue(forKey: id) }
+            for table in folding.tables {
+                let grid = NativeTableGrid(table: table, source: source, buffer: buffer)
+                if let host = tableViews[table.id] { host.rootView = grid } else { let host = NSHostingView(rootView: grid); tableViews[table.id] = host; text.addSubview(host) }
+            }
+        }
+        let manager = text.layoutManager!, container = text.textContainer!
+        for table in folding.tables {
+            if storage.attribute(.foregroundColor, at: table.range.location, effectiveRange: nil) as? NSColor != .clear { storage.addAttribute(.foregroundColor, value: NSColor.clear, range: table.range) }
+            let glyph = manager.glyphRange(forCharacterRange: NSRange(location: table.range.location, length: 1), actualCharacterRange: nil)
+            let rect = manager.boundingRect(forGlyphRange: glyph, in: container)
+            tableViews[table.id]?.frame = NSRect(x: text.textContainerOrigin.x, y: rect.minY + text.textContainerOrigin.y, width: max(100, text.bounds.width - 16), height: table.height)
+        }
+        if let viewport = tableViewport, buffer.inlineMarkup.source == source {
+            tableViewport = nil
+            scroll.contentView.scroll(to: viewport); scroll.reflectScrolledClipView(scroll.contentView)
+        }
     }
     private func paint(_ tokens: [NativeSemanticToken], source: String) {
         guard text.string == source, !text.hasMarkedText(), let storage = text.textStorage else { return }
@@ -312,6 +448,7 @@ private typealias FoldFont = UIFont
             paintedInlineSource = source; hadInlineFonts = !buffer.inlineMarkup.marks.isEmpty
         }
         storage.endEditing(); text.typingAttributes[.foregroundColor] = NSColor.textColor
+        presentTables()
     }
 }
 @MainActor private enum EditorCache { static var views: [UUID: MacEditor] = [:] }
@@ -350,6 +487,14 @@ import UIKit
 @MainActor private final class MobileEditor: NSObject, UITextViewDelegate {
     let text = SimpleTextView(usingTextLayoutManager: false)
     private let folding = FoldLayout()
+    private var tableViewport: CGPoint?
+    private var tableSource = ""
+    private var tableSourceVisible = false
+    #if os(macOS)
+    private var tableViews: [Int: NSHostingView<NativeTableGrid>] = [:]
+    #else
+    private var tableViews: [Int: UIHostingController<NativeTableGrid>] = [:]
+    #endif
     private var paintedInlineSource = ""
     private var hadInlineFonts = false
     let buffer: DocumentBuffer
@@ -370,7 +515,7 @@ import UIKit
             self.text.scrollRangeToVisible(source.lineRange(for: NSRange(location: offset, length: 0)))
         }
         buffer.renderLanguage = { [weak self] tokens, source in self?.paint(tokens, source: source) }
-        buffer.renderMarkup = { [weak self] in guard let self else { return }; self.paint(self.buffer.language?.tokens ?? [], source: self.buffer.text) }
+        buffer.renderMarkup = { [weak self] in guard let self else { return }; self.paint(self.buffer.language?.tokens ?? [], source: self.buffer.text); self.measureDebugLines() }
         buffer.applyLanguageCompletion = { [weak self] range, insert, source, selection in
             guard let self, self.text.selectedRange == selection else { return false }
             return self.applySourceEdits([NativeSourceEdit(range: range, text: insert)], source: source)
@@ -383,6 +528,7 @@ import UIKit
         buffer.toggleFold = { [weak self] line in self?.toggleFold(line) }
         buffer.focusSource = { [weak self] in self?.text.becomeFirstResponder() }
         buffer.applySourceEdits = { [weak self] edits, source in self?.applySourceEdits(edits, source: source) ?? false }
+        buffer.applyTableEdit = { [weak self] edit, source in self?.applyTableEdit(edit, source: source) ?? false }
         buffer.selectSourceRange = { [weak self] range, source in self?.selectSourceRange(range, source: source) ?? false }
         paint(buffer.language?.tokens ?? [], source: buffer.text)
         measureDebugLines()
@@ -391,7 +537,16 @@ import UIKit
         guard text.text == source, buffer.text == source, text.markedTextRange == nil,
               validSourceEdits([NativeSourceEdit(range: range, text: "")], length: (source as NSString).length) else { return false }
         if !buffer.applyingMulti { buffer.clearMulti() }
-        unfoldAll(); text.selectedRange = range; buffer.selection = range; text.scrollRangeToVisible(range); return true
+        buffer.tableSourceVisible = true; unfoldAll(); text.selectedRange = range; buffer.selection = range; text.scrollRangeToVisible(range); return true
+    }
+    func applyTableEdit(_ edit: NativeSourceEdit, source: String) -> Bool {
+        guard buffer.text == source, !buffer.readOnly else { return false }
+        let selection = text.selectedRange, viewport = text.contentOffset
+        text.becomeFirstResponder()
+        guard applySourceEdits([edit], source: source) else { return false }
+        text.selectedRange = tableEditSelection(selection, edit: edit)
+        tableViewport = viewport; text.setContentOffset(viewport, animated: false)
+        return true
     }
     func applySourceEdits(_ edits: [NativeSourceEdit], source: String) -> Bool {
         guard !buffer.readOnly, text.isEditable, text.text == source, buffer.text == source, text.markedTextRange == nil,
@@ -433,12 +588,12 @@ import UIKit
     }
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
         if buffer.applyingMulti { return true }
-        if textView.undoManager?.isUndoing == true || textView.undoManager?.isRedoing == true { buffer.clearMulti() }
+        if textView.undoManager?.isUndoing == true || textView.undoManager?.isRedoing == true { buffer.clearMulti(); unfoldAll(); return true }
         if buffer.multiSource == buffer.text, buffer.multiRanges.count > 1, textView.markedTextRange == nil {
             _ = buffer.replaceMultiple(text, affected: range); return false
         }
-        let hidden = folding.ranges.contains { NSIntersectionRange($0, range).length > 0 || NSLocationInRange(range.location, $0) }
-        unfoldAll(); return !hidden
+        let hidden = folding.tables.contains { NSIntersectionRange($0.range, range).length > 0 || NSLocationInRange(range.location, $0.range) } || folding.ranges.contains { NSIntersectionRange($0, range).length > 0 || NSLocationInRange(range.location, $0) }
+        if hidden { buffer.tableSourceVisible = true }; unfoldAll(); return !hidden
     }
     func textViewDidChange(_ textView: UITextView) { if !buffer.applyingMulti { buffer.clearMulti() }; unfoldAll(); buffer.selection = textView.selectedRange; buffer.text = textView.text; measureDebugLines() }
     func textViewDidChangeSelection(_ textView: UITextView) {
@@ -448,6 +603,7 @@ import UIKit
     }
     func scrollViewDidScroll(_ scrollView: UIScrollView) { measureDebugLines() }
     func measureDebugLines() {
+        presentTables()
         let manager = text.layoutManager, container = text.textContainer
         let source = (text.text ?? "") as NSString, inset = text.textContainerInset
         let visible = CGRect(x: 0, y: text.contentOffset.y - inset.top, width: text.bounds.width, height: text.bounds.height)
@@ -479,6 +635,44 @@ import UIKit
         }
         if selections != buffer.multiRects { buffer.multiRects = selections }
         if rows != buffer.visibleDebugLines { buffer.visibleDebugLines = rows }
+    }
+
+    private func presentTables() {
+        let source = text.text ?? ""
+        let storage = text.textStorage
+        if tableSource != source || tableSourceVisible != buffer.tableSourceVisible || folding.tables.isEmpty && buffer.inlineMarkup.source == source && !inlineTables(buffer.inlineMarkup).isEmpty && !buffer.tableSourceVisible {
+            tableSource = source; tableSourceVisible = buffer.tableSourceVisible
+            storage.beginEditing()
+            for table in folding.tables {
+                let range = NSIntersectionRange(table.range, NSRange(location: 0, length: storage.length))
+                if range.length > 0 { storage.addAttribute(.foregroundColor, value: UIColor.label, range: range) }
+            }
+            storage.removeAttribute(.paragraphStyle, range: NSRange(location: 0, length: storage.length))
+            folding.tables = buffer.inlineMarkup.source == source && !buffer.tableSourceVisible ? inlineTables(buffer.inlineMarkup) : []
+            for table in folding.tables {
+                let style = NSMutableParagraphStyle(); style.minimumLineHeight = table.height; style.maximumLineHeight = table.height
+                storage.addAttribute(.paragraphStyle, value: style, range: NSRange(location: table.range.location, length: 1))
+                storage.addAttribute(.foregroundColor, value: UIColor.clear, range: table.range)
+            }
+            storage.endEditing()
+            text.layoutManager.invalidateGlyphs(forCharacterRange: NSRange(location: 0, length: storage.length), changeInLength: 0, actualCharacterRange: nil)
+            let live = Set(folding.tables.map(\.id))
+            for id in Array(tableViews.keys) where !live.contains(id) { tableViews[id]?.view.removeFromSuperview(); tableViews.removeValue(forKey: id) }
+            for table in folding.tables {
+                let grid = NativeTableGrid(table: table, source: source, buffer: buffer)
+                if let host = tableViews[table.id] { host.rootView = grid } else { let host = UIHostingController(rootView: grid); host.view.backgroundColor = .systemBackground; tableViews[table.id] = host; text.addSubview(host.view) }
+            }
+        }
+        let manager = text.layoutManager, container = text.textContainer
+        for table in folding.tables {
+            if storage.attribute(.foregroundColor, at: table.range.location, effectiveRange: nil) as? UIColor != .clear { storage.addAttribute(.foregroundColor, value: UIColor.clear, range: table.range) }
+            let glyph = manager.glyphRange(forCharacterRange: NSRange(location: table.range.location, length: 1), actualCharacterRange: nil)
+            let rect = manager.boundingRect(forGlyphRange: glyph, in: container)
+            tableViews[table.id]?.view.frame = CGRect(x: text.textContainerInset.left, y: rect.minY + text.textContainerInset.top, width: max(100, text.bounds.width - text.textContainerInset.left - text.textContainerInset.right), height: table.height)
+        }
+        if let viewport = tableViewport, buffer.inlineMarkup.source == source {
+            tableViewport = nil; text.setContentOffset(viewport, animated: false)
+        }
     }
     private func paint(_ tokens: [NativeSemanticToken], source: String) {
         guard text.text == source, text.markedTextRange == nil else { return }
@@ -516,6 +710,7 @@ import UIKit
             paintedInlineSource = source; hadInlineFonts = !buffer.inlineMarkup.marks.isEmpty
         }
         storage.endEditing(); text.typingAttributes[.foregroundColor] = UIColor.label
+        presentTables()
     }
 }
 @MainActor private enum EditorCache { static var views: [UUID: MobileEditor] = [:] }
@@ -636,7 +831,11 @@ struct LanguageEditor: View {
                     }
                 }.clipped().allowsHitTesting(false).accessibilityHidden(true)
             }.frame(width: CGFloat(max(3, String(buffer.text.filter { $0 == "\n" }.count + 1).count)) * 8 + 12)
-            NativeEditor(buffer: buffer).overlay {
+            NativeEditor(buffer: buffer).overlay(alignment: .topLeading) {
+                if buffer.tableSourceVisible && !inlineTables(buffer.inlineMarkup).isEmpty {
+                    Button("Show table grids") { buffer.tableSourceVisible = false }.buttonStyle(.bordered).padding(4)
+                }
+            }.overlay {
                 Canvas { context, _ in
                     for rect in buffer.multiRects { context.fill(Path(rect), with: .color(.accentColor.opacity(rect.width <= 2 ? 0.8 : 0.22))) }
                 }.allowsHitTesting(false).clipped()
@@ -835,6 +1034,6 @@ struct NativeDebugRail: View {
 
 Keep construction order explicit; the explanations above describe the decisions at each boundary.
 
-<ui:file path="apps/apple-simple/Sources/NativeEditor.swift"><ui:paste select="#simple-7fad175521-0"/><ui:paste select="#simple-native-search-model"/><ui:paste select="#simple-apple-language-preview"/><ui:paste select="#simple-apple-debug-rail"/></ui:file>
+<ui:file path="apps/apple-simple/Sources/NativeEditor.swift"><ui:paste select="#simple-native-table-grid"/><ui:paste select="#simple-7fad175521-0"/><ui:paste select="#simple-native-search-model"/><ui:paste select="#simple-apple-language-preview"/><ui:paste select="#simple-apple-debug-rail"/></ui:file>
 
 </ui:doc>

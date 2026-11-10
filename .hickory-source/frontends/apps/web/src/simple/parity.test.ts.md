@@ -18,6 +18,7 @@ import { within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import katex from "katex";
 import { RichOwners } from "./RichInline";
+import * as hickParser from "../editor/hickLang";
 import { render, waitFor, act, fireEvent } from "@testing-library/react";
 import { EditorView } from "@codemirror/view";
 import { foldedRanges } from "@codemirror/language";
@@ -69,8 +70,31 @@ describe("shared frontend layout contract", () => {
 
 // Contract: .hickory-source/frontends/contract.md — logical line numbers are immediate.
 describe("simple inline rich editing", () => {
-  it("uses the established table grid in place and keeps source edits undoable", async () => {
-    const source = "Intro.\n\n| Name | Count |\n| --- | --- |\n| North | 120 |\n\nAfter.";
+  it("keeps source and undo usable while the parser needed by table grids is loading", async () => {
+    let ready!: () => void;
+    const pending = new Promise<void>(resolve => { ready = resolve; });
+    const readiness = vi.spyOn(hickParser, "hickLangReady").mockReturnValue(false);
+    const loading = vi.spyOn(hickParser, "loadHickLang").mockReturnValue(pending);
+    const source = '<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\nBefore\n\n| A | B |\n| --- | --- |\n| café 😀 | 120 |\n\nAfter\n</h:doc>';
+    const buffers = new Buffers(() => {}), buffer = new Buffer({ path: "pending-grid.md", name: "pending-grid.md", dir: false }, source, "hash", () => {});
+    buffers.values.set(buffer.file.path, buffer);
+    const screen = render(createElement(Fragment, null, createElement(Document, { buffer }), createElement(RichOwners, { buffers })));
+    try {
+      const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+      expect(view.state.doc.toString()).toBe(source);
+      act(() => { view.dispatch({ changes: { from: 0, insert: "Note\n" } }); });
+      expect(buffer.text).toBe("Note\n" + source);
+      await act(async () => { ready(); await pending; });
+      await waitFor(() => expect([...screen.container.querySelectorAll("*")].some(node => node.shadowRoot?.querySelector('[data-testid="table-panel"]'))).toBe(true), { timeout: 10000 });
+      act(() => { undo(view); });
+      expect(buffer.text).toBe(source);
+      expect(EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)).toBe(view);
+    } finally { screen.unmount(); readiness.mockRestore(); loading.mockRestore(); }
+  }, 15000);
+
+  it.each([false, true])("uses the established table grid in place and keeps source edits undoable (literate=%s)", async literate => {
+    const prose = "Intro.\n\n| Name | Count |\n| --- | --- |\n| North | 120 |\n\nAfter.";
+    const source = literate ? `<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n${prose}\n</h:doc>` : prose;
     const buffers = new Buffers(() => {});
     const buffer = new Buffer({ path: "grid.md", name: "grid.md", dir: false }, source, "hash", () => {});
     buffers.values.set(buffer.file.path, buffer);

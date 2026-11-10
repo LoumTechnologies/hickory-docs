@@ -272,7 +272,7 @@ Preserve the nested Hickory document literally. Its generated file belongs to th
 Open this document beside `orders.py`. **Bold decisions**, *emphasized notes*,
 `literal code` and headings remain editable. Try typing and undoing beside a
 rendered table; use **Edit source** in the browser to reveal its backing text.
-Native table and equation controls are in each source line's right-hand ⋯ menu.
+Markdown tables appear as editable grids on every simple UI. Native equation and CSV cell controls remain in each source line's right-hand ⋯ menu.
 
 ## A Markdown table you can edit
 
@@ -462,7 +462,7 @@ that machine, not on the phone. See
 | Rectangular editing | Select the three aligned `pending` values in `scratch.txt` | Native Edit → column selection; browser Alt-drag rectangular selection. |
 | Additional cursors | Native Edit → add cursor above/below | Apple and Android physical keyboards broadcast typing; Android touch uses Apply to selections. IME composition returns to a single cursor. |
 | Source formatting | `workbook.md` headings, bold, italics and code | Native fonts style source while retaining delimiters; browser has richer inline rendering. |
-| Inline tables | Change Notebook quantity in either workbook table | Browser edits its grid; native opens cells in the line's ⋯ controls. Apply and undo preserve the surrounding text. |
+| Inline tables | Change Notebook quantity in either workbook table | The Markdown table replaces its source lines with a spreadsheet grid on every platform. Edit a cell, press Return/Done, then undo. Edit source reveals Markdown; native Show table grids returns to the grid. Native CSV cells remain in the line’s ⋯ controls. |
 | Inline equations | Open the workbook equation | Browser renders in flow; native ⋯ opens typesetting and an editable equation body. Apply, then undo. |
 | Diagram | Workbook's catalog → order → receipt graph | Inline graph in browser; readable source on native. |
 | Generated files | Open `generated/coupon.py` after preparation | Generated output is readable and read-only. Edit its owning workbook file block instead. |
@@ -474,7 +474,7 @@ that machine, not on the phone. See
 | Agent | Open Agent; enter the prompt below | Send explicitly after configuring a provider; move the tab with an unsent draft. |
 
 The next sections exercise semantic services and debugger controls. Unsupported
-features are not simulated: full native WYSIWYG, completion snippets,
+features are not simulated: full native Markdown WYSIWYG beyond tables, completion snippets,
 cross-file rename/code actions, persistent pane layout, and crash recovery are
 outside the current simple UI slice. Native math requires prepared local KaTeX
 assets (the launcher prepares them from installed web dependencies).

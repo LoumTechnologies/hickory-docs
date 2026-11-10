@@ -150710,6 +150710,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/simple-showcase.md",
       "symbol": "simple-showcase-6",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-native-table-grid",
+      "output": "apps/apple-simple/Sources/NativeEditor.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/NativeEditor.swift.md",
+      "symbol": "simple-native-table-grid",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-android-table-grid",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt.md",
+      "symbol": "simple-android-table-grid",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-android-table-editor",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt.md",
+      "symbol": "simple-android-table-editor",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

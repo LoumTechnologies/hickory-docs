@@ -4,7 +4,7 @@
 Open this document beside `orders.py`. **Bold decisions**, *emphasized notes*,
 `literal code` and headings remain editable. Try typing and undoing beside a
 rendered table; use **Edit source** in the browser to reveal its backing text.
-Native table and equation controls are in each source line's right-hand ⋯ menu.
+Markdown tables appear as editable grids on every simple UI. Native equation and CSV cell controls remain in each source line's right-hand ⋯ menu.
 
 ## A Markdown table you can edit
 

@@ -35,6 +35,9 @@ import Observation
         let bytes = Array(text.utf8)
         return receipts.filter { $0.span.count == 2 && $0.span[0] >= 0 && $0.span[1] >= $0.span[0] && $0.span[1] <= bytes.count && bytes.prefix($0.span[0]).filter { $0 == 10 }.count == line }
     }
+    // A source reveal changes presentation only; the editor and its undo stack stay alive.
+    @ObservationIgnored var applyTableEdit: ((NativeSourceEdit, String) -> Bool)?
+    var tableSourceVisible = false { didSet { renderMarkup?() } }
     var inlineMarkup = InlineSnapshot(source: "")
     @ObservationIgnored var renderMarkup: (() -> Void)?
     @ObservationIgnored private var inlineTask: Task<Void, Never>?

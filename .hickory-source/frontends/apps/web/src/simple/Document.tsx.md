@@ -7,6 +7,8 @@ CodeMirror owns typing, selection, scroll and undo. Cache the editor by buffer i
 
 The minimap reserves forty units beside the text rather than overlaying readable lines. Its navigation changes scroll, never saved bytes. Language controls float over the editor and do not reflow it. Browser capabilities use the existing LSP client and its snapshot guards; native keyword and word-list previews deliberately do not claim semantic results. Native styling does not replace text, preserving the platform undo and selection model. Preview coloring skips very large files instead of delaying readable text indefinitely.
 
+The parser is an independent background capability. Until it loads, literate debugger controls and rich parsing remain detached from the existing editor; a rejected load leaves readable source available. Each rich owner also awaits parser readiness, so a fast file open cannot invoke synchronous parsing before WebAssembly initialization.
+
 After text is visible, Markdown files load and attach the existing display-only prose decorations independently of LSP. Headings, bold and italic update with typing without rewriting source or rebuilding the editor. Fenced code stays literal; plain files keep their original appearance.
 
 Search uses CodeMirror’s native search transactions and keymap. The panel is an absolute overlay, so showing it cannot resize the cached editor. Literal search treats backslashes as text; regex mode enables capture replacements. Read-only policy stays in editor state and search navigation reveals folded matches.
@@ -28,6 +30,7 @@ import { completions } from "../lsp/completion";
 import { positionToUtf16, utf16ToPosition } from "../lsp/positions";
 import { sameDocumentUri } from "../lsp/documentUri";
 import { Buffer } from "./buffers";
+import { hickLangReady, loadHickLang } from "../editor/hickLang";
 import { languageFromPath } from "../editor/languages";
 import { isDebuggable } from "../debug/languages";
 import { useFollowingDebugSession } from "../debug/plainDebugHosts";
@@ -68,6 +71,12 @@ export function Document({ buffer }: { buffer: Buffer }) {
   const host = useRef<HTMLDivElement>(null);
   useSyncExternalStore(buffer.subscribe, buffer.snapshot);
   const [view, setView] = useState<EditorView | null>(null);
+  const [parserReady, setParserReady] = useState(hickLangReady);
+  useEffect(() => {
+    let cancelled = false;
+    void loadHickLang().then(() => { if (!cancelled) setParserReady(true); }).catch(() => { /* Source remains readable when the parser is unavailable. */ });
+    return () => { cancelled = true; };
+  }, []);
   const language = languageFromPath(buffer.file.path);
   const literate = /\.(md|markdown)$/i.test(buffer.file.path);
   const debuggable = literate || isDebuggable(language);
@@ -103,14 +112,14 @@ export function Document({ buffer }: { buffer: Buffer }) {
     return () => { cached.view.dom.remove(); };
   }, [buffer]);
   useEffect(() => {
-    if (!/\.(md|markdown)$/i.test(buffer.file.path) || buffer.text.length > 200_000) return;
+    if (!parserReady || !/\.(md|markdown)$/i.test(buffer.file.path) || buffer.text.length > 200_000) return;
     let cancelled = false;
     void import("../editor/markdownStyling").then(({ markdownStyling }) => {
       const cached = editors.get(buffer);
       if (!cancelled && cached && !cached.richAttached) cached.view.dispatch({ effects: cached.prose.reconfigure(markdownStyling()) });
     }).catch(() => { /* Readable source remains available if styling cannot load. */ });
     return () => { cancelled = true; };
-  }, [buffer]);
+  }, [buffer, parserReady]);
   useEffect(() => {
     const cached = editors.get(buffer);
     if (!cached || !session.client || !session.ready) return;
@@ -138,7 +147,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
   // Attach debugger state to the existing editor. Callbacks read the current
   // session so tab moves and incoming DAP events cannot retain obsolete verbs.
   useEffect(() => {
-    if (!view || !debuggable) return;
+    if (!view || !debuggable || literate && !parserReady) return;
     const compartment = new Compartment();
     view.dispatch({ effects: StateEffect.appendConfig.of(compartment.of(debugEditor({ language: literate ? undefined : language,
       onToggleBreakpoint: line => debugRef.current.toggleBreakpoint(line),
@@ -149,15 +158,15 @@ export function Document({ buffer }: { buffer: Buffer }) {
       onSetBreakpointCondition: (line, patch) => debugRef.current.setBreakpointCondition(line, patch),
     }))) });
     return () => { view.dispatch({ effects: compartment.reconfigure([]) }); };
-  }, [view, debuggable, language, literate]);
+  }, [view, debuggable, language, literate, parserReady]);
   useEffect(() => {
-    if (!view || !debuggable) return;
+    if (!view || !debuggable || literate && !parserReady) return;
     view.dispatch({ effects: debugStateEffects(changed ? { ...debug, pausedLine: null, variables: [], frames: [], watches: [] } : debug) });
     if (!changed && debug.pausedLine !== null) {
       const line = view.state.doc.line(Math.max(1, Math.min(view.state.doc.lines, debug.pausedLine + 1)));
       view.dispatch({ effects: EditorView.scrollIntoView(line.from, { y: "nearest" }) });
     }
-  }, [view, debuggable, debug, changed]);
+  }, [view, debuggable, debug, changed, literate, parserReady]);
   useEffect(() => {
     if (!view) return;
     const reveal = () => { const line = claimReveal(buffer.file.path); if (line !== null) revealLine(view, line - 1); };
@@ -173,9 +182,9 @@ export function Document({ buffer }: { buffer: Buffer }) {
   };
   return <div className="document-body">
     <div className="editor-row"><div ref={host} className="editor-host editor-cm-host" /><Minimap buffer={buffer} />
-      <DebugLaunchRail view={view} plainPath={debuggable && !literate ? buffer.file.path : undefined} enabled={["idle", "finished", "failed"].includes(debug.status)} onStart={debuggable ? start : undefined} />
+      <DebugLaunchRail view={view} plainPath={debuggable && !literate ? buffer.file.path : undefined} enabled={["idle", "finished", "failed"].includes(debug.status)} onStart={debuggable && (!literate || parserReady) ? start : undefined} />
     </div>
-    {debuggable && view && <DebugStrip editorView={view} pausedLine={changed ? null : debug.pausedLine}
+    {debuggable && view && (!literate || parserReady) && <DebugStrip editorView={view} pausedLine={changed ? null : debug.pausedLine}
       status={debug.status} program={debug.program} message={debug.message} offerInstall={debug.offerInstall}
       onInstall={offer => api.installTool(offer.kind, offer.language).then(() => undefined)}
       capabilities={debug.capabilities} frames={debug.frames} selectedFrame={debug.selectedFrame}

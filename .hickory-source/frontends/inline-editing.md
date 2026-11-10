@@ -5,6 +5,8 @@ For maintainers implementing rich source editing on native platforms.
 
 Compute a line-start index and presentation against immutable UTF-16 text. Visible gutters use binary search into the current snapshot instead of repeatedly copying and counting the entire prefix on every scrolled line. Keep Markdown delimiters and original bytes in the editor, skip fenced and Hickory payload bodies, and expose exact cell/equation ranges for guarded contextual edits. Large documents retain plain source while this optional scanner is bounded to 200,000 UTF-16 units.
 
+Markdown prose tables now use those exact cell ranges to form whole-table presentation ranges. Keep the final newline outside the replacement so following prose retains its paragraph. Header separators belong to the replacement, but never become editable data cells. Only cells already admitted by the prose scanner can enter a grid; fenced code and Hickory literal bodies stay source. The Swift and Kotlin range witnesses check CRLF, emoji and escaped pipes.
+
 The Swift scanner returns source-backed styles and cell ranges. Escaped pipes and code-span pipes cannot create extra columns; applying a cell edit escapes literal pipes and retains all untouched bytes.
 
 <ui:copy id="simple-inline-model-0">
@@ -13,6 +15,33 @@ struct InlineMark: Sendable { var kind: String; var range: NSRange; var level: I
 struct InlineCell: Identifiable, Sendable { var line: Int; var column: Int; var range: NSRange; var value: String; var format = "markdown"; var delimiter = ","; var id: Int { range.location } }
 struct InlineEquation: Identifiable, Sendable { var line: Int; var range: NSRange; var body: String; var id: Int { range.location } }
 struct InlineSnapshot: Sendable { var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = [] }
+// Tables are presentation ranges over the original source, never replacement text.
+struct InlineTable: Identifiable, Sendable {
+    var range: NSRange; var rows: [[InlineCell]]
+    var id: Int { range.location }
+    var height: CGFloat { min(320, CGFloat(rows.count + 2) * 30) }
+}
+func inlineTables(_ snapshot: InlineSnapshot) -> [InlineTable] {
+    let source = snapshot.source as NSString
+    let lines = Dictionary(grouping: snapshot.cells.filter { $0.format == "markdown" }, by: \.line)
+    var result: [InlineTable] = [], consumed = Set<Int>()
+    for line in lines.keys.sorted() where !consumed.contains(line) {
+        guard let header = lines[line], line + 1 < snapshot.lineStarts.count,
+              lines[line + 1] == nil else { continue }
+        let separator = source.substring(with: source.lineRange(for: NSRange(location: snapshot.lineStarts[line + 1], length: 0))).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !separator.isEmpty, separator.contains("-"), separator.allSatisfy({ "|:- \t".contains($0) }) else { continue }
+        var rows = [header], last = line + 1, next = line + 2
+        consumed.insert(line)
+        while let cells = lines[next] { rows.append(cells); consumed.insert(next); last = next; next += 1 }
+        let start = snapshot.lineStarts[line]
+        let end = NSMaxRange(source.lineRange(for: NSRange(location: snapshot.lineStarts[last], length: 0)))
+        // Retain the final newline outside the replacement so following prose keeps its own paragraph.
+        var to = end
+        while to > start && [10, 13].contains(Int(source.character(at: to - 1))) { to -= 1 }
+        result.append(InlineTable(range: NSRange(location: start, length: to - start), rows: rows))
+    }
+    return result
+}
 func inlineCellText(_ value: String, format: String = "markdown", delimiter: String = ",") -> String {
     if format == "csv" { return value.contains(delimiter) || value.contains("\n") || value.contains("\r") || value.contains("\"") ? "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\"" : value }
     return value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "|", with: "\\|").replacingOccurrences(of: "\n", with: "<br>") }
@@ -167,6 +196,25 @@ data class InlineMark(val kind: String, val from: Int, val to: Int, val level: I
 data class InlineCell(val line: Int, val column: Int, val from: Int, val to: Int, val value: String, val format: String = "markdown", val delimiter: String = ",")
 data class InlineEquation(val line: Int, val from: Int, val to: Int, val body: String)
 data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf(0), val marks: List<InlineMark> = emptyList(), val cells: List<InlineCell> = emptyList(), val equations: List<InlineEquation> = emptyList())
+// Keep source offsets authoritative while the field displays a grid-sized placeholder.
+data class InlineTable(val from: Int, val to: Int, val rows: List<List<InlineCell>>) {
+    val displayRows: Int get() = minOf(10, rows.size + 2)
+}
+fun inlineTables(snapshot: InlineSnapshot): List<InlineTable> {
+    val lines = snapshot.cells.filter { it.format == "markdown" }.groupBy { it.line }
+    val consumed = mutableSetOf<Int>(); val result = mutableListOf<InlineTable>()
+    for (line in lines.keys.sorted()) {
+        if (line in consumed || line + 1 >= snapshot.lineStarts.size || lines.containsKey(line + 1)) continue
+        val separator = snapshot.source.substring(snapshot.lineStarts[line + 1]).substringBefore('\n').trim()
+        if (separator.isEmpty() || '-' !in separator || separator.any { it !in "|:- \t" }) continue
+        val rows = mutableListOf(lines.getValue(line)); var last = line + 1; var next = line + 2
+        consumed.add(line)
+        while (lines.containsKey(next)) { rows.add(lines.getValue(next)); consumed.add(next); last = next; next++ }
+        val end = snapshot.source.indexOf('\n', snapshot.lineStarts[last]).let { if (it < 0) snapshot.source.length else it }
+        result.add(InlineTable(snapshot.lineStarts[line], if (end > 0 && snapshot.source[end - 1] == '\r') end - 1 else end, rows))
+    }
+    return result
+}
 fun inlineCellText(value: String, format: String = "markdown", delimiter: String = ","): String {
     if (format == "csv") return if (value.contains(delimiter) || value.contains('\n') || value.contains('\r') || value.contains('"')) "\"" + value.replace("\"", "\"\"") + "\"" else value
     return value.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
@@ -552,6 +600,8 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
 }
 async function load() {
   // Resolve the shared cyclic registry graph before importing its members in parallel.
+  const parser = await import("../editor/hickLang");
+  await parser.loadHickLang();
   const rendered = await import("../editor/rendered");
   const [prose, math, spans, hick, elements, edit, css, katexCss] = await Promise.all([
     import("../editor/wysiwyg"), import("../editor/mathRender"), import("../lib/math"), import("../editor/hickDoc"),

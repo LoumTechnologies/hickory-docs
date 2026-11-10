@@ -3,6 +3,33 @@ struct InlineMark: Sendable { var kind: String; var range: NSRange; var level: I
 struct InlineCell: Identifiable, Sendable { var line: Int; var column: Int; var range: NSRange; var value: String; var format = "markdown"; var delimiter = ","; var id: Int { range.location } }
 struct InlineEquation: Identifiable, Sendable { var line: Int; var range: NSRange; var body: String; var id: Int { range.location } }
 struct InlineSnapshot: Sendable { var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = [] }
+// Tables are presentation ranges over the original source, never replacement text.
+struct InlineTable: Identifiable, Sendable {
+    var range: NSRange; var rows: [[InlineCell]]
+    var id: Int { range.location }
+    var height: CGFloat { min(320, CGFloat(rows.count + 2) * 30) }
+}
+func inlineTables(_ snapshot: InlineSnapshot) -> [InlineTable] {
+    let source = snapshot.source as NSString
+    let lines = Dictionary(grouping: snapshot.cells.filter { $0.format == "markdown" }, by: \.line)
+    var result: [InlineTable] = [], consumed = Set<Int>()
+    for line in lines.keys.sorted() where !consumed.contains(line) {
+        guard let header = lines[line], line + 1 < snapshot.lineStarts.count,
+              lines[line + 1] == nil else { continue }
+        let separator = source.substring(with: source.lineRange(for: NSRange(location: snapshot.lineStarts[line + 1], length: 0))).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !separator.isEmpty, separator.contains("-"), separator.allSatisfy({ "|:- \t".contains($0) }) else { continue }
+        var rows = [header], last = line + 1, next = line + 2
+        consumed.insert(line)
+        while let cells = lines[next] { rows.append(cells); consumed.insert(next); last = next; next += 1 }
+        let start = snapshot.lineStarts[line]
+        let end = NSMaxRange(source.lineRange(for: NSRange(location: snapshot.lineStarts[last], length: 0)))
+        // Retain the final newline outside the replacement so following prose keeps its own paragraph.
+        var to = end
+        while to > start && [10, 13].contains(Int(source.character(at: to - 1))) { to -= 1 }
+        result.append(InlineTable(range: NSRange(location: start, length: to - start), rows: rows))
+    }
+    return result
+}
 func inlineCellText(_ value: String, format: String = "markdown", delimiter: String = ",") -> String {
     if format == "csv" { return value.contains(delimiter) || value.contains("\n") || value.contains("\r") || value.contains("\"") ? "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\"" : value }
     return value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "|", with: "\\|").replacingOccurrences(of: "\n", with: "<br>") }

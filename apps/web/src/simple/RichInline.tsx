@@ -105,6 +105,8 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
 }
 async function load() {
   // Resolve the shared cyclic registry graph before importing its members in parallel.
+  const parser = await import("../editor/hickLang");
+  await parser.loadHickLang();
   const rendered = await import("../editor/rendered");
   const [prose, math, spans, hick, elements, edit, css, katexCss] = await Promise.all([
     import("../editor/wysiwyg"), import("../editor/mathRender"), import("../lib/math"), import("../editor/hickDoc"),

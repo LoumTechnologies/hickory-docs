@@ -32,6 +32,8 @@ import androidx.compose.foundation.text.input.OutputTransformation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -346,6 +348,94 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
     return displayOffset + removed
 }
 
+</ui:copy>
+
+## Give a table one spreadsheet-shaped place in the editor
+
+The output transformation replaces only displayed bytes with a bounded set of placeholder rows. The original TextFieldState remains the save and undo authority. One ordered replacement list drives both directions of offset mapping, line numbers, folds, debugger icons and widget placement; placeholder continuations never acquire extra line actions. The [projection witness](../../../../../test/java/com/hickorydocs/simple/ParityTest.kt.md) checks Unicode, CRLF, literal code and the following prose's source position.
+
+The grid scrolls inside its reserved viewport, labels rows and columns, and applies a cell on Return/Done or focus loss. A stale snapshot or read-only owner cannot authorize a write. Source reveal removes the presentation transformation; it does not recreate the field or its undo stack.
+
+<ui:copy id="simple-android-table-grid">
+// One projection drives the text field, line numbers, debugger rail and grid anchors.
+// Its offsets always map back to the retained source, including Unicode and folds.
+data class EditorReplacement(val from: Int, val to: Int, val text: String)
+fun editorReplacements(folds: List<SimpleFold>, tables: List<InlineTable>): List<EditorReplacement> {
+    val candidates = folds.map { EditorReplacement(it.from, it.to, " …") } + tables.map { EditorReplacement(it.from, it.to, " \n".repeat(it.displayRows - 1) + " ") }
+    val result = mutableListOf<EditorReplacement>()
+    for (item in candidates.sortedWith(compareBy<EditorReplacement> { it.from }.thenByDescending { it.to })) {
+        if (result.lastOrNull()?.to?.let { it > item.from } != true) result.add(item)
+    }
+    return result
+}
+fun editorDisplay(source: String, replacements: List<EditorReplacement>): String {
+    val result = StringBuilder(source)
+    replacements.asReversed().forEach { result.replace(it.from, it.to, it.text) }
+    return result.toString()
+}
+fun editorSourceOffset(offset: Int, replacements: List<EditorReplacement>): Int {
+    var removed = 0
+    for (item in replacements) {
+        val start = item.from - removed
+        if (offset <= start) break
+        if (offset < start + item.text.length) return item.from
+        removed += item.to - item.from - item.text.length
+    }
+    return offset + removed
+}
+fun editorDisplayOffset(offset: Int, replacements: List<EditorReplacement>): Int {
+    var removed = 0
+    for (item in replacements) {
+        if (offset <= item.from) break
+        if (offset < item.to) return item.from - removed
+        removed += item.to - item.from - item.text.length
+    }
+    return offset - removed
+}
+fun tableColumnName(index: Int): String {
+    var value = index + 1; var name = ""
+    while (value > 0) { value--; name = ('A' + value % 26) + name; value /= 26 }
+    return name
+}
+@Composable private fun InlineTableGrid(table: InlineTable, source: String, buffer: DocumentBuffer, modifier: Modifier = Modifier) {
+    Column(modifier.background(MaterialTheme.colorScheme.surface).border(1.dp, MaterialTheme.colorScheme.outlineVariant).semantics { contentDescription = "Inline table grid" }) {
+        Row(Modifier.fillMaxWidth().height(28.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Table", fontSize = 12.sp, modifier = Modifier.weight(1f).padding(start = 6.dp))
+            Text("Edit source", fontSize = 12.sp, modifier = Modifier.clickable { buffer.tableSourceVisible = true }.padding(horizontal = 8.dp))
+        }
+        Box(Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
+          LazyColumn(Modifier.width((32 + 140 * table.rows.maxOf { it.size }).dp).fillMaxHeight()) {
+            item { Row {
+                Text("#", modifier = Modifier.width(32.dp).height(28.dp))
+                repeat(table.rows.maxOf { it.size }) { column -> Text(tableColumnName(column), fontSize = 12.sp, modifier = Modifier.width(140.dp).height(28.dp).border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(4.dp)) }
+            } }
+            itemsIndexed(table.rows) { row, cells ->
+                Row {
+                    Text("${row + 1}", fontSize = 12.sp, modifier = Modifier.width(32.dp).height(28.dp).padding(4.dp))
+                    cells.forEach { cell -> key(cell.from) {
+                        var draft by remember(cell.value) { mutableStateOf(cell.value) }
+                        var notice by remember { mutableStateOf("") }
+                        var focused by remember { mutableStateOf(false) }
+                        val commit = { if (draft != cell.value && !buffer.applySourceEdits(listOf(NativeSourceEdit(cell.from, cell.to, inlineCellText(draft))), source)) notice = "Table changed. Reopen the cell and try again." }
+                        BasicTextField(value = draft, onValueChange = { draft = it }, readOnly = buffer.readOnly, singleLine = true,
+                            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { commit() }), keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                            textStyle = TextStyle(fontSize = 13.sp, fontWeight = if (row == 0) FontWeight.SemiBold else FontWeight.Normal, color = MaterialTheme.colorScheme.onSurface),
+                            modifier = Modifier.width(140.dp).height(28.dp).border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(4.dp)
+                                .onFocusChanged { state -> val wasFocused = focused; focused = state.isFocused; if (wasFocused && !focused) commit() }
+                                .semantics { contentDescription = "Row ${row + 1}, column ${tableColumnName(cell.column)}"; if (notice.isNotEmpty()) error(notice) })
+                    } }
+                }
+            }
+          }
+        }
+    }
+}
+
+</ui:copy>
+
+Attach the grid only to an inline snapshot that still matches the field. Measure its anchor and height from the transformed text's own layout, with scrolling applied once. Retiring a fold or an obsolete scan cannot leave an offset from another display revision behind. Edits into hidden source are refused before source is revealed.
+
+<ui:copy id="simple-android-table-editor">
 @OptIn(ExperimentalFoundationApi::class)
 @Composable private fun LanguageEditor(buffer: DocumentBuffer, debug: NativeDebugger?, modifier: Modifier = Modifier) {
     val editorFocus = remember(buffer) { FocusRequester() }
@@ -370,7 +460,9 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
     }
     val selection = buffer.state.selection
     val folds = buffer.activeFolds()
-    val display = foldDisplay(source, folds)
+    val tables = if (inline.source == source && !buffer.tableSourceVisible) inlineTables(inline) else emptyList()
+    val replacements = editorReplacements(folds, tables)
+    val display = editorDisplay(source, replacements)
     var textLayout by remember(buffer) { mutableStateOf<TextLayoutResult?>(null) }
     val paused = if (debug?.sourceMatches(buffer) == true) debug.line(buffer.file.path) else null
     val pauseColor = MaterialTheme.colorScheme.primary.copy(alpha = .14f)
@@ -402,7 +494,8 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
                     val first = layout.getLineForVerticalPosition(scroll.value.toFloat())
                     val last = layout.getLineForVerticalPosition(scroll.value + height)
                     for (visual in first..last) {
-                        val offset = foldSourceOffset(layout.getLineStart(visual), folds)
+                        val offset = editorSourceOffset(layout.getLineStart(visual), replacements)
+                        if (layout.getLineStart(visual) != editorDisplayOffset(offset, replacements)) continue
                         if (offset > 0 && source[offset - 1] != '\n') continue
                         val line = source.take(offset).count { it == '\n' }
                         if (line !in headers) continue
@@ -428,7 +521,8 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
                     val last = layout.getLineForVerticalPosition(scroll.value + size.height)
                     // Wrapped rows share a logical number; only draw at the logical start.
                     for (visual in first..last) {
-                        val offset = foldSourceOffset(layout.getLineStart(visual), folds)
+                        val offset = editorSourceOffset(layout.getLineStart(visual), replacements)
+                        if (layout.getLineStart(visual) != editorDisplayOffset(offset, replacements)) continue
                         if (offset == 0 || source[offset - 1] == '\n') {
                             val logical = (if (inline.source == source) inlineLineAt(offset, inline.lineStarts) else source.take(offset).count { it == '\n' }) + 1
                             val baseline = layout.getLineBaseline(visual) - scroll.value + 8.dp.toPx()
@@ -437,14 +531,15 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
                     }
                 }
             }
+            Box(Modifier.weight(1f).fillMaxHeight().clipToBounds()) {
             BasicTextField(state = buffer.state, readOnly = buffer.readOnly,
                 scrollState = scroll,
                 inputTransformation = InputTransformation {
                     val hiddenEdit = (0 until changes.changeCount).any { index ->
                         val changed = changes.getOriginalRange(index)
-                        folds.any { range -> changed.min < range.to && changed.max > range.from || changed.collapsed && changed.min in range.from until range.to }
+                        replacements.any { range -> changed.min < range.to && changed.max > range.from || changed.collapsed && changed.min in range.from until range.to }
                     }
-                    if (hiddenEdit) revertAllChanges()
+                    if (hiddenEdit) { revertAllChanges(); scope.launch { buffer.tableSourceVisible = true } }
                     // Retire display state after the input transaction, outside its receiver.
                     scope.launch { buffer.clearFolds(); if (!buffer.applyingMulti) buffer.clearMulti() }
                 },
@@ -467,9 +562,16 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
                         }
                         addStyle(style, mark.from, mark.to)
                     }
-                    if (toString() == source) outerFolds(folds).asReversed().forEach { replace(it.from, it.to, " …") }
+                    if (toString() == source) {
+                        replacements.asReversed().forEach { replace(it.from, it.to, it.text) }
+                        var removed = 0
+                        for (item in replacements) {
+                            if (tables.any { it.from == item.from && it.to == item.to }) addStyle(SpanStyle(fontSize = 28.sp), item.from - removed, item.from - removed + item.text.length)
+                            removed += item.to - item.from - item.text.length
+                        }
+                    }
                 },
-                modifier = Modifier.weight(1f).fillMaxHeight().padding(8.dp).focusRequester(editorFocus).onPreviewKeyEvent { event ->
+                modifier = Modifier.fillMaxSize().padding(8.dp).focusRequester(editorFocus).onPreviewKeyEvent { event ->
                     val key = event.nativeKeyEvent
                     if (event.type == KeyEventType.KeyDown && event.key == Key.Spacebar && event.isCtrlPressed) {
                         menu = true; scope.launch { service?.inspect() }; scope.launch { service?.complete() }; true
@@ -486,6 +588,20 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
                 }.clipToBounds().semantics { contentDescription = buffer.file.path },
                 textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false))
+            val density = LocalDensity.current
+            val layout = textLayout
+            if (layout != null && layout.layoutInput.text.text == display) tables.forEach { table ->
+                val replacement = replacements.firstOrNull { it.from == table.from && it.to == table.to } ?: return@forEach
+                val anchor = editorDisplayOffset(table.from, replacements)
+                val first = layout.getLineForOffset(anchor)
+                val last = layout.getLineForOffset(anchor + replacement.text.length - 1)
+                val top = layout.getLineTop(first) - scroll.value
+                val height = layout.getLineBottom(last) - layout.getLineTop(first)
+                InlineTableGrid(table, source, buffer, Modifier.offset { IntOffset(0, top.toInt() + with(density) { 8.dp.roundToPx() }) }.padding(horizontal = 8.dp).fillMaxWidth().height(with(density) { height.toDp() }))
+            }
+            if (buffer.tableSourceVisible && inlineTables(inline).isNotEmpty()) Text("Show table grids", fontSize = 12.sp,
+                modifier = Modifier.background(MaterialTheme.colorScheme.surface).clickable { buffer.tableSourceVisible = false }.padding(4.dp))
+            }
             Canvas(Modifier.width(40.dp).fillMaxHeight().semantics {
                 contentDescription = "Document minimap"
                 progressBarRangeInfo = ProgressBarRangeInfo(if (scroll.maxValue > 0) scroll.value.toFloat() / scroll.maxValue else 0f, 0f..1f)
@@ -596,7 +712,9 @@ fun debugLineOffset(source: String, line: Int): Int? {
     val source = buffer.text
     val starts = buffer.inlineMarkup.takeIf { it.source == source }?.lineStarts
     val folds = buffer.activeFolds()
-    val display = foldDisplay(buffer.text, folds)
+    val tables = if (buffer.inlineMarkup.source == source && !buffer.tableSourceVisible) inlineTables(buffer.inlineMarkup) else emptyList()
+    val replacements = editorReplacements(folds, tables)
+    val display = editorDisplay(source, replacements)
     val paused = if (debug.sourceMatches(buffer)) debug.line(buffer.file.path) else null
     BoxWithConstraints(Modifier.width(24.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceContainer)) {
         val height = with(density) { maxHeight.toPx() }
@@ -604,7 +722,8 @@ fun debugLineOffset(source: String, line: Int): Int? {
             val first = layout.getLineForVerticalPosition(scroll.value.toFloat())
             val last = layout.getLineForVerticalPosition(scroll.value + height)
             for (visual in first..last) {
-                val offset = foldSourceOffset(layout.getLineStart(visual), folds)
+                val offset = editorSourceOffset(layout.getLineStart(visual), replacements)
+                        if (layout.getLineStart(visual) != editorDisplayOffset(offset, replacements)) continue
                 if (offset > 0 && buffer.text[offset - 1] != '\n') continue
                 val line = starts?.let { inlineLineAt(offset, it) } ?: source.take(offset).count { it == '\n' }
                 val top = layout.getLineTop(visual) - scroll.value + with(density) { 8.dp.toPx() }
@@ -691,6 +810,6 @@ fun debugLineOffset(source: String, line: Int): Int? {
 
 Keep construction order explicit; the explanations above describe the decisions at each boundary.
 
-<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt"><ui:paste select="#simple-0d1e071614-0"/><ui:paste select="#simple-android-pane-edges"/><ui:paste select="#simple-android-search-model"/><ui:paste select="#simple-android-language-preview"/><ui:paste select="#simple-0d1e071614-1"/><ui:paste select="#simple-android-debug-rail"/></ui:file>
+<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt"><ui:paste select="#simple-0d1e071614-0"/><ui:paste select="#simple-android-pane-edges"/><ui:paste select="#simple-android-search-model"/><ui:paste select="#simple-android-language-preview"/><ui:paste select="#simple-android-table-grid"/><ui:paste select="#simple-android-table-editor"/><ui:paste select="#simple-0d1e071614-1"/><ui:paste select="#simple-android-debug-rail"/></ui:file>
 
 </ui:doc>

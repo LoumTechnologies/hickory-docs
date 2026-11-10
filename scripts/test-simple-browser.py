@@ -126,6 +126,18 @@ def folding_acceptance(driver, folder):
     driver.act("undo", path=path)
     eventually(lambda: driver.act("content", path=path), source)
 
+def table_acceptance(driver, folder):
+    path = "table.md"; original = (folder / path).read_text()
+    driver.act("open", path=path)
+    driver.act("table-edit", before="120", value="121")
+    driver.act("save")
+    eventually(lambda: (folder / path).read_text(), original.replace("120", "121"))
+    driver.act("undo", path=path)
+    driver.act("save")
+    eventually(lambda: (folder / path).read_text(), original)
+    driver.act("table-source")
+    assert "| café 😀 | 120 |" in driver.act("content", path=path)
+
 def markdown_acceptance(driver):
     driver.act("open", path="source.md")
     formatting = driver.act("markdown-formatting", path="source.md")
@@ -195,6 +207,7 @@ if __name__ == "__main__":
         (folder / "search.txt").write_text("😀 name=12\nname=34\n")
         (folder / "fold.txt").write_text("function main() {\n  first()\n  second()\n}\n")
         (folder / "source.md").write_text('<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n# A literate document\n\n**bold** and *italic*\n</h:doc>\n')
+        (folder / "table.md").write_text('<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\nBefore\n\n| A | B |\n| --- | ---: |\n| café 😀 | 120 |\n\nAfter\n</h:doc>\n')
         (folder / "cache.py").write_text("counter = 1\nprint(counter)\n")
         (folder / "debug.py").write_text("value = 1\nvalue += 1\nprint(value)\n")
         environment = {**os.environ, "HICKORY_STATE_DIR": str(Path(temporary) / "state")}
@@ -206,7 +219,10 @@ if __name__ == "__main__":
             backend = origin(engine)
             vite = start(["node", "node_modules/vite/bin/vite.js", "--config", "vite.simple.config.ts", "--host", "127.0.0.1", "--port", str(ui_port), "--strictPort"], cwd=ROOT / "apps/web", env={**environment, "HICKORY_API_ORIGIN": backend}); processes.append(vite)
             driver = BrowserDriver(origin(vite) + "/simple.html")
-            if "--language-cache-only" in sys.argv:
+            if "--table-only" in sys.argv:
+                table_acceptance(driver, folder)
+                print("Browser: inline table grid, real saved Markdown, source reveal and undo passed")
+            elif "--language-cache-only" in sys.argv:
                 language_cache_acceptance(driver, folder)
                 print("Browser: real Python colors retained across typing and undo; disk unchanged")
             elif "--search-only" in sys.argv:

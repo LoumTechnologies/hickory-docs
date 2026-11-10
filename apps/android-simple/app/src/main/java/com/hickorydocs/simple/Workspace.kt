@@ -38,6 +38,7 @@ class DocumentBuffer(val file: FileNode, loaded: FileText) {
         val bytes = text.toByteArray(Charsets.UTF_8)
         return receipts.filter { block -> val span = block.optJSONArray("span"); span != null && span.length() == 2 && span.optInt(0, -1) in 0..bytes.size && span.optInt(1, -1) in span.getInt(0)..bytes.size && bytes.take(span.getInt(0)).count { it == 10.toByte() } == line }
     }
+    var tableSourceVisible by mutableStateOf(false)
     var inlineMarkup by mutableStateOf(InlineSnapshot(""))
     var language: NativeLanguage? = null
     val state = TextFieldState(loaded.content)

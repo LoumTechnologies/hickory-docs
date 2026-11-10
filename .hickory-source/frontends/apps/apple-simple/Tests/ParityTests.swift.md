@@ -9,11 +9,14 @@ The gutter witness lays out real AppKit text, including wrapped text and empty f
 
 These cases consume the same JSON as the browser tests. They check user-visible tab membership and active-tab validity independently of view framework and internal split identifiers.
 
+The table replacement witnesses admit only prose cells, retain CRLF and Unicode source ranges, and inspect AppKit’s actual grid frame and following text geometry. The scanner callback must also refresh the measured line rail without a scroll event. Source reveal and native undo keep the same text storage. These are in-process geometry checks; they do not establish device gestures or screen-reader acceptance.
+
 <ui:copy id="simple-7d7b2a4b09-0">
 // Contract: .hickory-source/frontends/contract.md
 import XCTest
 #if os(macOS)
 import AppKit
+import SwiftUI
 import WebKit
 #endif
 @testable import HickorySimple
@@ -43,6 +46,53 @@ final class ParityTests: XCTestCase {
         XCTAssertTrue(inlineCSVCells("\"unterminated", line: 0, offset: 0, delimiter: ",").isEmpty)
 
     }
+    func testMarkdownTableRangesRetainCrLfUnicodeAndLiteralCode() {
+        let source = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\">\r\nBefore 😀\r\n| A | B |\r\n| --- | ---: |\r\n| café | a\\|b |\r\nAfter\r\n```md\r\n| X | Y |\r\n| --- | --- |\r\n```\r\n</h:doc>"
+        let tables = inlineTables(computeInlineMarkup(source, path: "workbook.md"))
+        XCTAssertEqual(tables.count, 1)
+        XCTAssertEqual(tables[0].rows.map { $0.map(\.value) }, [["A", "B"], ["café", "a|b"]])
+        XCTAssertEqual((source as NSString).substring(with: tables[0].range), "| A | B |\r\n| --- | ---: |\r\n| café | a\\|b |")
+        XCTAssertEqual(tableColumnName(26), "AA")
+    }
+    #if os(macOS)
+    @MainActor func testInlineGridReplacesTableLinesAndRetainsSourceUndo() throws {
+        let source = "Before\n\n| A | B |\n| --- | --- |\n| café 😀 | 2 |\n\nAfter"
+        let file = FileNode(name: "grid.md", path: "grid.md", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "base"))
+        let editor = MacEditor(buffer)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = editor.scroll
+        buffer.inlineMarkup = computeInlineMarkup(source, path: file.path); buffer.renderMarkup?()
+        XCTAssertFalse(buffer.visibleDebugLines.contains { $0.line == 3 || $0.line == 4 }, "The scanner callback must retire source-row rail entries without a scroll")
+        let host = try XCTUnwrap(editor.text.subviews.first { $0 is NSHostingView<NativeTableGrid> })
+        XCTAssertEqual(editor.text.string, source)
+        let table = try XCTUnwrap(inlineTables(buffer.inlineMarkup).first)
+        XCTAssertEqual(host.frame.height, table.height)
+        let manager = try XCTUnwrap(editor.text.layoutManager), container = try XCTUnwrap(editor.text.textContainer)
+        let after = (source as NSString).range(of: "After")
+        let afterRect = manager.boundingRect(forGlyphRange: manager.glyphRange(forCharacterRange: after, actualCharacterRange: nil), in: container)
+        XCTAssertGreaterThanOrEqual(afterRect.minY + editor.text.textContainerOrigin.y, host.frame.maxY)
+        // The source rows have no separate visual height beneath the grid.
+        XCTAssertLessThan(afterRect.minY + editor.text.textContainerOrigin.y - host.frame.maxY, 50)
+        buffer.tableSourceVisible = true
+        XCTAssertFalse(editor.text.subviews.contains { $0 is NSHostingView<NativeTableGrid> })
+        XCTAssertEqual(editor.text.string, source)
+        buffer.tableSourceVisible = false
+        let cell = table.rows[1][1]
+        let viewport = editor.scroll.contentView.bounds.origin
+        XCTAssertTrue(buffer.applyTableEdit?(NativeSourceEdit(range: cell.range, text: "3"), source) == true)
+        XCTAssertEqual(editor.scroll.contentView.bounds.origin, viewport)
+        XCTAssertTrue(editor.text.undoManager?.canUndo == true)
+        XCTAssertEqual(buffer.text, source.replacingOccurrences(of: "| 2 |", with: "| 3 |"))
+        // Undo must still work after the background scan has hidden the edited rows again.
+        buffer.inlineMarkup = computeInlineMarkup(buffer.text, path: file.path); buffer.renderMarkup?()
+        editor.text.undoManager?.undo()
+        XCTAssertEqual(buffer.text, source)
+        XCTAssertFalse(editor.applySourceEdits([NativeSourceEdit(range: cell.range, text: "4")], source: source + "stale"))
+        buffer.inlineMarkup = computeInlineMarkup(source, path: file.path); buffer.renderMarkup?()
+        XCTAssertTrue(editor.text.subviews.contains { $0 is NSHostingView<NativeTableGrid> })
+    }
+    #endif
     func testRecordedOutputDecodesCachedTextAndExitEvents() throws {
         let bytes = Data(#"{"document":"demo","source_hash":"hash","blocks":[{"kind":"exec","span":[0,4],"recorded_output":"saved stdout","transcript":[{"kind":"exit","code":0}]}]}"#.utf8)
         let page = try JSONDecoder().decode(InlineReceiptPage.self, from: bytes)

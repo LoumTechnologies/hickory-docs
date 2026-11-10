@@ -4,6 +4,25 @@ data class InlineMark(val kind: String, val from: Int, val to: Int, val level: I
 data class InlineCell(val line: Int, val column: Int, val from: Int, val to: Int, val value: String, val format: String = "markdown", val delimiter: String = ",")
 data class InlineEquation(val line: Int, val from: Int, val to: Int, val body: String)
 data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf(0), val marks: List<InlineMark> = emptyList(), val cells: List<InlineCell> = emptyList(), val equations: List<InlineEquation> = emptyList())
+// Keep source offsets authoritative while the field displays a grid-sized placeholder.
+data class InlineTable(val from: Int, val to: Int, val rows: List<List<InlineCell>>) {
+    val displayRows: Int get() = minOf(10, rows.size + 2)
+}
+fun inlineTables(snapshot: InlineSnapshot): List<InlineTable> {
+    val lines = snapshot.cells.filter { it.format == "markdown" }.groupBy { it.line }
+    val consumed = mutableSetOf<Int>(); val result = mutableListOf<InlineTable>()
+    for (line in lines.keys.sorted()) {
+        if (line in consumed || line + 1 >= snapshot.lineStarts.size || lines.containsKey(line + 1)) continue
+        val separator = snapshot.source.substring(snapshot.lineStarts[line + 1]).substringBefore('\n').trim()
+        if (separator.isEmpty() || '-' !in separator || separator.any { it !in "|:- \t" }) continue
+        val rows = mutableListOf(lines.getValue(line)); var last = line + 1; var next = line + 2
+        consumed.add(line)
+        while (lines.containsKey(next)) { rows.add(lines.getValue(next)); consumed.add(next); last = next; next++ }
+        val end = snapshot.source.indexOf('\n', snapshot.lineStarts[last]).let { if (it < 0) snapshot.source.length else it }
+        result.add(InlineTable(snapshot.lineStarts[line], if (end > 0 && snapshot.source[end - 1] == '\r') end - 1 else end, rows))
+    }
+    return result
+}
 fun inlineCellText(value: String, format: String = "markdown", delimiter: String = ","): String {
     if (format == "csv") return if (value.contains(delimiter) || value.contains('\n') || value.contains('\r') || value.contains('"')) "\"" + value.replace("\"", "\"\"") + "\"" else value
     return value.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")

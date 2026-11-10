@@ -6,6 +6,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @Test fun markdownTableProjectionRetainsSourceAndFollowingLineOffsets() {
+        val source = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\">\r\nBefore 😀\r\n| A | B |\r\n| --- | ---: |\r\n| café | a\\|b |\r\nAfter\r\n```md\r\n| X | Y |\r\n| --- | --- |\r\n```\r\n</h:doc>"
+        val tables = inlineTables(computeInlineMarkup(source, "workbook.md"))
+        assertEquals(1, tables.size)
+        val table = tables.single()
+        assertEquals(listOf(listOf("A", "B"), listOf("café", "a|b")), table.rows.map { row -> row.map { it.value } })
+        assertEquals("| A | B |\r\n| --- | ---: |\r\n| café | a\\|b |", source.substring(table.from, table.to))
+        val replacements = editorReplacements(emptyList(), tables)
+        val display = editorDisplay(source, replacements)
+        assertFalse(display.contains("| A | B |"))
+        assertEquals(source.indexOf("After"), editorSourceOffset(display.indexOf("After"), replacements))
+        assertEquals(display.indexOf("After"), editorDisplayOffset(source.indexOf("After"), replacements))
+        assertEquals(source, editorDisplay(source, emptyList()))
+        assertEquals("AA", tableColumnName(26))
+    }
+
     @Test fun languageCacheMapsUnchangedUtf16Regions() {
         val original = "def f():\n    value = 1\n"
         val spans = listOf(NativeLanguageSpan(0, 3, "keyword"), NativeLanguageSpan(13, 18, "variable"))

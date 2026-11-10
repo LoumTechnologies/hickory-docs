@@ -11,6 +11,8 @@ The focused `--search-only` flow uses menu commands and visible search fields, c
 
 The focused `--fold-only` flow clicks the visible right-hand line menu, saves while folded, moves the same editor to another pane, unfolds and undoes. Its assertions read actual workspace bytes and visible content through the driver; no framework state is imported. Native gesture adapters are not implemented by this browser witness.
 
+The table-only flow opens a real literate document from disk, edits a grid cell, saves and compares exact Markdown, then undoes and reveals source. It exercises cold parser startup as well as the grid. The adapter owns DOM selectors; these assertions express the user-visible save and undo behavior. Native gesture drivers for the same flow remain unimplemented.
+
 <ui:copy id="simple-0799b7d31b-0">
 # Contract: .hickory-source/frontends/contract.md
 """Focused real-engine browser acceptance for the independent frontend."""
@@ -140,6 +142,18 @@ def folding_acceptance(driver, folder):
     driver.act("undo", path=path)
     eventually(lambda: driver.act("content", path=path), source)
 
+def table_acceptance(driver, folder):
+    path = "table.md"; original = (folder / path).read_text()
+    driver.act("open", path=path)
+    driver.act("table-edit", before="120", value="121")
+    driver.act("save")
+    eventually(lambda: (folder / path).read_text(), original.replace("120", "121"))
+    driver.act("undo", path=path)
+    driver.act("save")
+    eventually(lambda: (folder / path).read_text(), original)
+    driver.act("table-source")
+    assert "| café 😀 | 120 |" in driver.act("content", path=path)
+
 def markdown_acceptance(driver):
     driver.act("open", path="source.md")
     formatting = driver.act("markdown-formatting", path="source.md")
@@ -209,6 +223,7 @@ if __name__ == "__main__":
         (folder / "search.txt").write_text("😀 name=12\nname=34\n")
         (folder / "fold.txt").write_text("function main() {\n  first()\n  second()\n}\n")
         (folder / "source.md").write_text('<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n# A literate document\n\n**bold** and *italic*\n</h:doc>\n')
+        (folder / "table.md").write_text('<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\nBefore\n\n| A | B |\n| --- | ---: |\n| café 😀 | 120 |\n\nAfter\n</h:doc>\n')
         (folder / "cache.py").write_text("counter = 1\nprint(counter)\n")
         (folder / "debug.py").write_text("value = 1\nvalue += 1\nprint(value)\n")
         environment = {**os.environ, "HICKORY_STATE_DIR": str(Path(temporary) / "state")}
@@ -220,7 +235,10 @@ if __name__ == "__main__":
             backend = origin(engine)
             vite = start(["node", "node_modules/vite/bin/vite.js", "--config", "vite.simple.config.ts", "--host", "127.0.0.1", "--port", str(ui_port), "--strictPort"], cwd=ROOT / "apps/web", env={**environment, "HICKORY_API_ORIGIN": backend}); processes.append(vite)
             driver = BrowserDriver(origin(vite) + "/simple.html")
-            if "--language-cache-only" in sys.argv:
+            if "--table-only" in sys.argv:
+                table_acceptance(driver, folder)
+                print("Browser: inline table grid, real saved Markdown, source reveal and undo passed")
+            elif "--language-cache-only" in sys.argv:
                 language_cache_acceptance(driver, folder)
                 print("Browser: real Python colors retained across typing and undo; disk unchanged")
             elif "--search-only" in sys.argv:
