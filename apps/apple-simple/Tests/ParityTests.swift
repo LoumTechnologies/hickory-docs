@@ -41,6 +41,43 @@ final class ParityTests: XCTestCase {
         XCTAssertEqual(tableColumnName(26), "AA")
     }
     #if os(macOS)
+    @MainActor func testInlineTableAnchorRejectsDeleteWithoutRevealingSource() throws {
+        let source = "Before\n\n| A | B |\n| --- | --- |\n| café 😀 | 2 |\n\nAfter"
+        let file = FileNode(name: "grid.md", path: "grid.md", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "base"))
+        let editor = MacEditor(buffer)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = editor.scroll; window.makeFirstResponder(editor.text)
+        buffer.inlineMarkup = computeInlineMarkup(source, path: file.path); buffer.renderMarkup?()
+        let table = try XCTUnwrap(inlineTables(buffer.inlineMarkup).first)
+        let host = try XCTUnwrap(editor.text.subviews.first { $0 is NSHostingView<NativeTableGrid> })
+        for offset in [table.range.location, table.rows[1][1].range.location, NSMaxRange(table.range)] {
+            editor.text.setSelectedRange(NSRange(location: offset, length: 0))
+            XCTAssertTrue(editor.text.tableCaretIsHidden)
+            editor.text.deleteBackward(nil); editor.text.deleteBackward(nil); editor.text.deleteForward(nil)
+            XCTAssertEqual(editor.text.string, source)
+            XCTAssertEqual(buffer.text, source)
+            XCTAssertFalse(buffer.tableSourceVisible)
+            XCTAssertTrue(host.superview === editor.text)
+        }
+        // A selection crossing the hidden source must not silently remove data.
+        editor.text.setSelectedRange(table.range); editor.text.deleteBackward(nil)
+        XCTAssertEqual(buffer.text, source)
+        XCTAssertFalse(buffer.tableSourceVisible)
+        // Source mode restores ordinary caret and deletion, without changing bytes itself.
+        buffer.tableSourceVisible = true
+        let cell = table.rows[1][1]
+        editor.text.setSelectedRange(NSRange(location: NSMaxRange(cell.range), length: 0))
+        XCTAssertFalse(editor.text.tableCaretIsHidden)
+        editor.text.deleteBackward(nil)
+        XCTAssertEqual(buffer.text, source.replacingOccurrences(of: "| 2 |", with: "|  |"))
+        editor.text.undoManager?.undo(); XCTAssertEqual(buffer.text, source)
+        buffer.tableSourceVisible = false
+        editor.text.setSelectedRange(NSRange(location: 1, length: 0))
+        XCTAssertFalse(editor.text.tableCaretIsHidden)
+        editor.text.deleteBackward(nil)
+        XCTAssertEqual(buffer.text, String(source.dropFirst()))
+    }
     @MainActor func testInlineGridReplacesTableLinesAndRetainsSourceUndo() throws {
         let source = "Before\n\n| A | B |\n| --- | --- |\n| café 😀 | 2 |\n\nAfter"
         let file = FileNode(name: "grid.md", path: "grid.md", dir: false)

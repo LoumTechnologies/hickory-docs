@@ -116,6 +116,17 @@ struct NativeTableGrid: View {
         }.background(.background).border(.secondary.opacity(0.4)).accessibilityElement(children: .contain).accessibilityLabel("Inline table grid")
     }
 }
+// The retained table bytes are a layout anchor, not a source insertion target.
+// Include both boundaries: backspace at the first character would otherwise
+// delete the preceding newline, and the final boundary still belongs to its row.
+func tableCaretHidden(_ selection: NSRange, tables: [NSRange]) -> Bool {
+    selection.length == 0 && tables.contains { selection.location >= $0.location && selection.location <= NSMaxRange($0) }
+}
+func tableSourceEditHitsGrid(_ range: NSRange, selection: NSRange, tables: [NSRange]) -> Bool {
+    tableCaretHidden(selection, tables: tables) || tables.contains {
+        NSIntersectionRange($0, range).length > 0 || range.length == 0 && range.location >= $0.location && range.location <= NSMaxRange($0)
+    }
+}
 func tableEditSelection(_ selection: NSRange, edit: NativeSourceEdit) -> NSRange {
     let delta = edit.text.utf16.count - edit.range.length
     func map(_ offset: Int) -> Int {
@@ -153,12 +164,19 @@ private struct NativeGridCell: View {
 }
 </ui:copy>
 
-TextKit keeps the first source character as a layout anchor with the grid's height. Null glyphs and zero control-character advancement remove the remaining source rows from layout. The hosting view occupies that reserved rectangle, so the table replaces its lines instead of covering readable prose. Source edits retire obsolete ranges immediately; background scanning attaches current ranges again without rewriting text. A new source edit aimed into hidden table bytes first reveals them and refuses that edit. Registered native undo/redo is already an authorized reversal of the editor’s own change; allow it through the hidden-byte guard so a rebuilt grid cannot consume the undo without changing text.
+TextKit keeps the first source character as a layout anchor with the grid's height. Null glyphs and zero control-character advancement remove the remaining source rows from layout. The hosting view occupies that reserved rectangle, so the table replaces its lines instead of covering readable prose. Source edits retire obsolete ranges immediately; background scanning attaches current ranges again without rewriting text. The source caret is suppressed throughout each grid’s retained range, including its layout anchor. A new source edit or Delete aimed there is refused without changing presentation. Backspace at the first boundary must also be refused, because deleting the preceding newline could change the table’s Markdown context. Authors reveal source explicitly with Edit source. Grid cell inputs keep their own normal carets. Registered native undo/redo is already an authorized reversal of the editor’s own change; allow it through the hidden-byte guard so a rebuilt grid cannot consume the undo without changing text.
 
 <ui:copy id="simple-7fad175521-0">
 #if os(macOS)
 import AppKit
 final class SimpleMacTextView: NSTextView {
+    var tableRanges: [NSRange] = [] { didSet { needsDisplay = true } }
+    var tableCaretIsHidden: Bool { tableCaretHidden(selectedRange(), tables: tableRanges) }
+    override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {
+        // Let the off phase erase an existing caret when a grid attaches.
+        if !flag || !tableCaretIsHidden { super.drawInsertionPoint(in: rect, color: color, turnedOn: flag) }
+    }
+
     override func accessibilityChildren() -> [Any]? {
         (super.accessibilityChildren() ?? []) + subviews.filter { $0 is NSHostingView<NativeTableGrid> }
     }
@@ -168,6 +186,12 @@ final class SimpleMacTextView: NSTextView {
 #else
 import UIKit
 private final class SimpleTextView: UITextView {
+    var tableRanges: [NSRange] = [] { didSet { setNeedsDisplay() } }
+    override func caretRect(for position: UITextPosition) -> CGRect {
+        let selection = NSRange(location: offset(from: beginningOfDocument, to: position), length: 0)
+        return tableCaretHidden(selection, tables: tableRanges) ? .zero : super.caretRect(for: position)
+    }
+
     var willCompose: (() -> Void)?
     override func setMarkedText(_ markedText: String?, selectedRange: NSRange) { willCompose?(); super.setMarkedText(markedText, selectedRange: selectedRange) }
 }
@@ -326,8 +350,9 @@ private typealias FoldFont = UIFont
         if buffer.multiSource == buffer.text, buffer.multiRanges.count > 1, let replacementString, !text.hasMarkedText() {
             _ = buffer.replaceMultiple(replacementString, affected: affectedCharRange); return false
         }
-        let hidden = folding.tables.contains { NSIntersectionRange($0.range, affectedCharRange).length > 0 || NSLocationInRange(affectedCharRange.location, $0.range) } || folding.ranges.contains { NSIntersectionRange($0, affectedCharRange).length > 0 || NSLocationInRange(affectedCharRange.location, $0) }
-        if hidden { buffer.tableSourceVisible = true }; unfoldAll(); return !hidden
+        if tableSourceEditHitsGrid(affectedCharRange, selection: text.selectedRange(), tables: text.tableRanges) { return false }
+        let hidden = folding.ranges.contains { NSIntersectionRange($0, affectedCharRange).length > 0 || NSLocationInRange(affectedCharRange.location, $0) }
+        unfoldAll(); return !hidden
     }
     func textDidChange(_ notification: Notification) { if !buffer.applyingMulti { buffer.clearMulti() }; unfoldAll(); buffer.selection = text.selectedRange(); buffer.text = text.string; measureDebugLines() }
     func textViewDidChangeSelection(_ notification: Notification) {
@@ -387,6 +412,7 @@ private typealias FoldFont = UIFont
             }
             storage.removeAttribute(.paragraphStyle, range: NSRange(location: 0, length: storage.length))
             folding.tables = buffer.inlineMarkup.source == source && !buffer.tableSourceVisible ? inlineTables(buffer.inlineMarkup) : []
+            text.tableRanges = folding.tables.map(\.range)
             for table in folding.tables {
                 let style = NSMutableParagraphStyle(); style.minimumLineHeight = table.height; style.maximumLineHeight = table.height
                 storage.addAttribute(.paragraphStyle, value: style, range: NSRange(location: table.range.location, length: 1))
@@ -592,8 +618,9 @@ import UIKit
         if buffer.multiSource == buffer.text, buffer.multiRanges.count > 1, textView.markedTextRange == nil {
             _ = buffer.replaceMultiple(text, affected: range); return false
         }
-        let hidden = folding.tables.contains { NSIntersectionRange($0.range, range).length > 0 || NSLocationInRange(range.location, $0.range) } || folding.ranges.contains { NSIntersectionRange($0, range).length > 0 || NSLocationInRange(range.location, $0) }
-        if hidden { buffer.tableSourceVisible = true }; unfoldAll(); return !hidden
+        if tableSourceEditHitsGrid(range, selection: textView.selectedRange, tables: self.text.tableRanges) { return false }
+        let hidden = folding.ranges.contains { NSIntersectionRange($0, range).length > 0 || NSLocationInRange(range.location, $0) }
+        unfoldAll(); return !hidden
     }
     func textViewDidChange(_ textView: UITextView) { if !buffer.applyingMulti { buffer.clearMulti() }; unfoldAll(); buffer.selection = textView.selectedRange; buffer.text = textView.text; measureDebugLines() }
     func textViewDidChangeSelection(_ textView: UITextView) {
@@ -649,6 +676,7 @@ import UIKit
             }
             storage.removeAttribute(.paragraphStyle, range: NSRange(location: 0, length: storage.length))
             folding.tables = buffer.inlineMarkup.source == source && !buffer.tableSourceVisible ? inlineTables(buffer.inlineMarkup) : []
+            text.tableRanges = folding.tables.map(\.range)
             for table in folding.tables {
                 let style = NSMutableParagraphStyle(); style.minimumLineHeight = table.height; style.maximumLineHeight = table.height
                 storage.addAttribute(.paragraphStyle, value: style, range: NSRange(location: table.range.location, length: 1))
