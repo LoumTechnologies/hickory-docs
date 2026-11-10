@@ -3,9 +3,10 @@ import SwiftUI
 // Cell commits go through the editor's snapshot/permission guard and native undo.
 struct NativeTableGrid: View {
     var table: InlineTable; var source: String; var buffer: DocumentBuffer
+    @FocusState private var selectedCell: Int?
     var body: some View {
         VStack(spacing: 0) {
-            HStack { Text("Table").font(.caption); Spacer(); Button("Edit source") { buffer.tableSourceVisible = true } }.frame(height: 28).padding(.horizontal, 6)
+            HStack { Text("Table").font(.caption); Spacer(); Button("Edit source text") { buffer.sourceTable = table.id }.buttonStyle(.bordered) }.frame(height: 28).padding(.horizontal, 6)
             ScrollView([.horizontal, .vertical]) {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 0) {
@@ -17,8 +18,12 @@ struct NativeTableGrid: View {
                     ForEach(table.rows.indices, id: \.self) { row in
                         HStack(spacing: 0) {
                             Text(String(row + 1)).font(.caption).frame(width: 32, height: 28)
-                            ForEach(table.rows[row]) { cell in
-                                NativeGridCell(cell: cell, row: row, source: source, buffer: buffer).frame(width: 140, height: 28).border(.secondary.opacity(0.3))
+                            ForEach(table.rows[row].indices, id: \.self) { column in
+                                NativeGridCell(cell: table.rows[row][column], row: row, source: source, buffer: buffer, focus: $selectedCell, address: row * 10000 + column, move: { dr, dc in
+                                    let nextRow = min(max(0, row + dr), table.rows.count - 1)
+                                    let nextColumn = min(max(0, column + dc), table.rows[nextRow].count - 1)
+                                    selectedCell = nextRow * 10000 + nextColumn
+                                }).frame(width: 140, height: 28).border(.secondary.opacity(0.3))
                             }
                         }
                     }
@@ -57,20 +62,24 @@ private struct NativeGridCell: View {
     var cell: InlineCell; var row: Int; var source: String; var buffer: DocumentBuffer
     @State private var draft = ""
     @State private var notice = ""
-    @FocusState private var focused: Bool
+    var focus: FocusState<Int?>.Binding; var address: Int; var move: (Int, Int) -> Void
     @State private var committing = false
     private func commit() {
         guard !committing, draft != cell.value else { return }
         committing = true; defer { committing = false }
-        if buffer.applyTableEdit?(NativeSourceEdit(range: cell.range, text: inlineCellText(draft)), source) != true { notice = "Table changed. Reopen the cell and try again." }
+        if buffer.applyTableEdit?(NativeSourceEdit(range: cell.range, text: inlineCellText(draft, format: cell.format, delimiter: cell.delimiter)), source) != true { notice = "Table changed. Reopen the cell and try again." }
     }
     var body: some View {
         TextField("", text: $draft).textFieldStyle(.plain).font(.system(size: 13))
             .padding(.horizontal, 5).disabled(buffer.readOnly)
             .accessibilityLabel("Row \(row + 1), column \(tableColumnName(cell.column))")
             .onAppear { draft = cell.value }.onChange(of: cell.value) { _, value in draft = value }
-            .focused($focused).onChange(of: focused) { wasFocused, isFocused in if wasFocused && !isFocused { commit() } }
-            .onSubmit { commit() }.help(notice.isEmpty ? "Edit cell; press Return to apply" : notice)
+            .focused(focus, equals: address).onChange(of: focus.wrappedValue) { old, new in if old == address && new != address { commit() } }
+            .onKeyPress(.upArrow) { commit(); move(-1, 0); return .handled }
+            .onKeyPress(.downArrow) { commit(); move(1, 0); return .handled }
+            .onKeyPress(.leftArrow) { commit(); move(0, -1); return .handled }
+            .onKeyPress(.rightArrow) { commit(); move(0, 1); return .handled }
+            .onDisappear { commit() }.onSubmit { commit() }.help(notice.isEmpty ? "Edit cell; press Return to apply" : notice)
     }
 }
 #if os(macOS)
@@ -183,6 +192,7 @@ private typealias FoldFont = UIFont
     private var tableViewport: CGPoint?
     private var tableSource = ""
     private var tableSourceVisible = false
+    private var sourceTable: Int?
     #if os(macOS)
     private var tableViews: [Int: NSHostingView<NativeTableGrid>] = [:]
     #else
@@ -245,7 +255,6 @@ private typealias FoldFont = UIFont
     func applyTableEdit(_ edit: NativeSourceEdit, source: String) -> Bool {
         guard buffer.text == source, !buffer.readOnly else { return false }
         let selection = text.selectedRange(), viewport = scroll.contentView.bounds.origin
-        text.window?.makeFirstResponder(text)
         guard applySourceEdits([edit], source: source) else { return false }
         text.setSelectedRange(tableEditSelection(selection, edit: edit))
         tableViewport = viewport
@@ -362,8 +371,8 @@ private typealias FoldFont = UIFont
     private func presentTables() {
         let source = text.string
         let storage = text.textStorage!
-        if tableSource != source || tableSourceVisible != buffer.tableSourceVisible || folding.tables.isEmpty && buffer.inlineMarkup.source == source && !inlineTables(buffer.inlineMarkup).isEmpty && !buffer.tableSourceVisible {
-            tableSource = source; tableSourceVisible = buffer.tableSourceVisible
+        if tableSource != source || tableSourceVisible != buffer.tableSourceVisible || sourceTable != buffer.sourceTable || folding.tables.isEmpty && buffer.inlineMarkup.source == source && !inlineTables(buffer.inlineMarkup).isEmpty && !buffer.tableSourceVisible {
+            tableSource = source; tableSourceVisible = buffer.tableSourceVisible; sourceTable = buffer.sourceTable
             storage.beginEditing()
             for table in folding.tables {
                 let range = NSIntersectionRange(table.range, NSRange(location: 0, length: storage.length))
@@ -373,7 +382,7 @@ private typealias FoldFont = UIFont
             tabs.defaultTabInterval = ("    " as NSString).size(withAttributes: [.font: text.font ?? .monospacedSystemFont(ofSize: 13, weight: .regular)]).width
             storage.addAttribute(.paragraphStyle, value: tabs, range: NSRange(location: 0, length: storage.length))
             text.typingAttributes[.paragraphStyle] = tabs
-            folding.tables = buffer.inlineMarkup.source == source && !buffer.tableSourceVisible ? inlineTables(buffer.inlineMarkup) : []
+            folding.tables = buffer.inlineMarkup.source == source && !buffer.tableSourceVisible ? inlineTables(buffer.inlineMarkup).filter { $0.id != buffer.sourceTable } : []
             text.tableRanges = folding.tables.map(\.range)
             for table in folding.tables {
                 let style = NSMutableParagraphStyle(); style.minimumLineHeight = table.height; style.maximumLineHeight = table.height
@@ -431,6 +440,7 @@ private typealias FoldFont = UIFont
                     }
                     storage.addAttribute(.font, value: font, range: mark.range)
                     if mark.kind == "code" { storage.addAttribute(.backgroundColor, value: NSColor.quaternaryLabelColor, range: mark.range) }
+                    if mark.kind == "diff-add" || mark.kind == "diff-remove" { storage.addAttribute(.backgroundColor, value: (mark.kind == "diff-add" ? NSColor.systemGreen : NSColor.systemRed).withAlphaComponent(0.15), range: mark.range) }
                 }
             }
             paintedInlineSource = source; hadInlineFonts = !buffer.inlineMarkup.marks.isEmpty
@@ -478,6 +488,7 @@ import UIKit
     private var tableViewport: CGPoint?
     private var tableSource = ""
     private var tableSourceVisible = false
+    private var sourceTable: Int?
     #if os(macOS)
     private var tableViews: [Int: NSHostingView<NativeTableGrid>] = [:]
     #else
@@ -533,7 +544,6 @@ import UIKit
     func applyTableEdit(_ edit: NativeSourceEdit, source: String) -> Bool {
         guard buffer.text == source, !buffer.readOnly else { return false }
         let selection = text.selectedRange, viewport = text.contentOffset
-        text.becomeFirstResponder()
         guard applySourceEdits([edit], source: source) else { return false }
         text.selectedRange = tableEditSelection(selection, edit: edit)
         tableViewport = viewport; text.setContentOffset(viewport, animated: false)
@@ -645,8 +655,8 @@ import UIKit
     private func presentTables() {
         let source = text.text ?? ""
         let storage = text.textStorage
-        if tableSource != source || tableSourceVisible != buffer.tableSourceVisible || folding.tables.isEmpty && buffer.inlineMarkup.source == source && !inlineTables(buffer.inlineMarkup).isEmpty && !buffer.tableSourceVisible {
-            tableSource = source; tableSourceVisible = buffer.tableSourceVisible
+        if tableSource != source || tableSourceVisible != buffer.tableSourceVisible || sourceTable != buffer.sourceTable || folding.tables.isEmpty && buffer.inlineMarkup.source == source && !inlineTables(buffer.inlineMarkup).isEmpty && !buffer.tableSourceVisible {
+            tableSource = source; tableSourceVisible = buffer.tableSourceVisible; sourceTable = buffer.sourceTable
             storage.beginEditing()
             for table in folding.tables {
                 let range = NSIntersectionRange(table.range, NSRange(location: 0, length: storage.length))
@@ -656,7 +666,7 @@ import UIKit
             tabs.defaultTabInterval = ("    " as NSString).size(withAttributes: [.font: text.font ?? .monospacedSystemFont(ofSize: 13, weight: .regular)]).width
             storage.addAttribute(.paragraphStyle, value: tabs, range: NSRange(location: 0, length: storage.length))
             text.typingAttributes[.paragraphStyle] = tabs
-            folding.tables = buffer.inlineMarkup.source == source && !buffer.tableSourceVisible ? inlineTables(buffer.inlineMarkup) : []
+            folding.tables = buffer.inlineMarkup.source == source && !buffer.tableSourceVisible ? inlineTables(buffer.inlineMarkup).filter { $0.id != buffer.sourceTable } : []
             text.tableRanges = folding.tables.map(\.range)
             for table in folding.tables {
                 let style = NSMutableParagraphStyle(); style.minimumLineHeight = table.height; style.maximumLineHeight = table.height
@@ -714,6 +724,7 @@ import UIKit
                     }
                     storage.addAttribute(.font, value: font, range: mark.range)
                     if mark.kind == "code" { storage.addAttribute(.backgroundColor, value: UIColor.secondarySystemBackground, range: mark.range) }
+                    if mark.kind == "diff-add" || mark.kind == "diff-remove" { storage.addAttribute(.backgroundColor, value: (mark.kind == "diff-add" ? UIColor.systemGreen : UIColor.systemRed).withAlphaComponent(0.15), range: mark.range) }
                 }
             }
             paintedInlineSource = source; hadInlineFonts = !buffer.inlineMarkup.marks.isEmpty
@@ -864,6 +875,8 @@ struct NativeFindPanel: View {
 }
 
 struct LanguageEditor: View {
+    @State private var railWidth: CGFloat = 24
+    @State private var resizeStart: CGFloat?
     var buffer: DocumentBuffer
     var debugger: NativeDebugger?
     var body: some View {
@@ -880,16 +893,26 @@ struct LanguageEditor: View {
                 }.clipped()
             }.frame(width: 24)
             GeometryReader { geometry in
+                let breakpoints = debugger?.breakpoints[buffer.file.path] ?? []
                 Canvas { context, size in
                     for row in buffer.visibleDebugLines where row.y + row.height > 0 && row.y < size.height {
+                        if let mark = breakpoints.first(where: { $0["line"] as? Int == row.line }) {
+                            let state = mark["state"] as? String
+                            context.draw(Text(state == "refused" ? "○" : state == "bound" ? "●" : "◌").font(.system(size: 11)).foregroundColor(.red), at: CGPoint(x: 2, y: row.y + row.height / 2), anchor: .leading)
+                        }
                         context.draw(Text(String(row.line + 1)).font(.system(size: 13, design: .monospaced)).foregroundColor(.secondary),
                             at: CGPoint(x: size.width - 6, y: row.y + row.height / 2), anchor: .trailing)
                     }
-                }.clipped().allowsHitTesting(false).accessibilityHidden(true)
+                }.clipped().contentShape(Rectangle()).onTapGesture { point in
+                    if let row = buffer.visibleDebugLines.first(where: { point.y >= $0.y && point.y < $0.y + $0.height }),
+                       inlineDebugPath(buffer.text, path: buffer.file.path, line: row.line) != nil {
+                        debugger?.toggle(buffer.file.path, line: row.line)
+                    }
+                }.accessibilityLabel("Line numbers; click code to toggle breakpoint")
             }.frame(width: CGFloat(max(3, String(buffer.text.filter { $0 == "\n" }.count + 1).count)) * 8 + 12)
             NativeEditor(buffer: buffer).overlay(alignment: .topLeading) {
-                if buffer.tableSourceVisible && !inlineTables(buffer.inlineMarkup).isEmpty {
-                    Button("Show table grids") { buffer.tableSourceVisible = false }.buttonStyle(.bordered).padding(4)
+                if (buffer.tableSourceVisible || buffer.sourceTable != nil) && !inlineTables(buffer.inlineMarkup).isEmpty {
+                    Button("Edit tables as grids") { buffer.sourceTable = nil; buffer.tableSourceVisible = false }.buttonStyle(.bordered).padding(4)
                 }
             }.overlay {
                 Canvas { context, _ in
@@ -909,7 +932,15 @@ struct LanguageEditor: View {
                     .accessibilityLabel("Document minimap")
                     .accessibilityAdjustableAction { direction in buffer.navigate?(direction == .increment ? 1 : 0) }
             }.frame(width: 40)
-            if let debugger { NativeDebugRail(buffer: buffer, debug: debugger).frame(width: 24) }
+            if let debugger {
+                Rectangle().fill(.secondary.opacity(0.35)).frame(width: 4).contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 0).onChanged { value in
+                        if resizeStart == nil { resizeStart = railWidth }
+                        railWidth = min(220, max(24, (resizeStart ?? 24) - value.translation.width))
+                    }.onEnded { _ in resizeStart = nil })
+                    .accessibilityLabel("Resize right gutter").accessibilityAdjustableAction { direction in railWidth = min(220, max(24, railWidth + (direction == .increment ? 22 : -22))) }
+                NativeDebugRail(buffer: buffer, debug: debugger).frame(width: railWidth)
+            }
         }.overlay(alignment: .topTrailing) {
             Button("⌁") {
                 #if os(macOS)
@@ -997,31 +1028,63 @@ struct NativeDebugRail: View {
     var buffer: DocumentBuffer
     var debug: NativeDebugger
     @State private var opened: Int?
+    @State private var details: Int?
     @State private var expression = ""
     @State private var condition = ""
     private var paused: Int? { debug.sourceMatches(buffer) ? debug.line(in: buffer.file.path) : nil }
+    private func actions(_ line: Int) -> [String] {
+        var result: [String] = []
+        if buffer.inlineMarkup.source == buffer.text && buffer.inlineMarkup.debug.launch[line] != nil { result.append("debug") }
+        if buffer.inlineMarkup.source == buffer.text && buffer.inlineMarkup.equations.contains(where: { $0.line == line }) { result.append("equation") }
+        if !buffer.receipts(on: line).isEmpty { result.append("output") }
+        if paused == line { result += ["continue", "over", "in", "out", "stop", "inspect"] }
+        return result
+    }
+    private func symbol(_ action: String) -> String {
+        switch action { case "debug", "continue": return "play"; case "equation": return "function"; case "output": return "text.alignleft"; case "over": return "arrow.turn.down.right"; case "in": return "arrow.down"; case "out": return "arrow.up"; case "stop": return "stop.fill"; default: return "eye" }
+    }
+    @ViewBuilder private func icon(_ action: String, line: Int) -> some View {
+        Button {
+            opened = nil
+            switch action {
+            case "debug": Task { await debug.prepare(buffer, line: line); details = line }
+            case "continue", "over", "in", "out": debug.step(action)
+            case "stop": debug.stop()
+            default: details = line
+            }
+        } label: { Image(systemName: symbol(action)).frame(width: 20, height: 18) }
+        .buttonStyle(.plain).disabled(action == "debug" && (debug.active || buffer.dirty || buffer.saving)).help(action.capitalized).accessibilityLabel("\(action.capitalized) on line \(line + 1)")
+    }
     var body: some View {
         GeometryReader { geometry in
+            let rows = buffer.visibleDebugLines.filter { $0.y >= 0 && $0.y < geometry.size.height && !actions($0.line).isEmpty }
+            let columns = max(1, Int(geometry.size.width / 22))
             ZStack(alignment: .topLeading) {
-                ForEach(buffer.visibleDebugLines.filter { $0.y >= 0 && $0.y < geometry.size.height }, id: \.line) { row in
-                    let held = debug.breakpoints[buffer.file.path]?.first(where: { $0["line"] as? Int == row.line })
-                    let glyph = (buffer.inlineMarkup.source == buffer.text && (buffer.inlineMarkup.cells.contains { $0.line == row.line } || buffer.inlineMarkup.equations.contains { $0.line == row.line })) ? "⋯" : row.line == paused ? "⋯" : row.line == 0 ? "▷" : held == nil ? "⋯" : (held?["state"] as? String == "refused" ? "○" : held?["state"] as? String == "bound" ? "●" : "◌")
-                    Button(glyph) { opened = row.line; Task { await buffer.refreshReceipts() } }
-                        .buttonStyle(.plain).font(.system(size: 13)).frame(width: 24, height: min(18, row.height))
-                        .accessibilityLabel("Debug actions on line \(row.line + 1)")
-                        .position(x: 12, y: row.y + row.height / 2)
-                        .popover(isPresented: Binding(get: { opened == row.line }, set: { if !$0 { opened = nil } })) {
-                            ScrollView { controls(row.line).padding(10) }.frame(width: 330, height: 460)
-                        }
-                    if row.line == paused, !debug.variables.isEmpty {
-                        Text(debug.variables.prefix(3).map { "\($0["name"] as? String ?? "") = \($0["value"] as? String ?? "")" }.joined(separator: "  "))
-                            .font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1)
-                            .padding(3).background(.regularMaterial).frame(width: 220, alignment: .trailing)
-                            .offset(x: -224, y: row.y).allowsHitTesting(false).accessibilityLabel("Paused values")
+                ForEach(Array(rows.enumerated()), id: \.element.line) { index, row in
+                    let items = actions(row.line)
+                    let room = (index + 1 < rows.count ? rows[index + 1].y : geometry.size.height) - row.y
+                    let capacity = max(1, Int(room / 20)) * columns
+                    let visible = items.count <= capacity ? items.count : max(0, capacity - 1)
+                    ForEach(0..<visible, id: \.self) { slot in
+                        icon(items[slot], line: row.line).position(x: CGFloat(slot % columns) * 22 + 11, y: row.y + 9 + CGFloat(slot / columns) * 20)
+                    }
+                    if visible < items.count {
+                        Button("⋯") { opened = opened == row.line ? nil : row.line }
+                            .buttonStyle(.bordered).frame(width: 22, height: 18)
+                            .accessibilityLabel("More gutter icons on line \(row.line + 1)")
+                            .position(x: CGFloat(visible % columns) * 22 + 11, y: row.y + 9 + CGFloat(visible / columns) * 20)
+                            .popover(isPresented: Binding(get: { opened == row.line }, set: { if !$0 { opened = nil } })) {
+                                LazyVGrid(columns: Array(repeating: GridItem(.fixed(22), spacing: 2), count: min(4, items.count - visible)), spacing: 2) {
+                                    ForEach(Array(items.dropFirst(visible)), id: \.self) { action in icon(action, line: row.line) }
+                                }.padding(6).frame(width: CGFloat(min(4, items.count - visible)) * 24 + 12, height: CGFloat((items.count - visible + 3) / 4) * 20 + 12)
+                            }
                     }
                 }
             }
         }.background(.quaternary.opacity(0.2))
+        .popover(isPresented: Binding(get: { details != nil }, set: { if !$0 { details = nil } })) {
+            if let details { ScrollView { controls(details).padding(10) }.frame(width: 330).frame(maxHeight: 460) }
+        }.task(id: buffer.base) { await buffer.refreshReceipts() }
     }
     @ViewBuilder private func controls(_ line: Int) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1031,9 +1094,7 @@ struct NativeDebugRail: View {
                     InlineEquationControl(equation: equation, source: buffer.text, buffer: buffer).id("math:\(equation.id):\(buffer.text)")
                 }
                 if buffer.inlineMarkup.cells.filter({ $0.line == line }).count > 32 || buffer.inlineMarkup.equations.filter({ $0.line == line }).count > 4 { Text("More items remain editable in source.").font(.caption) }
-                ForEach(Array(buffer.inlineMarkup.cells.filter { $0.line == line }.prefix(32))) { cell in
-                    InlineCellControl(cell: cell, source: buffer.text, buffer: buffer).id("\(cell.id):\(buffer.text)")
-                }
+
             }
             ForEach(buffer.receipts(on: line)) { receipt in
                 Text("Recorded output · " + (receipt.status ?? "unrecorded")).font(.caption)
@@ -1044,11 +1105,12 @@ struct NativeDebugRail: View {
             }
             if !buffer.receiptNotice.isEmpty { Text(buffer.receiptNotice).font(.caption) }
             if buffer.file.doc_id != nil { Button("Refresh recorded output", systemImage: "arrow.clockwise") { Task { await buffer.refreshReceipts() } } }
-            if !debug.sourceMatches(buffer) { Text("Save edited text before launching. Values belong to the source that ran.").font(.caption) }
+            if inlineDebugPath(buffer.text, path: buffer.file.path, line: line, launch: true) != nil || inlineDebugPath(buffer.text, path: buffer.file.path, line: line) != nil {
+            if buffer.dirty { Text("Save edited text before launching. Values belong to the source that ran.").font(.caption) }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 86))], spacing: 5) {
                 Button("Debug", systemImage: "play") { Task { await debug.prepare(buffer, line: line) } }.disabled(debug.active || buffer.dirty || buffer.saving)
-                Button("Breakpoint", systemImage: "circle.fill") { debug.toggle(buffer.file.path, line: line) }
-                if debug.status == "paused" {
+                if inlineDebugPath(buffer.text, path: buffer.file.path, line: line) != nil { Button("Breakpoint", systemImage: "circle.fill") { debug.toggle(buffer.file.path, line: line) } }
+                if paused == line {
                     Button("Continue", systemImage: "play.fill") { debug.step("continue") }; Button("Step over", systemImage: "arrow.turn.down.right") { debug.step("over") }
                     Button("Step in", systemImage: "arrow.down") { debug.step("in") }; Button("Step out", systemImage: "arrow.up") { debug.step("out") }
                     if debug.capabilities["step_back"] as? Bool == true { Button("Step back", systemImage: "arrow.uturn.backward") { debug.step("back") } }
@@ -1063,7 +1125,7 @@ struct NativeDebugRail: View {
                 TextField("Breakpoint condition", text: $condition)
                 Button("Apply condition", systemImage: "checkmark") { debug.toggle(buffer.file.path, line: line, condition: condition) }
             }
-            if debug.status == "paused" {
+            if paused == line {
                 TextField("Expression", text: $expression)
                 HStack { Button("Evaluate", systemImage: "equal") { debug.evaluate(expression) }; Button("Watch", systemImage: "eye") { debug.evaluate(expression, watch: true) } }
                 ScrollView {
@@ -1073,6 +1135,7 @@ struct NativeDebugRail: View {
                         ForEach(debug.values.keys.sorted(), id: \.self) { key in HStack { Text("\(key) = \(debug.values[key] ?? "…")"); if debug.watches.contains(key) { Button("×") { debug.watches.removeAll { $0 == key }; debug.values.removeValue(forKey: key) }.accessibilityLabel("Remove watch \(key)") } } }
                     }
                 }.frame(maxHeight: 180)
+            }
             }
         }
     }

@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { gutterIconLayout, layoutEditorGutters } from "../editor/gutterIconLayout";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Compartment, EditorState, StateEffect, EditorSelection } from "@codemirror/state";
 import { EditorView, keymap, drawSelection, lineNumbers, rectangularSelection, crosshairCursor } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentMore, indentLess } from "@codemirror/commands";
@@ -17,13 +18,14 @@ import { languageFromPath } from "../editor/languages";
 import { isDebuggable } from "../debug/languages";
 import { useFollowingDebugSession } from "../debug/plainDebugHosts";
 import { IDLE_SESSION } from "../debug/useDebugger";
-import { debugEditor, debugStateEffects, revealLine } from "../debug/cmDebug";
+import { debugEditor, debugStateEffects, revealLine, breakpointLine } from "../debug/cmDebug";
 import { DebugLaunchRail } from "../debug/DebugRail";
 import { DebugStrip } from "../debug/DebugStrip";
 import { observationSourceChanged } from "../debug/observations";
 import { api } from "../api/client";
 import { launchWithProfiles } from "../debug/launchProfiles";
 import { claimReveal, onRevealLine, openLocation } from "../lib/revealLine";
+const CsvGrid = lazy(() => import("../components/TablePanel").then(module => ({ default: module.TablePanel })));
 // Infer from nonblank lines only: blank scratch lines must not change policy.
 export function simpleIndent(source: string): string {
   const prefixes = source.split("\n").filter(line => line.trim()).map(line => line.match(/^[ \t]*/)![0]);
@@ -66,12 +68,21 @@ function localFold(state: EditorState, from: number) {
   if (!ranges) { ranges = new Map(simpleFoldRanges(state.doc.toString()).map(range => [range.from, range])); foldCache.set(state.doc, ranges); }
   return ranges.get(state.doc.lineAt(from).to) ?? null;
 }
-const editors = new WeakMap<Buffer, { view: EditorView; language: Compartment; prose: Compartment; richAttached?: boolean }>();
+const editors = new WeakMap<Buffer, { view: EditorView; language: Compartment; prose: Compartment; richAttached?: boolean; toggleBreakpoint?: (line: number) => void }>();
 export const SIMPLE_EDITOR_ATTACHED = "hickory:simple-editor-attached";
 export function editorForBuffer(buffer: Buffer) { return editors.get(buffer); }
 export function openFind(buffer: Buffer) { const view = editors.get(buffer)?.view; if (view) openSearchPanel(view); }
 export function Document({ buffer }: { buffer: Buffer }) {
   const host = useRef<HTMLDivElement>(null);
+  const [csvReady, setCsvReady] = useState(false);
+  const [railWidth, setRailWidth] = useState(24);
+  const [csvSource, setCsvSource] = useState(false);
+  const csv = /\.csv$/i.test(buffer.file.path);
+  const tableSource = buffer.text;
+  useEffect(() => { if (!csv) return; let cancelled = false;
+    void import("../components/TablePanel").then(() => { if (!cancelled) setCsvReady(true); }).catch(() => { /* Keep readable CSV text if the optional grid cannot load. */ });
+    return () => { cancelled = true; };
+  }, [csv]);
   useSyncExternalStore(buffer.subscribe, buffer.snapshot);
   const [view, setView] = useState<EditorView | null>(null);
   const [parserReady, setParserReady] = useState(hickLangReady);
@@ -95,7 +106,11 @@ export function Document({ buffer }: { buffer: Buffer }) {
     if (!cached) {
       const language = new Compartment(), prose = new Compartment();
       const view = new EditorView({ state: EditorState.create({ doc: buffer.text, extensions: [
-        history(), indentUnit.of(simpleIndent(buffer.text)), EditorState.tabSize.of(4), drawSelection(), EditorState.allowMultipleSelections.of(true), rectangularSelection(), crosshairCursor(), lineNumbers(), codeFolding(), foldGutter({ openText: "−", closedText: "+" }), search({ top: true, literal: true }),
+        history(), layoutEditorGutters.of(false), gutterIconLayout, indentUnit.of(simpleIndent(buffer.text)), EditorState.tabSize.of(4), drawSelection(), EditorState.allowMultipleSelections.of(true), rectangularSelection(), crosshairCursor(), lineNumbers({ domEventHandlers: { mousedown: (editor, block, event) => {
+          const line = breakpointLine(editor.state, editor.state.doc.lineAt(block.from).number - 1);
+          if (line === null) return false;
+          event.preventDefault(); editors.get(buffer)?.toggleBreakpoint?.(line); return true;
+        } } }), codeFolding(), foldGutter({ openText: "−", closedText: "+" }), search({ top: true, literal: true }),
         EditorState.transactionExtender.of(tr => {
           const query = tr.effects.find(effect => effect.is(setSearchQuery))?.value as SearchQuery | undefined;
           return query && !query.literal ? { effects: setSearchQuery.of(new SearchQuery({ ...query, literal: true })) } : null;
@@ -109,6 +124,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
       ] }) });
       cached = { view, language, prose }; editors.set(buffer, cached); window.dispatchEvent(new Event(SIMPLE_EDITOR_ATTACHED));
     }
+    cached.toggleBreakpoint = line => debugRef.current.toggleBreakpoint(line);
     host.current?.append(cached.view.dom);
     window.dispatchEvent(new Event(SIMPLE_EDITOR_ATTACHED));
     setView(cached.view);
@@ -184,7 +200,14 @@ export function Document({ buffer }: { buffer: Buffer }) {
       { isCurrent: () => !!view?.dom.isConnected && buffer.text === source && !buffer.dirty && !buffer.saving });
   };
   return <div className="document-body">
-    <div className="editor-row"><div ref={host} className="editor-host editor-cm-host" /><Minimap buffer={buffer} />
+    {csv && <button type="button" className="simple-source-toggle" onClick={() => setCsvSource(value => !value)}>{csvSource ? "Edit table as grid" : "Edit source text"}</button>}
+    {csv && csvReady && !csvSource && view && <Suspense fallback={<span>Loading table…</span>}><CsvGrid source={buffer.text} header delimiter="," sourceCurrent={() => !buffer.readonly && view.state.doc.toString() === tableSource && buffer.text === tableSource}
+      onChange={buffer.readonly ? undefined : text => { if (!buffer.readonly && buffer.text === tableSource && view.state.doc.toString() === tableSource) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text }, userEvent: "input.table" }); }} /></Suspense>}
+    <div className="editor-row" style={{ ...(csv && csvReady && !csvSource && view ? { display: "none" } : {}), "--simple-rail-width": `${railWidth}px` } as React.CSSProperties}><div ref={host} className="editor-host editor-cm-host" /><Minimap buffer={buffer} />
+      <div className="simple-rail-resize" role="separator" aria-label="Resize right gutter" tabIndex={0}
+        onKeyDown={event => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setRailWidth(width => Math.max(24, Math.min(220, width + (event.key === "ArrowLeft" ? 22 : -22)))); } }}
+        onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); }}
+        onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) setRailWidth(width => Math.max(24, Math.min(220, width - event.movementX))); }} />
       <DebugLaunchRail view={view} plainPath={debuggable && !literate ? buffer.file.path : undefined} enabled={["idle", "finished", "failed"].includes(debug.status)} onStart={debuggable && (!literate || parserReady) ? start : undefined} />
     </div>
     {debuggable && view && (!literate || parserReady) && <DebugStrip editorView={view} pausedLine={changed ? null : debug.pausedLine}

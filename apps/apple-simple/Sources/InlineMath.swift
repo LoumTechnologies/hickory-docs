@@ -13,15 +13,19 @@ import WebKit
         decisionHandler(url?.isFileURL == true || url?.scheme == "about" ? .allow : .cancel)
     }
 }
+// Inspect bundles without touching SwiftPM's fatal Bundle.module accessor.
+func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main]) -> URL? {
+    let candidates = bundles + roots.compactMap { Bundle(url: $0.appendingPathComponent("HickorySimple_HickorySimple.bundle")) }
+    return candidates.lazy.compactMap { bundle in
+        bundle.url(forResource: "math", withExtension: "html", subdirectory: "Resources") ?? bundle.url(forResource: "math", withExtension: "html")
+    }.first
+}
 @MainActor func makeMathView(_ coordinator: MathCoordinator) -> WKWebView {
     let configuration = WKWebViewConfiguration(); configuration.websiteDataStore = .nonPersistent(); configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
     let view = WKWebView(frame: .zero, configuration: configuration); view.navigationDelegate = coordinator
-    #if SWIFT_PACKAGE
-    let bundle = Bundle.module
-    #else
-    let bundle = Bundle.main
-    #endif
-    let url = bundle.url(forResource: "math", withExtension: "html", subdirectory: "Resources") ?? bundle.url(forResource: "math", withExtension: "html")
+    let roots = [Bundle.main.resourceURL, Bundle.main.bundleURL,
+        URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()].compactMap { $0 }
+    let url = nativeMathResource(roots: roots)
     if let url { view.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent()) }
     else { view.loadHTMLString("<body><p>Math resource missing; source stays editable.</p><div id='math'></div><script>globalThis.renderMath=s=>document.getElementById('math').textContent=s</script></body>", baseURL: nil) }
     return view

@@ -475,7 +475,7 @@ export function DebugStrip(props: DebugStripProps) {
       {props.locationActions}
       {/* The stack, as a combo box: pick a frame, and the gutter marks, the
           paused line and the inline values follow it. */}
-      <MoreActions glyph="⋯" label="Debug options">
+      <MoreActions glyph="⚙" label="Debug options">
       <span>{props.launchTarget ?? props.program ?? ""} · {statusWord(props.status, props.exitCode)}</span>
       {!over && <>
       {props.frames.length > 0 && (

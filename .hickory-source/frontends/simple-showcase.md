@@ -272,7 +272,7 @@ Preserve the nested Hickory document literally. Its generated file belongs to th
 Open this document beside `orders.py`. **Bold decisions**, *emphasized notes*,
 `literal code` and headings remain editable. Try typing and undoing beside a
 rendered table; use **Edit source** in the browser to reveal its backing text.
-Markdown tables appear as editable grids on every simple UI. Native equation and CSV cell controls remain in each source line's right-hand ⋯ menu.
+Markdown and CSV tables appear as editable grids on every simple UI. Use the arrow keys to move between cells. **Edit source text** reveals just that table; **Edit tables as grids** restores its grid. Equation controls use the function icon beside their source line.
 
 ## A Markdown table you can edit
 
@@ -319,8 +319,24 @@ def coupon_total(cents: int, discount_percent: int) -> int:
 
 if __name__ == "__main__":
     total = coupon_total(2350, 20)
-    print(f"Coupon total: {total} cents")
+    print(f"Coupon receipt: {total} cents")
 </h:file>
+
+## Patch the coupon without copying its program
+
+This diff records the receipt-label change already present in the executable
+Python construction above. Debug `generated/coupon.py` from that file block.
+Diff context and deleted lines are review text, so they do not offer breakpoints.
+
+```diff
+--- a/generated/coupon.py
++++ b/generated/coupon.py
+@@ -7,3 +7,3 @@
+ if __name__ == "__main__":
+     total = coupon_total(2350, 20)
+-    print(f"Coupon total: {total} cents")
++    print(f"Coupon receipt: {total} cents")
+```
 
 ## A real recorded execution
 
@@ -455,18 +471,18 @@ that machine, not on the phone. See
 | --- | --- | --- |
 | Files and immediate text | Open `orders.py`, then `workbook.md` | Text is readable before optional services finish. |
 | Line numbers and wrapping | Narrow `scratch.txt` | Wrapped continuations retain one logical line number. |
-| Folding | Right ⋯ beside `for item in items:` in `orders.py` | Fold/unfold the indented body without changing saved source. |
+| Folding | Left − beside `for item in items:` in `orders.py` | Fold/unfold the indented body without changing saved source. |
 | Minimap | Click near the bottom of `scratch.txt` | Jump to the numbered checkpoints, then return to the top. |
 | Find and replace | Cmd/Ctrl-F in `scratch.txt`; regex `name=(\w+)` and replacement `sku=$1` | Preview/navigate matches, replace all, undo once. |
 | Multiple selections | Find `TOKEN`; native Select all matches, browser select-next occurrence | Replace all selected words, then undo. |
 | Rectangular editing | Select the three aligned `pending` values in `scratch.txt` | Native Edit → column selection; browser Alt-drag rectangular selection. |
 | Additional cursors | Native Edit → add cursor above/below | Apple and Android physical keyboards broadcast typing; Android touch uses Apply to selections. IME composition returns to a single cursor. |
 | Source formatting | `workbook.md` headings, bold, italics and code | Native fonts style source while retaining delimiters; browser has richer inline rendering. |
-| Inline tables | Change Notebook quantity in either workbook table | The Markdown table replaces its source lines with a spreadsheet grid on every platform. Edit a cell, press Return/Done, then undo. Edit source reveals Markdown; native Show table grids returns to the grid. Native CSV cells remain in the line’s ⋯ controls. |
-| Inline equations | Open the workbook equation | Browser renders in flow; native ⋯ opens typesetting and an editable equation body. Apply, then undo. |
+| Inline tables | Change Notebook quantity in either workbook table | Both tables replace their source lines with spreadsheet grids. Arrow keys move between cells. Edit a cell, press Return/Done, then undo. Edit source text reveals that table; Edit tables as grids restores it. Opening `data/catalog.csv` uses the same editor. |
+| Inline equations | Open the workbook equation | Browser renders in flow; native function icon opens typesetting and an editable equation body. Apply, then undo. |
 | Diagram | Workbook's catalog → order → receipt graph | Inline graph in browser; readable source on native. |
 | Generated files | Open `generated/coupon.py` after preparation | Generated output is readable and read-only. Edit its owning workbook file block instead. |
-| Recorded output | Workbook's `order-check` cell | `Order: $18.80` and `Items: 5`; native uses the cell line's ⋯ controls. Viewing does not rerun code. |
+| Recorded output | Workbook's `order-check` cell | `Order: $18.80` and `Items: 5`; native uses the cell line's output icon. Viewing does not rerun code. |
 | Save and undo/redo | Make an edit in the copied `scratch.txt` | Save it; undo/redo remains available. Generated files refuse editing. |
 | Pane split/resize | Split from the menu, drag the divider | Keep code and workbook side by side. |
 | Tab move/reorder/dock | Drag a dirty tab to another strip or pane edge | Text, selection and undo follow it; dirty tabs refuse to close. |

@@ -24,6 +24,28 @@ class ParityTest {
         assertEquals(2, editorSourceOffset(4, tabs))
     }
 
+    @Test fun diffPresentationKeepsPatchTextLiteral() {
+        // Contract: .hickory-source/frontends/contract.md
+        val source = "```diff\n-old **text**\n+new **text**\n```"
+        val snapshot = computeInlineMarkup(source, "workbook.md")
+        assertEquals(listOf("diff-remove", "diff-add"), snapshot.marks.map { it.kind })
+        assertEquals(source, snapshot.source)
+        assertTrue(snapshot.debug.code.isEmpty())
+    }
+    @Test fun csvGridsAndContextualCodeLines() {
+        // Contract: .hickory-source/frontends/contract.md
+        val csv = "Name,Note\r\nCafé,\"two\nlines\"\r\nlast,"
+        val grid = inlineTables(computeInlineMarkup(csv, "stock.csv"))
+        assertEquals(1, grid.size)
+        assertEquals(listOf(listOf("Name", "Note"), listOf("Café", "two\nlines"), listOf("last", "")), grid.single().rows.map { it.map { it.value } })
+        val source = "| A | B |\n| --- | --- |\n| 1 | 2 |\n\n<h:table path=\"stock.csv\">\nName,Note\nPen,Blue\n</h:table>\n<h:file path=\"coupon.py\" language=\"python\">\ndef coupon():\n    return 1\n</h:file>\nProse"
+        assertEquals(2, inlineTables(computeInlineMarkup(source, "workbook.md")).size)
+        assertNull(inlineDebugPath(source, "workbook.md", 12))
+        assertNull(inlineDebugPath(source, "workbook.md", 0))
+        assertEquals("coupon.py", inlineDebugPath(source, "workbook.md", 8, true))
+        assertEquals("coupon.py", inlineDebugPath(source, "workbook.md", 10))
+        assertNull(inlineDebugPath("```xml\n<h:file path=\"fake.py\">\nprint(1)\n</h:file>\n```", "workbook.md", 2))
+    }
     @Test fun markdownTableProjectionRetainsSourceAndFollowingLineOffsets() {
         val source = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\">\r\nBefore 😀\r\n| A | B |\r\n| --- | ---: |\r\n| café | a\\|b |\r\nAfter\r\n```md\r\n| X | Y |\r\n| --- | --- |\r\n```\r\n</h:doc>"
         val tables = inlineTables(computeInlineMarkup(source, "workbook.md"))

@@ -84,6 +84,30 @@ describe("shared frontend layout contract", () => {
 
 // Contract: .hickory-source/frontends/contract.md — logical line numbers are immediate.
 describe("simple inline rich editing", () => {
+  it("opens CSV as a keyboard-navigable grid and restores source without replacing its editor", async () => {
+    const source = 'Name,Note\nCafé,"a,b"\n';
+    const buffer = new Buffer({ path: "stock.csv", name: "stock.csv", dir: false }, source, "hash", () => {});
+    const screen = render(createElement(Document, { buffer }));
+    try {
+      const table = await screen.findByTestId("table-panel");
+      const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+      const grid = within(table);
+      fireEvent.click(grid.getByRole("gridcell", { name: "Café" }));
+      fireEvent.keyDown(grid.getByRole("gridcell", { name: "Café" }), { key: "ArrowRight" });
+      fireEvent.keyDown(grid.getByRole("gridcell", { name: "a,b" }), { key: "Enter" });
+      const input = grid.getByRole("textbox", { name: "Cell contents" });
+      fireEvent.change(input, { target: { value: 'two,"quotes"' } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await waitFor(() => expect(buffer.text).toContain('"two,""quotes"""'));
+      fireEvent.click(screen.getByRole("button", { name: "Edit source text" }));
+      expect(screen.queryByTestId("table-panel")).toBeNull();
+      expect(EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)).toBe(view);
+      act(() => { undo(view); });
+      expect(buffer.text).toBe(source);
+      fireEvent.click(screen.getByRole("button", { name: "Edit table as grid" }));
+      expect(await screen.findByTestId("table-panel")).toBeTruthy();
+    } finally { screen.unmount(); }
+  });
   it("keeps source and undo usable while the parser needed by table grids is loading", async () => {
     let ready!: () => void;
     const pending = new Promise<void>(resolve => { ready = resolve; });
@@ -123,8 +147,12 @@ describe("simple inline rich editing", () => {
       await waitFor(() => expect(buffer.text).toBe(source.replace("120", "121")));
       const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
       act(() => { undo(view); }); await waitFor(() => expect(buffer.text).toBe(source));
-      fireEvent.click(table.getByRole("button", { name: "Edit source" }));
+      fireEvent.click(table.getByRole("button", { name: "Edit source text" }));
       await waitFor(() => expect(root()).toBeUndefined()); expect(view.state.doc.toString()).toBe(source);
+      fireEvent.click(screen.getByRole("button", { name: "Edit tables as grids" }));
+      await waitFor(() => expect(root()).toBeTruthy());
+      expect(EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)).toBe(view);
+      expect(view.state.doc.toString()).toBe(source);
     } finally { screen.unmount(); }
   }, 15000);
   it("shows cached stdout when timed transcript events are absent", async () => {

@@ -1,4 +1,8 @@
 import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
+import { Facet } from "@codemirror/state";
+
+// Dedicated number/fold/breakpoint columns can retain their own layout.
+export const layoutEditorGutters = Facet.define<boolean, boolean>({ combine: values => values.every(Boolean) });
 
 import { gutterSlots } from "../lib/cardRail";
 export { gutterSlots } from "../lib/cardRail";
@@ -19,13 +23,21 @@ export const gutterIconLayout = ViewPlugin.fromClass(class {
   popupIcons: Icon[] = [];
   destroyed = false;
   observer: MutationObserver | null = null;
+  observedWrapper: Element | null = null;
   constructor(readonly view: EditorView) {
     view.dom.ownerDocument.addEventListener("keydown", this.keyboard);
     for (const type of ["mousedown", "click", "dblclick"]) view.dom.addEventListener(type, this.retarget, true);
     view.dom.ownerDocument.addEventListener("pointerdown", this.outside, true);
     view.scrollDOM.addEventListener("scroll", this.scroll);
+    this.observeRail();
+    this.measure();
+  }
+  observeRail() {
+    const view = this.view;
     const wrapper = view.dom.closest(".editor-cm-host")?.parentElement;
-    if (wrapper && typeof MutationObserver !== "undefined") {
+    if (this.observer && wrapper !== this.observedWrapper) { this.observer.disconnect(); this.observer = null; }
+    if (!this.observer && wrapper && typeof MutationObserver !== "undefined") {
+      this.observedWrapper = wrapper;
       this.observer = new MutationObserver(records => {
         if (records.some(record => record.type === "attributes"
           ? record.target instanceof Element && record.target.matches(".cm-debug-rail__group") && record.oldValue !== record.target.getAttribute(record.attributeName!)
@@ -33,9 +45,8 @@ export const gutterIconLayout = ViewPlugin.fromClass(class {
       });
       this.observer.observe(wrapper, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "class"], attributeOldValue: true });
     }
-    this.measure();
   }
-  update(update: ViewUpdate) { if (update.docChanged || update.viewportChanged || update.geometryChanged || update.transactions.length) { this.close(false); this.measure(); } }
+  update(update: ViewUpdate) { this.observeRail(); if (update.docChanged || update.viewportChanged || update.geometryChanged || update.transactions.length) { this.close(false); this.measure(); } }
   scroll = () => { this.close(false); this.measure(); };
   keyboard = (event: KeyboardEvent) => {
     if (event.key === "Escape" && this.panel) { event.preventDefault(); this.close(true); }
@@ -120,7 +131,7 @@ export const gutterIconLayout = ViewPlugin.fromClass(class {
     this.view.requestMeasure({ key: this, read: () => {
       this.size = Math.min(SIZE, this.view.defaultLineHeight);
       const gutterColumns = [
-        ...this.view.dom.querySelectorAll<HTMLElement>(".cm-gutters"),
+        ...(this.view.state.facet(layoutEditorGutters) ? this.view.dom.querySelectorAll<HTMLElement>(".cm-gutters") : []),
         ...this.view.dom.closest(".editor-cm-host")?.parentElement?.querySelectorAll<HTMLElement>(".cm-debug-rail") ?? [],
       ];
       const viewport = this.view.scrollDOM.getBoundingClientRect();
@@ -143,7 +154,7 @@ export const gutterIconLayout = ViewPlugin.fromClass(class {
           if (top + this.size < viewport.top || top >= viewport.bottom) continue;
           const key = `${column}:${Math.round(top * 2) / 2}`;
           let row = rows.get(key);
-          if (!row) { row = { gutter: gutters, top, left: right - this.size, icons: [], available: 0 }; rows.set(key, row); }
+          if (!row) { row = { gutter: gutters, top, left: external ? gutters.getBoundingClientRect().left : right - this.size, icons: [], available: 0 }; rows.set(key, row); }
           icon.left = rect.left; icon.top = rect.top;
           row.icons.push(icon);
         }
@@ -161,7 +172,8 @@ export const gutterIconLayout = ViewPlugin.fromClass(class {
       const currentCells = new Set(rows.flatMap(row => row.icons.map(icon => icon.cell)));
       for (const [cell, position] of this.cells) if (!currentCells.has(cell)) { cell.style.position = position; this.cells.delete(cell); }
       for (const row of rows) {
-        const { visible, overflow } = gutterSlots(row.icons.length, row.available, this.size);
+        const columns = row.gutter.classList.contains("cm-debug-rail") ? Math.max(1, Math.floor(row.gutter.clientWidth / this.size)) : 1;
+        const { visible, overflow } = gutterSlots(row.icons.length, row.available, this.size, columns);
         row.icons.forEach((icon, index) => {
           this.icons.set(icon.node, icon);
           if (!row.gutter.classList.contains("cm-debug-rail")) {
@@ -169,7 +181,7 @@ export const gutterIconLayout = ViewPlugin.fromClass(class {
             if (icon.cell.style.position !== "relative") icon.cell.style.position = "relative";
           }
           // Absolute children cannot increase gutter cells or push later lines.
-          this.place(icon, row.left - icon.left!, row.top - icon.top! + index * this.size);
+          this.place(icon, row.left - icon.left! + (index % columns) * this.size, row.top - icon.top! + Math.floor(index / columns) * this.size);
           if (index >= visible) { icon.node.style.visibility = "hidden"; icon.node.tabIndex = -1; }
         });
         if (overflow) {
@@ -181,7 +193,7 @@ export const gutterIconLayout = ViewPlugin.fromClass(class {
           const external = row.gutter.classList.contains("cm-debug-rail");
           const parent = external ? row.gutter : this.view.dom;
           const host = parent.getBoundingClientRect();
-          button.style.cssText = `position:absolute;left:${row.left - host.left}px;top:${row.top - host.top + visible * this.size}px;width:${this.size}px;height:${this.size}px;padding:0;line-height:${this.size}px;z-index:201;background:var(--bg-raised);color:var(--fg);border:0;border-radius:3px;cursor:pointer`;
+          button.style.cssText = `position:absolute;left:${row.left - host.left + (visible % columns) * this.size}px;top:${row.top - host.top + Math.floor(visible / columns) * this.size}px;width:${this.size}px;height:${this.size}px;padding:0;line-height:${this.size}px;z-index:201;background:var(--bg-raised);color:var(--fg);border:0;border-radius:3px;cursor:pointer`;
           button.onclick = () => this.panel && this.trigger === button ? this.close(true) : this.open(button, row.icons.slice(visible));
           parent.append(button); this.buttons.push(button); this.buttonGutters.set(button, row.gutter);
         }

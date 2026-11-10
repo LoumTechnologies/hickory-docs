@@ -2,7 +2,7 @@ import Foundation
 struct InlineMark: Sendable { var kind: String; var range: NSRange; var level: Int = 0 }
 struct InlineCell: Identifiable, Sendable { var line: Int; var column: Int; var range: NSRange; var value: String; var format = "markdown"; var delimiter = ","; var id: Int { range.location } }
 struct InlineEquation: Identifiable, Sendable { var line: Int; var range: NSRange; var body: String; var id: Int { range.location } }
-struct InlineSnapshot: Sendable { var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = [] }
+struct InlineSnapshot: Sendable { var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = []; var debug = InlineDebugContext() }
 // Tables are presentation ranges over the original source, never replacement text.
 struct InlineTable: Identifiable, Sendable {
     var range: NSRange; var rows: [[InlineCell]]
@@ -28,7 +28,22 @@ func inlineTables(_ snapshot: InlineSnapshot) -> [InlineTable] {
         while to > start && [10, 13].contains(Int(source.character(at: to - 1))) { to -= 1 }
         result.append(InlineTable(range: NSRange(location: start, length: to - start), rows: rows))
     }
-    return result
+    let csv = snapshot.cells.filter { $0.format == "csv" }.sorted { $0.range.location < $1.range.location }
+    var groups: [[InlineCell]] = []
+    for cell in csv {
+        if let last = groups.last?.last {
+            let gap = source.substring(with: NSRange(location: NSMaxRange(last.range), length: cell.range.location - NSMaxRange(last.range)))
+            if gap.allSatisfy({ $0.isNewline || cell.delimiter.contains($0) }) { groups[groups.count - 1].append(cell); continue }
+        }
+        groups.append([cell])
+    }
+    for cells in groups {
+        guard let first = cells.first, let last = cells.last else { continue }
+        var rows: [[InlineCell]] = []
+        for cell in cells { if cell.column == 0 { rows.append([]) }; rows[rows.count - 1].append(cell) }
+        result.append(InlineTable(range: NSRange(location: first.range.location, length: NSMaxRange(last.range) - first.range.location), rows: rows))
+    }
+    return result.sorted { $0.range.location < $1.range.location }
 }
 func inlineCellText(_ value: String, format: String = "markdown", delimiter: String = ",") -> String {
     if format == "csv" { return value.contains(delimiter) || value.contains("\n") || value.contains("\r") || value.contains("\"") ? "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\"" : value }
@@ -89,6 +104,41 @@ func inlineCSVCells(_ body: String, line: Int, offset: Int, delimiter: String) -
     }
     return quoted ? [] : result
 }
+// Candidate discovery runs with the background snapshot, once per source revision.
+// The adapter remains authoritative about binding or refusing a pending stop.
+struct InlineDebugContext: Sendable { var code: [Int: String] = [:]; var launch: [Int: String] = [:] }
+func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
+    var result = InlineDebugContext()
+    guard source.utf16.count <= 200_000 else { return result }
+    let supported = ["py", "js", "ts", "jsx", "tsx", "rs", "go", "c", "cpp", "java", "cs"]
+    let rows = source.components(separatedBy: "\n")
+    if supported.contains((path as NSString).pathExtension.lowercased()) {
+        result.launch[0] = path
+        for (index, row) in rows.enumerated() where !row.trimmingCharacters(in: .whitespaces).isEmpty { result.code[index] = path }
+        return result
+    }
+    guard ["md", "markdown"].contains((path as NSString).pathExtension.lowercased()) else { return result }
+    var fence = "", target: String?
+    let open = try! NSRegularExpression(pattern: #"^\s*<[\w.-]+:file\b[^>]*\bpath\s*=\s*["']([^"']+)["'][^>]*>"#)
+    for (index, row) in rows.enumerated() {
+        let trimmed = row.trimmingCharacters(in: .whitespaces)
+        if !fence.isEmpty { if trimmed.hasPrefix(fence) { fence = "" }; continue }
+        if target == nil && (trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~")) { fence = String(trimmed.prefix(3)); continue }
+        if let match = open.firstMatch(in: row, range: NSRange(location: 0, length: row.utf16.count)) {
+            let candidate = (row as NSString).substring(with: match.range(at: 1))
+            target = supported.contains((candidate as NSString).pathExtension.lowercased()) ? candidate : nil
+            result.launch[index] = target
+            continue
+        }
+        if trimmed.hasPrefix("</"), trimmed.contains(":file>") { target = nil }
+        if !trimmed.isEmpty { result.code[index] = target }
+    }
+    return result
+}
+func inlineDebugPath(_ source: String, path: String, line: Int, launch: Bool = false) -> String? {
+    let context = inlineDebugContext(source, path: path)
+    return launch ? context.launch[line] : context.code[line]
+}
 func inlineLineAt(_ offset: Int, starts: [Int]) -> Int {
     var low = 0, high = starts.count
     while low < high { let middle = (low + high) / 2; if starts[middle] <= offset { low = middle + 1 } else { high = middle } }
@@ -97,14 +147,17 @@ func inlineLineAt(_ offset: Int, starts: [Int]) -> Int {
 func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
     var starts = [0]
     for (index, unit) in source.utf16.enumerated() { if unit == 10 { starts.append(index + 1) } }
-    var result = InlineSnapshot(source: source, lineStarts: starts)
+    var result = InlineSnapshot(source: source, lineStarts: starts, debug: inlineDebugContext(source, path: path))
+    if (path as NSString).pathExtension.lowercased() == "csv", source.utf16.count <= 200_000 {
+        result.cells = inlineCSVCells(source, line: 0, offset: 0, delimiter: ","); return result
+    }
     guard ["md", "markdown"].contains((path as NSString).pathExtension.lowercased()), source.utf16.count <= 200_000 else { return result }
     let rows = source.components(separatedBy: "\n")
     let separator = try! NSRegularExpression(pattern: #"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$"#)
     let heading = try! NSRegularExpression(pattern: #"^(#{1,6})\s+"#)
     let styles = [("code", #"`[^`\n]+`"#), ("strong", #"\*\*[^*\n]+\*\*"#), ("em", #"(?<!\*)\*[^*\n]+\*(?!\*)"#), ("math", #"(?<!\\)\$([^$\n]+)\$"#)].map { ($0.0, try! NSRegularExpression(pattern: $0.1)) }
     let opening = try! NSRegularExpression(pattern: #"^\s*<[A-Za-z_][\w.-]*:(file|copy|cut|exec|diagram|math|table)\b[^>]*>"#)
-    var offset = 0, fence = "", payload = "", table = false
+    var offset = 0, fence = "", payload = "", table = false, diffFence = false
     var equationStart: Int?, equationLine = 0
     var tableStart: Int?, tableLine = 0, delimiter = ","
     for (line, rawRow) in rows.enumerated() {
@@ -112,8 +165,12 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
         let row = rawRow.hasSuffix("\r") ? String(rawRow.dropLast()) : rawRow
         if Task.isCancelled { return InlineSnapshot(source: source) }
         let trimmed = row.trimmingCharacters(in: .whitespaces), ns = row as NSString, all = NSRange(location: 0, length: row.utf16.count)
-        if !fence.isEmpty { if trimmed.hasPrefix(fence) { fence = "" }; continue }
-        if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { fence = String(trimmed.prefix(3)); table = false; continue }
+        if !fence.isEmpty {
+            if trimmed.hasPrefix(fence) { fence = ""; diffFence = false }
+            else if diffFence { result.marks.append(InlineMark(kind: row.hasPrefix("+") ? "diff-add" : row.hasPrefix("-") ? "diff-remove" : "code", range: NSRange(location: offset, length: row.utf16.count))) }
+            continue
+        }
+        if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { fence = String(trimmed.prefix(3)); diffFence = trimmed.dropFirst(3).trimmingCharacters(in: .whitespaces) == "diff"; table = false; continue }
         if !payload.isEmpty {
             if trimmed.contains(":" + payload + ">"), let close = row.range(of: "</") {
                 if payload == "math", let start = equationStart {

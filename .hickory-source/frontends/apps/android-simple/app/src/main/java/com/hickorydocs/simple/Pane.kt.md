@@ -382,6 +382,12 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
 
 </ui:copy>
 
+Arrow keys commit the current cell through the snapshot guard, then request
+focus by row/column. Cell identity must not depend on its source offset because
+editing an earlier cell moves later offsets. A bordered source button reveals
+only this table; the return button restores grids without replacing the field.
+CSV uses its delimiter-aware serializer so quoting survives an edit.
+
 ## Give a table one spreadsheet-shaped place in the editor
 
 The output transformation replaces only displayed bytes with a bounded set of placeholder rows. The original TextFieldState remains the save and undo authority. One ordered replacement list drives both directions of offset mapping, line numbers, folds, debugger icons and widget placement; placeholder continuations never acquire extra line actions. The [projection witness](../../../../../test/java/com/hickorydocs/simple/ParityTest.kt.md) checks Unicode, CRLF, literal code and the following prose's source position.
@@ -436,10 +442,11 @@ fun tableColumnName(index: Int): String {
     return name
 }
 @Composable private fun InlineTableGrid(table: InlineTable, source: String, buffer: DocumentBuffer, modifier: Modifier = Modifier) {
+    val focus = remember(table.rows.map { it.size }) { table.rows.map { row -> row.map { FocusRequester() } } }
     Column(modifier.background(MaterialTheme.colorScheme.surface).border(1.dp, MaterialTheme.colorScheme.outlineVariant).semantics { contentDescription = "Inline table grid" }) {
         Row(Modifier.fillMaxWidth().height(28.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Table", fontSize = 12.sp, modifier = Modifier.weight(1f).padding(start = 6.dp))
-            Text("Edit source", fontSize = 12.sp, modifier = Modifier.clickable { buffer.tableSourceVisible = true }.padding(horizontal = 8.dp))
+            OutlinedButton(onClick = { buffer.sourceTable = table.from }) { Text("Edit source text", fontSize = 12.sp) }
         }
         Box(Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
           LazyColumn(Modifier.width((32 + 140 * table.rows.maxOf { it.size }).dp).fillMaxHeight()) {
@@ -450,15 +457,29 @@ fun tableColumnName(index: Int): String {
             itemsIndexed(table.rows) { row, cells ->
                 Row {
                     Text("${row + 1}", fontSize = 12.sp, modifier = Modifier.width(32.dp).height(28.dp).padding(4.dp))
-                    cells.forEach { cell -> key(cell.from) {
+                    cells.forEach { cell -> key(cell.column) {
                         var draft by remember(cell.value) { mutableStateOf(cell.value) }
                         var notice by remember { mutableStateOf("") }
                         var focused by remember { mutableStateOf(false) }
-                        val commit = { if (draft != cell.value && !buffer.applySourceEdits(listOf(NativeSourceEdit(cell.from, cell.to, inlineCellText(draft))), source)) notice = "Table changed. Reopen the cell and try again." }
+                        val commit = { if (draft != cell.value && !buffer.applySourceEdits(listOf(NativeSourceEdit(cell.from, cell.to, inlineCellText(draft, cell.format, cell.delimiter))), source)) notice = "Table changed. Reopen the cell and try again." }
+                        val latestCommit by rememberUpdatedState(commit)
+                        DisposableEffect(Unit) { onDispose { latestCommit() } }
                         BasicTextField(value = draft, onValueChange = { draft = it }, readOnly = buffer.readOnly, singleLine = true,
                             keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { commit() }), keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
                             textStyle = TextStyle(fontSize = 13.sp, fontWeight = if (row == 0) FontWeight.SemiBold else FontWeight.Normal, color = MaterialTheme.colorScheme.onSurface),
                             modifier = Modifier.width(140.dp).height(28.dp).border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(4.dp)
+                                .focusRequester(focus[row][cell.column])
+                                .onPreviewKeyEvent { event ->
+                                    if (event.type != KeyEventType.KeyDown) false else {
+                                        val delta = when (event.key) { Key.DirectionUp -> -1 to 0; Key.DirectionDown -> 1 to 0; Key.DirectionLeft -> 0 to -1; Key.DirectionRight -> 0 to 1; else -> null }
+                                        if (delta == null) false else {
+                                            commit()
+                                            val nextRow = (row + delta.first).coerceIn(table.rows.indices)
+                                            val nextColumn = (cell.column + delta.second).coerceIn(table.rows[nextRow].indices)
+                                            focus[nextRow][nextColumn].requestFocus(); true
+                                        }
+                                    }
+                                }
                                 .onFocusChanged { state -> val wasFocused = focused; focused = state.isFocused; if (wasFocused && !focused) commit() }
                                 .semantics { contentDescription = "Row ${row + 1}, column ${tableColumnName(cell.column)}"; if (notice.isNotEmpty()) error(notice) })
                     } }
@@ -498,7 +519,7 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
     }
     val selection = buffer.state.selection
     val folds = buffer.activeFolds()
-    val tables = if (inline.source == source && !buffer.tableSourceVisible) inlineTables(inline) else emptyList()
+    val tables = if (inline.source == source && !buffer.tableSourceVisible) inlineTables(inline).filter { it.from != buffer.sourceTable } else emptyList()
     val hiddenRanges = editorReplacements(folds, tables)
     val replacements = editorReplacements(folds, tables, source)
     val display = editorDisplay(source, replacements)
@@ -552,7 +573,17 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                 typeface = Typeface.MONOSPACE; textAlign = Paint.Align.RIGHT
             } }
             Canvas(Modifier.width((maxOf(3, (source.count { it == '\n' } + 1).toString().length) * 8 + 12).dp)
-                .fillMaxHeight().clipToBounds()) {
+                .fillMaxHeight().clipToBounds().pointerInput(source, textLayout, replacements) {
+                    detectTapGestures { point ->
+                        val current = textLayout
+                        if (current != null && current.layoutInput.text.text == display) {
+                            val visual = current.getLineForVerticalPosition(point.y + scroll.value - with(density) { 8.dp.toPx() })
+                            val offset = editorSourceOffset(current.getLineStart(visual), replacements)
+                            val line = inlineLineAt(offset, inline.lineStarts)
+                            if (inlineDebugPath(source, buffer.file.path, line) != null) debug?.toggle(buffer.file.path, line)
+                        }
+                    }
+                }) {
                 val layout = textLayout
                 if (layout != null && layout.layoutInput.text.text == display) {
                     numberPaint.color = numberColor.toArgb(); numberPaint.textSize = 13.sp.toPx()
@@ -566,6 +597,13 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                             val logical = (if (inline.source == source) inlineLineAt(offset, inline.lineStarts) else source.take(offset).count { it == '\n' }) + 1
                             val baseline = layout.getLineBaseline(visual) - scroll.value + 8.dp.toPx()
                             drawContext.canvas.nativeCanvas.drawText(logical.toString(), size.width - 6.dp.toPx(), baseline, numberPaint)
+                            val mark = debug?.breakpoints?.get(buffer.file.path)?.firstOrNull { it.optInt("line", -1) == logical - 1 }
+                            if (mark != null) {
+                                numberPaint.color = android.graphics.Color.RED
+                                val glyph = when (mark.optString("state")) { "refused" -> "○"; "bound" -> "●"; else -> "◌" }
+                                drawContext.canvas.nativeCanvas.drawText(glyph, 12.dp.toPx(), baseline, numberPaint)
+                                numberPaint.color = numberColor.toArgb()
+                            }
                         }
                     }
                 }
@@ -596,6 +634,8 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                         val style = when (mark.kind) {
                             "heading" -> SpanStyle(fontSize = maxOf(14, 25 - mark.level * 2).sp, fontWeight = FontWeight.SemiBold)
                             "strong" -> SpanStyle(fontWeight = FontWeight.Bold)
+                            "diff-add" -> SpanStyle(background = androidx.compose.ui.graphics.Color(0x2233aa55))
+                            "diff-remove" -> SpanStyle(background = androidx.compose.ui.graphics.Color(0x22dd3344))
                             "em", "math" -> SpanStyle(fontStyle = FontStyle.Italic)
                             else -> SpanStyle(fontFamily = FontFamily.Monospace)
                         }
@@ -650,8 +690,7 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                 val height = layout.getLineBottom(last) - layout.getLineTop(first)
                 InlineTableGrid(table, source, buffer, Modifier.offset { IntOffset(0, top.toInt() + with(density) { 8.dp.roundToPx() }) }.padding(horizontal = 8.dp).fillMaxWidth().height(with(density) { height.toDp() }))
             }
-            if (buffer.tableSourceVisible && inlineTables(inline).isNotEmpty()) Text("Show table grids", fontSize = 12.sp,
-                modifier = Modifier.background(MaterialTheme.colorScheme.surface).clickable { buffer.tableSourceVisible = false }.padding(4.dp))
+            if ((buffer.tableSourceVisible || buffer.sourceTable != null) && inlineTables(inline).isNotEmpty()) OutlinedButton(onClick = { buffer.sourceTable = null; buffer.tableSourceVisible = false }) { Text("Edit tables as grids", fontSize = 12.sp) }
             }
             Canvas(Modifier.width(40.dp).fillMaxHeight().semantics {
                 contentDescription = "Document minimap"
@@ -742,6 +781,14 @@ Compose text state is owned by the document buffer rather than remembered inside
 }
 </ui:copy>
 
+Only executable declarations, equations, receipts and the paused line create
+right-side actions. The left number gutter toggles provisional code breakpoints;
+DAP binds, relocates or refuses them. Keep their dot visible beside the number.
+The right divider changes the number of columns. Free rows below an action are
+usable until the next populated row; only then reserve an overflow slot.
+Overflow opens just an icon grid. Equation and debugger details have their own
+explicit actions and do not become overflow content.
+
 ## Measure the rail from the retained Compose editor
 
 BasicTextField reports its real text layout after readable content exists. We use that result and the existing scroll state to position one action per visible logical line, ignoring wrapped continuation rows. A ⋯ popover holds a grid of debug controls instead of stacking icons over later lines. Paused highlighting is an output transformation and values float beside the rail; neither changes the TextFieldState, selection or undo. Source changes hide positional observations until the run and displayed source agree.
@@ -757,17 +804,23 @@ fun debugLineOffset(source: String, line: Int): Int? {
 @Composable private fun NativeDebugRail(buffer: DocumentBuffer, debug: NativeDebugger, layout: TextLayoutResult?, scroll: ScrollState) {
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
+    var overflow by remember(buffer) { mutableStateOf<Int?>(null) }
+    var railWidth by remember(buffer) { mutableStateOf(24f) }
     var opened by remember(buffer) { mutableStateOf<Int?>(null) }
     var expression by remember(buffer) { mutableStateOf("") }
     var condition by remember(buffer) { mutableStateOf("") }
     val source = buffer.text
     val starts = buffer.inlineMarkup.takeIf { it.source == source }?.lineStarts
     val folds = buffer.activeFolds()
-    val tables = if (buffer.inlineMarkup.source == source && !buffer.tableSourceVisible) inlineTables(buffer.inlineMarkup) else emptyList()
+    val tables = if (buffer.inlineMarkup.source == source && !buffer.tableSourceVisible) inlineTables(buffer.inlineMarkup).filter { it.from != buffer.sourceTable } else emptyList()
     val replacements = editorReplacements(folds, tables, source)
     val display = editorDisplay(source, replacements)
     val paused = if (debug.sourceMatches(buffer)) debug.line(buffer.file.path) else null
-    BoxWithConstraints(Modifier.width(24.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceContainer)) {
+    Box(Modifier.width(4.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant).pointerInput(buffer) {
+        detectDragGestures { change, amount -> change.consume(); railWidth = (railWidth - amount.x / density.density).coerceIn(24f, 220f) }
+    }.semantics { contentDescription = "Resize right gutter" })
+    LaunchedEffect(buffer.base) { buffer.refreshReceipts() }
+    BoxWithConstraints(Modifier.width(railWidth.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceContainer)) {
         val height = with(density) { maxHeight.toPx() }
         if (layout != null && layout.layoutInput.text.text == display) {
             val first = layout.getLineForVerticalPosition(scroll.value.toFloat())
@@ -780,9 +833,39 @@ fun debugLineOffset(source: String, line: Int): Int? {
                 val top = layout.getLineTop(visual) - scroll.value + with(density) { 8.dp.toPx() }
                 if (top < 0 || top > height) continue
                 val held = debug.breakpoints[buffer.file.path]?.firstOrNull { it.optInt("line", -1) == line }
-                val glyph = when { buffer.inlineMarkup.source == buffer.text && (buffer.inlineMarkup.cells.any { it.line == line } || buffer.inlineMarkup.equations.any { it.line == line }) -> "⋯"; line == paused -> "⋯"; line == 0 -> "▷"; held == null -> "⋯"; held.optString("state") == "refused" -> "○"; held.optString("state") == "bound" -> "●"; else -> "◌" }
+                val actions = mutableListOf<Triple<String, String, () -> Unit>>()
+                if (buffer.inlineMarkup.source == source && buffer.inlineMarkup.debug.launch[line] != null) actions.add(Triple("▷", "Debug", { scope.launch { debug.prepare(buffer, line); opened = line } }))
+                if (buffer.inlineMarkup.source == source && buffer.inlineMarkup.equations.any { it.line == line }) actions.add(Triple("ƒ", "Edit equation", { opened = line }))
+                if (buffer.receiptsOn(line).isNotEmpty()) actions.add(Triple("▤", "Recorded output", { opened = line }))
+                if (line == paused) {
+                    listOf("▷" to "continue", "↳" to "over", "↓" to "in", "↑" to "out").forEach { (glyph, how) -> actions.add(Triple(glyph, how, { debug.step(how) })) }
+                    actions.add(Triple("■", "Stop", { debug.stop() })); actions.add(Triple("◎", "Inspect", { opened = line }))
+                }
+                if (actions.isEmpty()) continue
+                val columns = maxOf(1, (railWidth / 22).toInt())
+                // Only another populated action row limits wrapping; prose leaves room.
+                val next = (visual + 1..last).firstOrNull { nextVisual ->
+                    val nextOffset = editorSourceOffset(layout.getLineStart(nextVisual), replacements)
+                    val nextLine = starts?.let { inlineLineAt(nextOffset, it) } ?: source.take(nextOffset).count { it == '\n' }
+                    buffer.inlineMarkup.debug.launch[nextLine] != null || nextLine == paused || buffer.inlineMarkup.equations.any { it.line == nextLine } || buffer.receiptsOn(nextLine).isNotEmpty()
+                }
+                val room = if (next != null) layout.getLineTop(next) - layout.getLineTop(visual) else height - top
+                val capacity = maxOf(1, (room / with(density) { 20.dp.toPx() }).toInt()) * columns
+                val visible = if (actions.size <= capacity) actions.size else maxOf(0, capacity - 1)
                 Box(Modifier.offset { IntOffset(0, top.toInt()) }) {
-                    Text(glyph, fontSize = 13.sp, modifier = Modifier.width(24.dp).height(18.dp).clickable { opened = line; scope.launch { buffer.refreshReceipts() } }.semantics { contentDescription = "Debug actions on line ${line + 1}" })
+                    actions.take(visible).forEachIndexed { index, (glyph, label, run) ->
+                        Text(glyph, fontSize = 13.sp, modifier = Modifier.offset((index % columns * 22).dp, (index / columns * 20).dp).width(22.dp).height(18.dp).clickable(onClick = run).semantics { contentDescription = "$label on line ${line + 1}" })
+                    }
+                    if (visible < actions.size) Box(Modifier.offset((visible % columns * 22).dp, (visible / columns * 20).dp)) {
+                        Text("⋯", modifier = Modifier.width(22.dp).height(18.dp).clickable { overflow = line }.semantics { contentDescription = "More gutter icons on line ${line + 1}" })
+                        DropdownMenu(expanded = overflow == line, onDismissRequest = { overflow = null }) {
+                            Column(Modifier.padding(4.dp)) {
+                                actions.drop(visible).chunked(4).forEach { row -> Row { row.forEach { (glyph, label, run) ->
+                                    Text(glyph, modifier = Modifier.size(24.dp).clickable { overflow = null; run() }.semantics { contentDescription = label })
+                                } } }
+                            }
+                        }
+                    }
                     DropdownMenu(expanded = opened == line, onDismissRequest = { opened = null }) {
                         Column(Modifier.width(300.dp).heightIn(max = 460.dp).verticalScroll(rememberScrollState()).padding(8.dp)) {
                             Text("Line ${line + 1} · ${debug.status}", fontSize = 12.sp)
@@ -818,11 +901,12 @@ fun debugLineOffset(source: String, line: Int): Int? {
                             }
                             if (buffer.receiptNotice.isNotEmpty()) Text(buffer.receiptNotice, fontSize = 12.sp)
                             if (buffer.file.docID != null) TextButton(onClick = { scope.launch { buffer.refreshReceipts() } }) { Text("↻ Refresh recorded output") }
-                            if (!debug.sourceMatches(buffer)) Text("Save edited text before launching. Values belong to the source that ran.", fontSize = 12.sp)
+                            if (inlineDebugPath(source, buffer.file.path, line, true) != null || inlineDebugPath(source, buffer.file.path, line) != null) {
+                            if (buffer.dirty) Text("Save edited text before launching. Values belong to the source that ran.", fontSize = 12.sp)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 TextButton(enabled = !debug.active && !buffer.dirty && !buffer.saving, onClick = { scope.launch { debug.prepare(buffer, line) } }) { Text("▷ Debug") }
-                                TextButton(onClick = { debug.toggle(buffer.file.path, line) }) { Text("● Breakpoint") }
-                                if (debug.status == "paused") {
+                                if (inlineDebugPath(source, buffer.file.path, line) != null) TextButton(onClick = { debug.toggle(buffer.file.path, line) }) { Text("● Breakpoint") }
+                                if (paused == line) {
                                     listOf("Continue" to "continue", "Step over" to "over", "Step in" to "in", "Step out" to "out").forEach { (label, how) -> TextButton(onClick = { debug.step(how) }) { Text(label) } }
                                     if (debug.capabilities.optBoolean("step_back")) TextButton(onClick = { debug.step("back") }) { Text("↶ Step back") }
                                 }
@@ -836,12 +920,13 @@ fun debugLineOffset(source: String, line: Int): Int? {
                                 OutlinedTextField(value = condition, onValueChange = { condition = it }, label = { Text("Breakpoint condition") })
                                 TextButton(onClick = { debug.toggle(buffer.file.path, line, condition) }) { Text("✓ Apply condition") }
                             }
-                            if (debug.status == "paused") {
+                            if (paused == line) {
                                 OutlinedTextField(value = expression, onValueChange = { expression = it }, label = { Text("Expression") })
                                 Row { TextButton(onClick = { debug.evaluate(expression) }) { Text("= Evaluate") }; TextButton(onClick = { debug.evaluate(expression, true) }) { Text("◉ Watch") } }
                                 debug.frames.forEach { frame -> TextButton(onClick = { debug.select(frame) }) { Text(frame.optString("name", "Frame")) } }
                                 debug.variables.forEach { variable -> Text("${variable.optString("name")} = ${variable.optString("value")}", fontSize = 12.sp) }
                                 debug.values.forEach { (key, value) -> Row { Text("$key = $value", modifier = Modifier.weight(1f)); if (key in debug.watches) TextButton(onClick = { debug.removeWatch(key) }) { Text("×") } } }
+                            }
                             }
                         }
                     }

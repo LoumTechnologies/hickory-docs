@@ -63,6 +63,32 @@ final class ParityTests: XCTestCase {
         XCTAssertTrue(inlineCSVCells("\"unterminated", line: 0, offset: 0, delimiter: ",").isEmpty)
 
     }
+    func testDiffPresentationKeepsPatchTextLiteral() {
+        // Contract: .hickory-source/frontends/contract.md
+        let source = "```diff\n-old **text**\n+new **text**\n```"
+        let snapshot = computeInlineMarkup(source, path: "workbook.md")
+        XCTAssertEqual(snapshot.marks.map(\.kind), ["diff-remove", "diff-add"])
+        XCTAssertEqual(snapshot.source, source)
+        XCTAssertTrue(snapshot.debug.code.isEmpty)
+    }
+    func testMissingMathBundleDoesNotTrap() {
+        // Contract: .hickory-source/frontends/contract.md
+        XCTAssertNil(nativeMathResource(roots: [URL(fileURLWithPath: "/missing/" + UUID().uuidString)], bundles: []))
+    }
+    func testCSVGridsAndContextualCodeLines() {
+        // Contract: .hickory-source/frontends/contract.md
+        let csv = "Name,Note\r\nCafé,\"two\nlines\"\r\nlast,"
+        let grid = inlineTables(computeInlineMarkup(csv, path: "stock.csv"))
+        XCTAssertEqual(grid.count, 1)
+        XCTAssertEqual(grid.first?.rows.map { $0.map(\.value) }, [["Name", "Note"], ["Café", "two\nlines"], ["last", ""]])
+        let source = "| A | B |\n| --- | --- |\n| 1 | 2 |\n\n<h:table path=\"stock.csv\">\nName,Note\nPen,Blue\n</h:table>\n<h:file path=\"coupon.py\" language=\"python\">\ndef coupon():\n    return 1\n</h:file>\nProse"
+        XCTAssertEqual(inlineTables(computeInlineMarkup(source, path: "workbook.md")).count, 2)
+        XCTAssertNil(inlineDebugPath(source, path: "workbook.md", line: 12))
+        XCTAssertNil(inlineDebugPath(source, path: "workbook.md", line: 0))
+        XCTAssertEqual(inlineDebugPath(source, path: "workbook.md", line: 8, launch: true), "coupon.py")
+        XCTAssertEqual(inlineDebugPath(source, path: "workbook.md", line: 10), "coupon.py")
+        XCTAssertNil(inlineDebugPath("```xml\n<h:file path=\"fake.py\">\nprint(1)\n</h:file>\n```", path: "workbook.md", line: 2))
+    }
     func testMarkdownTableRangesRetainCrLfUnicodeAndLiteralCode() {
         let source = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\">\r\nBefore 😀\r\n| A | B |\r\n| --- | ---: |\r\n| café | a\\|b |\r\nAfter\r\n```md\r\n| X | Y |\r\n| --- | --- |\r\n```\r\n</h:doc>"
         let tables = inlineTables(computeInlineMarkup(source, path: "workbook.md"))
@@ -72,6 +98,32 @@ final class ParityTests: XCTestCase {
         XCTAssertEqual(tableColumnName(26), "AA")
     }
     #if os(macOS)
+    @MainActor func testCSVGridSourceRevealLeavesOtherTablesMounted() throws {
+        // Contract: .hickory-source/frontends/contract.md
+        let source = "| A | B |\n| --- | --- |\n| 1 | 2 |\n\n<h:table path=\"stock.csv\">\nName,Note\nPen,Blue\n</h:table>"
+        let file = FileNode(name: "workbook.md", path: "workbook.md", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "base"))
+        let editor = MacEditor(buffer)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = editor.scroll; defer { window.orderOut(nil) }
+        buffer.inlineMarkup = computeInlineMarkup(source, path: file.path); buffer.renderMarkup?()
+        let tables = inlineTables(buffer.inlineMarkup)
+        XCTAssertEqual(editor.text.subviews.filter { $0 is NSHostingView<NativeTableGrid> }.count, 2)
+        buffer.sourceTable = tables.first?.id
+        XCTAssertEqual(editor.text.subviews.filter { $0 is NSHostingView<NativeTableGrid> }.count, 1)
+        XCTAssertEqual(editor.text.string, source)
+        buffer.sourceTable = nil
+        XCTAssertEqual(editor.text.subviews.filter { $0 is NSHostingView<NativeTableGrid> }.count, 2)
+        let field = NSTextField(string: "cell draft"); editor.scroll.addSubview(field)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let focused = try XCTUnwrap(window.firstResponder)
+        XCTAssertFalse(focused === editor.text)
+        let cell = try XCTUnwrap(tables.last?.rows.last?.last)
+        XCTAssertTrue(buffer.applyTableEdit?(NativeSourceEdit(range: cell.range, text: inlineCellText("a,b", format: cell.format, delimiter: cell.delimiter)), source) == true)
+        XCTAssertTrue(window.firstResponder === focused, "A grid commit must not move keyboard focus into hidden source")
+        XCTAssertTrue(buffer.text.contains("Pen,\"a,b\""))
+        editor.text.undoManager?.undo(); XCTAssertEqual(buffer.text, source)
+    }
     @MainActor func testInlineTableAnchorRejectsDeleteWithoutRevealingSource() throws {
         let source = "Before\n\n| A | B |\n| --- | --- |\n| café 😀 | 2 |\n\nAfter"
         let file = FileNode(name: "grid.md", path: "grid.md", dir: false)

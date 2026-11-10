@@ -101,7 +101,11 @@ footer { border-top: 1px solid GrayText; padding: 3px 9px; font-size: 11px; over
 .cm-st-number, .cm-st-enumMember { color: light-dark(#116329, #7ee787); }
 .cm-st-comment { color: GrayText; font-style: italic; }
 /* A fixed right column keeps debugger controls out of the text layout. */
-.cm-debug-rail { position: relative; flex: 0 0 24px; width: 24px; z-index: 8; border-left: 1px solid GrayText; background: Canvas; }
+.cm-debug-rail { position: relative; flex: 0 0 var(--simple-rail-width, 24px); width: var(--simple-rail-width, 24px); z-index: 8; border-left: 1px solid GrayText; background: Canvas; }
+.simple-source-toggle { border: 1px solid GrayText; border-radius: 4px; margin: 3px; align-self: flex-start; background: color-mix(in srgb, CanvasText 5%, Canvas); }
+.simple-rail-resize { flex: 0 0 4px; cursor: col-resize; touch-action: none; background: color-mix(in srgb, CanvasText 15%, Canvas); }
+.editor-cm-host { position: relative; }
+.simple-render-tables { position: absolute; right: 4px; top: 0; z-index: 10; border: 1px solid GrayText; border-radius: 3px; background: Canvas; color: CanvasText; cursor: pointer; }
 .cm-debug-rail__group { position: absolute; left: 0; width: 24px; }
 .cm-debug-rail:has(.is-active) > :not(.is-active) { display: none; }
 .cm-debug-rail .debug-strip { display: flex; flex-direction: column; gap: 2px; }

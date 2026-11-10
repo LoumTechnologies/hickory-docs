@@ -517,7 +517,7 @@ struct NativeDebugCatalog: Decodable { var profiles: [NativeDebugProfile]; var f
         owner = buffer.file.path; launchBuffer = buffer; launchSource = buffer.text; sourceSnapshots = [owner: launchSource]; message = "Resolving launch targets…"; profiles = []; targets = []
         do {
             let literate = buffer.file.doc_id != nil || ["md", "markdown"].contains((owner as NSString).pathExtension.lowercased())
-            var target = program
+            var target = program ?? inlineDebugPath(buffer.text, path: owner, line: line, launch: true) ?? inlineDebugPath(buffer.text, path: owner, line: line)
             if literate && target == nil {
                 guard let id = buffer.file.doc_id else { message = "Refresh files to discover this document before choosing a file block to debug."; return }
                 let rendered: NativeDebugRender = try await engine.request("GET", "/api/docs/" + id + "/render")

@@ -173,6 +173,17 @@ def table_acceptance(driver, folder):
     eventually(lambda: (folder / path).read_text(), original)
     driver.act("table-source")
     assert "| café 😀 | 120 |" in driver.act("content", path=path)
+    driver.act("table-grid")
+    assert driver.act("table-keys", before="café 😀", keys=["ArrowRight"]) == "120"
+    assert driver.act("resize-gutter") >= 64
+    driver.act("open", path="stock.csv")
+    assert driver.act("table-keys", before="Pen", keys=["ArrowRight"]) == "30"
+    driver.act("table-edit", before="30", value="31")
+    driver.act("save")
+    eventually(lambda: (folder / "stock.csv").read_text(), 'Product,Stock\nPen,31\n')
+    driver.act("table-source")
+    assert "Pen,31" in driver.act("content", path="stock.csv")
+    driver.act("table-grid")
 
 def markdown_acceptance(driver):
     driver.act("open", path="source.md")
@@ -246,6 +257,7 @@ if __name__ == "__main__":
         (folder / "fold.txt").write_text("function main() {\n  first()\n  second()\n}\n")
         (folder / "source.md").write_text('<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n# A literate document\n\n**bold** and *italic*\n</h:doc>\n')
         (folder / "table.md").write_text('<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\nBefore\n\n| A | B |\n| --- | ---: |\n| café 😀 | 120 |\n\nAfter\n</h:doc>\n')
+        (folder / "stock.csv").write_text('Product,Stock\nPen,30\n')
         (folder / "cache.py").write_text("counter = 1\nprint(counter)\n")
         (folder / "debug.py").write_text("value = 1\nvalue += 1\nprint(value)\n")
         environment = {**os.environ, "HICKORY_STATE_DIR": str(Path(temporary) / "state")}

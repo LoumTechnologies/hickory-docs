@@ -52,7 +52,8 @@ struct PaneLayout {
     }
     mutating func remove(_ tab: String) {
         guard groups().contains(where: { $0.tabs.contains(tab) }) else { return }
-        detach(tab); collapse()
+        let keepDocument = tab != "files" && groups().contains { $0.tabs.contains("files") } && groups().filter { !$0.tabs.contains("files") }.allSatisfy { $0.tabs.allSatisfy { $0 == tab } }
+        detach(tab); if !keepDocument { collapse() }
     }
     private mutating func detach(_ tab: String) {
         for group in groups() where group.tabs.contains(tab) {

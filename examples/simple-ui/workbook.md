@@ -4,7 +4,7 @@
 Open this document beside `orders.py`. **Bold decisions**, *emphasized notes*,
 `literal code` and headings remain editable. Try typing and undoing beside a
 rendered table; use **Edit source** in the browser to reveal its backing text.
-Markdown tables appear as editable grids on every simple UI. Native equation and CSV cell controls remain in each source line's right-hand ⋯ menu.
+Markdown and CSV tables appear as editable grids on every simple UI. Use the arrow keys to move between cells. **Edit source text** reveals just that table; **Edit tables as grids** restores its grid. Equation controls use the function icon beside their source line.
 
 ## A Markdown table you can edit
 
@@ -51,8 +51,24 @@ def coupon_total(cents: int, discount_percent: int) -> int:
 
 if __name__ == "__main__":
     total = coupon_total(2350, 20)
-    print(f"Coupon total: {total} cents")
+    print(f"Coupon receipt: {total} cents")
 </h:file>
+
+## Patch the coupon without copying its program
+
+This diff records the receipt-label change already present in the executable
+Python construction above. Debug `generated/coupon.py` from that file block.
+Diff context and deleted lines are review text, so they do not offer breakpoints.
+
+```diff
+--- a/generated/coupon.py
++++ b/generated/coupon.py
+@@ -7,3 +7,3 @@
+ if __name__ == "__main__":
+     total = coupon_total(2350, 20)
+-    print(f"Coupon total: {total} cents")
++    print(f"Coupon receipt: {total} cents")
+```
 
 ## A real recorded execution
 

@@ -18,7 +18,8 @@ try {
           await page.goto(request.url); break;
         case "open":
           await page.getByRole("button", { name: request.path, exact: true }).click();
-          await editor(request.path).waitFor(); break;
+          if (/\.csv$/i.test(request.path)) await page.getByTestId("table-panel").waitFor();
+          else await editor(request.path).waitFor(); break;
         case "dock-tab": {
           const source = page.getByRole("tab", { name: request.path, exact: true }).locator("..");
           const pane = page.getByRole("tab", { name: request.target, exact: true }).locator("../..").locator("..").getByRole("tabpanel");
@@ -56,8 +57,22 @@ try {
           await input.fill(request.value); await input.press("Enter");
           await table.getByRole("gridcell", { name: request.value, exact: true }).waitFor(); break;
         }
+        case "table-keys": {
+          const table = page.getByTestId("table-panel");
+          await table.getByRole("gridcell", { name: request.before, exact: true }).click();
+          for (const key of request.keys) await page.keyboard.press(key);
+          value = await table.locator(".table-panel__cell--selected").textContent(); break;
+        }
+        case "table-grid":
+          await page.getByRole("button", { name: /Edit tables? as grids?/ }).click();
+          await page.getByTestId("table-panel").waitFor(); break;
+        case "resize-gutter": {
+          const grip = page.getByRole("separator", { name: "Resize right gutter" });
+          await grip.focus(); await page.keyboard.press("ArrowLeft"); await page.keyboard.press("ArrowLeft");
+          value = await page.locator(".cm-debug-rail").evaluate(node => node.clientWidth); break;
+        }
         case "table-source":
-          await page.getByRole("button", { name: "Edit source", exact: true }).click();
+          await page.getByRole("button", { name: /Edit source( text)?$/, exact: true }).click();
           await page.getByTestId("table-panel").waitFor({ state: "detached" }); break;
         case "content": value = await editor(request.path).innerText(); break;
         case "markdown-formatting": {

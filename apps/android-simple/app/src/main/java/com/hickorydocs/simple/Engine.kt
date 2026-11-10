@@ -142,7 +142,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         owner = buffer.file.path; launchBuffer = buffer; launchSource = buffer.text; sourceSnapshots = mapOf(owner to launchSource); message = "Resolving launch targets…"; targets = emptyList()
         try {
             val literate = buffer.file.docID != null || owner.substringAfterLast('.').lowercase() in listOf("md", "markdown")
-            var target = program
+            var target = program ?: inlineDebugPath(buffer.text, owner, line, true) ?: inlineDebugPath(buffer.text, owner, line)
             if (literate && target == null) {
                 val id = buffer.file.docID ?: run { message = "Refresh files to discover this document before choosing a file block to debug."; return }
                 val rendered = engine.request("GET", "/api/docs/$id/render")

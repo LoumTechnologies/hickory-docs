@@ -5,7 +5,11 @@ For maintainers implementing rich source editing on native platforms.
 
 Compute a line-start index and presentation against immutable UTF-16 text. Visible gutters use binary search into the current snapshot instead of repeatedly copying and counting the entire prefix on every scrolled line. Keep Markdown delimiters and original bytes in the editor, skip fenced and Hickory payload bodies, and expose exact cell/equation ranges for guarded contextual edits. Large documents retain plain source while this optional scanner is bounded to 200,000 UTF-16 units.
 
-Markdown prose tables now use those exact cell ranges to form whole-table presentation ranges. Keep the final newline outside the replacement so following prose retains its paragraph. Header separators belong to the replacement, but never become editable data cells. Only cells already admitted by the prose scanner can enter a grid; fenced code and Hickory literal bodies stay source. The Swift and Kotlin range witnesses check CRLF, emoji and escaped pipes.
+CSV declarations and standalone CSV files use the same grid as prose tables. Group cells only while the intervening source consists of delimiters and record separators; tags between two declarations keep their grids separate. Preserve each cell’s format and delimiter on commit so commas, quotes and embedded newlines round-trip. Revealing a table records its anchor independently of the other grids.
+
+Markdown prose tables now use those exact cell ranges to form whole-table presentation ranges. Keep the final newline outside the replacement so following prose retains its paragraph. Header separators belong to the replacement, but never become editable data cells. Only cells admitted by the prose or CSV scanner can enter a grid; fenced code and Hickory literal bodies stay source. The Swift and Kotlin range witnesses check CRLF, emoji and escaped pipes.
+
+Fenced diff examples retain their literal text and receive addition/removal backgrounds on native platforms. They are review text; launch and breakpoint controls belong to the accompanying executable file block. This does not claim that diff context or deleted lines are independent executable statements.
 
 The Swift scanner returns source-backed styles and cell ranges. Escaped pipes and code-span pipes cannot create extra columns; applying a cell edit escapes literal pipes and retains all untouched bytes.
 
@@ -14,7 +18,7 @@ import Foundation
 struct InlineMark: Sendable { var kind: String; var range: NSRange; var level: Int = 0 }
 struct InlineCell: Identifiable, Sendable { var line: Int; var column: Int; var range: NSRange; var value: String; var format = "markdown"; var delimiter = ","; var id: Int { range.location } }
 struct InlineEquation: Identifiable, Sendable { var line: Int; var range: NSRange; var body: String; var id: Int { range.location } }
-struct InlineSnapshot: Sendable { var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = [] }
+struct InlineSnapshot: Sendable { var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = []; var debug = InlineDebugContext() }
 // Tables are presentation ranges over the original source, never replacement text.
 struct InlineTable: Identifiable, Sendable {
     var range: NSRange; var rows: [[InlineCell]]
@@ -40,7 +44,22 @@ func inlineTables(_ snapshot: InlineSnapshot) -> [InlineTable] {
         while to > start && [10, 13].contains(Int(source.character(at: to - 1))) { to -= 1 }
         result.append(InlineTable(range: NSRange(location: start, length: to - start), rows: rows))
     }
-    return result
+    let csv = snapshot.cells.filter { $0.format == "csv" }.sorted { $0.range.location < $1.range.location }
+    var groups: [[InlineCell]] = []
+    for cell in csv {
+        if let last = groups.last?.last {
+            let gap = source.substring(with: NSRange(location: NSMaxRange(last.range), length: cell.range.location - NSMaxRange(last.range)))
+            if gap.allSatisfy({ $0.isNewline || cell.delimiter.contains($0) }) { groups[groups.count - 1].append(cell); continue }
+        }
+        groups.append([cell])
+    }
+    for cells in groups {
+        guard let first = cells.first, let last = cells.last else { continue }
+        var rows: [[InlineCell]] = []
+        for cell in cells { if cell.column == 0 { rows.append([]) }; rows[rows.count - 1].append(cell) }
+        result.append(InlineTable(range: NSRange(location: first.range.location, length: NSMaxRange(last.range) - first.range.location), rows: rows))
+    }
+    return result.sorted { $0.range.location < $1.range.location }
 }
 func inlineCellText(_ value: String, format: String = "markdown", delimiter: String = ",") -> String {
     if format == "csv" { return value.contains(delimiter) || value.contains("\n") || value.contains("\r") || value.contains("\"") ? "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\"" : value }
@@ -101,6 +120,41 @@ func inlineCSVCells(_ body: String, line: Int, offset: Int, delimiter: String) -
     }
     return quoted ? [] : result
 }
+// Candidate discovery runs with the background snapshot, once per source revision.
+// The adapter remains authoritative about binding or refusing a pending stop.
+struct InlineDebugContext: Sendable { var code: [Int: String] = [:]; var launch: [Int: String] = [:] }
+func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
+    var result = InlineDebugContext()
+    guard source.utf16.count <= 200_000 else { return result }
+    let supported = ["py", "js", "ts", "jsx", "tsx", "rs", "go", "c", "cpp", "java", "cs"]
+    let rows = source.components(separatedBy: "\n")
+    if supported.contains((path as NSString).pathExtension.lowercased()) {
+        result.launch[0] = path
+        for (index, row) in rows.enumerated() where !row.trimmingCharacters(in: .whitespaces).isEmpty { result.code[index] = path }
+        return result
+    }
+    guard ["md", "markdown"].contains((path as NSString).pathExtension.lowercased()) else { return result }
+    var fence = "", target: String?
+    let open = try! NSRegularExpression(pattern: #"^\s*<[\w.-]+:file\b[^>]*\bpath\s*=\s*["']([^"']+)["'][^>]*>"#)
+    for (index, row) in rows.enumerated() {
+        let trimmed = row.trimmingCharacters(in: .whitespaces)
+        if !fence.isEmpty { if trimmed.hasPrefix(fence) { fence = "" }; continue }
+        if target == nil && (trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~")) { fence = String(trimmed.prefix(3)); continue }
+        if let match = open.firstMatch(in: row, range: NSRange(location: 0, length: row.utf16.count)) {
+            let candidate = (row as NSString).substring(with: match.range(at: 1))
+            target = supported.contains((candidate as NSString).pathExtension.lowercased()) ? candidate : nil
+            result.launch[index] = target
+            continue
+        }
+        if trimmed.hasPrefix("</"), trimmed.contains(":file>") { target = nil }
+        if !trimmed.isEmpty { result.code[index] = target }
+    }
+    return result
+}
+func inlineDebugPath(_ source: String, path: String, line: Int, launch: Bool = false) -> String? {
+    let context = inlineDebugContext(source, path: path)
+    return launch ? context.launch[line] : context.code[line]
+}
 func inlineLineAt(_ offset: Int, starts: [Int]) -> Int {
     var low = 0, high = starts.count
     while low < high { let middle = (low + high) / 2; if starts[middle] <= offset { low = middle + 1 } else { high = middle } }
@@ -109,14 +163,17 @@ func inlineLineAt(_ offset: Int, starts: [Int]) -> Int {
 func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
     var starts = [0]
     for (index, unit) in source.utf16.enumerated() { if unit == 10 { starts.append(index + 1) } }
-    var result = InlineSnapshot(source: source, lineStarts: starts)
+    var result = InlineSnapshot(source: source, lineStarts: starts, debug: inlineDebugContext(source, path: path))
+    if (path as NSString).pathExtension.lowercased() == "csv", source.utf16.count <= 200_000 {
+        result.cells = inlineCSVCells(source, line: 0, offset: 0, delimiter: ","); return result
+    }
     guard ["md", "markdown"].contains((path as NSString).pathExtension.lowercased()), source.utf16.count <= 200_000 else { return result }
     let rows = source.components(separatedBy: "\n")
     let separator = try! NSRegularExpression(pattern: #"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$"#)
     let heading = try! NSRegularExpression(pattern: #"^(#{1,6})\s+"#)
     let styles = [("code", #"`[^`\n]+`"#), ("strong", #"\*\*[^*\n]+\*\*"#), ("em", #"(?<!\*)\*[^*\n]+\*(?!\*)"#), ("math", #"(?<!\\)\$([^$\n]+)\$"#)].map { ($0.0, try! NSRegularExpression(pattern: $0.1)) }
     let opening = try! NSRegularExpression(pattern: #"^\s*<[A-Za-z_][\w.-]*:(file|copy|cut|exec|diagram|math|table)\b[^>]*>"#)
-    var offset = 0, fence = "", payload = "", table = false
+    var offset = 0, fence = "", payload = "", table = false, diffFence = false
     var equationStart: Int?, equationLine = 0
     var tableStart: Int?, tableLine = 0, delimiter = ","
     for (line, rawRow) in rows.enumerated() {
@@ -124,8 +181,12 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
         let row = rawRow.hasSuffix("\r") ? String(rawRow.dropLast()) : rawRow
         if Task.isCancelled { return InlineSnapshot(source: source) }
         let trimmed = row.trimmingCharacters(in: .whitespaces), ns = row as NSString, all = NSRange(location: 0, length: row.utf16.count)
-        if !fence.isEmpty { if trimmed.hasPrefix(fence) { fence = "" }; continue }
-        if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { fence = String(trimmed.prefix(3)); table = false; continue }
+        if !fence.isEmpty {
+            if trimmed.hasPrefix(fence) { fence = ""; diffFence = false }
+            else if diffFence { result.marks.append(InlineMark(kind: row.hasPrefix("+") ? "diff-add" : row.hasPrefix("-") ? "diff-remove" : "code", range: NSRange(location: offset, length: row.utf16.count))) }
+            continue
+        }
+        if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { fence = String(trimmed.prefix(3)); diffFence = trimmed.dropFirst(3).trimmingCharacters(in: .whitespaces) == "diff"; table = false; continue }
         if !payload.isEmpty {
             if trimmed.contains(":" + payload + ">"), let close = row.range(of: "</") {
                 if payload == "math", let start = equationStart {
@@ -195,7 +256,7 @@ package com.hickorydocs.simple
 data class InlineMark(val kind: String, val from: Int, val to: Int, val level: Int = 0)
 data class InlineCell(val line: Int, val column: Int, val from: Int, val to: Int, val value: String, val format: String = "markdown", val delimiter: String = ",")
 data class InlineEquation(val line: Int, val from: Int, val to: Int, val body: String)
-data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf(0), val marks: List<InlineMark> = emptyList(), val cells: List<InlineCell> = emptyList(), val equations: List<InlineEquation> = emptyList())
+data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf(0), val marks: List<InlineMark> = emptyList(), val cells: List<InlineCell> = emptyList(), val equations: List<InlineEquation> = emptyList(), val debug: InlineDebugContext = InlineDebugContext())
 // Keep source offsets authoritative while the field displays a grid-sized placeholder.
 data class InlineTable(val from: Int, val to: Int, val rows: List<List<InlineCell>>) {
     val displayRows: Int get() = minOf(10, rows.size + 2)
@@ -213,7 +274,19 @@ fun inlineTables(snapshot: InlineSnapshot): List<InlineTable> {
         val end = snapshot.source.indexOf('\n', snapshot.lineStarts[last]).let { if (it < 0) snapshot.source.length else it }
         result.add(InlineTable(snapshot.lineStarts[line], if (end > 0 && snapshot.source[end - 1] == '\r') end - 1 else end, rows))
     }
-    return result
+    val csv = snapshot.cells.filter { it.format == "csv" }.sortedBy { it.from }
+    val groups = mutableListOf<MutableList<InlineCell>>()
+    for (cell in csv) {
+        val last = groups.lastOrNull()?.lastOrNull()
+        if (last != null && snapshot.source.substring(last.to, cell.from).all { it == '\r' || it == '\n' || it in cell.delimiter }) groups.last().add(cell)
+        else groups.add(mutableListOf(cell))
+    }
+    for (cells in groups) {
+        val rows = mutableListOf<MutableList<InlineCell>>()
+        for (cell in cells) { if (cell.column == 0) rows.add(mutableListOf()); rows.last().add(cell) }
+        result.add(InlineTable(cells.first().from, cells.last().to, rows))
+    }
+    return result.sortedBy { it.from }
 }
 fun inlineCellText(value: String, format: String = "markdown", delimiter: String = ","): String {
     if (format == "csv") return if (value.contains(delimiter) || value.contains('\n') || value.contains('\r') || value.contains('"')) "\"" + value.replace("\"", "\"\"") + "\"" else value
@@ -266,21 +339,59 @@ fun inlineCSVCells(body: String, line: Int, offset: Int, delimiter: String): Lis
     }
     return if (quoted) emptyList() else result
 }
+// Candidate discovery belongs to the background source snapshot, not each draw.
+data class InlineDebugContext(val code: Map<Int, String> = emptyMap(), val launch: Map<Int, String> = emptyMap())
+fun inlineDebugContext(source: String, path: String): InlineDebugContext {
+    if (source.length > 200_000) return InlineDebugContext()
+    val supported = listOf("py", "js", "ts", "jsx", "tsx", "rs", "go", "c", "cpp", "java", "cs")
+    val rows = source.split('\n'); val code = mutableMapOf<Int, String>(); val launch = mutableMapOf<Int, String>()
+    if (path.substringAfterLast('.').lowercase() in supported) {
+        launch[0] = path
+        rows.forEachIndexed { index, row -> if (row.isNotBlank()) code[index] = path }
+        return InlineDebugContext(code, launch)
+    }
+    if (path.substringAfterLast('.').lowercase() !in listOf("md", "markdown")) return InlineDebugContext()
+    var fence = ""; var target: String? = null
+    val open = Regex("""^\s*<[\w.-]+:file\b[^>]*\bpath\s*=\s*["']([^"']+)["'][^>]*>""")
+    for ((index, row) in rows.withIndex()) {
+        val trimmed = row.trim()
+        if (fence.isNotEmpty()) { if (trimmed.startsWith(fence)) fence = ""; continue }
+        if (target == null && (trimmed.startsWith("```") || trimmed.startsWith("~~~"))) { fence = trimmed.take(3); continue }
+        val match = open.find(row)
+        if (match != null) {
+            target = match.groupValues[1].takeIf { it.substringAfterLast('.').lowercase() in supported }
+            target?.let { launch[index] = it }; continue
+        }
+        if (trimmed.startsWith("</") && trimmed.contains(":file>")) target = null
+        if (trimmed.isNotEmpty()) target?.let { code[index] = it }
+    }
+    return InlineDebugContext(code, launch)
+}
+fun inlineDebugPath(source: String, path: String, line: Int, launch: Boolean = false): String? {
+    val context = inlineDebugContext(source, path)
+    return if (launch) context.launch[line] else context.code[line]
+}
 fun inlineLineAt(offset: Int, starts: List<Int>): Int { val found = starts.binarySearch(offset); return if (found >= 0) found else maxOf(0, -found - 2) }
 fun computeInlineMarkup(source: String, path: String): InlineSnapshot {
     val starts = mutableListOf(0); source.forEachIndexed { index, char -> if (char == '\n') starts.add(index + 1) }
-    if (path.substringAfterLast('.', "").lowercase() !in listOf("md", "markdown") || source.length > 200_000) return InlineSnapshot(source, lineStarts = starts)
+    val debug = inlineDebugContext(source, path)
+    if (path.substringAfterLast('.', "").lowercase() == "csv" && source.length <= 200_000) return InlineSnapshot(source, lineStarts = starts, cells = inlineCSVCells(source, 0, 0, ","), debug = debug)
+    if (path.substringAfterLast('.', "").lowercase() !in listOf("md", "markdown") || source.length > 200_000) return InlineSnapshot(source, lineStarts = starts, debug = debug)
     val rows = source.split('\n'); val marks = mutableListOf<InlineMark>(); val cells = mutableListOf<InlineCell>(); val equations = mutableListOf<InlineEquation>()
     val separator = Regex("^\\s*\\|?\\s*:?-{3,}:?\\s*(\\|\\s*:?-{3,}:?\\s*)+\\|?\\s*$")
     val heading = Regex("^(#{1,6})\\s+")
     val styles = listOf("code" to Regex("`[^`\\n]+`"), "strong" to Regex("\\*\\*[^*\\n]+\\*\\*"), "em" to Regex("(?<!\\*)\\*[^*\\n]+\\*(?!\\*)"), "math" to Regex("(?<!\\\\)\\$([^$\\n]+)\\$"))
     val opening = Regex("^\\s*<[A-Za-z_][\\w.-]*:(file|copy|cut|exec|diagram|math|table)\\b[^>]*>")
-    var offset = 0; var fence = ""; var payload = ""; var table = false; var equationStart: Int? = null; var equationLine = 0; var tableStart: Int? = null; var tableLine = 0; var delimiter = ","
+    var offset = 0; var fence = ""; var payload = ""; var table = false; var diffFence = false; var equationStart: Int? = null; var equationLine = 0; var tableStart: Int? = null; var tableLine = 0; var delimiter = ","
     rows.forEachIndexed { line, rawRow ->
         val row = rawRow.removeSuffix("\r")
         val start = offset; offset += rawRow.length + 1; val trimmed = row.trim()
-        if (fence.isNotEmpty()) { if (trimmed.startsWith(fence)) fence = ""; return@forEachIndexed }
-        if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) { fence = trimmed.take(3); table = false; return@forEachIndexed }
+        if (fence.isNotEmpty()) {
+            if (trimmed.startsWith(fence)) { fence = ""; diffFence = false }
+            else if (diffFence) marks.add(InlineMark(if (row.startsWith('+')) "diff-add" else if (row.startsWith('-')) "diff-remove" else "code", start, start + row.length))
+            return@forEachIndexed
+        }
+        if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) { fence = trimmed.take(3); diffFence = trimmed.drop(3).trim() == "diff"; table = false; return@forEachIndexed }
         if (payload.isNotEmpty()) {
             val close = row.indexOf("</")
             if (trimmed.contains(":" + payload + ">") && close >= 0) {
@@ -322,7 +433,7 @@ fun computeInlineMarkup(source: String, path: String): InlineSnapshot {
         val isSeparator = separator.matches(row); val nextSeparator = rows.getOrNull(line + 1)?.let { separator.matches(it) } == true
         if (nextSeparator || table && row.contains('|')) { table = true; if (!isSeparator) cells.addAll(inlineCells(row, line, start)) } else if (!isSeparator) table = false
     }
-    return InlineSnapshot(source, starts, marks, cells, equations)
+    return InlineSnapshot(source, starts, marks, cells, equations, debug)
 }
 </ui:copy>
 
@@ -402,15 +513,19 @@ import WebKit
         decisionHandler(url?.isFileURL == true || url?.scheme == "about" ? .allow : .cancel)
     }
 }
+// Inspect bundles without touching SwiftPM's fatal Bundle.module accessor.
+func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main]) -> URL? {
+    let candidates = bundles + roots.compactMap { Bundle(url: $0.appendingPathComponent("HickorySimple_HickorySimple.bundle")) }
+    return candidates.lazy.compactMap { bundle in
+        bundle.url(forResource: "math", withExtension: "html", subdirectory: "Resources") ?? bundle.url(forResource: "math", withExtension: "html")
+    }.first
+}
 @MainActor func makeMathView(_ coordinator: MathCoordinator) -> WKWebView {
     let configuration = WKWebViewConfiguration(); configuration.websiteDataStore = .nonPersistent(); configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
     let view = WKWebView(frame: .zero, configuration: configuration); view.navigationDelegate = coordinator
-    #if SWIFT_PACKAGE
-    let bundle = Bundle.module
-    #else
-    let bundle = Bundle.main
-    #endif
-    let url = bundle.url(forResource: "math", withExtension: "html", subdirectory: "Resources") ?? bundle.url(forResource: "math", withExtension: "html")
+    let roots = [Bundle.main.resourceURL, Bundle.main.bundleURL,
+        URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()].compactMap { $0 }
+    let url = nativeMathResource(roots: roots)
     if let url { view.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent()) }
     else { view.loadHTMLString("<body><p>Math resource missing; source stays editable.</p><div id='math'></div><script>globalThis.renderMath=s=>document.getElementById('math').textContent=s</script></body>", baseURL: nil) }
     return view
@@ -583,17 +698,21 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
       catch { /* Invalid UTF-8 boundaries cannot identify a source widget. */ }
     }
   }
-  return <>{slots.map(slot => {
+  const tables = modules.elements.renderableBlocks(modules.prose.structureOf(view.state), view.state.doc.toString()).filter(block => modules.elements.slotKindOf(block) === "table");
+  const sourceTables = tables.filter(block => !slots.some(slot => slot.at === block.from));
+  return <>{sourceTables.length > 0 && view.dom.parentElement && createPortal(<button type="button" className="simple-render-tables" onClick={() => {
+    view.dispatch({ effects: modules.rendered.setRenderedBlocks.of([...new Set([...slots.map(slot => slot.at), ...tables.map(block => block.from)])]) });
+  }}>Edit tables as grids</button>, view.dom.parentElement)}{slots.map(slot => {
     const captured = view.state.doc;
     const context = { view, path: buffer.file.path, docId: buffer.file.doc_id, execBlocks: saved.filter((block): block is ExecBlock => block.kind === "exec"),
       diagramBlocks: saved.filter((block): block is DiagramBlock => block.kind === "diagram"), runningCells: new Set<string>(), replaying: [],
       replaceBlockContent: (target: RenderedSlot, text: string, origin?: string) => modules.edit.replaceCapturedBlock(view, target, text, origin ?? "input.table"),
     };
     return <SlotPortal key={slot.key} slot={slot} css={modules.css.default + modules.katexCss.default}>
-      {!slot.outputOnly && <button type="button" onClick={() => {
+      {!slot.outputOnly && <button type="button" style={{ border: "1px solid currentColor", borderRadius: 4, padding: "3px 8px", cursor: "pointer" }} onClick={() => {
         if (view.state.doc !== captured) return;
         view.dispatch({ effects: modules.rendered.showBlockSource.of(slot.at), selection: { anchor: Math.min(slot.at, view.state.doc.length) }, scrollIntoView: true }); view.focus();
-      }}>Edit source</button>}
+      }}>Edit source text</button>}
       {modules.elements.elementViews[slot.kind].render(slot, context)}
     </SlotPortal>;
   })}</>;

@@ -46,7 +46,7 @@ function collapse(node: Layout): Layout {
   return live(node) ?? { id: node.id, tabs: [], active: null };
 }
 export function remove(node: Layout, tab: string): Layout {
-  return groups(node).some(group => group.tabs.includes(tab)) ? collapse(detach(node, tab)) : node;
+  return groups(node).some(group => group.tabs.includes(tab)) ? (tab !== "files" && groups(node).some(group => group.tabs.includes("files")) && groups(node).filter(group => !group.tabs.includes("files")).every(group => group.tabs.every(value => value === tab)) ? detach(node, tab) : collapse(detach(node, tab))) : node;
 }
 function detach(node: Layout, tab: string): Layout {
   if (!isGroup(node)) return { ...node, first: detach(node.first, tab), second: detach(node.second, tab) };

@@ -38,6 +38,7 @@ class DocumentBuffer(val file: FileNode, loaded: FileText) {
         val bytes = text.toByteArray(Charsets.UTF_8)
         return receipts.filter { block -> val span = block.optJSONArray("span"); span != null && span.length() == 2 && span.optInt(0, -1) in 0..bytes.size && span.optInt(1, -1) in span.getInt(0)..bytes.size && bytes.take(span.getInt(0)).count { it == 10.toByte() } == line }
     }
+    var sourceTable by mutableStateOf<Int?>(null)
     var tableSourceVisible by mutableStateOf(false)
     var inlineMarkup by mutableStateOf(InlineSnapshot(""))
     var language: NativeLanguage? = null
@@ -207,7 +208,7 @@ class Workspace : ViewModel() {
         show("terminal"); terminal.open(server)
     }
     fun show(tab: String) {
-        val target = layout.groups().firstOrNull { tab in it.tabs }?.id ?: focused
+        val target = layout.groups().firstOrNull { tab in it.tabs }?.id ?: (if (tab != "files") layout.groups().firstOrNull { it.id == focused && "files" !in it.tabs }?.id ?: layout.groups().firstOrNull { "files" !in it.tabs }?.id else null) ?: focused
         layout = layout.activate(tab, target); focused = target
     }
     fun close(tab: String) {

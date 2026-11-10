@@ -62,8 +62,8 @@ backwards.
 
 <storycode:copy id="f-996aefac1e60-stackIcons">
 /** Reserve overflow before the next populated line; never move that line. */
-export function gutterSlots(count: number, available: number, size = ICON_SIZE) {
-  const slots = Math.max(1, Math.floor((available + .5) / size));
+export function gutterSlots(count: number, available: number, size = ICON_SIZE, columns = 1) {
+  const slots = Math.max(1, Math.floor((available + .5) / size)) * Math.max(1, columns);
   return count <= slots ? { visible: count, overflow: 0 } : { visible: slots - 1, overflow: count - slots + 1 };
 }
 

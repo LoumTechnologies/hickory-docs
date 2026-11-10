@@ -984,7 +984,7 @@
       "axes": []
     },
     {
-      "name": "closing the last document promotes Files",
+      "name": "closing the last document retains its empty editor pane",
       "steps": [
         {
           "op": "open",
@@ -999,9 +999,10 @@
       "expected": [
         [
           "files"
-        ]
+        ],
+        []
       ],
-      "axes": []
+      "axes": ["horizontal"]
     },
     {
       "name": "closing every tab retains one reusable empty root",
@@ -1090,9 +1091,10 @@
       "expected": [
         [
           "files"
-        ]
+        ],
+        []
       ],
-      "axes": []
+      "axes": ["horizontal"]
     }
   ],
   "edgeCases": [

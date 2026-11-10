@@ -1,12 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 // Protects docs/guarantees/authoring/the-gutters-never-skip-a-number.md
-import { ICON_GAP, ICON_SIZE, iconVisible, popoverTop, groupRailIcons } from "./cardRail";
+import { ICON_GAP, ICON_SIZE, iconVisible, popoverTop, groupRailIcons, gutterSlots } from "./cardRail";
 
 const PITCH = ICON_SIZE + ICON_GAP;
 
 // Contract: .hickory-source/guarantees/authoring/the-editor-keeps-its-space/contract.md
 describe("grouping the rail’s icons", () => {
+  it("uses new columns and free rows before reserving an overflow slot", () => {
+    // Contract: .hickory-source/frontends/contract.md
+    expect(gutterSlots(6, 40, 20, 3)).toEqual({ visible: 6, overflow: 0 });
+    expect(gutterSlots(7, 40, 20, 3)).toEqual({ visible: 5, overflow: 2 });
+    expect(gutterSlots(3, 20, 20, 3)).toEqual({ visible: 3, overflow: 0 });
+    expect(gutterSlots(3, 40, 20, 1)).toEqual({ visible: 1, overflow: 2 });
+  });
   it("leaves separated icons at their source rows", () => {
     expect(groupRailIcons([0, 100, 300], 600).tops).toEqual([0, 100, 300]);
   });

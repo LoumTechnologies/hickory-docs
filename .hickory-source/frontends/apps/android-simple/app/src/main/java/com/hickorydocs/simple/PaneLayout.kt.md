@@ -51,7 +51,7 @@ data class PaneLayout(val rootID: String = "root", val nodes: Map<String, PaneNo
         val root = live(rootID) ?: rootID.also { kept[it] = PaneNode(it) }
         return copy(rootID = root, nodes = kept)
     }
-    fun remove(tab: String): PaneLayout = if (groups().any { tab in it.tabs }) detach(tab).collapse() else this
+    fun remove(tab: String): PaneLayout = if (groups().any { tab in it.tabs }) detach(tab).let { removed -> if (tab != "files" && groups().any { "files" in it.tabs } && groups().filter { "files" !in it.tabs }.all { group -> group.tabs.all { it == tab } }) removed else removed.collapse() } else this
     private fun detach(tab: String): PaneLayout = copy(nodes = nodes.mapValues { (_, node) ->
         val tabs = node.tabs.filter { it != tab }
         node.copy(tabs = tabs, active = if (node.active == tab) tabs.lastOrNull() else node.active)

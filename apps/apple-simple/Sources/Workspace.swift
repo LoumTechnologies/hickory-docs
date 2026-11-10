@@ -37,6 +37,7 @@ import Observation
     }
     // A source reveal changes presentation only; the editor and its undo stack stay alive.
     @ObservationIgnored var applyTableEdit: ((NativeSourceEdit, String) -> Bool)?
+    var sourceTable: Int? { didSet { renderMarkup?() } }
     var tableSourceVisible = false { didSet { renderMarkup?() } }
     var inlineMarkup = InlineSnapshot(source: "")
     @ObservationIgnored var renderMarkup: (() -> Void)?
@@ -224,7 +225,7 @@ import Observation
         show("terminal"); await terminal.open(using: engine)
     }
     func show(_ tab: String) {
-        let target = layout.groups().first(where: { $0.tabs.contains(tab) })?.id ?? focused
+        let target = layout.groups().first(where: { $0.tabs.contains(tab) })?.id ?? (tab != "files" ? layout.groups().first(where: { $0.id == focused && !$0.tabs.contains("files") })?.id ?? layout.groups().first(where: { !$0.tabs.contains("files") })?.id : nil) ?? focused
         layout.activate(tab, in: target); focused = target
     }
     func close(_ tab: String) {

@@ -992,7 +992,7 @@ This fixture is the shared behavioral input, not a UI snapshot. All three implem
       "axes": []
     },
     {
-      "name": "closing the last document promotes Files",
+      "name": "closing the last document retains its empty editor pane",
       "steps": [
         {
           "op": "open",
@@ -1007,9 +1007,10 @@ This fixture is the shared behavioral input, not a UI snapshot. All three implem
       "expected": [
         [
           "files"
-        ]
+        ],
+        []
       ],
-      "axes": []
+      "axes": ["horizontal"]
     },
     {
       "name": "closing every tab retains one reusable empty root",
@@ -1098,9 +1099,10 @@ This fixture is the shared behavioral input, not a UI snapshot. All three implem
       "expected": [
         [
           "files"
-        ]
+        ],
+        []
       ],
-      "axes": []
+      "axes": ["horizontal"]
     }
   ],
   "edgeCases": [

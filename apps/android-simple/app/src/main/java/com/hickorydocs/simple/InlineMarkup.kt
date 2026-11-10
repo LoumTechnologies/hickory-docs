@@ -3,7 +3,7 @@ package com.hickorydocs.simple
 data class InlineMark(val kind: String, val from: Int, val to: Int, val level: Int = 0)
 data class InlineCell(val line: Int, val column: Int, val from: Int, val to: Int, val value: String, val format: String = "markdown", val delimiter: String = ",")
 data class InlineEquation(val line: Int, val from: Int, val to: Int, val body: String)
-data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf(0), val marks: List<InlineMark> = emptyList(), val cells: List<InlineCell> = emptyList(), val equations: List<InlineEquation> = emptyList())
+data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf(0), val marks: List<InlineMark> = emptyList(), val cells: List<InlineCell> = emptyList(), val equations: List<InlineEquation> = emptyList(), val debug: InlineDebugContext = InlineDebugContext())
 // Keep source offsets authoritative while the field displays a grid-sized placeholder.
 data class InlineTable(val from: Int, val to: Int, val rows: List<List<InlineCell>>) {
     val displayRows: Int get() = minOf(10, rows.size + 2)
@@ -21,7 +21,19 @@ fun inlineTables(snapshot: InlineSnapshot): List<InlineTable> {
         val end = snapshot.source.indexOf('\n', snapshot.lineStarts[last]).let { if (it < 0) snapshot.source.length else it }
         result.add(InlineTable(snapshot.lineStarts[line], if (end > 0 && snapshot.source[end - 1] == '\r') end - 1 else end, rows))
     }
-    return result
+    val csv = snapshot.cells.filter { it.format == "csv" }.sortedBy { it.from }
+    val groups = mutableListOf<MutableList<InlineCell>>()
+    for (cell in csv) {
+        val last = groups.lastOrNull()?.lastOrNull()
+        if (last != null && snapshot.source.substring(last.to, cell.from).all { it == '\r' || it == '\n' || it in cell.delimiter }) groups.last().add(cell)
+        else groups.add(mutableListOf(cell))
+    }
+    for (cells in groups) {
+        val rows = mutableListOf<MutableList<InlineCell>>()
+        for (cell in cells) { if (cell.column == 0) rows.add(mutableListOf()); rows.last().add(cell) }
+        result.add(InlineTable(cells.first().from, cells.last().to, rows))
+    }
+    return result.sortedBy { it.from }
 }
 fun inlineCellText(value: String, format: String = "markdown", delimiter: String = ","): String {
     if (format == "csv") return if (value.contains(delimiter) || value.contains('\n') || value.contains('\r') || value.contains('"')) "\"" + value.replace("\"", "\"\"") + "\"" else value
@@ -74,21 +86,59 @@ fun inlineCSVCells(body: String, line: Int, offset: Int, delimiter: String): Lis
     }
     return if (quoted) emptyList() else result
 }
+// Candidate discovery belongs to the background source snapshot, not each draw.
+data class InlineDebugContext(val code: Map<Int, String> = emptyMap(), val launch: Map<Int, String> = emptyMap())
+fun inlineDebugContext(source: String, path: String): InlineDebugContext {
+    if (source.length > 200_000) return InlineDebugContext()
+    val supported = listOf("py", "js", "ts", "jsx", "tsx", "rs", "go", "c", "cpp", "java", "cs")
+    val rows = source.split('\n'); val code = mutableMapOf<Int, String>(); val launch = mutableMapOf<Int, String>()
+    if (path.substringAfterLast('.').lowercase() in supported) {
+        launch[0] = path
+        rows.forEachIndexed { index, row -> if (row.isNotBlank()) code[index] = path }
+        return InlineDebugContext(code, launch)
+    }
+    if (path.substringAfterLast('.').lowercase() !in listOf("md", "markdown")) return InlineDebugContext()
+    var fence = ""; var target: String? = null
+    val open = Regex("""^\s*<[\w.-]+:file\b[^>]*\bpath\s*=\s*["']([^"']+)["'][^>]*>""")
+    for ((index, row) in rows.withIndex()) {
+        val trimmed = row.trim()
+        if (fence.isNotEmpty()) { if (trimmed.startsWith(fence)) fence = ""; continue }
+        if (target == null && (trimmed.startsWith("```") || trimmed.startsWith("~~~"))) { fence = trimmed.take(3); continue }
+        val match = open.find(row)
+        if (match != null) {
+            target = match.groupValues[1].takeIf { it.substringAfterLast('.').lowercase() in supported }
+            target?.let { launch[index] = it }; continue
+        }
+        if (trimmed.startsWith("</") && trimmed.contains(":file>")) target = null
+        if (trimmed.isNotEmpty()) target?.let { code[index] = it }
+    }
+    return InlineDebugContext(code, launch)
+}
+fun inlineDebugPath(source: String, path: String, line: Int, launch: Boolean = false): String? {
+    val context = inlineDebugContext(source, path)
+    return if (launch) context.launch[line] else context.code[line]
+}
 fun inlineLineAt(offset: Int, starts: List<Int>): Int { val found = starts.binarySearch(offset); return if (found >= 0) found else maxOf(0, -found - 2) }
 fun computeInlineMarkup(source: String, path: String): InlineSnapshot {
     val starts = mutableListOf(0); source.forEachIndexed { index, char -> if (char == '\n') starts.add(index + 1) }
-    if (path.substringAfterLast('.', "").lowercase() !in listOf("md", "markdown") || source.length > 200_000) return InlineSnapshot(source, lineStarts = starts)
+    val debug = inlineDebugContext(source, path)
+    if (path.substringAfterLast('.', "").lowercase() == "csv" && source.length <= 200_000) return InlineSnapshot(source, lineStarts = starts, cells = inlineCSVCells(source, 0, 0, ","), debug = debug)
+    if (path.substringAfterLast('.', "").lowercase() !in listOf("md", "markdown") || source.length > 200_000) return InlineSnapshot(source, lineStarts = starts, debug = debug)
     val rows = source.split('\n'); val marks = mutableListOf<InlineMark>(); val cells = mutableListOf<InlineCell>(); val equations = mutableListOf<InlineEquation>()
     val separator = Regex("^\\s*\\|?\\s*:?-{3,}:?\\s*(\\|\\s*:?-{3,}:?\\s*)+\\|?\\s*$")
     val heading = Regex("^(#{1,6})\\s+")
     val styles = listOf("code" to Regex("`[^`\\n]+`"), "strong" to Regex("\\*\\*[^*\\n]+\\*\\*"), "em" to Regex("(?<!\\*)\\*[^*\\n]+\\*(?!\\*)"), "math" to Regex("(?<!\\\\)\\$([^$\\n]+)\\$"))
     val opening = Regex("^\\s*<[A-Za-z_][\\w.-]*:(file|copy|cut|exec|diagram|math|table)\\b[^>]*>")
-    var offset = 0; var fence = ""; var payload = ""; var table = false; var equationStart: Int? = null; var equationLine = 0; var tableStart: Int? = null; var tableLine = 0; var delimiter = ","
+    var offset = 0; var fence = ""; var payload = ""; var table = false; var diffFence = false; var equationStart: Int? = null; var equationLine = 0; var tableStart: Int? = null; var tableLine = 0; var delimiter = ","
     rows.forEachIndexed { line, rawRow ->
         val row = rawRow.removeSuffix("\r")
         val start = offset; offset += rawRow.length + 1; val trimmed = row.trim()
-        if (fence.isNotEmpty()) { if (trimmed.startsWith(fence)) fence = ""; return@forEachIndexed }
-        if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) { fence = trimmed.take(3); table = false; return@forEachIndexed }
+        if (fence.isNotEmpty()) {
+            if (trimmed.startsWith(fence)) { fence = ""; diffFence = false }
+            else if (diffFence) marks.add(InlineMark(if (row.startsWith('+')) "diff-add" else if (row.startsWith('-')) "diff-remove" else "code", start, start + row.length))
+            return@forEachIndexed
+        }
+        if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) { fence = trimmed.take(3); diffFence = trimmed.drop(3).trim() == "diff"; table = false; return@forEachIndexed }
         if (payload.isNotEmpty()) {
             val close = row.indexOf("</")
             if (trimmed.contains(":" + payload + ">") && close >= 0) {
@@ -130,5 +180,5 @@ fun computeInlineMarkup(source: String, path: String): InlineSnapshot {
         val isSeparator = separator.matches(row); val nextSeparator = rows.getOrNull(line + 1)?.let { separator.matches(it) } == true
         if (nextSeparator || table && row.contains('|')) { table = true; if (!isSeparator) cells.addAll(inlineCells(row, line, start)) } else if (!isSeparator) table = false
     }
-    return InlineSnapshot(source, starts, marks, cells, equations)
+    return InlineSnapshot(source, starts, marks, cells, equations, debug)
 }
