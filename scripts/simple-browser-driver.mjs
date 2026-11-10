@@ -120,6 +120,19 @@ try {
         case "debug-values": value = await page.locator(".cm-debug-value").allTextContents(); break;
         case "debug-breakpoint":
           await page.getByLabel(`Set breakpoint on line ${request.line}`, { exact: true }).click(); break;
+        case "indent-tabs":
+          await editor(request.path).click();
+          await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
+          await page.keyboard.press("Enter");
+          await page.keyboard.press("Tab"); await page.keyboard.press("Tab");
+          break;
+        case "file-menu-items":
+          await page.locator("nav").getByText("File", { exact: true }).click();
+          value = await page.locator("nav details[open] button").allTextContents();
+          await page.locator("nav").getByText("File", { exact: true }).click(); break;
+        case "file-command":
+          if (request.path !== undefined) page.once("dialog", dialog => dialog.accept(request.path));
+          await menu("File", request.command); break;
         case "save": await menu("File", "Save"); break;
         case "split": await menu("View", "Split below"); break;
         case "move": await menu("View", "Move tab to next group"); break;

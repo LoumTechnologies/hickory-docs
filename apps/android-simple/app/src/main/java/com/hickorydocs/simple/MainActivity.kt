@@ -25,6 +25,7 @@ class MainActivity : ComponentActivity() {
 @Composable fun SimpleWorkspace(workspace: Workspace, initialAddress: String? = null) {
     var connection by remember { mutableStateOf(workspace.engine == null) }
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(initialAddress) {
         if (workspace.engine == null && workspace.address.isEmpty() && !initialAddress.isNullOrEmpty()) {
             workspace.address = initialAddress
@@ -44,8 +45,14 @@ class MainActivity : ComponentActivity() {
         Row(Modifier.fillMaxWidth().height(32.dp)) {
             CommandMenu("File", listOf(
                 "Connect…" to { connection = true },
-                "Refresh files" to { scope.launch { workspace.refresh() }; Unit },
+                "Open File" to { workspace.chooseFileCommand("Open File") },
+                "Open Directory" to { workspace.chooseFileCommand("Open Directory") },
+                "New Tab" to { workspace.newTab() },
+                "New Window" to { context.startActivity(android.content.Intent(context, MainActivity::class.java).putExtra("hickory_api_origin", workspace.address).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_DOCUMENT or android.content.Intent.FLAG_ACTIVITY_MULTIPLE_TASK)); Unit },
                 "Save" to { scope.launch { workspace.save() }; Unit },
+                "Save As" to { workspace.chooseFileCommand("Save As") },
+                "Save All" to { scope.launch { workspace.saveAll() }; Unit },
+                "Refresh" to { scope.launch { workspace.refresh() }; Unit },
                 "Close tab" to { workspace.active?.let(workspace::close); Unit }
             ))
             CommandMenu("Edit", listOf("Find and replace" to { workspace.currentBuffer?.showFind = true; Unit },
@@ -66,6 +73,10 @@ class MainActivity : ComponentActivity() {
             workspace.currentBuffer?.let { buffer -> Text(if (buffer.readOnly) "Read-only" else if (buffer.saving) "Saving…" else if (buffer.dirty) "Modified" else "Saved", fontSize = 11.sp) }
         }
     }
+    if (workspace.fileCommand != null) AlertDialog(onDismissRequest = { workspace.fileCommand = null; workspace.savingAll = false }, title = { Text(workspace.fileCommand ?: "File") }, text = {
+        Column { Text("Enter a path in the connected workspace. Save As requires an unused path; an empty directory path opens the root.", fontSize = 12.sp)
+            OutlinedTextField(workspace.filePath, { workspace.filePath = it }, label = { Text("Workspace path") }, singleLine = true) }
+    }, confirmButton = { TextButton(onClick = { scope.launch { workspace.performFileCommand() } }) { Text("OK") } }, dismissButton = { TextButton(onClick = { workspace.fileCommand = null; workspace.savingAll = false }) { Text("Cancel") } })
     if (connection) AlertDialog(onDismissRequest = { connection = false }, title = { Text("Workspace server") }, text = {
         Column {
             OutlinedTextField(workspace.address, { workspace.address = it }, label = { Text("Workspace server") }, singleLine = true)

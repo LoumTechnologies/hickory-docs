@@ -247,7 +247,69 @@ import Observation
         if tab == "files" { return "Files" }
         if tab == "agent" { return "Agent" }
         if tab == "terminal" { return "Terminal" }
-        return (tab as NSString).lastPathComponent + (buffers[tab]?.dirty == true ? " •" : "")
+        return (buffers[tab]?.file.name ?? (tab as NSString).lastPathComponent) + (buffers[tab]?.dirty == true ? " •" : "")
     }
-    func save() async { if let engine, let buffer = currentBuffer { await buffer.save(using: engine) } }
+    var savingAll = false
+    var fileCommand: String?
+    var filePath = ""
+    func newTab() {
+        let path = "Untitled-" + UUID().uuidString
+        buffers[path] = DocumentBuffer(file: FileNode(name: "Untitled \(buffers.keys.filter { $0.hasPrefix("Untitled-") }.count + 1)", path: path, dir: false), text: FileText(path: path, content: "", hash: ""))
+        show(path)
+    }
+    func chooseFileCommand(_ command: String) { filePath = ""; fileCommand = command }
+    func performFileCommand() async {
+        guard let command = fileCommand, let engine else { status = "Connect to a workspace server first."; return }
+        let path = filePath; let source = currentBuffer; fileCommand = nil
+        func find(_ nodes: [FileNode]) -> FileNode? {
+            for node in nodes { if node.path == path { return node }; if let found = find(node.children ?? []) { return found } }; return nil
+        }
+        if command == "Save As" {
+            guard let source, !source.saving, !path.isEmpty else { return }
+            if path == source.file.path { await source.save(using: engine); return }
+            let submitted = source.text
+            source.saving = true; defer { source.saving = false }
+            func finish() {
+                if source.text == submitted { layout.remove(source.file.path); buffers.removeValue(forKey: source.file.path) }
+            }
+            do {
+                struct Created: Decodable { var path: String }
+                if path.lowercased().hasSuffix(".md") {
+                    let _: SavedDocument = try await engine.request("POST", "/api/projects/local/docs", body: ["path": path, "source": submitted])
+                    await refresh()
+                    func created(_ nodes: [FileNode]) -> FileNode? {
+                        for node in nodes { if node.path == path { return node }; if let found = created(node.children ?? []) { return found } }; return nil
+                    }
+                    if let file = created(files) { await open(file); finish() }
+                    source.saving = false
+                    if savingAll { await saveAll() }; return
+                }
+                let _: Created = try await engine.request("POST", "/api/files/op", body: ["op": "create", "path": path])
+                let file = FileNode(name: (path as NSString).lastPathComponent, path: path, dir: false)
+                let empty = try await engine.file(file)
+                guard empty.content.isEmpty else { status = "Destination changed after creation. Original edits retained."; return }
+                let copy = DocumentBuffer(file: file, text: empty); copy.text = submitted
+                await copy.save(using: engine)
+                guard copy.error.isEmpty else { status = copy.error; return }
+                await open(file); finish(); await refresh()
+                source.saving = false
+                if savingAll { await saveAll() }
+            } catch { status = "\(error.localizedDescription) Original edits are retained. Choose an unused path and retry Save As." }
+        } else if command == "Open Directory" && path.isEmpty { await refresh(); show("files") }
+        else if let file = find(files), file.dir == (command == "Open Directory") {
+            if file.dir { files = file.children ?? []; show("files") } else { await open(file) }
+        } else { status = "Path not found. Refresh and choose a path in this workspace." }
+    }
+    func saveAll() async {
+        guard let engine else { return }
+        savingAll = true
+        for buffer in Array(buffers.values) where !buffer.file.path.hasPrefix("Untitled-") { await buffer.save(using: engine) }
+        if let draft = buffers.values.first(where: { $0.file.path.hasPrefix("Untitled-") && $0.dirty }) {
+            show(draft.file.path); chooseFileCommand("Save As")
+        } else { savingAll = false }
+    }
+    func save() async {
+        if currentBuffer?.file.path.hasPrefix("Untitled-") == true { chooseFileCommand("Save As"); return }
+        if let engine, let buffer = currentBuffer { await buffer.save(using: engine) }
+    }
 }

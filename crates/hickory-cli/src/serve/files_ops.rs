@@ -189,7 +189,12 @@ pub async fn file_op(
                     ApiError::unprocessable(format!("could not create the folder: {e}"))
                 })?;
             }
-            std::fs::write(&source, b"")
+            // Save As also uses this verb: another writer winning after vacant()
+            // must fail creation rather than truncate its newly created file.
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&source)
                 .map_err(|e| ApiError::unprocessable(format!("could not create the file: {e}")))?;
             json!({ "op": "create", "path": body.path })
         }

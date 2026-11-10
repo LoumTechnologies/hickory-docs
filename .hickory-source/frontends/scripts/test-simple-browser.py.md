@@ -13,6 +13,8 @@ The focused `--fold-only` flow clicks the visible right-hand line menu, saves wh
 
 The table-only flow opens a real literate document from disk, edits a grid cell, saves and compares exact Markdown, then undoes and reveals source. It exercises cold parser startup as well as the grid. The adapter owns DOM selectors; these assertions express the user-visible save and undo behavior. Native gesture drivers for the same flow remain unimplemented.
 
+The file-editing acceptance path opens real files through the File menu, presses Return and two Tabs, saves all three whitespace styles and checks Save As against disk. It runs alone with `--file-editing-only`; browser startup failures are not passing UI evidence.
+
 <ui:copy id="simple-0799b7d31b-0">
 # Contract: .hickory-source/frontends/contract.md
 """Focused real-engine browser acceptance for the independent frontend."""
@@ -109,6 +111,24 @@ def debug_acceptance(driver):
     eventually(lambda: any("value =" in value for value in driver.act("debug-values")), True)
     driver.act("debug-stop")
     eventually(lambda: not any("paused" in state for state in driver.act("debug-state")), True)
+
+def file_editing_acceptance(driver, folder):
+    # Contract: .hickory-source/frontends/contract.md. Real keyboard and disk I/O.
+    commands = driver.act("file-menu-items")
+    for command in ["Open File", "Open Directory", "New Tab", "New Window", "Save", "Save As", "Save All", "Refresh"]:
+        assert command in commands
+    for path, unit in [("four.py", "    "), ("two.py", "  "), ("tabs.py", "\t")]:
+        original = (folder / path).read_text()
+        driver.act("file-command", command="Open File", path=path)
+        driver.act("indent-tabs", path=path)
+        eventually(lambda: driver.act("content", path=path), original + "\n" + unit * 2)
+    driver.act("file-command", command="Save All")
+    for path, unit in [("four.py", "    "), ("two.py", "  "), ("tabs.py", "\t")]:
+        eventually(lambda: (folder / path).read_text().split("\n")[-1], unit * 2)
+    driver.act("file-command", command="Save As", path="copied.py")
+    eventually(lambda: (folder / "copied.py").exists(), True)
+    assert (folder / "copied.py").read_text() == (folder / "tabs.py").read_text()
+
 
 def search_acceptance(driver, folder):
     path = "search.txt"
@@ -219,6 +239,8 @@ if __name__ == "__main__":
     processes = []; driver = None
     with tempfile.TemporaryDirectory(prefix="hickory-simple-") as temporary:
         folder = Path(temporary) / "workspace"; folder.mkdir()
+        for name, unit in [("four.py", "    "), ("two.py", "  "), ("tabs.py", "\t")]:
+            (folder / name).write_text("def orders():\n" + unit + "pass\n# end")
         (folder / "notes.txt").write_text("before")
         (folder / "search.txt").write_text("😀 name=12\nname=34\n")
         (folder / "fold.txt").write_text("function main() {\n  first()\n  second()\n}\n")
@@ -235,7 +257,10 @@ if __name__ == "__main__":
             backend = origin(engine)
             vite = start(["node", "node_modules/vite/bin/vite.js", "--config", "vite.simple.config.ts", "--host", "127.0.0.1", "--port", str(ui_port), "--strictPort"], cwd=ROOT / "apps/web", env={**environment, "HICKORY_API_ORIGIN": backend}); processes.append(vite)
             driver = BrowserDriver(origin(vite) + "/simple.html")
-            if "--table-only" in sys.argv:
+            if "--file-editing-only" in sys.argv:
+                file_editing_acceptance(driver, folder)
+                print("Browser: File menu, detected Tab alignment, Save All and Save As passed")
+            elif "--table-only" in sys.argv:
                 table_acceptance(driver, folder)
                 print("Browser: inline table grid, real saved Markdown, source reveal and undo passed")
             elif "--language-cache-only" in sys.argv:

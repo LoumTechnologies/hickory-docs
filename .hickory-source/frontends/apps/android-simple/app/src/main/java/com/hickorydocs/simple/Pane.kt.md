@@ -13,6 +13,8 @@ Tab and strip drop targets share one validator and insertion command. A tab supp
 
 Reserve a small blank slot at the end of the strip even when tabs overflow, so append remains reachable by horizontal scrolling. It is always present and does not resize during a drag.
 
+Detect indentation from nonblank source lines before inserting Tab: prefer the observed whitespace kind, infer the space unit from its common divisor, and advance partial indentation to the next stop. The edit stays on the native permission, composition and undo path.
+
 <ui:copy id="simple-0d1e071614-0">
 package com.hickorydocs.simple
 
@@ -310,6 +312,36 @@ The floating panel below computes on a background dispatcher and checks its exac
 }
 
 data class SimpleFold(val line: Int, val from: Int, val to: Int)
+fun simpleIndent(source: String): String {
+    val prefixes = source.lines().filter { it.isNotBlank() }.map { it.takeWhile { c -> c == ' ' || c == '\t' } }
+    if (prefixes.count { it.startsWith("\t") } > prefixes.count { it.startsWith(" ") }) return "\t"
+    fun gcd(a: Int, b: Int): Int = if (b == 0) a else gcd(b, a % b)
+    val width = prefixes.filter { it.isNotEmpty() && it.all { c -> c == ' ' } }.fold(0) { width, prefix -> gcd(width, prefix.length) }
+    return " ".repeat(if (width in 1..8) width else 4)
+}
+fun simpleTabText(source: String, offset: Int): String {
+    val unit = simpleIndent(source)
+    if (unit == "\t") return unit
+    val column = offset - (if (offset == 0) 0 else source.lastIndexOf('\n', offset - 1) + 1)
+    return " ".repeat(unit.length - column % unit.length)
+}
+fun simpleTabEdits(source: String, from: Int, to: Int, outdent: Boolean = false): List<NativeSourceEdit> {
+    if (from == to && !outdent) return listOf(NativeSourceEdit(from, to, simpleTabText(source, from)))
+    val unit = simpleIndent(source)
+    var offset = if (from == 0) 0 else source.lastIndexOf('\n', from - 1) + 1
+    val edits = mutableListOf<NativeSourceEdit>()
+    do {
+        if (outdent) {
+            val tail = source.substring(offset)
+            val count = if (tail.startsWith("\t")) 1 else minOf(if (unit == "\t") 4 else unit.length, tail.takeWhile { it == ' ' }.length)
+            if (count > 0) edits.add(NativeSourceEdit(offset, offset + count, ""))
+        } else edits.add(NativeSourceEdit(offset, offset, unit))
+        val next = source.indexOf('\n', offset)
+        if (next < 0) break
+        offset = next + 1
+    } while (offset < to)
+    return edits
+}
 fun simpleFoldRanges(source: String): List<SimpleFold> {
     data class Header(val line: Int, val indent: Int, val end: Int)
     val rows = source.split('\n'); val stack = mutableListOf<Header>(); val result = mutableListOf<SimpleFold>()
@@ -360,8 +392,14 @@ The grid scrolls inside its reserved viewport, labels rows and columns, and appl
 // One projection drives the text field, line numbers, debugger rail and grid anchors.
 // Its offsets always map back to the retained source, including Unicode and folds.
 data class EditorReplacement(val from: Int, val to: Int, val text: String)
-fun editorReplacements(folds: List<SimpleFold>, tables: List<InlineTable>): List<EditorReplacement> {
-    val candidates = folds.map { EditorReplacement(it.from, it.to, " …") } + tables.map { EditorReplacement(it.from, it.to, " \n".repeat(it.displayRows - 1) + " ") }
+fun editorReplacements(folds: List<SimpleFold>, tables: List<InlineTable>, source: String = ""): List<EditorReplacement> {
+    val tabs = mutableListOf<EditorReplacement>()
+    var column = 0
+    source.forEachIndexed { offset, char ->
+        if (char == '\t') { val width = 4 - column % 4; tabs.add(EditorReplacement(offset, offset + 1, " ".repeat(width))); column += width }
+        else if (char == '\n') column = 0 else column++
+    }
+    val candidates = tabs + folds.map { EditorReplacement(it.from, it.to, " …") } + tables.map { EditorReplacement(it.from, it.to, " \n".repeat(it.displayRows - 1) + " ") }
     val result = mutableListOf<EditorReplacement>()
     for (item in candidates.sortedWith(compareBy<EditorReplacement> { it.from }.thenByDescending { it.to })) {
         if (result.lastOrNull()?.to?.let { it > item.from } != true) result.add(item)
@@ -461,7 +499,8 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
     val selection = buffer.state.selection
     val folds = buffer.activeFolds()
     val tables = if (inline.source == source && !buffer.tableSourceVisible) inlineTables(inline) else emptyList()
-    val replacements = editorReplacements(folds, tables)
+    val hiddenRanges = editorReplacements(folds, tables)
+    val replacements = editorReplacements(folds, tables, source)
     val display = editorDisplay(source, replacements)
     var textLayout by remember(buffer) { mutableStateOf<TextLayoutResult?>(null) }
     val paused = if (debug?.sourceMatches(buffer) == true) debug.line(buffer.file.path) else null
@@ -537,7 +576,7 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                 inputTransformation = InputTransformation {
                     val hiddenEdit = (0 until changes.changeCount).any { index ->
                         val changed = changes.getOriginalRange(index)
-                        replacements.any { range -> changed.min < range.to && changed.max > range.from || changed.collapsed && changed.min in range.from until range.to }
+                        hiddenRanges.any { range -> changed.min < range.to && changed.max > range.from || changed.collapsed && changed.min in range.from until range.to }
                     }
                     if (hiddenEdit) { revertAllChanges(); scope.launch { buffer.tableSourceVisible = true } }
                     // Retire display state after the input transaction, outside its receiver.
@@ -573,7 +612,18 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                 },
                 modifier = Modifier.fillMaxSize().padding(8.dp).focusRequester(editorFocus).onPreviewKeyEvent { event ->
                     val key = event.nativeKeyEvent
-                    if (event.type == KeyEventType.KeyDown && event.key == Key.Spacebar && event.isCtrlPressed) {
+                    val selected = buffer.state.selection
+                    val hiddenTyping = hiddenRanges.any { selected.min < it.to && selected.max > it.from || selected.collapsed && selected.min in it.from until it.to }
+                    if (event.type == KeyEventType.KeyDown && (event.key == Key.Tab || event.key == Key.Enter) && hiddenTyping) {
+                        buffer.tableSourceVisible = true; buffer.clearFolds(); true
+                    } else if (event.type == KeyEventType.KeyDown && event.key == Key.Enter && !event.isCtrlPressed && !event.isMetaPressed && !buffer.readOnly && buffer.state.composition == null) {
+                        val selection = buffer.state.selection
+                        val prefix = source.take(selection.min).substringAfterLast('\n').takeWhile { it == ' ' || it == '\t' }
+                        buffer.applySourceEdits(listOf(NativeSourceEdit(selection.min, selection.max, "\n" + prefix)), source); true
+                    } else if (event.type == KeyEventType.KeyDown && event.key == Key.Tab && !event.isCtrlPressed && !event.isMetaPressed && !event.isAltPressed && !buffer.readOnly && buffer.state.composition == null) {
+                        val selection = buffer.state.selection
+                        buffer.applySourceEdits(simpleTabEdits(source, selection.min, selection.max, event.isShiftPressed), source); true
+                    } else if (event.type == KeyEventType.KeyDown && event.key == Key.Spacebar && event.isCtrlPressed) {
                         menu = true; scope.launch { service?.inspect() }; scope.launch { service?.complete() }; true
                     } else if (buffer.multiSource == source && buffer.multiRanges.size > 1 && event.type == KeyEventType.KeyDown && !event.isCtrlPressed && !event.isMetaPressed && !event.isAltPressed && key.device?.isVirtual == false && key.unicodeChar > 0 && buffer.state.composition == null) {
                         buffer.replaceMultiple(String(Character.toChars(key.unicodeChar))); true
@@ -581,9 +631,10 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                 }.drawWithContent {
                     drawContent()
                     val layout = textLayout
-                    if (buffer.multiSource == source && layout?.layoutInput?.text?.text == source) buffer.multiRanges.drop(1).forEach { range ->
-                        if (range.from == range.to) { val rect = layout.getCursorRect(range.from); drawLine(color, Offset(rect.left, rect.top - scroll.value), Offset(rect.left, rect.bottom - scroll.value), 2f) }
-                        else { val path = layout.getPathForRange(range.from, range.to); path.translate(Offset(0f, -scroll.value.toFloat())); drawPath(path, color.copy(alpha = .2f)) }
+                    if (buffer.multiSource == source && layout?.layoutInput?.text?.text == display) buffer.multiRanges.drop(1).forEach { sourceRange ->
+                        val range = TextRange(editorDisplayOffset(sourceRange.from, replacements), editorDisplayOffset(sourceRange.to, replacements))
+                        if (range.start == range.end) { val rect = layout.getCursorRect(range.start); drawLine(color, Offset(rect.left, rect.top - scroll.value), Offset(rect.left, rect.bottom - scroll.value), 2f) }
+                        else { val path = layout.getPathForRange(range.min, range.max); path.translate(Offset(0f, -scroll.value.toFloat())); drawPath(path, color.copy(alpha = .2f)) }
                     }
                 }.clipToBounds().semantics { contentDescription = buffer.file.path },
                 textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface),
@@ -621,7 +672,7 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
             if (debug != null) NativeDebugRail(buffer, debug, textLayout, scroll)
         }
         Box(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(end = if (debug != null) 66.dp else 42.dp)) {
-            Text("⌘", modifier = Modifier.background(MaterialTheme.colorScheme.surface).clickable {
+            Text("⌁", modifier = Modifier.background(MaterialTheme.colorScheme.surface).clickable {
                 menu = true; scope.launch { service?.inspect() }; scope.launch { service?.complete() }
             }.padding(4.dp).semantics { contentDescription = "Language tools" })
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -713,7 +764,7 @@ fun debugLineOffset(source: String, line: Int): Int? {
     val starts = buffer.inlineMarkup.takeIf { it.source == source }?.lineStarts
     val folds = buffer.activeFolds()
     val tables = if (buffer.inlineMarkup.source == source && !buffer.tableSourceVisible) inlineTables(buffer.inlineMarkup) else emptyList()
-    val replacements = editorReplacements(folds, tables)
+    val replacements = editorReplacements(folds, tables, source)
     val display = editorDisplay(source, replacements)
     val paused = if (debug.sourceMatches(buffer)) debug.line(buffer.file.path) else null
     BoxWithConstraints(Modifier.width(24.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceContainer)) {
@@ -729,7 +780,7 @@ fun debugLineOffset(source: String, line: Int): Int? {
                 val top = layout.getLineTop(visual) - scroll.value + with(density) { 8.dp.toPx() }
                 if (top < 0 || top > height) continue
                 val held = debug.breakpoints[buffer.file.path]?.firstOrNull { it.optInt("line", -1) == line }
-                val glyph = when { buffer.inlineMarkup.source == buffer.text && (buffer.inlineMarkup.cells.any { it.line == line } || buffer.inlineMarkup.equations.any { it.line == line }) -> "⋯"; line == paused -> "⋯"; line == 0 -> "▷"; held == null -> "·"; held.optString("state") == "refused" -> "○"; held.optString("state") == "bound" -> "●"; else -> "◌" }
+                val glyph = when { buffer.inlineMarkup.source == buffer.text && (buffer.inlineMarkup.cells.any { it.line == line } || buffer.inlineMarkup.equations.any { it.line == line }) -> "⋯"; line == paused -> "⋯"; line == 0 -> "▷"; held == null -> "⋯"; held.optString("state") == "refused" -> "○"; held.optString("state") == "bound" -> "●"; else -> "◌" }
                 Box(Modifier.offset { IntOffset(0, top.toInt()) }) {
                     Text(glyph, fontSize = 13.sp, modifier = Modifier.width(24.dp).height(18.dp).clickable { opened = line; scope.launch { buffer.refreshReceipts() } }.semantics { contentDescription = "Debug actions on line ${line + 1}" })
                     DropdownMenu(expanded = opened == line, onDismissRequest = { opened = null }) {
@@ -766,28 +817,28 @@ fun debugLineOffset(source: String, line: Int): Int? {
                                 if (output.length > 50_000) Text("Output truncated in this control.", fontSize = 11.sp)
                             }
                             if (buffer.receiptNotice.isNotEmpty()) Text(buffer.receiptNotice, fontSize = 12.sp)
-                            if (buffer.file.docID != null) TextButton(onClick = { scope.launch { buffer.refreshReceipts() } }) { Text("Refresh recorded output") }
+                            if (buffer.file.docID != null) TextButton(onClick = { scope.launch { buffer.refreshReceipts() } }) { Text("↻ Refresh recorded output") }
                             if (!debug.sourceMatches(buffer)) Text("Save edited text before launching. Values belong to the source that ran.", fontSize = 12.sp)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                TextButton(enabled = !debug.active && !buffer.dirty && !buffer.saving, onClick = { scope.launch { debug.prepare(buffer, line) } }) { Text("Debug") }
-                                TextButton(onClick = { debug.toggle(buffer.file.path, line) }) { Text("Breakpoint") }
+                                TextButton(enabled = !debug.active && !buffer.dirty && !buffer.saving, onClick = { scope.launch { debug.prepare(buffer, line) } }) { Text("▷ Debug") }
+                                TextButton(onClick = { debug.toggle(buffer.file.path, line) }) { Text("● Breakpoint") }
                                 if (debug.status == "paused") {
                                     listOf("Continue" to "continue", "Step over" to "over", "Step in" to "in", "Step out" to "out").forEach { (label, how) -> TextButton(onClick = { debug.step(how) }) { Text(label) } }
-                                    if (debug.capabilities.optBoolean("step_back")) TextButton(onClick = { debug.step("back") }) { Text("Step back") }
+                                    if (debug.capabilities.optBoolean("step_back")) TextButton(onClick = { debug.step("back") }) { Text("↶ Step back") }
                                 }
-                                if (debug.active) TextButton(onClick = { debug.stop() }) { Text("Stop") }
+                                if (debug.active) TextButton(onClick = { debug.stop() }) { Text("■ Stop") }
                             }
                             if (debug.owner == buffer.file.path) debug.targets.forEach { target -> TextButton(onClick = { scope.launch { debug.prepare(buffer, program = target.path) } }) { Text("Debug file ${target.path}") } }
                             debug.profiles.forEach { profile -> TextButton(onClick = { debug.launch(profile); opened = null }) { Text("Debug ${profile.optString("name")}") } }
-                            if (debug.offer != null) TextButton(onClick = { scope.launch { debug.install() } }) { Text("Install debugger") }
+                            if (debug.offer != null) TextButton(onClick = { scope.launch { debug.install() } }) { Text("⇩ Install debugger") }
                             if (debug.message.isNotBlank()) Text(debug.message, fontSize = 12.sp)
                             if (debug.capabilities.optBoolean("conditional_breakpoints")) {
                                 OutlinedTextField(value = condition, onValueChange = { condition = it }, label = { Text("Breakpoint condition") })
-                                TextButton(onClick = { debug.toggle(buffer.file.path, line, condition) }) { Text("Apply condition") }
+                                TextButton(onClick = { debug.toggle(buffer.file.path, line, condition) }) { Text("✓ Apply condition") }
                             }
                             if (debug.status == "paused") {
                                 OutlinedTextField(value = expression, onValueChange = { expression = it }, label = { Text("Expression") })
-                                Row { TextButton(onClick = { debug.evaluate(expression) }) { Text("Evaluate") }; TextButton(onClick = { debug.evaluate(expression, true) }) { Text("Watch") } }
+                                Row { TextButton(onClick = { debug.evaluate(expression) }) { Text("= Evaluate") }; TextButton(onClick = { debug.evaluate(expression, true) }) { Text("◉ Watch") } }
                                 debug.frames.forEach { frame -> TextButton(onClick = { debug.select(frame) }) { Text(frame.optString("name", "Frame")) } }
                                 debug.variables.forEach { variable -> Text("${variable.optString("name")} = ${variable.optString("value")}", fontSize = 12.sp) }
                                 debug.values.forEach { (key, value) -> Row { Text("$key = $value", modifier = Modifier.weight(1f)); if (key in debug.watches) TextButton(onClick = { debug.removeWatch(key) }) { Text("×") } } }

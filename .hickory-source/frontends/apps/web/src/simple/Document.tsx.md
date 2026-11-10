@@ -15,12 +15,14 @@ Search uses CodeMirror’s native search transactions and keymap. The panel is a
 
 The editor installs CodeMirror folding with its initial text. A linear indentation scan supplies regions without waiting for a parser or server; the existing LSP compartment may add language-specific regions later. A dedicated left gutter shows − on expanded headers and + on collapsed headers. CodeMirror anchors these controls to its measured lines. Folding changes editor decorations rather than buffer bytes, and the existing cached view keeps folds across tab moves. Debug launch actions keep their separate right-hand rail.
 
+Tab inserts a detected indentation unit at the next stop, while selections use the editor’s block indentation. Nonblank leading whitespace selects tabs or the greatest common divisor of space indents; empty files default to four spaces. This policy is available immediately, before language services arrive.
+
 <ui:copy id="simple-1a4a59fc95-0">
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Compartment, EditorState, StateEffect } from "@codemirror/state";
+import { Compartment, EditorState, StateEffect, EditorSelection } from "@codemirror/state";
 import { EditorView, keymap, drawSelection, lineNumbers, rectangularSelection, crosshairCursor } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { codeFolding, foldKeymap, foldService, foldGutter } from "@codemirror/language";
+import { defaultKeymap, history, historyKeymap, indentMore, indentLess } from "@codemirror/commands";
+import { codeFolding, foldKeymap, foldService, foldGutter, indentUnit } from "@codemirror/language";
 import { search, searchKeymap, openSearchPanel, SearchQuery, setSearchQuery } from "@codemirror/search";
 import { completionKeymap, startCompletion } from "@codemirror/autocomplete";
 import { useWorkspaceLsp } from "../lsp/useLsp";
@@ -42,6 +44,27 @@ import { observationSourceChanged } from "../debug/observations";
 import { api } from "../api/client";
 import { launchWithProfiles } from "../debug/launchProfiles";
 import { claimReveal, onRevealLine, openLocation } from "../lib/revealLine";
+// Infer from nonblank lines only: blank scratch lines must not change policy.
+export function simpleIndent(source: string): string {
+  const prefixes = source.split("\n").filter(line => line.trim()).map(line => line.match(/^[ \t]*/)![0]);
+  if (prefixes.filter(prefix => prefix.startsWith("\t")).length > prefixes.filter(prefix => prefix.startsWith(" ")).length) return "\t";
+  const widths = prefixes.filter(prefix => /^ +$/.test(prefix)).map(prefix => prefix.length);
+  const gcd = (a: number, b: number): number => b ? gcd(b, a % b) : a;
+  const width = widths.reduce(gcd, 0);
+  return " ".repeat(width > 0 && width <= 8 ? width : 4);
+}
+export function simpleTab(view: EditorView): boolean {
+  if (view.state.readOnly) return false;
+  if (view.state.selection.ranges.some(range => !range.empty)) return indentMore(view);
+  const unit = simpleIndent(view.state.doc.toString());
+  view.dispatch(view.state.changeByRange(range => {
+    const line = view.state.doc.lineAt(range.head);
+    const column = range.head - line.from;
+    const text = unit === "\t" ? unit : " ".repeat(unit.length - column % unit.length);
+    return { changes: { from: range.from, to: range.to, insert: text }, range: EditorSelection.cursor(range.from + text.length) };
+  }), { userEvent: "input.indent" });
+  return true;
+}
 export function simpleFoldRanges(source: string): { line: number; from: number; to: number }[] {
   const rows = source.split("\n"), stack: { line: number; indent: number; from: number }[] = [];
   const ranges: { line: number; from: number; to: number }[] = [];
@@ -92,13 +115,13 @@ export function Document({ buffer }: { buffer: Buffer }) {
     if (!cached) {
       const language = new Compartment(), prose = new Compartment();
       const view = new EditorView({ state: EditorState.create({ doc: buffer.text, extensions: [
-        history(), drawSelection(), EditorState.allowMultipleSelections.of(true), rectangularSelection(), crosshairCursor(), lineNumbers(), codeFolding(), foldGutter({ openText: "−", closedText: "+" }), search({ top: true, literal: true }),
+        history(), indentUnit.of(simpleIndent(buffer.text)), EditorState.tabSize.of(4), drawSelection(), EditorState.allowMultipleSelections.of(true), rectangularSelection(), crosshairCursor(), lineNumbers(), codeFolding(), foldGutter({ openText: "−", closedText: "+" }), search({ top: true, literal: true }),
         EditorState.transactionExtender.of(tr => {
           const query = tr.effects.find(effect => effect.is(setSearchQuery))?.value as SearchQuery | undefined;
           return query && !query.literal ? { effects: setSearchQuery.of(new SearchQuery({ ...query, literal: true })) } : null;
         }),
         foldService.of(localFold), EditorView.lineWrapping, language.of([]), prose.of([]),
-        keymap.of([{ key: "Ctrl-Space", run: startCompletion }, ...searchKeymap, ...foldKeymap, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
+        keymap.of([{ key: "Tab", run: simpleTab, shift: indentLess }, { key: "Ctrl-Space", run: startCompletion }, ...searchKeymap, ...foldKeymap, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
         EditorState.readOnly.of(buffer.readonly), EditorView.editable.of(!buffer.readonly),
         EditorView.contentAttributes.of({ "aria-label": buffer.file.path }),
         EditorView.updateListener.of(update => { if (update.docChanged) buffer.edit(update.state.doc.toString()); }),

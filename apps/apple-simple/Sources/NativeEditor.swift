@@ -102,6 +102,37 @@ private final class SimpleTextView: UITextView {
     override func setMarkedText(_ markedText: String?, selectedRange: NSRange) { willCompose?(); super.setMarkedText(markedText, selectedRange: selectedRange) }
 }
 #endif
+func simpleIndent(_ source: String) -> String {
+    let prefixes = source.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.map { String($0.prefix { $0 == " " || $0 == "\t" }) }
+    if prefixes.filter({ $0.hasPrefix("\t") }).count > prefixes.filter({ $0.hasPrefix(" ") }).count { return "\t" }
+    func gcd(_ a: Int, _ b: Int) -> Int { b == 0 ? a : gcd(b, a % b) }
+    let width = prefixes.filter { !$0.isEmpty && $0.allSatisfy { $0 == " " } }.reduce(0) { gcd($0, $1.count) }
+    return String(repeating: " ", count: width > 0 && width <= 8 ? width : 4)
+}
+func simpleTabText(_ source: String, at offset: Int) -> String {
+    let unit = simpleIndent(source)
+    if unit == "\t" { return unit }
+    let before = (source as NSString).substring(to: offset)
+    let column = before.components(separatedBy: "\n").last!.utf16.count
+    return String(repeating: " ", count: unit.count - column % unit.count)
+}
+func simpleTabEdits(_ source: String, range: NSRange, outdent: Bool = false) -> [NativeSourceEdit] {
+    if range.length == 0 && !outdent { return [NativeSourceEdit(range: range, text: simpleTabText(source, at: range.location))] }
+    let text = source as NSString, unit = simpleIndent(source)
+    var offset = text.lineRange(for: NSRange(location: range.location, length: 0)).location
+    let end = NSMaxRange(range)
+    var edits: [NativeSourceEdit] = []
+    repeat {
+        if outdent {
+            let tail = text.substring(from: offset)
+            let count = tail.hasPrefix("\t") ? 1 : min(unit == "\t" ? 4 : unit.count, tail.prefix { $0 == " " }.count)
+            if count > 0 { edits.append(NativeSourceEdit(range: NSRange(location: offset, length: count), text: "")) }
+        } else { edits.append(NativeSourceEdit(range: NSRange(location: offset, length: 0), text: unit)) }
+        let next = NSMaxRange(text.lineRange(for: NSRange(location: offset, length: 0)))
+        if next <= offset { break }; offset = next
+    } while offset < end
+    return edits
+}
 struct SimpleFold: Equatable {
     var line: Int
     var range: NSRange
@@ -167,6 +198,9 @@ private typealias FoldFont = UIFont
         text.isAutomaticDashSubstitutionEnabled = false; text.isAutomaticTextReplacementEnabled = false
         text.isAutomaticSpellingCorrectionEnabled = false; text.isContinuousSpellCheckingEnabled = false
         text.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        let tabs = NSMutableParagraphStyle(); tabs.tabStops = []
+        tabs.defaultTabInterval = ("    " as NSString).size(withAttributes: [.font: text.font ?? .monospacedSystemFont(ofSize: 13, weight: .regular)]).width
+        text.typingAttributes[.paragraphStyle] = tabs
         text.isVerticallyResizable = true; text.isHorizontallyResizable = false
         text.autoresizingMask = [.width]; text.textContainer?.widthTracksTextView = true
         text.textContainerInset = NSSize(width: 8, height: 8)
@@ -267,6 +301,25 @@ private typealias FoldFont = UIFont
         buffer.selection = text.selectedRange()
     }
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if ["insertTab:", "insertBacktab:", "insertNewline:"].contains(NSStringFromSelector(commandSelector)) {
+            let selection = text.selectedRange()
+            if tableSourceEditHitsGrid(selection, selection: selection, tables: text.tableRanges) { return true }
+            if folding.ranges.contains(where: { NSIntersectionRange($0, selection).length > 0 || NSLocationInRange(selection.location, $0) }) { unfoldAll(); return true }
+        }
+        if NSStringFromSelector(commandSelector) == "insertNewline:", !buffer.readOnly, !text.hasMarkedText() {
+            let before = (text.string as NSString).substring(to: text.selectedRange().location)
+            let prefix = String(before.components(separatedBy: "\n").last!.prefix { $0 == " " || $0 == "\t" })
+            text.insertText("\n" + prefix, replacementRange: text.selectedRange()); return true
+        }
+        if NSStringFromSelector(commandSelector) == "insertBacktab:" || NSStringFromSelector(commandSelector) == "insertTab:" && text.selectedRange().length > 0 {
+            guard !buffer.readOnly, !text.hasMarkedText() else { return false }
+            _ = applySourceEdits(simpleTabEdits(text.string, range: text.selectedRange(), outdent: NSStringFromSelector(commandSelector) == "insertBacktab:"), source: text.string)
+            return true
+        }
+        if NSStringFromSelector(commandSelector) == "insertTab:" {
+            guard !buffer.readOnly, !text.hasMarkedText() else { return false }
+            text.insertText(simpleTabText(text.string, at: text.selectedRange().location), replacementRange: text.selectedRange()); return true
+        }
         guard NSStringFromSelector(commandSelector) == "complete:" else { return false }
         Task { await buffer.language?.complete() }; return true
     }
@@ -316,7 +369,10 @@ private typealias FoldFont = UIFont
                 let range = NSIntersectionRange(table.range, NSRange(location: 0, length: storage.length))
                 if range.length > 0 { storage.addAttribute(.foregroundColor, value: NSColor.textColor, range: range) }
             }
-            storage.removeAttribute(.paragraphStyle, range: NSRange(location: 0, length: storage.length))
+            let tabs = NSMutableParagraphStyle(); tabs.tabStops = []
+            tabs.defaultTabInterval = ("    " as NSString).size(withAttributes: [.font: text.font ?? .monospacedSystemFont(ofSize: 13, weight: .regular)]).width
+            storage.addAttribute(.paragraphStyle, value: tabs, range: NSRange(location: 0, length: storage.length))
+            text.typingAttributes[.paragraphStyle] = tabs
             folding.tables = buffer.inlineMarkup.source == source && !buffer.tableSourceVisible ? inlineTables(buffer.inlineMarkup) : []
             text.tableRanges = folding.tables.map(\.range)
             for table in folding.tables {
@@ -434,6 +490,9 @@ import UIKit
         self.buffer = buffer
         super.init()
         text.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        let tabs = NSMutableParagraphStyle(); tabs.tabStops = []
+        tabs.defaultTabInterval = ("    " as NSString).size(withAttributes: [.font: text.font ?? .monospacedSystemFont(ofSize: 13, weight: .regular)]).width
+        text.typingAttributes[.paragraphStyle] = tabs
         text.autocorrectionType = .no; text.autocapitalizationType = .none
         text.smartQuotesType = .no; text.smartDashesType = .no; text.smartInsertDeleteType = .no
         text.text = buffer.text; text.isEditable = !buffer.readOnly; text.alwaysBounceVertical = true
@@ -520,6 +579,19 @@ import UIKit
     }
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
         if buffer.applyingMulti { return true }
+        if text == "\n" || text == "\t" {
+            if tableSourceEditHitsGrid(range, selection: textView.selectedRange, tables: self.text.tableRanges) { return false }
+            if folding.ranges.contains(where: { NSIntersectionRange($0, range).length > 0 || NSLocationInRange(range.location, $0) }) { unfoldAll(); return false }
+        }
+        if text == "\n", textView.markedTextRange == nil, !buffer.readOnly {
+            let before = (textView.text as NSString).substring(to: range.location)
+            let prefix = String(before.components(separatedBy: "\n").last!.prefix { $0 == " " || $0 == "\t" })
+            if !prefix.isEmpty { _ = applySourceEdits([NativeSourceEdit(range: range, text: "\n" + prefix)], source: textView.text); return false }
+        }
+        if text == "\t", textView.markedTextRange == nil, !buffer.readOnly {
+            _ = applySourceEdits(simpleTabEdits(textView.text, range: range), source: textView.text)
+            return false
+        }
         if textView.undoManager?.isUndoing == true || textView.undoManager?.isRedoing == true { buffer.clearMulti(); unfoldAll(); return true }
         if buffer.multiSource == buffer.text, buffer.multiRanges.count > 1, textView.markedTextRange == nil {
             _ = buffer.replaceMultiple(text, affected: range); return false
@@ -580,7 +652,10 @@ import UIKit
                 let range = NSIntersectionRange(table.range, NSRange(location: 0, length: storage.length))
                 if range.length > 0 { storage.addAttribute(.foregroundColor, value: UIColor.label, range: range) }
             }
-            storage.removeAttribute(.paragraphStyle, range: NSRange(location: 0, length: storage.length))
+            let tabs = NSMutableParagraphStyle(); tabs.tabStops = []
+            tabs.defaultTabInterval = ("    " as NSString).size(withAttributes: [.font: text.font ?? .monospacedSystemFont(ofSize: 13, weight: .regular)]).width
+            storage.addAttribute(.paragraphStyle, value: tabs, range: NSRange(location: 0, length: storage.length))
+            text.typingAttributes[.paragraphStyle] = tabs
             folding.tables = buffer.inlineMarkup.source == source && !buffer.tableSourceVisible ? inlineTables(buffer.inlineMarkup) : []
             text.tableRanges = folding.tables.map(\.range)
             for table in folding.tables {
@@ -930,7 +1005,7 @@ struct NativeDebugRail: View {
             ZStack(alignment: .topLeading) {
                 ForEach(buffer.visibleDebugLines.filter { $0.y >= 0 && $0.y < geometry.size.height }, id: \.line) { row in
                     let held = debug.breakpoints[buffer.file.path]?.first(where: { $0["line"] as? Int == row.line })
-                    let glyph = (buffer.inlineMarkup.source == buffer.text && (buffer.inlineMarkup.cells.contains { $0.line == row.line } || buffer.inlineMarkup.equations.contains { $0.line == row.line })) ? "⋯" : row.line == paused ? "⋯" : row.line == 0 ? "▷" : held == nil ? "·" : (held?["state"] as? String == "refused" ? "○" : held?["state"] as? String == "bound" ? "●" : "◌")
+                    let glyph = (buffer.inlineMarkup.source == buffer.text && (buffer.inlineMarkup.cells.contains { $0.line == row.line } || buffer.inlineMarkup.equations.contains { $0.line == row.line })) ? "⋯" : row.line == paused ? "⋯" : row.line == 0 ? "▷" : held == nil ? "⋯" : (held?["state"] as? String == "refused" ? "○" : held?["state"] as? String == "bound" ? "●" : "◌")
                     Button(glyph) { opened = row.line; Task { await buffer.refreshReceipts() } }
                         .buttonStyle(.plain).font(.system(size: 13)).frame(width: 24, height: min(18, row.height))
                         .accessibilityLabel("Debug actions on line \(row.line + 1)")
@@ -968,29 +1043,29 @@ struct NativeDebugRail: View {
                 if output.count > 50_000 { Text("Output truncated in this control.").font(.caption) }
             }
             if !buffer.receiptNotice.isEmpty { Text(buffer.receiptNotice).font(.caption) }
-            if buffer.file.doc_id != nil { Button("Refresh recorded output") { Task { await buffer.refreshReceipts() } } }
+            if buffer.file.doc_id != nil { Button("Refresh recorded output", systemImage: "arrow.clockwise") { Task { await buffer.refreshReceipts() } } }
             if !debug.sourceMatches(buffer) { Text("Save edited text before launching. Values belong to the source that ran.").font(.caption) }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 86))], spacing: 5) {
-                Button("Debug") { Task { await debug.prepare(buffer, line: line) } }.disabled(debug.active || buffer.dirty || buffer.saving)
-                Button("Breakpoint") { debug.toggle(buffer.file.path, line: line) }
+                Button("Debug", systemImage: "play") { Task { await debug.prepare(buffer, line: line) } }.disabled(debug.active || buffer.dirty || buffer.saving)
+                Button("Breakpoint", systemImage: "circle.fill") { debug.toggle(buffer.file.path, line: line) }
                 if debug.status == "paused" {
-                    Button("Continue") { debug.step("continue") }; Button("Step over") { debug.step("over") }
-                    Button("Step in") { debug.step("in") }; Button("Step out") { debug.step("out") }
-                    if debug.capabilities["step_back"] as? Bool == true { Button("Step back") { debug.step("back") } }
+                    Button("Continue", systemImage: "play.fill") { debug.step("continue") }; Button("Step over", systemImage: "arrow.turn.down.right") { debug.step("over") }
+                    Button("Step in", systemImage: "arrow.down") { debug.step("in") }; Button("Step out", systemImage: "arrow.up") { debug.step("out") }
+                    if debug.capabilities["step_back"] as? Bool == true { Button("Step back", systemImage: "arrow.uturn.backward") { debug.step("back") } }
                 }
-                if debug.active { Button("Stop") { debug.stop() } }
+                if debug.active { Button("Stop", systemImage: "stop.fill") { debug.stop() } }
             }
             if debug.owner == buffer.file.path { ForEach(debug.targets) { target in Button("Debug file \(target.path)") { Task { await debug.prepare(buffer, program: target.path) } } } }
             ForEach(debug.profiles) { profile in Button("Debug \(profile.name)") { debug.launch(profile); opened = nil } }
-            if debug.offer != nil { Button("Install debugger") { Task { await debug.install() } } }
+            if debug.offer != nil { Button("Install debugger", systemImage: "arrow.down.to.line") { Task { await debug.install() } } }
             if !debug.message.isEmpty { Text(debug.message).font(.caption).textSelection(.enabled) }
             if debug.capabilities["conditional_breakpoints"] as? Bool == true {
                 TextField("Breakpoint condition", text: $condition)
-                Button("Apply condition") { debug.toggle(buffer.file.path, line: line, condition: condition) }
+                Button("Apply condition", systemImage: "checkmark") { debug.toggle(buffer.file.path, line: line, condition: condition) }
             }
             if debug.status == "paused" {
                 TextField("Expression", text: $expression)
-                HStack { Button("Evaluate") { debug.evaluate(expression) }; Button("Watch") { debug.evaluate(expression, watch: true) } }
+                HStack { Button("Evaluate", systemImage: "equal") { debug.evaluate(expression) }; Button("Watch", systemImage: "eye") { debug.evaluate(expression, watch: true) } }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(Array(debug.frames.enumerated()), id: \.offset) { _, frame in Button(frame["name"] as? String ?? "Frame") { debug.select(frame) } }

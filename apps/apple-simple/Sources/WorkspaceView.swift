@@ -9,6 +9,7 @@ private struct TabDrag: Codable, Transferable {
 }
 
 struct WorkspaceView: View {
+    @Environment(\.openWindow) private var openWindow
     @Bindable var workspace: Workspace
     @State private var connection = false
     var body: some View {
@@ -17,8 +18,14 @@ struct WorkspaceView: View {
             HStack {
                 Menu("File") {
                     Button("Connect…") { connection = true }
-                    Button("Refresh files") { Task { await workspace.refresh() } }
+                    Button("Open File") { workspace.chooseFileCommand("Open File") }
+                    Button("Open Directory") { workspace.chooseFileCommand("Open Directory") }
+                    Button("New Tab") { workspace.newTab() }
+                    Button("New Window") { openWindow(id: "workspace") }
                     Button("Save") { Task { await workspace.save() } }.disabled(workspace.currentBuffer == nil)
+                    Button("Save As") { workspace.chooseFileCommand("Save As") }.disabled(workspace.currentBuffer == nil)
+                    Button("Save All") { Task { await workspace.saveAll() } }
+                    Button("Refresh") { Task { await workspace.refresh() } }
                     Button("Close tab") { if let active = workspace.active { workspace.close(active) } }
                 }
                 Menu("Edit") {
@@ -47,6 +54,14 @@ struct WorkspaceView: View {
                 }
                 Button("⋯") { connection = true }.help("Workspace connection")
             }.font(.system(size: 11)).padding(.horizontal, 8).frame(height: 24)
+        }
+        .sheet(isPresented: Binding(get: { workspace.fileCommand != nil }, set: { if !$0 { workspace.fileCommand = nil; workspace.savingAll = false } })) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(workspace.fileCommand ?? "File").font(.headline)
+                Text("Enter a path in the connected workspace. Save As requires an unused path; an empty directory path opens the root.").font(.caption)
+                TextField("Workspace path", text: $workspace.filePath).textFieldStyle(.roundedBorder)
+                HStack { Button("Cancel") { workspace.fileCommand = nil; workspace.savingAll = false }; Spacer(); Button("OK") { Task { await workspace.performFileCommand() } } }
+            }.padding().frame(minWidth: 320)
         }
         .sheet(isPresented: $connection) {
             VStack(alignment: .leading, spacing: 12) {

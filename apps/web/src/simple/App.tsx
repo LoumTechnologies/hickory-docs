@@ -3,7 +3,7 @@ import { api } from "../api/client";
 import { PlainDebugHosts } from "../debug/plainDebugHosts";
 import { onOpenLocation, revealLine } from "../lib/revealLine";
 import type { FileNode } from "../api/types";
-import { Buffers } from "./buffers";
+import { Buffer, Buffers } from "./buffers";
 import { RichOwners } from "./RichInline";
 import { Document, openFind } from "./Document";
 import { Terminal, TerminalSession } from "./Terminal";
@@ -20,6 +20,51 @@ export function App() {
   const [, refresh] = useState(0);
   const [buffers] = useState(() => new Buffers(() => refresh(value => value + 1)));
   const requested = useRef(new Map<string, string>());
+  function newTab() {
+    const path = `Untitled-${crypto.randomUUID()}`;
+    buffers.values.set(path, new Buffer({ name: `Untitled ${[...buffers.values.keys()].filter(key => key.startsWith("Untitled-")).length + 1}`, path, dir: false }, "", "", () => refresh(value => value + 1)));
+    openTab(path);
+  }
+  function findPath(path: string, nodes = tree): FileNode | undefined {
+    for (const node of nodes) { if (node.path === path) return node; const found = findPath(path, node.children ?? []); if (found) return found; }
+  }
+  async function openPath(directory = false) {
+    const path = window.prompt(directory ? "Open Directory — path in this workspace (empty for root)" : "Open File — path in this workspace");
+    if (path === null) return;
+    if (directory && !path) { await loadFiles(); openTab("files"); return; }
+    const node = findPath(path);
+    if (!node || node.dir !== directory) { setNotice("Path not found. Refresh and choose a path in this workspace."); return; }
+    if (directory) { setTree(node.children ?? []); openTab("files"); } else await open(node);
+  }
+  async function saveAs(source = buffer) {
+    if (!source || source.saving) return;
+    const path = window.prompt("Save As — new path in this workspace", source.file.path.startsWith("Untitled-") ? "" : source.file.path);
+    if (!path) return;
+    if (path === source.file.path) { await source.save(); return; }
+    const text = source.text; source.saving = true; source.publish();
+    try {
+      if (/\.md$/i.test(path)) await api.createDoc("local", path, text);
+      else {
+        await api.fileOp({ op: "create", path });
+        const empty = await api.file(path);
+        if (empty.content !== "") throw new Error("Destination changed after creation");
+        await api.saveFile(path, text, empty.hash);
+      }
+      await loadFiles();
+      const opened = await api.openFile(path);
+      await open({ name: path.split("/").at(-1)!, path, dir: false, doc_id: opened.doc_id });
+      if (source.text === text) { setLayout(current => remove(current, source.file.path)); buffers.values.delete(source.file.path); }
+
+    } catch (error) { setNotice(`${String(error)} Original edits are retained. Choose a new unused path and retry Save As.`); }
+    finally { source.saving = false; source.publish(); refresh(value => value + 1); }
+  }
+  async function saveCurrent() { if (buffer?.file.path.startsWith("Untitled-")) await saveAs(); else await buffer?.save(); }
+  async function saveAll() {
+    for (const item of [...buffers.values.values()]) {
+      if (item.file.path.startsWith("Untitled-")) { if (item.dirty) await saveAs(item); }
+      else await item.save();
+    }
+  }
   async function loadFiles() {
     try { const response = await api.files(); setTree(response.tree); setStatus(response.root); }
     catch (error) { setNotice(`${String(error)} Start the Hickory backend, then choose Refresh files.`); }
@@ -73,10 +118,10 @@ export function App() {
     setLayout(current => move(current, active, target)); setFocused(target);
   }
   useEffect(() => {
-    const save = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key === "s") { event.preventDefault(); void buffer?.save(); } };
+    const save = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key === "s") { event.preventDefault(); void saveCurrent(); } };
     window.addEventListener("keydown", save); return () => window.removeEventListener("keydown", save);
   }, [buffer]);
-  const label = (tab: string) => tab === "files" ? "Files" : tab === "agent" ? "Agent" : tab === "terminal" ? "Terminal" : `${tab.split("/").at(-1)}${buffers.values.get(tab)?.dirty ? " •" : ""}`;
+  const label = (tab: string) => tab === "files" ? "Files" : tab === "agent" ? "Agent" : tab === "terminal" ? "Terminal" : `${buffers.values.get(tab)?.file.name ?? tab.split("/").at(-1)}${buffers.values.get(tab)?.dirty ? " •" : ""}`;
   function content(tab: string) {
     if (tab === "files") return <div className="file-tree" aria-label="Files"><Tree nodes={tree} open={open} /></div>;
     if (tab === "terminal") return <Terminal session={terminal} />;
@@ -88,8 +133,14 @@ export function App() {
     <PlainDebugHosts />
     <RichOwners buffers={buffers} />
     <nav aria-label="Menu" onClick={event => { if ((event.target as HTMLElement).closest("button")) event.currentTarget.querySelectorAll("details[open]").forEach(menu => menu.removeAttribute("open")); }}><details><summary>File</summary><div className="menu">
-      <button onClick={() => { void loadFiles(); }}>Refresh files</button>
-      <button disabled={!buffer || buffer.readonly || !buffer.dirty || buffer.saving} onClick={() => { void buffer?.save(); }}>Save</button>
+      <button onClick={() => { void openPath(); }}>Open File</button>
+      <button onClick={() => { void openPath(true); }}>Open Directory</button>
+      <button onClick={newTab}>New Tab</button>
+      <button onClick={() => window.open(window.location.href, "_blank", "noopener")}>New Window</button>
+      <button disabled={!buffer || buffer.readonly || !buffer.dirty || buffer.saving} onClick={() => { void saveCurrent(); }}>Save</button>
+      <button disabled={!buffer || buffer.saving} onClick={() => { void saveAs(); }}>Save As</button>
+      <button onClick={() => { void saveAll(); }}>Save All</button>
+      <button onClick={() => { void loadFiles(); }}>Refresh</button>
       <button disabled={!active} onClick={() => active && close(active)}>Close tab</button>
     </div></details><details><summary>Edit</summary><div className="menu">
       <button disabled={!buffer} onClick={() => buffer && openFind(buffer)}>Find and replace</button>
@@ -107,7 +158,7 @@ export function App() {
         if (next !== layout) { setLayout(next); setFocused(id); }
       }}
       resize={(id, ratio) => setLayout(current => update(current, id, node => isGroup(node) ? node : { ...node, ratio }))} /></div>
-    <footer role="status">{notice ? `${notice} · ` : ""}{buffer ? `${buffer.file.path} · ${buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
+    <footer role="status">{notice ? `${notice} · ` : ""}{buffer ? `${buffer.file.name} · ${buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
   </main>;
 }
 function Tree({ nodes, open }: { nodes: FileNode[]; open: (file: FileNode) => void }) {

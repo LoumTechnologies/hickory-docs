@@ -105,6 +105,13 @@ async fn every_verb_does_one_thing_on_disk() {
         ""
     );
 
+    // Contract: .hickory-source/frontends/contract.md and the-tree-is-a-dired.
+    // A Save As destination cannot clobber a file that already has content.
+    std::fs::write(s.root.join("docs/new.txt"), "retained").unwrap();
+    let (status, _) = op(&s, json!({"op": "create", "path": "docs/new.txt"})).await;
+    assert_ne!(status, 200);
+    assert_eq!(std::fs::read_to_string(s.root.join("docs/new.txt")).unwrap(), "retained");
+
     let (status, _) = op(&s, json!({"op": "delete", "path": "docs/src"})).await;
     assert_eq!(status, 200);
     assert!(!s.root.join("docs/src").exists());

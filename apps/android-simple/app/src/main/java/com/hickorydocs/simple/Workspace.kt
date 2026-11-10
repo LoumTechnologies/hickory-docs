@@ -227,7 +227,67 @@ class Workspace : ViewModel() {
     }
     fun label(tab: String) = when (tab) {
         "files" -> "Files"; "agent" -> "Agent"; "terminal" -> "Terminal"
-        else -> tab.substringAfterLast('/') + if (buffers[tab]?.dirty == true) " •" else ""
+        else -> (buffers[tab]?.file?.name ?: tab.substringAfterLast('/')) + if (buffers[tab]?.dirty == true) " •" else ""
     }
-    suspend fun save() { engine?.let { currentBuffer?.save(it) } }
+    var savingAll = false
+    var fileCommand by mutableStateOf<String?>(null)
+    var filePath by mutableStateOf("")
+    fun newTab() {
+        val path = "Untitled-" + UUID.randomUUID()
+        buffers[path] = DocumentBuffer(FileNode("Untitled ${buffers.keys.count { it.startsWith("Untitled-") } + 1}", path, false, emptyList(), null, null), FileText("", "")); show(path)
+    }
+    fun chooseFileCommand(command: String) { filePath = ""; fileCommand = command }
+    suspend fun performFileCommand() {
+        val command = fileCommand ?: return
+        val server = engine ?: run { status = "Connect to a workspace server first."; return }
+        val path = filePath; val source = currentBuffer; fileCommand = null
+        fun find(nodes: List<FileNode>): FileNode? {
+            for (node in nodes) { if (node.path == path) return node; find(node.children)?.let { return it } }; return null
+        }
+        if (command == "Save As") {
+            if (source == null || source.saving || path.isEmpty()) return
+            if (path == source.file.path) { source.save(server); return }
+            val submitted = source.text
+            source.saving = true
+            fun finish() {
+                if (source.text == submitted) { layout = layout.remove(source.file.path); buffers.remove(source.file.path) }
+            }
+            try {
+                if (path.endsWith(".md", ignoreCase = true)) {
+                    server.request("POST", "/api/projects/local/docs", org.json.JSONObject().put("path", path).put("source", submitted))
+                    refresh(); find(files)?.let { open(it); finish() }
+                    source.saving = false
+                    if (savingAll) saveAll(); return
+                }
+                server.request("POST", "/api/files/op", org.json.JSONObject().put("op", "create").put("path", path))
+                val file = FileNode(path.substringAfterLast('/'), path, false, emptyList(), null, null)
+                val empty = server.file(file)
+                if (empty.content.isNotEmpty()) { status = "Destination changed after creation. Original edits retained."; return }
+                val copy = DocumentBuffer(file, empty); copy.state.edit { replace(0, length, submitted) }
+                copy.save(server)
+                if (copy.error.isNotEmpty()) { status = copy.error; return }
+                open(file); finish(); refresh()
+                source.saving = false
+                if (savingAll) saveAll()
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { status = "${failure.message} Original edits are retained. Choose an unused path and retry Save As." }
+            finally { source.saving = false }
+        } else if (command == "Open Directory" && path.isEmpty()) { refresh(); show("files") }
+        else {
+            val file = find(files)
+            if (file == null || file.dir != (command == "Open Directory")) { status = "Path not found. Refresh and choose a path in this workspace."; return }
+            if (file.dir) { files = file.children; show("files") } else open(file)
+        }
+    }
+    suspend fun saveAll() {
+        val server = engine ?: return
+        savingAll = true
+        for (buffer in buffers.values.toList().filter { !it.file.path.startsWith("Untitled-") }) buffer.save(server)
+        val draft = buffers.values.firstOrNull { it.file.path.startsWith("Untitled-") && it.dirty }
+        if (draft != null) { show(draft.file.path); chooseFileCommand("Save As") } else savingAll = false
+    }
+    suspend fun save() {
+        if (currentBuffer?.file?.path?.startsWith("Untitled-") == true) { chooseFileCommand("Save As"); return }
+        engine?.let { currentBuffer?.save(it) }
+    }
 }

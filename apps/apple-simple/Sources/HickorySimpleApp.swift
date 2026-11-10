@@ -1,16 +1,18 @@
 import SwiftUI
 
 @main struct HickorySimpleApp: App {
-    @State private var workspace = Workspace()
+    @State private var fallbackWorkspace = Workspace()
+    @FocusedValue(\.simpleWorkspace) private var focusedWorkspace
+    private var workspace: Workspace { focusedWorkspace ?? fallbackWorkspace }
+    @Environment(\.openWindow) private var openWindow
     #if os(macOS)
     @NSApplicationDelegateAdaptor(ApplicationDelegate.self) private var delegate
     #endif
     var body: some Scene {
         #if os(macOS)
-        Window("Hickory Simple", id: "workspace") {
-            WorkspaceView(workspace: workspace).frame(minWidth: 480, minHeight: 320)
+        WindowGroup("Hickory Simple", id: "workspace") {
+            SimpleWindowRoot().frame(minWidth: 480, minHeight: 320)
                 .onAppear {
-                    delegate.workspace = workspace
                     DispatchQueue.main.async {
                         NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
                         NSApp.activate()
@@ -19,10 +21,16 @@ import SwiftUI
         }.commands {
             CommandGroup(replacing: .newItem) {
                 Button("Connect…") { NotificationCenter.default.post(name: .simpleConnect, object: nil) }
-                Button("Refresh files") { Task { await workspace.refresh() } }
+                Button("Open File") { workspace.chooseFileCommand("Open File") }.keyboardShortcut("o")
+                Button("Open Directory") { workspace.chooseFileCommand("Open Directory") }.keyboardShortcut("o", modifiers: [.command, .shift])
+                Button("New Tab") { workspace.newTab() }.keyboardShortcut("t")
+                Button("New Window") { openWindow(id: "workspace") }.keyboardShortcut("n", modifiers: [.command, .shift])
             }
             CommandGroup(replacing: .saveItem) {
                 Button("Save") { Task { await workspace.save() } }.keyboardShortcut("s").disabled(workspace.currentBuffer == nil || workspace.currentBuffer?.readOnly == true)
+                Button("Save As") { workspace.chooseFileCommand("Save As") }.keyboardShortcut("s", modifiers: [.command, .shift]).disabled(workspace.currentBuffer == nil)
+                Button("Save All") { Task { await workspace.saveAll() } }
+                Button("Refresh") { Task { await workspace.refresh() } }
                 Button("Close tab") { if let active = workspace.active { workspace.close(active) } }.keyboardShortcut("w")
             }
             CommandGroup(after: .textEditing) {
@@ -42,15 +50,29 @@ import SwiftUI
             }
         }
         #else
-        WindowGroup { WorkspaceView(workspace: workspace) }
+        WindowGroup(id: "workspace") { SimpleWindowRoot() }
         #endif
+    }
+}
+private struct SimpleWorkspaceKey: FocusedValueKey { typealias Value = Workspace }
+extension FocusedValues {
+    var simpleWorkspace: Workspace? {
+        get { self[SimpleWorkspaceKey.self] }
+        set { self[SimpleWorkspaceKey.self] = newValue }
+    }
+}
+@MainActor private enum WorkspaceWindows { static let values = NSHashTable<Workspace>.weakObjects() }
+private struct SimpleWindowRoot: View {
+    @State private var workspace = Workspace()
+    var body: some View {
+        WorkspaceView(workspace: workspace).focusedSceneValue(\.simpleWorkspace, workspace)
+            .onAppear { WorkspaceWindows.values.add(workspace) }
     }
 }
 #if os(macOS)
 import AppKit
 import Darwin
 @MainActor final class ApplicationDelegate: NSObject, NSApplicationDelegate {
-    var workspace: Workspace?
     private var developmentHostEnded = false
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -71,7 +93,10 @@ import Darwin
         }
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if !developmentHostEnded && workspace?.hasUnsavedChanges == true { workspace?.status = "Save your documents before quitting."; return .terminateCancel }
+        if !developmentHostEnded && WorkspaceWindows.values.allObjects.contains(where: { $0.hasUnsavedChanges }) {
+            for workspace in WorkspaceWindows.values.allObjects where workspace.hasUnsavedChanges { workspace.status = "Save your documents before quitting." }
+            return .terminateCancel
+        }
         return .terminateNow
     }
 }

@@ -1046,6 +1046,8 @@ fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
 <a id="f-4808c613eac1-file_op"></a>
 ### `file_op`
 
+The create verb uses an exclusive open after the friendly vacancy check. A competing creator cannot have its bytes truncated by Save As. Other file operations retain their existing checks.
+
 <storycode:copy id="f-4808c613eac1-file_op">
 /// `POST /api/files/op` — one dired verb.
 pub async fn file_op(
@@ -1149,7 +1151,12 @@ pub async fn file_op(
                     ApiError::unprocessable(format!("could not create the folder: {e}"))
                 })?;
             }
-            std::fs::write(&source, b"")
+            // Save As also uses this verb: another writer winning after vacant()
+            // must fail creation rather than truncate its newly created file.
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&source)
                 .map_err(|e| ApiError::unprocessable(format!("could not create the file: {e}")))?;
             json!({ "op": "create", "path": body.path })
         }
@@ -1307,6 +1314,13 @@ async fn every_verb_does_one_thing_on_disk() {
         std::fs::read_to_string(s.root.join("docs/new.txt")).unwrap(),
         ""
     );
+
+    // Contract: .hickory-source/frontends/contract.md and the-tree-is-a-dired.
+    // A Save As destination cannot clobber a file that already has content.
+    std::fs::write(s.root.join("docs/new.txt"), "retained").unwrap();
+    let (status, _) = op(&s, json!({"op": "create", "path": "docs/new.txt"})).await;
+    assert_ne!(status, 200);
+    assert_eq!(std::fs::read_to_string(s.root.join("docs/new.txt")).unwrap(), "retained");
 
     let (status, _) = op(&s, json!({"op": "delete", "path": "docs/src"})).await;
     assert_eq!(status, 200);

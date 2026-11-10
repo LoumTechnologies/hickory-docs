@@ -80,7 +80,15 @@ Rich editing stays inline. Browser mounts the established table, equation and ou
 
 All targets have a fixed-width minimap beside the editor. Click/tap to navigate; browser and Apple also support dragging. Browser keyboard users can focus the minimap and use Home/End; native minimaps expose accessibility adjustment. Browser and Android indicate the visible region. Apple currently shows document density without a viewport marker.
 
-Full native WYSIWYG, backend capability menus, provenance, file operations, layout persistence and crash recovery are not included yet. This is an iteration baseline, not full parity with the old frontend. Native spellcheck, input methods and platform keyboard behavior may differ. No speed or memory superiority has been established by this scaffold.
+Full native WYSIWYG, backend capability menus, provenance, additional file operations, layout persistence and crash recovery are not included yet. This is an iteration baseline, not full parity with the old frontend. Native spellcheck, input methods and platform keyboard behavior may differ. No speed or memory superiority has been established by this scaffold.
+
+## File commands and indentation, 2026-11-10
+
+The File menus expose Open File, Open Directory, New Tab, New Window, Save, Save As, Save All and Refresh. Open paths belong to the connected workspace; use an empty directory path to restore its root. New Tab retains an unnamed draft. Save As creates an unused destination, preserves edits on failure, and keeps edits typed during a save. Save All requests paths for unnamed drafts. Refresh leaves existing editor buffers intact.
+
+Tab detects two-space, four-space and literal-tab indentation without waiting for language services, advances partial indentation to the next stop, and indents selected lines. Native Return retains leading indentation. Literal tabs display at four-column stops. Native debugger operations have pictograms; ellipsis opens the line's floating action menu.
+
+Focused TypeScript/menu/save checks and the Apple and Android indentation witnesses pass. Android source compiled with the cached Kotlin/Compose compiler; this is not an APK build. The real-browser witness is `python3 scripts/test-simple-browser.py --file-editing-only`; this host aborts Chromium during macOS Mach-port registration before rendering. Native device gestures, visual layout, IME behavior and multiwindow acceptance remain unverified.
 
 ## Empty pane cleanup, 2026-11-07
 

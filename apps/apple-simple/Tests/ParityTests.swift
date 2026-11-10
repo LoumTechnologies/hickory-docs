@@ -8,6 +8,21 @@ import WebKit
 @testable import HickorySimple
 
 final class ParityTests: XCTestCase {
+    func testDetectedIndentationAndPartialTabStops() {
+        // Contract: .hickory-source/frontends/contract.md
+        XCTAssertEqual(simpleIndent("root\n    one\n        two\n"), "    ")
+        XCTAssertEqual(simpleIndent("root\n  one\n    two\n"), "  ")
+        XCTAssertEqual(simpleIndent("root\n\tone\n\t\ttwo\n"), "\t")
+        XCTAssertEqual(simpleIndent("\n   \n"), "    ")
+        let source = "root\n    child\n "
+        XCTAssertEqual(simpleTabText(source, at: source.utf16.count), "   ")
+        XCTAssertEqual(simpleTabText(source + "   ", at: source.utf16.count + 3), "    ")
+        let block = "one\ntwo"
+        let edits = simpleTabEdits(block, range: NSRange(location: 0, length: block.utf16.count))
+        XCTAssertEqual(edits.map(\.text), ["    ", "    "])
+        XCTAssertTrue(edits.allSatisfy { $0.range.length == 0 })
+    }
+
     func testInlineMarkupKeepsSourceCoordinatesAndLiteralPayloads() {
         let source = "# Heading\r\n**bold** and `**literal**`\r\n| Name | Value |\r\n| --- | --- |\r\n| 😀 | a\\|b |\r\n```md\r\n# raw\r\n```\r\n<h:math>\r\nx^2\r\n</h:math>\r\n"
         let result = computeInlineMarkup(source, path: "source.md")
@@ -55,6 +70,8 @@ final class ParityTests: XCTestCase {
             editor.text.setSelectedRange(NSRange(location: offset, length: 0))
             XCTAssertTrue(editor.text.tableCaretIsHidden)
             editor.text.deleteBackward(nil); editor.text.deleteBackward(nil); editor.text.deleteForward(nil)
+            XCTAssertTrue(editor.textView(editor.text, doCommandBy: NSSelectorFromString("insertTab:")))
+            XCTAssertTrue(editor.textView(editor.text, doCommandBy: NSSelectorFromString("insertNewline:")))
             XCTAssertEqual(editor.text.string, source)
             XCTAssertEqual(buffer.text, source)
             XCTAssertFalse(buffer.tableSourceVisible)

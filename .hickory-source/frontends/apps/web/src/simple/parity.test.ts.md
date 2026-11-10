@@ -11,6 +11,8 @@ The folding witnesses exercise the dedicated left plus/minus gutter and CodeMirr
 
 The inline DAP witnesses attach a controlled paused session after text is visible, exercise real editor decorations and action buttons, retain undo, and refuse an unsaved launch. They do not establish a live adapter connection.
 
+The indentation witness checks four spaces, two spaces, literal tabs, whitespace-only fallback and two successive Tab presses after partial indentation. These assertions protect alignment without needing a language server.
+
 <ui:copy id="simple-c6aff51ad5-0">
 // Contract: .hickory-source/frontends/contract.md
 import { createElement, Fragment } from "react";
@@ -24,7 +26,7 @@ import { EditorView } from "@codemirror/view";
 import { foldedRanges } from "@codemirror/language";
 import { undo, isolateHistory } from "@codemirror/commands";
 import { currentCompletions } from "@codemirror/autocomplete";
-import { Document, simpleFoldRanges, openFind } from "./Document";
+import { Document, simpleFoldRanges, openFind, simpleIndent, simpleTab } from "./Document";
 vi.mock("../debug/launchProfiles", () => ({ launchWithProfiles: vi.fn(async (_query, start, options) => { if (options.isCurrent()) start({ id: "test", fingerprint: "test" }); }) }));
 import { IDLE_SESSION } from "../debug/useDebugger";
 import { useFollowingDebugSession } from "../debug/plainDebugHosts";
@@ -41,8 +43,20 @@ import { activate, groups, initialLayout, move, remove, split, dock, dropEdge, i
 import { TerminalSession } from "./Terminal";
 import { Buffer, Buffers } from "./buffers";
 import { api } from "../api/client";
-vi.mock("../api/client", () => ({ api: { files: vi.fn(), doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agent: vi.fn() } }));
+vi.mock("../api/client", () => ({ api: { files: vi.fn(), doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), fileOp: vi.fn(), openFile: vi.fn(), createDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agent: vi.fn() } }));
 describe("shared frontend layout contract", () => {
+  it("detects indentation and advances partial lines to the next stop", () => {
+    // Contract: .hickory-source/frontends/contract.md
+    expect(simpleIndent("root\n    one\n        two\n")).toBe("    ");
+    expect(simpleIndent("root\n  one\n    two\n")).toBe("  ");
+    expect(simpleIndent("root\n\tone\n\t\ttwo\n")).toBe("\t");
+    expect(simpleIndent("\n   \n")).toBe("    ");
+    const view = new EditorView({ doc: "root\n    child\n ", parent: document.body });
+    view.dispatch({ selection: { anchor: view.state.doc.length } });
+    simpleTab(view); simpleTab(view);
+    expect(view.state.doc.toString().split("\n").at(-1)).toBe("        ");
+    view.destroy();
+  });
   for (const scenario of fixture.cases) it(scenario.name, () => {
     let layout = initialLayout();
     for (const step of scenario.steps) {
@@ -437,6 +451,50 @@ describe("simple editor capability attachment", () => {
 A stale save retains text and baseline. A successful save acknowledges only the submitted snapshot, including when more text arrived while the request was pending. Generated files do not dispatch whole-file writes.
 
 <ui:copy id="simple-c6aff51ad5-1">
+describe("simple file commands", () => {
+  it("exposes the complete File menu and saves a new tab with a guarded destination", async () => {
+    // Contract: .hickory-source/frontends/contract.md
+    vi.mocked(api.files).mockResolvedValue({ root: "workspace", tree: [] });
+    vi.mocked(api.fileOp).mockResolvedValue({ op: "create", path: "new.py" });
+    vi.mocked(api.openFile).mockResolvedValue({ path: "new.py" });
+    let saved = "";
+    vi.mocked(api.file).mockImplementation(async () => ({ path: "new.py", content: saved, language: "python", hash: "empty-hash" }));
+    vi.mocked(api.saveFile).mockImplementation(async (_path, content) => { saved = content; return { path: "new.py", hash: "saved-hash" }; });
+    const prompt = vi.spyOn(window, "prompt").mockReturnValue("new.py");
+    const screen = render(createElement(App));
+    try {
+      const menu = screen.container.querySelector("nav details .menu")!;
+      expect([...menu.querySelectorAll("button")].map(item => item.textContent)).toEqual([
+        "Open File", "Open Directory", "New Tab", "New Window", "Save", "Save As", "Save All", "Refresh", "Close tab",
+      ]);
+      fireEvent.click(within(menu as HTMLElement).getByRole("button", { name: "New Tab" }));
+      const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+      act(() => view.dispatch({ changes: { from: 0, insert: "print(1)" } }));
+      fireEvent.click(within(menu as HTMLElement).getByRole("button", { name: "Save All" }));
+      await waitFor(() => expect(saved).toBe("print(1)"));
+      await waitFor(() => expect(screen.getByRole("tab", { name: "new.py" })).toBeTruthy());
+      expect(api.saveFile).toHaveBeenLastCalledWith("new.py", "print(1)", "empty-hash");
+      expect(screen.queryByRole("tab", { name: /Untitled/ })).toBeNull();
+    } finally { screen.unmount(); prompt.mockRestore(); }
+  });
+  it("retains a draft when Save As refuses an existing destination", async () => {
+    // Contract: .hickory-source/frontends/contract.md
+    vi.mocked(api.files).mockResolvedValue({ root: "workspace", tree: [] });
+    vi.mocked(api.fileOp).mockRejectedValueOnce(new Error("already exists"));
+    const prompt = vi.spyOn(window, "prompt").mockReturnValue("existing.py");
+    const screen = render(createElement(App));
+    try {
+      const menu = screen.container.querySelector("nav details .menu")! as HTMLElement;
+      fireEvent.click(within(menu).getByRole("button", { name: "New Tab" }));
+      const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+      act(() => view.dispatch({ changes: { from: 0, insert: "retained" } }));
+      fireEvent.click(within(menu).getByRole("button", { name: "Save As" }));
+      await waitFor(() => expect(screen.getByRole("status").textContent).toContain("already exists"));
+      expect(view.state.doc.toString()).toBe("retained");
+      expect(screen.getByRole("tab", { name: /Untitled/ })).toBeTruthy();
+    } finally { screen.unmount(); prompt.mockRestore(); }
+  });
+});
 describe("simple frontend text opening", () => {
   it.each(["notes.md", "cards.md"])("opens managed %s through its document source", async path => {
     vi.mocked(api.file).mockClear();

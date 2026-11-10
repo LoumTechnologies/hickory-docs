@@ -7,6 +7,8 @@ The Gradle test resource root points at the shared JSON fixture. These witnesses
 
 Opening witnesses serve real loopback HTTP responses and assert the requested endpoint as well as the returned source/hash. This catches a managed document accidentally routed to the intentionally refusing plain-file API.
 
+The indentation witness checks four spaces, two spaces, literal tabs, whitespace-only fallback and two successive Tab presses after partial indentation. These assertions protect alignment without needing a language server.
+
 <ui:copy id="simple-de002213e5-0">
 // Contract: .hickory-source/frontends/contract.md
 package com.hickorydocs.simple
@@ -16,6 +18,24 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @Test fun detectedIndentationAndPartialTabStops() {
+        // Contract: .hickory-source/frontends/contract.md
+        assertEquals("    ", simpleIndent("root\n    one\n        two\n"))
+        assertEquals("  ", simpleIndent("root\n  one\n    two\n"))
+        assertEquals("\t", simpleIndent("root\n\tone\n\t\ttwo\n"))
+        assertEquals("    ", simpleIndent("\n   \n"))
+        val source = "root\n    child\n "
+        assertEquals("   ", simpleTabText(source, source.length))
+        assertEquals("    ", simpleTabText(source + "   ", source.length + 3))
+        assertEquals("    ", simpleTabText("\n", 0))
+        val edits = simpleTabEdits("one\ntwo", 0, 7)
+        assertEquals(listOf("    ", "    "), edits.map { it.text })
+        assertTrue(edits.all { it.from == it.to })
+        val tabs = editorReplacements(emptyList(), emptyList(), "a\tb")
+        assertEquals("a   b", editorDisplay("a\tb", tabs))
+        assertEquals(2, editorSourceOffset(4, tabs))
+    }
+
     @Test fun markdownTableProjectionRetainsSourceAndFollowingLineOffsets() {
         val source = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\">\r\nBefore 😀\r\n| A | B |\r\n| --- | ---: |\r\n| café | a\\|b |\r\nAfter\r\n```md\r\n| X | Y |\r\n| --- | --- |\r\n```\r\n</h:doc>"
         val tables = inlineTables(computeInlineMarkup(source, "workbook.md"))
