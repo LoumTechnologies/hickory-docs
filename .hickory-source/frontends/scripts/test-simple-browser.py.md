@@ -15,6 +15,13 @@ The table-only flow opens a real literate document from disk, edits a grid cell,
 
 The file-editing acceptance path opens real files through the File menu, presses Return and two Tabs, saves all three whitespace styles and checks Save As against disk. It runs alone with `--file-editing-only`; browser startup failures are not passing UI evidence.
 
+The editor-navigation witness chooses independent policies through the visible
+Edit menu, sends real modifier-arrow keys, observes the browser's selected text,
+and reloads to check persistence. It also checks editor geometry and unchanged
+disk bytes. This flow uses no editor internals; the platform driver owns only
+keyboard spelling and visible control lookup. Run it alone with
+`python3 scripts/test-simple-browser.py --editor-navigation-only`.
+
 <ui:copy id="simple-0799b7d31b-0">
 # Contract: .hickory-source/frontends/contract.md
 """Focused real-engine browser acceptance for the independent frontend."""
@@ -111,6 +118,23 @@ def debug_acceptance(driver):
     eventually(lambda: any("value =" in value for value in driver.act("debug-values")), True)
     driver.act("debug-stop")
     eventually(lambda: not any("paused" in state for state in driver.act("debug-state")), True)
+
+def editor_navigation_acceptance(driver, folder):
+    # Contract: .hickory-source/frontends/contract.md. Real keys, menus and reload.
+    path = "words.txt"
+    original = (folder / path).read_text()
+    driver.act("open", path=path)
+    size = driver.act("editor-size", path=path)
+    driver.act("editor-setting", modifier="Alt/Option", mode="pieces")
+    driver.act("editor-setting", modifier="Ctrl", mode="word")
+    assert driver.act("editor-size", path=path) == size
+    assert driver.act("editor-word-selection", path=path, keys=["Alt+Shift+ArrowRight"]) == "THIS"
+    assert driver.act("editor-word-selection", path=path, keys=["Alt+Shift+ArrowRight", "Alt+Shift+ArrowRight"]) == "THIS_IS"
+    assert driver.act("editor-word-selection", path=path, keys=["Alt+Shift+ArrowRight", "Alt+Shift+ArrowRight", "Alt+Shift+ArrowLeft"]) == "THIS_"
+    assert driver.act("editor-word-selection", path=path, keys=["Control+Shift+ArrowRight"]) == "THIS_IS_ONE_WORD"
+    assert driver.act("reload-editor-settings") == {"control": "word", "alt": "pieces"}
+    assert (folder / path).read_text() == original
+
 
 def file_editing_acceptance(driver, folder):
     # Contract: .hickory-source/frontends/contract.md. Real keyboard and disk I/O.
@@ -264,6 +288,7 @@ if __name__ == "__main__":
         for name, unit in [("four.py", "    "), ("two.py", "  "), ("tabs.py", "\t")]:
             (folder / name).write_text("def orders():\n" + unit + "pass\n# end")
         (folder / "notes.txt").write_text("before")
+        (folder / "words.txt").write_text("THIS_IS_ONE_WORD HTTPServer42 café😀")
         (folder / "search.txt").write_text("😀 name=12\nname=34\n")
         (folder / "fold.txt").write_text("function main() {\n  first()\n  second()\n}\n")
         (folder / "source.md").write_text('<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n# A literate document\n\n**bold** and *italic*\n</h:doc>\n')
@@ -281,7 +306,10 @@ if __name__ == "__main__":
             backend = origin(engine)
             vite = start(["node", "node_modules/vite/bin/vite.js", "--config", "vite.simple.config.ts", "--host", "127.0.0.1", "--port", str(ui_port), "--strictPort"], cwd=ROOT / "apps/web", env={**environment, "HICKORY_API_ORIGIN": backend}); processes.append(vite)
             driver = BrowserDriver(origin(vite) + "/simple.html")
-            if "--file-editing-only" in sys.argv:
+            if "--editor-navigation-only" in sys.argv:
+                editor_navigation_acceptance(driver, folder)
+                print("Browser: independent persisted arrow settings, identifier pieces, Shift reversal and stable editor geometry passed")
+            elif "--file-editing-only" in sys.argv:
                 file_editing_acceptance(driver, folder)
                 print("Browser: File menu, detected Tab alignment, Save All and Save As passed")
             elif "--table-only" in sys.argv:

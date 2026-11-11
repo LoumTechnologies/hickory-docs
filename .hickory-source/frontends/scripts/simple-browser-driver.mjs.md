@@ -7,6 +7,13 @@ Keep Playwright-specific selectors and gestures in this adapter. The Python acce
 
 The file-editing acceptance path opens real files through the File menu, presses Return and two Tabs, saves all three whitespace styles and checks Save As against disk. It runs alone with `--file-editing-only`; browser startup failures are not passing UI evidence.
 
+The editor-navigation witness chooses independent policies through the visible
+Edit menu, sends real modifier-arrow keys, observes the browser's selected text,
+and reloads to check persistence. It also checks editor geometry and unchanged
+disk bytes. This flow uses no editor internals; the platform driver owns only
+keyboard spelling and visible control lookup. Run it alone with
+`python3 scripts/test-simple-browser.py --editor-navigation-only`.
+
 <ui:copy id="simple-b622660cef-0">
 import { chromium } from "../apps/web/node_modules/@playwright/test/index.mjs";
 import { createInterface } from "node:readline";
@@ -26,6 +33,22 @@ try {
         case "launch":
           browser = await chromium.launch({ headless: true }); page = await browser.newPage({ viewport: { width: 1100, height: 750 } });
           await page.goto(request.url); break;
+        case "editor-setting":
+          await page.locator("nav").getByText("Edit", { exact: true }).click();
+          await page.getByRole("combobox", { name: request.modifier + " + Left/Right", exact: true }).selectOption(request.mode);
+          await page.locator("nav").getByText("Edit", { exact: true }).click(); break;
+        case "editor-word-selection": {
+          const content = editor(request.path);
+          await content.focus();
+          await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowUp" : "Control+Home");
+          for (const key of request.keys) await page.keyboard.press(key);
+          value = await page.evaluate(() => window.getSelection()?.toString()); break;
+        }
+        case "reload-editor-settings":
+          await page.reload();
+          await page.locator("nav").getByText("Edit", { exact: true }).click();
+          value = { control: await page.getByRole("combobox", { name: "Ctrl + Left/Right", exact: true }).inputValue(), alt: await page.getByRole("combobox", { name: "Alt/Option + Left/Right", exact: true }).inputValue() };
+          await page.locator("nav").getByText("Edit", { exact: true }).click(); break;
         case "open":
           await page.getByRole("button", { name: request.path, exact: true }).click();
           if (/\.csv$/i.test(request.path)) await page.getByTestId("table-panel").waitFor();

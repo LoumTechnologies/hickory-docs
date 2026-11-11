@@ -21,10 +21,24 @@ import { onOpenLocation, revealLine } from "../lib/revealLine";
 import type { FileNode } from "../api/types";
 import { Buffer, Buffers } from "./buffers";
 import { RichOwners } from "./RichInline";
-import { Document, openFind } from "./Document";
+import { Document, openFind, wordNavigationMode, type WordNavigationMode } from "./Document";
 import { Terminal, TerminalSession } from "./Terminal";
 import { Agent, AgentSession } from "./Agent";
 import { activate, groups, initialLayout, isGroup, move, remove, split, update, dock, dropEdge, type Edge, type Axis, type Layout } from "./layout";
+function EditorSettings() {
+  const [error, setError] = useState("");
+  const [modes, setModes] = useState(() => ({ control: wordNavigationMode("control"), alt: wordNavigationMode("alt") }));
+  return <fieldset><legend>Editor settings</legend>{(["control", "alt"] as const).map(modifier => <label key={modifier}>
+    {modifier === "control" ? "Ctrl" : "Alt/Option"} + Left/Right
+    <select aria-label={`${modifier === "control" ? "Ctrl" : "Alt/Option"} + Left/Right`} value={modes[modifier]} onChange={event => {
+      const value = event.target.value as WordNavigationMode;
+      try { localStorage.setItem(`editor.${modifier}Arrow`, value); setModes(current => ({ ...current, [modifier]: value })); setError(""); }
+      catch { setError("Cannot save editor settings. Allow local storage in this browser, then try again."); }
+    }}>
+      <option value="native">Platform default</option><option value="word">Whole identifier</option><option value="pieces">Word pieces</option>
+    </select>
+  </label>)}{error && <p role="status">{error}</p>}</fieldset>;
+}
 export function App() {
   const [layout, setLayout] = useState<Layout>(initialLayout);
   const [focused, setFocused] = useState("document-group");
@@ -165,6 +179,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
       <button disabled={!active} onClick={() => active && close(active)}>Close tab</button>
     </div></details><details><summary>Edit</summary><div className="menu">
       <button disabled={!buffer} onClick={() => buffer && openFind(buffer)}>Find and replace</button>
+      <EditorSettings />
     </div></details><details><summary>View</summary><div className="menu">
       <button onClick={() => openTab("files")}>Files</button><button onClick={() => openTab("agent")}>Agent</button>
       <button onClick={() => { void openTerminal(); }}>Terminal</button>

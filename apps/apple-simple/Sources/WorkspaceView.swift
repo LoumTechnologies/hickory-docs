@@ -29,6 +29,7 @@ struct WorkspaceView: View {
                     Button("Close tab") { if let active = workspace.active { workspace.close(active) } }
                 }
                 Menu("Edit") {
+                    EditorNavigationSettings()
                     Button("Find and replace") { workspace.currentBuffer?.showFind = true }.keyboardShortcut("f").disabled(workspace.currentBuffer == nil)
                 Button("Language tools") {
                     Task { await workspace.currentBuffer?.language?.inspect() }

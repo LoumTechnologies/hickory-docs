@@ -268,12 +268,37 @@ fun validSourceEdits(edits: List<NativeSourceEdit>, length: Int): Boolean {
 }
 
 data class SimpleFold(val line: Int, val from: Int, val to: Int)
+private val simpleWholeWord = Regex("[\\p{L}\\p{N}_][\\p{L}\\p{M}\\p{N}_\\u200C\\u200D]*")
+private val simpleWordPieces = Regex("(?:\\p{Lu}\\p{M}*)+(?=\\p{Lu}\\p{M}*\\p{Ll})|(?:\\p{Lu}\\p{M}*)?(?:\\p{Ll}\\p{M}*)+|(?:\\p{Lu}\\p{M}*)+|(?:\\p{N}\\p{M}*)+|\\p{L}[\\p{L}\\p{M}\\u200C\\u200D]*")
+fun simpleWordOffset(source: String, offset: Int, forward: Boolean, pieces: Boolean): Int {
+    val probe = if (!forward && offset > 0) offset - 1 else offset
+    val start = if (probe == 0) 0 else source.lastIndexOf('\n', probe - 1) + 1
+    val end = source.indexOf('\n', probe).let { if (it < 0) source.length else it + 1 }
+    val matches = (if (pieces) simpleWordPieces else simpleWholeWord).findAll(source.substring(start, end))
+    return if (forward) matches.map { start + it.range.last + 1 }.firstOrNull { it > offset } ?: end
+    else matches.map { start + it.range.first }.lastOrNull { it < offset } ?: start
+}
+
 fun simpleIndent(source: String): String {
-    val prefixes = source.lines().filter { it.isNotBlank() }.map { it.takeWhile { c -> c == ' ' || c == '\t' } }
+    val prefixes = source.take(16_384).lineSequence().take(200).filter { it.isNotBlank() }.map { it.takeWhile { c -> c == ' ' || c == '\t' } }.toList()
     if (prefixes.count { it.startsWith("\t") } > prefixes.count { it.startsWith(" ") }) return "\t"
     fun gcd(a: Int, b: Int): Int = if (b == 0) a else gcd(b, a % b)
     val width = prefixes.filter { it.isNotEmpty() && it.all { c -> c == ' ' } }.fold(0) { width, prefix -> gcd(width, prefix.length) }
     return " ".repeat(if (width in 1..8) width else 4)
+}
+fun simpleNewlineText(source: String, offset: Int): String {
+    val start = if (offset == 0) 0 else source.lastIndexOf('\n', offset - 1) + 1
+    val end = source.indexOf('\n', offset)
+    val crlf = if (end >= 0) end > 0 && source[end - 1] == '\r' else start >= 2 && source[start - 2] == '\r'
+    return (if (crlf) "\r\n" else "\n") + source.substring(start, offset).takeWhile { it == ' ' || it == '\t' }
+}
+fun simpleBackspaceStart(source: String, offset: Int): Int? {
+    val start = if (offset == 0) 0 else source.lastIndexOf('\n', offset - 1) + 1
+    val before = source.substring(start, offset)
+    if (before.isEmpty() || before.any { it != ' ' }) return null
+    val unit = simpleIndent(source)
+    if (unit == "\t") return null
+    return offset - ((before.length - 1) % unit.length + 1)
 }
 fun simpleTabText(source: String, offset: Int): String {
     val unit = simpleIndent(source)
@@ -484,6 +509,18 @@ private data class GridCaretRequest(val row: Int, val column: Int, val x: Float,
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable private fun LanguageEditor(buffer: DocumentBuffer, debug: NativeDebugger?, modifier: Modifier = Modifier) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val editorPreferences = remember(context) { context.getSharedPreferences("editor", android.content.Context.MODE_PRIVATE) }
+    var controlArrow by remember { mutableStateOf(editorPreferences.getString("controlArrow", "native") ?: "native") }
+    var altArrow by remember { mutableStateOf(editorPreferences.getString("altArrow", "native") ?: "native") }
+    DisposableEffect(editorPreferences) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, _ ->
+            controlArrow = prefs.getString("controlArrow", "native") ?: "native"
+            altArrow = prefs.getString("altArrow", "native") ?: "native"
+        }
+        editorPreferences.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { editorPreferences.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
     val editorFocus = remember(buffer) { FocusRequester() }
     DisposableEffect(buffer, editorFocus) {
         val focus: () -> Unit = { editorFocus.requestFocus(); Unit }
@@ -604,6 +641,19 @@ private data class GridCaretRequest(val row: Int, val column: Int, val x: Float,
                         hiddenRanges.any { range -> changed.min < range.to && changed.max > range.from || changed.collapsed && changed.min in range.from until range.to }
                     }
                     if (hiddenEdit) { revertAllChanges(); scope.launch { buffer.tableSourceVisible = true } }
+                    else if (changes.changeCount == 1 && buffer.state.composition == null && !buffer.readOnly && buffer.multiRanges.size < 2) {
+                        val original = changes.getOriginalRange(0)
+                        val changed = changes.getRange(0)
+                        val inserted = asCharSequence().subSequence(changed.min, changed.max).toString()
+                        if (inserted == "\n" && original == originalSelection) {
+                            replace(changed.min, changed.max, simpleNewlineText(originalText.toString(), original.min))
+                        } else if (inserted.isEmpty() && originalSelection.collapsed && original.length == 1 && original.max == originalSelection.end) {
+                            val start = simpleBackspaceStart(originalText.toString(), original.max)
+                            if (start != null && start < original.min && hiddenRanges.none { start < it.to && original.max > it.from }) {
+                                replace(start, changed.min, "")
+                            }
+                        }
+                    }
                     // Retire display state after the input transaction, outside its receiver.
                     scope.launch { buffer.clearFolds(); if (!buffer.applyingMulti) buffer.clearMulti() }
                 },
@@ -641,12 +691,18 @@ private data class GridCaretRequest(val row: Int, val column: Int, val x: Float,
                     val key = event.nativeKeyEvent
                     val selected = buffer.state.selection
                     val hiddenTyping = hiddenRanges.any { selected.min < it.to && selected.max > it.from || selected.collapsed && selected.min in it.from until it.to }
-                    if (event.type == KeyEventType.KeyDown && (event.key == Key.Tab || event.key == Key.Enter) && hiddenTyping) {
-                        buffer.tableSourceVisible = true; buffer.clearFolds(); true
-                    } else if (event.type == KeyEventType.KeyDown && event.key == Key.Enter && !event.isCtrlPressed && !event.isMetaPressed && !buffer.readOnly && buffer.state.composition == null) {
+                    val navigationMode = if (event.isCtrlPressed && !event.isAltPressed) controlArrow else if (event.isAltPressed && !event.isCtrlPressed) altArrow else "native"
+                    if (event.type == KeyEventType.KeyDown && !event.isMetaPressed && (event.key == Key.DirectionLeft || event.key == Key.DirectionRight) && navigationMode in listOf("word", "pieces") && buffer.state.composition == null) {
+                        val forward = event.key == Key.DirectionRight
                         val selection = buffer.state.selection
-                        val prefix = source.take(selection.min).substringAfterLast('\n').takeWhile { it == ' ' || it == '\t' }
-                        buffer.applySourceEdits(listOf(NativeSourceEdit(selection.min, selection.max, "\n" + prefix)), source); true
+                        val head = if (!event.isShiftPressed && !selection.collapsed) {
+                            if (forward) selection.max else selection.min
+                        } else simpleWordOffset(source, selection.end, forward, navigationMode == "pieces")
+                        buffer.clearFolds(); buffer.clearMulti()
+                        buffer.state.edit { this.selection = TextRange(if (event.isShiftPressed) selection.start else head, head) }
+                        true
+                    } else if (event.type == KeyEventType.KeyDown && (event.key == Key.Tab || event.key == Key.Enter) && hiddenTyping) {
+                        buffer.tableSourceVisible = true; buffer.clearFolds(); true
                     } else if (event.type == KeyEventType.KeyDown && event.key == Key.Tab && !event.isCtrlPressed && !event.isMetaPressed && !event.isAltPressed && !buffer.readOnly && buffer.state.composition == null) {
                         val selection = buffer.state.selection
                         buffer.applySourceEdits(simpleTabEdits(source, selection.min, selection.max, event.isShiftPressed), source); true
@@ -702,6 +758,16 @@ private data class GridCaretRequest(val row: Int, val column: Int, val x: Float,
                 menu = true; scope.launch { service?.inspect() }; scope.launch { service?.complete() }
             }.padding(4.dp).semantics { contentDescription = "Language tools" })
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                Text("Editor settings", modifier = Modifier.padding(8.dp))
+                for ((label, key, current) in listOf(Triple("Ctrl + Left/Right", "controlArrow", controlArrow), Triple("Alt + Left/Right", "altArrow", altArrow))) {
+                    Text(label, modifier = Modifier.padding(horizontal = 8.dp), fontSize = 12.sp)
+                    for ((value, title) in listOf("native" to "Platform default", "word" to "Whole identifier", "pieces" to "Word pieces")) {
+                        DropdownMenuItem(text = { Text((if (current == value) "✓ " else "") + title) }, onClick = {
+                            editorPreferences.edit().putString(key, value).apply()
+                        })
+                    }
+                }
+                HorizontalDivider()
                 Column(Modifier.width(320.dp).heightIn(max = 460.dp).verticalScroll(rememberScrollState()).padding(8.dp)) {
                     Text("Language tools", fontSize = 14.sp)
                     Text(service?.status ?: "Language services not connected. Reconnect the workspace.", fontSize = 11.sp)

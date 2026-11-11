@@ -255,9 +255,64 @@ struct GridCellField: UIViewRepresentable {
 }
 #endif
 
+// Only inspect the current logical line. Identifier movement never waits for parsing.
+private let simpleWholeWord = try! NSRegularExpression(pattern: #"[\p{L}\p{N}_][\p{L}\p{M}\p{N}_\u200C\u200D]*"#)
+private let simpleWordPieces = try! NSRegularExpression(pattern: #"(?:\p{Lu}\p{M}*)+(?=\p{Lu}\p{M}*\p{Ll})|(?:\p{Lu}\p{M}*)?(?:\p{Ll}\p{M}*)+|(?:\p{Lu}\p{M}*)+|(?:\p{N}\p{M}*)+|\p{L}[\p{L}\p{M}\u200C\u200D]*"#)
+func simpleWordOffset(_ source: String, at offset: Int, forward: Bool, pieces: Bool) -> Int {
+    let text = source as NSString
+    let probe = !forward && offset > 0 ? offset - 1 : offset
+    let line = text.lineRange(for: NSRange(location: probe, length: 0))
+    let matches = (pieces ? simpleWordPieces : simpleWholeWord).matches(in: text.substring(with: line), range: NSRange(location: 0, length: line.length))
+    if forward { return matches.map { line.location + NSMaxRange($0.range) }.first { $0 > offset } ?? NSMaxRange(line) }
+    return matches.map { line.location + $0.range.location }.last { $0 < offset } ?? line.location
+}
+struct EditorNavigationSettings: View {
+    @AppStorage("editor.controlArrow") private var control = "native"
+    @AppStorage("editor.altArrow") private var alt = "native"
+    var body: some View {
+        Menu("Editor settings") {
+            Picker("Ctrl + Left/Right", selection: $control) { modes }
+            Picker("Alt/Option + Left/Right", selection: $alt) { modes }
+        }
+    }
+    private var modes: some View {
+        Group {
+            Text("Platform default").tag("native")
+            Text("Whole identifier").tag("word")
+            Text("Word pieces").tag("pieces")
+        }
+    }
+}
+// Remember the anchor only while this exact selection continues a Shift gesture.
+struct SimpleWordSelection {
+    var previous: NSRange?; var anchor = 0; var head = 0
+    mutating func move(_ source: String, selection: NSRange, forward: Bool, extend: Bool, pieces: Bool) -> NSRange {
+        if !extend || previous != selection {
+            anchor = forward ? selection.location : NSMaxRange(selection)
+            head = forward ? NSMaxRange(selection) : selection.location
+        }
+        if extend || selection.length == 0 { head = simpleWordOffset(source, at: head, forward: forward, pieces: pieces) }
+        if !extend { anchor = head }
+        let result = NSRange(location: min(anchor, head), length: abs(head - anchor))
+        previous = result; return result
+    }
+}
+
 #if os(macOS)
 import AppKit
 final class SimpleMacTextView: NSTextView {
+    // Intercept only explicitly configured arrow chords. All other editing stays in AppKit.
+    private var wordSelection = SimpleWordSelection()
+    override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function, .shift])
+        let key = flags == .control ? "editor.controlArrow" : flags == .option ? "editor.altArrow" : ""
+        let mode = UserDefaults.standard.string(forKey: key) ?? "native"
+        guard ["word", "pieces"].contains(mode), [123, 124].contains(event.keyCode), !hasMarkedText() else {
+            wordSelection.previous = nil; super.keyDown(with: event); return
+        }
+        let range = wordSelection.move(string, selection: selectedRange(), forward: event.keyCode == 124, extend: event.modifierFlags.contains(.shift), pieces: mode == "pieces")
+        setSelectedRange(range); scrollRangeToVisible(range)
+    }
     var tableRanges: [NSRange] = [] { didSet { needsDisplay = true } }
     var tableCaretIsHidden: Bool { tableCaretHidden(selectedRange(), tables: tableRanges) }
     override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {
@@ -274,6 +329,30 @@ final class SimpleMacTextView: NSTextView {
 #else
 import UIKit
 private final class SimpleTextView: UITextView {
+    // UIKit retains native input and composition; hardware arrows only change selection.
+    private var wordSelection = SimpleWordSelection()
+    override var keyCommands: [UIKeyCommand]? {
+        guard markedTextRange == nil else { return super.keyCommands }
+        var commands = super.keyCommands ?? []
+        for (key, modifier) in [("editor.controlArrow", UIKeyModifierFlags.control), ("editor.altArrow", .alternate)] {
+            guard ["word", "pieces"].contains(UserDefaults.standard.string(forKey: key) ?? "native") else { continue }
+            for input in [UIKeyCommand.inputLeftArrow, UIKeyCommand.inputRightArrow] {
+                for flags in [modifier, modifier.union(.shift)] {
+                    let command = UIKeyCommand(input: input, modifierFlags: flags, action: #selector(moveIdentifier(_:)))
+                    command.wantsPriorityOverSystemBehavior = true; commands.append(command)
+                }
+            }
+        }
+        return commands
+    }
+    @objc private func moveIdentifier(_ command: UIKeyCommand) {
+        guard markedTextRange == nil else { return }
+        let key = command.modifierFlags.contains(.control) ? "editor.controlArrow" : "editor.altArrow"
+        let mode = UserDefaults.standard.string(forKey: key) ?? "native"
+        guard ["word", "pieces"].contains(mode) else { return }
+        selectedRange = wordSelection.move(text ?? "", selection: selectedRange, forward: command.input == UIKeyCommand.inputRightArrow, extend: command.modifierFlags.contains(.shift), pieces: mode == "pieces")
+        scrollRangeToVisible(selectedRange)
+    }
     var tableRanges: [NSRange] = [] { didSet { setNeedsDisplay() } }
     override func caretRect(for position: UITextPosition) -> CGRect {
         let selection = NSRange(location: offset(from: beginningOfDocument, to: position), length: 0)
@@ -285,17 +364,43 @@ private final class SimpleTextView: UITextView {
 }
 #endif
 func simpleIndent(_ source: String) -> String {
-    let prefixes = source.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.map { String($0.prefix { $0 == " " || $0 == "\t" }) }
+    let sample = String(source.prefix(16_384))
+    let prefixes = sample.components(separatedBy: "\n").prefix(200).filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.map { String($0.prefix { $0 == " " || $0 == "\t" }) }
     if prefixes.filter({ $0.hasPrefix("\t") }).count > prefixes.filter({ $0.hasPrefix(" ") }).count { return "\t" }
     func gcd(_ a: Int, _ b: Int) -> Int { b == 0 ? a : gcd(b, a % b) }
     let width = prefixes.filter { !$0.isEmpty && $0.allSatisfy { $0 == " " } }.reduce(0) { gcd($0, $1.count) }
     return String(repeating: " ", count: width > 0 && width <= 8 ? width : 4)
 }
+func simpleNewlineText(_ source: String, at offset: Int) -> String {
+    let text = source as NSString
+    let line = text.lineRange(for: NSRange(location: offset, length: 0))
+    let before = text.substring(with: NSRange(location: line.location, length: offset - line.location))
+    let prefix = String(before.prefix { $0 == " " || $0 == "\t" })
+    // Prefer this line's terminator, then the preceding one for the final line.
+    let end = NSMaxRange(line)
+    let hasTerminator = end > line.location && text.character(at: end - 1) == 10
+    let crlf = hasTerminator
+        ? end >= 2 && text.substring(with: NSRange(location: end - 2, length: 2)) == "\r\n"
+        : line.location >= 2 && text.substring(with: NSRange(location: line.location - 2, length: 2)) == "\r\n"
+    return (crlf ? "\r\n" : "\n") + prefix
+}
+func simpleBackspaceRange(_ source: String, at offset: Int) -> NSRange? {
+    let text = source as NSString
+    guard offset > 0 else { return nil }
+    let line = text.lineRange(for: NSRange(location: offset, length: 0))
+    let before = text.substring(with: NSRange(location: line.location, length: offset - line.location))
+    guard !before.isEmpty, before.allSatisfy({ $0 == " " }) else { return nil }
+    let unit = simpleIndent(source)
+    guard unit != "\t" else { return nil }
+    let count = (before.utf16.count - 1) % unit.count + 1
+    return NSRange(location: offset - count, length: count)
+}
 func simpleTabText(_ source: String, at offset: Int) -> String {
     let unit = simpleIndent(source)
     if unit == "\t" { return unit }
-    let before = (source as NSString).substring(to: offset)
-    let column = before.components(separatedBy: "\n").last!.utf16.count
+    let text = source as NSString
+    let start = text.lineRange(for: NSRange(location: offset, length: 0)).location
+    let column = offset - start
     return String(repeating: " ", count: unit.count - column % unit.count)
 }
 func simpleTabEdits(_ source: String, range: NSRange, outdent: Bool = false) -> [NativeSourceEdit] {
@@ -483,15 +588,17 @@ private typealias FoldFont = UIFont
         buffer.selection = text.selectedRange()
     }
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        if ["insertTab:", "insertBacktab:", "insertNewline:"].contains(NSStringFromSelector(commandSelector)) {
+        if ["insertTab:", "insertBacktab:", "insertNewline:", "deleteBackward:"].contains(NSStringFromSelector(commandSelector)) {
             let selection = text.selectedRange()
             if tableSourceEditHitsGrid(selection, selection: selection, tables: text.tableRanges) { return true }
             if folding.ranges.contains(where: { NSIntersectionRange($0, selection).length > 0 || NSLocationInRange(selection.location, $0) }) { unfoldAll(); return true }
         }
         if NSStringFromSelector(commandSelector) == "insertNewline:", !buffer.readOnly, !text.hasMarkedText() {
-            let before = (text.string as NSString).substring(to: text.selectedRange().location)
-            let prefix = String(before.components(separatedBy: "\n").last!.prefix { $0 == " " || $0 == "\t" })
-            text.insertText("\n" + prefix, replacementRange: text.selectedRange()); return true
+            text.insertText(simpleNewlineText(text.string, at: text.selectedRange().location), replacementRange: text.selectedRange()); return true
+        }
+        if NSStringFromSelector(commandSelector) == "deleteBackward:", !buffer.readOnly, !text.hasMarkedText(), buffer.multiRanges.count < 2,
+           text.selectedRange().length == 0, let range = simpleBackspaceRange(text.string, at: text.selectedRange().location) {
+            text.insertText("", replacementRange: range); return true
         }
         if NSStringFromSelector(commandSelector) == "insertBacktab:" || NSStringFromSelector(commandSelector) == "insertTab:" && text.selectedRange().length > 0 {
             guard !buffer.readOnly, !text.hasMarkedText() else { return false }
@@ -762,14 +869,20 @@ import UIKit
     }
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
         if buffer.applyingMulti { return true }
+        if textView.undoManager?.isUndoing == true || textView.undoManager?.isRedoing == true { buffer.clearMulti(); unfoldAll(); return true }
         if text == "\n" || text == "\t" {
             if tableSourceEditHitsGrid(range, selection: textView.selectedRange, tables: self.text.tableRanges) { return false }
             if folding.ranges.contains(where: { NSIntersectionRange($0, range).length > 0 || NSLocationInRange(range.location, $0) }) { unfoldAll(); return false }
         }
         if text == "\n", textView.markedTextRange == nil, !buffer.readOnly {
-            let before = (textView.text as NSString).substring(to: range.location)
-            let prefix = String(before.components(separatedBy: "\n").last!.prefix { $0 == " " || $0 == "\t" })
-            if !prefix.isEmpty { _ = applySourceEdits([NativeSourceEdit(range: range, text: "\n" + prefix)], source: textView.text); return false }
+            _ = applySourceEdits([NativeSourceEdit(range: range, text: simpleNewlineText(textView.text, at: range.location))], source: textView.text); return false
+        }
+        if text.isEmpty, range.length == 1, textView.selectedRange.length == 0, NSMaxRange(range) == textView.selectedRange.location,
+           textView.markedTextRange == nil, !buffer.readOnly, buffer.multiRanges.count < 2,
+           let deletion = simpleBackspaceRange(textView.text, at: NSMaxRange(range)), deletion.length > 1 {
+            guard !tableSourceEditHitsGrid(deletion, selection: textView.selectedRange, tables: self.text.tableRanges) else { return false }
+            if folding.ranges.contains(where: { NSIntersectionRange($0, deletion).length > 0 }) { unfoldAll(); return false }
+            _ = applySourceEdits([NativeSourceEdit(range: deletion, text: "")], source: textView.text); return false
         }
         if text == "\t", textView.markedTextRange == nil, !buffer.readOnly {
             _ = applySourceEdits(simpleTabEdits(textView.text, range: range), source: textView.text)

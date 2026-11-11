@@ -38,6 +38,36 @@ The macOS recipe builds a locally signed `Hickory Simple.app` under `target/simp
 
 The Apple build requires full Xcode. `simple-dev` honors `DEVELOPER_DIR` and otherwise finds Xcode under `/Applications` if command-line tools are selected. For standalone build/test recipes, set `DEVELOPER_DIR` to your installed Xcode's `Contents/Developer` directory when needed. `xcodegen` is needed for the iOS project. Run `just simple-build ios`, then open `target/apple-simple-xcode/HickorySimple.xcodeproj` for device or simulator work. Device signing is not configured by this comparison scaffold.
 
+## Tune identifier navigation
+
+On Apple, choose **Edit → Editor settings**. In the browser, open **Edit**. On
+Android, open the editor's **⌁ Language tools** menu and use **Editor settings**.
+Set **Ctrl + Left/Right** and **Alt/Option + Left/Right** independently:
+
+- **Platform default** retains the host's existing shortcut.
+- **Whole identifier** treats `THIS_IS_ONE_WORD` as one name.
+- **Word pieces** separates `THIS`, `IS`, `ONE`, `WORD`, camelCase, acronym endings
+  and number runs such as `HTTPServer42`.
+
+Hold Shift to select with the same boundaries. Settings persist on that device or
+browser and apply to already-open document editors. Terminal, agent, table-cell
+and path inputs keep their own native shortcuts. Custom movement follows logical
+source order; use Platform default for native linguistic and visual bidi movement.
+macOS may reserve Ctrl+Left/Right for switching Spaces; configure that OS shortcut
+if you want the editor to receive it.
+
+Native Enter carries leading indentation and preserves LF/CRLF. Backspace in a
+space-only indent returns to the preceding detected stop. Tab and Shift-Tab use
+an initial sample of up to 200 lines and 16,384 characters to infer indentation.
+These commands work without a parser or language service. They do not strip
+trailing whitespace or insert braces and quotes without language context.
+
+Run only the navigation acceptance flow with
+`python3 scripts/test-simple-browser.py --editor-navigation-only`. It exercises
+visible settings, real arrow keys, Shift reversal, reload persistence and stable
+editor geometry against an isolated engine. Native physical-key and IME behavior
+still requires device acceptance; helper tests and compilation do not prove it.
+
 ## Find and replace
 
 Choose **Edit → Find and replace**, or press Cmd-F on Apple and Ctrl-F elsewhere. The floating panel offers next/previous, case sensitivity, regex search and replace-one/all without moving the document. Native Replace first selects the next match when the selection is not already a match; click it again to replace. Regex replacements accept `$1` for a capture, `$&` for the whole match and `$$` for a dollar sign. Replace-all is one undo step. Read-only documents support searching.

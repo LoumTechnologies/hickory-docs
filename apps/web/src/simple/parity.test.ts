@@ -7,10 +7,11 @@ import { RichOwners } from "./RichInline";
 import * as hickParser from "../editor/hickLang";
 import { render, waitFor, act, fireEvent } from "@testing-library/react";
 import { EditorView } from "@codemirror/view";
+import { EditorState } from "@codemirror/state";
 import { foldedRanges } from "@codemirror/language";
 import { undo, isolateHistory } from "@codemirror/commands";
 import { currentCompletions } from "@codemirror/autocomplete";
-import { Document, simpleFoldRanges, openFind, simpleIndent, simpleTab } from "./Document";
+import { Document, simpleWordOffset, simpleWordMove, simpleFoldRanges, openFind, simpleIndent, simpleTab } from "./Document";
 vi.mock("../debug/launchProfiles", () => ({ launchWithProfiles: vi.fn(async (_query, start, options) => { if (options.isCurrent()) start({ id: "test", fingerprint: "test" }); }) }));
 import { IDLE_SESSION } from "../debug/useDebugger";
 import { useFollowingDebugSession } from "../debug/plainDebugHosts";
@@ -29,6 +30,52 @@ import { Buffer, Buffers } from "./buffers";
 import { api } from "../api/client";
 vi.mock("../api/client", () => ({ api: { files: vi.fn(), doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), fileOp: vi.fn(), openFile: vi.fn(), createDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agent: vi.fn() } }));
 describe("shared frontend layout contract", () => {
+  it("moves through whole identifiers or word pieces without changing read-only text", () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const source = "THIS_IS_ONE_WORD HTTPServer42 café😀";
+    for (const [offset, forward, pieces, expected] of [[0, true, false, 16], [0, true, true, 4], [4, true, true, 7], [7, false, true, 5], [17, true, true, 21], [21, true, true, 27], [27, true, true, 29], [30, true, true, 34]] as const) {
+      expect(simpleWordOffset(source, offset, forward, pieces)).toBe(expected);
+    }
+    expect(simpleWordOffset("E\u0301clairCase", 0, true, true)).toBe(7);
+    expect(simpleWordOffset("E\u0301clairCase", 7, false, true)).toBe(0);
+    expect(simpleWordOffset("a\r\nb", 3, false, true)).toBe(0);
+    expect(simpleWordOffset("", 0, false, true)).toBe(0);
+    const view = new EditorView({ doc: source, parent: document.body, extensions: [EditorState.readOnly.of(true)] });
+    expect(simpleWordMove(view, true, false, "native")).toBe(false);
+    simpleWordMove(view, true, true, "pieces"); expect(view.state.selection.main.head).toBe(4);
+    simpleWordMove(view, true, true, "pieces"); expect(view.state.selection.main.head).toBe(7);
+    simpleWordMove(view, false, true, "pieces"); expect(view.state.selection.main.head).toBe(5);
+    expect(view.state.selection.main.anchor).toBe(0);
+    expect(view.state.doc.toString()).toBe(source);
+    view.destroy();
+  });
+  it("persists independent arrow settings and applies them to an existing editor", async () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const control = localStorage.getItem("editor.controlArrow"), alt = localStorage.getItem("editor.altArrow");
+    localStorage.removeItem("editor.controlArrow"); localStorage.removeItem("editor.altArrow");
+    vi.mocked(api.files).mockResolvedValue({ root: "workspace", tree: [] });
+    const screen = render(createElement(App));
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "New Tab" }));
+      const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+      act(() => view.dispatch({ changes: { from: 0, insert: "THIS_IS_ONE_WORD" }, selection: { anchor: 0 } }));
+      fireEvent.change(screen.getByRole("combobox", { name: "Alt/Option + Left/Right", hidden: true }), { target: { value: "pieces" } });
+      expect(localStorage.getItem("editor.altArrow")).toBe("pieces");
+      expect(localStorage.getItem("editor.controlArrow")).toBeNull();
+      fireEvent.keyDown(view.contentDOM, { key: "ArrowRight", code: "ArrowRight", altKey: true });
+      expect(view.state.selection.main.head).toBe(4);
+      fireEvent.keyDown(view.contentDOM, { key: "ArrowRight", code: "ArrowRight", altKey: true, shiftKey: true });
+      expect(view.state.selection.main.anchor).toBe(4); expect(view.state.selection.main.head).toBe(7);
+      fireEvent.change(screen.getByRole("combobox", { name: "Ctrl + Left/Right", hidden: true }), { target: { value: "word" } });
+      act(() => view.dispatch({ selection: { anchor: 0 } }));
+      fireEvent.keyDown(view.contentDOM, { key: "ArrowRight", code: "ArrowRight", ctrlKey: true });
+      expect(view.state.selection.main.head).toBe(16);
+      expect(view.state.doc.toString()).toBe("THIS_IS_ONE_WORD");
+    } finally {
+      screen.unmount();
+      for (const [key, value] of [["editor.controlArrow", control], ["editor.altArrow", alt]]) { if (value === null) localStorage.removeItem(key!); else localStorage.setItem(key!, value!); }
+    }
+  });
   it("detects indentation and advances partial lines to the next stop", () => {
     // Contract: .hickory-source/frontends/contract.md
     expect(simpleIndent("root\n    one\n        two\n")).toBe("    ");

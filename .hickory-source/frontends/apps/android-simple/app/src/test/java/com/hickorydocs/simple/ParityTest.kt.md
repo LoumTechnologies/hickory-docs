@@ -18,6 +18,28 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @Test fun identifierNavigationAndWhitespace() {
+        // Contract: .hickory-source/frontends/contract.md
+        val source = "THIS_IS_ONE_WORD HTTPServer42 café😀"
+        assertEquals(16, simpleWordOffset(source, 0, true, false))
+        assertEquals(4, simpleWordOffset(source, 0, true, true))
+        assertEquals(7, simpleWordOffset(source, 4, true, true))
+        assertEquals(5, simpleWordOffset(source, 7, false, true))
+        assertEquals(21, simpleWordOffset(source, 17, true, true))
+        assertEquals(27, simpleWordOffset(source, 21, true, true))
+        assertEquals(29, simpleWordOffset(source, 27, true, true))
+        assertEquals(34, simpleWordOffset(source, 30, true, true))
+        assertEquals(7, simpleWordOffset("E\u0301clairCase", 0, true, true))
+        assertEquals(0, simpleWordOffset("E\u0301clairCase", 7, false, true))
+        assertEquals(0, simpleWordOffset("a\r\nb", 3, false, true))
+        assertEquals(0, simpleWordOffset("", 0, false, true))
+        assertEquals("\r\n  ", simpleNewlineText("root\r\n  café", 12))
+        assertEquals("\n ", simpleNewlineText("  value\nnext", 1))
+        assertEquals(19, simpleBackspaceStart("root\n    child\n       ", 22))
+        assertNull(simpleBackspaceStart("word ", 5))
+        assertNull(simpleBackspaceStart("\t", 1))
+    }
+
     @Test fun detectedIndentationAndPartialTabStops() {
         // Contract: .hickory-source/frontends/contract.md
         assertEquals("    ", simpleIndent("root\n    one\n        two\n"))

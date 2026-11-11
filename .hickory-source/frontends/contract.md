@@ -11,7 +11,24 @@ A plain save includes its original content hash. A literate save includes its or
 
 The File menu exposes Open File, Open Directory, New Tab, New Window, Save, Save As, Save All and Refresh. Paths refer to the connected workspace; an empty directory path restores its root. New Tab retains unnamed text until Save As gives it an unused path. Save As refuses existing destinations and keeps the original edits on failure. Save All saves named writable documents and requests a destination for unnamed drafts. Refresh observes files without replacing open buffers. New Window gives the new surface its own editor state.
 
-Tab detects indentation from nonblank leading whitespace: predominant tabs remain literal tabs; spaces use the common indentation width, falling back to four spaces when there is no usable evidence. At a partial space indent, Tab advances to the next stop. No parser or language server is required. Right-gutter actions have recognizable pictograms and accessible names. A draggable right divider adds icon columns. Actions wrap into available rows until the next populated action row; they never displace that row. If those slots run out, reserve one for ⋯. It opens a compact floating grid containing only the excess icons. An icon may open its own detail panel; those details are never the overflow contents.
+Tab detects indentation from nonblank leading whitespace in an initial sample (up to 200 lines and 16,384 characters): predominant tabs remain literal tabs; spaces use the common indentation width, falling back to four spaces when there is no usable evidence. At a partial space indent, Tab advances to the next stop. No parser or language server is required. Right-gutter actions have recognizable pictograms and accessible names. A draggable right divider adds icon columns. Actions wrap into available rows until the next populated action row; they never displace that row. If those slots run out, reserve one for ⋯. It opens a compact floating grid containing only the excess icons. An icon may open its own detail panel; those details are never the overflow contents.
+
+Editor settings offer independent Ctrl+Left/Right and Alt/Option+Left/Right
+policies: Platform default, Whole identifier and Word pieces. Defaults leave native
+bindings intact. Whole identifiers include underscores; pieces separate underscore
+names, camelCase, acronym endings and number runs. Shift extends and contracts a
+selection with the same boundaries. Preferences persist locally and apply to open
+document editors, including read-only documents; terminal, agent and form fields
+retain their own bindings. OS-reserved shortcuts may need OS configuration before
+they reach the application. Custom navigation follows logical source order.
+
+Native Enter retains leading indentation and the local LF/CRLF convention.
+Backspace in a space-only prefix removes through the preceding inferred stop.
+Existing text and selections retain ordinary deletion. Android applies these rules
+to input transactions, including software-keyboard input. No automatic trailing
+whitespace cleanup or syntax-blind brace/quote insertion is introduced: mixed
+Markdown, code and literal assets require language-aware proposals. Browser editing
+continues to use CodeMirror's native editing commands for indentation and deletion.
 
 Every text document offers **Edit → Find and replace** and Cmd/Ctrl-F. Search supports next/previous navigation, case sensitivity, regex mode and replace-one/all; regex replacements accept `$1`, `$&` and `$$`. Controls float above text without resizing it. Native matching runs in the background and uses UTF-16 source positions. Source, query and permission checks reject stale replacements. Replace-all is one undo operation; read-only text remains searchable. Native searches skip zero-width matches and refuse replacement when more than 10,000 nonempty matches would truncate the result. Advanced regex syntax follows the platform's engine.
 
@@ -26,6 +43,21 @@ All editors support multiple selections. Browser uses its established rectangula
 Inline presentation preserves editable source. Browser reuses the existing rich table, equation and recorded-output widgets inside the editor. All simple editors replace Markdown prose table lines with an inline spreadsheet grid: lettered columns, numbered rows and editable source-backed cells. Apple uses the same SwiftUI grid in AppKit and UIKit; Android uses the retained field’s output transformation. Grids support up/down/left/right arrow navigation. Moving from one cell input to another places a collapsed caret, never select-all: up/down retain a preferred visual horizontal position across consecutive moves, temporarily clamping in short/empty cells and restoring the original column on a longer cell. Explicit horizontal caret movement, edits or pointer placement reset that goal; left enters the previous cell at its end, and right enters the next at its beginning. Left/right move the caret normally within a cell and leave native selection/modifier gestures intact. They cross cells only from a collapsed caret at the matching text boundary; an outer table edge must not trap interior caret movement. Native grids apply on Return/Done, arrow navigation or focus loss. A bordered Edit source text button reveals only that table; Edit tables as grids restores the presentation without rebuilding the editor or its undo stack. CSV declarations and standalone CSV files use the same grid with CSV quoting retained on edits. Apple source carets stay hidden within a rendered table’s retained range. Source Delete/typing at that hidden anchor leaves the grid and source unchanged; Edit source is explicit. Native undo/redo and edits inside the grid remain available. Native equations retain floating editors; equations and recorded execution output remain attached to source lines. Applying a contextual edit verifies its source snapshot and uses native undo. Other native Markdown retains its styled source; this is table replacement, not full native Markdown WYSIWYG. Formatting scans are bounded to 200,000 UTF-16 units; larger text stays readable. Recorded outputs require an exact document/source hash and are never replayed automatically. Conversation Markdown formatting remains browser-only.
 
 All simple frontends attach the existing engine DAP debugger inline for plain files and Hickory file blocks. Launch icons occupy a fixed right column; active step, continue, stop, stack, watch and evaluation controls follow the paused line. Sessions survive tab switching and movement. Unsaved text refuses launch and hides positional values until saved. The browser reuses the existing editor debugger; Apple shares a SwiftUI rail across macOS and iOS; Android uses a Compose rail. Native controllers retain one active workspace session. Native launch icons appear at supported file declarations, equation icons at equations, output icons at receipts, and session controls at the paused line. Detail panels contain stack, condition, evaluate and watch controls; adapter capabilities gate optional actions. Native locals describe the stopped top frame; selecting a caller clears those locals and evaluates watches in that selected frame. Launch uses the clicked declaration’s file path and saved-source expectation; the engine validates the program and source mapping. Native source candidates are computed in the background snapshot, avoiding a document rescan for every displayed icon. A missing Apple math resource bundle falls back to readable equation text instead of trapping in SwiftPM’s generated resource accessor.
+
+Editor navigation and whitespace, 2026-11-11: five focused Swift witnesses
+passed, including actual AppKit key events in read-only text, Shift anchor reversal,
+native Enter/Backspace undo and hidden-table deletion refusal. Three focused browser
+witnesses passed for whole/piece boundaries, independent settings persisted through
+visible controls and applied to an existing editor, and detected Tab stops. Unicode
+witnesses include decomposed accents and supplementary characters. TypeScript
+checking, complete cached Android source/test compilation, its focused identifier
+and whitespace witness, and iOS simulator source type checking passed. The focused
+real-browser flow (`--editor-navigation-only`) was attempted but Chromium aborted
+before rendering during host startup. Full Xcode simulator build exited 134 before
+compilation; Gradle dependency resolution failed at `dl.google.com` DNS. Native
+physical-key/IME acceptance, Android packaging and the real-browser flow remain
+unverified. These checks establish neither a measured performance improvement nor
+full system-test equivalence across platforms.
 
 Preferred vertical-column follow-up, 2026-11-10: seven focused browser checks and four Swift checks passed, including a real AppKit long → short → long traversal, reversing direction, and resetting the goal after horizontal motion or an edit. Browser checks also reset on pointer placement in a short cell. The focused Kotlin stored-goal witness passed; Android source/tests compiled and iOS simulator source type checking passed. The Python browser flow now uses real keyboard input to assert 8 → 1 → 8 through a short CSV cell, then a horizontal reset; it remains unexecuted on this host because of the previously observed Chromium startup failure. Phone pointer/selection callbacks still need device acceptance.
 

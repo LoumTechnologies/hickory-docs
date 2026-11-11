@@ -16,6 +16,22 @@ try {
         case "launch":
           browser = await chromium.launch({ headless: true }); page = await browser.newPage({ viewport: { width: 1100, height: 750 } });
           await page.goto(request.url); break;
+        case "editor-setting":
+          await page.locator("nav").getByText("Edit", { exact: true }).click();
+          await page.getByRole("combobox", { name: request.modifier + " + Left/Right", exact: true }).selectOption(request.mode);
+          await page.locator("nav").getByText("Edit", { exact: true }).click(); break;
+        case "editor-word-selection": {
+          const content = editor(request.path);
+          await content.focus();
+          await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowUp" : "Control+Home");
+          for (const key of request.keys) await page.keyboard.press(key);
+          value = await page.evaluate(() => window.getSelection()?.toString()); break;
+        }
+        case "reload-editor-settings":
+          await page.reload();
+          await page.locator("nav").getByText("Edit", { exact: true }).click();
+          value = { control: await page.getByRole("combobox", { name: "Ctrl + Left/Right", exact: true }).inputValue(), alt: await page.getByRole("combobox", { name: "Alt/Option + Left/Right", exact: true }).inputValue() };
+          await page.locator("nav").getByText("Edit", { exact: true }).click(); break;
         case "open":
           await page.getByRole("button", { name: request.path, exact: true }).click();
           if (/\.csv$/i.test(request.path)) await page.getByTestId("table-panel").waitFor();

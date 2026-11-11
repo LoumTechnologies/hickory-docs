@@ -8,6 +8,73 @@ import WebKit
 @testable import HickorySimple
 
 final class ParityTests: XCTestCase {
+    func testIdentifierNavigationAndWhitespace() {
+        // Contract: .hickory-source/frontends/contract.md
+        let source = "THIS_IS_ONE_WORD HTTPServer42 café😀"
+        XCTAssertEqual(simpleWordOffset(source, at: 0, forward: true, pieces: false), 16)
+        XCTAssertEqual(simpleWordOffset(source, at: 0, forward: true, pieces: true), 4)
+        XCTAssertEqual(simpleWordOffset(source, at: 4, forward: true, pieces: true), 7)
+        XCTAssertEqual(simpleWordOffset(source, at: 7, forward: false, pieces: true), 5)
+        XCTAssertEqual(simpleWordOffset(source, at: 17, forward: true, pieces: true), 21)
+        XCTAssertEqual(simpleWordOffset(source, at: 21, forward: true, pieces: true), 27)
+        XCTAssertEqual(simpleWordOffset(source, at: 27, forward: true, pieces: true), 29)
+        XCTAssertEqual(simpleWordOffset(source, at: 30, forward: true, pieces: true), 34)
+        XCTAssertEqual(simpleWordOffset("E\u{301}clairCase", at: 0, forward: true, pieces: true), 7)
+        XCTAssertEqual(simpleWordOffset("E\u{301}clairCase", at: 7, forward: false, pieces: true), 0)
+        XCTAssertEqual(simpleWordOffset("a\r\nb", at: 3, forward: false, pieces: true), 0)
+        XCTAssertEqual(simpleWordOffset("", at: 0, forward: false, pieces: true), 0)
+        var selection = SimpleWordSelection()
+        let a = selection.move(source, selection: NSRange(location: 0, length: 0), forward: true, extend: true, pieces: true)
+        XCTAssertEqual(a, NSRange(location: 0, length: 4))
+        let b = selection.move(source, selection: a, forward: true, extend: true, pieces: true)
+        XCTAssertEqual(b, NSRange(location: 0, length: 7))
+        XCTAssertEqual(selection.move(source, selection: b, forward: false, extend: true, pieces: true), NSRange(location: 0, length: 5))
+        XCTAssertEqual(simpleNewlineText("root\r\n  café", at: 12), "\r\n  ")
+        XCTAssertEqual(simpleNewlineText("  value\nnext", at: 1), "\n ")
+        XCTAssertEqual(simpleBackspaceRange("root\n    child\n       ", at: 22), NSRange(location: 19, length: 3))
+        XCTAssertNil(simpleBackspaceRange("word ", at: 5))
+        XCTAssertNil(simpleBackspaceRange("\t", at: 1))
+    }
+    #if os(macOS)
+    @MainActor func testConfiguredWordKeysPreserveNativeTextAndShiftAnchor() throws {
+        let key = "editor.altArrow", old = UserDefaults.standard.object(forKey: "editor.altArrow")
+        defer { if let old { UserDefaults.standard.set(old, forKey: key) } else { UserDefaults.standard.removeObject(forKey: key) } }
+        UserDefaults.standard.set("pieces", forKey: key)
+        let view = SimpleMacTextView(); view.string = "THIS_IS_ONE_WORD"; view.setSelectedRange(NSRange(location: 0, length: 0)); view.isEditable = false
+        func arrow(_ code: UInt16, shift: Bool = false) throws {
+            let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: shift ? [.option, .shift] : [.option], timestamp: 0, windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: code))
+            view.keyDown(with: event)
+        }
+        try arrow(124); XCTAssertEqual(view.selectedRange(), NSRange(location: 4, length: 0))
+        try arrow(124, shift: true); XCTAssertEqual(view.selectedRange(), NSRange(location: 4, length: 3))
+        try arrow(123, shift: true); XCTAssertEqual(view.selectedRange(), NSRange(location: 4, length: 1))
+        XCTAssertEqual(view.string, "THIS_IS_ONE_WORD")
+    }
+    @MainActor func testNativeWhitespaceEditsUndo() {
+        let file = FileNode(name: "test.swift", path: "test.swift", dir: false)
+        let source = "root\r\n    child"
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "base"))
+        let editor = MacEditor(buffer)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = editor.scroll; window.makeFirstResponder(editor.text)
+        defer { window.orderOut(nil) }
+        editor.text.setSelectedRange(NSRange(location: (source as NSString).length, length: 0))
+        let undo = editor.text.undoManager!
+        undo.groupsByEvent = false
+        undo.beginUndoGrouping()
+        XCTAssertTrue(editor.textView(editor.text, doCommandBy: NSSelectorFromString("insertNewline:")))
+        undo.endUndoGrouping()
+        XCTAssertEqual(buffer.text, source + "\r\n    ")
+        editor.text.breakUndoCoalescing()
+        undo.beginUndoGrouping()
+        XCTAssertTrue(editor.textView(editor.text, doCommandBy: NSSelectorFromString("deleteBackward:")))
+        undo.endUndoGrouping()
+        XCTAssertEqual(buffer.text, source + "\r\n")
+        editor.text.undoManager?.undo(); XCTAssertEqual(buffer.text, source + "\r\n    ")
+        editor.text.undoManager?.undo(); XCTAssertEqual(buffer.text, source)
+    }
+    #endif
+
     func testDetectedIndentationAndPartialTabStops() {
         // Contract: .hickory-source/frontends/contract.md
         XCTAssertEqual(simpleIndent("root\n    one\n        two\n"), "    ")

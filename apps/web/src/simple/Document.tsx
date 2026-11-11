@@ -26,9 +26,40 @@ import { api } from "../api/client";
 import { launchWithProfiles } from "../debug/launchProfiles";
 import { claimReveal, onRevealLine, openLocation } from "../lib/revealLine";
 const CsvGrid = lazy(() => import("../components/TablePanel").then(module => ({ default: module.TablePanel })));
+export type WordNavigationMode = "native" | "word" | "pieces";
+export function wordNavigationMode(modifier: "control" | "alt"): WordNavigationMode {
+  try { const value = localStorage.getItem(`editor.${modifier}Arrow`); return value === "word" || value === "pieces" ? value : "native"; }
+  catch { return "native"; }
+}
+export function simpleWordOffset(source: string, offset: number, forward: boolean, pieces: boolean): number {
+  const probe = !forward && offset > 0 ? offset - 1 : offset;
+  const start = probe === 0 ? 0 : source.lastIndexOf("\n", probe - 1) + 1;
+  const newline = source.indexOf("\n", probe), end = newline < 0 ? source.length : newline + 1;
+  const pattern = pieces ? /(?:\p{Lu}\p{M}*)+(?=\p{Lu}\p{M}*\p{Ll})|(?:\p{Lu}\p{M}*)?(?:\p{Ll}\p{M}*)+|(?:\p{Lu}\p{M}*)+|(?:\p{N}\p{M}*)+|\p{L}[\p{L}\p{M}\u200C\u200D]*/gu : /[\p{L}\p{N}_][\p{L}\p{M}\p{N}_\u200C\u200D]*/gu;
+  const matches = [...source.slice(start, end).matchAll(pattern)];
+  if (forward) return matches.map(match => start + match.index! + match[0].length).find(at => at > offset) ?? end;
+  return matches.map(match => start + match.index!).filter(at => at < offset).pop() ?? start;
+}
+export function simpleWordMove(view: EditorView, forward: boolean, extend: boolean, mode: WordNavigationMode): boolean {
+  if (mode === "native" || view.composing) return false;
+  // CodeMirror keeps lines indexed, avoiding a whole-document copy on each arrow.
+  const ranges = view.state.selection.ranges.map(range => {
+    const probe = !forward && range.head > 0 ? range.head - 1 : range.head;
+    const line = view.state.doc.lineAt(probe);
+    const local = line.text + (line.to < view.state.doc.length ? "\n" : "");
+    const head = !extend && !range.empty ? (forward ? range.to : range.from) : line.from + simpleWordOffset(local, range.head - line.from, forward, mode === "pieces");
+    return extend ? EditorSelection.range(range.anchor, head) : EditorSelection.cursor(head);
+  });
+  view.dispatch({ selection: EditorSelection.create(ranges, view.state.selection.mainIndex), scrollIntoView: true, userEvent: "select" });
+  return true;
+}
+const wordNavigationKeys = ["control", "alt"].flatMap(modifier => [false, true].flatMap(forward => [false, true].map(extend => ({
+  key: `${modifier === "control" ? "Ctrl" : "Alt"}-${extend ? "Shift-" : ""}Arrow${forward ? "Right" : "Left"}`,
+  run: (view: EditorView) => simpleWordMove(view, forward, extend, wordNavigationMode(modifier as "control" | "alt")),
+}))));
 // Infer from nonblank lines only: blank scratch lines must not change policy.
 export function simpleIndent(source: string): string {
-  const prefixes = source.split("\n").filter(line => line.trim()).map(line => line.match(/^[ \t]*/)![0]);
+  const prefixes = source.slice(0, 16_384).split("\n").slice(0, 200).filter(line => line.trim()).map(line => line.match(/^[ \t]*/)![0]);
   if (prefixes.filter(prefix => prefix.startsWith("\t")).length > prefixes.filter(prefix => prefix.startsWith(" ")).length) return "\t";
   const widths = prefixes.filter(prefix => /^ +$/.test(prefix)).map(prefix => prefix.length);
   const gcd = (a: number, b: number): number => b ? gcd(b, a % b) : a;
@@ -116,7 +147,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
           return query && !query.literal ? { effects: setSearchQuery.of(new SearchQuery({ ...query, literal: true })) } : null;
         }),
         foldService.of(localFold), EditorView.lineWrapping, language.of([]), prose.of([]),
-        keymap.of([{ key: "Tab", run: simpleTab, shift: indentLess }, { key: "Ctrl-Space", run: startCompletion }, ...searchKeymap, ...foldKeymap, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
+        keymap.of([...wordNavigationKeys, { key: "Tab", run: simpleTab, shift: indentLess }, { key: "Ctrl-Space", run: startCompletion }, ...searchKeymap, ...foldKeymap, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
         EditorState.readOnly.of(buffer.readonly), EditorView.editable.of(!buffer.readonly),
         EditorView.contentAttributes.of({ "aria-label": buffer.file.path }),
         EditorView.updateListener.of(update => { if (update.docChanged) buffer.edit(update.state.doc.toString()); }),
