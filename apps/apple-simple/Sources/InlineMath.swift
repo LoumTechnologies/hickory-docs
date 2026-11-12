@@ -1,19 +1,29 @@
 import SwiftUI
 import WebKit
-@MainActor final class MathCoordinator: NSObject, WKNavigationDelegate {
+@MainActor final class MathCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     var source = ""
     var diagramRenderer: String?
+    var inline = false
+    var onSize: ((CGSize) -> Void)?
+    private var revision = 0
     private var displayed: String?
     var ready = false
     func display(_ view: WKWebView) {
         guard ready, let bytes = try? JSONSerialization.data(withJSONObject: source, options: .fragmentsAllowed), let json = String(data: bytes, encoding: .utf8) else { return }
-        let key = (diagramRenderer.map { "diagram:" + $0 } ?? "math") + "\0" + source
+        let key = (diagramRenderer.map { "diagram:" + $0 } ?? "math") + "\0" + String(inline) + "\0" + source
         guard displayed != key else { return }
-        displayed = key
+        displayed = key; revision += 1
         if diagramRenderer == "terminal" { view.evaluateJavaScript("globalThis.renderTerminal(" + json + ")", completionHandler: nil) }
         else if let renderer = diagramRenderer, let data = try? JSONSerialization.data(withJSONObject: renderer, options: .fragmentsAllowed), let engine = String(data: data, encoding: .utf8) {
             view.evaluateJavaScript("globalThis.renderDiagram(" + json + "," + engine + ")", completionHandler: nil)
-        } else { view.evaluateJavaScript("globalThis.renderMath(" + json + ")", completionHandler: nil) }
+        } else { view.evaluateJavaScript("globalThis.renderMath(" + json + "," + String(inline) + "," + String(revision) + ")", completionHandler: nil) }
+    }
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame, diagramRenderer == nil,
+              let value = message.body as? [String: Any], value["revision"] as? Int == revision,
+              let width = value["width"] as? Double, let height = value["height"] as? Double,
+              width.isFinite, height.isFinite, width > 0, height > 0 else { return }
+        onSize?(CGSize(width: width, height: height))
     }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { ready = true; displayed = nil; display(webView) }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
@@ -38,6 +48,7 @@ func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main, Bundle(for: Ma
 }
 @MainActor func makeMathView(_ coordinator: MathCoordinator) -> WKWebView {
     let configuration = WKWebViewConfiguration(); configuration.websiteDataStore = .nonPersistent(); configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
+    configuration.userContentController.add(coordinator, name: "mathSize")
     let view = WKWebView(frame: .zero, configuration: configuration); view.navigationDelegate = coordinator
     let owner = Bundle(for: MathCoordinator.self)
     let roots = [Bundle.main.resourceURL, Bundle.main.bundleURL, owner.resourceURL, owner.bundleURL,
@@ -51,17 +62,21 @@ func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main, Bundle(for: Ma
 struct NativeMathView: NSViewRepresentable {
     var source: String
     var diagramRenderer: String? = nil
+    var inline = false
+    var onSize: ((CGSize) -> Void)? = nil
     func makeCoordinator() -> MathCoordinator { MathCoordinator() }
-    func makeNSView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; return makeMathView(context.coordinator) }
-    func updateNSView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.display(view) }
+    func makeNSView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; return makeMathView(context.coordinator) }
+    func updateNSView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.display(view) }
 }
 #else
 struct NativeMathView: UIViewRepresentable {
     var source: String
     var diagramRenderer: String? = nil
+    var inline = false
+    var onSize: ((CGSize) -> Void)? = nil
     func makeCoordinator() -> MathCoordinator { MathCoordinator() }
-    func makeUIView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; return makeMathView(context.coordinator) }
-    func updateUIView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.display(view) }
+    func makeUIView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; return makeMathView(context.coordinator) }
+    func updateUIView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.display(view) }
 }
 #endif
 // One read-only terminal surface for captured bytes and expect bodies.

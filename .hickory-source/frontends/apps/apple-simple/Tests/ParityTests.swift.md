@@ -11,6 +11,17 @@ These cases consume the same JSON as the browser tests. They check user-visible 
 
 The table replacement witnesses admit only prose cells, retain CRLF and Unicode source ranges, and inspect AppKit’s actual grid frame and following text geometry. The scanner callback must also refresh the measured line rail without a scroll event. Source reveal and native undo keep the same text storage. The anchor witness drives native backward/forward Delete at the table’s boundaries and in its cells, then checks that source mode and ordinary prose deletion still work. These are in-process geometry checks; they do not establish device gestures or screen-reader acceptance.
 
+The equation-range witness separates full presentation syntax from the editable
+body, including Unicode and CRLF. The live document witness uses real KaTeX inside
+an AppKit text view: it checks same-row placement and following punctuation for
+two inline formulas, compact block height without retained source rows, narrower
+window bounds, readable pending source, caret-triggered source reveal, contextual
+edit/undo and retiring a preview after a source revision. This is native geometry
+and source-safety evidence, not a framework-independent system test or a visual
+acceptance receipt from a physical device.
+
+The resource witnesses model the installed Mac app as well as the package build directory. The opt-in WebKit sizing witness renders a wide graph into two viewport sizes and checks its bounds and aspect ratio, then renders a nested fraction in the smaller slot. It checks actual bundled engines, but does not establish mobile visual acceptance.
+
 The indentation witness checks four spaces, two spaces, literal tabs, whitespace-only fallback and two successive Tab presses after partial indentation. These assertions protect alignment without needing a language server.
 
 <ui:copy id="simple-7d7b2a4b09-0">
@@ -460,6 +471,26 @@ final class ParityTests: XCTestCase {
         try "local preview".write(to: html, atomically: true, encoding: .utf8)
         XCTAssertEqual(nativeMathResource(roots: [root], bundles: []), html)
     }
+    func testEquationRangesSeparateEditableBodiesFromPresentation() {
+        // Contract: .hickory-source/frontends/contract.md
+        let source = "Before 😀 $p(1-d)$ and $x^2$.\r\n<h:math>\r\nT = \\sum_{i=1}^{n} q_i\r\n</h:math>\r\n<h:math>x+1</h:math> after"
+        let equations = computeInlineMarkup(source, path: "math.md").equations
+        XCTAssertEqual(equations.count, 4)
+        XCTAssertEqual(equations.map(\.displayBlock), [false, false, true, true])
+        let ns = source as NSString
+        XCTAssertEqual(equations.map { ns.substring(with: $0.range) }, equations.map(\.body))
+        XCTAssertEqual(equations.map { ns.substring(with: $0.renderedRange) }, ["$p(1-d)$", "$x^2$", "<h:math>\r\nT = \\sum_{i=1}^{n} q_i\r\n</h:math>", "<h:math>x+1</h:math>"])
+    }
+    func testInstalledMacLaunchResourceBundle() throws {
+        let contents = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".app/Contents")
+        defer { try? FileManager.default.removeItem(at: contents.deletingLastPathComponent()) }
+        let resources = contents.appendingPathComponent("Resources")
+        let directory = resources.appendingPathComponent("HickorySimple_HickorySimple.bundle/Contents/Resources/Resources")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let html = directory.appendingPathComponent("math.html")
+        try "preview".write(to: html, atomically: true, encoding: .utf8)
+        XCTAssertEqual(nativeMathResource(roots: [resources], bundles: []), html)
+    }
     func testMissingMathBundleDoesNotTrap() {
         // Contract: .hickory-source/frontends/contract.md
         XCTAssertNil(nativeMathResource(roots: [URL(fileURLWithPath: "/missing/" + UUID().uuidString)], bundles: []))
@@ -689,6 +720,105 @@ final class ParityTests: XCTestCase {
         XCTAssertFalse(screen.contains("[stdout]")); XCTAssertFalse(screen.contains("\u{1b}"))
         let images = try await view.evaluateJavaScript("document.querySelectorAll('img').length") as? Int
         XCTAssertEqual(images, 0)
+    }
+    @MainActor func testNativeMathFlowsWithinProseAndCompactsBlocks() async throws {
+        // Contract: .hickory-source/frontends/contract.md
+        guard ProcessInfo.processInfo.environment["HICKORY_NATIVE_WEBVIEW_TEST"] == "1" else { throw XCTSkip("Enable the focused native WebKit witness explicitly") }
+        let source = "An inline formula: $p(1-d)$, then $x^2$.\nNext paragraph.\n<h:math>\nT = \\sum_{i=1}^{n} q_i p_i (1-d)\n</h:math>\nAfter block.\n"
+        let buffer = DocumentBuffer(file: FileNode(name: "math.md", path: "math.md", dir: false), text: FileText(path: "math.md", content: source, hash: "math"))
+        let editor = MacEditor(buffer)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = editor.scroll; window.makeFirstResponder(editor.text); window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        editor.text.setSelectedRange(NSRange(location: 3, length: 0))
+        buffer.inlineMarkup = computeInlineMarkup(source, path: "math.md"); buffer.renderMarkup?()
+        let equations = buffer.inlineMarkup.equations
+        XCTAssertNotEqual(editor.text.textStorage?.attribute(.foregroundColor, at: equations[0].range.location, effectiveRange: nil) as? NSColor, .clear, "Pending typesetting must keep source readable")
+        func host(_ equation: InlineEquation) -> NSView? { editor.text.subviews.first { $0.identifier?.rawValue == "equation:\(equation.id)" && $0.alphaValue == 1 } }
+        for _ in 0..<200 {
+            if equations.allSatisfy({ host($0) != nil }) { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        let inline = try XCTUnwrap(host(equations[0])), second = try XCTUnwrap(host(equations[1])), block = try XCTUnwrap(host(equations[2]))
+        let manager = try XCTUnwrap(editor.text.layoutManager), container = try XCTUnwrap(editor.text.textContainer)
+        func rect(_ offset: Int) -> CGRect {
+            let glyph = manager.glyphRange(forCharacterRange: NSRange(location: offset, length: 1), actualCharacterRange: nil)
+            return manager.boundingRect(forGlyphRange: glyph, in: container).offsetBy(dx: editor.text.textContainerOrigin.x, dy: editor.text.textContainerOrigin.y)
+        }
+        XCTAssertLessThan(abs(inline.frame.midY - rect(0).midY), 4, "Inline math belongs to the sentence's row")
+        let comma = rect(NSMaxRange(equations[0].renderedRange))
+        XCTAssertLessThan(abs(comma.midY - inline.frame.midY), 4)
+        XCTAssertGreaterThanOrEqual(comma.minX, inline.frame.maxX - 2, "Following prose must not overlap the rendered formula")
+        XCTAssertLessThan(comma.minX - inline.frame.maxX, 8, "No source-sized gap remains after the formula")
+        XCTAssertGreaterThan(second.frame.minX, inline.frame.maxX)
+        XCTAssertLessThan(inline.frame.width, 100)
+        XCTAssertLessThan(block.frame.height, 90, "Block height comes from its typeset content")
+        let after = rect((source as NSString).range(of: "After block.").location)
+        XCTAssertGreaterThanOrEqual(after.minY, block.frame.maxY - 2)
+        XCTAssertLessThan(after.minY - block.frame.maxY, 30, "Hidden math source must not leave extra rows")
+        XCTAssertEqual(editor.text.string, source); XCTAssertEqual(editor.text.selectedRange(), NSRange(location: 3, length: 0))
+        window.setContentSize(NSSize(width: 240, height: 400)); editor.measureDebugLines()
+        for equation in equations {
+            let preview = try XCTUnwrap(host(equation))
+            XCTAssertGreaterThanOrEqual(preview.frame.minX, editor.text.textContainerOrigin.x - 1)
+            XCTAssertLessThanOrEqual(preview.frame.maxX, editor.text.bounds.width + 1, "Wrapped math stays within the editor")
+        }
+        window.setContentSize(NSSize(width: 600, height: 400)); editor.measureDebugLines()
+        // Source reveal is presentation only; restore the same measured inline row.
+        buffer.sourceTable = equations[0].id; buffer.renderMarkup?()
+        XCTAssertNil(host(equations[0])); XCTAssertEqual(editor.text.string, source)
+        buffer.sourceTable = nil; buffer.renderMarkup?()
+        for _ in 0..<200 {
+            if host(equations[0]) != nil { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertNotNil(host(equations[0]))
+        // A caret inside retained math reveals it before any edit can change hidden bytes.
+        editor.text.setSelectedRange(NSRange(location: equations[0].range.location, length: 0))
+        editor.textViewDidChangeSelection(Notification(name: NSTextView.didChangeSelectionNotification, object: editor.text))
+        XCTAssertEqual(buffer.sourceTable, equations[0].id)
+        XCTAssertNil(host(equations[0]))
+        // Contextual replacement still targets just the body, then native undo restores it.
+        XCTAssertTrue(editor.applySourceEdits([NativeSourceEdit(range: equations[0].range, text: "p+d")], source: source))
+        XCTAssertTrue(editor.text.string.contains("$p+d$"))
+        editor.text.undoManager?.undo(); XCTAssertEqual(editor.text.string, source)
+        // A retired typesetter cannot reinstate hidden glyphs against a different source.
+        buffer.inlineMarkup = computeInlineMarkup(source, path: "math.md"); buffer.renderMarkup?()
+        editor.text.insertText("prefix ", replacementRange: NSRange(location: 0, length: 0))
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(editor.text.string, "prefix " + source)
+        XCTAssertFalse(editor.text.subviews.contains { $0.identifier?.rawValue.hasPrefix("equation:") == true })
+    }
+    @MainActor func testNativePreviewFitsInlineViewport() async throws {
+        // Contract: .hickory-source/frontends/contract.md
+        guard ProcessInfo.processInfo.environment["HICKORY_NATIVE_WEBVIEW_TEST"] == "1" else { throw XCTSkip("Enable the focused native WebKit witness explicitly") }
+        let coordinator = MathCoordinator(); coordinator.diagramRenderer = "graph"
+        coordinator.source = #"{"topology":{"nodes":[{"id":"a"}]},"layout":{"a":{"w":700,"h":350}}}"#
+        let view = makeMathView(coordinator)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 220), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = view; window.orderFront(nil); defer { view.stopLoading(); window.orderOut(nil) }
+        for _ in 0..<100 { if coordinator.ready { break }; try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertTrue(coordinator.ready)
+        for size in [NSSize(width: 360, height: 220), NSSize(width: 180, height: 100)] {
+            window.setContentSize(size)
+            try await Task.sleep(for: .milliseconds(150))
+            let fits = try await view.evaluateJavaScript("(() => { const r=document.querySelector('#formula svg').getBoundingClientRect(); return r.width>0 && r.height>0 && r.left>=-1 && r.top>=-1 && r.right<=innerWidth+1 && r.bottom<=innerHeight+1; })()") as? Bool
+            XCTAssertEqual(fits, true, "Graph must fit a resized inline slot")
+            let ratio = try await view.evaluateJavaScript("(() => { const s=document.querySelector('svg'),r=s.getBoundingClientRect();return r.width/r.height/(s.viewBox.baseVal.width/s.viewBox.baseVal.height); })()") as? Double
+            XCTAssertEqual(try XCTUnwrap(ratio), 1, accuracy: 0.01)
+        }
+        coordinator.diagramRenderer = nil; coordinator.source = #"\frac{1}{\frac{2}{\frac{3}{4}}} + x^2"#; coordinator.display(view)
+        try await Task.sleep(for: .milliseconds(150))
+        let mathFits = try await view.evaluateJavaScript("(() => { const r=document.querySelector('.katex').getBoundingClientRect();return r.width>0 && r.top>=-1 && r.bottom<=innerHeight+1 && r.left>=-1 && r.right<=innerWidth+1; })()") as? Bool
+        XCTAssertEqual(mathFits, true)
+        coordinator.diagramRenderer = "mermaid"; coordinator.source = "graph LR; A[Start] --> B[Finish]"; coordinator.display(view)
+        var diagramFits = false
+        for _ in 0..<100 {
+            diagramFits = (try? await view.evaluateJavaScript("(() => { const s=document.querySelector('#formula svg'); if(!s)return false; const r=s.getBoundingClientRect();return r.width>0 && r.height>0 && r.left>=-1 && r.top>=-1 && r.right<=innerWidth+1 && r.bottom<=innerHeight+1; })()")) as? Bool ?? false
+            if diagramFits { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertTrue(diagramFits, "Asynchronous Mermaid output must fit the inline slot")
     }
     @MainActor func testNativeEquationTypesetter() async throws {
         guard ProcessInfo.processInfo.environment["HICKORY_NATIVE_WEBVIEW_TEST"] == "1" else { throw XCTSkip("Enable the focused native WebKit witness explicitly") }

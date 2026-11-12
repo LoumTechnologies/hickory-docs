@@ -281,6 +281,8 @@ fn cmd(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Command {
 
 Use the prepared simple UI showcase by default. Only a missing default workspace triggers the fixture preparation and its explicit recorded sample run; existing folders retain all edits and cached services. An explicit HICKORY_PROJECT_DIR must already exist and bypasses sample preparation. The all-platform supervisor passes its chosen folder to each child, so preparation happens once. The callback listens on an OS-assigned loopback port. Configure the browser origin before starting its proxy; strictPort prevents Vite silently moving to a disallowed origin. A native launch passes the origin as startup configuration rather than asking the user to copy a port. On macOS, wrap the built executable in a named, ad-hoc-signed app bundle so AppKit has a real application identity. Launch it through macOS Launch Services with `open -n -W` so foreground activation works as a normal app. Pass the backend origin and development host PID explicitly; the app watches that host and terminates when it exits. Supervise the waiting `open` process as an owned child; use a per-launch directory to avoid replacing a running app’s executable.
 
+The Mac launcher must install the SwiftPM resource bundle before signing its app. Copying only the executable loses the local preview page and every relative engine/font dependency. Replace the installed resource bundle on each build so removed assets cannot survive a restart. The packaging witness checks nested assets, replacement and refusal when the build bundle is missing.
+
 <ui:copy id="simple-3119f25e95-2">
 fn project_directory(root: &Path, supplied: Option<PathBuf>) -> Result<(PathBuf, bool)> {
     if let Some(path) = supplied {
@@ -464,6 +466,33 @@ async fn frontend(
     }
 }
 
+// Keep the resource directory hierarchy: math.html loads scripts, styles and fonts relatively.
+fn install_apple_resources(binary_dir: &Path, contents: &Path) -> Result<()> {
+    let source = binary_dir.join("HickorySimple_HickorySimple.bundle");
+    ensure!(
+        source.is_dir(),
+        "Apple preview resources missing at {}. Rebuild the Swift package.",
+        source.display()
+    );
+    let resources = contents.join("Resources");
+    std::fs::create_dir_all(&resources)?;
+    let destination = resources.join("HickorySimple_HickorySimple.bundle");
+    if destination.exists() {
+        std::fs::remove_dir_all(&destination)?;
+    }
+    let status = std::process::Command::new("/bin/cp")
+        .arg("-R")
+        .arg(&source)
+        .arg(&destination)
+        .status()?;
+    ensure!(
+        status.success(),
+        "Could not bundle Apple preview resources from {}",
+        source.display()
+    );
+    Ok(())
+}
+
 async fn apple(root: &Path, session: &mut Session, api: &str) -> Result<()> {
     ensure!(
         cfg!(target_os = "macos"),
@@ -492,6 +521,7 @@ async fn apple(root: &Path, session: &mut Session, api: &str) -> Result<()> {
         Path::new(binary_dir.trim()).join("HickorySimple"),
         &executable,
     )?;
+    install_apple_resources(Path::new(binary_dir.trim()), &contents)?;
     std::fs::write(
         contents.join("Info.plist"),
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -895,6 +925,35 @@ These focused witnesses check default workspace reuse, explicit override refusal
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn apple_launch_installs_and_refreshes_preview_resources() {
+        // Contract: .hickory-source/frontends/contract.md
+        let root = tempfile::tempdir().unwrap();
+        let build = root.path().join("build");
+        let contents = root.path().join("App.app/Contents");
+        assert!(install_apple_resources(&build, &contents).is_err());
+        let relative = "HickorySimple_HickorySimple.bundle/Contents/Resources/Resources";
+        let source = build.join(relative);
+        std::fs::create_dir_all(source.join("katex/fonts")).unwrap();
+        std::fs::write(source.join("math.html"), "preview").unwrap();
+        std::fs::write(source.join("katex/fonts/font.woff2"), "font").unwrap();
+        install_apple_resources(&build, &contents).unwrap();
+        let installed = contents.join("Resources").join(relative);
+        assert_eq!(
+            std::fs::read_to_string(installed.join("math.html")).unwrap(),
+            "preview"
+        );
+        assert!(installed.join("katex/fonts/font.woff2").is_file());
+        std::fs::remove_file(source.join("katex/fonts/font.woff2")).unwrap();
+        std::fs::write(source.join("math.html"), "updated").unwrap();
+        install_apple_resources(&build, &contents).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(installed.join("math.html")).unwrap(),
+            "updated"
+        );
+        assert!(!installed.join("katex/fonts/font.woff2").exists());
+    }
     #[test]
     fn default_project_prepares_once_and_preserves_saved_edits() {
         let root = tempfile::tempdir().unwrap();

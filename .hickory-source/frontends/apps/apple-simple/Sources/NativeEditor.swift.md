@@ -422,6 +422,21 @@ struct GridCellField: UIViewRepresentable {
 
 TextKit keeps the first source character as a layout anchor with the grid's height. Null glyphs and zero control-character advancement remove the remaining source rows from layout. The hosting view occupies that reserved rectangle, so the table replaces its lines instead of covering readable prose. Source edits retire obsolete ranges immediately; background scanning attaches current ranges again without rewriting text. The source caret is suppressed throughout each grid’s retained range, including its layout anchor. A new source edit or Delete aimed there is refused without changing presentation. Backspace at the first boundary must also be refused, because deleting the preceding newline could change the table’s Markdown context. Authors reveal source explicitly with Edit source. Grid cell inputs keep their own normal carets. Registered native undo/redo is already an authorized reversal of the editor’s own change; allow it through the hidden-byte guard so a rebuilt grid cannot consume the undo without changing text.
 
+Equations use one control glyph at their full syntax range’s start and null glyphs
+for the remaining retained bytes. TextKit gives that anchor the typesetter’s
+measured width; following prose therefore flows immediately after an inline
+formula. The line fragment grows only enough for tall fractions or display math.
+A math element consumes one measured row, including its tags and internal newlines.
+We do not add a second paragraph of preview whitespace. Execution terminals keep
+their separate output rows.
+
+Each typesetter measurement is checked against the current source and rendered
+item before changing layout. Content stays literal until the engine responds;
+source mode, folds and obsolete callbacks cannot hide a newer revision. Tapping a
+formula reveals source, and typing into hidden math first reveals it without
+applying that edit. Explicit contextual edits retain the existing snapshot,
+permission, composition and undo checks. Presentation never replaces storage bytes.
+
 <ui:copy id="simple-7fad175521-0">
 // Only inspect the current logical line. Identifier movement never waits for parsing.
 private let simpleWholeWord = try! NSRegularExpression(pattern: #"[\p{L}\p{N}_][\p{L}\p{M}\p{N}_\u200C\u200D]*"#)
@@ -668,21 +683,46 @@ private typealias FoldFont = UIFont
 private typealias EquationHost = UIHostingController<AnyView>
 private typealias DiagramHost = UIHostingController<NativeDiagramPreview>
 #endif
+private struct EquationLayout: Equatable {
+    var range: NSRange
+    var size: CGSize
+}
 @MainActor private final class FoldLayout: NSObject, @preconcurrency NSLayoutManagerDelegate {
     var ranges: [NSRange] = []
     var tables: [InlineTable] = []
     var diagrams: [InlineDiagram] = []
+    var equations: [EquationLayout] = []
     func tableContains(_ offset: Int) -> Bool { tables.contains { offset > $0.range.location && NSLocationInRange(offset, $0.range) } }
-    func contains(_ offset: Int) -> Bool { tableContains(offset) || diagrams.contains { offset > $0.range.location && NSLocationInRange(offset, $0.range) } || ranges.contains { NSLocationInRange(offset, $0) } }
+    func contains(_ offset: Int) -> Bool { equations.contains { offset > $0.range.location && NSLocationInRange(offset, $0.range) } || tableContains(offset) || diagrams.contains { offset > $0.range.location && NSLocationInRange(offset, $0.range) } || ranges.contains { NSLocationInRange(offset, $0) } }
     func layoutManager(_ manager: NSLayoutManager, shouldGenerateGlyphs glyphs: UnsafePointer<CGGlyph>, properties: UnsafePointer<NSLayoutManager.GlyphProperty>, characterIndexes: UnsafePointer<Int>, font: FoldFont, forGlyphRange range: NSRange) -> Int {
-        guard !ranges.isEmpty || !tables.isEmpty || !diagrams.isEmpty else { return 0 }
+        guard !ranges.isEmpty || !tables.isEmpty || !diagrams.isEmpty || !equations.isEmpty else { return 0 }
         var props = Array(UnsafeBufferPointer(start: properties, count: range.length))
-        for i in 0..<range.length where contains(characterIndexes[i]) { props[i] = .null }
+        for i in 0..<range.length {
+            if equations.contains(where: { $0.range.location == characterIndexes[i] }) { props[i] = .controlCharacter }
+            else if contains(characterIndexes[i]) { props[i] = .null }
+        }
         props.withUnsafeBufferPointer { manager.setGlyphs(glyphs, properties: $0.baseAddress!, characterIndexes: characterIndexes, font: font, forGlyphRange: range) }
         return range.length
     }
     func layoutManager(_ manager: NSLayoutManager, shouldUse action: NSLayoutManager.ControlCharacterAction, forControlCharacterAt index: Int) -> NSLayoutManager.ControlCharacterAction {
-        contains(index) ? .zeroAdvancement : action
+        if equations.contains(where: { $0.range.location == index }) { return .whitespace }
+        return contains(index) ? .zeroAdvancement : action
+    }
+    func layoutManager(_ manager: NSLayoutManager, boundingBoxForControlGlyphAt glyphIndex: Int, for textContainer: NSTextContainer, proposedLineFragment proposedRect: CGRect, glyphPosition: CGPoint, characterIndex: Int) -> CGRect {
+        guard let equation = equations.first(where: { $0.range.location == characterIndex }) else { return .zero }
+        return CGRect(origin: .zero, size: equation.size)
+    }
+    func layoutManager(_ manager: NSLayoutManager, shouldBreakLineByWordBeforeCharacterAt index: Int) -> Bool {
+        !equations.contains { index > $0.range.location && NSLocationInRange(index, $0.range) }
+    }
+    func layoutManager(_ manager: NSLayoutManager, shouldSetLineFragmentRect rect: UnsafeMutablePointer<CGRect>, lineFragmentUsedRect used: UnsafeMutablePointer<CGRect>, baselineOffset: UnsafeMutablePointer<CGFloat>, in textContainer: NSTextContainer, forGlyphRange glyphs: NSRange) -> Bool {
+        let characters = manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+        let height = equations.filter { NSLocationInRange($0.range.location, characters) }.map(\.size.height).max() ?? 0
+        let extra = max(0, height - rect.pointee.height)
+        guard extra > 0 else { return false }
+        rect.pointee.size.height += extra; used.pointee.size.height += extra
+        baselineOffset.pointee += extra / 2
+        return true
     }
 }
 #if os(macOS)
@@ -696,6 +736,10 @@ private typealias DiagramHost = UIHostingController<NativeDiagramPreview>
     private var diagramAnchor: Int?
     private var equationViews: [Int: EquationHost] = [:]
     private var equationSource = ""
+    private var mathSource = ""
+    private var mathViews: [Int: EquationHost] = [:]
+    private var mathMeasurements: [Int: CGSize] = [:]
+    private var mathRequests: [Int: UUID] = [:]
     private var diagramViews: [Int: DiagramHost] = [:]
     private var tableSnapshot = InlineSnapshot(source: "")
     private var tableSource = ""
@@ -832,12 +876,20 @@ private typealias DiagramHost = UIHostingController<NativeDiagramPreview>
         if buffer.multiSource == buffer.text, buffer.multiRanges.count > 1, let replacementString, !text.hasMarkedText() {
             _ = buffer.replaceMultiple(replacementString, affected: affectedCharRange); return false
         }
+        if let equation = folding.equations.first(where: { NSIntersectionRange($0.range, affectedCharRange).length > 0 || affectedCharRange.length == 0 && affectedCharRange.location > $0.range.location && NSLocationInRange(affectedCharRange.location, $0.range) }) {
+            buffer.sourceTable = buffer.inlineMarkup.equations.first { $0.renderedRange == equation.range }?.id
+            measureDebugLines(); return false
+        }
         if tableSourceEditHitsGrid(affectedCharRange, selection: text.selectedRange(), tables: text.tableRanges) { return false }
         let hidden = folding.ranges.contains { NSIntersectionRange($0, affectedCharRange).length > 0 || NSLocationInRange(affectedCharRange.location, $0) }
         unfoldAll(); return !hidden
     }
     func textDidChange(_ notification: Notification) { if !buffer.applyingMulti { buffer.clearMulti() }; unfoldAll(); buffer.selection = text.selectedRange(); buffer.text = text.string; measureDebugLines() }
     func textViewDidChangeSelection(_ notification: Notification) {
+        if let equation = folding.equations.first(where: { text.selectedRange().location > $0.range.location && NSLocationInRange(text.selectedRange().location, $0.range) }) {
+            buffer.sourceTable = buffer.inlineMarkup.equations.first { $0.renderedRange == equation.range }?.id
+            measureDebugLines()
+        }
         if folding.ranges.contains(where: { text.selectedRange().location > $0.location && NSLocationInRange(text.selectedRange().location, $0) }) { unfoldAll() }
         if !buffer.applyingMulti, let primary = buffer.multiRanges.first, text.selectedRange() != primary { buffer.clearMulti() }
         buffer.selection = text.selectedRange()
@@ -911,12 +963,75 @@ private typealias DiagramHost = UIHostingController<NativeDiagramPreview>
         if rows != buffer.visibleDebugLines { buffer.visibleDebugLines = rows }
     }
 
-    // Equations reserve trailing paragraph whitespace; the underlying source,
-    // selection and undo buffer stay intact while WebKit typesets independently.
+    // Until WebKit has measured a formula, keep its actual source readable.
+    // Replace presentation glyphs only; the backing storage and undo never change.
+    private func presentMath() {
+        let source = text.string, storage = text.textStorage!
+        let manager = text.layoutManager!, container = text.textContainer!
+        let previous = folding.equations
+        if mathSource != source {
+            for host in mathViews.values { host.removeFromSuperview() }
+            mathViews = [:]; mathMeasurements = [:]; mathRequests = [:]; mathSource = source
+        }
+        let equations = buffer.inlineMarkup.source == source ? buffer.inlineMarkup.equations.filter { equation in
+            equation.id != buffer.sourceTable && NSMaxRange(equation.renderedRange) <= storage.length &&
+                !folding.ranges.contains(where: { NSIntersectionRange($0, equation.renderedRange).length > 0 })
+        } : []
+        let live = Set(equations.map(\.id))
+        for id in Array(mathViews.keys) where !live.contains(id) {
+            mathMeasurements.removeValue(forKey: id); mathRequests.removeValue(forKey: id)
+            if let host = mathViews.removeValue(forKey: id) { host.removeFromSuperview() }
+        }
+        for equation in equations where mathViews[equation.id] == nil {
+            let request = UUID(); mathRequests[equation.id] = request
+            let preview = AnyView(NativeMathView(source: equation.body, inline: !equation.displayBlock, onSize: { [weak self] size in
+                guard let self, self.mathSource == source, self.buffer.text == source,
+                      self.buffer.sourceTable != equation.id, self.mathRequests[equation.id] == request else { return }
+                if self.mathMeasurements[equation.id] != size {
+                    self.mathMeasurements[equation.id] = size
+                    self.measureDebugLines()
+                }
+            }).onTapGesture { [weak self] in
+                self?.buffer.sourceTable = equation.id
+                self?.measureDebugLines()
+            })
+            let host = EquationHost(rootView: preview); host.identifier = NSUserInterfaceItemIdentifier("equation:\(equation.id)")
+            host.frame = CGRect(x: -10000, y: -10000, width: 240, height: 80)
+            host.alphaValue = 0; mathViews[equation.id] = host; text.addSubview(host)
+        }
+        let width = max(1, container.size.width - container.lineFragmentPadding * 2 - 1)
+        let layouts = equations.compactMap { equation -> EquationLayout? in
+            guard let natural = mathMeasurements[equation.id] else { return nil }
+            let scale = min(1, width / natural.width, (equation.displayBlock ? 240 : 120) / natural.height)
+            return EquationLayout(range: equation.renderedRange, size: CGSize(width: equation.displayBlock ? width : ceil(natural.width * scale), height: ceil(natural.height * scale)))
+        }
+        if previous != layouts {
+            folding.equations = layouts
+            for item in previous {
+                let range = NSIntersectionRange(item.range, NSRange(location: 0, length: storage.length))
+                if range.length > 0 { storage.addAttribute(.foregroundColor, value: NSColor.textColor, range: range) }
+            }
+            for item in previous + layouts {
+                let range = NSIntersectionRange(item.range, NSRange(location: 0, length: storage.length))
+                if range.length > 0 { manager.invalidateGlyphs(forCharacterRange: range, changeInLength: 0, actualCharacterRange: nil) }
+            }
+        }
+        for layout in layouts { storage.addAttribute(.foregroundColor, value: NSColor.clear, range: layout.range) }
+        let origin = text.textContainerOrigin
+        for equation in equations {
+            guard let host = mathViews[equation.id], let layout = layouts.first(where: { $0.range == equation.renderedRange }) else { continue }
+            manager.ensureLayout(forCharacterRange: layout.range)
+            let glyph = manager.glyphIndexForCharacter(at: layout.range.location)
+            let line = manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil), position = manager.location(forGlyphAt: glyph)
+            host.frame = CGRect(x: origin.x + line.minX + position.x, y: origin.y + line.minY + (line.height - layout.size.height) / 2, width: layout.size.width, height: layout.size.height)
+            host.alphaValue = 1
+        }
+    }
+
     private func presentEquations() {
         let source = text.string, storage = text.textStorage!
-        let equations = buffer.inlineMarkup.source == source ? buffer.inlineMarkup.equations : []
-        var grouped = Dictionary(grouping: equations, by: \.line)
+        presentMath()
+        var grouped: [Int: [InlineEquation]] = [:]
         let outputs = buffer.recordedOutputPlacements().merging(buffer.runOutputSource == source ? buffer.runOutputs : [:]) { _, live in live }
         var starts = [0]
         for (index, unit) in source.utf16.enumerated() where unit == 10 { starts.append(index + 1) }
@@ -1149,6 +1264,10 @@ import UIKit
     private var diagramAnchor: Int?
     private var equationViews: [Int: EquationHost] = [:]
     private var equationSource = ""
+    private var mathSource = ""
+    private var mathViews: [Int: EquationHost] = [:]
+    private var mathMeasurements: [Int: CGSize] = [:]
+    private var mathRequests: [Int: UUID] = [:]
     private var diagramViews: [Int: DiagramHost] = [:]
     private var tableSnapshot = InlineSnapshot(source: "")
     private var tableSource = ""
@@ -1255,6 +1374,11 @@ import UIKit
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
         if buffer.applyingMulti { return true }
         if textView.undoManager?.isUndoing == true || textView.undoManager?.isRedoing == true { buffer.clearMulti(); unfoldAll(); return true }
+        if textView.undoManager?.isUndoing != true && textView.undoManager?.isRedoing != true,
+           let equation = folding.equations.first(where: { NSIntersectionRange($0.range, range).length > 0 || range.length == 0 && range.location > $0.range.location && NSLocationInRange(range.location, $0.range) }) {
+            buffer.sourceTable = buffer.inlineMarkup.equations.first { $0.renderedRange == equation.range }?.id
+            measureDebugLines(); return false
+        }
         if text == "\n" || text == "\t" {
             if tableSourceEditHitsGrid(range, selection: textView.selectedRange, tables: self.text.tableRanges) { return false }
             if folding.ranges.contains(where: { NSIntersectionRange($0, range).length > 0 || NSLocationInRange(range.location, $0) }) { unfoldAll(); return false }
@@ -1288,6 +1412,10 @@ import UIKit
     }
     func textViewDidChange(_ textView: UITextView) { if !buffer.applyingMulti { buffer.clearMulti() }; unfoldAll(); buffer.selection = textView.selectedRange; buffer.text = textView.text; measureDebugLines() }
     func textViewDidChangeSelection(_ textView: UITextView) {
+        if let equation = folding.equations.first(where: { textView.selectedRange.location > $0.range.location && NSLocationInRange(textView.selectedRange.location, $0.range) }) {
+            buffer.sourceTable = buffer.inlineMarkup.equations.first { $0.renderedRange == equation.range }?.id
+            measureDebugLines()
+        }
         if folding.ranges.contains(where: { textView.selectedRange.location > $0.location && NSLocationInRange(textView.selectedRange.location, $0) }) { unfoldAll() }
         if !buffer.applyingMulti, let primary = buffer.multiRanges.first, textView.selectedRange != primary { buffer.clearMulti() }
         buffer.selection = textView.selectedRange
@@ -1328,12 +1456,75 @@ import UIKit
         if rows != buffer.visibleDebugLines { buffer.visibleDebugLines = rows }
     }
 
-    // Equations reserve trailing paragraph whitespace; the underlying source,
-    // selection and undo buffer stay intact while WebKit typesets independently.
+    // Until WebKit has measured a formula, keep its actual source readable.
+    // Replace presentation glyphs only; the backing storage and undo never change.
+    private func presentMath() {
+        let source = text.text ?? "", storage = text.textStorage
+        let manager = text.layoutManager, container = text.textContainer
+        let previous = folding.equations
+        if mathSource != source {
+            for host in mathViews.values { host.view.removeFromSuperview() }
+            mathViews = [:]; mathMeasurements = [:]; mathRequests = [:]; mathSource = source
+        }
+        let equations = buffer.inlineMarkup.source == source ? buffer.inlineMarkup.equations.filter { equation in
+            equation.id != buffer.sourceTable && NSMaxRange(equation.renderedRange) <= storage.length &&
+                !folding.ranges.contains(where: { NSIntersectionRange($0, equation.renderedRange).length > 0 })
+        } : []
+        let live = Set(equations.map(\.id))
+        for id in Array(mathViews.keys) where !live.contains(id) {
+            mathMeasurements.removeValue(forKey: id); mathRequests.removeValue(forKey: id)
+            if let host = mathViews.removeValue(forKey: id) { host.view.removeFromSuperview() }
+        }
+        for equation in equations where mathViews[equation.id] == nil {
+            let request = UUID(); mathRequests[equation.id] = request
+            let preview = AnyView(NativeMathView(source: equation.body, inline: !equation.displayBlock, onSize: { [weak self] size in
+                guard let self, self.mathSource == source, self.buffer.text == source,
+                      self.buffer.sourceTable != equation.id, self.mathRequests[equation.id] == request else { return }
+                if self.mathMeasurements[equation.id] != size {
+                    self.mathMeasurements[equation.id] = size
+                    self.measureDebugLines()
+                }
+            }).onTapGesture { [weak self] in
+                self?.buffer.sourceTable = equation.id
+                self?.measureDebugLines()
+            })
+            let host = EquationHost(rootView: preview); host.view.accessibilityIdentifier = "equation:\(equation.id)"
+            host.view!.frame = CGRect(x: -10000, y: -10000, width: 240, height: 80)
+            host.view.alpha = 0; mathViews[equation.id] = host; text.addSubview(host.view)
+        }
+        let width = max(1, container.size.width - container.lineFragmentPadding * 2 - 1)
+        let layouts = equations.compactMap { equation -> EquationLayout? in
+            guard let natural = mathMeasurements[equation.id] else { return nil }
+            let scale = min(1, width / natural.width, (equation.displayBlock ? 240 : 120) / natural.height)
+            return EquationLayout(range: equation.renderedRange, size: CGSize(width: equation.displayBlock ? width : ceil(natural.width * scale), height: ceil(natural.height * scale)))
+        }
+        if previous != layouts {
+            folding.equations = layouts
+            for item in previous {
+                let range = NSIntersectionRange(item.range, NSRange(location: 0, length: storage.length))
+                if range.length > 0 { storage.addAttribute(.foregroundColor, value: UIColor.label, range: range) }
+            }
+            for item in previous + layouts {
+                let range = NSIntersectionRange(item.range, NSRange(location: 0, length: storage.length))
+                if range.length > 0 { manager.invalidateGlyphs(forCharacterRange: range, changeInLength: 0, actualCharacterRange: nil) }
+            }
+        }
+        for layout in layouts { storage.addAttribute(.foregroundColor, value: UIColor.clear, range: layout.range) }
+        let origin = CGPoint(x: text.textContainerInset.left, y: text.textContainerInset.top)
+        for equation in equations {
+            guard let host = mathViews[equation.id], let layout = layouts.first(where: { $0.range == equation.renderedRange }) else { continue }
+            manager.ensureLayout(forCharacterRange: layout.range)
+            let glyph = manager.glyphIndexForCharacter(at: layout.range.location)
+            let line = manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil), position = manager.location(forGlyphAt: glyph)
+            host.view!.frame = CGRect(x: origin.x + line.minX + position.x, y: origin.y + line.minY + (line.height - layout.size.height) / 2, width: layout.size.width, height: layout.size.height)
+            host.view.alpha = 1
+        }
+    }
+
     private func presentEquations() {
         let source = text.text ?? "", storage = text.textStorage
-        let equations = buffer.inlineMarkup.source == source ? buffer.inlineMarkup.equations : []
-        var grouped = Dictionary(grouping: equations, by: \.line)
+        presentMath()
+        var grouped: [Int: [InlineEquation]] = [:]
         let outputs = buffer.recordedOutputPlacements().merging(buffer.runOutputSource == source ? buffer.runOutputs : [:]) { _, live in live }
         var starts = [0]
         for (index, unit) in source.utf16.enumerated() where unit == 10 { starts.append(index + 1) }
@@ -1657,6 +1848,9 @@ struct LanguageEditor: View {
             NativeEditor(buffer: buffer).overlay(alignment: .topLeading) {
                 if let anchor = buffer.sourceTable, buffer.inlineMarkup.diagrams.contains(where: { $0.id == anchor }) {
                     Button(buffer.inlineMarkup.diagrams.first(where: { $0.id == anchor })?.renderer == "terminal" ? "Render terminal" : "Render diagram") { buffer.sourceTable = nil }.buttonStyle(.bordered).padding(4)
+                }
+                if let anchor = buffer.sourceTable, buffer.inlineMarkup.equations.contains(where: { $0.id == anchor }) {
+                    Button("Render equation") { buffer.sourceTable = nil }.buttonStyle(.bordered).padding(4)
                 }
                 if (buffer.tableSourceVisible || buffer.sourceTable != nil) && !inlineTables(buffer.inlineMarkup).isEmpty {
                     Button("Edit tables as grids") { buffer.sourceTable = nil; buffer.tableSourceVisible = false }.buttonStyle(.bordered).padding(4)

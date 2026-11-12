@@ -382,6 +382,33 @@ async fn frontend(
     }
 }
 
+// Keep the resource directory hierarchy: math.html loads scripts, styles and fonts relatively.
+fn install_apple_resources(binary_dir: &Path, contents: &Path) -> Result<()> {
+    let source = binary_dir.join("HickorySimple_HickorySimple.bundle");
+    ensure!(
+        source.is_dir(),
+        "Apple preview resources missing at {}. Rebuild the Swift package.",
+        source.display()
+    );
+    let resources = contents.join("Resources");
+    std::fs::create_dir_all(&resources)?;
+    let destination = resources.join("HickorySimple_HickorySimple.bundle");
+    if destination.exists() {
+        std::fs::remove_dir_all(&destination)?;
+    }
+    let status = std::process::Command::new("/bin/cp")
+        .arg("-R")
+        .arg(&source)
+        .arg(&destination)
+        .status()?;
+    ensure!(
+        status.success(),
+        "Could not bundle Apple preview resources from {}",
+        source.display()
+    );
+    Ok(())
+}
+
 async fn apple(root: &Path, session: &mut Session, api: &str) -> Result<()> {
     ensure!(
         cfg!(target_os = "macos"),
@@ -410,6 +437,7 @@ async fn apple(root: &Path, session: &mut Session, api: &str) -> Result<()> {
         Path::new(binary_dir.trim()).join("HickorySimple"),
         &executable,
     )?;
+    install_apple_resources(Path::new(binary_dir.trim()), &contents)?;
     std::fs::write(
         contents.join("Info.plist"),
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -794,6 +822,35 @@ async fn ios(session: &mut Session, api: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn apple_launch_installs_and_refreshes_preview_resources() {
+        // Contract: .hickory-source/frontends/contract.md
+        let root = tempfile::tempdir().unwrap();
+        let build = root.path().join("build");
+        let contents = root.path().join("App.app/Contents");
+        assert!(install_apple_resources(&build, &contents).is_err());
+        let relative = "HickorySimple_HickorySimple.bundle/Contents/Resources/Resources";
+        let source = build.join(relative);
+        std::fs::create_dir_all(source.join("katex/fonts")).unwrap();
+        std::fs::write(source.join("math.html"), "preview").unwrap();
+        std::fs::write(source.join("katex/fonts/font.woff2"), "font").unwrap();
+        install_apple_resources(&build, &contents).unwrap();
+        let installed = contents.join("Resources").join(relative);
+        assert_eq!(
+            std::fs::read_to_string(installed.join("math.html")).unwrap(),
+            "preview"
+        );
+        assert!(installed.join("katex/fonts/font.woff2").is_file());
+        std::fs::remove_file(source.join("katex/fonts/font.woff2")).unwrap();
+        std::fs::write(source.join("math.html"), "updated").unwrap();
+        install_apple_resources(&build, &contents).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(installed.join("math.html")).unwrap(),
+            "updated"
+        );
+        assert!(!installed.join("katex/fonts/font.woff2").exists());
+    }
     #[test]
     fn default_project_prepares_once_and_preserves_saved_edits() {
         let root = tempfile::tempdir().unwrap();

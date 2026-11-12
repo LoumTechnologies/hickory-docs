@@ -49,7 +49,14 @@ The Swift scanner returns source-backed styles and cell ranges. Escaped pipes an
 import Foundation
 struct InlineMark: Sendable { var kind: String; var range: NSRange; var level: Int = 0 }
 struct InlineCell: Identifiable, Sendable { var line: Int; var column: Int; var range: NSRange; var value: String; var format = "markdown"; var delimiter = ","; var id: Int { range.location } }
-struct InlineEquation: Identifiable, Sendable { var line: Int; var range: NSRange; var body: String; var id: Int { range.location } }
+struct InlineEquation: Identifiable, Sendable {
+    var line: Int; var range: NSRange; var body: String
+    // Edits target the body; presentation replaces the complete authored syntax.
+    var presentationRange: NSRange? = nil
+    var displayBlock = false
+    var renderedRange: NSRange { presentationRange ?? range }
+    var id: Int { range.location }
+}
 struct InlineDiagram: Identifiable, Sendable { var line: Int; var range: NSRange; var body: String; var renderer: String; var id: Int { range.location } }
 struct InlineSnapshot: Sendable { var diagrams: [InlineDiagram] = []; var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = []; var debug = InlineDebugContext() }
 // Tables are presentation ranges over the original source, never replacement text.
@@ -356,7 +363,7 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
     let styles = [("code", #"`[^`\n]+`"#), ("strong", #"\*\*[^*\n]+\*\*"#), ("em", #"(?<!\*)\*[^*\n]+\*(?!\*)"#), ("math", #"(?<!\\)\$([^$\n]+)\$"#)].map { ($0.0, try! NSRegularExpression(pattern: $0.1)) }
     let opening = try! NSRegularExpression(pattern: #"^\s*<[A-Za-z_][\w.-]*:(file|copy|cut|exec|container|diagram|math|table)\b[^>]*>"#)
     var offset = 0, fence = "", payload = "", table = false, diffFence = false
-    var equationStart: Int?, equationLine = 0
+    var equationStart: Int?, equationLine = 0, equationOpen = 0
     var tableStart: Int?, tableLine = 0, delimiter = ","
     for (line, rawRow) in rows.enumerated() {
         defer { offset += rawRow.utf16.count + 1 }
@@ -373,7 +380,8 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
             if trimmed.contains(":" + payload + ">"), let close = row.range(of: "</") {
                 if payload == "math", let start = equationStart {
                     let end = offset + row[..<close.lowerBound].utf16.count
-                    if end >= start { let range = NSRange(location: start, length: end - start); result.equations.append(InlineEquation(line: equationLine, range: range, body: (source as NSString).substring(with: range))) }
+                    let closeEnd = row[close.lowerBound...].firstIndex(of: ">").map { row[..<row.index(after: $0)].utf16.count } ?? ns.length
+                    if end >= start { let range = NSRange(location: start, length: end - start); result.equations.append(InlineEquation(line: equationLine, range: range, body: (source as NSString).substring(with: range), presentationRange: NSRange(location: equationOpen, length: offset + closeEnd - equationOpen), displayBlock: true)) }
                 }
                 if payload == "table", let start = tableStart {
                     let end = offset + row[..<close.lowerBound].utf16.count
@@ -385,7 +393,7 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
         }
         if let match = opening.firstMatch(in: row, range: all) {
             payload = ns.substring(with: match.range(at: 1))
-            if payload == "math" { equationStart = offset + NSMaxRange(match.range); equationLine = line }
+            if payload == "math" { equationStart = offset + NSMaxRange(match.range); equationLine = line; equationOpen = offset + match.range.location }
             if payload == "table" {
                 tableStart = offset + NSMaxRange(match.range); tableLine = line; delimiter = ","
                 let declaration = ns.substring(with: match.range)
@@ -398,7 +406,8 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
             }
             if let close = row.range(of: "</"), payload == "math", let start = equationStart {
                 let end = offset + row[..<close.lowerBound].utf16.count
-                if end >= start { let range = NSRange(location: start, length: end - start); result.equations.append(InlineEquation(line: line, range: range, body: (source as NSString).substring(with: range))) }
+                let closeEnd = row[close.lowerBound...].firstIndex(of: ">").map { row[..<row.index(after: $0)].utf16.count } ?? ns.length
+                if end >= start { let range = NSRange(location: start, length: end - start); result.equations.append(InlineEquation(line: line, range: range, body: (source as NSString).substring(with: range), presentationRange: NSRange(location: equationOpen, length: offset + closeEnd - equationOpen), displayBlock: true)) }
             }
             if trimmed.contains("</") || trimmed.hasSuffix("/>") { payload = ""; equationStart = nil }
             table = false; continue
@@ -414,7 +423,7 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
                     if body.first?.isWhitespace == true || body.last?.isWhitespace == true || end < ns.length && (48...57).contains(Int(ns.character(at: end))) { continue }
                 }
                 result.marks.append(InlineMark(kind: kind, range: NSRange(location: offset + match.range.location, length: match.range.length)))
-                if kind == "math" { let body = match.range(at: 1); result.equations.append(InlineEquation(line: line, range: NSRange(location: offset + body.location, length: body.length), body: ns.substring(with: body))) }
+                if kind == "math" { let body = match.range(at: 1); result.equations.append(InlineEquation(line: line, range: NSRange(location: offset + body.location, length: body.length), body: ns.substring(with: body), presentationRange: NSRange(location: offset + match.range.location, length: match.range.length))) }
             }
         }
         let isSeparator = separator.firstMatch(in: row, range: all) != nil
@@ -764,16 +773,39 @@ The local math page loads only bundled KaTeX and fonts. Formula strings enter th
 <!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'nonce-hickory-math'; style-src 'self' 'unsafe-inline'; font-src 'self' data:;">
-<link rel="stylesheet" href="node_modules/xterm.css"><link rel="stylesheet" href="katex/katex.min.css"><style>html{height:100%;color-scheme:light dark;font:14px system-ui}body{margin:8px}body.terminal-mode{color-scheme:dark;height:100%;margin:0;background:#10151d;color:#e6edf3;overflow:hidden}.terminal-mode #formula{height:100%;box-sizing:border-box;padding:6px;overflow:hidden}.terminal-mode .xterm-cursor-layer{display:none}#formula{overflow:auto;padding:8px}#status{font-size:11px}</style>
+<link rel="stylesheet" href="node_modules/xterm.css"><link rel="stylesheet" href="katex/katex.min.css"><style>html{height:100%;color-scheme:light dark;font:14px system-ui}body{margin:0;height:100%;overflow:hidden}body.terminal-mode{color-scheme:dark;height:100%;margin:0;background:#10151d;color:#e6edf3;overflow:hidden}.terminal-mode #formula{position:static;width:auto;transform:none!important;height:100%;box-sizing:border-box;padding:6px;overflow:hidden}.terminal-mode .xterm-cursor-layer{display:none}#formula{position:absolute;width:max-content;padding:8px;transform-origin:top left;box-sizing:border-box}#status{position:absolute;bottom:0;font-size:11px}#formula .katex-display{margin:0}.inline-math{font-size:13px}.inline-math #formula{padding:1px}.display-math #formula{padding:4px}</style>
 </head><body><div id="formula" aria-label="Typeset equation"></div><div id="status" role="status"></div>
 <script nonce="hickory-math" src="node_modules/xterm.js"></script><script nonce="hickory-math" src="node_modules/addon-fit.js"></script><script nonce="hickory-math" src="katex/katex.min.js"></script><script nonce="hickory-math" src="node_modules/mermaid.min.js"></script><script nonce="hickory-math">
-globalThis.renderMath = function (formula) {
+// Transforms do not change layout dimensions, avoiding a ResizeObserver feedback loop.
+function fitPreview() {
+  if (document.body.classList.contains('terminal-mode')) return;
+  const node = document.getElementById('formula');
+  const width = node.offsetWidth, height = node.offsetHeight;
+  if (globalThis.mathRevision !== undefined && document.querySelector('.katex')) {
+    globalThis.webkit?.messageHandlers?.mathSize?.postMessage({ revision: globalThis.mathRevision, width, height });
+  }
+  const availableHeight = Math.max(1, innerHeight - document.getElementById('status').offsetHeight);
+  const scale = Math.min(1, innerWidth / Math.max(1, width), availableHeight / Math.max(1, height));
+  node.style.transform = `scale(${scale})`;
+  node.style.left = Math.max(0, (innerWidth - width * scale) / 2) + 'px';
+  node.style.top = Math.max(0, (availableHeight - height * scale) / 2) + 'px';
+}
+const previewResize = new ResizeObserver(fitPreview);
+previewResize.observe(document.getElementById('formula'));
+previewResize.observe(document.getElementById('status'));
+addEventListener('resize', fitPreview);
+document.fonts.ready.then(fitPreview);
+globalThis.renderMath = function (formula, inline = false, revision = 0) {
+  globalThis.mathRevision = revision;
+  document.body.classList.remove('terminal-mode', 'inline-math', 'display-math');
+  document.body.classList.add(inline ? 'inline-math' : 'display-math');
   const node = document.getElementById('formula'), status = document.getElementById('status');
   node.textContent = formula;
   if (typeof katex === 'undefined') { status.textContent = 'Math engine unavailable. Run npm --prefix apps/web ci and python3 scripts/prepare-simple-resources.py, then rebuild.'; return; }
   if (formula.length > 4000) { status.textContent = 'Equation is too large to typeset here. Its source remains editable.'; return; }
-  try { katex.render(formula, node, {throwOnError:false, trust:false, strict:'warn', displayMode:true, maxExpand:1000}); status.textContent = ''; }
+  try { katex.render(formula, node, {throwOnError:false, trust:false, strict:'warn', displayMode:!inline, maxExpand:1000}); status.textContent = ''; }
   catch (_) { node.textContent = formula; status.textContent = 'Check the LaTeX expression.'; }
+  fitPreview();
 };
 // This screen has no input binding and never executes expected/output bytes.
 let outputTerminal, outputFit, outputBytes = '', outputResize;
@@ -812,7 +844,7 @@ globalThis.renderDiagram = async function (source, renderer) {
       const element = (name, attrs = {}, text) => { const el = document.createElementNS(ns, name); for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, String(value)); if (text !== undefined) el.textContent = text; return el; };
       const boxes = new Map(nodes.map((n, i) => { const box = layout[n.id] || {}; return [n.id, { x: Number.isFinite(box.x) ? box.x : i % 4 * 170 + 10, y: Number.isFinite(box.y) ? box.y : Math.floor(i / 4) * 90 + 10, w: Number.isFinite(box.w) ? Math.max(30, box.w) : 140, h: Number.isFinite(box.h) ? Math.max(30, box.h) : 50 }]; }));
       const values = [...boxes.values()], minX = Math.min(0, ...values.map(b => b.x)) - 10, minY = Math.min(0, ...values.map(b => b.y)) - 10;
-      const svg = element('svg', { viewBox: `${minX} ${minY} ${Math.max(200, ...values.map(b => b.x + b.w)) - minX + 10} ${Math.max(80, ...values.map(b => b.y + b.h)) - minY + 10}`, role: 'img', 'aria-label': 'Diagram preview', width: '100%', height: '100%' });
+      const svg = element('svg', { viewBox: `${minX} ${minY} ${Math.max(200, ...values.map(b => b.x + b.w)) - minX + 10} ${Math.max(80, ...values.map(b => b.y + b.h)) - minY + 10}`, role: 'img', 'aria-label': 'Diagram preview', width: Math.max(200, ...values.map(b => b.x + b.w)) - minX + 10, height: Math.max(80, ...values.map(b => b.y + b.h)) - minY + 10 });
       const defs = element('defs'), marker = element('marker', { id: 'arrow', markerWidth: 8, markerHeight: 8, refX: 7, refY: 4, orient: 'auto' });
       marker.append(element('path', { d: 'M0,0 L8,4 L0,8 Z', fill: 'currentColor' })); defs.append(marker); svg.append(defs);
       for (const edge of edges) { const a = boxes.get(edge.from), b = boxes.get(edge.to); if (a && b) svg.append(element('line', { x1: a.x + a.w, y1: a.y + a.h / 2, x2: b.x, y2: b.y + b.h / 2, stroke: 'currentColor', 'marker-end': 'url(#arrow)' })); }
@@ -822,7 +854,11 @@ globalThis.renderDiagram = async function (source, renderer) {
       if (!globalThis.mermaid) throw Error('Diagram engine unavailable. Prepare native resources and rebuild.');
       mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'neutral', maxTextSize: 200000 });
       const result = await mermaid.render('diagram-' + revision, source);
-      if (revision === globalThis.diagramRevision) node.innerHTML = result.svg;
+      if (revision === globalThis.diagramRevision) {
+        node.innerHTML = result.svg;
+        const svg = node.querySelector('svg'), box = svg?.viewBox.baseVal;
+        if (box?.width && box?.height) { svg.style.maxWidth = 'none'; svg.setAttribute('width', box.width); svg.setAttribute('height', box.height); }
+      }
     } else throw Error('No preview for renderer ' + renderer + '. Edit its source.');
   } catch (error) { if (revision === globalThis.diagramRevision) { node.textContent = source; status.textContent = error.message || 'Check the diagram source.'; } }
 };
@@ -890,25 +926,39 @@ for package, original, name in [("@xterm/xterm", "lib/xterm.js", "xterm.js"), ("
 
 <ui:file path="scripts/prepare-simple-resources.py"><ui:paste select="#simple-inline-math-1"/></ui:file>
 
+Apple equations distinguish body ranges for safe edits from full syntax ranges for presentation. Dollar formulas replace their complete delimiter range within the surrounding sentence; math elements replace their whole declaration, body and closing tag. The local typesetter reports natural dimensions with a render revision. TextKit owns placement, and obsolete measurements cannot change a newer source snapshot. Source remains visible until a usable measurement arrives.
+
+Apple previews keep the editor’s reserved inline slots stable. Measure rendered content at its natural size and shrink only when necessary to fit both dimensions; remeasure when fonts, asynchronous diagrams or the viewport change. Graph SVGs need explicit natural dimensions rather than percentage heights, which otherwise resolve against the WebView and distort sizing. Terminal fitting remains independent.
+
 Apple embeds a small typesetter in the line’s floating editor. Navigation is restricted to the local page, and the LaTeX replacement still passes through source, permission, composition and undo checks.
 
 <ui:copy id="simple-inline-math-2">
 import SwiftUI
 import WebKit
-@MainActor final class MathCoordinator: NSObject, WKNavigationDelegate {
+@MainActor final class MathCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     var source = ""
     var diagramRenderer: String?
+    var inline = false
+    var onSize: ((CGSize) -> Void)?
+    private var revision = 0
     private var displayed: String?
     var ready = false
     func display(_ view: WKWebView) {
         guard ready, let bytes = try? JSONSerialization.data(withJSONObject: source, options: .fragmentsAllowed), let json = String(data: bytes, encoding: .utf8) else { return }
-        let key = (diagramRenderer.map { "diagram:" + $0 } ?? "math") + "\0" + source
+        let key = (diagramRenderer.map { "diagram:" + $0 } ?? "math") + "\0" + String(inline) + "\0" + source
         guard displayed != key else { return }
-        displayed = key
+        displayed = key; revision += 1
         if diagramRenderer == "terminal" { view.evaluateJavaScript("globalThis.renderTerminal(" + json + ")", completionHandler: nil) }
         else if let renderer = diagramRenderer, let data = try? JSONSerialization.data(withJSONObject: renderer, options: .fragmentsAllowed), let engine = String(data: data, encoding: .utf8) {
             view.evaluateJavaScript("globalThis.renderDiagram(" + json + "," + engine + ")", completionHandler: nil)
-        } else { view.evaluateJavaScript("globalThis.renderMath(" + json + ")", completionHandler: nil) }
+        } else { view.evaluateJavaScript("globalThis.renderMath(" + json + "," + String(inline) + "," + String(revision) + ")", completionHandler: nil) }
+    }
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame, diagramRenderer == nil,
+              let value = message.body as? [String: Any], value["revision"] as? Int == revision,
+              let width = value["width"] as? Double, let height = value["height"] as? Double,
+              width.isFinite, height.isFinite, width > 0, height > 0 else { return }
+        onSize?(CGSize(width: width, height: height))
     }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { ready = true; displayed = nil; display(webView) }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
@@ -933,6 +983,7 @@ func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main, Bundle(for: Ma
 }
 @MainActor func makeMathView(_ coordinator: MathCoordinator) -> WKWebView {
     let configuration = WKWebViewConfiguration(); configuration.websiteDataStore = .nonPersistent(); configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
+    configuration.userContentController.add(coordinator, name: "mathSize")
     let view = WKWebView(frame: .zero, configuration: configuration); view.navigationDelegate = coordinator
     let owner = Bundle(for: MathCoordinator.self)
     let roots = [Bundle.main.resourceURL, Bundle.main.bundleURL, owner.resourceURL, owner.bundleURL,
@@ -946,17 +997,21 @@ func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main, Bundle(for: Ma
 struct NativeMathView: NSViewRepresentable {
     var source: String
     var diagramRenderer: String? = nil
+    var inline = false
+    var onSize: ((CGSize) -> Void)? = nil
     func makeCoordinator() -> MathCoordinator { MathCoordinator() }
-    func makeNSView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; return makeMathView(context.coordinator) }
-    func updateNSView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.display(view) }
+    func makeNSView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; return makeMathView(context.coordinator) }
+    func updateNSView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.display(view) }
 }
 #else
 struct NativeMathView: UIViewRepresentable {
     var source: String
     var diagramRenderer: String? = nil
+    var inline = false
+    var onSize: ((CGSize) -> Void)? = nil
     func makeCoordinator() -> MathCoordinator { MathCoordinator() }
-    func makeUIView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; return makeMathView(context.coordinator) }
-    func updateUIView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.display(view) }
+    func makeUIView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; return makeMathView(context.coordinator) }
+    func updateUIView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.display(view) }
 }
 #endif
 // One read-only terminal surface for captured bytes and expect bodies.

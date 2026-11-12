@@ -1,7 +1,14 @@
 import Foundation
 struct InlineMark: Sendable { var kind: String; var range: NSRange; var level: Int = 0 }
 struct InlineCell: Identifiable, Sendable { var line: Int; var column: Int; var range: NSRange; var value: String; var format = "markdown"; var delimiter = ","; var id: Int { range.location } }
-struct InlineEquation: Identifiable, Sendable { var line: Int; var range: NSRange; var body: String; var id: Int { range.location } }
+struct InlineEquation: Identifiable, Sendable {
+    var line: Int; var range: NSRange; var body: String
+    // Edits target the body; presentation replaces the complete authored syntax.
+    var presentationRange: NSRange? = nil
+    var displayBlock = false
+    var renderedRange: NSRange { presentationRange ?? range }
+    var id: Int { range.location }
+}
 struct InlineDiagram: Identifiable, Sendable { var line: Int; var range: NSRange; var body: String; var renderer: String; var id: Int { range.location } }
 struct InlineSnapshot: Sendable { var diagrams: [InlineDiagram] = []; var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = []; var debug = InlineDebugContext() }
 // Tables are presentation ranges over the original source, never replacement text.
@@ -308,7 +315,7 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
     let styles = [("code", #"`[^`\n]+`"#), ("strong", #"\*\*[^*\n]+\*\*"#), ("em", #"(?<!\*)\*[^*\n]+\*(?!\*)"#), ("math", #"(?<!\\)\$([^$\n]+)\$"#)].map { ($0.0, try! NSRegularExpression(pattern: $0.1)) }
     let opening = try! NSRegularExpression(pattern: #"^\s*<[A-Za-z_][\w.-]*:(file|copy|cut|exec|container|diagram|math|table)\b[^>]*>"#)
     var offset = 0, fence = "", payload = "", table = false, diffFence = false
-    var equationStart: Int?, equationLine = 0
+    var equationStart: Int?, equationLine = 0, equationOpen = 0
     var tableStart: Int?, tableLine = 0, delimiter = ","
     for (line, rawRow) in rows.enumerated() {
         defer { offset += rawRow.utf16.count + 1 }
@@ -325,7 +332,8 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
             if trimmed.contains(":" + payload + ">"), let close = row.range(of: "</") {
                 if payload == "math", let start = equationStart {
                     let end = offset + row[..<close.lowerBound].utf16.count
-                    if end >= start { let range = NSRange(location: start, length: end - start); result.equations.append(InlineEquation(line: equationLine, range: range, body: (source as NSString).substring(with: range))) }
+                    let closeEnd = row[close.lowerBound...].firstIndex(of: ">").map { row[..<row.index(after: $0)].utf16.count } ?? ns.length
+                    if end >= start { let range = NSRange(location: start, length: end - start); result.equations.append(InlineEquation(line: equationLine, range: range, body: (source as NSString).substring(with: range), presentationRange: NSRange(location: equationOpen, length: offset + closeEnd - equationOpen), displayBlock: true)) }
                 }
                 if payload == "table", let start = tableStart {
                     let end = offset + row[..<close.lowerBound].utf16.count
@@ -337,7 +345,7 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
         }
         if let match = opening.firstMatch(in: row, range: all) {
             payload = ns.substring(with: match.range(at: 1))
-            if payload == "math" { equationStart = offset + NSMaxRange(match.range); equationLine = line }
+            if payload == "math" { equationStart = offset + NSMaxRange(match.range); equationLine = line; equationOpen = offset + match.range.location }
             if payload == "table" {
                 tableStart = offset + NSMaxRange(match.range); tableLine = line; delimiter = ","
                 let declaration = ns.substring(with: match.range)
@@ -350,7 +358,8 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
             }
             if let close = row.range(of: "</"), payload == "math", let start = equationStart {
                 let end = offset + row[..<close.lowerBound].utf16.count
-                if end >= start { let range = NSRange(location: start, length: end - start); result.equations.append(InlineEquation(line: line, range: range, body: (source as NSString).substring(with: range))) }
+                let closeEnd = row[close.lowerBound...].firstIndex(of: ">").map { row[..<row.index(after: $0)].utf16.count } ?? ns.length
+                if end >= start { let range = NSRange(location: start, length: end - start); result.equations.append(InlineEquation(line: line, range: range, body: (source as NSString).substring(with: range), presentationRange: NSRange(location: equationOpen, length: offset + closeEnd - equationOpen), displayBlock: true)) }
             }
             if trimmed.contains("</") || trimmed.hasSuffix("/>") { payload = ""; equationStart = nil }
             table = false; continue
@@ -366,7 +375,7 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
                     if body.first?.isWhitespace == true || body.last?.isWhitespace == true || end < ns.length && (48...57).contains(Int(ns.character(at: end))) { continue }
                 }
                 result.marks.append(InlineMark(kind: kind, range: NSRange(location: offset + match.range.location, length: match.range.length)))
-                if kind == "math" { let body = match.range(at: 1); result.equations.append(InlineEquation(line: line, range: NSRange(location: offset + body.location, length: body.length), body: ns.substring(with: body))) }
+                if kind == "math" { let body = match.range(at: 1); result.equations.append(InlineEquation(line: line, range: NSRange(location: offset + body.location, length: body.length), body: ns.substring(with: body), presentationRange: NSRange(location: offset + match.range.location, length: match.range.length))) }
             }
         }
         let isSeparator = separator.firstMatch(in: row, range: all) != nil
