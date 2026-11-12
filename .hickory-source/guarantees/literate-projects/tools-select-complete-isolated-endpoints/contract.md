@@ -151,23 +151,50 @@ This is the maintained test fragment from `crates/hick-dap/tests/project.rs`; it
 <a id="f-b360a6d46b8d-dap_line_breakpoints_ignore_diff_prefix_columns_and_refuse_deleted_lines"></a>
 ### `dap_line_breakpoints_ignore_diff_prefix_columns_and_refuse_deleted_lines`
 
+A patch fence must share tag-patch provenance. Exercise both forms against the
+real LSP project state and DAP mapping: the added row maps in both directions,
+the plus prefix is not code, and a deleted row cannot bind to final code.
+These are mapping checks; a language provider and adapter still decide which
+language requests and executable stops they support.
+
+
 <storycode:copy id="f-b360a6d46b8d-dap_line_breakpoints_ignore_diff_prefix_columns_and_refuse_deleted_lines">
 // Guarantee: docs/guarantees/literate-projects/tools-select-complete-isolated-endpoints.md
 #[test]
 fn dap_line_breakpoints_ignore_diff_prefix_columns_and_refuse_deleted_lines() {
     let source = "<hick:project/>\n<hick:file id=\"base\" path=\"program.py\">\nprint('before')\n</hick:file>\n<hick:patch after=\"base\">\n--- a/program.py\n+++ b/program.py\n@@ -1 +1 @@\n-print('before')\n+print('after')\n</hick:patch>";
-    let sources = BTreeMap::from([("p.md".into(), source.into())]);
-    let state = hick_lsp::document::HickDocumentState::from_project("p.md", &sources).unwrap();
-    let mapping =
-        hick_dap::Mapping::for_state(Path::new("p.md"), &state, Path::new("scratch")).unwrap();
-    assert_eq!(
-        mapping.to_generated(9),
-        Some((Path::new("scratch/program.py").to_path_buf(), 0))
-    );
-    assert_eq!(mapping.to_generated(8), None);
-    assert!(hick_lang::evaluate_project("p.md", &sources, &ProjectTree::default()).is_ok());
+    let fenced = source
+        .replace("<hick:patch after=\"base\">", "```patch after=\"base\"")
+        .replace("</hick:patch>", "```");
+    for source in [source, fenced.as_str()] {
+        let sources = BTreeMap::from([("p.md".into(), source.into())]);
+        let state = hick_lsp::document::HickDocumentState::from_project("p.md", &sources).unwrap();
+        let mapping =
+            hick_dap::Mapping::for_state(Path::new("p.md"), &state, Path::new("scratch")).unwrap();
+        assert_eq!(
+            mapping.to_generated(9),
+            Some((Path::new("scratch/program.py").to_path_buf(), 0))
+        );
+        assert_eq!(mapping.to_generated(8), None);
+        assert!(hick_lang::evaluate_project("p.md", &sources, &ProjectTree::default()).is_ok());
+        let project =
+            hick_lang::evaluate_project("p.md", &sources, &ProjectTree::default()).unwrap();
+        let inserted = source.find("+print('after')").unwrap() + 1;
+        let removed = source.find("-print('before')").unwrap() + 1;
+        assert_eq!(
+            hick_lsp::to_endpoint(&project.new, "p.md", inserted).unwrap(),
+            Some(("program.py".into(), 0))
+        );
+        assert_eq!(
+            hick_lsp::to_source(&project.new, "program.py", 0).unwrap(),
+            Some(("p.md".into(), inserted))
+        );
+        assert_eq!(
+            hick_lsp::to_endpoint(&project.new, "p.md", removed).unwrap(),
+            None
+        );
+    }
 }
-
 </storycode:copy>
 
 ## Test the behavior: `explicit_nested_scopes_finish_all_their_acts_without_ordering_independent_writes`

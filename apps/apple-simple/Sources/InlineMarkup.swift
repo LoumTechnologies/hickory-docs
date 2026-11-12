@@ -153,20 +153,48 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
         return result
     }
     guard ["md", "markdown"].contains((path as NSString).pathExtension.lowercased()) else { return result }
-    var fence = "", target: String?
-    let open = try! NSRegularExpression(pattern: #"^\s*<[\w.-]+:file\b[^>]*\bpath\s*=\s*["']([^"']+)["'][^>]*>"#)
+    var fence = "", mode = "", target: String?, oldLines = 0, newLines = 0
+    let opening = try! NSRegularExpression(pattern: #"^ {0,3}<[\w.-]+:(file|patch|copy|cut|exec|entry|diagram|math|table)\b[^>]*>"#)
+    let pathHint = try! NSRegularExpression(pattern: #"\bpath\s*=\s*["']([^"']+)["']"#)
+    let hunk = try! NSRegularExpression(pattern: #"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@"#)
     for (index, row) in rows.enumerated() {
-        let trimmed = row.trimmingCharacters(in: .whitespaces)
-        if !fence.isEmpty { if trimmed.hasPrefix(fence) { fence = "" }; continue }
-        if target == nil && (trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~")) { fence = String(trimmed.prefix(3)); continue }
-        if let match = open.firstMatch(in: row, range: NSRange(location: 0, length: row.utf16.count)) {
-            let candidate = (row as NSString).substring(with: match.range(at: 1))
-            target = supported.contains((candidate as NSString).pathExtension.lowercased()) ? candidate : nil
-            result.launch[index] = target
+        let trimmed = row.trimmingCharacters(in: .whitespacesAndNewlines), text = row as NSString
+        if !fence.isEmpty {
+            if trimmed.count >= fence.count, trimmed.allSatisfy({ $0 == fence.first! }) { fence = ""; mode = ""; target = nil; continue }
+        } else if !mode.isEmpty {
+            if trimmed.contains("</"), trimmed.contains(":" + mode + ">") { mode = ""; target = nil; continue }
+        } else {
+            var declaration = ""
+            if let marker = row.range(of: #"^ {0,3}(`{3,}|~{3,})"#, options: .regularExpression) {
+                fence = String(row[marker]).trimmingCharacters(in: .whitespaces)
+                declaration = String(row[marker.upperBound...]); mode = declaration.trimmingCharacters(in: .whitespaces).components(separatedBy: " ")[0] == "patch" ? "patch" : "file"
+            } else if let match = opening.firstMatch(in: row, range: NSRange(location: 0, length: text.length)) {
+                mode = text.substring(with: match.range(at: 1)); declaration = text.substring(with: match.range)
+            } else { continue }
+            oldLines = 0; newLines = 0; target = nil
+            if mode == "file", let match = pathHint.firstMatch(in: declaration, range: NSRange(location: 0, length: declaration.utf16.count)) {
+                let path = (declaration as NSString).substring(with: match.range(at: 1))
+                target = supported.contains((path as NSString).pathExtension.lowercased()) ? path : nil
+                result.launch[index] = target
+            }
             continue
         }
-        if trimmed.hasPrefix("</"), trimmed.contains(":file>") { target = nil }
-        if !trimmed.isEmpty { result.code[index] = target }
+        if mode == "file", !trimmed.isEmpty { result.code[index] = target }
+        if mode == "patch" {
+            if oldLines > 0 || newLines > 0 {
+                if row.hasPrefix("+") { newLines -= 1; if !row.dropFirst().trimmingCharacters(in: .whitespaces).isEmpty { result.code[index] = target } }
+                else if row.hasPrefix("-") { oldLines -= 1 }
+                else if row.hasPrefix(" ") { oldLines -= 1; newLines -= 1 }
+            } else if row.hasPrefix("+++ ") {
+                let raw = String(row.dropFirst(4)).components(separatedBy: "\t")[0]
+                let path = raw.hasPrefix("b/") ? String(raw.dropFirst(2)) : raw
+                target = supported.contains((path as NSString).pathExtension.lowercased()) ? path : nil
+                result.launch[index] = target
+            } else if let match = hunk.firstMatch(in: row, range: NSRange(location: 0, length: text.length)) {
+                oldLines = match.range(at: 1).location == NSNotFound ? 1 : Int(text.substring(with: match.range(at: 1))) ?? 0
+                newLines = match.range(at: 2).location == NSNotFound ? 1 : Int(text.substring(with: match.range(at: 2))) ?? 0
+            }
+        }
     }
     return result
 }
@@ -281,7 +309,7 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
             else if diffFence { result.marks.append(InlineMark(kind: row.hasPrefix("+") ? "diff-add" : row.hasPrefix("-") ? "diff-remove" : "code", range: NSRange(location: offset, length: row.utf16.count))) }
             continue
         }
-        if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { fence = String(trimmed.prefix(3)); diffFence = trimmed.dropFirst(3).trimmingCharacters(in: .whitespaces) == "diff"; table = false; continue }
+        if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { fence = String(trimmed.prefix(3)); diffFence = ["diff", "patch"].contains(String(trimmed.drop(while: { $0 == trimmed.first! })).trimmingCharacters(in: .whitespaces).components(separatedBy: " ")[0]); table = false; continue }
         if !payload.isEmpty {
             if trimmed.contains(":" + payload + ">"), let close = row.range(of: "</") {
                 if payload == "math", let start = equationStart {
@@ -338,6 +366,10 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
         } else if !isSeparator { table = false }
     }
     result.marks += inlineSyntaxMarks(source, path: path)
+    for (line, target) in result.debug.code where rows.indices.contains(line) && rows[line].hasPrefix("+") {
+        let start = result.lineStarts[line] + 1
+        result.marks += inlineSyntaxMarks(String(rows[line].dropFirst()), path: target).map { var mark = $0; mark.range.location += start; return mark }
+    }
     result.diagrams = inlineDiagrams(source)
     return result
 }

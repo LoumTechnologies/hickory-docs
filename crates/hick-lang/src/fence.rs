@@ -4,7 +4,7 @@ use crate::HickTag;
 ///
 /// The parser deliberately understands only enough Markdown to establish the
 /// raw boundary.  Markdown itself remains text; the `tag` is present only for
-/// the three fence forms Hick owns.
+/// the explicit fence forms Hick owns.
 pub(crate) struct Fence {
     pub(crate) open_end: usize,
     pub(crate) close_start: usize,
@@ -131,11 +131,13 @@ fn fence_tag(info: &str, line: usize, column: usize) -> Option<HickTag> {
                 value[1..value.len() - 1].to_string(),
             ),
         );
-    } else if !language.is_empty() {
+    } else if !language.is_empty() && first != "patch" {
         attributes.push(("language".to_string(), language));
     }
     let has = |name: &str| attributes.iter().any(|(key, _)| key == name);
-    let name = if has("output-for") {
+    let name = if first == "patch" {
+        "patch"
+    } else if has("output-for") {
         "output"
     } else if has("path") {
         "file"

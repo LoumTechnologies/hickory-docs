@@ -5,6 +5,13 @@ For: Maintainers moving this project to a fresh checkout or reviewing a source r
 
 Copy project.md and its declared Markdown inputs into an empty folder. Generating them must recover the same application files without borrowing the old checkout.
 
+Math, diagram and table elements are presentation, not filesystem constructors.
+Their bodies and display identity attributes do not add project entries. A document
+may mix them with file and patch constructions. Standalone execution still needs
+explicit retained outputs before it can join a pure construction; the playground
+keeps its runtime example in a separate document. The workbook reconstruction
+witness checks the resulting coupon program rather than accepting a partial tree.
+
 ## What must happen
 
 Given an entry document and its explicitly declared Markdown closure, pure generation starts from an empty tree and constructs the current project using only those inputs. Missing sources, missing or cyclic predecessors, conflicting unordered writes, and unresolved runtime inputs fail explicitly. Declared fragments and valid retained recordings may supply bytes; ambient caches and earlier Git revisions may not. Completed New combines the independent contributions; a patch sees only its declared predecessors.

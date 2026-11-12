@@ -36,6 +36,7 @@ import type { DecorationSet } from "@codemirror/view";
 import type { BindState, Frame, Variable } from "./client";
 import { wrapGutterMarkers } from "../editor/wrapGutter";
 import { isDebuggable } from "./languages";
+import { languageFromPath } from "../editor/languages";
 import { languageForBlock } from "../editor/hickDoc";
 import { structureOf } from "../editor/wysiwyg";
 
@@ -172,6 +173,30 @@ export function debugStateEffects(session: {
   ];
 }
 
+export function patchDebugTargets(state: EditorState): { path: string; at: number; end: number; lines: number[] }[] {
+  const targets: { path: string; at: number; end: number; lines: number[] }[] = [];
+  for (const block of structureOf(state).blocks.filter(block => block.name === "patch")) {
+    let target: typeof targets[number] | undefined, old = 0, next = 0;
+    const last = state.doc.lineAt(block.contentTo).number;
+    for (let number = state.doc.lineAt(block.contentFrom).number; number <= last; number++) {
+      const row = state.doc.line(number), text = row.text;
+      if (row.from < block.contentFrom || row.to > block.contentTo) continue;
+      if (old > 0 || next > 0) {
+        if (text.startsWith("+")) { next--; if (text.slice(1).trim()) target?.lines.push(number - 1); }
+        else if (text.startsWith("-")) old--;
+        else if (text.startsWith(" ")) { old--; next--; }
+      } else if (text.startsWith("+++ ")) {
+        const path = text.slice(4).split("\t")[0].replace(/^b\//, "");
+        target = isDebuggable(languageFromPath(path)) ? { path, at: row.from, end: block.to, lines: [] } : undefined;
+        if (target) targets.push(target);
+      } else {
+        const hunk = text.match(/^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/);
+        if (hunk) { old = Number(hunk[1] ?? 1); next = Number(hunk[2] ?? 1); }
+      }
+    }
+  }
+  return targets;
+}
 export function breakpointLine(state: EditorState, line: number): number | null {
   const doc = state.doc;
   if (line < 0 || line >= doc.lines) return null;
@@ -187,6 +212,7 @@ export function breakpointLine(state: EditorState, line: number): number | null 
     return null;
   }
 
+  if (patchDebugTargets(state).some(target => target.lines.includes(line))) return line;
   const structure = structureOf(state);
   const at = doc.line(line + 1);
 

@@ -25,6 +25,7 @@ import { fileBlocksOf, languageForBlock } from "../editor/hickDoc";
 import { structureOf } from "../editor/wysiwyg";
 import { RAIL_SYNC_EVENT } from "../editor/lineHighlight";
 import { isDebuggable } from "./languages";
+import { patchDebugTargets } from "./cmDebug";
 
 /** Pure placement: active controls stay reachable when their line scrolls away. */
 export function debugRailTop(wanted: number, height: number, available: number, sticky: boolean): number | null {
@@ -111,6 +112,7 @@ export function DebugLaunchRail({ view, onStart, onProfiles, plainPath, enabled 
     if (plainPath) targets.push({ path: plainPath, at: 0, end: view.state.doc.length });
     else {
       const structure = structureOf(view.state);
+      targets.push(...patchDebugTargets(view.state));
       for (const block of fileBlocksOf(structure)) {
         if (block.attrs.path && isDebuggable(block.attrs.language ?? languageForBlock(structure, block))) {
           targets.push({ path: block.attrs.path, at: block.from, end: block.to });

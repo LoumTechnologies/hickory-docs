@@ -259,6 +259,25 @@ fn raw_patch_grammar_and_ordinary_diff_fence() {
     assert_eq!(doc.find_tags("patch")[0].children.len(), 1);
     let source = "<hick:project/>\n```diff\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-x\n+y\n```";
     assert!(generate(source).unwrap().new.entries().is_empty());
+    let source = "<hick:project/>\n<hick:file id=\"base\" path=\"x.py\">print(1)\n</hick:file>\n```patch id=\"p\" after=\"base\"\n--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-print(1)\n+print(2)\n```\n";
+    let doc = parse(source).unwrap();
+    assert_eq!(doc.find_tags("patch").len(), 1);
+    let project = generate(source).unwrap();
+    assert_eq!(&*project.new.get("x.py").unwrap().bytes, b"print(2)\n");
+    let entry = project.new.get("x.py").unwrap();
+    assert!(
+        entry
+            .origins
+            .iter()
+            .any(|origin| &source.as_bytes()[origin.source.0..origin.source.1] == b"print(2)\n")
+    );
+    let workbook = include_str!("../../../examples/simple-ui/workbook.md");
+    let demo = generate(workbook).unwrap();
+    let coupon =
+        String::from_utf8(demo.new.get("generated/coupon.py").unwrap().bytes.to_vec()).unwrap();
+    assert_eq!(demo.new.entries().len(), 1);
+    assert!(coupon.contains("Coupon receipt:"));
+    assert!(!coupon.contains("Coupon total:"));
 }
 // Guarantee: docs/guarantees/literate-projects/finalization-and-incorporation-check-distinct-equalities.md
 #[test]

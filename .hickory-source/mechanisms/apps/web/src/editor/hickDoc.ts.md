@@ -692,13 +692,18 @@ function scanProseFences(
 <a id="f-c2f7bc821e36-proseFences"></a>
 ### `proseFences`
 
+An explicit patch fence already constructs a project act. Exclude it from ordinary
+prose-fence actions, just like file, exec and output fences, so a conversion action
+cannot reinterpret its diff as a command. Ordinary diff fences remain examples.
+
+
 Closed prose fences, the only ones safe to replace with an exec cell.
 
 <storycode:copy id="f-c2f7bc821e36-proseFences">
 /** Closed prose fences, the only ones safe to replace with an exec cell. */
 export function proseFences(structure: HickDocStructure, text: string): ProseFence[] {
   return scanProseFences(structure, text, false).filter(fence => !structure.blocks.some(block =>
-    ["exec", "file", "output"].includes(block.name) && block.from === fence.from));
+    ["exec", "file", "output", "patch"].includes(block.name) && block.from === fence.from));
 }
 
 </storycode:copy>

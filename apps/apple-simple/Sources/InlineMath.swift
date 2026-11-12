@@ -3,14 +3,18 @@ import WebKit
 @MainActor final class MathCoordinator: NSObject, WKNavigationDelegate {
     var source = ""
     var diagramRenderer: String?
+    private var displayed: String?
     var ready = false
     func display(_ view: WKWebView) {
         guard ready, let bytes = try? JSONSerialization.data(withJSONObject: source, options: .fragmentsAllowed), let json = String(data: bytes, encoding: .utf8) else { return }
+        let key = (diagramRenderer.map { "diagram:" + $0 } ?? "math") + "\0" + source
+        guard displayed != key else { return }
+        displayed = key
         if let renderer = diagramRenderer, let data = try? JSONSerialization.data(withJSONObject: renderer, options: .fragmentsAllowed), let engine = String(data: data, encoding: .utf8) {
             view.evaluateJavaScript("globalThis.renderDiagram(" + json + "," + engine + ")", completionHandler: nil)
         } else { view.evaluateJavaScript("globalThis.renderMath(" + json + ")", completionHandler: nil) }
     }
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { ready = true; display(webView) }
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { ready = true; displayed = nil; display(webView) }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         let url = navigationAction.request.url
         decisionHandler(url?.isFileURL == true || url?.scheme == "about" ? .allow : .cancel)

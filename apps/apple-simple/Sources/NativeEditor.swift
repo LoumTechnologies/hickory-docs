@@ -740,8 +740,12 @@ private typealias DiagramHost = UIHostingController<NativeDiagramPreview>
         text.tableRanges = folding.tables.map(\.range) + diagrams.map(\.range)
         for diagram in diagrams {
             let style = NSMutableParagraphStyle(); style.minimumLineHeight = 260; style.maximumLineHeight = 260
-            storage.addAttribute(.paragraphStyle, value: style, range: NSRange(location: diagram.range.location, length: 1))
-            storage.addAttribute(.foregroundColor, value: NSColor.clear, range: diagram.range)
+            if (storage.attribute(.paragraphStyle, at: diagram.range.location, effectiveRange: nil) as? NSParagraphStyle)?.minimumLineHeight != 260 {
+                storage.addAttribute(.paragraphStyle, value: style, range: NSRange(location: diagram.range.location, length: 1))
+            }
+            if storage.attribute(.foregroundColor, at: diagram.range.location, effectiveRange: nil) as? NSColor != .clear {
+                storage.addAttribute(.foregroundColor, value: NSColor.clear, range: diagram.range)
+            }
             if changed { text.layoutManager!.invalidateGlyphs(forCharacterRange: diagram.range, changeInLength: 0, actualCharacterRange: nil) }
             let manager = text.layoutManager!, container = text.textContainer!
             let glyph = manager.glyphRange(forCharacterRange: NSRange(location: diagram.range.location, length: 1), actualCharacterRange: nil)
@@ -1106,8 +1110,12 @@ import UIKit
         text.tableRanges = folding.tables.map(\.range) + diagrams.map(\.range)
         for diagram in diagrams {
             let style = NSMutableParagraphStyle(); style.minimumLineHeight = 260; style.maximumLineHeight = 260
-            storage.addAttribute(.paragraphStyle, value: style, range: NSRange(location: diagram.range.location, length: 1))
-            storage.addAttribute(.foregroundColor, value: UIColor.clear, range: diagram.range)
+            if (storage.attribute(.paragraphStyle, at: diagram.range.location, effectiveRange: nil) as? NSParagraphStyle)?.minimumLineHeight != 260 {
+                storage.addAttribute(.paragraphStyle, value: style, range: NSRange(location: diagram.range.location, length: 1))
+            }
+            if storage.attribute(.foregroundColor, at: diagram.range.location, effectiveRange: nil) as? UIColor != .clear {
+                storage.addAttribute(.foregroundColor, value: UIColor.clear, range: diagram.range)
+            }
             if changed { text.layoutManager.invalidateGlyphs(forCharacterRange: diagram.range, changeInLength: 0, actualCharacterRange: nil) }
             let manager = text.layoutManager, container = text.textContainer
             let glyph = manager.glyphRange(forCharacterRange: NSRange(location: diagram.range.location, length: 1), actualCharacterRange: nil)

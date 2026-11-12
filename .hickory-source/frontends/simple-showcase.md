@@ -311,7 +311,7 @@ The code below constructs `generated/coupon.py`. Edit this source file block,
 not the generated Files entry. This also gives the debugger a literate Python
 launch target.
 
-<h:file path="generated/coupon.py" language="python">
+<h:file id="coupon-base" path="generated/coupon.py" language="python">
 def coupon_total(cents: int, discount_percent: int) -> int:
     discounted = (cents * (100 - discount_percent) + 50) // 100
     return discounted
@@ -319,19 +319,21 @@ def coupon_total(cents: int, discount_percent: int) -> int:
 
 if __name__ == "__main__":
     total = coupon_total(2350, 20)
-    print(f"Coupon receipt: {total} cents")
+    print(f"Coupon total: {total} cents")
 </h:file>
 
 ## Patch the coupon without copying its program
 
-This diff records the receipt-label change already present in the executable
-Python construction above. Debug `generated/coupon.py` from that file block.
-Diff context and deleted lines are review text, so they do not offer breakpoints.
+This patch constructs the receipt-label change over the Python base above.
+Inspect its before/after code, use language tools on the added statement, or
+debug `generated/coupon.py` from the patch destination header. Added code has
+source ownership; context and deleted rows do not offer new-code breakpoints.
+Save the document before debugging so the adapter runs the displayed project.
 
-```diff
+```patch id="coupon-receipt" after="coupon-base"
 --- a/generated/coupon.py
 +++ b/generated/coupon.py
-@@ -7,3 +7,3 @@
+@@ -6,3 +6,3 @@
  if __name__ == "__main__":
      total = coupon_total(2350, 20)
 -    print(f"Coupon total: {total} cents")
@@ -340,20 +342,11 @@ Diff context and deleted lines are review text, so they do not offer breakpoints
 
 ## A real recorded execution
 
-The preparation command executes this cell once and stores a source-matched
-receipt locally. Browser cards and native line controls display the saved output.
-Viewing it does not execute the command again. The cell runs Python from the
-copied workspace using the local host executor; the image declaration describes
-the environment and does not provide isolation in that mode.
-
-<h:container name="python" image="python:3.12" />
-<h:volume name="workspace" input="." />
-<h:exec id="order-check" container="python" mount="workspace:project">
-python3 project/orders.py
-<h:expect match="exact">Order: $18.80
-Items: 5
-</h:expect>
-</h:exec>
+Open [the recorded execution example](README.md#recorded-execution) to inspect
+`order-check` and its saved stdout. It is a standalone runtime document: keeping
+that cell separate lets this workbook reconstruct its complete file-and-patch
+project without pretending an unexecuted command has retained filesystem outputs.
+Viewing a recorded result never reruns its command.
 
 ## An inline diagram
 
@@ -373,6 +366,8 @@ print("<script>literal text</script>")
 
 Search for `Notebook`, fold an indented Python block, split a pane and move this
 tab. Keep an unsaved edit while moving it, then undo in the destination pane.
+
+<h:project />
 </h:doc>
 </ui:entry>
 
@@ -417,7 +412,8 @@ def main():
         parser.error("Choose a destination outside the maintained fixture folder.")
     shutil.copytree(source, destination, ignore=shutil.ignore_patterns("__pycache__", ".hick-cache", "generated"))
     environment = {**os.environ, "HICKORY_EXECUTOR": "local"}
-    command = [str(executable), "run" if args.record else "weave", "workbook.md"]
+    subprocess.run([str(executable), "project", "materialize", "workbook.md"], cwd=destination, env=environment, check=True)
+    command = [str(executable), "run" if args.record else "weave", "README.md"]
     if args.record:
         command.append("--cache")
     subprocess.run(command, cwd=destination, env=environment, check=True)
@@ -455,7 +451,7 @@ the local executor. Later launches reuse the folder and preserve your edits.
 Set `HICKORY_PROJECT_DIR=/absolute/path` to use another existing project.
 
 For another fresh copy, run `python3 examples/simple-ui/prepare.py --record --dest /path/to/a/new/folder` after building the CLI. The optional `--record`
-executes the sample cell and caches actual output. Omit it to weave without
+executes the sample cell and caches actual output. Omit it to construct the workbook and weave the runtime example without
 executing; the output card will then be unrecorded. Preparation refuses to
 overwrite an existing workspace.
 
@@ -471,7 +467,7 @@ that machine, not on the phone. See
 | --- | --- | --- |
 | Files and immediate text | Open `orders.py`, then `workbook.md` | Text is readable before optional services finish. |
 | Line numbers and wrapping | Narrow `scratch.txt` | Wrapped continuations retain one logical line number. |
-| Folding | Left − beside `for item in items:` in `orders.py` | Fold/unfold the indented body without changing saved source. |
+| Folding | Left − beside a workbook heading or `for item in items:` in `orders.py` | Fold/unfold the section or indented body without changing saved source. |
 | Minimap | Click near the bottom of `scratch.txt` | Jump to the numbered checkpoints, then return to the top. |
 | Find and replace | Cmd/Ctrl-F in `scratch.txt`; regex `name=(\w+)` and replacement `sku=$1` | Preview/navigate matches, replace all, undo once. |
 | Multiple selections | Find `TOKEN`; native Select all matches, browser select-next occurrence | Replace all selected words, then undo. |
@@ -480,9 +476,11 @@ that machine, not on the phone. See
 | Source formatting | `workbook.md` headings, bold, italics and code | Native fonts style source while retaining delimiters; browser has richer inline rendering. |
 | Inline tables | Change Notebook quantity in either workbook table | Both tables replace their source lines with spreadsheet grids. Arrow keys move between cells. Edit a cell, press Return/Done, then undo. Edit source text reveals that table; Edit tables as grids restores it. Opening `data/catalog.csv` uses the same editor. |
 | Inline equations | Open the workbook equation | Browser renders in flow; native function icon opens typesetting and an editable equation body. Apply, then undo. |
-| Diagram | Workbook's catalog → order → receipt graph | Inline graph in browser; readable source on native. |
+| Diagram | Workbook's catalog → order → receipt graph | Inline graph on every Simple UI; Edit source text and restore its preview. |
+| Fenced code | Workbook’s plain Python fence | Local syntax colors without inventing a workspace file or waiting for LSP. |
+| Patch code | Workbook’s `patch` fence | Inspect before/after code, use language tools and debug owned additions; deleted rows stay review text. |
 | Generated files | Open `generated/coupon.py` after preparation | Generated output is readable and read-only. Edit its owning workbook file block instead. |
-| Recorded output | Workbook's `order-check` cell | `Order: $18.80` and `Items: 5`; native uses the cell line's output icon. Viewing does not rerun code. |
+| Recorded output | README's `order-check` cell | `Order: $18.80` and `Items: 5`; native uses the cell line's output icon. Viewing does not rerun code. |
 | Save and undo/redo | Make an edit in the copied `scratch.txt` | Save it; undo/redo remains available. Generated files refuse editing. |
 | Pane split/resize | Split from the menu, drag the divider | Keep code and workbook side by side. |
 | Tab move/reorder/dock | Drag a dirty tab to another strip or pane edge | Text, selection and undo follow it; dirty tabs refuse to close. |
@@ -585,6 +583,23 @@ HICKORY_EXECUTOR=local ../../../target/debug/hick run workbook.md --cache
 Refresh recorded output in the UI. Dirty or mismatched source hides positional
 receipts until they match again. The copied project is disposable; permanent
 fixture changes belong to `.hickory-source/frontends/simple-showcase.md`.
+
+## Recorded execution
+
+The preparation command records this cell on the local host when `--record` is
+selected. Its output is real cached stdout; viewing the cell does not rerun it.
+This standalone execution example is separate from the workbook’s pure project
+construction. Its declared container describes the environment; the local
+executor runs Python on the development host.
+
+<hick:container name="python" image="python:3.12" />
+<hick:volume name="workspace" input="." />
+<hick:exec id="order-check" container="python" mount="workspace:project">
+python3 project/orders.py
+<hick:expect match="exact">Order: $18.80
+Items: 5
+</hick:expect>
+</hick:exec>
 </ui:entry>
 
 ## Follow the receipt from execution to display

@@ -353,6 +353,15 @@ pub fn evaluate_project(
 <a id="f-4957ad4b2f9a-visit"></a>
 ### `visit`
 
+Project discovery must distinguish code construction from the document’s pictures
+and tables. Math, diagram and table elements present source; they do not construct
+filesystem entries, even when a table has a UI identity in `path`. Admit those
+known presentation elements without traversing their payload as project acts.
+Unknown constructs and standalone execution remain refused, since silently
+ignoring either could report an incomplete filesystem as complete. The workbook
+witness mixes all three presentations with a real file-plus-patch construction.
+
+
 <storycode:copy id="f-4957ad4b2f9a-visit">
 fn visit(
     path: &str,
@@ -442,7 +451,8 @@ fn visit(
         let HickNode::Tag(tag) = node else { continue };
         check_attributes(tag)?;
         match tag.name.as_str() {
-            "project" | "container" | "volume" | "allow" | "private" => (),
+            "project" | "container" | "volume" | "allow" | "private" | "math" | "diagram"
+            | "table" => (),
             "agent" => (),
             "upstream" => {
                 let name = relative_document(path, required(tag, "file")?)?;

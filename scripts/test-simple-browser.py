@@ -271,12 +271,33 @@ def acceptance(driver, folder):
     driver.act("terminal-eof")
     driver.act("screenshot", path=str(ROOT / "target/simple-browser.png"))
 
+def inline_features_acceptance(driver, folder):
+    # These observations go through real DOM controls and exact workspace bytes.
+    for path, kind in [("diagram.md", "diagram"), ("fenced.md", "syntax"), ("patch.md", "patch")]:
+        original = (folder / path).read_text()
+        driver.act("open", path=path)
+        state = driver.act("inline-feature-state", path=path, kind=kind)
+        if kind == "diagram":
+            assert state == {"nodes": 3, "position": "absolute"}, state
+        elif kind == "syntax":
+            assert "def" in state["keywords"] and "return" in state["keywords"] and state["colored"], state
+            driver.act("fold", path=path, line=1)
+            assert driver.act("fold-count", path=path) == 1
+            driver.act("unfold", path=path, line=1)
+        else:
+            assert state["editors"] == 2 and not state["alerts"], state
+            assert any('print(2)' in text for text in state["code"]), state
+        assert (folder / path).read_text() == original, "Presentation must not save source"
+
 if __name__ == "__main__":
     processes = []; driver = None
     with tempfile.TemporaryDirectory(prefix="hickory-simple-") as temporary:
         folder = Path(temporary) / "workspace"; folder.mkdir()
         for name, unit in [("four.py", "    "), ("two.py", "  "), ("tabs.py", "\t")]:
             (folder / name).write_text("def orders():\n" + unit + "pass\n# end")
+        (folder / "diagram.md").write_text('<hick:diagram renderer="graph">{"topology":{"nodes":[{"id":"a"},{"id":"b"},{"id":"c"}],"edges":[{"from":"a","to":"b"}]}}</hick:diagram>')
+        (folder / "fenced.md").write_text('# Fenced section\n\n```python\ndef coupon():\n    return "café 😀"\n```\n')
+        (folder / "patch.md").write_text('<hick:project/>\n<hick:file id="base" path="x.py">\nprint(1)\n</hick:file>\n```patch id="change" after="base"\n--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-print(1)\n+print(2)\n```\n')
         (folder / "notes.txt").write_text("before")
         (folder / "enter.py").write_text("class C:\n    def f():")
         (folder / "words.txt").write_text("THIS_IS_ONE_WORD HTTPServer42 café😀")
@@ -297,7 +318,10 @@ if __name__ == "__main__":
             backend = origin(engine)
             vite = start(["node", "node_modules/vite/bin/vite.js", "--config", "vite.simple.config.ts", "--host", "127.0.0.1", "--port", str(ui_port), "--strictPort"], cwd=ROOT / "apps/web", env={**environment, "HICKORY_API_ORIGIN": backend}); processes.append(vite)
             driver = BrowserDriver(origin(vite) + "/simple.html")
-            if "--smart-enter-only" in sys.argv:
+            if "--inline-features-only" in sys.argv:
+                inline_features_acceptance(driver, folder)
+                print("Browser: real inline diagram, fenced syntax colors, heading fold and editable project patch passed")
+            elif "--smart-enter-only" in sys.argv:
                 smart_enter_acceptance(driver, folder)
                 print("Browser: live Enter modes, real saved indentation, stationary settings and undo passed")
             elif "--editor-navigation-only" in sys.argv:

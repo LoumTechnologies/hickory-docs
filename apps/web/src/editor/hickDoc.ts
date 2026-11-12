@@ -464,7 +464,7 @@ function scanProseFences(
 /** Closed prose fences, the only ones safe to replace with an exec cell. */
 export function proseFences(structure: HickDocStructure, text: string): ProseFence[] {
   return scanProseFences(structure, text, false).filter(fence => !structure.blocks.some(block =>
-    ["exec", "file", "output"].includes(block.name) && block.from === fence.from));
+    ["exec", "file", "output", "patch"].includes(block.name) && block.from === fence.from));
 }
 
 /** Every prose fence for display, including an unfinished one through EOF. */

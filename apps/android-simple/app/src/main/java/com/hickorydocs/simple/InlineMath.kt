@@ -26,7 +26,9 @@ import org.json.JSONObject
         }
     }, update = { view ->
         val script = if (diagramRenderer == null) "globalThis.renderMath(" + JSONObject.quote(source) + ")" else "globalThis.renderDiagram(" + JSONObject.quote(source) + "," + JSONObject.quote(diagramRenderer) + ")"
-        view.tag = script
-        view.evaluateJavascript("if(globalThis.renderDiagram){" + script + "}", null)
+        if (view.tag != script) {
+            view.tag = script
+            view.evaluateJavascript("if(globalThis.renderDiagram){" + script + "}", null)
+        }
     }, onRelease = { it.stopLoading(); it.destroy() })
 }

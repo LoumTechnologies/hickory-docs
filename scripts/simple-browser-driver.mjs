@@ -16,6 +16,22 @@ try {
         case "launch":
           browser = await chromium.launch({ headless: true }); page = await browser.newPage({ viewport: { width: 1100, height: 750 } });
           await page.goto(request.url); break;
+        case "inline-feature-state": {
+          if (request.kind === "diagram") {
+            const graph = page.locator(".rendered-diagram");
+            await graph.locator(".react-flow__node").nth(2).waitFor();
+            value = { nodes: await graph.locator(".react-flow__node").count(), position: await graph.locator(".react-flow__renderer").evaluate(node => getComputedStyle(node).position) };
+          } else if (request.kind === "syntax") {
+            const content = editor(request.path);
+            await content.locator(".tok-keyword").first().waitFor();
+            value = await content.evaluate(node => ({ keywords: [...node.querySelectorAll(".tok-keyword")].map(token => token.textContent), colored: getComputedStyle(node.querySelector(".tok-keyword")).color !== getComputedStyle(node).color }));
+          } else {
+            const patch = page.locator('[aria-label="Project patch editor"]');
+            await patch.locator(".comparison-panes .cm-content").first().waitFor();
+            value = { editors: await patch.locator(".cm-content").count(), code: await patch.locator(".cm-content").allTextContents(), alerts: await patch.getByRole("alert").allTextContents() };
+          }
+          break;
+        }
         case "enter-setting":
           await page.locator("nav").getByText("Edit", { exact: true }).click();
           await page.getByRole("combobox", { name: "Enter indentation", exact: true }).selectOption(request.mode);
@@ -144,12 +160,13 @@ try {
           const markers = pane.locator(`.cm-foldGutter span[title="${request.action === "fold" ? "Fold" : "Unfold"} line"]`);
           let clicked = false;
           for (const marker of await markers.all()) {
+            if (!await marker.isVisible()) continue; // CodeMirror keeps a hidden width spacer with the same glyph.
             const box = await marker.boundingBox();
             if (box && Math.abs(box.y + box.height / 2 - row.y - row.height / 2) < row.height / 2) {
               if (await marker.textContent() !== (request.action === "fold" ? "−" : "+")) throw new Error("Unexpected fold icon");
-              const content = await editor(request.path).locator(".cm-content").boundingBox();
+              const content = await editor(request.path).boundingBox();
               if (!content || box.x + box.width > content.x) throw new Error("Fold icon must be left of text");
-              await marker.click(); clicked = true; break;
+              await marker.locator("..").click(); clicked = true; break;
             }
           }
           if (!clicked) throw new Error("No fold icon on requested line");

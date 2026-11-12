@@ -125,6 +125,24 @@ final class ParityTests: XCTestCase {
         XCTAssertTrue(snapshot.debug.code.isEmpty)
         XCTAssertTrue(snapshot.debug.launch.isEmpty)
     }
+    func testPatchAndPathFenceOfferOnlyOwnedCodeCandidates() {
+        // Contract: .hickory-source/frontends/contract.md
+        let source = "<hick:project/>\n<hick:file id=\"base\" path=\"x.py\">\nprint(1)\n</hick:file>\n```patch id=\"change\" after=\"base\"\n--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-print(1)\n+print(\"café 😀\")\n```\n```python path=\"other.py\"\nprint(3)\n```\n```diff\n--- a/fake.py\n+++ b/fake.py\n@@ -1 +1 @@\n-a\n+b\n```"
+        let snapshot = computeInlineMarkup(source, path: "workbook.md")
+        XCTAssertEqual(snapshot.debug.launch[6], "x.py")
+        XCTAssertEqual(snapshot.debug.code[9], "x.py")
+        XCTAssertNil(snapshot.debug.code[8])
+        XCTAssertNil(snapshot.debug.code[7])
+        XCTAssertEqual(snapshot.debug.launch[11], "other.py")
+        XCTAssertEqual(snapshot.debug.code[12], "other.py")
+        XCTAssertNil(snapshot.debug.launch[16])
+        XCTAssertNil(snapshot.debug.code[19])
+        XCTAssertTrue(snapshot.marks.contains { $0.kind == "diff-add" })
+        XCTAssertTrue(snapshot.marks.contains { $0.kind == "syntax-string" && (source as NSString).substring(with: $0.range) == "\"café 😀\"" })
+        let headerLookingAddition = "```patch\n+++ b/x.py\n@@ -0,0 +1,1 @@\n+++ b/fake.py\n```"
+        XCTAssertEqual(inlineDebugContext(headerLookingAddition, path: "p.md").code[3], "x.py")
+        XCTAssertNil(inlineDebugContext(headerLookingAddition, path: "p.md").launch[3])
+    }
     func testSharedSmartEnterFixtures() throws {
         // Contract: .hickory-source/frontends/contract.md
         let apps = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

@@ -23,18 +23,38 @@ fn adapter_paths_through_a_symlink_keep_the_document_coordinates() {
 #[test]
 fn dap_line_breakpoints_ignore_diff_prefix_columns_and_refuse_deleted_lines() {
     let source = "<hick:project/>\n<hick:file id=\"base\" path=\"program.py\">\nprint('before')\n</hick:file>\n<hick:patch after=\"base\">\n--- a/program.py\n+++ b/program.py\n@@ -1 +1 @@\n-print('before')\n+print('after')\n</hick:patch>";
-    let sources = BTreeMap::from([("p.md".into(), source.into())]);
-    let state = hick_lsp::document::HickDocumentState::from_project("p.md", &sources).unwrap();
-    let mapping =
-        hick_dap::Mapping::for_state(Path::new("p.md"), &state, Path::new("scratch")).unwrap();
-    assert_eq!(
-        mapping.to_generated(9),
-        Some((Path::new("scratch/program.py").to_path_buf(), 0))
-    );
-    assert_eq!(mapping.to_generated(8), None);
-    assert!(hick_lang::evaluate_project("p.md", &sources, &ProjectTree::default()).is_ok());
+    let fenced = source
+        .replace("<hick:patch after=\"base\">", "```patch after=\"base\"")
+        .replace("</hick:patch>", "```");
+    for source in [source, fenced.as_str()] {
+        let sources = BTreeMap::from([("p.md".into(), source.into())]);
+        let state = hick_lsp::document::HickDocumentState::from_project("p.md", &sources).unwrap();
+        let mapping =
+            hick_dap::Mapping::for_state(Path::new("p.md"), &state, Path::new("scratch")).unwrap();
+        assert_eq!(
+            mapping.to_generated(9),
+            Some((Path::new("scratch/program.py").to_path_buf(), 0))
+        );
+        assert_eq!(mapping.to_generated(8), None);
+        assert!(hick_lang::evaluate_project("p.md", &sources, &ProjectTree::default()).is_ok());
+        let project =
+            hick_lang::evaluate_project("p.md", &sources, &ProjectTree::default()).unwrap();
+        let inserted = source.find("+print('after')").unwrap() + 1;
+        let removed = source.find("-print('before')").unwrap() + 1;
+        assert_eq!(
+            hick_lsp::to_endpoint(&project.new, "p.md", inserted).unwrap(),
+            Some(("program.py".into(), 0))
+        );
+        assert_eq!(
+            hick_lsp::to_source(&project.new, "program.py", 0).unwrap(),
+            Some(("p.md".into(), inserted))
+        );
+        assert_eq!(
+            hick_lsp::to_endpoint(&project.new, "p.md", removed).unwrap(),
+            None
+        );
+    }
 }
-
 #[test]
 fn captured_source_breakpoints_require_this_context_and_a_present_file() {
     let source = "<hick:project/>\n<hick:file path=\"main.py\">\nprint(1)\n</hick:file>\n<hick:file path=\"helpers.py\">\ndef helper():\n    return 2\n</hick:file>";

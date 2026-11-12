@@ -12,13 +12,14 @@ Markdown prose tables now use those exact cell ranges to form whole-table presen
 Diagram previews use the existing isolated native WebView and a local, locked
 Mermaid bundle; graph JSON is drawn as SVG using text nodes for labels. The body
 is passed as JSON rather than executable script. A monotonically increasing
-render ticket rejects obsolete Mermaid results. Invalid and unsupported diagrams
+render ticket rejects obsolete Mermaid results. Native WebViews skip identical
+source/renderer updates so typing elsewhere cannot restart an unchanged diagram. Invalid and unsupported diagrams
 show their source and a status message. Network navigation remains disabled.
 Browser slots include the graph canvas stylesheet inside their shadow root; a stylesheet on the outer document cannot style that canvas. Native editors reserve a fixed preview rectangle and offer explicit source mode;
 rendering never resizes the editor or mutates the diagram. Fenced examples and
 other Hickory literal bodies do not create live diagrams.
 
-Fenced diff examples retain their literal text and receive addition/removal backgrounds on native platforms. They are review text; launch and breakpoint controls belong to the accompanying executable file block. This does not claim that diff context or deleted lines are independent executable statements.
+Ordinary diff fences remain review text. Explicit patch fences are project constructions: offer launch beside each supported destination header and pending breakpoints on added code rows. Hunk counts distinguish destination headers from added strings beginning with plus signs. Deleted and context rows do not acquire new-source ownership; the project mapper remains authoritative about whether added bytes survive later patches. Local syntax colors the added code without its diff prefix. Path-bearing ordinary code fences use the same file context as file tags.
 
 While a new parse is pending, map unaffected table cells through the text change.
 This is presentation only: keep debugging and equation actions on exact snapshots.
@@ -191,20 +192,48 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
         return result
     }
     guard ["md", "markdown"].contains((path as NSString).pathExtension.lowercased()) else { return result }
-    var fence = "", target: String?
-    let open = try! NSRegularExpression(pattern: #"^\s*<[\w.-]+:file\b[^>]*\bpath\s*=\s*["']([^"']+)["'][^>]*>"#)
+    var fence = "", mode = "", target: String?, oldLines = 0, newLines = 0
+    let opening = try! NSRegularExpression(pattern: #"^ {0,3}<[\w.-]+:(file|patch|copy|cut|exec|entry|diagram|math|table)\b[^>]*>"#)
+    let pathHint = try! NSRegularExpression(pattern: #"\bpath\s*=\s*["']([^"']+)["']"#)
+    let hunk = try! NSRegularExpression(pattern: #"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@"#)
     for (index, row) in rows.enumerated() {
-        let trimmed = row.trimmingCharacters(in: .whitespaces)
-        if !fence.isEmpty { if trimmed.hasPrefix(fence) { fence = "" }; continue }
-        if target == nil && (trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~")) { fence = String(trimmed.prefix(3)); continue }
-        if let match = open.firstMatch(in: row, range: NSRange(location: 0, length: row.utf16.count)) {
-            let candidate = (row as NSString).substring(with: match.range(at: 1))
-            target = supported.contains((candidate as NSString).pathExtension.lowercased()) ? candidate : nil
-            result.launch[index] = target
+        let trimmed = row.trimmingCharacters(in: .whitespacesAndNewlines), text = row as NSString
+        if !fence.isEmpty {
+            if trimmed.count >= fence.count, trimmed.allSatisfy({ $0 == fence.first! }) { fence = ""; mode = ""; target = nil; continue }
+        } else if !mode.isEmpty {
+            if trimmed.contains("</"), trimmed.contains(":" + mode + ">") { mode = ""; target = nil; continue }
+        } else {
+            var declaration = ""
+            if let marker = row.range(of: #"^ {0,3}(`{3,}|~{3,})"#, options: .regularExpression) {
+                fence = String(row[marker]).trimmingCharacters(in: .whitespaces)
+                declaration = String(row[marker.upperBound...]); mode = declaration.trimmingCharacters(in: .whitespaces).components(separatedBy: " ")[0] == "patch" ? "patch" : "file"
+            } else if let match = opening.firstMatch(in: row, range: NSRange(location: 0, length: text.length)) {
+                mode = text.substring(with: match.range(at: 1)); declaration = text.substring(with: match.range)
+            } else { continue }
+            oldLines = 0; newLines = 0; target = nil
+            if mode == "file", let match = pathHint.firstMatch(in: declaration, range: NSRange(location: 0, length: declaration.utf16.count)) {
+                let path = (declaration as NSString).substring(with: match.range(at: 1))
+                target = supported.contains((path as NSString).pathExtension.lowercased()) ? path : nil
+                result.launch[index] = target
+            }
             continue
         }
-        if trimmed.hasPrefix("</"), trimmed.contains(":file>") { target = nil }
-        if !trimmed.isEmpty { result.code[index] = target }
+        if mode == "file", !trimmed.isEmpty { result.code[index] = target }
+        if mode == "patch" {
+            if oldLines > 0 || newLines > 0 {
+                if row.hasPrefix("+") { newLines -= 1; if !row.dropFirst().trimmingCharacters(in: .whitespaces).isEmpty { result.code[index] = target } }
+                else if row.hasPrefix("-") { oldLines -= 1 }
+                else if row.hasPrefix(" ") { oldLines -= 1; newLines -= 1 }
+            } else if row.hasPrefix("+++ ") {
+                let raw = String(row.dropFirst(4)).components(separatedBy: "\t")[0]
+                let path = raw.hasPrefix("b/") ? String(raw.dropFirst(2)) : raw
+                target = supported.contains((path as NSString).pathExtension.lowercased()) ? path : nil
+                result.launch[index] = target
+            } else if let match = hunk.firstMatch(in: row, range: NSRange(location: 0, length: text.length)) {
+                oldLines = match.range(at: 1).location == NSNotFound ? 1 : Int(text.substring(with: match.range(at: 1))) ?? 0
+                newLines = match.range(at: 2).location == NSNotFound ? 1 : Int(text.substring(with: match.range(at: 2))) ?? 0
+            }
+        }
     }
     return result
 }
@@ -319,7 +348,7 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
             else if diffFence { result.marks.append(InlineMark(kind: row.hasPrefix("+") ? "diff-add" : row.hasPrefix("-") ? "diff-remove" : "code", range: NSRange(location: offset, length: row.utf16.count))) }
             continue
         }
-        if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { fence = String(trimmed.prefix(3)); diffFence = trimmed.dropFirst(3).trimmingCharacters(in: .whitespaces) == "diff"; table = false; continue }
+        if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { fence = String(trimmed.prefix(3)); diffFence = ["diff", "patch"].contains(String(trimmed.drop(while: { $0 == trimmed.first! })).trimmingCharacters(in: .whitespaces).components(separatedBy: " ")[0]); table = false; continue }
         if !payload.isEmpty {
             if trimmed.contains(":" + payload + ">"), let close = row.range(of: "</") {
                 if payload == "math", let start = equationStart {
@@ -376,6 +405,10 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
         } else if !isSeparator { table = false }
     }
     result.marks += inlineSyntaxMarks(source, path: path)
+    for (line, target) in result.debug.code where rows.indices.contains(line) && rows[line].hasPrefix("+") {
+        let start = result.lineStarts[line] + 1
+        result.marks += inlineSyntaxMarks(String(rows[line].dropFirst()), path: target).map { var mark = $0; mark.range.location += start; return mark }
+    }
     result.diagrams = inlineDiagrams(source)
     return result
 }
@@ -513,19 +546,41 @@ fun inlineDebugContext(source: String, path: String): InlineDebugContext {
         return InlineDebugContext(code, launch)
     }
     if (path.substringAfterLast('.').lowercase() !in listOf("md", "markdown")) return InlineDebugContext()
-    var fence = ""; var target: String? = null
-    val open = Regex("""^\s*<[\w.-]+:file\b[^>]*\bpath\s*=\s*["']([^"']+)["'][^>]*>""")
+    var fence = ""; var mode = ""; var target: String? = null; var oldLines = 0; var newLines = 0
+    val opening = Regex("""^ {0,3}<[\w.-]+:(file|patch|copy|cut|exec|entry|diagram|math|table)\b[^>]*>""")
+    val pathHint = Regex("""\bpath\s*=\s*["']([^"']+)["']""")
+    val hunk = Regex("""^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@""")
     for ((index, row) in rows.withIndex()) {
         val trimmed = row.trim()
-        if (fence.isNotEmpty()) { if (trimmed.startsWith(fence)) fence = ""; continue }
-        if (target == null && (trimmed.startsWith("```") || trimmed.startsWith("~~~"))) { fence = trimmed.take(3); continue }
-        val match = open.find(row)
-        if (match != null) {
-            target = match.groupValues[1].takeIf { it.substringAfterLast('.').lowercase() in supported }
-            target?.let { launch[index] = it }; continue
+        if (fence.isNotEmpty()) {
+            if (trimmed.length >= fence.length && trimmed.all { it == fence[0] }) { fence = ""; mode = ""; target = null; continue }
+        } else if (mode.isNotEmpty()) {
+            if (trimmed.contains("</") && trimmed.contains(":" + mode + ">")) { mode = ""; target = null; continue }
+        } else {
+            val marker = Regex("""^ {0,3}(`{3,}|~{3,})""").find(row)
+            val declaration: String
+            if (marker != null) { fence = marker.value.trim(); declaration = row.substring(marker.range.last + 1); mode = if (declaration.trim().substringBefore(' ') == "patch") "patch" else "file" }
+            else { val match = opening.find(row) ?: continue; mode = match.groupValues[1]; declaration = match.value }
+            oldLines = 0; newLines = 0; target = null
+            if (mode == "file") {
+                val path = pathHint.find(declaration)?.groupValues?.get(1)
+                target = path?.takeIf { it.substringAfterLast('.').lowercase() in supported }
+                target?.let { launch[index] = it }
+            }
+            continue
         }
-        if (trimmed.startsWith("</") && trimmed.contains(":file>")) target = null
-        if (trimmed.isNotEmpty()) target?.let { code[index] = it }
+        if (mode == "file" && trimmed.isNotEmpty()) target?.let { code[index] = it }
+        if (mode == "patch") {
+            if (oldLines > 0 || newLines > 0) {
+                if (row.startsWith('+')) { newLines--; if (row.drop(1).isNotBlank()) target?.let { code[index] = it } }
+                else if (row.startsWith('-')) oldLines--
+                else if (row.startsWith(' ')) { oldLines--; newLines-- }
+            } else if (row.startsWith("+++ ")) {
+                val path = row.drop(4).substringBefore('\t').removePrefix("b/")
+                target = path.takeIf { it.substringAfterLast('.').lowercase() in supported }
+                target?.let { launch[index] = it }
+            } else hunk.find(row)?.let { match -> oldLines = match.groupValues[1].ifEmpty { "1" }.toIntOrNull() ?: 0; newLines = match.groupValues[2].ifEmpty { "1" }.toIntOrNull() ?: 0 }
+        }
     }
     return InlineDebugContext(code, launch)
 }
@@ -620,7 +675,7 @@ fun computeInlineMarkup(source: String, path: String): InlineSnapshot {
             else if (diffFence) marks.add(InlineMark(if (row.startsWith('+')) "diff-add" else if (row.startsWith('-')) "diff-remove" else "code", start, start + row.length))
             return@forEachIndexed
         }
-        if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) { fence = trimmed.take(3); diffFence = trimmed.drop(3).trim() == "diff"; table = false; return@forEachIndexed }
+        if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) { fence = trimmed.take(3); diffFence = trimmed.dropWhile { it == trimmed[0] }.trim().substringBefore(' ') in listOf("diff", "patch"); table = false; return@forEachIndexed }
         if (payload.isNotEmpty()) {
             val close = row.indexOf("</")
             if (trimmed.contains(":" + payload + ">") && close >= 0) {
@@ -662,7 +717,10 @@ fun computeInlineMarkup(source: String, path: String): InlineSnapshot {
         val isSeparator = separator.matches(row); val nextSeparator = rows.getOrNull(line + 1)?.let { separator.matches(it) } == true
         if (nextSeparator || table && row.contains('|')) { table = true; if (!isSeparator) cells.addAll(inlineCells(row, line, start)) } else if (!isSeparator) table = false
     }
-    return InlineSnapshot(source, starts, marks + inlineSyntaxMarks(source, path), cells, equations, debug, inlineDiagrams(source))
+    val patchMarks = debug.code.flatMap { (line, target) ->
+        if (rows.getOrNull(line)?.startsWith('+') == true) inlineSyntaxMarks(rows[line].drop(1), target).map { it.copy(from = it.from + starts[line] + 1, to = it.to + starts[line] + 1) } else emptyList()
+    }
+    return InlineSnapshot(source, starts, marks + inlineSyntaxMarks(source, path) + patchMarks, cells, equations, debug, inlineDiagrams(source))
 }
 </ui:copy>
 
@@ -774,14 +832,18 @@ import WebKit
 @MainActor final class MathCoordinator: NSObject, WKNavigationDelegate {
     var source = ""
     var diagramRenderer: String?
+    private var displayed: String?
     var ready = false
     func display(_ view: WKWebView) {
         guard ready, let bytes = try? JSONSerialization.data(withJSONObject: source, options: .fragmentsAllowed), let json = String(data: bytes, encoding: .utf8) else { return }
+        let key = (diagramRenderer.map { "diagram:" + $0 } ?? "math") + "\0" + source
+        guard displayed != key else { return }
+        displayed = key
         if let renderer = diagramRenderer, let data = try? JSONSerialization.data(withJSONObject: renderer, options: .fragmentsAllowed), let engine = String(data: data, encoding: .utf8) {
             view.evaluateJavaScript("globalThis.renderDiagram(" + json + "," + engine + ")", completionHandler: nil)
         } else { view.evaluateJavaScript("globalThis.renderMath(" + json + ")", completionHandler: nil) }
     }
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { ready = true; display(webView) }
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { ready = true; displayed = nil; display(webView) }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         let url = navigationAction.request.url
         decisionHandler(url?.isFileURL == true || url?.scheme == "about" ? .allow : .cancel)
@@ -883,8 +945,10 @@ import org.json.JSONObject
         }
     }, update = { view ->
         val script = if (diagramRenderer == null) "globalThis.renderMath(" + JSONObject.quote(source) + ")" else "globalThis.renderDiagram(" + JSONObject.quote(source) + "," + JSONObject.quote(diagramRenderer) + ")"
-        view.tag = script
-        view.evaluateJavascript("if(globalThis.renderDiagram){" + script + "}", null)
+        if (view.tag != script) {
+            view.tag = script
+            view.evaluateJavascript("if(globalThis.renderDiagram){" + script + "}", null)
+        }
     }, onRelease = { it.stopLoading(); it.destroy() })
 }
 </ui:copy>

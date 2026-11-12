@@ -43,7 +43,7 @@ The code below constructs `generated/coupon.py`. Edit this source file block,
 not the generated Files entry. This also gives the debugger a literate Python
 launch target.
 
-<h:file path="generated/coupon.py" language="python">
+<h:file id="coupon-base" path="generated/coupon.py" language="python">
 def coupon_total(cents: int, discount_percent: int) -> int:
     discounted = (cents * (100 - discount_percent) + 50) // 100
     return discounted
@@ -51,19 +51,21 @@ def coupon_total(cents: int, discount_percent: int) -> int:
 
 if __name__ == "__main__":
     total = coupon_total(2350, 20)
-    print(f"Coupon receipt: {total} cents")
+    print(f"Coupon total: {total} cents")
 </h:file>
 
 ## Patch the coupon without copying its program
 
-This diff records the receipt-label change already present in the executable
-Python construction above. Debug `generated/coupon.py` from that file block.
-Diff context and deleted lines are review text, so they do not offer breakpoints.
+This patch constructs the receipt-label change over the Python base above.
+Inspect its before/after code, use language tools on the added statement, or
+debug `generated/coupon.py` from the patch destination header. Added code has
+source ownership; context and deleted rows do not offer new-code breakpoints.
+Save the document before debugging so the adapter runs the displayed project.
 
-```diff
+```patch id="coupon-receipt" after="coupon-base"
 --- a/generated/coupon.py
 +++ b/generated/coupon.py
-@@ -7,3 +7,3 @@
+@@ -6,3 +6,3 @@
  if __name__ == "__main__":
      total = coupon_total(2350, 20)
 -    print(f"Coupon total: {total} cents")
@@ -72,20 +74,11 @@ Diff context and deleted lines are review text, so they do not offer breakpoints
 
 ## A real recorded execution
 
-The preparation command executes this cell once and stores a source-matched
-receipt locally. Browser cards and native line controls display the saved output.
-Viewing it does not execute the command again. The cell runs Python from the
-copied workspace using the local host executor; the image declaration describes
-the environment and does not provide isolation in that mode.
-
-<h:container name="python" image="python:3.12" />
-<h:volume name="workspace" input="." />
-<h:exec id="order-check" container="python" mount="workspace:project">
-python3 project/orders.py
-<h:expect match="exact">Order: $18.80
-Items: 5
-</h:expect>
-</h:exec>
+Open [the recorded execution example](README.md#recorded-execution) to inspect
+`order-check` and its saved stdout. It is a standalone runtime document: keeping
+that cell separate lets this workbook reconstruct its complete file-and-patch
+project without pretending an unexecuted command has retained filesystem outputs.
+Viewing a recorded result never reruns its command.
 
 ## An inline diagram
 
@@ -105,4 +98,6 @@ print("<script>literal text</script>")
 
 Search for `Notebook`, fold an indented Python block, split a pane and move this
 tab. Keep an unsaved edit while moving it, then undo in the destination pane.
+
+<h:project />
 </h:doc>

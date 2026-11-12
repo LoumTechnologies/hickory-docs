@@ -6,6 +6,25 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @org.junit.Test fun patchAndPathFenceOfferOnlyOwnedCodeCandidates() {
+        // Contract: .hickory-source/frontends/contract.md
+        val source = "<hick:project/>\n<hick:file id=\"base\" path=\"x.py\">\nprint(1)\n</hick:file>\n```patch id=\"change\" after=\"base\"\n--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-print(1)\n+print(\"café 😀\")\n```\n```python path=\"other.py\"\nprint(3)\n```\n```diff\n--- a/fake.py\n+++ b/fake.py\n@@ -1 +1 @@\n-a\n+b\n```"
+        val snapshot = computeInlineMarkup(source, "workbook.md")
+        assertEquals("x.py", snapshot.debug.launch[6])
+        assertEquals("x.py", snapshot.debug.code[9])
+        assertNull(snapshot.debug.code[8])
+        assertNull(snapshot.debug.code[7])
+        assertEquals("other.py", snapshot.debug.launch[11])
+        assertEquals("other.py", snapshot.debug.code[12])
+        assertNull(snapshot.debug.launch[16])
+        assertNull(snapshot.debug.code[19])
+        assertTrue(snapshot.marks.any { it.kind == "diff-add" })
+        assertTrue(snapshot.marks.any { it.kind == "syntax-string" && source.substring(it.from, it.to) == "\"café 😀\"" })
+        val headerLookingAddition = "```patch\n+++ b/x.py\n@@ -0,0 +1,1 @@\n+++ b/fake.py\n```"
+        assertEquals("x.py", inlineDebugContext(headerLookingAddition, "p.md").code[3])
+        assertNull(inlineDebugContext(headerLookingAddition, "p.md").launch[3])
+    }
+
     @org.junit.Test fun fencedCodeHasLocalSyntaxWithoutInventedFileContext() {
         // Contract: .hickory-source/frontends/contract.md
         val source = "def is prose here\n```python\ndef coupon():\n    return \"café 😀\" # note\n```\n```unknown\ndef literal(): pass\n```"

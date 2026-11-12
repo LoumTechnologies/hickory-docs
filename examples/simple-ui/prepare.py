@@ -23,7 +23,8 @@ def main():
         parser.error("Choose a destination outside the maintained fixture folder.")
     shutil.copytree(source, destination, ignore=shutil.ignore_patterns("__pycache__", ".hick-cache", "generated"))
     environment = {**os.environ, "HICKORY_EXECUTOR": "local"}
-    command = [str(executable), "run" if args.record else "weave", "workbook.md"]
+    subprocess.run([str(executable), "project", "materialize", "workbook.md"], cwd=destination, env=environment, check=True)
+    command = [str(executable), "run" if args.record else "weave", "README.md"]
     if args.record:
         command.append("--cache")
     subprocess.run(command, cwd=destination, env=environment, check=True)

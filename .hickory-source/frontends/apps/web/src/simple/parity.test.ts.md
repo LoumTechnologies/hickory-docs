@@ -20,8 +20,10 @@ import { within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import katex from "katex";
 import { RichOwners } from "./RichInline";
+import { breakpointLine, patchDebugTargets } from "../debug/cmDebug";
+import { parseHickDoc, proseFences } from "../editor/hickDoc";
 // Vitest stubs CSS by default; supply the actual local asset to exercise its shadow-root placement.
-vi.mock("@xyflow/react/dist/style.css?inline", async () => ({ default: (await import("node:fs")).readFileSync("node_modules/@xyflow/react/dist/style.css", "utf8") }));
+vi.mock("@xyflow/react/dist/style.css?inline", async () => ({ default: new TextDecoder().decode((await import("node:fs")).readFileSync("node_modules/@xyflow/react/dist/style.css")) }));
 import * as hickParser from "../editor/hickLang";
 import { render, waitFor, act, fireEvent } from "@testing-library/react";
 import { smartEnter } from "./SmartEnter";
@@ -51,6 +53,30 @@ import { Buffer, Buffers } from "./buffers";
 import { api } from "../api/client";
 vi.mock("../api/client", () => ({ api: { files: vi.fn(), doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), fileOp: vi.fn(), openFile: vi.fn(), createDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agent: vi.fn() } }));
 describe("shared frontend layout contract", () => {
+  it("constructs patch fences and offers source-mapped patch debugging in Simple", async () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const source = "<hick:project/>\n<hick:file id=\"base\" path=\"x.py\">\nprint(1)\n</hick:file>\n```patch id=\"change\" after=\"base\"\n--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-print(1)\n+print(\"café 😀\")\n```\n```python path=\"other.py\"\nprint(3)\n```\n```diff\n--- a/fake.py\n+++ b/fake.py\n@@ -1 +1 @@\n-a\n+b\n```";
+    expect(proseFences(parseHickDoc(source), source).map(fence => fence.info)).toEqual(["diff"]);
+    const workbook = new TextDecoder().decode(readFileSync("../../examples/simple-ui/workbook.md"));
+    const demo = hickParser.materializeProject("workbook.md", { "workbook.md": workbook });
+    expect(new TextDecoder().decode(new Uint8Array(demo.new.find(entry => entry.path === "generated/coupon.py")!.bytes))).toContain("Coupon receipt:");
+    const project = hickParser.materializeProject("project.md", { "project.md": source });
+    expect(new TextDecoder().decode(new Uint8Array(project.new.find(entry => entry.path === "x.py")!.bytes))).toBe('print("café 😀")\n');
+    const buffer = new Buffer({ path: "patch.md", name: "patch.md", dir: false }, source, "hash", () => {});
+    const screen = render(createElement(Document, { buffer }));
+    try {
+      const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+      expect(patchDebugTargets(view.state).map(target => target.path)).toEqual(["x.py"]);
+      expect(breakpointLine(view.state, 9)).toBe(9);
+      expect(breakpointLine(view.state, 8)).toBeNull();
+      expect(breakpointLine(view.state, 19)).toBeNull();
+      expect(breakpointLine(view.state, 12)).toBe(12);
+      fireEvent.click(screen.getAllByRole("button", { name: "Debug x.py" }).at(-1)!);
+      await waitFor(() => expect(launchWithProfiles).toHaveBeenCalledWith(expect.objectContaining({ program: "x.py", expected_document: source }), expect.any(Function), expect.any(Object)));
+      expect(buffer.text).toBe(source);
+      expect(buffer.dirty).toBe(false);
+    } finally { screen.unmount(); }
+  });
   it("highlights ordinary fenced Python in the retained Simple source editor", async () => {
     // Contract: .hickory-source/frontends/contract.md
     const source = "Prose\n```python\ndef coupon():\n    return \"café 😀\"\n```";
@@ -83,7 +109,7 @@ describe("shared frontend layout contract", () => {
   }, 20000);
   it("renders native graph previews safely and rejects obsolete Mermaid results", async () => {
     // Contract: .hickory-source/frontends/contract.md
-    const html = readFileSync("../apple-simple/Sources/Resources/math.html", "utf8");
+    const html = new TextDecoder().decode(readFileSync("../apple-simple/Sources/Resources/math.html"));
     const document = new DOMParser().parseFromString(html, "text/html");
     const scope: any = {};
     const pending: ((value: { svg: string }) => void)[] = [];

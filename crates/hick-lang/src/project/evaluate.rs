@@ -387,7 +387,8 @@ fn visit(
         let HickNode::Tag(tag) = node else { continue };
         check_attributes(tag)?;
         match tag.name.as_str() {
-            "project" | "container" | "volume" | "allow" | "private" => (),
+            "project" | "container" | "volume" | "allow" | "private" | "math" | "diagram"
+            | "table" => (),
             "agent" => (),
             "upstream" => {
                 let name = relative_document(path, required(tag, "file")?)?;

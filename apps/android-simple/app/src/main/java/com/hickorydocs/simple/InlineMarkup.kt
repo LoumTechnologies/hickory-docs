@@ -125,19 +125,41 @@ fun inlineDebugContext(source: String, path: String): InlineDebugContext {
         return InlineDebugContext(code, launch)
     }
     if (path.substringAfterLast('.').lowercase() !in listOf("md", "markdown")) return InlineDebugContext()
-    var fence = ""; var target: String? = null
-    val open = Regex("""^\s*<[\w.-]+:file\b[^>]*\bpath\s*=\s*["']([^"']+)["'][^>]*>""")
+    var fence = ""; var mode = ""; var target: String? = null; var oldLines = 0; var newLines = 0
+    val opening = Regex("""^ {0,3}<[\w.-]+:(file|patch|copy|cut|exec|entry|diagram|math|table)\b[^>]*>""")
+    val pathHint = Regex("""\bpath\s*=\s*["']([^"']+)["']""")
+    val hunk = Regex("""^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@""")
     for ((index, row) in rows.withIndex()) {
         val trimmed = row.trim()
-        if (fence.isNotEmpty()) { if (trimmed.startsWith(fence)) fence = ""; continue }
-        if (target == null && (trimmed.startsWith("```") || trimmed.startsWith("~~~"))) { fence = trimmed.take(3); continue }
-        val match = open.find(row)
-        if (match != null) {
-            target = match.groupValues[1].takeIf { it.substringAfterLast('.').lowercase() in supported }
-            target?.let { launch[index] = it }; continue
+        if (fence.isNotEmpty()) {
+            if (trimmed.length >= fence.length && trimmed.all { it == fence[0] }) { fence = ""; mode = ""; target = null; continue }
+        } else if (mode.isNotEmpty()) {
+            if (trimmed.contains("</") && trimmed.contains(":" + mode + ">")) { mode = ""; target = null; continue }
+        } else {
+            val marker = Regex("""^ {0,3}(`{3,}|~{3,})""").find(row)
+            val declaration: String
+            if (marker != null) { fence = marker.value.trim(); declaration = row.substring(marker.range.last + 1); mode = if (declaration.trim().substringBefore(' ') == "patch") "patch" else "file" }
+            else { val match = opening.find(row) ?: continue; mode = match.groupValues[1]; declaration = match.value }
+            oldLines = 0; newLines = 0; target = null
+            if (mode == "file") {
+                val path = pathHint.find(declaration)?.groupValues?.get(1)
+                target = path?.takeIf { it.substringAfterLast('.').lowercase() in supported }
+                target?.let { launch[index] = it }
+            }
+            continue
         }
-        if (trimmed.startsWith("</") && trimmed.contains(":file>")) target = null
-        if (trimmed.isNotEmpty()) target?.let { code[index] = it }
+        if (mode == "file" && trimmed.isNotEmpty()) target?.let { code[index] = it }
+        if (mode == "patch") {
+            if (oldLines > 0 || newLines > 0) {
+                if (row.startsWith('+')) { newLines--; if (row.drop(1).isNotBlank()) target?.let { code[index] = it } }
+                else if (row.startsWith('-')) oldLines--
+                else if (row.startsWith(' ')) { oldLines--; newLines-- }
+            } else if (row.startsWith("+++ ")) {
+                val path = row.drop(4).substringBefore('\t').removePrefix("b/")
+                target = path.takeIf { it.substringAfterLast('.').lowercase() in supported }
+                target?.let { launch[index] = it }
+            } else hunk.find(row)?.let { match -> oldLines = match.groupValues[1].ifEmpty { "1" }.toIntOrNull() ?: 0; newLines = match.groupValues[2].ifEmpty { "1" }.toIntOrNull() ?: 0 }
+        }
     }
     return InlineDebugContext(code, launch)
 }
@@ -232,7 +254,7 @@ fun computeInlineMarkup(source: String, path: String): InlineSnapshot {
             else if (diffFence) marks.add(InlineMark(if (row.startsWith('+')) "diff-add" else if (row.startsWith('-')) "diff-remove" else "code", start, start + row.length))
             return@forEachIndexed
         }
-        if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) { fence = trimmed.take(3); diffFence = trimmed.drop(3).trim() == "diff"; table = false; return@forEachIndexed }
+        if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) { fence = trimmed.take(3); diffFence = trimmed.dropWhile { it == trimmed[0] }.trim().substringBefore(' ') in listOf("diff", "patch"); table = false; return@forEachIndexed }
         if (payload.isNotEmpty()) {
             val close = row.indexOf("</")
             if (trimmed.contains(":" + payload + ">") && close >= 0) {
@@ -274,5 +296,8 @@ fun computeInlineMarkup(source: String, path: String): InlineSnapshot {
         val isSeparator = separator.matches(row); val nextSeparator = rows.getOrNull(line + 1)?.let { separator.matches(it) } == true
         if (nextSeparator || table && row.contains('|')) { table = true; if (!isSeparator) cells.addAll(inlineCells(row, line, start)) } else if (!isSeparator) table = false
     }
-    return InlineSnapshot(source, starts, marks + inlineSyntaxMarks(source, path), cells, equations, debug, inlineDiagrams(source))
+    val patchMarks = debug.code.flatMap { (line, target) ->
+        if (rows.getOrNull(line)?.startsWith('+') == true) inlineSyntaxMarks(rows[line].drop(1), target).map { it.copy(from = it.from + starts[line] + 1, to = it.to + starts[line] + 1) } else emptyList()
+    }
+    return InlineSnapshot(source, starts, marks + inlineSyntaxMarks(source, path) + patchMarks, cells, equations, debug, inlineDiagrams(source))
 }
