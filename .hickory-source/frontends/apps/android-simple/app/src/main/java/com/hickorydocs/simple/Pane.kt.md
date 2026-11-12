@@ -911,6 +911,18 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false))
             val density = LocalDensity.current
             val layout = textLayout
+            // Values were evaluated in this stopped frame. Keep them out of
+            // the program bytes and use the layout's actual end-of-line caret.
+            if (paused != null && debug != null && layout?.layoutInput?.text?.text == display) {
+                val start = debugLineOffset(source, paused)
+                if (start != null) {
+                    val end = source.indexOf('\n', start).let { if (it < 0) source.length else it }
+                    val rect = layout.getCursorRect(editorDisplayOffset(end, replacements))
+                    val values = debug.watches.mapNotNull { expression -> debug.values[expression]?.let { "$expression = $it" } }.joinToString("  ")
+                    if (values.isNotEmpty()) Text(values.take(240), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .65f), fontSize = 11.sp, fontFamily = FontFamily.Monospace, maxLines = 1,
+                        modifier = Modifier.offset { IntOffset(rect.right.toInt() + 12, rect.top.toInt() - scroll.value + with(density) { 8.dp.roundToPx() }) }.semantics { contentDescription = "Watched expressions at evaluation line" })
+                }
+            }
             if (layout != null && layout.layoutInput.text.text == display) tables.forEach { table ->
                 val replacement = replacements.firstOrNull { it.from == table.from && it.to == table.to } ?: return@forEach
                 val anchor = editorDisplayOffset(table.from, replacements)

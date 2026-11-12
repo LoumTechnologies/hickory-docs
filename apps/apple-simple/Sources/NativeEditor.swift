@@ -1521,6 +1521,18 @@ struct LanguageEditor: View {
                     if let debugger, debugger.sourceMatches(buffer), let line = debugger.line(in: buffer.file.path),
                        let row = buffer.visibleDebugLines.first(where: { $0.line == line }) {
                         context.fill(Path(CGRect(x: 0, y: row.y, width: size.width, height: row.height)), with: .color(.yellow.opacity(0.18)))
+                        // Watch answers belong to this selected stopped frame.
+                        // Draw in trailing whitespace, without inserting source or
+                        // moving later lines, and retire them on resume or edits.
+                        let values = debugger.watches.compactMap { expression in debugger.values[expression].map { "\(expression) = \($0)" } }.joined(separator: "  ")
+                        if !values.isEmpty {
+                            let rows = buffer.text.components(separatedBy: "\n")
+                            if rows.indices.contains(line) {
+                                let source = context.resolve(Text(rows[line]).font(.system(size: 13, design: .monospaced)))
+                                let width = source.measure(in: CGSize(width: size.width, height: .infinity)).width
+                                context.draw(Text(String(values.prefix(240))).font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary), at: CGPoint(x: width + 12, y: row.y + row.height / 2), anchor: .leading)
+                            }
+                        }
                     }
                     for rect in buffer.multiRects { context.fill(Path(rect), with: .color(.accentColor.opacity(rect.width <= 2 ? 0.8 : 0.22))) }
                 }.allowsHitTesting(false).clipped()

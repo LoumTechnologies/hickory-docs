@@ -380,10 +380,10 @@ describe("which frames become gutter marks", () => {
 });
 
 
-describe("watches, at the end of the line that mentions them", () => {
-  it("puts each watch beside the first line mentioning its expression", () => {
+describe("watches, in whitespace at their evaluation line", () => {
+  it("places the result at its stopped frame, even when mentioned earlier", () => {
     const placements = watchPlacements(DOC, [{ expression: "unit_price", value: "9.99" }], 2);
-    expect(placements).toEqual([{ at: DOC.line(1).to, text: "unit_price = 9.99" }]);
+    expect(placements).toEqual([{ at: DOC.line(3).to, text: "unit_price = 9.99" }]);
   });
 
   it("matches a whole identifier, not a fragment of a longer one", () => {
@@ -403,7 +403,7 @@ describe("watches, at the end of the line that mentions them", () => {
       [{ expression: "quantity * unit_price", value: "19.98" }],
       2,
     );
-    expect(placements[0].at).toBe(DOC.line(2).to);
+    expect(placements[0].at).toBe(DOC.line(3).to);
   });
 
   it("shows nothing while nothing is paused", () => {

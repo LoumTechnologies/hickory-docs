@@ -826,8 +826,7 @@ frame, and showing it afterwards would be showing the past as the present.
 
 <storycode:copy id="f-9df55a31763b-watchPlacements">
 /**
- * The line each watch belongs beside: the first one that mentions the
- * expression, or the paused line when none does.
+ * The line each watch was evaluated at: the selected paused frame.
  *
  * The value is appended after the line's end as a widget — the same shape as
  * inline values — so it can never change where the text itself wraps. Nothing
@@ -843,20 +842,10 @@ export function watchPlacements(
   const byLine = new Map<number, string[]>();
   for (const watch of watches) {
     const text = `${watch.expression} = ${watch.value ?? "…"}`;
-    let placed: number | null = null;
-    // A bare identifier matches whole words only (`sum` must not land inside
-    // `subtotal`); anything longer is matched literally.
-    const bare = /^[A-Za-z_][A-Za-z0-9_]*$/.test(watch.expression)
-      ? new RegExp(`\\b${watch.expression}\\b`)
-      : null;
-    for (let index = 0; index < doc.lines; index += 1) {
-      const line = doc.line(index + 1);
-      if (bare ? bare.test(line.text) : line.text.includes(watch.expression)) {
-        placed = index;
-        break;
-      }
-    }
-    const line = placed ?? Math.min(pausedLine, doc.lines - 1);
+    // Evaluation belongs to the selected stopped frame, whose line is known.
+    // Searching for expression text would attach a fresh value to an unrelated
+    // earlier mention and incorrectly imply that was its evaluation site.
+    const line = Math.max(0, Math.min(pausedLine, doc.lines - 1));
     byLine.set(line, [...(byLine.get(line) ?? []), text]);
   }
   return [...byLine.entries()]
@@ -1737,10 +1726,10 @@ describe("which frames become gutter marks", () => {
 ### `expression_statement`
 
 <storycode:copy id="f-8d12c7278102-expression_statement-9">
-describe("watches, at the end of the line that mentions them", () => {
-  it("puts each watch beside the first line mentioning its expression", () => {
+describe("watches, in whitespace at their evaluation line", () => {
+  it("places the result at its stopped frame, even when mentioned earlier", () => {
     const placements = watchPlacements(DOC, [{ expression: "unit_price", value: "9.99" }], 2);
-    expect(placements).toEqual([{ at: DOC.line(1).to, text: "unit_price = 9.99" }]);
+    expect(placements).toEqual([{ at: DOC.line(3).to, text: "unit_price = 9.99" }]);
   });
 
   it("matches a whole identifier, not a fragment of a longer one", () => {
@@ -1760,7 +1749,7 @@ describe("watches, at the end of the line that mentions them", () => {
       [{ expression: "quantity * unit_price", value: "19.98" }],
       2,
     );
-    expect(placements[0].at).toBe(DOC.line(2).to);
+    expect(placements[0].at).toBe(DOC.line(3).to);
   });
 
   it("shows nothing while nothing is paused", () => {
