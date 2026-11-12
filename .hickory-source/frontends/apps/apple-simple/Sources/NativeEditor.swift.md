@@ -731,11 +731,14 @@ private typealias DiagramHost = UIHostingController<NativeDiagramPreview>
         scroll.hasVerticalScroller = true; scroll.documentView = text
         // Retain the wheel recipient across gestures until the pointer moves.
         // Tables and WebKit previews can move under a stationary mouse.
-        wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            guard let self, event.window === self.scroll.window,
-                  self.scroll.bounds.contains(self.scroll.convert(event.locationInWindow, from: nil)) else { return event }
+        wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self else { return event }
             let pointer = NSEvent.mouseLocation
-            if self.wheelPointer != pointer { self.wheelOwner = nil; self.wheelPointer = pointer }
+            // Observe movement itself: moving away and returning to the same
+            // screen pixel must still release the previous wheel recipient.
+            if self.wheelPointer != pointer || event.type != .scrollWheel { self.wheelOwner = nil; self.wheelPointer = pointer }
+            guard event.type == .scrollWheel, event.window === self.scroll.window,
+                  self.scroll.bounds.contains(self.scroll.convert(event.locationInWindow, from: nil)) else { return event }
             let hit = self.scroll.hitTest(self.scroll.convert(event.locationInWindow, from: nil))
             let target = (hit as? NSScrollView) ?? hit?.enclosingScrollView ?? self.scroll
             if self.wheelOwner == nil { self.wheelOwner = target }
@@ -1114,6 +1117,7 @@ private final class MacEditorHost: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     func attach() {
         guard window != nil else { return }
+        window?.acceptsMouseMovedEvents = true
         if content.superview !== self { content.removeFromSuperview(); addSubview(content) }
         content.frame = bounds
     }
