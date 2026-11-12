@@ -9,6 +9,32 @@ struct InlineTable: Identifiable, Sendable {
     var id: Int { range.location }
     var height: CGFloat { min(320, CGFloat(rows.count + 2) * 30) }
 }
+func tablePresentation(_ snapshot: InlineSnapshot, source: String) -> InlineSnapshot {
+    if snapshot.source == source { return snapshot }
+    let old = Array(snapshot.source.utf16), new = Array(source.utf16)
+    var prefix = 0, suffix = 0
+    while prefix < min(old.count, new.count), old[prefix] == new[prefix] { prefix += 1 }
+    while suffix < min(old.count, new.count) - prefix, old[old.count - suffix - 1] == new[new.count - suffix - 1] { suffix += 1 }
+    let end = old.count - suffix, delta = new.count - old.count, text = source as NSString
+    var result = InlineSnapshot(source: source)
+    for (index, char) in new.enumerated() where char == 10 { result.lineStarts.append(index + 1) }
+    result.cells = snapshot.cells.compactMap { cell in
+        var cell = cell
+        if NSMaxRange(cell.range) <= prefix { }
+        else if cell.range.location >= end { cell.range.location += delta }
+        else if cell.range.location <= prefix, NSMaxRange(cell.range) >= end,
+                !new[prefix..<(new.count - suffix)].contains(10) { cell.range.length += delta }
+        else { return nil }
+        guard cell.range.location >= 0, cell.range.length >= 0, NSMaxRange(cell.range) <= text.length else { return nil }
+        cell.line = inlineLineAt(cell.range.location, starts: result.lineStarts)
+        let raw = text.substring(with: cell.range)
+        cell.value = cell.format == "csv" && raw.hasPrefix("\"") && raw.hasSuffix("\"") && raw.count >= 2
+            ? String(raw.dropFirst().dropLast()).replacingOccurrences(of: "\"\"", with: "\"")
+            : raw.replacingOccurrences(of: "\\|", with: "|").replacingOccurrences(of: "\\\\", with: "\\")
+        return cell
+    }
+    return result
+}
 func inlineTables(_ snapshot: InlineSnapshot) -> [InlineTable] {
     let source = snapshot.source as NSString
     let lines = Dictionary(grouping: snapshot.cells.filter { $0.format == "markdown" }, by: \.line)

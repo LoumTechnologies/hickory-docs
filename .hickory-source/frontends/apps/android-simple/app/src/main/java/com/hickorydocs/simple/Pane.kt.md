@@ -658,7 +658,8 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
     }
     val selection = buffer.state.selection
     val folds = buffer.activeFolds()
-    val tables = if (inline.source == source && !buffer.tableSourceVisible) inlineTables(inline).filter { it.from != buffer.sourceTable } else emptyList()
+    val presentation = tablePresentation(inline, source)
+    val tables = if (!buffer.tableSourceVisible) inlineTables(presentation).filter { it.from != buffer.sourceTable } else emptyList()
     val hiddenRanges = editorReplacements(folds, tables)
     val replacements = editorReplacements(folds, tables, source)
     val display = editorDisplay(source, replacements)

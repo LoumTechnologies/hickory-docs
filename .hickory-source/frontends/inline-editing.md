@@ -11,6 +11,13 @@ Markdown prose tables now use those exact cell ranges to form whole-table presen
 
 Fenced diff examples retain their literal text and receive addition/removal backgrounds on native platforms. They are review text; launch and breakpoint controls belong to the accompanying executable file block. This does not claim that diff context or deleted lines are independent executable statements.
 
+While a new parse is pending, map unaffected table cells through the text change.
+This is presentation only: keep debugging and equation actions on exact snapshots.
+A newline outside a table must not temporarily turn a grid back into source and
+change the document height. Drop cells touched by a structural edit; the next
+background parse discovers their new structure. Cell-value edits retain their
+range and decode the new value, including empty values.
+
 The Swift scanner returns source-backed styles and cell ranges. Escaped pipes and code-span pipes cannot create extra columns; applying a cell edit escapes literal pipes and retains all untouched bytes.
 
 <ui:copy id="simple-inline-model-0">
@@ -24,6 +31,32 @@ struct InlineTable: Identifiable, Sendable {
     var range: NSRange; var rows: [[InlineCell]]
     var id: Int { range.location }
     var height: CGFloat { min(320, CGFloat(rows.count + 2) * 30) }
+}
+func tablePresentation(_ snapshot: InlineSnapshot, source: String) -> InlineSnapshot {
+    if snapshot.source == source { return snapshot }
+    let old = Array(snapshot.source.utf16), new = Array(source.utf16)
+    var prefix = 0, suffix = 0
+    while prefix < min(old.count, new.count), old[prefix] == new[prefix] { prefix += 1 }
+    while suffix < min(old.count, new.count) - prefix, old[old.count - suffix - 1] == new[new.count - suffix - 1] { suffix += 1 }
+    let end = old.count - suffix, delta = new.count - old.count, text = source as NSString
+    var result = InlineSnapshot(source: source)
+    for (index, char) in new.enumerated() where char == 10 { result.lineStarts.append(index + 1) }
+    result.cells = snapshot.cells.compactMap { cell in
+        var cell = cell
+        if NSMaxRange(cell.range) <= prefix { }
+        else if cell.range.location >= end { cell.range.location += delta }
+        else if cell.range.location <= prefix, NSMaxRange(cell.range) >= end,
+                !new[prefix..<(new.count - suffix)].contains(10) { cell.range.length += delta }
+        else { return nil }
+        guard cell.range.location >= 0, cell.range.length >= 0, NSMaxRange(cell.range) <= text.length else { return nil }
+        cell.line = inlineLineAt(cell.range.location, starts: result.lineStarts)
+        let raw = text.substring(with: cell.range)
+        cell.value = cell.format == "csv" && raw.hasPrefix("\"") && raw.hasSuffix("\"") && raw.count >= 2
+            ? String(raw.dropFirst().dropLast()).replacingOccurrences(of: "\"\"", with: "\"")
+            : raw.replacingOccurrences(of: "\\|", with: "|").replacingOccurrences(of: "\\\\", with: "\\")
+        return cell
+    }
+    return result
 }
 func inlineTables(_ snapshot: InlineSnapshot) -> [InlineTable] {
     let source = snapshot.source as NSString
@@ -260,6 +293,28 @@ data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf
 // Keep source offsets authoritative while the field displays a grid-sized placeholder.
 data class InlineTable(val from: Int, val to: Int, val rows: List<List<InlineCell>>) {
     val displayRows: Int get() = minOf(10, rows.size + 2)
+}
+fun tablePresentation(snapshot: InlineSnapshot, source: String): InlineSnapshot {
+    if (snapshot.source == source) return snapshot
+    val old = snapshot.source
+    var prefix = 0; var suffix = 0
+    while (prefix < minOf(old.length, source.length) && old[prefix] == source[prefix]) prefix++
+    while (suffix < minOf(old.length, source.length) - prefix && old[old.length - suffix - 1] == source[source.length - suffix - 1]) suffix++
+    val end = old.length - suffix; val delta = source.length - old.length
+    val starts = listOf(0) + source.indices.filter { source[it] == '\n' }.map { it + 1 }
+    val cells = snapshot.cells.mapNotNull { original ->
+        val cell = when {
+            original.to <= prefix -> original
+            original.from >= end -> original.copy(from = original.from + delta, to = original.to + delta)
+            original.from <= prefix && original.to >= end && !source.substring(prefix, source.length - suffix).contains('\n') -> original.copy(to = original.to + delta)
+            else -> return@mapNotNull null
+        }
+        if (cell.from < 0 || cell.to < cell.from || cell.to > source.length) return@mapNotNull null
+        val raw = source.substring(cell.from, cell.to)
+        val value = if (cell.format == "csv" && raw.startsWith('"') && raw.endsWith('"') && raw.length >= 2) raw.substring(1, raw.length - 1).replace("\"\"", "\"") else raw.replace("\\|", "|").replace("\\\\", "\\")
+        cell.copy(line = inlineLineAt(cell.from, starts), value = value)
+    }
+    return InlineSnapshot(source, lineStarts = starts, cells = cells)
 }
 fun inlineTables(snapshot: InlineSnapshot): List<InlineTable> {
     val lines = snapshot.cells.filter { it.format == "markdown" }.groupBy { it.line }

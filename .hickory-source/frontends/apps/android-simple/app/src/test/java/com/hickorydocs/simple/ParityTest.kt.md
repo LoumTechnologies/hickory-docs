@@ -18,6 +18,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @org.junit.Test fun tablePresentationSurvivesPendingParse() {
+        // Contract: .hickory-source/frontends/contract.md
+        val source = "Before\n\n| A | B |\n| --- | --- |\n| café 😀 | 2 |\n\nAfter"
+        val parsed = computeInlineMarkup(source, "table.md")
+        val table = inlineTables(parsed).single()
+        for (changed in listOf("\n" + source, source + "\n", source.replace("| 2 |", "| 300 |"), source.replace("| 2 |", "|  |"))) {
+            val pending = tablePresentation(parsed, changed)
+            val grid = inlineTables(pending).single()
+            assertEquals(table.displayRows, grid.displayRows)
+            assertEquals(table.rows.size, grid.rows.size)
+            assertEquals("café 😀", grid.rows[1][0].value)
+            assertTrue(pending.debug.code.isEmpty())
+        }
+    }
+
     @Test fun sharedSmartEnterFixtures() {
         // Contract: .hickory-source/frontends/contract.md
         val loader = javaClass.classLoader!!

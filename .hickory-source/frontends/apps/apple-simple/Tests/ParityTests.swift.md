@@ -24,6 +24,47 @@ import WebKit
 @testable import HickorySimple
 
 final class ParityTests: XCTestCase {
+    func testTablePresentationSurvivesPendingParse() throws {
+        // Contract: .hickory-source/frontends/contract.md
+        let source = "Before\n\n| A | B |\n| --- | --- |\n| café 😀 | 2 |\n\nAfter"
+        let parsed = computeInlineMarkup(source, path: "table.md")
+        let table = try XCTUnwrap(inlineTables(parsed).first)
+        for changed in ["\n" + source, source + "\n", source.replacingOccurrences(of: "| 2 |", with: "| 300 |"), source.replacingOccurrences(of: "| 2 |", with: "|  |") ] {
+            let pending = tablePresentation(parsed, source: changed)
+            let grid = try XCTUnwrap(inlineTables(pending).first)
+            XCTAssertEqual(grid.height, table.height)
+            XCTAssertEqual(grid.rows.count, table.rows.count)
+            XCTAssertEqual(grid.rows[1][0].value, "café 😀")
+            XCTAssertTrue(pending.debug.code.isEmpty, "Presentation cannot invent fresh debugger ownership")
+            XCTAssertTrue(pending.equations.isEmpty)
+        }
+    }
+    #if os(macOS)
+    @MainActor func testEnterAndBackgroundPresentationKeepTableAndViewport() throws {
+        // Contract: .hickory-source/frontends/contract.md
+        for hasTable in [false, true] {
+            let table = hasTable ? "| A | B |\n| --- | --- |\n| café 😀 | 2 |\n\n" : ""
+            let source = "# Workbook\n\n" + table + String(repeating: "ordinary source line\n", count: 150) + "<h:file path=\"x.py\">\ndef main():\n    print(1)\n</h:file>\n" + String(repeating: "tail\n", count: 150)
+            let file = FileNode(name: "scroll.md", path: "scroll.md", dir: false)
+            let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "base"))
+            let editor = MacEditor(buffer)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+            window.contentView = editor.scroll
+            buffer.inlineMarkup = computeInlineMarkup(source, path: file.path); buffer.renderMarkup?()
+            let caret = NSMaxRange((source as NSString).range(of: "    print(1)"))
+            editor.text.setSelectedRange(NSRange(location: caret, length: 0)); editor.text.scrollRangeToVisible(editor.text.selectedRange())
+            for _ in 0..<3 {
+                XCTAssertTrue(editor.textView(editor.text, doCommandBy: NSSelectorFromString("insertNewline:")))
+                XCTAssertEqual(editor.text.tableRanges.count, hasTable ? 1 : 0, "A pending parse must not reveal a table")
+                let viewport = editor.scroll.contentView.bounds.origin
+                buffer.inlineMarkup = computeInlineMarkup(buffer.text, path: file.path); buffer.renderMarkup?()
+                XCTAssertEqual(editor.scroll.contentView.bounds.origin.y, viewport.y, accuracy: 1)
+            }
+            editor.text.undoManager?.undo()
+            XCTAssertEqual(editor.text.string, buffer.text)
+        }
+    }
+    #endif
     func testSharedSmartEnterFixtures() throws {
         // Contract: .hickory-source/frontends/contract.md
         let apps = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

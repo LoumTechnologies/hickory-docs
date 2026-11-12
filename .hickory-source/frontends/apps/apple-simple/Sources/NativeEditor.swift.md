@@ -15,6 +15,16 @@ Fold state belongs to the cached native editor. Discover indentation regions wit
 
 A fixed-width left gutter offers − to fold and + to unfold each visible header. It uses the same measured rows as line numbers so scrolling, wrapping and hidden rows keep controls anchored. Debugger actions stay on the right. Nested ranges remain independent, and folding is allowed on read-only files because it writes no source. This is indentation-based folding, not a claim of native language-server fold support.
 
+## Keep background presentation from moving the viewport
+
+Capture the visible character and its vertical position before changing attributes.
+After TextKit lays out that character again, restore its screen position. This
+keeps a table or a heading above the viewport from pulling the reader elsewhere.
+Keyboard commands can still reveal their final caret after the edit transaction.
+Use mapped table presentation while parsing catches up, and avoid invalidating
+all glyphs when there are no table geometry changes. Selection, source and undo
+remain owned by the same native text view.
+
 ## Keep contextual actions sparse and keep overflow literal
 
 Offer launch at a supported file declaration, equation editing at its equation,
@@ -632,6 +642,7 @@ private typealias FoldFont = UIFont
     let buffer: DocumentBuffer
     private let folding = FoldLayout()
     private var tableViewport: CGPoint?
+    private var tableSnapshot = InlineSnapshot(source: "")
     private var tableSource = ""
     private var tableSourceVisible = false
     private var sourceTable: Int?
@@ -820,10 +831,29 @@ private typealias FoldFont = UIFont
         if rows != buffer.visibleDebugLines { buffer.visibleDebugLines = rows }
     }
 
+    private func preserveViewport() -> () -> Void {
+        guard let manager = text.layoutManager, let container = text.textContainer, manager.numberOfGlyphs > 0 else { return {} }
+        let viewport = scroll.contentView.bounds.origin, origin = text.textContainerOrigin
+        let glyph = manager.glyphIndex(for: NSPoint(x: viewport.x, y: viewport.y - origin.y), in: container)
+        let character = manager.characterIndexForGlyph(at: min(glyph, manager.numberOfGlyphs - 1))
+        let before = manager.lineFragmentRect(forGlyphAt: min(glyph, manager.numberOfGlyphs - 1), effectiveRange: nil).minY
+        return { [self] in
+            guard character < (text.string as NSString).length else { return }
+            manager.ensureLayout(forCharacterRange: NSRange(location: character, length: 1))
+            let after = manager.lineFragmentRect(forGlyphAt: manager.glyphIndexForCharacter(at: character), effectiveRange: nil).minY
+            scroll.contentView.scroll(to: NSPoint(x: viewport.x, y: max(0, viewport.y + after - before)))
+            scroll.reflectScrolledClipView(scroll.contentView)
+        }
+    }
     private func presentTables() {
+        let restore = preserveViewport(); defer { restore() }
         let source = text.string
         let storage = text.textStorage!
-        if tableSource != source || tableSourceVisible != buffer.tableSourceVisible || sourceTable != buffer.sourceTable || folding.tables.isEmpty && buffer.inlineMarkup.source == source && !inlineTables(buffer.inlineMarkup).isEmpty && !buffer.tableSourceVisible {
+        if buffer.inlineMarkup.source == source { tableSnapshot = buffer.inlineMarkup }
+        else { tableSnapshot = tablePresentation(tableSnapshot, source: source) }
+        let tables = !buffer.tableSourceVisible ? inlineTables(tableSnapshot).filter { $0.id != buffer.sourceTable } : []
+        let geometryChanged = folding.tables.map { [$0.range.location, $0.range.length, Int($0.height)] } != tables.map { [$0.range.location, $0.range.length, Int($0.height)] }
+        if tableSource != source || tableSourceVisible != buffer.tableSourceVisible || sourceTable != buffer.sourceTable || geometryChanged {
             tableSource = source; tableSourceVisible = buffer.tableSourceVisible; sourceTable = buffer.sourceTable
             storage.beginEditing()
             for table in folding.tables {
@@ -832,9 +862,13 @@ private typealias FoldFont = UIFont
             }
             let tabs = NSMutableParagraphStyle(); tabs.tabStops = []
             tabs.defaultTabInterval = ("    " as NSString).size(withAttributes: [.font: text.font ?? .monospacedSystemFont(ofSize: 13, weight: .regular)]).width
-            storage.addAttribute(.paragraphStyle, value: tabs, range: NSRange(location: 0, length: storage.length))
+            if geometryChanged {
+                storage.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+                    if let style = value as? NSParagraphStyle, style.minimumLineHeight > 0 { storage.addAttribute(.paragraphStyle, value: tabs, range: range) }
+                }
+            }
             text.typingAttributes[.paragraphStyle] = tabs
-            folding.tables = buffer.inlineMarkup.source == source && !buffer.tableSourceVisible ? inlineTables(buffer.inlineMarkup).filter { $0.id != buffer.sourceTable } : []
+            folding.tables = tables
             text.tableRanges = folding.tables.map(\.range)
             for table in folding.tables {
                 let style = NSMutableParagraphStyle(); style.minimumLineHeight = table.height; style.maximumLineHeight = table.height
@@ -842,7 +876,9 @@ private typealias FoldFont = UIFont
                 storage.addAttribute(.foregroundColor, value: NSColor.clear, range: table.range)
             }
             storage.endEditing()
-            text.layoutManager!.invalidateGlyphs(forCharacterRange: NSRange(location: 0, length: storage.length), changeInLength: 0, actualCharacterRange: nil)
+            if geometryChanged {
+                for table in tables { text.layoutManager!.invalidateGlyphs(forCharacterRange: table.range, changeInLength: 0, actualCharacterRange: nil) }
+            }
             let live = Set(folding.tables.map(\.id))
             for id in Array(tableViews.keys) where !live.contains(id) { tableViews[id]?.removeFromSuperview(); tableViews.removeValue(forKey: id) }
             for table in folding.tables {
@@ -864,6 +900,7 @@ private typealias FoldFont = UIFont
     }
     private func paint(_ tokens: [NativeSemanticToken], source: String) {
         guard text.string == source, !text.hasMarkedText(), let storage = text.textStorage else { return }
+        let restore = preserveViewport(); defer { restore() }
         storage.beginEditing()
         storage.addAttribute(.foregroundColor, value: NSColor.textColor, range: NSRange(location: 0, length: storage.length))
         for token in tokens where NSMaxRange(token.range) <= storage.length {
@@ -938,6 +975,7 @@ import UIKit
     let text = SimpleTextView(usingTextLayoutManager: false)
     private let folding = FoldLayout()
     private var tableViewport: CGPoint?
+    private var tableSnapshot = InlineSnapshot(source: "")
     private var tableSource = ""
     private var tableSourceVisible = false
     private var sourceTable: Int?
@@ -1115,10 +1153,29 @@ import UIKit
         if rows != buffer.visibleDebugLines { buffer.visibleDebugLines = rows }
     }
 
+    private func preserveViewport() -> () -> Void {
+        let manager = text.layoutManager, container = text.textContainer
+        guard manager.numberOfGlyphs > 0 else { return {} }
+        let viewport = text.contentOffset
+        let glyph = min(manager.glyphIndex(for: CGPoint(x: viewport.x, y: viewport.y - text.textContainerInset.top), in: container), manager.numberOfGlyphs - 1)
+        let character = manager.characterIndexForGlyph(at: glyph)
+        let before = manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil).minY
+        return { [self] in
+            guard character < (text.text as NSString).length else { return }
+            manager.ensureLayout(forCharacterRange: NSRange(location: character, length: 1))
+            let after = manager.lineFragmentRect(forGlyphAt: manager.glyphIndexForCharacter(at: character), effectiveRange: nil).minY
+            text.setContentOffset(CGPoint(x: viewport.x, y: max(-text.adjustedContentInset.top, viewport.y + after - before)), animated: false)
+        }
+    }
     private func presentTables() {
+        let restore = preserveViewport(); defer { restore() }
         let source = text.text ?? ""
         let storage = text.textStorage
-        if tableSource != source || tableSourceVisible != buffer.tableSourceVisible || sourceTable != buffer.sourceTable || folding.tables.isEmpty && buffer.inlineMarkup.source == source && !inlineTables(buffer.inlineMarkup).isEmpty && !buffer.tableSourceVisible {
+        if buffer.inlineMarkup.source == source { tableSnapshot = buffer.inlineMarkup }
+        else { tableSnapshot = tablePresentation(tableSnapshot, source: source) }
+        let tables = !buffer.tableSourceVisible ? inlineTables(tableSnapshot).filter { $0.id != buffer.sourceTable } : []
+        let geometryChanged = folding.tables.map { [$0.range.location, $0.range.length, Int($0.height)] } != tables.map { [$0.range.location, $0.range.length, Int($0.height)] }
+        if tableSource != source || tableSourceVisible != buffer.tableSourceVisible || sourceTable != buffer.sourceTable || geometryChanged {
             tableSource = source; tableSourceVisible = buffer.tableSourceVisible; sourceTable = buffer.sourceTable
             storage.beginEditing()
             for table in folding.tables {
@@ -1127,9 +1184,13 @@ import UIKit
             }
             let tabs = NSMutableParagraphStyle(); tabs.tabStops = []
             tabs.defaultTabInterval = ("    " as NSString).size(withAttributes: [.font: text.font ?? .monospacedSystemFont(ofSize: 13, weight: .regular)]).width
-            storage.addAttribute(.paragraphStyle, value: tabs, range: NSRange(location: 0, length: storage.length))
+            if geometryChanged {
+                storage.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+                    if let style = value as? NSParagraphStyle, style.minimumLineHeight > 0 { storage.addAttribute(.paragraphStyle, value: tabs, range: range) }
+                }
+            }
             text.typingAttributes[.paragraphStyle] = tabs
-            folding.tables = buffer.inlineMarkup.source == source && !buffer.tableSourceVisible ? inlineTables(buffer.inlineMarkup).filter { $0.id != buffer.sourceTable } : []
+            folding.tables = tables
             text.tableRanges = folding.tables.map(\.range)
             for table in folding.tables {
                 let style = NSMutableParagraphStyle(); style.minimumLineHeight = table.height; style.maximumLineHeight = table.height
@@ -1137,7 +1198,9 @@ import UIKit
                 storage.addAttribute(.foregroundColor, value: UIColor.clear, range: table.range)
             }
             storage.endEditing()
-            text.layoutManager.invalidateGlyphs(forCharacterRange: NSRange(location: 0, length: storage.length), changeInLength: 0, actualCharacterRange: nil)
+            if geometryChanged {
+                for table in tables { text.layoutManager.invalidateGlyphs(forCharacterRange: table.range, changeInLength: 0, actualCharacterRange: nil) }
+            }
             let live = Set(folding.tables.map(\.id))
             for id in Array(tableViews.keys) where !live.contains(id) { tableViews[id]?.view.removeFromSuperview(); tableViews.removeValue(forKey: id) }
             for table in folding.tables {
@@ -1159,6 +1222,7 @@ import UIKit
     private func paint(_ tokens: [NativeSemanticToken], source: String) {
         guard text.text == source, text.markedTextRange == nil else { return }
         let storage = text.textStorage
+        let restore = preserveViewport(); defer { restore() }
         storage.beginEditing()
         storage.addAttribute(.foregroundColor, value: UIColor.label, range: NSRange(location: 0, length: storage.length))
         for token in tokens where NSMaxRange(token.range) <= storage.length {

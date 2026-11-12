@@ -8,6 +8,28 @@ data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf
 data class InlineTable(val from: Int, val to: Int, val rows: List<List<InlineCell>>) {
     val displayRows: Int get() = minOf(10, rows.size + 2)
 }
+fun tablePresentation(snapshot: InlineSnapshot, source: String): InlineSnapshot {
+    if (snapshot.source == source) return snapshot
+    val old = snapshot.source
+    var prefix = 0; var suffix = 0
+    while (prefix < minOf(old.length, source.length) && old[prefix] == source[prefix]) prefix++
+    while (suffix < minOf(old.length, source.length) - prefix && old[old.length - suffix - 1] == source[source.length - suffix - 1]) suffix++
+    val end = old.length - suffix; val delta = source.length - old.length
+    val starts = listOf(0) + source.indices.filter { source[it] == '\n' }.map { it + 1 }
+    val cells = snapshot.cells.mapNotNull { original ->
+        val cell = when {
+            original.to <= prefix -> original
+            original.from >= end -> original.copy(from = original.from + delta, to = original.to + delta)
+            original.from <= prefix && original.to >= end && !source.substring(prefix, source.length - suffix).contains('\n') -> original.copy(to = original.to + delta)
+            else -> return@mapNotNull null
+        }
+        if (cell.from < 0 || cell.to < cell.from || cell.to > source.length) return@mapNotNull null
+        val raw = source.substring(cell.from, cell.to)
+        val value = if (cell.format == "csv" && raw.startsWith('"') && raw.endsWith('"') && raw.length >= 2) raw.substring(1, raw.length - 1).replace("\"\"", "\"") else raw.replace("\\|", "|").replace("\\\\", "\\")
+        cell.copy(line = inlineLineAt(cell.from, starts), value = value)
+    }
+    return InlineSnapshot(source, lineStarts = starts, cells = cells)
+}
 fun inlineTables(snapshot: InlineSnapshot): List<InlineTable> {
     val lines = snapshot.cells.filter { it.format == "markdown" }.groupBy { it.line }
     val consumed = mutableSetOf<Int>(); val result = mutableListOf<InlineTable>()
