@@ -208,11 +208,12 @@ func inlineLineAt(_ offset: Int, starts: [Int]) -> Int {
     return max(0, low - 1)
 }
 // Local lexical colors need only the language hint, never an invented file URI.
+// Container bodies are shell programs, just like exec bodies; their names do not imply file ownership.
 func inlineSyntaxMarks(_ source: String, path: String) -> [InlineMark] {
     let markdown = ["md", "markdown"].contains((path as NSString).pathExtension.lowercased())
     let known = Set(["python", "py", "javascript", "js", "typescript", "ts", "jsx", "tsx", "rust", "rs", "go", "c", "cpp", "java", "cs", "kotlin", "kt", "swift", "ruby", "rb", "sh", "bash", "json", "yaml", "yml", "toml", "sql", "css", "html", "xml", "php"])
     let keywords = Set("and as assert async await break case catch class const continue def default del do elif else enum except export extends false False finally fn for from fun func function global if impl import in interface is lambda let match module mut new nil None not null or package pass private public raise return self static struct super switch this throw trait true True try type typeof use val var void when while with yield".split(separator: " ").map(String.init))
-    let open = try! NSRegularExpression(pattern: #"^\s*<[\w.-]+:(file|copy|cut|exec|entry|patch|diagram|math|table)\b[^>]*>"#)
+    let open = try! NSRegularExpression(pattern: #"^\s*<[\w.-]+:(file|copy|cut|exec|container|entry|patch|diagram|math|table)\b[^>]*>"#)
     let hint = try! NSRegularExpression(pattern: #"\b(language|path)\s*=\s*["']([^"']+)["']"#)
     var result: [InlineMark] = [], fence = "", payload = "", language = markdown ? "" : (path as NSString).pathExtension.lowercased(), offset = 0
     for row in source.components(separatedBy: "\n") {
@@ -229,7 +230,7 @@ func inlineSyntaxMarks(_ source: String, path: String) -> [InlineMark] {
                     language = String(row[marker.upperBound...]).split(whereSeparator: { $0.isWhitespace }).first.map(String.init)?.lowercased() ?? ""; continue
                 }
                 if let match = open.firstMatch(in: row, range: NSRange(location: 0, length: text.length)) {
-                    payload = text.substring(with: match.range(at: 1)); language = payload == "exec" ? "sh" : ""
+                    payload = text.substring(with: match.range(at: 1)); language = ["exec", "container"].contains(payload) ? "sh" : ""
                     let hints = hint.matches(in: row, range: match.range)
                     for item in hints {
                         let value = text.substring(with: item.range(at: 2)).lowercased()
@@ -259,7 +260,7 @@ func inlineSyntaxMarks(_ source: String, path: String) -> [InlineMark] {
     return result
 }
 func inlineDiagrams(_ source: String) -> [InlineDiagram] {
-    let open = try! NSRegularExpression(pattern: #"^ {0,3}<[\w.-]+:(file|copy|cut|exec|entry|patch|diagram|math|table)\b[^>]*>"#)
+    let open = try! NSRegularExpression(pattern: #"^ {0,3}<[\w.-]+:(file|copy|cut|exec|container|entry|patch|diagram|math|table)\b[^>]*>"#)
     let renderer = try! NSRegularExpression(pattern: #"\brenderer\s*=\s*["']([^"']+)["']"#)
     var result: [InlineDiagram] = [], offset = 0, fence = "", payload = "", bodyStart = 0, blockStart = 0, blockLine = 0, engine = "mermaid"
     for (line, row) in source.components(separatedBy: "\n").enumerated() {

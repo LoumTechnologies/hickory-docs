@@ -113,6 +113,12 @@ final class ParityTests: XCTestCase {
         XCTAssertTrue(editor.text.subviews.contains { $0 is NSHostingView<NativeDiagramPreview> })
     }
     #endif
+    func testContainerShellSyntax() {
+        let source = "<h:container name=\"dev\">\n# setup\necho \"ready\"\n</h:container>"
+        let marks = inlineSyntaxMarks(source, path: "workbook.md")
+        XCTAssertTrue(marks.contains { $0.kind == "syntax-comment" })
+        XCTAssertTrue(marks.contains { $0.kind == "syntax-string" })
+    }
     func testFencedCodeHasLocalSyntaxWithoutInventedFileContext() {
         // Contract: .hickory-source/frontends/contract.md
         let source = "def is prose here\n```python\ndef coupon():\n    return \"café 😀\" # note\n```\n```unknown\ndef literal(): pass\n```"

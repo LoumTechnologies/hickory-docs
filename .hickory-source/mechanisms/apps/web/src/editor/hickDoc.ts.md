@@ -1004,6 +1004,8 @@ export function languageForBlock(
   switch (block.name) {
     case "file":
       return normalizeLanguage(block.attrs.language) ?? languageFromPath(block.attrs.path);
+    // Container setup commands use the same shell grammar as exec scripts.
+    case "container":
     case "exec":
       return "shellscript";
     // A session's executed script: `<hick:action lang="bash">`. Highlighting

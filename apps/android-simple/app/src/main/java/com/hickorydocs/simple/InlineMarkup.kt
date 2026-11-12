@@ -172,7 +172,7 @@ fun inlineSyntaxMarks(source: String, path: String): List<InlineMark> {
     val markdown = path.substringAfterLast('.').lowercase() in listOf("md", "markdown")
     val known = setOf("python", "py", "javascript", "js", "typescript", "ts", "jsx", "tsx", "rust", "rs", "go", "c", "cpp", "java", "cs", "kotlin", "kt", "swift", "ruby", "rb", "sh", "bash", "json", "yaml", "yml", "toml", "sql", "css", "html", "xml", "php")
     val keywords = "and as assert async await break case catch class const continue def default del do elif else enum except export extends false False finally fn for from fun func function global if impl import in interface is lambda let match module mut new nil None not null or package pass private public raise return self static struct super switch this throw trait true True try type typeof use val var void when while with yield".split(' ').toSet()
-    val open = Regex("""^\s*<[\w.-]+:(file|copy|cut|exec|entry|patch|diagram|math|table)\b[^>]*>""")
+    val open = Regex("""^\s*<[\w.-]+:(file|copy|cut|exec|container|entry|patch|diagram|math|table)\b[^>]*>""")
     val hint = Regex("""\b(language|path)\s*=\s*["']([^"']+)["']""")
     val result = mutableListOf<InlineMark>()
     var fence = ""; var payload = ""; var language = if (markdown) "" else path.substringAfterLast('.').lowercase(); var offset = 0
@@ -188,7 +188,7 @@ fun inlineSyntaxMarks(source: String, path: String): List<InlineMark> {
                 if (marker != null) { fence = marker.value.trim(); language = row.substring(marker.range.last + 1).trim().substringBefore(' ').lowercase(); continue }
                 val match = open.find(row)
                 if (match != null) {
-                    payload = match.groupValues[1]; language = if (payload == "exec") "sh" else ""
+                    payload = match.groupValues[1]; language = if (payload in listOf("exec", "container")) "sh" else ""
                     for (item in hint.findAll(match.value)) {
                         val value = item.groupValues[2].lowercase()
                         if (item.groupValues[1] == "language") { language = value; break }
@@ -211,7 +211,7 @@ fun inlineSyntaxMarks(source: String, path: String): List<InlineMark> {
     return result
 }
 fun inlineDiagrams(source: String): List<InlineDiagram> {
-    val open = Regex("""^ {0,3}<[\w.-]+:(file|copy|cut|exec|entry|patch|diagram|math|table)\b[^>]*>""")
+    val open = Regex("""^ {0,3}<[\w.-]+:(file|copy|cut|exec|container|entry|patch|diagram|math|table)\b[^>]*>""")
     val renderer = Regex("""\brenderer\s*=\s*["']([^"']+)["']""")
     val result = mutableListOf<InlineDiagram>()
     var offset = 0; var fence = ""; var payload = ""; var bodyStart = 0; var blockStart = 0; var blockLine = 0; var engine = "mermaid"
