@@ -271,7 +271,7 @@ Related contracts: [A Watched Cell Shows What The Terminal Showed](contract.md).
 // @vitest-environment jsdom
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { WatchingTerminal } from "./WatchingTerminal";
+import { InlineTerminal, WatchingTerminal } from "./WatchingTerminal";
 import type { TranscriptEvent } from "../api/types";
 
 afterEach(cleanup);
@@ -329,6 +329,22 @@ async function settle(): Promise<void> {
 ### `expression_statement`
 
 <storycode:copy id="f-408e9d7c624e-expression_statement-2">
+describe("shared inline terminal", () => {
+  it("renders expected and captured bytes with ANSI and carriage returns, without stream labels", async () => {
+    const bytes = "\x1b[31mred\x1b[0m\nworking\rdone   ";
+    const ui = render(<InlineTerminal text={bytes} label="Expected output terminal" />);
+    await settle();
+    expect(ui.getByLabelText("Expected output terminal")).toBeTruthy();
+    expect(screenOf(ui.container)).toEqual(expect.arrayContaining(["red", "done"]));
+    expect(ui.container.textContent).not.toContain("[stdout]");
+    expect(ui.container.textContent).not.toContain("[stderr]");
+    ui.rerender(<InlineTerminal text={"changed\n"} label="Output terminal" />);
+    await settle();
+    expect(screenOf(ui.container)).toContain("changed");
+    expect(screenOf(ui.container)).not.toContain("red");
+  });
+});
+
 describe("WatchingTerminal", () => {
   it("interprets ANSI instead of showing it — the reason it is not a text card", async () => {
     const events: TranscriptEvent[] = [
@@ -477,7 +493,7 @@ rather than by policy.
 // document does not have, and this one cannot be typed into by construction
 // rather than by policy.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
@@ -507,6 +523,16 @@ const FALLBACK_COLS = 80;
 ### `WatchingTerminal`
 
 <storycode:copy id="f-8f16bf6c8702-WatchingTerminal">
+// Captured and expected bytes share a screen, not a claim that a run matched.
+// Keep channel/source metadata outside the stream: it must never become output.
+export function InlineTerminal({ text = "", events, live, label = "Output terminal" }: { text?: string; events?: TranscriptEvent[]; live?: boolean; label?: string }) {
+  const bytes = useMemo<TranscriptEvent[]>(() => events?.filter(event => event.kind === "out" || event.kind === "err") ?? [{ t: 0, kind: "out", data: text }], [text, events]);
+  return <section className="inline-output-terminal" aria-label={label} contentEditable={false} style={{ background: "#10151d", color: "#e6edf3", border: "1px solid #354152", borderRadius: 6, overflow: "hidden", margin: "4px 0", colorScheme: "dark", "--term-bg": "#10151d", "--term-fg": "#e6edf3" } as import("react").CSSProperties}>
+    <div aria-hidden="true" style={{ display: "flex", gap: 8, alignItems: "center", padding: "5px 9px", background: "#1d2633", borderBottom: "1px solid #354152", font: "11px ui-monospace, monospace" }}><span>›_</span><span>Terminal</span></div>
+    <div style={{ padding: 8 }}><WatchingTerminal events={bytes} live={live} /></div>
+  </section>;
+}
+
 export function WatchingTerminal({
   events,
   live = false,
@@ -524,6 +550,7 @@ export function WatchingTerminal({
   // changing it retroactively means the screen no longer matches the bytes.
   const writtenRef = useRef(0);
   const promptsRef = useRef(false);
+  const streamRef = useRef<TranscriptEvent[]>([]);
 
   useEffect(() => {
     const mount = host.current;
@@ -580,7 +607,13 @@ export function WatchingTerminal({
     // (a re-run starting over) and the `$ ` rule flipping when a cell's
     // second command arrives. A terminal cannot edit what it already printed,
     // so the honest answer is to print it again.
-    if (events.length < writtenRef.current || prompts !== promptsRef.current) {
+    const rewritten = events.slice(0, writtenRef.current).some((event, index) => {
+      const before = streamRef.current[index];
+      return !before || event.kind !== before.kind || event.t !== before.t ||
+        (event.kind === "exit" ? before.kind !== "exit" || event.code !== before.code : before.kind === "exit" || event.data !== before.data);
+    });
+    streamRef.current = events;
+    if (rewritten || events.length < writtenRef.current || prompts !== promptsRef.current) {
       emulator.reset();
       writtenRef.current = 0;
       promptsRef.current = prompts;

@@ -260,24 +260,34 @@ func inlineSyntaxMarks(_ source: String, path: String) -> [InlineMark] {
     return result
 }
 func inlineDiagrams(_ source: String) -> [InlineDiagram] {
-    let open = try! NSRegularExpression(pattern: #"^ {0,3}<[\w.-]+:(file|copy|cut|exec|container|entry|patch|diagram|math|table)\b[^>]*>"#)
+    let open = try! NSRegularExpression(pattern: #"^ {0,3}<[\w.-]+:(file|copy|cut|exec|container|entry|patch|diagram|math|table|expect)\b[^>]*>"#)
     let renderer = try! NSRegularExpression(pattern: #"\brenderer\s*=\s*["']([^"']+)["']"#)
-    var result: [InlineDiagram] = [], offset = 0, fence = "", payload = "", bodyStart = 0, blockStart = 0, blockLine = 0, engine = "mermaid"
+    var result: [InlineDiagram] = [], offset = 0, fence = "", payload = "", bodyStart = 0, blockStart = 0, blockLine = 0, engine = "mermaid", inExec = false, renderable = false
     for (line, row) in source.components(separatedBy: "\n").enumerated() {
         let text = row as NSString, trimmed = row.trimmingCharacters(in: .whitespacesAndNewlines)
         defer { offset += text.length + 1 }
         if !fence.isEmpty { if trimmed.count >= fence.count, trimmed.allSatisfy({ $0 == fence.first! }) { fence = "" }; continue }
         if payload.isEmpty {
-            if let marker = row.range(of: #"^ {0,3}(`{3,}|~{3,})"#, options: .regularExpression) { fence = String(row[marker]).trimmingCharacters(in: .whitespaces); continue }
+            if inExec && trimmed.hasPrefix("</") && trimmed.contains(":exec>") { inExec = false; continue }
+            if !inExec, let marker = row.range(of: #"^ {0,3}(`{3,}|~{3,})"#, options: .regularExpression) { fence = String(row[marker]).trimmingCharacters(in: .whitespaces); continue }
             guard let match = open.firstMatch(in: row, range: NSRange(location: 0, length: text.length)) else { continue }
-            payload = text.substring(with: match.range(at: 1)); blockStart = offset; blockLine = line; bodyStart = offset + NSMaxRange(match.range)
+            payload = text.substring(with: match.range(at: 1))
+            if payload == "exec" { inExec = !trimmed.hasSuffix("/>"); payload = ""; continue }
+            renderable = payload == "expect" || payload == "diagram" && !inExec
+            blockStart = offset; blockLine = line; bodyStart = offset + NSMaxRange(match.range)
             engine = renderer.firstMatch(in: row, range: match.range).map { text.substring(with: $0.range(at: 1)) } ?? "mermaid"
-            if trimmed.hasSuffix("/>") { payload = ""; continue }
+            if payload == "expect" { engine = "terminal" }
+            if trimmed.hasSuffix("/>") {
+                if payload == "expect" { result.append(InlineDiagram(line: line, range: NSRange(location: offset, length: text.length), body: "", renderer: "terminal")) }
+                payload = ""; continue
+            }
         }
         if let close = row.range(of: "</"), row[close.lowerBound...].contains(":" + payload + ">") {
             let bodyEnd = offset + row[..<close.lowerBound].utf16.count
-            if payload == "diagram", bodyEnd >= bodyStart {
-                result.append(InlineDiagram(line: blockLine, range: NSRange(location: blockStart, length: offset + text.length - blockStart), body: (source as NSString).substring(with: NSRange(location: bodyStart, length: bodyEnd - bodyStart)), renderer: engine))
+            if renderable, bodyEnd >= bodyStart {
+                var body = (source as NSString).substring(with: NSRange(location: bodyStart, length: bodyEnd - bodyStart))
+                if payload == "expect" { body = body.replacingOccurrences(of: "^\\r?\\n", with: "", options: .regularExpression) }
+                result.append(InlineDiagram(line: blockLine, range: NSRange(location: blockStart, length: offset + text.length - blockStart), body: body, renderer: engine))
             }
             payload = ""
         }

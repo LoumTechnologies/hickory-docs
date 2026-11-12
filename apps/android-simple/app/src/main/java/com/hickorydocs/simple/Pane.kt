@@ -28,6 +28,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Size
@@ -386,6 +387,19 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
         removed += range.to - range.from - 2
     }
     return displayOffset + removed
+}
+
+// A terminal screen has no stdin path. Expectations and captured bytes use
+// the same renderer; editing an expectation goes back to its guarded source.
+@Composable private fun NativeInlineTerminal(text: String, modifier: Modifier = Modifier, editSource: (() -> Unit)? = null) {
+    Column(modifier.background(androidx.compose.ui.graphics.Color(0xff10151d), androidx.compose.foundation.shape.RoundedCornerShape(6.dp)).border(1.dp, androidx.compose.ui.graphics.Color(0xff354152), androidx.compose.foundation.shape.RoundedCornerShape(6.dp)).clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp)).semantics { contentDescription = "Output terminal" }) {
+        Row(Modifier.fillMaxWidth().background(androidx.compose.ui.graphics.Color(0xff1d2633)).padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Text("›_  Terminal", color = androidx.compose.ui.graphics.Color(0xffe6edf3), fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+            Spacer(Modifier.weight(1f))
+            if (editSource != null) Text("Edit source text", color = androidx.compose.ui.graphics.Color(0xffe6edf3), fontSize = 11.sp, modifier = Modifier.clickable(onClick = editSource))
+        }
+        NativeMathView(text, Modifier.fillMaxWidth().weight(1f), diagramRenderer = "terminal")
+    }
 }
 
 // One projection drives the text field, line numbers, debugger rail and grid anchors.
@@ -830,9 +844,7 @@ private data class GridCaretRequest(val row: Int, val column: Int, val x: Float,
                 val start = debugLineOffset(source, line) ?: return@forEach
                 val end = source.indexOf('\n', start).let { if (it < 0) source.length else it }
                 val top = layout.getLineBottom(layout.getLineForOffset(editorDisplayOffset(end, replacements))) - scroll.value
-                androidx.compose.foundation.text.selection.SelectionContainer(Modifier.offset { IntOffset(0, top.toInt() + with(density) { 8.dp.roundToPx() }) }.padding(horizontal = 8.dp).fillMaxWidth().height(180.dp).background(MaterialTheme.colorScheme.surfaceContainer).verticalScroll(rememberScrollState()).horizontalScroll(rememberScrollState()).semantics { contentDescription = "Run stdout and stderr" }) {
-                    Text(output, fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.padding(6.dp))
-                }
+                NativeInlineTerminal(output, Modifier.offset { IntOffset(0, top.toInt() + with(density) { 8.dp.roundToPx() }) }.padding(horizontal = 8.dp).fillMaxWidth().height(180.dp))
             }
             if (layout != null && layout.layoutInput.text.text == display && inline.source == source) inline.equations.groupBy { it.line }.values.forEach { equations ->
                 val end = source.indexOf('\n', equations.first().to).let { if (it < 0) source.length else it }
@@ -848,12 +860,13 @@ private data class GridCaretRequest(val row: Int, val column: Int, val x: Float,
                 val last = layout.getLineForOffset(anchor + replacement.text.length - 1)
                 val top = layout.getLineTop(first) - scroll.value
                 val height = layout.getLineBottom(last) - layout.getLineTop(first)
-                Column(Modifier.offset { IntOffset(0, top.toInt() + with(density) { 8.dp.roundToPx() }) }.padding(horizontal = 8.dp).fillMaxWidth().height(with(density) { height.toDp() }).background(MaterialTheme.colorScheme.surface)) {
+                if (diagram.renderer == "terminal") NativeInlineTerminal(diagram.body, Modifier.offset { IntOffset(0, top.toInt() + with(density) { 8.dp.roundToPx() }) }.padding(horizontal = 8.dp).fillMaxWidth().height(with(density) { height.toDp() }), editSource = { buffer.sourceTable = diagram.from })
+                else Column(Modifier.offset { IntOffset(0, top.toInt() + with(density) { 8.dp.roundToPx() }) }.padding(horizontal = 8.dp).fillMaxWidth().height(with(density) { height.toDp() }).background(MaterialTheme.colorScheme.surface)) {
                     OutlinedButton(onClick = { buffer.sourceTable = diagram.from }) { Text("Edit source text", fontSize = 12.sp) }
                     NativeMathView(diagram.body, Modifier.fillMaxWidth().weight(1f), diagramRenderer = diagram.renderer)
                 }
             }
-            if (inline.diagrams.any { it.from == buffer.sourceTable }) OutlinedButton(onClick = { buffer.sourceTable = null }) { Text("Render diagram", fontSize = 12.sp) }
+            if (inline.diagrams.any { it.from == buffer.sourceTable }) OutlinedButton(onClick = { buffer.sourceTable = null }) { Text(if (inline.diagrams.firstOrNull { it.from == buffer.sourceTable }?.renderer == "terminal") "Render terminal" else "Render diagram", fontSize = 12.sp) }
             if ((buffer.tableSourceVisible || buffer.sourceTable != null) && inlineTables(inline).isNotEmpty()) OutlinedButton(onClick = { buffer.sourceTable = null; buffer.tableSourceVisible = false }) { Text("Edit tables as grids", fontSize = 12.sp) }
             }
             Canvas(Modifier.width(40.dp).fillMaxHeight().semantics {
@@ -1062,7 +1075,7 @@ fun debugLineOffset(source: String, line: Int): Int? {
                                 Text(receipt.optString("command"), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
                                 val transcript = receipt.optJSONArray("transcript") ?: org.json.JSONArray()
                                 val output = if (receipt.has("recorded_output")) receipt.optString("recorded_output") else (0 until transcript.length()).map { transcript.getJSONObject(it) }.filter { it.optString("kind") in listOf("out", "err") }.joinToString("") { it.optString("data") }
-                                Text(output.take(50_000), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                                NativeInlineTerminal(output.take(50_000), Modifier.fillMaxWidth().height(180.dp))
                                 if (output.length > 50_000) Text("Output truncated in this control.", fontSize = 11.sp)
                             }
                             if (buffer.receiptNotice.isNotEmpty()) Text(buffer.receiptNotice, fontSize = 12.sp)

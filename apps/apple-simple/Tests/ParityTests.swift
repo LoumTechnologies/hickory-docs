@@ -97,6 +97,13 @@ final class ParityTests: XCTestCase {
         XCTAssertTrue(editor.text.subviews.contains { $0 is NSHostingView<NativeDiagramPreview> })
     }
     #endif
+    func testExpectationsShareTerminalPreviewWithoutScanningLiteralExamples() {
+        let source = "<h:exec>\necho hi\n<h:diagram>inert</h:diagram>\n<h:expect>\nhi\n</h:expect>\n</h:exec>\n<h:expect/>\n<h:file path=\"example.md\">\n<h:expect>inert</h:expect>\n</h:file>"
+        let blocks = computeInlineMarkup(source, path: "book.md").diagrams
+        XCTAssertEqual(blocks.map(\.renderer), ["terminal", "terminal"])
+        XCTAssertEqual(blocks.first?.body, "hi\n"); XCTAssertEqual(blocks.last?.body, "")
+        XCTAssertEqual((source as NSString).substring(with: blocks[0].range), "<h:expect>\nhi\n</h:expect>")
+    }
     func testContainerShellSyntax() {
         let source = "<h:container name=\"dev\">\n# setup\necho \"ready\"\n</h:container>"
         let marks = inlineSyntaxMarks(source, path: "workbook.md")
@@ -648,6 +655,25 @@ final class ParityTests: XCTestCase {
         XCTAssertFalse(validSourceEdits([NativeSourceEdit(range: NSRange(location: 4, length: 20), text: "")], length: 5))
     }
     #if os(macOS)
+    @MainActor func testNativeOutputTerminalUsesBundledEmulator() async throws {
+        guard ProcessInfo.processInfo.environment["HICKORY_NATIVE_WEBVIEW_TEST"] == "1" else { throw XCTSkip("Enable the focused native WebKit witness explicitly") }
+        let coordinator = MathCoordinator(); coordinator.diagramRenderer = "terminal"
+        coordinator.source = "\u{1b}[31mred\u{1b}[0m\nworking\rdone   \n<img src=x>"
+        let view = makeMathView(coordinator)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = view; window.orderFront(nil); defer { view.stopLoading(); window.orderOut(nil) }
+        var screen = ""
+        for _ in 0..<100 {
+            if coordinator.ready { screen = (try? await view.evaluateJavaScript("typeof outputTerminal === 'undefined' || !outputTerminal ? '' : Array.from({length:outputTerminal.buffer.active.length},(_,i)=>outputTerminal.buffer.active.getLine(i).translateToString(true)).join('\\n')")) as? String ?? "" }
+            if screen.contains("red") && screen.contains("done") { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let status = (try? await view.evaluateJavaScript("document.getElementById('status').textContent")) as? String ?? ""
+        XCTAssertTrue(screen.contains("red") && screen.contains("done"), "Terminal did not render: \(status); screen: \(screen); ready: \(coordinator.ready)")
+        XCTAssertFalse(screen.contains("[stdout]")); XCTAssertFalse(screen.contains("\u{1b}"))
+        let images = try await view.evaluateJavaScript("document.querySelectorAll('img').length") as? Int
+        XCTAssertEqual(images, 0)
+    }
     @MainActor func testNativeEquationTypesetter() async throws {
         guard ProcessInfo.processInfo.environment["HICKORY_NATIVE_WEBVIEW_TEST"] == "1" else { throw XCTSkip("Enable the focused native WebKit witness explicitly") }
         let coordinator = MathCoordinator(); coordinator.source = "x^2 + 1"

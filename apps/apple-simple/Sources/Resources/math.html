@@ -1,9 +1,9 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'nonce-hickory-math'; style-src 'self' 'unsafe-inline'; font-src 'self' data:;">
-<link rel="stylesheet" href="katex/katex.min.css"><style>html{color-scheme:light dark;font:14px system-ui}body{margin:8px}#formula{overflow:auto;padding:8px}#status{font-size:11px}</style>
+<link rel="stylesheet" href="node_modules/xterm.css"><link rel="stylesheet" href="katex/katex.min.css"><style>html{height:100%;color-scheme:light dark;font:14px system-ui}body{margin:8px}body.terminal-mode{color-scheme:dark;height:100%;margin:0;background:#10151d;color:#e6edf3;overflow:hidden}.terminal-mode #formula{height:100%;box-sizing:border-box;padding:6px;overflow:hidden}.terminal-mode .xterm-cursor-layer{display:none}#formula{overflow:auto;padding:8px}#status{font-size:11px}</style>
 </head><body><div id="formula" aria-label="Typeset equation"></div><div id="status" role="status"></div>
-<script nonce="hickory-math" src="katex/katex.min.js"></script><script nonce="hickory-math" src="node_modules/mermaid.min.js"></script><script nonce="hickory-math">
+<script nonce="hickory-math" src="node_modules/xterm.js"></script><script nonce="hickory-math" src="node_modules/addon-fit.js"></script><script nonce="hickory-math" src="katex/katex.min.js"></script><script nonce="hickory-math" src="node_modules/mermaid.min.js"></script><script nonce="hickory-math">
 globalThis.renderMath = function (formula) {
   const node = document.getElementById('formula'), status = document.getElementById('status');
   node.textContent = formula;
@@ -11,6 +11,29 @@ globalThis.renderMath = function (formula) {
   if (formula.length > 4000) { status.textContent = 'Equation is too large to typeset here. Its source remains editable.'; return; }
   try { katex.render(formula, node, {throwOnError:false, trust:false, strict:'warn', displayMode:true, maxExpand:1000}); status.textContent = ''; }
   catch (_) { node.textContent = formula; status.textContent = 'Check the LaTeX expression.'; }
+};
+// This screen has no input binding and never executes expected/output bytes.
+let outputTerminal, outputFit, outputBytes = '', outputResize;
+globalThis.renderTerminal = function (source) {
+  const node = document.getElementById('formula'), status = document.getElementById('status');
+  document.body.classList.add('terminal-mode'); status.textContent = '';
+  if (!globalThis.Terminal) { node.textContent = source; status.textContent = 'Terminal renderer unavailable. Prepare resources and rebuild.'; return; }
+  try {
+  if (!outputTerminal) {
+    node.replaceChildren();
+    outputTerminal = new Terminal({ disableStdin:true, convertEol:true, cursorBlink:false, screenReaderMode:true, fontSize:12, fontFamily:'ui-monospace, monospace', rows:6, cols:80, scrollback:5000, theme:{background:'#10151d',foreground:'#e6edf3'} });
+    outputFit = new FitAddon.FitAddon(); outputTerminal.loadAddon(outputFit); outputTerminal.open(node);
+    outputResize = new ResizeObserver(() => { if (node.clientWidth && node.clientHeight) outputFit.fit(); }); outputResize.observe(node);
+  }
+  const append = source.startsWith(outputBytes);
+  if (!append) outputTerminal.reset();
+  outputTerminal.write(append ? source.slice(outputBytes.length) : source, () => { if (node.clientWidth && node.clientHeight) outputFit.fit(); });
+  outputBytes = source;
+  } catch (error) {
+    outputResize?.disconnect(); try { outputTerminal?.dispose(); } catch (_) {}
+    outputTerminal = undefined; outputBytes = '';
+    node.textContent = source; status.textContent = 'Terminal unavailable: ' + (error.message || 'prepare resources and rebuild');
+  }
 };
 globalThis.renderDiagram = async function (source, renderer) {
   const node = document.getElementById('formula'), status = document.getElementById('status');

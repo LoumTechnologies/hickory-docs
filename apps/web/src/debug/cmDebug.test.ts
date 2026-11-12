@@ -390,8 +390,9 @@ describe("read-only output next to program source", () => {
       { category: "stderr", text: "warning\n" },
     ] }) });
     const output = view.dom.querySelector(".cm-run-output")!;
-    expect(output.textContent).toContain("[stdout (main.py:1)] hi");
-    expect(output.textContent).toContain("[stderr] warning");
+    expect(output.textContent).toContain("hi\nwarning\n");
+    expect(output.textContent).not.toContain("[stdout");
+    expect(output.textContent).not.toContain("[stderr");
     expect(output.getAttribute("contenteditable")).toBe("false");
     expect(view.state.doc.toString()).toBe(source);
     view.dispatch({ changes: { from: 0, insert: "# changed\n" } });

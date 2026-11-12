@@ -1,3 +1,4 @@
+import { InlineTerminal } from "../../terminal/WatchingTerminal";
 import { notebookOutputs } from "../../lib/notebookOutput";
 import { NotebookOutputs } from "../../components/NotebookOutputs";
 import type { ElementView } from "../types";
@@ -6,16 +7,13 @@ import type { ElementView } from "../types";
  * it no editing affordance: changing it would invalidate its `hash`. */
 export const outputView: ElementView = {
   kind: "output",
-  draws: (block) => block.name === "output",
+  draws: (block) => block.name === "output" || block.name === "expect",
   render(slot) {
     const rich = notebookOutputs(slot.text);
     return (
-      <section className="rounded border border-slate-200 bg-slate-50 p-3" data-hick-output>
-        <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-          Output
-        </div>
-        <pre className="m-0 overflow-auto whitespace-pre-wrap font-mono text-sm">{rich.text}</pre>
-        <NotebookOutputs outputs={rich.outputs} />
+      <section data-hick-output>
+        <InlineTerminal text={slot.sourceElement === "expect" ? slot.text.replace(/^\r?\n/, "") : rich.text} label={slot.sourceElement === "expect" ? "Expected output terminal" : "Output terminal"} />
+        {slot.sourceElement !== "expect" && <NotebookOutputs outputs={rich.outputs} />}
       </section>
     );
   },

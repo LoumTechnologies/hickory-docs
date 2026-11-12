@@ -25,7 +25,7 @@ import type { ExecBlock } from "../api/types";
 import { diffLines } from "../lib/diff";
 import { stdoutOf } from "../lib/transcript";
 import { StatusChip } from "./StatusChip";
-import { WatchingTerminal } from "../terminal/WatchingTerminal";
+import { InlineTerminal } from "../terminal/WatchingTerminal";
 
 function looksLikeSvg(s: string): boolean {
   const t = s.trim();
@@ -75,6 +75,8 @@ function IngestedChip({ ingested }: { ingested: NonNullable<ExecBlock["ingested"
 
 <storycode:copy id="f-c3c409b02e61-CellPanelProps">
 export interface CellPanelProps {
+  expectedOutput?: string;
+  showExpected?: boolean;
   /** The rendered exec block backing this cell (undefined until the server's
    * render catches up with a freshly typed cell). */
   block?: ExecBlock;
@@ -131,6 +133,8 @@ export function CellPanel({
   command,
   replay = false,
   recordedOutput,
+  expectedOutput,
+  showExpected = true,
 }: CellPanelProps) {
   const transcript = useMemo(() => (block?.transcript ?? []).map(event => event.kind === "cmd" && (event.data.startsWith('python3 -c "exec(bytes.fromhex(') || event.data === "python3 -" || event.data === "python -") ? { ...event, data: block?.command ?? event.data } : event), [block]);
   const savedOnly = !transcript.length && recordedOutput !== undefined;
@@ -165,6 +169,7 @@ export function CellPanel({
     return (
       <div className="cell-panel" data-testid="cell-panel-pending">
         {command !== undefined && <CommandLines command={command} />}
+        {showExpected && expectedOutput !== undefined && <InlineTerminal text={expectedOutput} label="Expected output terminal" />}
         <div className="cell-panel-bar">
           <span className="muted">Save this document before running the cell.</span>
         </div>
@@ -207,16 +212,17 @@ export function CellPanel({
           </pre>
         </div>
       )}
+      {showExpected && (expectedOutput ?? block.expect?.body) !== undefined && <InlineTerminal text={expectedOutput ?? block.expect!.body} label="Expected output terminal" />}
       {showTranscript && (
         // The watching binding of the one terminal component
         // (`docs/specs/freeform/a-terminal-that-writes-the-document.md`):
         // input none, writes nothing. It replaced a `<pre>` that showed a
         // build's escape sequences as literal text.
         <div className="transcript">
-          <WatchingTerminal events={displayTranscript} live={running} />
+          <InlineTerminal events={displayTranscript} live={running} />
         </div>
       )}
-      {savedOnly && !!rich.text.trim() && !svgFigure && <pre className="notebook-saved-text">{rich.text}</pre>}
+      {savedOnly && !!rich.text.trim() && !svgFigure && <InlineTerminal text={rich.text} />}
       {!running && rich.outputs.length > 0 && <NotebookOutputs outputs={rich.outputs} />}
       {svgFigure && !running && (
         <figure className="cell-figure"><img alt="Cell SVG output" src={`data:image/svg+xml,${encodeURIComponent(svgFigure)}`} /></figure>

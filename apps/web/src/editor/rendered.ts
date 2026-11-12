@@ -92,6 +92,8 @@ export interface RenderedSlot {
   span: [number, number];
   /** exec: the commands, with nested expect output removed. diagram: source. */
   text: string;
+  expectedOutput?: string;
+  sourceElement?: string;
   /** diagram only. */
   renderer: string;
   /** table only: the tag's own attributes, for the grid. */
@@ -313,6 +315,11 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
         kind === "exec"
           ? commandOf(state, structure, block)
           : doc.sliceString(block.contentFrom, block.contentTo),
+      sourceElement: block.name,
+      expectedOutput: kind === "exec" ? (() => {
+        const expected = structure.blocks.find(child => child.name === "expect" && child.from > block.from && child.to <= block.to);
+        return expected ? doc.sliceString(expected.contentFrom, expected.contentTo).replace(/^\r?\n/, "") : undefined;
+      })() : undefined,
       renderer: block.attrs.renderer ?? "mermaid",
       recordedOutput: savedOutput ? doc.sliceString(savedOutput.contentFrom, savedOutput.contentTo) : undefined,
       dataset: kind === "dataset" ? { src: block.attrs.src ?? "", format: block.attrs.format ?? "parquet" } : undefined,

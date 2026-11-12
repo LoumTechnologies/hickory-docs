@@ -16,7 +16,7 @@
 // document does not have, and this one cannot be typed into by construction
 // rather than by policy.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
@@ -32,6 +32,16 @@ const MAX_ROWS = 20;
 /** Columns to assume when the pane has no layout to measure — a hidden tab,
  * the first paint, or jsdom, which does no layout at all. */
 const FALLBACK_COLS = 80;
+
+// Captured and expected bytes share a screen, not a claim that a run matched.
+// Keep channel/source metadata outside the stream: it must never become output.
+export function InlineTerminal({ text = "", events, live, label = "Output terminal" }: { text?: string; events?: TranscriptEvent[]; live?: boolean; label?: string }) {
+  const bytes = useMemo<TranscriptEvent[]>(() => events?.filter(event => event.kind === "out" || event.kind === "err") ?? [{ t: 0, kind: "out", data: text }], [text, events]);
+  return <section className="inline-output-terminal" aria-label={label} contentEditable={false} style={{ background: "#10151d", color: "#e6edf3", border: "1px solid #354152", borderRadius: 6, overflow: "hidden", margin: "4px 0", colorScheme: "dark", "--term-bg": "#10151d", "--term-fg": "#e6edf3" } as import("react").CSSProperties}>
+    <div aria-hidden="true" style={{ display: "flex", gap: 8, alignItems: "center", padding: "5px 9px", background: "#1d2633", borderBottom: "1px solid #354152", font: "11px ui-monospace, monospace" }}><span>›_</span><span>Terminal</span></div>
+    <div style={{ padding: 8 }}><WatchingTerminal events={bytes} live={live} /></div>
+  </section>;
+}
 
 export function WatchingTerminal({
   events,
@@ -50,6 +60,7 @@ export function WatchingTerminal({
   // changing it retroactively means the screen no longer matches the bytes.
   const writtenRef = useRef(0);
   const promptsRef = useRef(false);
+  const streamRef = useRef<TranscriptEvent[]>([]);
 
   useEffect(() => {
     const mount = host.current;
@@ -106,7 +117,13 @@ export function WatchingTerminal({
     // (a re-run starting over) and the `$ ` rule flipping when a cell's
     // second command arrives. A terminal cannot edit what it already printed,
     // so the honest answer is to print it again.
-    if (events.length < writtenRef.current || prompts !== promptsRef.current) {
+    const rewritten = events.slice(0, writtenRef.current).some((event, index) => {
+      const before = streamRef.current[index];
+      return !before || event.kind !== before.kind || event.t !== before.t ||
+        (event.kind === "exit" ? before.kind !== "exit" || event.code !== before.code : before.kind === "exit" || event.data !== before.data);
+    });
+    streamRef.current = events;
+    if (rewritten || events.length < writtenRef.current || prompts !== promptsRef.current) {
       emulator.reset();
       writtenRef.current = 0;
       promptsRef.current = prompts;

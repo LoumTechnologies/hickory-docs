@@ -37,3 +37,15 @@ if mermaid.is_file():
         os.chmod(staged, 0o644)
         os.replace(staged, destination)
     print("Prepared local native diagram resources.")
+# Reuse the same emulator for program output and authored expectations.
+for package, original, name in [("@xterm/xterm", "lib/xterm.js", "xterm.js"), ("@xterm/xterm", "css/xterm.css", "xterm.css"), ("@xterm/addon-fit", "lib/addon-fit.js", "addon-fit.js")]:
+    original = ROOT / "apps/web/node_modules" / package / original
+    if not original.is_file():
+        print("Terminal assets missing. Run npm --prefix apps/web ci, then prepare resources again."); continue
+    destination = ROOT / "apps/apple-simple/Sources/Resources/node_modules" / name
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    data = original.read_bytes()
+    if not destination.is_file() or destination.read_bytes() != data:
+        with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as temporary:
+            temporary.write(data); staged = temporary.name
+        os.chmod(staged, 0o644); os.replace(staged, destination)

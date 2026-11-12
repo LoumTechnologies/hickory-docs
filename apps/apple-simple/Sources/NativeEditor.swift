@@ -774,7 +774,7 @@ private typealias DiagramHost = UIHostingController<NativeDiagramPreview>
             if (storage.attribute(.paragraphStyle, at: first.range.location, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacing != height + 8 { storage.addAttribute(.paragraphStyle, value: style, range: paragraph) }
             let preview: AnyView
             if let output = outputs[line] {
-                preview = AnyView(ScrollView([.horizontal, .vertical]) { Text(output).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(6) }.background(.quaternary.opacity(0.15)).accessibilityLabel("Run stdout and stderr"))
+                preview = AnyView(NativeInlineTerminal(text: output))
             } else { preview = AnyView(NativeMathView(source: values.map(\.body).joined(separator: " \\qquad "))) }
             let host: EquationHost
             if let existing = equationViews[line] { existing.rootView = preview; host = existing }
@@ -1191,7 +1191,7 @@ import UIKit
             if (storage.attribute(.paragraphStyle, at: first.range.location, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacing != height + 8 { storage.addAttribute(.paragraphStyle, value: style, range: paragraph) }
             let preview: AnyView
             if let output = outputs[line] {
-                preview = AnyView(ScrollView([.horizontal, .vertical]) { Text(output).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(6) }.background(.quaternary.opacity(0.15)).accessibilityLabel("Run stdout and stderr"))
+                preview = AnyView(NativeInlineTerminal(text: output))
             } else { preview = AnyView(NativeMathView(source: values.map(\.body).joined(separator: " \\qquad "))) }
             let host: EquationHost
             if let existing = equationViews[line] { existing.rootView = preview; host = existing }
@@ -1535,7 +1535,7 @@ struct LanguageEditor: View {
             }.frame(width: CGFloat(max(3, String(buffer.text.filter { $0 == "\n" }.count + 1).count)) * 8 + 12)
             NativeEditor(buffer: buffer).overlay(alignment: .topLeading) {
                 if let anchor = buffer.sourceTable, buffer.inlineMarkup.diagrams.contains(where: { $0.id == anchor }) {
-                    Button("Render diagram") { buffer.sourceTable = nil }.buttonStyle(.bordered).padding(4)
+                    Button(buffer.inlineMarkup.diagrams.first(where: { $0.id == anchor })?.renderer == "terminal" ? "Render terminal" : "Render diagram") { buffer.sourceTable = nil }.buttonStyle(.bordered).padding(4)
                 }
                 if (buffer.tableSourceVisible || buffer.sourceTable != nil) && !inlineTables(buffer.inlineMarkup).isEmpty {
                     Button("Edit tables as grids") { buffer.sourceTable = nil; buffer.tableSourceVisible = false }.buttonStyle(.bordered).padding(4)
@@ -1747,7 +1747,7 @@ struct NativeDebugRail: View {
                 Text("Recorded output · " + (receipt.status ?? "unrecorded")).font(.caption)
                 Text(receipt.command ?? "").font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                 let output = receipt.recorded_output ?? (receipt.transcript ?? []).filter { $0.kind == "out" || $0.kind == "err" }.compactMap(\.data).joined()
-                Text(String(output.prefix(50_000))).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                NativeInlineTerminal(text: String(output.prefix(50_000))).frame(height: 180)
                 if output.count > 50_000 { Text("Output truncated in this control.").font(.caption) }
             }
             if !buffer.receiptNotice.isEmpty { Text(buffer.receiptNotice).font(.caption) }

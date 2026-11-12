@@ -33,6 +33,8 @@ export const execView: ElementView = {
     return (
       <CellPanel
         block={block}
+        expectedOutput={slot.expectedOutput}
+        showExpected={!slot.outputOnly}
         recordedOutput={slot.recordedOutput ?? block?.recorded_output}
         running={running}
         command={slot.outputOnly ? undefined : slot.text}

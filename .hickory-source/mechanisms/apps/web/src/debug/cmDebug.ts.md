@@ -1152,15 +1152,35 @@ function lineAtEvent(view: EditorView, block: { from: number }, event: Event): n
 /** Output is presentation, never document text or a guessed execution trace. */
 export const setDebuggerOutput = StateEffect.define<{ events: { category: string; text: string; source?: string | null; line?: number | null }[]; program?: string | null; literate: boolean; path?: string }>();
 class RunOutput extends WidgetType {
+  private mounts = new Map<HTMLElement, { cancelled: boolean; root?: import("react-dom/client").Root; observer?: ResizeObserver }>();
   constructor(readonly text: string) { super(); }
   eq(other: RunOutput) { return other.text === this.text; }
-  toDOM() {
-    const block = document.createElement("pre"); block.className = "cm-run-output";
-    block.setAttribute("aria-label", "Run stdout and stderr"); block.setAttribute("role", "region");
-    block.setAttribute("contenteditable", "false"); block.textContent = this.text; return block;
+  toDOM(view: EditorView) {
+    const block = document.createElement("div"); block.className = "cm-run-output";
+    block.setAttribute("aria-label", "Output terminal"); block.setAttribute("role", "region");
+    block.setAttribute("contenteditable", "false");
+    const heading = document.createElement("div"); heading.className = "inline-terminal-heading"; heading.textContent = "›_  Terminal";
+    const fallback = document.createElement("pre"); fallback.textContent = this.text;
+    block.append(heading, fallback);
+    const mount = { cancelled: false } as { cancelled: boolean; root?: import("react-dom/client").Root; observer?: ResizeObserver };
+    this.mounts.set(block, mount);
+    mount.observer = new ResizeObserver(() => view.requestMeasure()); mount.observer.observe(block);
+    // Terminal capability loads after the output is already readable.
+    void Promise.all([import("react-dom/client"), import("react"), import("../terminal/WatchingTerminal")]).then(([react, { createElement }, { InlineTerminal }]) => {
+      if (mount.cancelled) return;
+      block.replaceChildren(); mount.root = react.createRoot(block);
+      mount.root.render(createElement(InlineTerminal, { text: this.text }));
+    }).catch(() => { /* Keep readable output if the optional emulator cannot load. */ });
+    return block;
+  }
+  destroy(dom: HTMLElement) {
+    const mount = this.mounts.get(dom); if (!mount) return;
+    mount.cancelled = true; mount.observer?.disconnect(); this.mounts.delete(dom);
+    if (mount.root) queueMicrotask(() => mount.root?.unmount());
   }
   ignoreEvent() { return true; }
 }
+
 const runOutputField = StateField.define<DecorationSet>({
   create: () => Decoration.none,
   update(value, tr) {
@@ -1173,8 +1193,7 @@ const runOutputField = StateField.define<DecorationSet>({
         const line = event.line == null || literate && event.source !== path ? null : tr.state.doc.line(Math.max(1, Math.min(tr.state.doc.lines, event.line + 1)));
         const owner = blocks.find(block => line && line.from >= block.contentFrom && line.from <= block.contentTo) ?? blocks.find(block => block.attrs.path === program);
         const at = owner ? tr.state.doc.lineAt(owner.to).to : tr.state.doc.length;
-        const location = event.source && event.line != null ? ` (${event.source}:${event.line + 1})` : "";
-        groups.set(at, [...(groups.get(at) ?? []), `[${event.category}${location}] ${event.text}`]);
+        groups.set(at, [...(groups.get(at) ?? []), event.text]);
       }
       value = Decoration.set([...groups].sort(([a], [b]) => a - b).map(([at, chunks]) => Decoration.widget({ widget: new RunOutput(chunks.join("")), block: true, side: 1 }).range(at)));
     }
@@ -1771,8 +1790,9 @@ describe("read-only output next to program source", () => {
       { category: "stderr", text: "warning\n" },
     ] }) });
     const output = view.dom.querySelector(".cm-run-output")!;
-    expect(output.textContent).toContain("[stdout (main.py:1)] hi");
-    expect(output.textContent).toContain("[stderr] warning");
+    expect(output.textContent).toContain("hi\nwarning\n");
+    expect(output.textContent).not.toContain("[stdout");
+    expect(output.textContent).not.toContain("[stderr");
     expect(output.getAttribute("contenteditable")).toBe("false");
     expect(view.state.doc.toString()).toBe(source);
     view.dispatch({ changes: { from: 0, insert: "# changed\n" } });

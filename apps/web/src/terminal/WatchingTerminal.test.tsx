@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { WatchingTerminal } from "./WatchingTerminal";
+import { InlineTerminal, WatchingTerminal } from "./WatchingTerminal";
 import type { TranscriptEvent } from "../api/types";
 
 afterEach(cleanup);
@@ -28,6 +28,22 @@ function screenOf(root: HTMLElement): string[] {
 async function settle(): Promise<void> {
   await new Promise((r) => setTimeout(r, 30));
 }
+
+describe("shared inline terminal", () => {
+  it("renders expected and captured bytes with ANSI and carriage returns, without stream labels", async () => {
+    const bytes = "\x1b[31mred\x1b[0m\nworking\rdone   ";
+    const ui = render(<InlineTerminal text={bytes} label="Expected output terminal" />);
+    await settle();
+    expect(ui.getByLabelText("Expected output terminal")).toBeTruthy();
+    expect(screenOf(ui.container)).toEqual(expect.arrayContaining(["red", "done"]));
+    expect(ui.container.textContent).not.toContain("[stdout]");
+    expect(ui.container.textContent).not.toContain("[stderr]");
+    ui.rerender(<InlineTerminal text={"changed\n"} label="Output terminal" />);
+    await settle();
+    expect(screenOf(ui.container)).toContain("changed");
+    expect(screenOf(ui.container)).not.toContain("red");
+  });
+});
 
 describe("WatchingTerminal", () => {
   it("interprets ANSI instead of showing it — the reason it is not a text card", async () => {

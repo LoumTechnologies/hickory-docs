@@ -334,12 +334,28 @@ describe("simple inline rich editing", () => {
       expect(view.state.doc.toString()).toBe(source);
     } finally { screen.unmount(); }
   }, 15000);
+  it("renders an authored expectation with the same terminal before any run exists", async () => {
+    const { execView } = await import("../elements/exec/view");
+    const slot = { span: [0, 20], index: 0, at: 0, text: "echo hello", expectedOutput: "hello\n", outputOnly: false } as import("../editor/rendered").RenderedSlot;
+    const context = { execBlocks: [], runningCells: new Set<string>(), replaying: [] } as unknown as import("../elements/types").SlotContext;
+    const ui = render(execView.render(slot, context));
+    try {
+      expect(ui.getByLabelText("Expected output terminal")).toBeTruthy();
+      await waitFor(() => expect([...ui.container.querySelectorAll(".xterm-rows > div")].map(row => row.textContent).join("\n")).toContain("hello"));
+      expect(ui.container.textContent).not.toContain("Expected output matches");
+      expect(ui.container.textContent).not.toContain("[stdout]");
+    } finally { ui.unmount(); }
+  });
   it("shows cached stdout when timed transcript events are absent", async () => {
     const { execView } = await import("../elements/exec/view");
     const slot = { span: [0, 20], index: 0, at: 0, text: "python3 orders.py", outputOnly: true } as import("../editor/rendered").RenderedSlot;
     const context = { execBlocks: [{ kind: "exec", id: "python:1", container: "python", command: slot.text, span: [0, 20], status: "ok", recorded_output: "Order: $18.80\nItems: 5\n" }], runningCells: new Set<string>(), replaying: [] } as unknown as import("../elements/types").SlotContext;
     const screen = render(execView.render(slot, context));
-    try { expect(screen.getByText(/Order: \$18.80/)).toBeTruthy(); } finally { screen.unmount(); }
+    try {
+      await waitFor(() => expect([...screen.container.querySelectorAll(".xterm-rows > div")].map(row => row.textContent).join("\n")).toContain("Order: $18.80"));
+      expect(screen.container.querySelector(".inline-output-terminal")).toBeTruthy();
+      expect(screen.container.textContent).not.toContain("[stdout]");
+    } finally { screen.unmount(); }
   });
   it("typesets local math without trusting HTML or URL macros", () => {
     const html = new TextDecoder().decode(readFileSync("../apple-simple/Sources/Resources/math.html"));

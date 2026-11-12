@@ -486,8 +486,7 @@ struct NativeRunOutput: Equatable {
                 anchor = line
                 if context.code[line] != nil { anchor = blockEnd(line) }
             } else if let program = launchProgram, let end = context.code.filter({ $0.value == program }).keys.max() { anchor = blockEnd(end) }
-            let location = chunk.source.flatMap { path in chunk.line.map { " (\(path):\($0 + 1))" } } ?? ""
-            result[anchor, default: ""] += "[\(chunk.category)\(location)] \(chunk.text)"
+            result[anchor, default: ""] += chunk.text
         }
         return result
     }

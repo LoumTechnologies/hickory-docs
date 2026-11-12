@@ -18,6 +18,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @org.junit.Test fun expectationsShareTerminalPreviewWithoutScanningLiteralExamples() {
+        val source = "<h:exec>\necho hi\n<h:diagram>inert</h:diagram>\n<h:expect>\nhi\n</h:expect>\n</h:exec>\n<h:expect/>\n<h:file path=\"example.md\">\n<h:expect>inert</h:expect>\n</h:file>"
+        val blocks = computeInlineMarkup(source, "book.md").diagrams
+        assertEquals(listOf("terminal", "terminal"), blocks.map { it.renderer })
+        assertEquals("hi\n", blocks.first().body)
+        assertEquals("", blocks.last().body)
+        assertEquals("<h:expect>\nhi\n</h:expect>", source.substring(blocks.first().from, blocks.first().to))
+    }
+
     @org.junit.Test fun previewWhitespaceScalesWithoutChangingSourceOffsets() {
         // Contract: .hickory-source/frontends/contract.md
         val source = "print(1)\nnext()\n"
@@ -47,7 +56,7 @@ class ParityTest {
         val buffer = DocumentBuffer(FileNode("workbook.md", "workbook.md", false, emptyList(), null, null), FileText(source, "base"))
         buffer.receiptSource = source
         buffer.receipts = listOf(org.json.JSONObject().put("span", org.json.JSONArray(listOf(0, source.toByteArray(Charsets.UTF_8).size - 1))).put("transcript", org.json.JSONArray().put(org.json.JSONObject().put("kind", "out").put("data", "café\n"))))
-        assertEquals(mapOf(2 to "[out] café\n"), buffer.recordedOutputPlacements())
+        assertEquals(mapOf(2 to "café\n"), buffer.recordedOutputPlacements())
         assertEquals(source, buffer.text)
         buffer.state.edit { append("changed") }
         assertTrue(buffer.recordedOutputPlacements().isEmpty())

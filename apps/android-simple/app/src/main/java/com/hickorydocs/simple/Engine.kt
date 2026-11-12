@@ -158,8 +158,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
                 anchor = chunk.line
                 if (context.code[anchor] != null) anchor = blockEnd(anchor)
             } else context.code.filterValues { it == launchProgram }.keys.maxOrNull()?.let { anchor = blockEnd(it) }
-            val location = if (chunk.source != null && chunk.line != null) " (${chunk.source}:${chunk.line + 1})" else ""
-            result[anchor] = result[anchor].orEmpty() + "[${chunk.category}$location] ${chunk.text}"
+            result[anchor] = result[anchor].orEmpty() + chunk.text
         }
         return result
     }

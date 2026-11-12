@@ -51,7 +51,7 @@ class DocumentBuffer(val file: FileNode, loaded: FileText) {
             val span = receipt.optJSONArray("span") ?: continue
             if (span.length() != 2 || span.optInt(0, -1) < 0 || span.optInt(1, -1) !in (span.optInt(0) + 1)..bytes.size) continue
             val events = receipt.optJSONArray("transcript")
-            val chunks = (0 until (events?.length() ?: 0)).mapNotNull { events?.optJSONObject(it) }.filter { it.optString("kind") in listOf("out", "err", "stdout", "stderr") }.joinToString("") { "[${it.optString("kind")}] ${it.optString("data")}" }
+            val chunks = (0 until (events?.length() ?: 0)).mapNotNull { events?.optJSONObject(it) }.filter { it.optString("kind") in listOf("out", "err", "stdout", "stderr") }.joinToString("") { it.optString("data") }
             val output = chunks.ifEmpty { if (receipt.isNull("recorded_output")) "" else receipt.optString("recorded_output") }
             if (output.isNotEmpty()) {
                 val line = bytes.take(span.getInt(1) - 1).count { it == 10.toByte() }

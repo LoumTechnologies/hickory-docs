@@ -112,8 +112,8 @@ final class NativeDebugTests: XCTestCase {
         debug.receive(["event": "run_output", "session": "old", "events": [["text": "wrong"]]])
         XCTAssertTrue(debug.output.isEmpty)
         debug.receive(["event": "run_output", "session": "ours", "events": [["category": "stdout", "text": "1\n"], ["category": "stderr", "text": "warning\n", "source": "main.py", "line": 1]]])
-        XCTAssertTrue(debug.outputPlacements(buffer)[1]?.contains("[stdout] 1") == true)
-        XCTAssertTrue(debug.outputPlacements(buffer)[1]?.contains("main.py:2") == true)
+        XCTAssertEqual(debug.outputPlacements(buffer)[1], "1\nwarning\n")
+        XCTAssertEqual(debug.output.last?.source, "main.py"); XCTAssertEqual(debug.output.last?.line, 1)
         XCTAssertEqual(buffer.text, source); XCTAssertFalse(buffer.dirty)
         buffer.text += "# edited"
         XCTAssertTrue(debug.outputPlacements(buffer).isEmpty)
@@ -129,7 +129,7 @@ final class NativeDebugTests: XCTestCase {
         let buffer = DocumentBuffer(file: FileNode(name: "workbook.md", path: "workbook.md", dir: false), text: FileText(path: "workbook.md", content: source, hash: "base"))
         buffer.receipts = [InlineReceipt(kind: "exec", span: [0, source.utf8.count - 1], command: nil, status: nil, transcript: [InlineReceiptEvent(kind: "out", data: "café\n")], recorded_output: nil)]
         buffer.receiptSource = source
-        XCTAssertEqual(buffer.recordedOutputPlacements(), [2: "[out] café\n"])
+        XCTAssertEqual(buffer.recordedOutputPlacements(), [2: "café\n"])
         XCTAssertEqual(buffer.text, source)
         buffer.text += "changed"
         XCTAssertTrue(buffer.recordedOutputPlacements().isEmpty)

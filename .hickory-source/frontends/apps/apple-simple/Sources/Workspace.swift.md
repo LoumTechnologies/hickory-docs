@@ -49,7 +49,7 @@ import Observation
         let bytes = Array(text.utf8)
         var result: [Int: String] = [:]
         for receipt in receipts where receipt.span.count == 2 && receipt.span[0] >= 0 && receipt.span[1] > receipt.span[0] && receipt.span[1] <= bytes.count {
-            let chunks = (receipt.transcript ?? []).filter { ["out", "err", "stdout", "stderr"].contains($0.kind) }.map { "[\($0.kind)] \($0.data ?? "")" }.joined()
+            let chunks = (receipt.transcript ?? []).filter { ["out", "err", "stdout", "stderr"].contains($0.kind) }.compactMap(\.data).joined()
             let output = chunks.isEmpty ? receipt.recorded_output ?? "" : chunks
             if !output.isEmpty { result[bytes.prefix(receipt.span[1] - 1).filter { $0 == 10 }.count, default: ""] += output }
         }

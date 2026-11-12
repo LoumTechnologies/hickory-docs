@@ -211,25 +211,36 @@ fun inlineSyntaxMarks(source: String, path: String): List<InlineMark> {
     return result
 }
 fun inlineDiagrams(source: String): List<InlineDiagram> {
-    val open = Regex("""^ {0,3}<[\w.-]+:(file|copy|cut|exec|container|entry|patch|diagram|math|table)\b[^>]*>""")
+    val open = Regex("""^ {0,3}<[\w.-]+:(file|copy|cut|exec|container|entry|patch|diagram|math|table|expect)\b[^>]*>""")
     val renderer = Regex("""\brenderer\s*=\s*["']([^"']+)["']""")
     val result = mutableListOf<InlineDiagram>()
-    var offset = 0; var fence = ""; var payload = ""; var bodyStart = 0; var blockStart = 0; var blockLine = 0; var engine = "mermaid"
+    var offset = 0; var fence = ""; var payload = ""; var bodyStart = 0; var blockStart = 0; var blockLine = 0; var engine = "mermaid"; var inExec = false; var renderable = false
     for ((line, row) in source.split('\n').withIndex()) {
         val start = offset; offset += row.length + 1; val trimmed = row.trim()
         if (fence.isNotEmpty()) { if (trimmed.length >= fence.length && trimmed.all { it == fence[0] }) fence = ""; continue }
         if (payload.isEmpty()) {
+            if (inExec && trimmed.startsWith("</") && trimmed.contains(":exec>")) { inExec = false; continue }
             val marker = Regex("""^ {0,3}(`{3,}|~{3,})""").find(row)
-            if (marker != null) { fence = marker.value.trim(); continue }
+            if (!inExec && marker != null) { fence = marker.value.trim(); continue }
             val match = open.find(row) ?: continue
-            payload = match.groupValues[1]; blockStart = start; blockLine = line; bodyStart = start + match.range.last + 1
+            payload = match.groupValues[1]
+            if (payload == "exec") { inExec = !trimmed.endsWith("/>"); payload = ""; continue }
+            renderable = payload == "expect" || payload == "diagram" && !inExec
+            blockStart = start; blockLine = line; bodyStart = start + match.range.last + 1
             engine = renderer.find(match.value)?.groupValues?.get(1) ?: "mermaid"
-            if (trimmed.endsWith("/>")) { payload = ""; continue }
+            if (payload == "expect") engine = "terminal"
+            if (trimmed.endsWith("/>")) {
+                if (payload == "expect") result.add(InlineDiagram(line, start, start + row.length, "", "terminal"))
+                payload = ""; continue
+            }
         }
         val close = row.indexOf("</")
         if (close >= 0 && row.substring(close).contains(":" + payload + ">")) {
             val bodyEnd = start + close
-            if (payload == "diagram" && bodyEnd >= bodyStart) result.add(InlineDiagram(blockLine, blockStart, start + row.length, source.substring(bodyStart, bodyEnd), engine))
+            if (renderable && bodyEnd >= bodyStart) {
+                val body = source.substring(bodyStart, bodyEnd)
+                result.add(InlineDiagram(blockLine, blockStart, start + row.length, if (payload == "expect") body.removePrefix("\r\n").removePrefix("\n") else body, engine))
+            }
             payload = ""
         }
     }

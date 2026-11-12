@@ -9,6 +9,15 @@ CSV declarations and standalone CSV files use the same grid as prose tables. Gro
 
 Markdown prose tables now use those exact cell ranges to form whole-table presentation ranges. Keep the final newline outside the replacement so following prose retains its paragraph. Header separators belong to the replacement, but never become editable data cells. Only cells admitted by the prose or CSV scanner can enter a grid; fenced code and Hickory literal bodies stay source. The Swift and Kotlin range witnesses check CRLF, emoji and escaped pipes.
 
+Captured program bytes and authored expectations share a read-only terminal
+screen. The browser binds its existing watching emulator; native previews load
+the same locked xterm package from local resources. No channel names, source
+locations or prompts are inserted into those bytes. Source metadata remains in
+the debugger controller for positioning. An expected terminal represents authored
+bytes, not evidence of a successful run. Its explicit source action retains
+normal guarded editing and undo. The preview scanner admits expect children of
+exec, skips literal files/fragments and fences, and retains exact source ranges.
+
 Diagram previews use the existing isolated native WebView and a local, locked
 Mermaid bundle; graph JSON is drawn as SVG using text nodes for labels. The body
 is passed as JSON rather than executable script. A monotonically increasing
@@ -299,24 +308,34 @@ func inlineSyntaxMarks(_ source: String, path: String) -> [InlineMark] {
     return result
 }
 func inlineDiagrams(_ source: String) -> [InlineDiagram] {
-    let open = try! NSRegularExpression(pattern: #"^ {0,3}<[\w.-]+:(file|copy|cut|exec|container|entry|patch|diagram|math|table)\b[^>]*>"#)
+    let open = try! NSRegularExpression(pattern: #"^ {0,3}<[\w.-]+:(file|copy|cut|exec|container|entry|patch|diagram|math|table|expect)\b[^>]*>"#)
     let renderer = try! NSRegularExpression(pattern: #"\brenderer\s*=\s*["']([^"']+)["']"#)
-    var result: [InlineDiagram] = [], offset = 0, fence = "", payload = "", bodyStart = 0, blockStart = 0, blockLine = 0, engine = "mermaid"
+    var result: [InlineDiagram] = [], offset = 0, fence = "", payload = "", bodyStart = 0, blockStart = 0, blockLine = 0, engine = "mermaid", inExec = false, renderable = false
     for (line, row) in source.components(separatedBy: "\n").enumerated() {
         let text = row as NSString, trimmed = row.trimmingCharacters(in: .whitespacesAndNewlines)
         defer { offset += text.length + 1 }
         if !fence.isEmpty { if trimmed.count >= fence.count, trimmed.allSatisfy({ $0 == fence.first! }) { fence = "" }; continue }
         if payload.isEmpty {
-            if let marker = row.range(of: #"^ {0,3}(`{3,}|~{3,})"#, options: .regularExpression) { fence = String(row[marker]).trimmingCharacters(in: .whitespaces); continue }
+            if inExec && trimmed.hasPrefix("</") && trimmed.contains(":exec>") { inExec = false; continue }
+            if !inExec, let marker = row.range(of: #"^ {0,3}(`{3,}|~{3,})"#, options: .regularExpression) { fence = String(row[marker]).trimmingCharacters(in: .whitespaces); continue }
             guard let match = open.firstMatch(in: row, range: NSRange(location: 0, length: text.length)) else { continue }
-            payload = text.substring(with: match.range(at: 1)); blockStart = offset; blockLine = line; bodyStart = offset + NSMaxRange(match.range)
+            payload = text.substring(with: match.range(at: 1))
+            if payload == "exec" { inExec = !trimmed.hasSuffix("/>"); payload = ""; continue }
+            renderable = payload == "expect" || payload == "diagram" && !inExec
+            blockStart = offset; blockLine = line; bodyStart = offset + NSMaxRange(match.range)
             engine = renderer.firstMatch(in: row, range: match.range).map { text.substring(with: $0.range(at: 1)) } ?? "mermaid"
-            if trimmed.hasSuffix("/>") { payload = ""; continue }
+            if payload == "expect" { engine = "terminal" }
+            if trimmed.hasSuffix("/>") {
+                if payload == "expect" { result.append(InlineDiagram(line: line, range: NSRange(location: offset, length: text.length), body: "", renderer: "terminal")) }
+                payload = ""; continue
+            }
         }
         if let close = row.range(of: "</"), row[close.lowerBound...].contains(":" + payload + ">") {
             let bodyEnd = offset + row[..<close.lowerBound].utf16.count
-            if payload == "diagram", bodyEnd >= bodyStart {
-                result.append(InlineDiagram(line: blockLine, range: NSRange(location: blockStart, length: offset + text.length - blockStart), body: (source as NSString).substring(with: NSRange(location: bodyStart, length: bodyEnd - bodyStart)), renderer: engine))
+            if renderable, bodyEnd >= bodyStart {
+                var body = (source as NSString).substring(with: NSRange(location: bodyStart, length: bodyEnd - bodyStart))
+                if payload == "expect" { body = body.replacingOccurrences(of: "^\\r?\\n", with: "", options: .regularExpression) }
+                result.append(InlineDiagram(line: blockLine, range: NSRange(location: blockStart, length: offset + text.length - blockStart), body: body, renderer: engine))
             }
             payload = ""
         }
@@ -633,25 +652,36 @@ fun inlineSyntaxMarks(source: String, path: String): List<InlineMark> {
     return result
 }
 fun inlineDiagrams(source: String): List<InlineDiagram> {
-    val open = Regex("""^ {0,3}<[\w.-]+:(file|copy|cut|exec|container|entry|patch|diagram|math|table)\b[^>]*>""")
+    val open = Regex("""^ {0,3}<[\w.-]+:(file|copy|cut|exec|container|entry|patch|diagram|math|table|expect)\b[^>]*>""")
     val renderer = Regex("""\brenderer\s*=\s*["']([^"']+)["']""")
     val result = mutableListOf<InlineDiagram>()
-    var offset = 0; var fence = ""; var payload = ""; var bodyStart = 0; var blockStart = 0; var blockLine = 0; var engine = "mermaid"
+    var offset = 0; var fence = ""; var payload = ""; var bodyStart = 0; var blockStart = 0; var blockLine = 0; var engine = "mermaid"; var inExec = false; var renderable = false
     for ((line, row) in source.split('\n').withIndex()) {
         val start = offset; offset += row.length + 1; val trimmed = row.trim()
         if (fence.isNotEmpty()) { if (trimmed.length >= fence.length && trimmed.all { it == fence[0] }) fence = ""; continue }
         if (payload.isEmpty()) {
+            if (inExec && trimmed.startsWith("</") && trimmed.contains(":exec>")) { inExec = false; continue }
             val marker = Regex("""^ {0,3}(`{3,}|~{3,})""").find(row)
-            if (marker != null) { fence = marker.value.trim(); continue }
+            if (!inExec && marker != null) { fence = marker.value.trim(); continue }
             val match = open.find(row) ?: continue
-            payload = match.groupValues[1]; blockStart = start; blockLine = line; bodyStart = start + match.range.last + 1
+            payload = match.groupValues[1]
+            if (payload == "exec") { inExec = !trimmed.endsWith("/>"); payload = ""; continue }
+            renderable = payload == "expect" || payload == "diagram" && !inExec
+            blockStart = start; blockLine = line; bodyStart = start + match.range.last + 1
             engine = renderer.find(match.value)?.groupValues?.get(1) ?: "mermaid"
-            if (trimmed.endsWith("/>")) { payload = ""; continue }
+            if (payload == "expect") engine = "terminal"
+            if (trimmed.endsWith("/>")) {
+                if (payload == "expect") result.add(InlineDiagram(line, start, start + row.length, "", "terminal"))
+                payload = ""; continue
+            }
         }
         val close = row.indexOf("</")
         if (close >= 0 && row.substring(close).contains(":" + payload + ">")) {
             val bodyEnd = start + close
-            if (payload == "diagram" && bodyEnd >= bodyStart) result.add(InlineDiagram(blockLine, blockStart, start + row.length, source.substring(bodyStart, bodyEnd), engine))
+            if (renderable && bodyEnd >= bodyStart) {
+                val body = source.substring(bodyStart, bodyEnd)
+                result.add(InlineDiagram(blockLine, blockStart, start + row.length, if (payload == "expect") body.removePrefix("\r\n").removePrefix("\n") else body, engine))
+            }
             payload = ""
         }
     }
@@ -734,9 +764,9 @@ The local math page loads only bundled KaTeX and fonts. Formula strings enter th
 <!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'nonce-hickory-math'; style-src 'self' 'unsafe-inline'; font-src 'self' data:;">
-<link rel="stylesheet" href="katex/katex.min.css"><style>html{color-scheme:light dark;font:14px system-ui}body{margin:8px}#formula{overflow:auto;padding:8px}#status{font-size:11px}</style>
+<link rel="stylesheet" href="node_modules/xterm.css"><link rel="stylesheet" href="katex/katex.min.css"><style>html{height:100%;color-scheme:light dark;font:14px system-ui}body{margin:8px}body.terminal-mode{color-scheme:dark;height:100%;margin:0;background:#10151d;color:#e6edf3;overflow:hidden}.terminal-mode #formula{height:100%;box-sizing:border-box;padding:6px;overflow:hidden}.terminal-mode .xterm-cursor-layer{display:none}#formula{overflow:auto;padding:8px}#status{font-size:11px}</style>
 </head><body><div id="formula" aria-label="Typeset equation"></div><div id="status" role="status"></div>
-<script nonce="hickory-math" src="katex/katex.min.js"></script><script nonce="hickory-math" src="node_modules/mermaid.min.js"></script><script nonce="hickory-math">
+<script nonce="hickory-math" src="node_modules/xterm.js"></script><script nonce="hickory-math" src="node_modules/addon-fit.js"></script><script nonce="hickory-math" src="katex/katex.min.js"></script><script nonce="hickory-math" src="node_modules/mermaid.min.js"></script><script nonce="hickory-math">
 globalThis.renderMath = function (formula) {
   const node = document.getElementById('formula'), status = document.getElementById('status');
   node.textContent = formula;
@@ -744,6 +774,29 @@ globalThis.renderMath = function (formula) {
   if (formula.length > 4000) { status.textContent = 'Equation is too large to typeset here. Its source remains editable.'; return; }
   try { katex.render(formula, node, {throwOnError:false, trust:false, strict:'warn', displayMode:true, maxExpand:1000}); status.textContent = ''; }
   catch (_) { node.textContent = formula; status.textContent = 'Check the LaTeX expression.'; }
+};
+// This screen has no input binding and never executes expected/output bytes.
+let outputTerminal, outputFit, outputBytes = '', outputResize;
+globalThis.renderTerminal = function (source) {
+  const node = document.getElementById('formula'), status = document.getElementById('status');
+  document.body.classList.add('terminal-mode'); status.textContent = '';
+  if (!globalThis.Terminal) { node.textContent = source; status.textContent = 'Terminal renderer unavailable. Prepare resources and rebuild.'; return; }
+  try {
+  if (!outputTerminal) {
+    node.replaceChildren();
+    outputTerminal = new Terminal({ disableStdin:true, convertEol:true, cursorBlink:false, screenReaderMode:true, fontSize:12, fontFamily:'ui-monospace, monospace', rows:6, cols:80, scrollback:5000, theme:{background:'#10151d',foreground:'#e6edf3'} });
+    outputFit = new FitAddon.FitAddon(); outputTerminal.loadAddon(outputFit); outputTerminal.open(node);
+    outputResize = new ResizeObserver(() => { if (node.clientWidth && node.clientHeight) outputFit.fit(); }); outputResize.observe(node);
+  }
+  const append = source.startsWith(outputBytes);
+  if (!append) outputTerminal.reset();
+  outputTerminal.write(append ? source.slice(outputBytes.length) : source, () => { if (node.clientWidth && node.clientHeight) outputFit.fit(); });
+  outputBytes = source;
+  } catch (error) {
+    outputResize?.disconnect(); try { outputTerminal?.dispose(); } catch (_) {}
+    outputTerminal = undefined; outputBytes = '';
+    node.textContent = source; status.textContent = 'Terminal unavailable: ' + (error.message || 'prepare resources and rebuild');
+  }
 };
 globalThis.renderDiagram = async function (source, renderer) {
   const node = document.getElementById('formula'), status = document.getElementById('status');
@@ -821,6 +874,18 @@ if mermaid.is_file():
         os.chmod(staged, 0o644)
         os.replace(staged, destination)
     print("Prepared local native diagram resources.")
+# Reuse the same emulator for program output and authored expectations.
+for package, original, name in [("@xterm/xterm", "lib/xterm.js", "xterm.js"), ("@xterm/xterm", "css/xterm.css", "xterm.css"), ("@xterm/addon-fit", "lib/addon-fit.js", "addon-fit.js")]:
+    original = ROOT / "apps/web/node_modules" / package / original
+    if not original.is_file():
+        print("Terminal assets missing. Run npm --prefix apps/web ci, then prepare resources again."); continue
+    destination = ROOT / "apps/apple-simple/Sources/Resources/node_modules" / name
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    data = original.read_bytes()
+    if not destination.is_file() or destination.read_bytes() != data:
+        with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as temporary:
+            temporary.write(data); staged = temporary.name
+        os.chmod(staged, 0o644); os.replace(staged, destination)
 </ui:copy>
 
 <ui:file path="scripts/prepare-simple-resources.py"><ui:paste select="#simple-inline-math-1"/></ui:file>
@@ -840,7 +905,8 @@ import WebKit
         let key = (diagramRenderer.map { "diagram:" + $0 } ?? "math") + "\0" + source
         guard displayed != key else { return }
         displayed = key
-        if let renderer = diagramRenderer, let data = try? JSONSerialization.data(withJSONObject: renderer, options: .fragmentsAllowed), let engine = String(data: data, encoding: .utf8) {
+        if diagramRenderer == "terminal" { view.evaluateJavaScript("globalThis.renderTerminal(" + json + ")", completionHandler: nil) }
+        else if let renderer = diagramRenderer, let data = try? JSONSerialization.data(withJSONObject: renderer, options: .fragmentsAllowed), let engine = String(data: data, encoding: .utf8) {
             view.evaluateJavaScript("globalThis.renderDiagram(" + json + "," + engine + ")", completionHandler: nil)
         } else { view.evaluateJavaScript("globalThis.renderMath(" + json + ")", completionHandler: nil) }
     }
@@ -873,7 +939,7 @@ func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main, Bundle(for: Ma
         URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()].compactMap { $0 }
     let url = nativeMathResource(roots: roots)
     if let url { view.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent()) }
-    else { view.loadHTMLString("<body><p>Preview resources are missing. Rebuild the app with its bundled assets; source stays editable.</p><div id='math'></div><script>globalThis.renderMath=globalThis.renderDiagram=s=>document.getElementById('math').textContent=s</script></body>", baseURL: nil) }
+    else { view.loadHTMLString("<body><p>Preview resources are missing. Rebuild the app with its bundled assets; source stays editable.</p><div id='math'></div><script>globalThis.renderMath=globalThis.renderDiagram=globalThis.renderTerminal=s=>document.getElementById('math').textContent=s</script></body>", baseURL: nil) }
     return view
 }
 #if os(macOS)
@@ -893,14 +959,28 @@ struct NativeMathView: UIViewRepresentable {
     func updateUIView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.display(view) }
 }
 #endif
+// One read-only terminal surface for captured bytes and expect bodies.
+struct NativeInlineTerminal: View {
+    var text: String
+    var editSource: (() -> Void)? = nil
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack { Image(systemName: "terminal"); Text("Terminal"); Spacer(); if let editSource { Button("Edit source text", action: editSource).buttonStyle(.plain) } }
+                .font(.system(size: 11, design: .monospaced)).padding(6).background(Color(red: 0.11, green: 0.15, blue: 0.2))
+            NativeMathView(source: text, diagramRenderer: "terminal")
+        }.foregroundStyle(Color(red: 0.9, green: 0.93, blue: 0.95)).background(Color(red: 0.06, green: 0.08, blue: 0.11))
+            .clipShape(RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(.gray.opacity(0.5))).accessibilityLabel("Output terminal")
+    }
+}
 struct NativeDiagramPreview: View {
     var diagram: InlineDiagram
     var buffer: DocumentBuffer
     var body: some View {
-        VStack(spacing: 0) {
+        if diagram.renderer == "terminal" { NativeInlineTerminal(text: diagram.body, editSource: { buffer.sourceTable = diagram.id }) }
+        else { VStack(spacing: 0) {
             HStack { Text("Diagram").font(.caption); Spacer(); Button("Edit source text") { buffer.sourceTable = diagram.id }.buttonStyle(.bordered) }.padding(4)
             NativeMathView(source: diagram.body, diagramRenderer: diagram.renderer)
-        }.background(.background)
+        }.background(.background) }
     }
 }
 struct InlineEquationControl: View {
@@ -951,10 +1031,10 @@ import org.json.JSONObject
                     if (url == "file:///android_asset/math.html") view.evaluateJavascript(view.tag as? String ?: "", null)
                 }
             }
-            tag = if (diagramRenderer == null) "globalThis.renderMath(" + JSONObject.quote(source) + ")" else "globalThis.renderDiagram(" + JSONObject.quote(source) + "," + JSONObject.quote(diagramRenderer) + ")"; loadUrl("file:///android_asset/math.html")
+            tag = if (diagramRenderer == "terminal") "globalThis.renderTerminal(" + JSONObject.quote(source) + ")" else if (diagramRenderer == null) "globalThis.renderMath(" + JSONObject.quote(source) + ")" else "globalThis.renderDiagram(" + JSONObject.quote(source) + "," + JSONObject.quote(diagramRenderer) + ")"; loadUrl("file:///android_asset/math.html")
         }
     }, update = { view ->
-        val script = if (diagramRenderer == null) "globalThis.renderMath(" + JSONObject.quote(source) + ")" else "globalThis.renderDiagram(" + JSONObject.quote(source) + "," + JSONObject.quote(diagramRenderer) + ")"
+        val script = if (diagramRenderer == "terminal") "globalThis.renderTerminal(" + JSONObject.quote(source) + ")" else if (diagramRenderer == null) "globalThis.renderMath(" + JSONObject.quote(source) + ")" else "globalThis.renderDiagram(" + JSONObject.quote(source) + "," + JSONObject.quote(diagramRenderer) + ")"
         if (view.tag != script) {
             view.tag = script
             view.evaluateJavascript("if(globalThis.renderDiagram){" + script + "}", null)
@@ -1069,7 +1149,7 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
       diagramBlocks: saved.filter((block): block is DiagramBlock => block.kind === "diagram"), runningCells: new Set<string>(), replaying: [],
       replaceBlockContent: (target: RenderedSlot, text: string, origin?: string) => modules.edit.replaceCapturedBlock(view, target, text, origin ?? "input.table"),
     };
-    return <SlotPortal key={slot.key} slot={slot} css={modules.css.default + modules.katexCss.default + modules.graphCss.default}>
+    return <SlotPortal key={slot.key} slot={slot} css={modules.css.default + modules.katexCss.default + modules.graphCss.default + modules.terminalCss.default}>
       {!slot.outputOnly && <button type="button" style={{ border: "1px solid currentColor", borderRadius: 4, padding: "3px 8px", cursor: "pointer" }} onClick={() => {
         if (view.state.doc !== captured) return;
         view.dispatch({ effects: modules.rendered.showBlockSource.of(slot.at), selection: { anchor: Math.min(slot.at, view.state.doc.length) }, scrollIntoView: true }); view.focus();
@@ -1083,11 +1163,11 @@ async function load() {
   const parser = await import("../editor/hickLang");
   await parser.loadHickLang();
   const rendered = await import("../editor/rendered");
-  const [prose, math, spans, hick, elements, edit, css, katexCss, graphCss] = await Promise.all([
+  const [prose, math, spans, hick, elements, edit, css, katexCss, graphCss, terminalCss] = await Promise.all([
     import("../editor/wysiwyg"), import("../editor/mathRender"), import("../lib/math"), import("../editor/hickDoc"),
-    import("../elements"), import("../editor/replaceCapturedBlock"), import("../styles.css?inline"), import("katex/dist/katex.min.css?inline"), import("@xyflow/react/dist/style.css?inline"),
+    import("../elements"), import("../editor/replaceCapturedBlock"), import("../styles.css?inline"), import("katex/dist/katex.min.css?inline"), import("@xyflow/react/dist/style.css?inline"), import("@xterm/xterm/css/xterm.css?inline"),
   ]);
-  return { prose, rendered, math, spans, hick, elements, edit, css, katexCss, graphCss };
+  return { prose, rendered, math, spans, hick, elements, edit, css, katexCss, graphCss, terminalCss };
 }
 </ui:copy>
 
