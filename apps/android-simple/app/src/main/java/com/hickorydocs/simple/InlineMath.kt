@@ -11,7 +11,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import org.json.JSONObject
 
 @SuppressLint("SetJavaScriptEnabled")
-@Composable fun NativeMathView(source: String, modifier: Modifier = Modifier) {
+@Composable fun NativeMathView(source: String, modifier: Modifier = Modifier, diagramRenderer: String? = null) {
     AndroidView(modifier = modifier, factory = { context ->
         WebView(context).apply {
             settings.javaScriptEnabled = true; settings.allowFileAccess = false; settings.allowContentAccess = false; settings.blockNetworkLoads = true
@@ -19,13 +19,14 @@ import org.json.JSONObject
                 override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean { view.destroy(); return true }
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = request.url.toString() != "file:///android_asset/math.html"
                 override fun onPageFinished(view: WebView, url: String) {
-                    if (url == "file:///android_asset/math.html") view.evaluateJavascript("globalThis.renderMath(" + JSONObject.quote(view.tag as? String ?: "") + ")", null)
+                    if (url == "file:///android_asset/math.html") view.evaluateJavascript(view.tag as? String ?: "", null)
                 }
             }
-            tag = source; loadUrl("file:///android_asset/math.html")
+            tag = if (diagramRenderer == null) "globalThis.renderMath(" + JSONObject.quote(source) + ")" else "globalThis.renderDiagram(" + JSONObject.quote(source) + "," + JSONObject.quote(diagramRenderer) + ")"; loadUrl("file:///android_asset/math.html")
         }
     }, update = { view ->
-        view.tag = source
-        view.evaluateJavascript("if(globalThis.renderMath)globalThis.renderMath(" + JSONObject.quote(source) + ")", null)
+        val script = if (diagramRenderer == null) "globalThis.renderMath(" + JSONObject.quote(source) + ")" else "globalThis.renderDiagram(" + JSONObject.quote(source) + "," + JSONObject.quote(diagramRenderer) + ")"
+        view.tag = script
+        view.evaluateJavascript("if(globalThis.renderDiagram){" + script + "}", null)
     }, onRelease = { it.stopLoading(); it.destroy() })
 }

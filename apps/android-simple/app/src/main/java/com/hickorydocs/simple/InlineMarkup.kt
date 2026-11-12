@@ -3,7 +3,8 @@ package com.hickorydocs.simple
 data class InlineMark(val kind: String, val from: Int, val to: Int, val level: Int = 0)
 data class InlineCell(val line: Int, val column: Int, val from: Int, val to: Int, val value: String, val format: String = "markdown", val delimiter: String = ",")
 data class InlineEquation(val line: Int, val from: Int, val to: Int, val body: String)
-data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf(0), val marks: List<InlineMark> = emptyList(), val cells: List<InlineCell> = emptyList(), val equations: List<InlineEquation> = emptyList(), val debug: InlineDebugContext = InlineDebugContext())
+data class InlineDiagram(val line: Int, val from: Int, val to: Int, val body: String, val renderer: String)
+data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf(0), val marks: List<InlineMark> = emptyList(), val cells: List<InlineCell> = emptyList(), val equations: List<InlineEquation> = emptyList(), val debug: InlineDebugContext = InlineDebugContext(), val diagrams: List<InlineDiagram> = emptyList())
 // Keep source offsets authoritative while the field displays a grid-sized placeholder.
 data class InlineTable(val from: Int, val to: Int, val rows: List<List<InlineCell>>) {
     val displayRows: Int get() = minOf(10, rows.size + 2)
@@ -28,7 +29,11 @@ fun tablePresentation(snapshot: InlineSnapshot, source: String): InlineSnapshot 
         val value = if (cell.format == "csv" && raw.startsWith('"') && raw.endsWith('"') && raw.length >= 2) raw.substring(1, raw.length - 1).replace("\"\"", "\"") else raw.replace("\\|", "|").replace("\\\\", "\\")
         cell.copy(line = inlineLineAt(cell.from, starts), value = value)
     }
-    return InlineSnapshot(source, lineStarts = starts, cells = cells)
+    val diagrams = snapshot.diagrams.mapNotNull { diagram ->
+        val mapped = when { diagram.to <= prefix -> diagram; diagram.from >= end -> diagram.copy(from = diagram.from + delta, to = diagram.to + delta); else -> null }
+        mapped?.copy(line = inlineLineAt(mapped.from, starts))
+    }
+    return InlineSnapshot(source, lineStarts = starts, cells = cells, diagrams = diagrams)
 }
 fun inlineTables(snapshot: InlineSnapshot): List<InlineTable> {
     val lines = snapshot.cells.filter { it.format == "markdown" }.groupBy { it.line }
@@ -141,6 +146,31 @@ fun inlineDebugPath(source: String, path: String, line: Int, launch: Boolean = f
     return if (launch) context.launch[line] else context.code[line]
 }
 fun inlineLineAt(offset: Int, starts: List<Int>): Int { val found = starts.binarySearch(offset); return if (found >= 0) found else maxOf(0, -found - 2) }
+fun inlineDiagrams(source: String): List<InlineDiagram> {
+    val open = Regex("""^ {0,3}<[\w.-]+:(file|copy|cut|exec|entry|patch|diagram|math|table)\b[^>]*>""")
+    val renderer = Regex("""\brenderer\s*=\s*["']([^"']+)["']""")
+    val result = mutableListOf<InlineDiagram>()
+    var offset = 0; var fence = ""; var payload = ""; var bodyStart = 0; var blockStart = 0; var blockLine = 0; var engine = "mermaid"
+    for ((line, row) in source.split('\n').withIndex()) {
+        val start = offset; offset += row.length + 1; val trimmed = row.trim()
+        if (fence.isNotEmpty()) { if (trimmed.length >= fence.length && trimmed.all { it == fence[0] }) fence = ""; continue }
+        if (payload.isEmpty()) {
+            val marker = Regex("""^ {0,3}(`{3,}|~{3,})""").find(row)
+            if (marker != null) { fence = marker.value.trim(); continue }
+            val match = open.find(row) ?: continue
+            payload = match.groupValues[1]; blockStart = start; blockLine = line; bodyStart = start + match.range.last + 1
+            engine = renderer.find(match.value)?.groupValues?.get(1) ?: "mermaid"
+            if (trimmed.endsWith("/>")) { payload = ""; continue }
+        }
+        val close = row.indexOf("</")
+        if (close >= 0 && row.substring(close).contains(":" + payload + ">")) {
+            val bodyEnd = start + close
+            if (payload == "diagram" && bodyEnd >= bodyStart) result.add(InlineDiagram(blockLine, blockStart, start + row.length, source.substring(bodyStart, bodyEnd), engine))
+            payload = ""
+        }
+    }
+    return result
+}
 fun computeInlineMarkup(source: String, path: String): InlineSnapshot {
     val starts = mutableListOf(0); source.forEachIndexed { index, char -> if (char == '\n') starts.add(index + 1) }
     val debug = inlineDebugContext(source, path)
@@ -202,5 +232,5 @@ fun computeInlineMarkup(source: String, path: String): InlineSnapshot {
         val isSeparator = separator.matches(row); val nextSeparator = rows.getOrNull(line + 1)?.let { separator.matches(it) } == true
         if (nextSeparator || table && row.contains('|')) { table = true; if (!isSeparator) cells.addAll(inlineCells(row, line, start)) } else if (!isSeparator) table = false
     }
-    return InlineSnapshot(source, starts, marks, cells, equations, debug)
+    return InlineSnapshot(source, starts, marks, cells, equations, debug, inlineDiagrams(source))
 }

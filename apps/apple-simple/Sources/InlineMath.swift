@@ -2,10 +2,13 @@ import SwiftUI
 import WebKit
 @MainActor final class MathCoordinator: NSObject, WKNavigationDelegate {
     var source = ""
+    var diagramRenderer: String?
     var ready = false
     func display(_ view: WKWebView) {
         guard ready, let bytes = try? JSONSerialization.data(withJSONObject: source, options: .fragmentsAllowed), let json = String(data: bytes, encoding: .utf8) else { return }
-        view.evaluateJavaScript("globalThis.renderMath(" + json + ")", completionHandler: nil)
+        if let renderer = diagramRenderer, let data = try? JSONSerialization.data(withJSONObject: renderer, options: .fragmentsAllowed), let engine = String(data: data, encoding: .utf8) {
+            view.evaluateJavaScript("globalThis.renderDiagram(" + json + "," + engine + ")", completionHandler: nil)
+        } else { view.evaluateJavaScript("globalThis.renderMath(" + json + ")", completionHandler: nil) }
     }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { ready = true; display(webView) }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
@@ -33,18 +36,30 @@ func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main]) -> URL? {
 #if os(macOS)
 struct NativeMathView: NSViewRepresentable {
     var source: String
+    var diagramRenderer: String? = nil
     func makeCoordinator() -> MathCoordinator { MathCoordinator() }
-    func makeNSView(context: Context) -> WKWebView { context.coordinator.source = source; return makeMathView(context.coordinator) }
-    func updateNSView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.display(view) }
+    func makeNSView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; return makeMathView(context.coordinator) }
+    func updateNSView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.display(view) }
 }
 #else
 struct NativeMathView: UIViewRepresentable {
     var source: String
+    var diagramRenderer: String? = nil
     func makeCoordinator() -> MathCoordinator { MathCoordinator() }
-    func makeUIView(context: Context) -> WKWebView { context.coordinator.source = source; return makeMathView(context.coordinator) }
-    func updateUIView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.display(view) }
+    func makeUIView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; return makeMathView(context.coordinator) }
+    func updateUIView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.display(view) }
 }
 #endif
+struct NativeDiagramPreview: View {
+    var diagram: InlineDiagram
+    var buffer: DocumentBuffer
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack { Text("Diagram").font(.caption); Spacer(); Button("Edit source text") { buffer.sourceTable = diagram.id }.buttonStyle(.bordered) }.padding(4)
+            NativeMathView(source: diagram.body, diagramRenderer: diagram.renderer)
+        }.background(.background)
+    }
+}
 struct InlineEquationControl: View {
     var equation: InlineEquation
     var source: String

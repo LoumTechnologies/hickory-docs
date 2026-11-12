@@ -3,7 +3,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'nonce-hickory-math'; style-src 'self' 'unsafe-inline'; font-src 'self' data:;">
 <link rel="stylesheet" href="katex/katex.min.css"><style>html{color-scheme:light dark;font:14px system-ui}body{margin:8px}#formula{overflow:auto;padding:8px}#status{font-size:11px}</style>
 </head><body><div id="formula" aria-label="Typeset equation"></div><div id="status" role="status"></div>
-<script nonce="hickory-math" src="katex/katex.min.js"></script><script nonce="hickory-math">
+<script nonce="hickory-math" src="katex/katex.min.js"></script><script nonce="hickory-math" src="node_modules/mermaid.min.js"></script><script nonce="hickory-math">
 globalThis.renderMath = function (formula) {
   const node = document.getElementById('formula'), status = document.getElementById('status');
   node.textContent = formula;
@@ -12,4 +12,33 @@ globalThis.renderMath = function (formula) {
   try { katex.render(formula, node, {throwOnError:false, trust:false, strict:'warn', displayMode:true, maxExpand:1000}); status.textContent = ''; }
   catch (_) { node.textContent = formula; status.textContent = 'Check the LaTeX expression.'; }
 };
+globalThis.renderDiagram = async function (source, renderer) {
+  const node = document.getElementById('formula'), status = document.getElementById('status');
+  const revision = globalThis.diagramRevision = (globalThis.diagramRevision || 0) + 1;
+  node.replaceChildren(); status.textContent = '';
+  if (source.length > 200000) { status.textContent = 'Diagram is too large to preview. Edit its source.'; return; }
+  try {
+    if (renderer === 'graph') {
+      const graph = JSON.parse(source), topology = graph.topology || {}, layout = graph.layout || {};
+      const nodes = topology.nodes || [], edges = topology.edges || [];
+      if (nodes.length > 500 || edges.length > 2000) throw Error('Diagram is too large to preview.');
+      const ns = 'http://www.w3.org/2000/svg';
+      const element = (name, attrs = {}, text) => { const el = document.createElementNS(ns, name); for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, String(value)); if (text !== undefined) el.textContent = text; return el; };
+      const boxes = new Map(nodes.map((n, i) => { const box = layout[n.id] || {}; return [n.id, { x: Number.isFinite(box.x) ? box.x : i % 4 * 170 + 10, y: Number.isFinite(box.y) ? box.y : Math.floor(i / 4) * 90 + 10, w: Number.isFinite(box.w) ? Math.max(30, box.w) : 140, h: Number.isFinite(box.h) ? Math.max(30, box.h) : 50 }]; }));
+      const values = [...boxes.values()], minX = Math.min(0, ...values.map(b => b.x)) - 10, minY = Math.min(0, ...values.map(b => b.y)) - 10;
+      const svg = element('svg', { viewBox: `${minX} ${minY} ${Math.max(200, ...values.map(b => b.x + b.w)) - minX + 10} ${Math.max(80, ...values.map(b => b.y + b.h)) - minY + 10}`, role: 'img', 'aria-label': 'Diagram preview', width: '100%', height: '100%' });
+      const defs = element('defs'), marker = element('marker', { id: 'arrow', markerWidth: 8, markerHeight: 8, refX: 7, refY: 4, orient: 'auto' });
+      marker.append(element('path', { d: 'M0,0 L8,4 L0,8 Z', fill: 'currentColor' })); defs.append(marker); svg.append(defs);
+      for (const edge of edges) { const a = boxes.get(edge.from), b = boxes.get(edge.to); if (a && b) svg.append(element('line', { x1: a.x + a.w, y1: a.y + a.h / 2, x2: b.x, y2: b.y + b.h / 2, stroke: 'currentColor', 'marker-end': 'url(#arrow)' })); }
+      for (const item of nodes) { const b = boxes.get(item.id); svg.append(element('rect', { ...b, width: b.w, height: b.h, rx: 6, fill: 'Canvas', stroke: 'currentColor' })); svg.append(element('text', { x: b.x + b.w / 2, y: b.y + b.h / 2, 'text-anchor': 'middle', 'dominant-baseline': 'middle', fill: 'currentColor' }, item.label || item.id)); }
+      node.append(svg);
+    } else if (renderer === 'mermaid') {
+      if (!globalThis.mermaid) throw Error('Diagram engine unavailable. Prepare native resources and rebuild.');
+      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'neutral', maxTextSize: 200000 });
+      const result = await mermaid.render('diagram-' + revision, source);
+      if (revision === globalThis.diagramRevision) node.innerHTML = result.svg;
+    } else throw Error('No preview for renderer ' + renderer + '. Edit its source.');
+  } catch (error) { if (revision === globalThis.diagramRevision) { node.textContent = source; status.textContent = error.message || 'Check the diagram source.'; } }
+};
+
 </script></body></html>

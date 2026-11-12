@@ -498,14 +498,14 @@ The grid scrolls inside its reserved viewport, labels rows and columns, and appl
 // One projection drives the text field, line numbers, debugger rail and grid anchors.
 // Its offsets always map back to the retained source, including Unicode and folds.
 data class EditorReplacement(val from: Int, val to: Int, val text: String)
-fun editorReplacements(folds: List<SimpleFold>, tables: List<InlineTable>, source: String = ""): List<EditorReplacement> {
+fun editorReplacements(folds: List<SimpleFold>, tables: List<InlineTable>, source: String = "", diagrams: List<InlineDiagram> = emptyList()): List<EditorReplacement> {
     val tabs = mutableListOf<EditorReplacement>()
     var column = 0
     source.forEachIndexed { offset, char ->
         if (char == '\t') { val width = 4 - column % 4; tabs.add(EditorReplacement(offset, offset + 1, " ".repeat(width))); column += width }
         else if (char == '\n') column = 0 else column++
     }
-    val candidates = tabs + folds.map { EditorReplacement(it.from, it.to, " …") } + tables.map { EditorReplacement(it.from, it.to, " \n".repeat(it.displayRows - 1) + " ") }
+    val candidates = diagrams.map { EditorReplacement(it.from, it.to, " \n".repeat(8) + " ") } + tabs + folds.map { EditorReplacement(it.from, it.to, " …") } + tables.map { EditorReplacement(it.from, it.to, " \n".repeat(it.displayRows - 1) + " ") }
     val result = mutableListOf<EditorReplacement>()
     for (item in candidates.sortedWith(compareBy<EditorReplacement> { it.from }.thenByDescending { it.to })) {
         if (result.lastOrNull()?.to?.let { it > item.from } != true) result.add(item)
@@ -687,8 +687,9 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
     val folds = buffer.activeFolds()
     val presentation = tablePresentation(inline, source)
     val tables = if (!buffer.tableSourceVisible) inlineTables(presentation).filter { it.from != buffer.sourceTable } else emptyList()
-    val hiddenRanges = editorReplacements(folds, tables)
-    val replacements = editorReplacements(folds, tables, source)
+    val diagrams = if (!buffer.tableSourceVisible) presentation.diagrams.filter { it.from != buffer.sourceTable } else emptyList()
+    val hiddenRanges = editorReplacements(folds, tables, diagrams = diagrams)
+    val replacements = editorReplacements(folds, tables, source, diagrams)
     val display = editorDisplay(source, replacements)
     var textLayout by remember(buffer) { mutableStateOf<TextLayoutResult?>(null) }
     val paused = if (debug?.sourceMatches(buffer) == true) debug.line(buffer.file.path) else null
@@ -829,7 +830,7 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                         replacements.asReversed().forEach { replace(it.from, it.to, it.text) }
                         var removed = 0
                         for (item in replacements) {
-                            if (tables.any { it.from == item.from && it.to == item.to }) addStyle(SpanStyle(fontSize = 28.sp), item.from - removed, item.from - removed + item.text.length)
+                            if (tables.any { it.from == item.from && it.to == item.to } || diagrams.any { it.from == item.from && it.to == item.to }) addStyle(SpanStyle(fontSize = 28.sp), item.from - removed, item.from - removed + item.text.length)
                             removed += item.to - item.from - item.text.length
                         }
                     }
@@ -880,6 +881,19 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                 val height = layout.getLineBottom(last) - layout.getLineTop(first)
                 InlineTableGrid(table, source, buffer, Modifier.offset { IntOffset(0, top.toInt() + with(density) { 8.dp.roundToPx() }) }.padding(horizontal = 8.dp).fillMaxWidth().height(with(density) { height.toDp() }))
             }
+            if (layout != null && layout.layoutInput.text.text == display) diagrams.forEach { diagram ->
+                val replacement = replacements.firstOrNull { it.from == diagram.from && it.to == diagram.to } ?: return@forEach
+                val anchor = editorDisplayOffset(diagram.from, replacements)
+                val first = layout.getLineForOffset(anchor)
+                val last = layout.getLineForOffset(anchor + replacement.text.length - 1)
+                val top = layout.getLineTop(first) - scroll.value
+                val height = layout.getLineBottom(last) - layout.getLineTop(first)
+                Column(Modifier.offset { IntOffset(0, top.toInt() + with(density) { 8.dp.roundToPx() }) }.padding(horizontal = 8.dp).fillMaxWidth().height(with(density) { height.toDp() }).background(MaterialTheme.colorScheme.surface)) {
+                    OutlinedButton(onClick = { buffer.sourceTable = diagram.from }) { Text("Edit source text", fontSize = 12.sp) }
+                    NativeMathView(diagram.body, Modifier.fillMaxWidth().weight(1f), diagramRenderer = diagram.renderer)
+                }
+            }
+            if (inline.diagrams.any { it.from == buffer.sourceTable }) OutlinedButton(onClick = { buffer.sourceTable = null }) { Text("Render diagram", fontSize = 12.sp) }
             if ((buffer.tableSourceVisible || buffer.sourceTable != null) && inlineTables(inline).isNotEmpty()) OutlinedButton(onClick = { buffer.sourceTable = null; buffer.tableSourceVisible = false }) { Text("Edit tables as grids", fontSize = 12.sp) }
             }
             Canvas(Modifier.width(40.dp).fillMaxHeight().semantics {
@@ -1019,7 +1033,8 @@ fun debugLineOffset(source: String, line: Int): Int? {
     val starts = buffer.inlineMarkup.takeIf { it.source == source }?.lineStarts
     val folds = buffer.activeFolds()
     val tables = if (buffer.inlineMarkup.source == source && !buffer.tableSourceVisible) inlineTables(buffer.inlineMarkup).filter { it.from != buffer.sourceTable } else emptyList()
-    val replacements = editorReplacements(folds, tables, source)
+    val diagrams = if (!buffer.tableSourceVisible) tablePresentation(buffer.inlineMarkup, source).diagrams.filter { it.from != buffer.sourceTable } else emptyList()
+    val replacements = editorReplacements(folds, tables, source, diagrams)
     val display = editorDisplay(source, replacements)
     val paused = if (debug.sourceMatches(buffer)) debug.line(buffer.file.path) else null
     Box(Modifier.width(4.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant).pointerInput(buffer) {

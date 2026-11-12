@@ -493,16 +493,19 @@ func simpleFoldRanges(_ source: String, markdown: Bool = false) -> [SimpleFold] 
 }
 #if os(macOS)
 private typealias FoldFont = NSFont
+private typealias DiagramHost = NSHostingView<NativeDiagramPreview>
 #else
 private typealias FoldFont = UIFont
+private typealias DiagramHost = UIHostingController<NativeDiagramPreview>
 #endif
 @MainActor private final class FoldLayout: NSObject, @preconcurrency NSLayoutManagerDelegate {
     var ranges: [NSRange] = []
     var tables: [InlineTable] = []
+    var diagrams: [InlineDiagram] = []
     func tableContains(_ offset: Int) -> Bool { tables.contains { offset > $0.range.location && NSLocationInRange(offset, $0.range) } }
-    func contains(_ offset: Int) -> Bool { tableContains(offset) || ranges.contains { NSLocationInRange(offset, $0) } }
+    func contains(_ offset: Int) -> Bool { tableContains(offset) || diagrams.contains { offset > $0.range.location && NSLocationInRange(offset, $0.range) } || ranges.contains { NSLocationInRange(offset, $0) } }
     func layoutManager(_ manager: NSLayoutManager, shouldGenerateGlyphs glyphs: UnsafePointer<CGGlyph>, properties: UnsafePointer<NSLayoutManager.GlyphProperty>, characterIndexes: UnsafePointer<Int>, font: FoldFont, forGlyphRange range: NSRange) -> Int {
-        guard !ranges.isEmpty || !tables.isEmpty else { return 0 }
+        guard !ranges.isEmpty || !tables.isEmpty || !diagrams.isEmpty else { return 0 }
         var props = Array(UnsafeBufferPointer(start: properties, count: range.length))
         for i in 0..<range.length where contains(characterIndexes[i]) { props[i] = .null }
         props.withUnsafeBufferPointer { manager.setGlyphs(glyphs, properties: $0.baseAddress!, characterIndexes: characterIndexes, font: font, forGlyphRange: range) }
@@ -519,6 +522,9 @@ private typealias FoldFont = UIFont
     let buffer: DocumentBuffer
     private let folding = FoldLayout()
     private var tableViewport: CGPoint?
+    private var diagramSource = ""
+    private var diagramAnchor: Int?
+    private var diagramViews: [Int: DiagramHost] = [:]
     private var tableSnapshot = InlineSnapshot(source: "")
     private var tableSource = ""
     private var tableSourceVisible = false
@@ -708,6 +714,41 @@ private typealias FoldFont = UIFont
         if rows != buffer.visibleDebugLines { buffer.visibleDebugLines = rows }
     }
 
+    private func presentDiagrams() {
+        let source = text.string
+        let storage = text.textStorage!
+        let diagrams = !buffer.tableSourceVisible ? tableSnapshot.diagrams.filter { $0.id != buffer.sourceTable } : []
+        let changed = diagrams.map(\.range) != folding.diagrams.map(\.range)
+        if diagramSource != source || diagramAnchor != buffer.sourceTable || changed {
+            diagramSource = source; diagramAnchor = buffer.sourceTable
+            storage.beginEditing()
+            let tabs = NSMutableParagraphStyle()
+            for old in folding.diagrams {
+                let range = NSIntersectionRange(old.range, NSRange(location: 0, length: storage.length))
+                if range.length > 0 { storage.addAttribute(.paragraphStyle, value: tabs, range: range); storage.addAttribute(.foregroundColor, value: NSColor.textColor, range: range); text.layoutManager!.invalidateGlyphs(forCharacterRange: range, changeInLength: 0, actualCharacterRange: nil) }
+            }
+            folding.diagrams = diagrams
+            let live = Set(diagrams.map(\.id))
+            for id in Array(diagramViews.keys) where !live.contains(id) { diagramViews[id]?.removeFromSuperview(); diagramViews.removeValue(forKey: id) }
+            for diagram in diagrams {
+                let preview = NativeDiagramPreview(diagram: diagram, buffer: buffer)
+                if let host = diagramViews[diagram.id] { host.rootView = preview }
+                else { let host = DiagramHost(rootView: preview); diagramViews[diagram.id] = host; text.addSubview(host) }
+            }
+            storage.endEditing()
+        }
+        text.tableRanges = folding.tables.map(\.range) + diagrams.map(\.range)
+        for diagram in diagrams {
+            let style = NSMutableParagraphStyle(); style.minimumLineHeight = 260; style.maximumLineHeight = 260
+            storage.addAttribute(.paragraphStyle, value: style, range: NSRange(location: diagram.range.location, length: 1))
+            storage.addAttribute(.foregroundColor, value: NSColor.clear, range: diagram.range)
+            if changed { text.layoutManager!.invalidateGlyphs(forCharacterRange: diagram.range, changeInLength: 0, actualCharacterRange: nil) }
+            let manager = text.layoutManager!, container = text.textContainer!
+            let glyph = manager.glyphRange(forCharacterRange: NSRange(location: diagram.range.location, length: 1), actualCharacterRange: nil)
+            let rect = manager.boundingRect(forGlyphRange: glyph, in: container)
+            diagramViews[diagram.id]?.frame = NSRect(x: text.textContainerOrigin.x, y: rect.minY + text.textContainerOrigin.y, width: max(100, text.bounds.width - 16), height: 260)
+        }
+    }
     private func preserveViewport() -> () -> Void {
         guard let manager = text.layoutManager, let container = text.textContainer, manager.numberOfGlyphs > 0 else { return {} }
         let viewport = scroll.contentView.bounds.origin, origin = text.textContainerOrigin
@@ -770,6 +811,7 @@ private typealias FoldFont = UIFont
             let rect = manager.boundingRect(forGlyphRange: glyph, in: container)
             tableViews[table.id]?.frame = NSRect(x: text.textContainerOrigin.x, y: rect.minY + text.textContainerOrigin.y, width: max(100, text.bounds.width - 16), height: table.height)
         }
+        presentDiagrams()
         if let viewport = tableViewport, buffer.inlineMarkup.source == source {
             tableViewport = nil
             scroll.contentView.scroll(to: viewport); scroll.reflectScrolledClipView(scroll.contentView)
@@ -852,6 +894,9 @@ import UIKit
     let text = SimpleTextView(usingTextLayoutManager: false)
     private let folding = FoldLayout()
     private var tableViewport: CGPoint?
+    private var diagramSource = ""
+    private var diagramAnchor: Int?
+    private var diagramViews: [Int: DiagramHost] = [:]
     private var tableSnapshot = InlineSnapshot(source: "")
     private var tableSource = ""
     private var tableSourceVisible = false
@@ -1030,6 +1075,41 @@ import UIKit
         if rows != buffer.visibleDebugLines { buffer.visibleDebugLines = rows }
     }
 
+    private func presentDiagrams() {
+        let source = text.text ?? ""
+        let storage = text.textStorage
+        let diagrams = !buffer.tableSourceVisible ? tableSnapshot.diagrams.filter { $0.id != buffer.sourceTable } : []
+        let changed = diagrams.map(\.range) != folding.diagrams.map(\.range)
+        if diagramSource != source || diagramAnchor != buffer.sourceTable || changed {
+            diagramSource = source; diagramAnchor = buffer.sourceTable
+            storage.beginEditing()
+            let tabs = NSMutableParagraphStyle()
+            for old in folding.diagrams {
+                let range = NSIntersectionRange(old.range, NSRange(location: 0, length: storage.length))
+                if range.length > 0 { storage.addAttribute(.paragraphStyle, value: tabs, range: range); storage.addAttribute(.foregroundColor, value: UIColor.label, range: range); text.layoutManager.invalidateGlyphs(forCharacterRange: range, changeInLength: 0, actualCharacterRange: nil) }
+            }
+            folding.diagrams = diagrams
+            let live = Set(diagrams.map(\.id))
+            for id in Array(diagramViews.keys) where !live.contains(id) { diagramViews[id]?.view.removeFromSuperview(); diagramViews.removeValue(forKey: id) }
+            for diagram in diagrams {
+                let preview = NativeDiagramPreview(diagram: diagram, buffer: buffer)
+                if let host = diagramViews[diagram.id] { host.rootView = preview }
+                else { let host = DiagramHost(rootView: preview); diagramViews[diagram.id] = host; text.addSubview(host.view) }
+            }
+            storage.endEditing()
+        }
+        text.tableRanges = folding.tables.map(\.range) + diagrams.map(\.range)
+        for diagram in diagrams {
+            let style = NSMutableParagraphStyle(); style.minimumLineHeight = 260; style.maximumLineHeight = 260
+            storage.addAttribute(.paragraphStyle, value: style, range: NSRange(location: diagram.range.location, length: 1))
+            storage.addAttribute(.foregroundColor, value: UIColor.clear, range: diagram.range)
+            if changed { text.layoutManager.invalidateGlyphs(forCharacterRange: diagram.range, changeInLength: 0, actualCharacterRange: nil) }
+            let manager = text.layoutManager, container = text.textContainer
+            let glyph = manager.glyphRange(forCharacterRange: NSRange(location: diagram.range.location, length: 1), actualCharacterRange: nil)
+            let rect = manager.boundingRect(forGlyphRange: glyph, in: container)
+            diagramViews[diagram.id]?.view.frame = CGRect(x: text.textContainerInset.left, y: rect.minY + text.textContainerInset.top, width: max(100, text.bounds.width - text.textContainerInset.left - text.textContainerInset.right), height: 260)
+        }
+    }
     private func preserveViewport() -> () -> Void {
         let manager = text.layoutManager, container = text.textContainer
         guard manager.numberOfGlyphs > 0 else { return {} }
@@ -1092,6 +1172,7 @@ import UIKit
             let rect = manager.boundingRect(forGlyphRange: glyph, in: container)
             tableViews[table.id]?.view.frame = CGRect(x: text.textContainerInset.left, y: rect.minY + text.textContainerInset.top, width: max(100, text.bounds.width - text.textContainerInset.left - text.textContainerInset.right), height: table.height)
         }
+        presentDiagrams()
         if let viewport = tableViewport, buffer.inlineMarkup.source == source {
             tableViewport = nil; text.setContentOffset(viewport, animated: false)
         }
@@ -1315,6 +1396,9 @@ struct LanguageEditor: View {
                 }.accessibilityLabel("Line numbers; click code to toggle breakpoint")
             }.frame(width: CGFloat(max(3, String(buffer.text.filter { $0 == "\n" }.count + 1).count)) * 8 + 12)
             NativeEditor(buffer: buffer).overlay(alignment: .topLeading) {
+                if let anchor = buffer.sourceTable, buffer.inlineMarkup.diagrams.contains(where: { $0.id == anchor }) {
+                    Button("Render diagram") { buffer.sourceTable = nil }.buttonStyle(.bordered).padding(4)
+                }
                 if (buffer.tableSourceVisible || buffer.sourceTable != nil) && !inlineTables(buffer.inlineMarkup).isEmpty {
                     Button("Edit tables as grids") { buffer.sourceTable = nil; buffer.tableSourceVisible = false }.buttonStyle(.bordered).padding(4)
                 }

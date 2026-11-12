@@ -2,7 +2,8 @@ import Foundation
 struct InlineMark: Sendable { var kind: String; var range: NSRange; var level: Int = 0 }
 struct InlineCell: Identifiable, Sendable { var line: Int; var column: Int; var range: NSRange; var value: String; var format = "markdown"; var delimiter = ","; var id: Int { range.location } }
 struct InlineEquation: Identifiable, Sendable { var line: Int; var range: NSRange; var body: String; var id: Int { range.location } }
-struct InlineSnapshot: Sendable { var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = []; var debug = InlineDebugContext() }
+struct InlineDiagram: Identifiable, Sendable { var line: Int; var range: NSRange; var body: String; var renderer: String; var id: Int { range.location } }
+struct InlineSnapshot: Sendable { var diagrams: [InlineDiagram] = []; var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = []; var debug = InlineDebugContext() }
 // Tables are presentation ranges over the original source, never replacement text.
 struct InlineTable: Identifiable, Sendable {
     var range: NSRange; var rows: [[InlineCell]]
@@ -32,6 +33,14 @@ func tablePresentation(_ snapshot: InlineSnapshot, source: String) -> InlineSnap
             ? String(raw.dropFirst().dropLast()).replacingOccurrences(of: "\"\"", with: "\"")
             : raw.replacingOccurrences(of: "\\|", with: "|").replacingOccurrences(of: "\\\\", with: "\\")
         return cell
+    }
+    result.diagrams = snapshot.diagrams.compactMap { diagram in
+        var diagram = diagram
+        if NSMaxRange(diagram.range) <= prefix { }
+        else if diagram.range.location >= end { diagram.range.location += delta }
+        else { return nil }
+        diagram.line = inlineLineAt(diagram.range.location, starts: result.lineStarts)
+        return diagram
     }
     return result
 }
@@ -170,6 +179,31 @@ func inlineLineAt(_ offset: Int, starts: [Int]) -> Int {
     while low < high { let middle = (low + high) / 2; if starts[middle] <= offset { low = middle + 1 } else { high = middle } }
     return max(0, low - 1)
 }
+func inlineDiagrams(_ source: String) -> [InlineDiagram] {
+    let open = try! NSRegularExpression(pattern: #"^ {0,3}<[\w.-]+:(file|copy|cut|exec|entry|patch|diagram|math|table)\b[^>]*>"#)
+    let renderer = try! NSRegularExpression(pattern: #"\brenderer\s*=\s*["']([^"']+)["']"#)
+    var result: [InlineDiagram] = [], offset = 0, fence = "", payload = "", bodyStart = 0, blockStart = 0, blockLine = 0, engine = "mermaid"
+    for (line, row) in source.components(separatedBy: "\n").enumerated() {
+        let text = row as NSString, trimmed = row.trimmingCharacters(in: .whitespacesAndNewlines)
+        defer { offset += text.length + 1 }
+        if !fence.isEmpty { if trimmed.count >= fence.count, trimmed.allSatisfy({ $0 == fence.first! }) { fence = "" }; continue }
+        if payload.isEmpty {
+            if let marker = row.range(of: #"^ {0,3}(`{3,}|~{3,})"#, options: .regularExpression) { fence = String(row[marker]).trimmingCharacters(in: .whitespaces); continue }
+            guard let match = open.firstMatch(in: row, range: NSRange(location: 0, length: text.length)) else { continue }
+            payload = text.substring(with: match.range(at: 1)); blockStart = offset; blockLine = line; bodyStart = offset + NSMaxRange(match.range)
+            engine = renderer.firstMatch(in: row, range: match.range).map { text.substring(with: $0.range(at: 1)) } ?? "mermaid"
+            if trimmed.hasSuffix("/>") { payload = ""; continue }
+        }
+        if let close = row.range(of: "</"), row[close.lowerBound...].contains(":" + payload + ">") {
+            let bodyEnd = offset + row[..<close.lowerBound].utf16.count
+            if payload == "diagram", bodyEnd >= bodyStart {
+                result.append(InlineDiagram(line: blockLine, range: NSRange(location: blockStart, length: offset + text.length - blockStart), body: (source as NSString).substring(with: NSRange(location: bodyStart, length: bodyEnd - bodyStart)), renderer: engine))
+            }
+            payload = ""
+        }
+    }
+    return result
+}
 func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
     var starts = [0]
     for (index, unit) in source.utf16.enumerated() { if unit == 10 { starts.append(index + 1) } }
@@ -252,5 +286,6 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
             if !isSeparator { result.cells += inlineCells(row, line: line, offset: offset) }
         } else if !isSeparator { table = false }
     }
+    result.diagrams = inlineDiagrams(source)
     return result
 }

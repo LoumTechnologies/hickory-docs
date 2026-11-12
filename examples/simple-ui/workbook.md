@@ -87,10 +87,10 @@ Items: 5
 </h:expect>
 </h:exec>
 
-## A browser diagram
+## An inline diagram
 
-The browser renders this architecture inline. Native editors retain its readable
-source; diagram rendering is not implemented there.
+Every Simple UI renders this architecture inline. Use Edit source text to change
+the graph, then restore its preview. Native previews also support Mermaid.
 
 <h:diagram renderer="graph">
 {"topology":{"nodes":[{"id":"catalog"},{"id":"order"},{"id":"receipt"}],"edges":[{"from":"catalog","to":"order"},{"from":"order","to":"receipt"}]},"layout":{"catalog":{"x":20,"y":20,"w":130,"h":50},"order":{"x":200,"y":20,"w":130,"h":50},"receipt":{"x":380,"y":20,"w":130,"h":50}}}

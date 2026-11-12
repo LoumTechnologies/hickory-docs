@@ -4,6 +4,8 @@ import { within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import katex from "katex";
 import { RichOwners } from "./RichInline";
+// Vitest stubs CSS by default; supply the actual local asset to exercise its shadow-root placement.
+vi.mock("@xyflow/react/dist/style.css?inline", async () => ({ default: (await import("node:fs")).readFileSync("node_modules/@xyflow/react/dist/style.css", "utf8") }));
 import * as hickParser from "../editor/hickLang";
 import { render, waitFor, act, fireEvent } from "@testing-library/react";
 import { smartEnter } from "./SmartEnter";
@@ -33,6 +35,45 @@ import { Buffer, Buffers } from "./buffers";
 import { api } from "../api/client";
 vi.mock("../api/client", () => ({ api: { files: vi.fn(), doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), fileOp: vi.fn(), openFile: vi.fn(), createDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agent: vi.fn() } }));
 describe("shared frontend layout contract", () => {
+  it("includes graph canvas styles in rendered Simple shadow roots", async () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const buffers = new Buffers(() => {});
+    const source = '<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n<h:diagram renderer="graph">{ "topology": { "nodes": [{"id":"a"}], "edges": [] } }</h:diagram>\n</h:doc>';
+    const buffer = new Buffer({ path: "diagram.md", name: "diagram.md", dir: false }, source, "hash", () => {});
+    buffers.values.set(buffer.file.path, buffer);
+    const screen = render(createElement(Fragment, null, createElement(Document, { buffer }), createElement(RichOwners, { buffers })));
+    try {
+      await waitFor(() => {
+        const root = [...screen.container.querySelectorAll("*")].map(node => node.shadowRoot).find(root => root?.querySelector("style"));
+        expect(root?.querySelector("style")?.textContent).toContain(".react-flow__renderer");
+      }, { timeout: 10000 });
+      expect(buffer.text).toBe(source);
+      expect(buffer.dirty).toBe(false);
+    } finally { screen.unmount(); }
+  }, 20000);
+  it("renders native graph previews safely and rejects obsolete Mermaid results", async () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const html = readFileSync("../apple-simple/Sources/Resources/math.html", "utf8");
+    const document = new DOMParser().parseFromString(html, "text/html");
+    const scope: any = {};
+    const pending: ((value: { svg: string }) => void)[] = [];
+    const mermaid = { initialize: vi.fn(), render: vi.fn(() => new Promise(resolve => pending.push(resolve as any))) };
+    scope.mermaid = mermaid;
+    const script = html.match(/<script nonce="hickory-math">([\s\S]*?)<\/script>/)![1];
+    new Function("document", "globalThis", "mermaid", script)(document, scope, mermaid);
+    await scope.renderDiagram(JSON.stringify({ topology: { nodes: [{ id: "a", label: "<img src=x onerror=alert(1)>" }, { id: "b" }], edges: [{ from: "a", to: "b" }] } }), "graph");
+    expect(document.querySelectorAll("svg rect")).toHaveLength(2);
+    expect(document.querySelector("img")).toBeNull();
+    expect(document.querySelector("svg text")?.textContent).toContain("<img");
+    await scope.renderDiagram("broken", "graph");
+    expect(document.getElementById("status")?.textContent).not.toBe("");
+    const old = scope.renderDiagram("graph TD; A-->B", "mermaid");
+    const fresh = scope.renderDiagram("graph TD; X-->Y", "mermaid");
+    pending[1]({ svg: "<svg><text>fresh</text></svg>" }); await fresh;
+    pending[0]({ svg: "<svg><text>old</text></svg>" }); await old;
+    expect(document.getElementById("formula")?.textContent).toBe("fresh");
+    expect(mermaid.initialize).toHaveBeenCalledWith(expect.objectContaining({ securityLevel: "strict" }));
+  });
   it("folds Markdown headings through peers and excludes literal bodies", () => {
     // Contract: .hickory-source/frontends/contract.md
     const source = "# A\nintro 😀\n## B\nbody\n```python\n# comment\n```\n<h:file path=\"x.py\">\n# literal\n</h:file>\n## C\nlast\nNext\n====\nend";

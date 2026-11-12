@@ -9,6 +9,15 @@ CSV declarations and standalone CSV files use the same grid as prose tables. Gro
 
 Markdown prose tables now use those exact cell ranges to form whole-table presentation ranges. Keep the final newline outside the replacement so following prose retains its paragraph. Header separators belong to the replacement, but never become editable data cells. Only cells admitted by the prose or CSV scanner can enter a grid; fenced code and Hickory literal bodies stay source. The Swift and Kotlin range witnesses check CRLF, emoji and escaped pipes.
 
+Diagram previews use the existing isolated native WebView and a local, locked
+Mermaid bundle; graph JSON is drawn as SVG using text nodes for labels. The body
+is passed as JSON rather than executable script. A monotonically increasing
+render ticket rejects obsolete Mermaid results. Invalid and unsupported diagrams
+show their source and a status message. Network navigation remains disabled.
+Browser slots include the graph canvas stylesheet inside their shadow root; a stylesheet on the outer document cannot style that canvas. Native editors reserve a fixed preview rectangle and offer explicit source mode;
+rendering never resizes the editor or mutates the diagram. Fenced examples and
+other Hickory literal bodies do not create live diagrams.
+
 Fenced diff examples retain their literal text and receive addition/removal backgrounds on native platforms. They are review text; launch and breakpoint controls belong to the accompanying executable file block. This does not claim that diff context or deleted lines are independent executable statements.
 
 While a new parse is pending, map unaffected table cells through the text change.
@@ -25,7 +34,8 @@ import Foundation
 struct InlineMark: Sendable { var kind: String; var range: NSRange; var level: Int = 0 }
 struct InlineCell: Identifiable, Sendable { var line: Int; var column: Int; var range: NSRange; var value: String; var format = "markdown"; var delimiter = ","; var id: Int { range.location } }
 struct InlineEquation: Identifiable, Sendable { var line: Int; var range: NSRange; var body: String; var id: Int { range.location } }
-struct InlineSnapshot: Sendable { var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = []; var debug = InlineDebugContext() }
+struct InlineDiagram: Identifiable, Sendable { var line: Int; var range: NSRange; var body: String; var renderer: String; var id: Int { range.location } }
+struct InlineSnapshot: Sendable { var diagrams: [InlineDiagram] = []; var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = []; var debug = InlineDebugContext() }
 // Tables are presentation ranges over the original source, never replacement text.
 struct InlineTable: Identifiable, Sendable {
     var range: NSRange; var rows: [[InlineCell]]
@@ -55,6 +65,14 @@ func tablePresentation(_ snapshot: InlineSnapshot, source: String) -> InlineSnap
             ? String(raw.dropFirst().dropLast()).replacingOccurrences(of: "\"\"", with: "\"")
             : raw.replacingOccurrences(of: "\\|", with: "|").replacingOccurrences(of: "\\\\", with: "\\")
         return cell
+    }
+    result.diagrams = snapshot.diagrams.compactMap { diagram in
+        var diagram = diagram
+        if NSMaxRange(diagram.range) <= prefix { }
+        else if diagram.range.location >= end { diagram.range.location += delta }
+        else { return nil }
+        diagram.line = inlineLineAt(diagram.range.location, starts: result.lineStarts)
+        return diagram
     }
     return result
 }
@@ -193,6 +211,31 @@ func inlineLineAt(_ offset: Int, starts: [Int]) -> Int {
     while low < high { let middle = (low + high) / 2; if starts[middle] <= offset { low = middle + 1 } else { high = middle } }
     return max(0, low - 1)
 }
+func inlineDiagrams(_ source: String) -> [InlineDiagram] {
+    let open = try! NSRegularExpression(pattern: #"^ {0,3}<[\w.-]+:(file|copy|cut|exec|entry|patch|diagram|math|table)\b[^>]*>"#)
+    let renderer = try! NSRegularExpression(pattern: #"\brenderer\s*=\s*["']([^"']+)["']"#)
+    var result: [InlineDiagram] = [], offset = 0, fence = "", payload = "", bodyStart = 0, blockStart = 0, blockLine = 0, engine = "mermaid"
+    for (line, row) in source.components(separatedBy: "\n").enumerated() {
+        let text = row as NSString, trimmed = row.trimmingCharacters(in: .whitespacesAndNewlines)
+        defer { offset += text.length + 1 }
+        if !fence.isEmpty { if trimmed.count >= fence.count, trimmed.allSatisfy({ $0 == fence.first! }) { fence = "" }; continue }
+        if payload.isEmpty {
+            if let marker = row.range(of: #"^ {0,3}(`{3,}|~{3,})"#, options: .regularExpression) { fence = String(row[marker]).trimmingCharacters(in: .whitespaces); continue }
+            guard let match = open.firstMatch(in: row, range: NSRange(location: 0, length: text.length)) else { continue }
+            payload = text.substring(with: match.range(at: 1)); blockStart = offset; blockLine = line; bodyStart = offset + NSMaxRange(match.range)
+            engine = renderer.firstMatch(in: row, range: match.range).map { text.substring(with: $0.range(at: 1)) } ?? "mermaid"
+            if trimmed.hasSuffix("/>") { payload = ""; continue }
+        }
+        if let close = row.range(of: "</"), row[close.lowerBound...].contains(":" + payload + ">") {
+            let bodyEnd = offset + row[..<close.lowerBound].utf16.count
+            if payload == "diagram", bodyEnd >= bodyStart {
+                result.append(InlineDiagram(line: blockLine, range: NSRange(location: blockStart, length: offset + text.length - blockStart), body: (source as NSString).substring(with: NSRange(location: bodyStart, length: bodyEnd - bodyStart)), renderer: engine))
+            }
+            payload = ""
+        }
+    }
+    return result
+}
 func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
     var starts = [0]
     for (index, unit) in source.utf16.enumerated() { if unit == 10 { starts.append(index + 1) } }
@@ -275,6 +318,7 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
             if !isSeparator { result.cells += inlineCells(row, line: line, offset: offset) }
         } else if !isSeparator { table = false }
     }
+    result.diagrams = inlineDiagrams(source)
     return result
 }
 </ui:copy>
@@ -289,7 +333,8 @@ package com.hickorydocs.simple
 data class InlineMark(val kind: String, val from: Int, val to: Int, val level: Int = 0)
 data class InlineCell(val line: Int, val column: Int, val from: Int, val to: Int, val value: String, val format: String = "markdown", val delimiter: String = ",")
 data class InlineEquation(val line: Int, val from: Int, val to: Int, val body: String)
-data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf(0), val marks: List<InlineMark> = emptyList(), val cells: List<InlineCell> = emptyList(), val equations: List<InlineEquation> = emptyList(), val debug: InlineDebugContext = InlineDebugContext())
+data class InlineDiagram(val line: Int, val from: Int, val to: Int, val body: String, val renderer: String)
+data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf(0), val marks: List<InlineMark> = emptyList(), val cells: List<InlineCell> = emptyList(), val equations: List<InlineEquation> = emptyList(), val debug: InlineDebugContext = InlineDebugContext(), val diagrams: List<InlineDiagram> = emptyList())
 // Keep source offsets authoritative while the field displays a grid-sized placeholder.
 data class InlineTable(val from: Int, val to: Int, val rows: List<List<InlineCell>>) {
     val displayRows: Int get() = minOf(10, rows.size + 2)
@@ -314,7 +359,11 @@ fun tablePresentation(snapshot: InlineSnapshot, source: String): InlineSnapshot 
         val value = if (cell.format == "csv" && raw.startsWith('"') && raw.endsWith('"') && raw.length >= 2) raw.substring(1, raw.length - 1).replace("\"\"", "\"") else raw.replace("\\|", "|").replace("\\\\", "\\")
         cell.copy(line = inlineLineAt(cell.from, starts), value = value)
     }
-    return InlineSnapshot(source, lineStarts = starts, cells = cells)
+    val diagrams = snapshot.diagrams.mapNotNull { diagram ->
+        val mapped = when { diagram.to <= prefix -> diagram; diagram.from >= end -> diagram.copy(from = diagram.from + delta, to = diagram.to + delta); else -> null }
+        mapped?.copy(line = inlineLineAt(mapped.from, starts))
+    }
+    return InlineSnapshot(source, lineStarts = starts, cells = cells, diagrams = diagrams)
 }
 fun inlineTables(snapshot: InlineSnapshot): List<InlineTable> {
     val lines = snapshot.cells.filter { it.format == "markdown" }.groupBy { it.line }
@@ -427,6 +476,31 @@ fun inlineDebugPath(source: String, path: String, line: Int, launch: Boolean = f
     return if (launch) context.launch[line] else context.code[line]
 }
 fun inlineLineAt(offset: Int, starts: List<Int>): Int { val found = starts.binarySearch(offset); return if (found >= 0) found else maxOf(0, -found - 2) }
+fun inlineDiagrams(source: String): List<InlineDiagram> {
+    val open = Regex("""^ {0,3}<[\w.-]+:(file|copy|cut|exec|entry|patch|diagram|math|table)\b[^>]*>""")
+    val renderer = Regex("""\brenderer\s*=\s*["']([^"']+)["']""")
+    val result = mutableListOf<InlineDiagram>()
+    var offset = 0; var fence = ""; var payload = ""; var bodyStart = 0; var blockStart = 0; var blockLine = 0; var engine = "mermaid"
+    for ((line, row) in source.split('\n').withIndex()) {
+        val start = offset; offset += row.length + 1; val trimmed = row.trim()
+        if (fence.isNotEmpty()) { if (trimmed.length >= fence.length && trimmed.all { it == fence[0] }) fence = ""; continue }
+        if (payload.isEmpty()) {
+            val marker = Regex("""^ {0,3}(`{3,}|~{3,})""").find(row)
+            if (marker != null) { fence = marker.value.trim(); continue }
+            val match = open.find(row) ?: continue
+            payload = match.groupValues[1]; blockStart = start; blockLine = line; bodyStart = start + match.range.last + 1
+            engine = renderer.find(match.value)?.groupValues?.get(1) ?: "mermaid"
+            if (trimmed.endsWith("/>")) { payload = ""; continue }
+        }
+        val close = row.indexOf("</")
+        if (close >= 0 && row.substring(close).contains(":" + payload + ">")) {
+            val bodyEnd = start + close
+            if (payload == "diagram" && bodyEnd >= bodyStart) result.add(InlineDiagram(blockLine, blockStart, start + row.length, source.substring(bodyStart, bodyEnd), engine))
+            payload = ""
+        }
+    }
+    return result
+}
 fun computeInlineMarkup(source: String, path: String): InlineSnapshot {
     val starts = mutableListOf(0); source.forEachIndexed { index, char -> if (char == '\n') starts.add(index + 1) }
     val debug = inlineDebugContext(source, path)
@@ -488,7 +562,7 @@ fun computeInlineMarkup(source: String, path: String): InlineSnapshot {
         val isSeparator = separator.matches(row); val nextSeparator = rows.getOrNull(line + 1)?.let { separator.matches(it) } == true
         if (nextSeparator || table && row.contains('|')) { table = true; if (!isSeparator) cells.addAll(inlineCells(row, line, start)) } else if (!isSeparator) table = false
     }
-    return InlineSnapshot(source, starts, marks, cells, equations, debug)
+    return InlineSnapshot(source, starts, marks, cells, equations, debug, inlineDiagrams(source))
 }
 </ui:copy>
 
@@ -503,7 +577,7 @@ The local math page loads only bundled KaTeX and fonts. Formula strings enter th
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'nonce-hickory-math'; style-src 'self' 'unsafe-inline'; font-src 'self' data:;">
 <link rel="stylesheet" href="katex/katex.min.css"><style>html{color-scheme:light dark;font:14px system-ui}body{margin:8px}#formula{overflow:auto;padding:8px}#status{font-size:11px}</style>
 </head><body><div id="formula" aria-label="Typeset equation"></div><div id="status" role="status"></div>
-<script nonce="hickory-math" src="katex/katex.min.js"></script><script nonce="hickory-math">
+<script nonce="hickory-math" src="katex/katex.min.js"></script><script nonce="hickory-math" src="node_modules/mermaid.min.js"></script><script nonce="hickory-math">
 globalThis.renderMath = function (formula) {
   const node = document.getElementById('formula'), status = document.getElementById('status');
   node.textContent = formula;
@@ -512,6 +586,35 @@ globalThis.renderMath = function (formula) {
   try { katex.render(formula, node, {throwOnError:false, trust:false, strict:'warn', displayMode:true, maxExpand:1000}); status.textContent = ''; }
   catch (_) { node.textContent = formula; status.textContent = 'Check the LaTeX expression.'; }
 };
+globalThis.renderDiagram = async function (source, renderer) {
+  const node = document.getElementById('formula'), status = document.getElementById('status');
+  const revision = globalThis.diagramRevision = (globalThis.diagramRevision || 0) + 1;
+  node.replaceChildren(); status.textContent = '';
+  if (source.length > 200000) { status.textContent = 'Diagram is too large to preview. Edit its source.'; return; }
+  try {
+    if (renderer === 'graph') {
+      const graph = JSON.parse(source), topology = graph.topology || {}, layout = graph.layout || {};
+      const nodes = topology.nodes || [], edges = topology.edges || [];
+      if (nodes.length > 500 || edges.length > 2000) throw Error('Diagram is too large to preview.');
+      const ns = 'http://www.w3.org/2000/svg';
+      const element = (name, attrs = {}, text) => { const el = document.createElementNS(ns, name); for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, String(value)); if (text !== undefined) el.textContent = text; return el; };
+      const boxes = new Map(nodes.map((n, i) => { const box = layout[n.id] || {}; return [n.id, { x: Number.isFinite(box.x) ? box.x : i % 4 * 170 + 10, y: Number.isFinite(box.y) ? box.y : Math.floor(i / 4) * 90 + 10, w: Number.isFinite(box.w) ? Math.max(30, box.w) : 140, h: Number.isFinite(box.h) ? Math.max(30, box.h) : 50 }]; }));
+      const values = [...boxes.values()], minX = Math.min(0, ...values.map(b => b.x)) - 10, minY = Math.min(0, ...values.map(b => b.y)) - 10;
+      const svg = element('svg', { viewBox: `${minX} ${minY} ${Math.max(200, ...values.map(b => b.x + b.w)) - minX + 10} ${Math.max(80, ...values.map(b => b.y + b.h)) - minY + 10}`, role: 'img', 'aria-label': 'Diagram preview', width: '100%', height: '100%' });
+      const defs = element('defs'), marker = element('marker', { id: 'arrow', markerWidth: 8, markerHeight: 8, refX: 7, refY: 4, orient: 'auto' });
+      marker.append(element('path', { d: 'M0,0 L8,4 L0,8 Z', fill: 'currentColor' })); defs.append(marker); svg.append(defs);
+      for (const edge of edges) { const a = boxes.get(edge.from), b = boxes.get(edge.to); if (a && b) svg.append(element('line', { x1: a.x + a.w, y1: a.y + a.h / 2, x2: b.x, y2: b.y + b.h / 2, stroke: 'currentColor', 'marker-end': 'url(#arrow)' })); }
+      for (const item of nodes) { const b = boxes.get(item.id); svg.append(element('rect', { ...b, width: b.w, height: b.h, rx: 6, fill: 'Canvas', stroke: 'currentColor' })); svg.append(element('text', { x: b.x + b.w / 2, y: b.y + b.h / 2, 'text-anchor': 'middle', 'dominant-baseline': 'middle', fill: 'currentColor' }, item.label || item.id)); }
+      node.append(svg);
+    } else if (renderer === 'mermaid') {
+      if (!globalThis.mermaid) throw Error('Diagram engine unavailable. Prepare native resources and rebuild.');
+      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'neutral', maxTextSize: 200000 });
+      const result = await mermaid.render('diagram-' + revision, source);
+      if (revision === globalThis.diagramRevision) node.innerHTML = result.svg;
+    } else throw Error('No preview for renderer ' + renderer + '. Edit its source.');
+  } catch (error) { if (revision === globalThis.diagramRevision) { node.textContent = source; status.textContent = error.message || 'Check the diagram source.'; } }
+};
+
 </script></body></html>
 </ui:copy>
 
@@ -546,6 +649,19 @@ else:
         os.chmod(staged, 0o644)
         os.replace(staged, destination)
     print("Prepared local native math resources.")
+# Mermaid's UMD bundle is self-contained; native previews never fetch a CDN.
+mermaid = ROOT / "apps/web/node_modules/mermaid/dist/mermaid.min.js"
+if mermaid.is_file():
+    destination = ROOT / "apps/apple-simple/Sources/Resources/node_modules/mermaid.min.js"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    data = mermaid.read_bytes()
+    if not destination.is_file() or destination.read_bytes() != data:
+        with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as temporary:
+            temporary.write(data)
+            staged = temporary.name
+        os.chmod(staged, 0o644)
+        os.replace(staged, destination)
+    print("Prepared local native diagram resources.")
 </ui:copy>
 
 <ui:file path="scripts/prepare-simple-resources.py"><ui:paste select="#simple-inline-math-1"/></ui:file>
@@ -557,10 +673,13 @@ import SwiftUI
 import WebKit
 @MainActor final class MathCoordinator: NSObject, WKNavigationDelegate {
     var source = ""
+    var diagramRenderer: String?
     var ready = false
     func display(_ view: WKWebView) {
         guard ready, let bytes = try? JSONSerialization.data(withJSONObject: source, options: .fragmentsAllowed), let json = String(data: bytes, encoding: .utf8) else { return }
-        view.evaluateJavaScript("globalThis.renderMath(" + json + ")", completionHandler: nil)
+        if let renderer = diagramRenderer, let data = try? JSONSerialization.data(withJSONObject: renderer, options: .fragmentsAllowed), let engine = String(data: data, encoding: .utf8) {
+            view.evaluateJavaScript("globalThis.renderDiagram(" + json + "," + engine + ")", completionHandler: nil)
+        } else { view.evaluateJavaScript("globalThis.renderMath(" + json + ")", completionHandler: nil) }
     }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { ready = true; display(webView) }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
@@ -588,18 +707,30 @@ func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main]) -> URL? {
 #if os(macOS)
 struct NativeMathView: NSViewRepresentable {
     var source: String
+    var diagramRenderer: String? = nil
     func makeCoordinator() -> MathCoordinator { MathCoordinator() }
-    func makeNSView(context: Context) -> WKWebView { context.coordinator.source = source; return makeMathView(context.coordinator) }
-    func updateNSView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.display(view) }
+    func makeNSView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; return makeMathView(context.coordinator) }
+    func updateNSView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.display(view) }
 }
 #else
 struct NativeMathView: UIViewRepresentable {
     var source: String
+    var diagramRenderer: String? = nil
     func makeCoordinator() -> MathCoordinator { MathCoordinator() }
-    func makeUIView(context: Context) -> WKWebView { context.coordinator.source = source; return makeMathView(context.coordinator) }
-    func updateUIView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.display(view) }
+    func makeUIView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; return makeMathView(context.coordinator) }
+    func updateUIView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.display(view) }
 }
 #endif
+struct NativeDiagramPreview: View {
+    var diagram: InlineDiagram
+    var buffer: DocumentBuffer
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack { Text("Diagram").font(.caption); Spacer(); Button("Edit source text") { buffer.sourceTable = diagram.id }.buttonStyle(.bordered) }.padding(4)
+            NativeMathView(source: diagram.body, diagramRenderer: diagram.renderer)
+        }.background(.background)
+    }
+}
 struct InlineEquationControl: View {
     var equation: InlineEquation
     var source: String
@@ -637,7 +768,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import org.json.JSONObject
 
 @SuppressLint("SetJavaScriptEnabled")
-@Composable fun NativeMathView(source: String, modifier: Modifier = Modifier) {
+@Composable fun NativeMathView(source: String, modifier: Modifier = Modifier, diagramRenderer: String? = null) {
     AndroidView(modifier = modifier, factory = { context ->
         WebView(context).apply {
             settings.javaScriptEnabled = true; settings.allowFileAccess = false; settings.allowContentAccess = false; settings.blockNetworkLoads = true
@@ -645,14 +776,15 @@ import org.json.JSONObject
                 override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean { view.destroy(); return true }
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = request.url.toString() != "file:///android_asset/math.html"
                 override fun onPageFinished(view: WebView, url: String) {
-                    if (url == "file:///android_asset/math.html") view.evaluateJavascript("globalThis.renderMath(" + JSONObject.quote(view.tag as? String ?: "") + ")", null)
+                    if (url == "file:///android_asset/math.html") view.evaluateJavascript(view.tag as? String ?: "", null)
                 }
             }
-            tag = source; loadUrl("file:///android_asset/math.html")
+            tag = if (diagramRenderer == null) "globalThis.renderMath(" + JSONObject.quote(source) + ")" else "globalThis.renderDiagram(" + JSONObject.quote(source) + "," + JSONObject.quote(diagramRenderer) + ")"; loadUrl("file:///android_asset/math.html")
         }
     }, update = { view ->
-        view.tag = source
-        view.evaluateJavascript("if(globalThis.renderMath)globalThis.renderMath(" + JSONObject.quote(source) + ")", null)
+        val script = if (diagramRenderer == null) "globalThis.renderMath(" + JSONObject.quote(source) + ")" else "globalThis.renderDiagram(" + JSONObject.quote(source) + "," + JSONObject.quote(diagramRenderer) + ")"
+        view.tag = script
+        view.evaluateJavascript("if(globalThis.renderDiagram){" + script + "}", null)
     }, onRelease = { it.stopLoading(); it.destroy() })
 }
 </ui:copy>
@@ -763,7 +895,7 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
       diagramBlocks: saved.filter((block): block is DiagramBlock => block.kind === "diagram"), runningCells: new Set<string>(), replaying: [],
       replaceBlockContent: (target: RenderedSlot, text: string, origin?: string) => modules.edit.replaceCapturedBlock(view, target, text, origin ?? "input.table"),
     };
-    return <SlotPortal key={slot.key} slot={slot} css={modules.css.default + modules.katexCss.default}>
+    return <SlotPortal key={slot.key} slot={slot} css={modules.css.default + modules.katexCss.default + modules.graphCss.default}>
       {!slot.outputOnly && <button type="button" style={{ border: "1px solid currentColor", borderRadius: 4, padding: "3px 8px", cursor: "pointer" }} onClick={() => {
         if (view.state.doc !== captured) return;
         view.dispatch({ effects: modules.rendered.showBlockSource.of(slot.at), selection: { anchor: Math.min(slot.at, view.state.doc.length) }, scrollIntoView: true }); view.focus();
@@ -777,11 +909,11 @@ async function load() {
   const parser = await import("../editor/hickLang");
   await parser.loadHickLang();
   const rendered = await import("../editor/rendered");
-  const [prose, math, spans, hick, elements, edit, css, katexCss] = await Promise.all([
+  const [prose, math, spans, hick, elements, edit, css, katexCss, graphCss] = await Promise.all([
     import("../editor/wysiwyg"), import("../editor/mathRender"), import("../lib/math"), import("../editor/hickDoc"),
-    import("../elements"), import("../editor/replaceCapturedBlock"), import("../styles.css?inline"), import("katex/dist/katex.min.css?inline"),
+    import("../elements"), import("../editor/replaceCapturedBlock"), import("../styles.css?inline"), import("katex/dist/katex.min.css?inline"), import("@xyflow/react/dist/style.css?inline"),
   ]);
-  return { prose, rendered, math, spans, hick, elements, edit, css, katexCss };
+  return { prose, rendered, math, spans, hick, elements, edit, css, katexCss, graphCss };
 }
 </ui:copy>
 

@@ -6,6 +6,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @org.junit.Test fun diagramDiscoveryKeepsLiteralExamplesAndUnicodeSafe() {
+        // Contract: .hickory-source/frontends/contract.md
+        val source = "😀\n```xml\n<h:diagram>ignored</h:diagram>\n```\n<h:file path=\"x.xml\">\n<h:diagram>also ignored</h:diagram>\n</h:file>\n<h:diagram renderer=\"graph\">{\"topology\":{\"nodes\":[]}}</h:diagram>\n<h:diagram>graph TD; A-->B</h:diagram>"
+        val snapshot = computeInlineMarkup(source, "diagram.md")
+        assertEquals(listOf("graph", "mermaid"), snapshot.diagrams.map { it.renderer })
+        assertEquals(listOf(7, 8), snapshot.diagrams.map { it.line })
+        val projected = tablePresentation(snapshot, "prefix\n" + source)
+        assertEquals(2, projected.diagrams.size)
+        assertEquals(snapshot.diagrams[0].from + 7, projected.diagrams[0].from)
+        val replacements = editorReplacements(emptyList(), emptyList(), source, snapshot.diagrams)
+        assertEquals(2, replacements.size)
+        assertTrue(!editorDisplay(source, replacements).contains("graph TD"))
+    }
+
     @org.junit.Test fun markdownHeadingFoldsRespectLiteralBodies() {
         // Contract: .hickory-source/frontends/contract.md
         val source = "# A\nintro 😀\n## B\nbody\n```python\n# comment\n```\n<h:file path=\"x.py\">\n# literal\n</h:file>\n## C\nlast\nNext\n====\nend"

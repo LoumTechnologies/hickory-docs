@@ -76,6 +76,43 @@ final class ParityTests: XCTestCase {
         XCTAssertTrue(simpleFoldRanges("# comment\nbody").isEmpty)
         XCTAssertTrue(simpleFoldRanges("```python\n# comment\nbody", markdown: true).isEmpty)
     }
+    func testDiagramDiscoveryKeepsLiteralExamplesAndUnicodeSafe() throws {
+        // Contract: .hickory-source/frontends/contract.md
+        let source = "😀\n```xml\n<h:diagram>ignored</h:diagram>\n```\n<h:file path=\"x.xml\">\n<h:diagram>also ignored</h:diagram>\n</h:file>\n<h:diagram renderer=\"graph\">{\"topology\":{\"nodes\":[]}}</h:diagram>\n<h:diagram>graph TD; A-->B</h:diagram>"
+        let snapshot = computeInlineMarkup(source, path: "diagram.md")
+        XCTAssertEqual(snapshot.diagrams.map(\.renderer), ["graph", "mermaid"])
+        XCTAssertEqual(snapshot.diagrams.map(\.line), [7, 8])
+        for diagram in snapshot.diagrams { XCTAssertTrue((source as NSString).substring(with: diagram.range).hasPrefix("<h:diagram")) }
+        let pending = tablePresentation(snapshot, source: "prefix\n" + source)
+        XCTAssertEqual(pending.diagrams.count, 2)
+        XCTAssertEqual(pending.diagrams[0].range.location, snapshot.diagrams[0].range.location + 7)
+    }
+    #if os(macOS)
+    @MainActor func testDiagramPreviewReservesInlineSpaceAndRevealsSource() throws {
+        // Contract: .hickory-source/frontends/contract.md
+        let source = "Before\n<h:diagram renderer=\"graph\">\n{\"topology\":{\"nodes\":[]}}\n</h:diagram>\nAfter"
+        let file = FileNode(name: "diagram.md", path: "diagram.md", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "base"))
+        let editor = MacEditor(buffer)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = editor.scroll
+        buffer.inlineMarkup = computeInlineMarkup(source, path: file.path); buffer.renderMarkup?()
+        let diagram = try XCTUnwrap(buffer.inlineMarkup.diagrams.first)
+        let host = try XCTUnwrap(editor.text.subviews.first { $0 is NSHostingView<NativeDiagramPreview> })
+        XCTAssertEqual(host.frame.height, 260)
+        let manager = try XCTUnwrap(editor.text.layoutManager), container = try XCTUnwrap(editor.text.textContainer)
+        let after = (source as NSString).range(of: "After")
+        let rect = manager.boundingRect(forGlyphRange: manager.glyphRange(forCharacterRange: after, actualCharacterRange: nil), in: container)
+        XCTAssertGreaterThanOrEqual(rect.minY + editor.text.textContainerOrigin.y, host.frame.maxY)
+        editor.text.setSelectedRange(NSRange(location: diagram.range.location, length: 0)); editor.text.deleteBackward(nil)
+        XCTAssertEqual(buffer.text, source)
+        buffer.sourceTable = diagram.id
+        XCTAssertFalse(editor.text.subviews.contains { $0 is NSHostingView<NativeDiagramPreview> })
+        XCTAssertEqual(buffer.text, source)
+        buffer.sourceTable = nil
+        XCTAssertTrue(editor.text.subviews.contains { $0 is NSHostingView<NativeDiagramPreview> })
+    }
+    #endif
     func testSharedSmartEnterFixtures() throws {
         // Contract: .hickory-source/frontends/contract.md
         let apps = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

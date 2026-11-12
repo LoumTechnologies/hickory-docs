@@ -24,3 +24,16 @@ else:
         os.chmod(staged, 0o644)
         os.replace(staged, destination)
     print("Prepared local native math resources.")
+# Mermaid's UMD bundle is self-contained; native previews never fetch a CDN.
+mermaid = ROOT / "apps/web/node_modules/mermaid/dist/mermaid.min.js"
+if mermaid.is_file():
+    destination = ROOT / "apps/apple-simple/Sources/Resources/node_modules/mermaid.min.js"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    data = mermaid.read_bytes()
+    if not destination.is_file() or destination.read_bytes() != data:
+        with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as temporary:
+            temporary.write(data)
+            staged = temporary.name
+        os.chmod(staged, 0o644)
+        os.replace(staged, destination)
+    print("Prepared local native diagram resources.")
