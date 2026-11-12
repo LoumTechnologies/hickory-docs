@@ -6,8 +6,10 @@ import katex from "katex";
 import { RichOwners } from "./RichInline";
 import * as hickParser from "../editor/hickLang";
 import { render, waitFor, act, fireEvent } from "@testing-library/react";
+import { smartEnter } from "./SmartEnter";
+import enterCases from "../../../simple-contract/enter-cases.json";
 import { EditorView } from "@codemirror/view";
-import { EditorState } from "@codemirror/state";
+import { EditorSelection, EditorState } from "@codemirror/state";
 import { foldedRanges } from "@codemirror/language";
 import { undo, isolateHistory } from "@codemirror/commands";
 import { currentCompletions } from "@codemirror/autocomplete";
@@ -30,6 +32,45 @@ import { Buffer, Buffers } from "./buffers";
 import { api } from "../api/client";
 vi.mock("../api/client", () => ({ api: { files: vi.fn(), doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), fileOp: vi.fn(), openFile: vi.fn(), createDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agent: vi.fn() } }));
 describe("shared frontend layout contract", () => {
+  it("applies the shared smart Enter language, context and mode fixtures", () => {
+    // Contract: .hickory-source/frontends/contract.md
+    for (const item of enterCases.cases) {
+      const from = item.before.indexOf("¦"), source = item.before.replace("¦", "");
+      const plan = smartEnter(source, from, from, item.path, item.unit, item.mode as "smart" | "copy" | "none");
+      const updated = source.slice(0, plan.from) + plan.text + source.slice(plan.to);
+      expect.soft(updated.slice(0, plan.caret) + "¦" + updated.slice(plan.caret), item.name).toBe(item.after);
+    }
+    const long = "x\n".repeat(32769) + "if ok:";
+    expect(smartEnter(long, long.length, long.length, "x.py", "    ", "smart").text).toBe("\n");
+    const line = "x".repeat(4097) + " {";
+    expect(smartEnter(line, line.length, line.length, "x.js", "    ", "smart").text).toBe("\n");
+  });
+  it("uses live Enter settings in the mounted document with one-step undo", () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const old = localStorage.getItem("editor.enterIndent"), source = "class C:\n    def f():";
+    vi.mocked(api.files).mockResolvedValue({ root: "workspace", tree: [] });
+    const buffer = new Buffer({ path: "enter.py", name: "enter.py", dir: false }, source, "hash", () => {});
+    const screen = render(createElement(Fragment, null, createElement(App), createElement(Document, { buffer })));
+    try {
+      const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+      for (const [mode, indent] of [["smart", "        "], ["copy", "    "], ["none", ""]]) {
+        fireEvent.change(screen.getByRole("combobox", { name: "Enter indentation", hidden: true }), { target: { value: mode } });
+        expect(localStorage.getItem("editor.enterIndent")).toBe(mode);
+        act(() => view.dispatch({ selection: { anchor: source.length } }));
+        fireEvent.keyDown(view.contentDOM, { key: "Enter", code: "Enter" });
+        expect(buffer.text).toBe(source + "\n" + indent);
+        expect(view.state.selection.main.head).toBe(buffer.text.length);
+        act(() => { expect(undo(view)).toBe(true); });
+        expect(buffer.text).toBe(source);
+      }
+      fireEvent.change(screen.getByRole("combobox", { name: "Enter indentation", hidden: true }), { target: { value: "smart" } });
+      act(() => view.dispatch({ selection: EditorSelection.create([EditorSelection.cursor(source.indexOf("\n")), EditorSelection.cursor(source.length)]) }));
+      fireEvent.keyDown(view.contentDOM, { key: "Enter", code: "Enter" });
+      expect(buffer.text).toBe("class C:\n\n    def f():\n    ");
+      act(() => { expect(undo(view)).toBe(true); });
+      expect(buffer.text).toBe(source);
+    } finally { screen.unmount(); if (old === null) localStorage.removeItem("editor.enterIndent"); else localStorage.setItem("editor.enterIndent", old); }
+  });
   it("moves through whole identifiers or word pieces without changing read-only text", () => {
     // Contract: .hickory-source/frontends/contract.md
     const source = "THIS_IS_ONE_WORD HTTPServer42 café😀";

@@ -38,7 +38,7 @@ The macOS recipe builds a locally signed `Hickory Simple.app` under `target/simp
 
 The Apple build requires full Xcode. `simple-dev` honors `DEVELOPER_DIR` and otherwise finds Xcode under `/Applications` if command-line tools are selected. For standalone build/test recipes, set `DEVELOPER_DIR` to your installed Xcode's `Contents/Developer` directory when needed. `xcodegen` is needed for the iOS project. Run `just simple-build ios`, then open `target/apple-simple-xcode/HickorySimple.xcodeproj` for device or simulator work. Device signing is not configured by this comparison scaffold.
 
-## Tune identifier navigation
+## Tune editor behavior
 
 On Apple, choose **Edit → Editor settings**. In the browser, open **Edit**. On
 Android, open the editor's **⌁ Language tools** menu and use **Editor settings**.
@@ -56,11 +56,37 @@ source order; use Platform default for native linguistic and visual bidi movemen
 macOS may reserve Ctrl+Left/Right for switching Spaces; configure that OS shortcut
 if you want the editor to receive it.
 
-Native Enter carries leading indentation and preserves LF/CRLF. Backspace in a
-space-only indent returns to the preceding detected stop. Tab and Shift-Tab use
-an initial sample of up to 200 lines and 16,384 characters to infer indentation.
-These commands work without a parser or language service. They do not strip
-trailing whitespace or insert braces and quotes without language context.
+**Enter indentation** has three choices, shared across all simple UIs:
+
+- **Smart (language rules)** is the default: indent after a Python `def …:` or an
+  opening brace, retain expression continuations, and dedent after a completed
+  Python `return`, `raise`, `pass`, `break` or `continue`. Keyword blocks, markup
+  tags and layout languages have their own rules. Enter between `{}` creates a
+  body line and an aligned closing brace, with the caret on the body line.
+- **Match current line** copies only the leading whitespace before the caret.
+- **None** inserts a newline without adding indentation.
+
+Settings persist locally and apply immediately to open editors. Named code fences
+and Hickory file bodies use their code language; ordinary Markdown prose keeps its
+prefix. The registry also covers JavaScript/TypeScript, C/C++, C#, Java, Go, Rust,
+Kotlin, Swift, PHP, Dart, Ruby, Lua, shell, PowerShell, SQL, HTML/XML, YAML, TOML,
+Scala, Haskell, F#, Visual Basic and related brace-based languages. Recognized
+comments and strings do not trigger block indentation. This is a bounded local
+heuristic, not a full parser: raw literals, heredocs, preprocessor branches and JSX
+tag syntax can need manual correction. Unknown contexts and prefixes beyond
+65,536 UTF-16 units (or a line beyond 4,096) carry indentation. These limits keep
+Enter independent of the engine and avoid a whole-file parse on the UI thread.
+
+All modes preserve LF/CRLF and native undo. They do not strip trailing whitespace,
+insert missing braces/quotes or format on save. Backspace retreats through leading
+space indentation. Tab and Shift-Tab infer a unit from an initial sample of up to
+200 lines and 16,384 characters.
+
+Run the focused real-keyboard flow with
+`python3 scripts/test-simple-browser.py --smart-enter-only`. The shared
+`apps/simple-contract/enter-cases.json` fixture checks source and caret outcomes on
+all three implementations; native physical-keyboard and IME behavior still needs
+device acceptance.
 
 Run only the navigation acceptance flow with
 `python3 scripts/test-simple-browser.py --editor-navigation-only`. It exercises

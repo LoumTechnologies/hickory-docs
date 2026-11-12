@@ -22,13 +22,37 @@ document editors, including read-only documents; terminal, agent and form fields
 retain their own bindings. OS-reserved shortcuts may need OS configuration before
 they reach the application. Custom navigation follows logical source order.
 
-Native Enter retains leading indentation and the local LF/CRLF convention.
-Backspace in a space-only prefix removes through the preceding inferred stop.
-Existing text and selections retain ordinary deletion. Android applies these rules
-to input transactions, including software-keyboard input. No automatic trailing
-whitespace cleanup or syntax-blind brace/quote insertion is introduced: mixed
-Markdown, code and literal assets require language-aware proposals. Browser editing
-continues to use CodeMirror's native editing commands for indentation and deletion.
+All simple editors offer **Enter indentation** with persisted **Smart (language
+rules)** (default), **Match current line**, and **None** modes. Changes apply to open
+editors. Smart uses the same bundled registry on browser, macOS, iOS and Android:
+brace/parenthesis/bracket continuations, Python suites and completed return/raise/
+break/continue/pass statements, keyword-delimited blocks (Ruby, Lua, shell, Elixir,
+Julia, SQL and Visual Basic), layout rules (Scala, Haskell and F#), YAML mappings and
+literal bodies, and HTML/XML tags. Brace rules cover C/C++, C#, Objective-C, Java,
+JavaScript/TypeScript, Go, Rust, Kotlin, Swift, Dart, PHP, Perl, Groovy, R, Zig, Nix,
+Terraform and CSS-family files; JSON/TOML containers also indent. Named Markdown
+fences and Hickory file bodies select their language without indenting prose as
+code. This is local editing policy, not a claim of complete language parsing.
+
+Smart ignores recognized strings/comments, retains unfinished expression indent,
+and returns to an opening delimiter's indentation when the expression closes.
+Enter between an opening and an existing matching closer creates an indented body
+line and aligns the retained closer; it does not insert a new brace or quote. Copy
+retains the leading prefix before the caret; None inserts only a newline. All
+modes preserve the local LF/CRLF convention and replace the selected source through
+one native/CodeMirror undo transaction. Protected source, read-only state and IME
+composition retain their existing guards. Android applies Enter policy in the input
+transaction, covering software keyboards. Smart browser multi-cursor Enter copies each prefix to avoid overlapping
+closer proposals. Native multi-cursor input retains its existing broadcast path; custom smart proposals target a single native selection.
+
+The scan is bounded to 65,536 preceding UTF-16 units and 4,096 per line; unknown
+languages, unavailable rule resources, unfinished literals and out-of-budget
+contexts carry indentation. Raw strings, heredocs, preprocessor branches, embedded
+language expressions and JSX tag syntax are not full-parser guarantees; use a
+formatter or manual indentation when the heuristic is insufficient. No typing
+waits for a language service or a later asynchronous correction. Backspace in a
+space-only prefix removes through the preceding inferred stop. There is no
+automatic trailing-whitespace cleanup or save-time formatting.
 
 Every text document offers **Edit → Find and replace** and Cmd/Ctrl-F. Search supports next/previous navigation, case sensitivity, regex mode and replace-one/all; regex replacements accept `$1`, `$&` and `$$`. Controls float above text without resizing it. Native matching runs in the background and uses UTF-16 source positions. Source, query and permission checks reject stale replacements. Replace-all is one undo operation; read-only text remains searchable. Native searches skip zero-width matches and refuse replacement when more than 10,000 nonempty matches would truncate the result. Advanced regex syntax follows the platform's engine.
 
@@ -43,6 +67,20 @@ All editors support multiple selections. Browser uses its established rectangula
 Inline presentation preserves editable source. Browser reuses the existing rich table, equation and recorded-output widgets inside the editor. All simple editors replace Markdown prose table lines with an inline spreadsheet grid: lettered columns, numbered rows and editable source-backed cells. Apple uses the same SwiftUI grid in AppKit and UIKit; Android uses the retained field’s output transformation. Grids support up/down/left/right arrow navigation. Moving from one cell input to another places a collapsed caret, never select-all: up/down retain a preferred visual horizontal position across consecutive moves, temporarily clamping in short/empty cells and restoring the original column on a longer cell. Explicit horizontal caret movement, edits or pointer placement reset that goal; left enters the previous cell at its end, and right enters the next at its beginning. Left/right move the caret normally within a cell and leave native selection/modifier gestures intact. They cross cells only from a collapsed caret at the matching text boundary; an outer table edge must not trap interior caret movement. Native grids apply on Return/Done, arrow navigation or focus loss. A bordered Edit source text button reveals only that table; Edit tables as grids restores the presentation without rebuilding the editor or its undo stack. CSV declarations and standalone CSV files use the same grid with CSV quoting retained on edits. Apple source carets stay hidden within a rendered table’s retained range. Source Delete/typing at that hidden anchor leaves the grid and source unchanged; Edit source is explicit. Native undo/redo and edits inside the grid remain available. Native equations retain floating editors; equations and recorded execution output remain attached to source lines. Applying a contextual edit verifies its source snapshot and uses native undo. Other native Markdown retains its styled source; this is table replacement, not full native Markdown WYSIWYG. Formatting scans are bounded to 200,000 UTF-16 units; larger text stays readable. Recorded outputs require an exact document/source hash and are never replayed automatically. Conversation Markdown formatting remains browser-only.
 
 All simple frontends attach the existing engine DAP debugger inline for plain files and Hickory file blocks. Launch icons occupy a fixed right column; active step, continue, stop, stack, watch and evaluation controls follow the paused line. Sessions survive tab switching and movement. Unsaved text refuses launch and hides positional values until saved. The browser reuses the existing editor debugger; Apple shares a SwiftUI rail across macOS and iOS; Android uses a Compose rail. Native controllers retain one active workspace session. Native launch icons appear at supported file declarations, equation icons at equations, output icons at receipts, and session controls at the paused line. Detail panels contain stack, condition, evaluate and watch controls; adapter capabilities gate optional actions. Native locals describe the stopped top frame; selecting a caller clears those locals and evaluates watches in that selected frame. Launch uses the clicked declaration’s file path and saved-source expectation; the engine validates the program and source mapping. Native source candidates are computed in the background snapshot, avoiding a document rescan for every displayed icon. A missing Apple math resource bundle falls back to readable equation text instead of trapping in SwiftPM’s generated resource accessor.
+
+Configurable Smart Enter, 2026-11-11: the same 87 source/caret fixture cases
+passed in TypeScript, Swift and Kotlin, including common brace/keyword/layout/tag
+families, Python statement completion, comments/strings, paired existing closers,
+CRLF, tabs, modes and embedded code. Four focused Swift tests passed, covering the
+shared cases, actual AppKit mode changes and one-step undo, retained whitespace
+undo and hidden-table refusal. Two focused browser tests passed, covering the
+shared cases and mounted-editor settings/Enter/undo. Complete cached Android
+source/tests compiled and its focused fixture witness passed; TypeScript and iOS
+simulator source type checking passed. The focused real-keyboard system flow
+(`--smart-enter-only`) was attempted; Chromium aborted before rendering during
+macOS Mach-port registration. Native physical keyboards/IME and packaged Android/
+iOS builds remain device acceptance work. These are bounded heuristics, not full
+language parsing or measured latency guarantees.
 
 Editor navigation and whitespace, 2026-11-11: five focused Swift witnesses
 passed, including actual AppKit key events in read-only text, Shift anchor reversal,

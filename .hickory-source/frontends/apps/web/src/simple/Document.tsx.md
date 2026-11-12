@@ -35,7 +35,14 @@ with the native editor. This is logical source movement, not visual bidi navigat
 platform default remains available for native linguistic and visual navigation.
 Settings live in existing menus, keeping readable text spatially stable.
 
+Smart Enter delegates to the [shared indentation mechanism](../../../../smart-enter.md), then
+applies one ordinary edit and its proposed caret. The complete replacement range,
+including whitespace before an existing closer, passes the same hidden-source,
+composition and permission checks as other edits. Changing the persisted Enter
+mode affects open editors; the platform retains its own undo transaction.
+
 <ui:copy id="simple-1a4a59fc95-0">
+import { smartEnter, enterMode } from "./SmartEnter";
 import { gutterIconLayout, layoutEditorGutters } from "../editor/gutterIconLayout";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Compartment, EditorState, StateEffect, EditorSelection } from "@codemirror/state";
@@ -103,6 +110,16 @@ export function simpleIndent(source: string): string {
   const gcd = (a: number, b: number): number => b ? gcd(b, a % b) : a;
   const width = widths.reduce(gcd, 0);
   return " ".repeat(width > 0 && width <= 8 ? width : 4);
+}
+export function simpleEnter(view: EditorView, path: string): boolean {
+  if (view.state.readOnly || view.composing) return false;
+  const configured = enterMode(), mode = configured === "smart" && view.state.selection.ranges.length > 1 ? "copy" : configured;
+  const source = view.state.doc.toString(), unit = simpleIndent(source);
+  view.dispatch(view.state.changeByRange(range => {
+    const plan = smartEnter(source, range.from, range.to, path, unit, mode);
+    return { changes: { from: plan.from, to: plan.to, insert: plan.text }, range: EditorSelection.cursor(plan.caret) };
+  }), { userEvent: "input.type" });
+  return true;
 }
 export function simpleTab(view: EditorView): boolean {
   if (view.state.readOnly) return false;
@@ -185,7 +202,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
           return query && !query.literal ? { effects: setSearchQuery.of(new SearchQuery({ ...query, literal: true })) } : null;
         }),
         foldService.of(localFold), EditorView.lineWrapping, language.of([]), prose.of([]),
-        keymap.of([...wordNavigationKeys, { key: "Tab", run: simpleTab, shift: indentLess }, { key: "Ctrl-Space", run: startCompletion }, ...searchKeymap, ...foldKeymap, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
+        keymap.of([...wordNavigationKeys, { key: "Enter", run: view => simpleEnter(view, buffer.file.path) }, { key: "Tab", run: simpleTab, shift: indentLess }, { key: "Ctrl-Space", run: startCompletion }, ...searchKeymap, ...foldKeymap, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
         EditorState.readOnly.of(buffer.readonly), EditorView.editable.of(!buffer.readonly),
         EditorView.contentAttributes.of({ "aria-label": buffer.file.path }),
         EditorView.updateListener.of(update => { if (update.docChanged) buffer.edit(update.state.doc.toString()); }),

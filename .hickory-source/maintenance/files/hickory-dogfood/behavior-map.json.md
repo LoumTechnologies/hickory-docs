@@ -67942,6 +67942,78 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "6e559e6fe15525db2607db804e8ee7cd95599161aa01c80caee7b225382ec406",
       "construction": "entry",
       "fragments": []
+    },
+    "apps/simple-contract/enter-rules.json": {
+      "source": ".hickory-source/frontends/smart-enter.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "f39417705ba6441a13a69624312bc3458e41d887990da2552931030688e7b225",
+      "construction": "fragments",
+      "fragments": [
+        "simple-enter-language-rules"
+      ]
+    },
+    "apps/apple-simple/Sources/Resources/enter-rules.json": {
+      "source": ".hickory-source/frontends/smart-enter.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "f39417705ba6441a13a69624312bc3458e41d887990da2552931030688e7b225",
+      "construction": "fragments",
+      "fragments": [
+        "simple-enter-language-rules"
+      ]
+    },
+    "apps/web/src/simple/SmartEnter.ts": {
+      "source": ".hickory-source/frontends/smart-enter.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "215d1ecfb8c87e2258c6d89cf1c98a0fc8f177a52e160337e329985dab940620",
+      "construction": "fragments",
+      "fragments": [
+        "simple-enter-ts-policy",
+        "simple-enter-ts-scanner",
+        "simple-enter-ts-proposal"
+      ]
+    },
+    "apps/apple-simple/Sources/SmartEnter.swift": {
+      "source": ".hickory-source/frontends/smart-enter.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "259d2f3aa877764872793e3de76dea937ab17d91257bd8f9304c79b842f51ae9",
+      "construction": "fragments",
+      "fragments": [
+        "simple-enter-swift-policy",
+        "simple-enter-swift-scanner",
+        "simple-enter-swift-proposal"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SmartEnter.kt": {
+      "source": ".hickory-source/frontends/smart-enter.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "94971f90edb9c56d3cb0b0ea45f4adccc979db98f60757c6a46a11feeb499e7b",
+      "construction": "fragments",
+      "fragments": [
+        "simple-enter-kt-policy",
+        "simple-enter-kt-scanner",
+        "simple-enter-kt-proposal"
+      ]
+    },
+    "apps/simple-contract/enter-cases.json": {
+      "source": ".hickory-source/frontends/smart-enter.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "4f2547a0822c97e7c4c09339045894b1912e9a9f2a694831b97bdc67af7b3cd4",
+      "construction": "fragments",
+      "fragments": [
+        "simple-enter-fixtures"
+      ]
     }
   },
   "evidence_records": [

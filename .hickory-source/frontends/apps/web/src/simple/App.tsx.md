@@ -21,14 +21,21 @@ import { onOpenLocation, revealLine } from "../lib/revealLine";
 import type { FileNode } from "../api/types";
 import { Buffer, Buffers } from "./buffers";
 import { RichOwners } from "./RichInline";
+import { enterMode, type EnterMode } from "./SmartEnter";
 import { Document, openFind, wordNavigationMode, type WordNavigationMode } from "./Document";
 import { Terminal, TerminalSession } from "./Terminal";
 import { Agent, AgentSession } from "./Agent";
 import { activate, groups, initialLayout, isGroup, move, remove, split, update, dock, dropEdge, type Edge, type Axis, type Layout } from "./layout";
 function EditorSettings() {
   const [error, setError] = useState("");
+  const [enter, setEnter] = useState(enterMode);
   const [modes, setModes] = useState(() => ({ control: wordNavigationMode("control"), alt: wordNavigationMode("alt") }));
-  return <fieldset><legend>Editor settings</legend>{(["control", "alt"] as const).map(modifier => <label key={modifier}>
+  return <fieldset><legend>Editor settings</legend>
+    <label>Enter indentation<select aria-label="Enter indentation" value={enter} onChange={event => {
+      const value = event.target.value as EnterMode;
+      try { localStorage.setItem("editor.enterIndent", value); setEnter(value); setError(""); }
+      catch { setError("Cannot save editor settings. Allow local storage in this browser, then try again."); }
+    }}><option value="smart">Smart (language rules)</option><option value="copy">Match current line</option><option value="none">None</option></select></label>{(["control", "alt"] as const).map(modifier => <label key={modifier}>
     {modifier === "control" ? "Ctrl" : "Alt/Option"} + Left/Right
     <select aria-label={`${modifier === "control" ? "Ctrl" : "Alt/Option"} + Left/Right`} value={modes[modifier]} onChange={event => {
       const value = event.target.value as WordNavigationMode;

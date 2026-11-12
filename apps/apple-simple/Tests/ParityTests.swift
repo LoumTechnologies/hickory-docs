@@ -8,6 +8,25 @@ import WebKit
 @testable import HickorySimple
 
 final class ParityTests: XCTestCase {
+    func testSharedSmartEnterFixtures() throws {
+        // Contract: .hickory-source/frontends/contract.md
+        let apps = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let rules = try SimpleEnterRules(data: Data(contentsOf: apps.appendingPathComponent("simple-contract/enter-rules.json")))
+        let data = try Data(contentsOf: apps.appendingPathComponent("simple-contract/enter-cases.json"))
+        let fixtures = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: [[String: String]]])["cases"]!
+        for item in fixtures {
+            let before = item["before"]! as NSString, marker = before.range(of: "¦")
+            let source = before.replacingCharacters(in: marker, with: "")
+            let plan = smartEnter(source, range: NSRange(location: marker.location, length: 0), path: item["path"]!, unit: item["unit"]!, mode: item["mode"]!, rules: rules)
+            let updated = (source as NSString).replacingCharacters(in: plan.range, with: plan.text)
+            let marked = (updated as NSString).replacingCharacters(in: NSRange(location: plan.caret, length: 0), with: "¦")
+            XCTAssertEqual(marked, item["after"], item["name"]!)
+        }
+        let long = String(repeating: "x\n", count: 32769) + "if ok:"
+        XCTAssertEqual(smartEnter(long, range: NSRange(location: long.utf16.count, length: 0), path: "x.py", unit: "    ", mode: "smart", rules: rules).text, "\n")
+        XCTAssertNotNil(SimpleEnterRules.shared, "The actual native resource bundle must contain the shared rules")
+    }
+
     func testIdentifierNavigationAndWhitespace() {
         // Contract: .hickory-source/frontends/contract.md
         let source = "THIS_IS_ONE_WORD HTTPServer42 café😀"
@@ -49,6 +68,25 @@ final class ParityTests: XCTestCase {
         try arrow(124, shift: true); XCTAssertEqual(view.selectedRange(), NSRange(location: 4, length: 3))
         try arrow(123, shift: true); XCTAssertEqual(view.selectedRange(), NSRange(location: 4, length: 1))
         XCTAssertEqual(view.string, "THIS_IS_ONE_WORD")
+    }
+    @MainActor func testSmartEnterNativeTransactionAndModes() {
+        // Contract: .hickory-source/frontends/contract.md
+        let key = "editor.enterIndent", old = UserDefaults.standard.object(forKey: "editor.enterIndent")
+        defer { if let old { UserDefaults.standard.set(old, forKey: key) } else { UserDefaults.standard.removeObject(forKey: key) } }
+        for (mode, expected) in [("smart", "class C:\n    def f():\n        "), ("copy", "class C:\n    def f():\n    "), ("none", "class C:\n    def f():\n")] {
+            UserDefaults.standard.set(mode, forKey: key)
+            let source = "class C:\n    def f():", file = FileNode(name: "test.py", path: "test.py", dir: false)
+            let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "base")), editor = MacEditor(buffer)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+            window.contentView = editor.scroll; window.makeFirstResponder(editor.text)
+            editor.text.undoManager!.groupsByEvent = false
+            editor.text.setSelectedRange(NSRange(location: source.utf16.count, length: 0))
+            XCTAssertTrue(editor.textView(editor.text, doCommandBy: NSSelectorFromString("insertNewline:")))
+            XCTAssertEqual(buffer.text, expected, mode)
+            XCTAssertEqual(editor.text.selectedRange(), NSRange(location: expected.utf16.count, length: 0))
+            editor.text.undoManager!.undo(); XCTAssertEqual(buffer.text, source, mode)
+            window.orderOut(nil)
+        }
     }
     @MainActor func testNativeWhitespaceEditsUndo() {
         let file = FileNode(name: "test.swift", path: "test.swift", dir: false)

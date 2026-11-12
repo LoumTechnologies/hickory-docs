@@ -3,6 +3,7 @@
 
 <ui:include file="contract.md" />
 <ui:include file="inline-editing.md" />
+<ui:include file="smart-enter.md" />
 
 The Apple SwiftUI app, Android Jetpack Compose app and React browser entry share the existing engine, not the old workspace shell. Start with the same commands and safety boundaries on both. Files, documents, the workspace agent and terminal are the only pane kinds. Literate documents initially show editable source text; generated outputs remain readable but read-only. Inline DAP debugging now shares the existing engine protocol across the browser, macOS, iOS and Android. Inline presentation now reuses browser rich widgets and native source-attached controls; backend capability menus remain subsequent parity work.
 

@@ -511,10 +511,13 @@ private data class GridCaretRequest(val row: Int, val column: Int, val x: Float,
 @Composable private fun LanguageEditor(buffer: DocumentBuffer, debug: NativeDebugger?, modifier: Modifier = Modifier) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val editorPreferences = remember(context) { context.getSharedPreferences("editor", android.content.Context.MODE_PRIVATE) }
+    val enterRules = remember(context) { runCatching { SimpleEnterRules(context.assets.open("enter-rules.json").bufferedReader().use { it.readText() }) }.getOrNull() }
+    var enterIndent by remember { mutableStateOf(editorPreferences.getString("enterIndent", "smart") ?: "smart") }
     var controlArrow by remember { mutableStateOf(editorPreferences.getString("controlArrow", "native") ?: "native") }
     var altArrow by remember { mutableStateOf(editorPreferences.getString("altArrow", "native") ?: "native") }
     DisposableEffect(editorPreferences) {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, _ ->
+            enterIndent = prefs.getString("enterIndent", "smart") ?: "smart"
             controlArrow = prefs.getString("controlArrow", "native") ?: "native"
             altArrow = prefs.getString("altArrow", "native") ?: "native"
         }
@@ -646,7 +649,11 @@ private data class GridCaretRequest(val row: Int, val column: Int, val x: Float,
                         val changed = changes.getRange(0)
                         val inserted = asCharSequence().subSequence(changed.min, changed.max).toString()
                         if (inserted == "\n" && original == originalSelection) {
-                            replace(changed.min, changed.max, simpleNewlineText(originalText.toString(), original.min))
+                            val source = originalText.toString()
+                            val plan = smartEnter(source, original.min, original.max, buffer.file.path, simpleIndent(source), enterIndent, enterRules)
+                            if (hiddenRanges.none { plan.from < it.to && plan.to > it.from || plan.from == plan.to && plan.from in it.from until it.to }) {
+                                revertAllChanges(); replace(plan.from, plan.to, plan.text); this.selection = TextRange(plan.caret)
+                            } else revertAllChanges()
                         } else if (inserted.isEmpty() && originalSelection.collapsed && original.length == 1 && original.max == originalSelection.end) {
                             val start = simpleBackspaceStart(originalText.toString(), original.max)
                             if (start != null && start < original.min && hiddenRanges.none { start < it.to && original.max > it.from }) {
@@ -759,6 +766,10 @@ private data class GridCaretRequest(val row: Int, val column: Int, val x: Float,
             }.padding(4.dp).semantics { contentDescription = "Language tools" })
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 Text("Editor settings", modifier = Modifier.padding(8.dp))
+                Text("Enter indentation", modifier = Modifier.padding(horizontal = 8.dp), fontSize = 12.sp)
+                for ((value, title) in listOf("smart" to "Smart (language rules)", "copy" to "Match current line", "none" to "None")) {
+                    DropdownMenuItem(text = { Text((if (enterIndent == value) "✓ " else "") + title) }, onClick = { editorPreferences.edit().putString("enterIndent", value).apply() })
+                }
                 for ((label, key, current) in listOf(Triple("Ctrl + Left/Right", "controlArrow", controlArrow), Triple("Alt + Left/Right", "altArrow", altArrow))) {
                     Text(label, modifier = Modifier.padding(horizontal = 8.dp), fontSize = 12.sp)
                     for ((value, title) in listOf("native" to "Platform default", "word" to "Whole identifier", "pieces" to "Word pieces")) {

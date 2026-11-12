@@ -6,6 +6,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @Test fun sharedSmartEnterFixtures() {
+        // Contract: .hickory-source/frontends/contract.md
+        val loader = javaClass.classLoader!!
+        val rules = SimpleEnterRules(loader.getResourceAsStream("enter-rules.json")!!.bufferedReader().use { it.readText() })
+        val cases = JSONObject(loader.getResourceAsStream("enter-cases.json")!!.bufferedReader().use { it.readText() }).getJSONArray("cases")
+        for (index in 0 until cases.length()) {
+            val item = cases.getJSONObject(index); val before = item.getString("before"); val from = before.indexOf('¦'); val source = before.replace("¦", "")
+            val plan = smartEnter(source, from, from, item.getString("path"), item.getString("unit"), item.getString("mode"), rules)
+            val updated = source.replaceRange(plan.from, plan.to, plan.text)
+            assertEquals(item.getString("name"), item.getString("after"), updated.substring(0, plan.caret) + "¦" + updated.substring(plan.caret))
+        }
+        val long = "x\n".repeat(32769) + "if ok:"
+        assertEquals("\n", smartEnter(long, long.length, long.length, "x.py", "    ", "smart", rules).text)
+    }
+
     @Test fun identifierNavigationAndWhitespace() {
         // Contract: .hickory-source/frontends/contract.md
         val source = "THIS_IS_ONE_WORD HTTPServer42 café😀"

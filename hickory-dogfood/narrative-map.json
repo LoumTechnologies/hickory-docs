@@ -2,7 +2,7 @@
   "format": 1,
   "starting_revision": "9461830eeee3b5c7f8cfe9c45edf3c1cdd060350",
   "policy": "Narrative ownership is separate from semantic verification. Existing source comments are retained explanation candidates; undocumented declarations remain explicit review work.",
-  "code_outputs": 1845,
+  "code_outputs": 1848,
   "relocated_annotated_tests": 184,
   "fragments": [
     {
@@ -150722,6 +150722,90 @@
       "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt",
       "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt.md",
       "symbol": "simple-android-table-editor",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-enter-language-rules",
+      "output": "apps/simple-contract/enter-rules.json",
+      "page": ".hickory-source/frontends/smart-enter.md",
+      "symbol": "simple-enter-language-rules",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-enter-language-rules",
+      "output": "apps/apple-simple/Sources/Resources/enter-rules.json",
+      "page": ".hickory-source/frontends/smart-enter.md",
+      "symbol": "simple-enter-language-rules",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-enter-ts-policy",
+      "output": "apps/web/src/simple/SmartEnter.ts",
+      "page": ".hickory-source/frontends/smart-enter.md",
+      "symbol": "simple-enter-ts-policy",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-enter-ts-scanner",
+      "output": "apps/web/src/simple/SmartEnter.ts",
+      "page": ".hickory-source/frontends/smart-enter.md",
+      "symbol": "simple-enter-ts-scanner",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-enter-ts-proposal",
+      "output": "apps/web/src/simple/SmartEnter.ts",
+      "page": ".hickory-source/frontends/smart-enter.md",
+      "symbol": "simple-enter-ts-proposal",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-enter-swift-policy",
+      "output": "apps/apple-simple/Sources/SmartEnter.swift",
+      "page": ".hickory-source/frontends/smart-enter.md",
+      "symbol": "simple-enter-swift-policy",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-enter-swift-scanner",
+      "output": "apps/apple-simple/Sources/SmartEnter.swift",
+      "page": ".hickory-source/frontends/smart-enter.md",
+      "symbol": "simple-enter-swift-scanner",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-enter-swift-proposal",
+      "output": "apps/apple-simple/Sources/SmartEnter.swift",
+      "page": ".hickory-source/frontends/smart-enter.md",
+      "symbol": "simple-enter-swift-proposal",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-enter-kt-policy",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SmartEnter.kt",
+      "page": ".hickory-source/frontends/smart-enter.md",
+      "symbol": "simple-enter-kt-policy",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-enter-kt-scanner",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SmartEnter.kt",
+      "page": ".hickory-source/frontends/smart-enter.md",
+      "symbol": "simple-enter-kt-scanner",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-enter-kt-proposal",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SmartEnter.kt",
+      "page": ".hickory-source/frontends/smart-enter.md",
+      "symbol": "simple-enter-kt-proposal",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-enter-fixtures",
+      "output": "apps/simple-contract/enter-cases.json",
+      "page": ".hickory-source/frontends/smart-enter.md",
+      "symbol": "simple-enter-fixtures",
       "basis": "explained-behavior"
     }
   ],

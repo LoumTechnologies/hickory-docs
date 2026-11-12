@@ -16,6 +16,14 @@ try {
         case "launch":
           browser = await chromium.launch({ headless: true }); page = await browser.newPage({ viewport: { width: 1100, height: 750 } });
           await page.goto(request.url); break;
+        case "enter-setting":
+          await page.locator("nav").getByText("Edit", { exact: true }).click();
+          await page.getByRole("combobox", { name: "Enter indentation", exact: true }).selectOption(request.mode);
+          await page.locator("nav").getByText("Edit", { exact: true }).click(); break;
+        case "enter-at-end":
+          await editor(request.path).focus();
+          await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
+          await page.keyboard.press("Enter"); break;
         case "editor-setting":
           await page.locator("nav").getByText("Edit", { exact: true }).click();
           await page.getByRole("combobox", { name: request.modifier + " + Left/Right", exact: true }).selectOption(request.mode);

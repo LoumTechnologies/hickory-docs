@@ -94,6 +94,21 @@ def debug_acceptance(driver):
     driver.act("debug-stop")
     eventually(lambda: not any("paused" in state for state in driver.act("debug-state")), True)
 
+def smart_enter_acceptance(driver, folder):
+    # Contract: .hickory-source/frontends/contract.md. Visible settings, real keys and disk.
+    path = "enter.py"; source = (folder / path).read_text()
+    driver.act("open", path=path)
+    size = driver.act("editor-size", path=path)
+    for mode, indent in [("smart", "        "), ("copy", "    "), ("none", "")]:
+        driver.act("enter-setting", mode=mode)
+        assert driver.act("editor-size", path=path) == size
+        driver.act("enter-at-end", path=path)
+        driver.act("save")
+        eventually(lambda: (folder / path).read_text(), source + "\n" + indent)
+        driver.act("undo", path=path)
+        eventually(lambda: driver.act("content", path=path), source)
+
+
 def editor_navigation_acceptance(driver, folder):
     # Contract: .hickory-source/frontends/contract.md. Real keys, menus and reload.
     path = "words.txt"
@@ -263,6 +278,7 @@ if __name__ == "__main__":
         for name, unit in [("four.py", "    "), ("two.py", "  "), ("tabs.py", "\t")]:
             (folder / name).write_text("def orders():\n" + unit + "pass\n# end")
         (folder / "notes.txt").write_text("before")
+        (folder / "enter.py").write_text("class C:\n    def f():")
         (folder / "words.txt").write_text("THIS_IS_ONE_WORD HTTPServer42 café😀")
         (folder / "search.txt").write_text("😀 name=12\nname=34\n")
         (folder / "fold.txt").write_text("function main() {\n  first()\n  second()\n}\n")
@@ -281,7 +297,10 @@ if __name__ == "__main__":
             backend = origin(engine)
             vite = start(["node", "node_modules/vite/bin/vite.js", "--config", "vite.simple.config.ts", "--host", "127.0.0.1", "--port", str(ui_port), "--strictPort"], cwd=ROOT / "apps/web", env={**environment, "HICKORY_API_ORIGIN": backend}); processes.append(vite)
             driver = BrowserDriver(origin(vite) + "/simple.html")
-            if "--editor-navigation-only" in sys.argv:
+            if "--smart-enter-only" in sys.argv:
+                smart_enter_acceptance(driver, folder)
+                print("Browser: live Enter modes, real saved indentation, stationary settings and undo passed")
+            elif "--editor-navigation-only" in sys.argv:
                 editor_navigation_acceptance(driver, folder)
                 print("Browser: independent persisted arrow settings, identifier pieces, Shift reversal and stable editor geometry passed")
             elif "--file-editing-only" in sys.argv:

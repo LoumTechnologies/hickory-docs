@@ -1,0 +1,662 @@
+{
+  "maxContext": 65536,
+  "maxLine": 4096,
+  "profiles": [
+    {
+      "id": "python",
+      "names": [
+        "py",
+        "pyw",
+        "pyi",
+        "python"
+      ],
+      "comments": [
+        "#"
+      ],
+      "blocks": [],
+      "multiline": [
+        "\"\"\"",
+        "'''"
+      ],
+      "quotes": "\"'",
+      "open": ":\\s*$",
+      "close": "",
+      "middle": "^(?:elif|else|except|finally|case)\\b",
+      "after": "^(?:return|raise|break|continue|pass)\\b",
+      "literal": "",
+      "tags": false,
+      "voidTags": [],
+      "foldCase": false,
+      "offside": true,
+      "next": "",
+      "regexLiterals": false
+    },
+    {
+      "id": "braces",
+      "names": [
+        "c",
+        "h",
+        "cpp",
+        "cc",
+        "cxx",
+        "hpp",
+        "hh",
+        "hxx",
+        "cs",
+        "csharp",
+        "java",
+        "js",
+        "javascript",
+        "jsx",
+        "javascriptreact",
+        "mjs",
+        "cjs",
+        "ts",
+        "typescript",
+        "tsx",
+        "typescriptreact",
+        "mts",
+        "cts",
+        "go",
+        "swift",
+        "kt",
+        "kotlin",
+        "kts",
+        "dart",
+        "groovy",
+        "r",
+        "zig",
+        "nix",
+        "tf",
+        "terraform",
+        "hcl",
+        "scss",
+        "less",
+        "css",
+        "m",
+        "mm",
+        "objc",
+        "objective-c",
+        "sol",
+        "solidity",
+        "proto",
+        "pl",
+        "pm",
+        "perl",
+        "php",
+        "phtml"
+      ],
+      "comments": [
+        "//",
+        "#"
+      ],
+      "blocks": [
+        [
+          "/*",
+          "*/"
+        ]
+      ],
+      "multiline": [
+        "\"\"\"",
+        "`"
+      ],
+      "quotes": "\"'",
+      "open": "",
+      "close": "",
+      "middle": "",
+      "after": "",
+      "literal": "",
+      "tags": false,
+      "voidTags": [],
+      "foldCase": false,
+      "offside": false,
+      "next": "^(?:else\\s+)?(?:if|for|while|switch|catch|with)\\b.*\\)\\s*$|^else\\s*$|=>\\s*$",
+      "regexLiterals": true
+    },
+    {
+      "id": "rust",
+      "names": [
+        "rs",
+        "rust"
+      ],
+      "comments": [
+        "//"
+      ],
+      "blocks": [
+        [
+          "/*",
+          "*/"
+        ]
+      ],
+      "multiline": [
+        "\"\"\"",
+        "`"
+      ],
+      "quotes": "\"'",
+      "open": "",
+      "close": "",
+      "middle": "",
+      "after": "",
+      "literal": "",
+      "tags": false,
+      "voidTags": [],
+      "foldCase": false,
+      "offside": false,
+      "next": "",
+      "regexLiterals": false
+    },
+    {
+      "id": "scala",
+      "names": [
+        "scala",
+        "sc"
+      ],
+      "comments": [
+        "//"
+      ],
+      "blocks": [
+        [
+          "/*",
+          "*/"
+        ]
+      ],
+      "multiline": [
+        "\"\"\"",
+        "`"
+      ],
+      "quotes": "\"'",
+      "open": "(?::|=|=>|\\bthen|\\bdo|\\bmatch)\\s*$",
+      "close": "^end\\b",
+      "middle": "",
+      "after": "",
+      "literal": "",
+      "tags": false,
+      "voidTags": [],
+      "foldCase": false,
+      "offside": true,
+      "next": "",
+      "regexLiterals": false
+    },
+    {
+      "id": "json",
+      "names": [
+        "json",
+        "jsonc",
+        "json5"
+      ],
+      "comments": [
+        "//"
+      ],
+      "blocks": [
+        [
+          "/*",
+          "*/"
+        ]
+      ],
+      "multiline": [],
+      "quotes": "\"",
+      "open": "",
+      "close": "",
+      "middle": "",
+      "after": "",
+      "literal": "",
+      "tags": false,
+      "voidTags": [],
+      "foldCase": false,
+      "offside": false,
+      "next": "",
+      "regexLiterals": false
+    },
+    {
+      "id": "yaml",
+      "names": [
+        "yaml",
+        "yml"
+      ],
+      "comments": [
+        "#"
+      ],
+      "blocks": [],
+      "multiline": [],
+      "quotes": "\"'",
+      "open": ":\\s*$|^-\\s*$",
+      "close": "",
+      "middle": "",
+      "after": "",
+      "literal": ":\\s*[|>][-+0-9]*\\s*$",
+      "tags": false,
+      "voidTags": [],
+      "foldCase": false,
+      "offside": true,
+      "next": "",
+      "regexLiterals": false
+    },
+    {
+      "id": "toml",
+      "names": [
+        "toml"
+      ],
+      "comments": [
+        "#"
+      ],
+      "blocks": [],
+      "multiline": [
+        "\"\"\"",
+        "'''"
+      ],
+      "quotes": "\"'",
+      "open": "",
+      "close": "",
+      "middle": "",
+      "after": "",
+      "literal": "",
+      "tags": false,
+      "voidTags": [],
+      "foldCase": false,
+      "offside": false,
+      "next": "",
+      "regexLiterals": false
+    },
+    {
+      "id": "ruby",
+      "names": [
+        "rb",
+        "ruby",
+        "rake",
+        "gemspec",
+        "rakefile",
+        "gemfile"
+      ],
+      "comments": [
+        "#"
+      ],
+      "blocks": [
+        [
+          "=begin",
+          "=end"
+        ]
+      ],
+      "multiline": [],
+      "quotes": "\"'",
+      "open": "^(?:class|module|def|if|unless|case|while|until|for|begin)\\b(?!.*\\bend\\s*$)|\\bdo(?:\\s*\\|[^|]*\\|)?\\s*$",
+      "close": "^end\\b",
+      "middle": "^(?:else|elsif|when|rescue|ensure)\\b",
+      "after": "",
+      "literal": "",
+      "tags": false,
+      "voidTags": [],
+      "foldCase": false,
+      "offside": false,
+      "next": "",
+      "regexLiterals": true
+    },
+    {
+      "id": "lua",
+      "names": [
+        "lua"
+      ],
+      "comments": [
+        "--"
+      ],
+      "blocks": [
+        [
+          "--[[",
+          "]]"
+        ]
+      ],
+      "multiline": [
+        "[["
+      ],
+      "quotes": "\"'",
+      "open": "^(?:local\\s+)?function\\b|\\b(?:then|do|repeat)\\s*$",
+      "close": "^(?:end|until)\\b",
+      "middle": "^(?:else|elseif)\\b",
+      "after": "",
+      "literal": "",
+      "tags": false,
+      "voidTags": [],
+      "foldCase": false,
+      "offside": false,
+      "next": "",
+      "regexLiterals": false
+    },
+    {
+      "id": "shell",
+      "names": [
+        "sh",
+        "bash",
+        "zsh",
+        "ksh",
+        "shellscript"
+      ],
+      "comments": [
+        "#"
+      ],
+      "blocks": [],
+      "multiline": [
+        "`"
+      ],
+      "quotes": "\"'",
+      "open": "\\b(?:then|do)\\s*$|^case\\b.*\\bin\\s*$",
+      "close": "^(?:fi|done|esac)\\b",
+      "middle": "^(?:else|elif)\\b",
+      "after": "",
+      "literal": "",
+      "tags": false,
+      "voidTags": [],
+      "foldCase": false,
+      "offside": false,
+      "next": "",
+      "regexLiterals": false
+    },
+    {
+      "id": "powershell",
+      "names": [
+        "ps1",
+        "psm1",
+        "psd1",
+        "powershell"
+      ],
+      "comments": [
+        "#"
+      ],
+      "blocks": [
+        [
+          "\u003c#",
+          "#>"
+        ]
+      ],
+      "multiline": [],
+      "quotes": "\"'",
+      "open": "",
+      "close": "",
+      "middle": "",
+      "after": "",
+      "literal": "",
+      "tags": false,
+      "voidTags": [],
+      "foldCase": false,
+      "offside": false,
+      "next": "",
+      "regexLiterals": false
+    },
+    {
+      "id": "elixir",
+      "names": [
+        "ex",
+        "exs",
+        "elixir"
+      ],
+      "comments": [
+        "#"
+      ],
+      "blocks": [],
+      "multiline": [
+        "\"\"\"",
+        "`"
+      ],
+      "quotes": "\"'",
+      "open": "\\bdo\\s*$|->\\s*$",
+      "close": "^end\\b",
+      "middle": "^(?:else|rescue|after|catch)\\b",
+      "after": "",
+      "literal": "",
+      "tags": false,
+      "voidTags": [],
+      "foldCase": false,
+      "offside": false,
+      "next": "",
+      "regexLiterals": false
+    },
+    {
+      "id": "julia",
+      "names": [
+        "jl",
+        "julia"
+      ],
+      "comments": [
+        "#"
+      ],
+      "blocks": [
+        [
+          "#=",
+          "=#"
+        ]
+      ],
+      "multiline": [
+        "\"\"\"",
+        "`"
+      ],
+      "quotes": "\"'",
+      "open": "^(?:function|macro|struct|mutable\\s+struct|module|baremodule|if|for|while|try|begin|let|quote)\\b",
+      "close": "^end\\b",
+      "middle": "^(?:else|elseif|catch|finally)\\b",
+      "after": "",
+      "literal": "",
+      "tags": false,
+      "voidTags": [],
+      "foldCase": false,
+      "offside": false,
+      "next": "",
+      "regexLiterals": false
+    },
+    {
+      "id": "sql",
+      "names": [
+        "sql"
+      ],
+      "comments": [
+        "--"
+      ],
+      "blocks": [
+        [
+          "/*",
+          "*/"
+        ]
+      ],
+      "multiline": [],
+      "quotes": "\"'",
+      "open": "\\b(?:BEGIN|THEN|LOOP|CASE)\\s*$|^CASE\\b",
+      "close": "^END\\b",
+      "middle": "^(?:ELSE|ELSIF|WHEN)\\b",
+      "after": "",
+      "literal": "",
+      "tags": false,
+      "voidTags": [],
+      "foldCase": true,
+      "offside": false,
+      "next": "",
+      "regexLiterals": false
+    },
+    {
+      "id": "vb",
+      "names": [
+        "vb",
+        "vbs",
+        "visualbasic"
+      ],
+      "comments": [
+        "'"
+      ],
+      "blocks": [],
+      "multiline": [],
+      "quotes": "\"",
+      "open": "^(?:(?:Public|Private|Protected|Shared|Async|Friend|Partial)\\s+)*(?:Sub|Function|Class|Module|Namespace|Structure|Try|Select\\s+Case|For|While|Do)\\b|^If\\b.*\\bThen\\s*$",
+      "close": "^(?:End\\b|Next\\b|Loop\\b|Wend\\b)",
+      "middle": "^(?:Else|ElseIf|Catch|Finally|Case)\\b",
+      "after": "",
+      "literal": "",
+      "tags": false,
+      "voidTags": [],
+      "foldCase": true,
+      "offside": false,
+      "next": "",
+      "regexLiterals": false
+    },
+    {
+      "id": "haskell",
+      "names": [
+        "hs",
+        "lhs",
+        "haskell"
+      ],
+      "comments": [
+        "--"
+      ],
+      "blocks": [
+        [
+          "{-",
+          "-}"
+        ]
+      ],
+      "multiline": [],
+      "quotes": "\"",
+      "open": "(?:=|->|\\bwhere|\\bdo|\\blet|\\bof|\\bthen|\\belse)\\s*$",
+      "close": "",
+      "middle": "",
+      "after": "",
+      "literal": "",
+      "tags": false,
+      "voidTags": [],
+      "foldCase": false,
+      "offside": true,
+      "next": "",
+      "regexLiterals": false
+    },
+    {
+      "id": "fsharp",
+      "names": [
+        "fs",
+        "fsx",
+        "fsharp"
+      ],
+      "comments": [
+        "//"
+      ],
+      "blocks": [
+        [
+          "(*",
+          "*)"
+        ]
+      ],
+      "multiline": [
+        "\"\"\"",
+        "`"
+      ],
+      "quotes": "\"",
+      "open": "(?:=|->|\\bthen|\\belse|\\bdo|\\bwith)\\s*$",
+      "close": "",
+      "middle": "",
+      "after": "",
+      "literal": "",
+      "tags": false,
+      "voidTags": [],
+      "foldCase": false,
+      "offside": true,
+      "next": "",
+      "regexLiterals": false
+    },
+    {
+      "id": "html",
+      "names": [
+        "html",
+        "htm"
+      ],
+      "comments": [],
+      "blocks": [
+        [
+          "\u003c!--",
+          "-->"
+        ]
+      ],
+      "multiline": [],
+      "quotes": "\"'",
+      "open": "",
+      "close": "",
+      "middle": "",
+      "after": "",
+      "literal": "",
+      "tags": true,
+      "voidTags": [
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr"
+      ],
+      "foldCase": true,
+      "offside": false,
+      "next": "",
+      "regexLiterals": false
+    },
+    {
+      "id": "xml",
+      "names": [
+        "xml",
+        "xsl",
+        "xslt",
+        "xsd",
+        "svg",
+        "vue",
+        "svelte"
+      ],
+      "comments": [],
+      "blocks": [
+        [
+          "\u003c!--",
+          "-->"
+        ]
+      ],
+      "multiline": [],
+      "quotes": "\"'",
+      "open": "",
+      "close": "",
+      "middle": "",
+      "after": "",
+      "literal": "",
+      "tags": true,
+      "voidTags": [],
+      "foldCase": false,
+      "offside": false,
+      "next": "",
+      "regexLiterals": false
+    },
+    {
+      "id": "matlab",
+      "names": [
+        "matlab"
+      ],
+      "comments": [
+        "%"
+      ],
+      "blocks": [
+        [
+          "%{",
+          "%}"
+        ]
+      ],
+      "multiline": [],
+      "quotes": "\"",
+      "open": "^(?:function|if|for|parfor|while|switch|try|classdef|properties|methods)\\b",
+      "close": "^end\\b",
+      "middle": "^(?:else|elseif|case|otherwise|catch)\\b",
+      "after": "",
+      "literal": "",
+      "tags": false,
+      "voidTags": [],
+      "foldCase": false,
+      "offside": false,
+      "next": "",
+      "regexLiterals": false
+    }
+  ]
+}

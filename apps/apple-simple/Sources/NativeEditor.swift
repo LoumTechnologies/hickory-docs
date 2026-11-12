@@ -269,8 +269,14 @@ func simpleWordOffset(_ source: String, at offset: Int, forward: Bool, pieces: B
 struct EditorNavigationSettings: View {
     @AppStorage("editor.controlArrow") private var control = "native"
     @AppStorage("editor.altArrow") private var alt = "native"
+    @AppStorage("editor.enterIndent") private var enter = "smart"
     var body: some View {
         Menu("Editor settings") {
+            Picker("Enter indentation", selection: $enter) {
+                Text("Smart (language rules)").tag("smart")
+                Text("Match current line").tag("copy")
+                Text("None").tag("none")
+            }
             Picker("Ctrl + Left/Right", selection: $control) { modes }
             Picker("Alt/Option + Left/Right", selection: $alt) { modes }
         }
@@ -594,7 +600,15 @@ private typealias FoldFont = UIFont
             if folding.ranges.contains(where: { NSIntersectionRange($0, selection).length > 0 || NSLocationInRange(selection.location, $0) }) { unfoldAll(); return true }
         }
         if NSStringFromSelector(commandSelector) == "insertNewline:", !buffer.readOnly, !text.hasMarkedText() {
-            text.insertText(simpleNewlineText(text.string, at: text.selectedRange().location), replacementRange: text.selectedRange()); return true
+            if buffer.multiRanges.count > 1 {
+                text.insertText(simpleNewlineText(text.string, at: text.selectedRange().location), replacementRange: text.selectedRange()); return true
+            }
+            let plan = smartEnter(text.string, range: text.selectedRange(), path: buffer.file.path, unit: simpleIndent(text.string), mode: UserDefaults.standard.string(forKey: "editor.enterIndent") ?? "smart")
+            guard !tableSourceEditHitsGrid(plan.range, selection: text.selectedRange(), tables: text.tableRanges) else { return true }
+            if applySourceEdits([NativeSourceEdit(range: plan.range, text: plan.text)], source: text.string) {
+                text.setSelectedRange(NSRange(location: plan.caret, length: 0)); text.scrollRangeToVisible(text.selectedRange())
+            }
+            return true
         }
         if NSStringFromSelector(commandSelector) == "deleteBackward:", !buffer.readOnly, !text.hasMarkedText(), buffer.multiRanges.count < 2,
            text.selectedRange().length == 0, let range = simpleBackspaceRange(text.string, at: text.selectedRange().location) {
@@ -874,8 +888,13 @@ import UIKit
             if tableSourceEditHitsGrid(range, selection: textView.selectedRange, tables: self.text.tableRanges) { return false }
             if folding.ranges.contains(where: { NSIntersectionRange($0, range).length > 0 || NSLocationInRange(range.location, $0) }) { unfoldAll(); return false }
         }
-        if text == "\n", textView.markedTextRange == nil, !buffer.readOnly {
-            _ = applySourceEdits([NativeSourceEdit(range: range, text: simpleNewlineText(textView.text, at: range.location))], source: textView.text); return false
+        if text == "\n", textView.markedTextRange == nil, !buffer.readOnly, buffer.multiRanges.count < 2 {
+            let plan = smartEnter(textView.text, range: range, path: buffer.file.path, unit: simpleIndent(textView.text), mode: UserDefaults.standard.string(forKey: "editor.enterIndent") ?? "smart")
+            guard !tableSourceEditHitsGrid(plan.range, selection: textView.selectedRange, tables: self.text.tableRanges) else { return false }
+            if applySourceEdits([NativeSourceEdit(range: plan.range, text: plan.text)], source: textView.text) {
+                textView.selectedRange = NSRange(location: plan.caret, length: 0); buffer.selection = textView.selectedRange
+            }
+            return false
         }
         if text.isEmpty, range.length == 1, textView.selectedRange.length == 0, NSMaxRange(range) == textView.selectedRange.location,
            textView.markedTextRange == nil, !buffer.readOnly, buffer.multiRanges.count < 2,

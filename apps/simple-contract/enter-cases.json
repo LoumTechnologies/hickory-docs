@@ -1,0 +1,700 @@
+{
+  "cases": [
+    {
+      "name": "python suite",
+      "path": "sample.py",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "def f():¦",
+      "after": "def f():\n    ¦"
+    },
+    {
+      "name": "python async suite",
+      "path": "sample.py",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "async def f():¦",
+      "after": "async def f():\n    ¦"
+    },
+    {
+      "name": "python multiline suite",
+      "path": "sample.py",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "def f(\n    value\n):¦",
+      "after": "def f(\n    value\n):\n    ¦"
+    },
+    {
+      "name": "python return",
+      "path": "sample.py",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "def f():\n    return 1¦",
+      "after": "def f():\n    return 1\n¦"
+    },
+    {
+      "name": "python nested return",
+      "path": "sample.py",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "def f():\n    if ok:\n        return 1¦",
+      "after": "def f():\n    if ok:\n        return 1\n    ¦"
+    },
+    {
+      "name": "python pass",
+      "path": "sample.py",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "if ok:\n    pass¦",
+      "after": "if ok:\n    pass\n¦"
+    },
+    {
+      "name": "python break",
+      "path": "sample.py",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "if ok:\n    break¦",
+      "after": "if ok:\n    break\n¦"
+    },
+    {
+      "name": "python continue",
+      "path": "sample.py",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "if ok:\n    continue¦",
+      "after": "if ok:\n    continue\n¦"
+    },
+    {
+      "name": "python raise ValueError()",
+      "path": "sample.py",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "if ok:\n    raise ValueError()¦",
+      "after": "if ok:\n    raise ValueError()\n¦"
+    },
+    {
+      "name": "python pending return expression",
+      "path": "sample.py",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "def f():\n    return call(¦",
+      "after": "def f():\n    return call(\n        ¦"
+    },
+    {
+      "name": "python completed return expression",
+      "path": "sample.py",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "def f():\n    return call(\n        1\n    )¦",
+      "after": "def f():\n    return call(\n        1\n    )\n¦"
+    },
+    {
+      "name": "python colon in string",
+      "path": "sample.py",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "text = \":\"¦",
+      "after": "text = \":\"\n¦"
+    },
+    {
+      "name": "python comment colon",
+      "path": "sample.py",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "    # if fake:¦",
+      "after": "    # if fake:\n    ¦"
+    },
+    {
+      "name": "python trailing comment",
+      "path": "sample.py",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "if ok: # comment¦",
+      "after": "if ok: # comment\n    ¦"
+    },
+    {
+      "name": "python triple quoted content",
+      "path": "sample.py",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "text = \"\"\"\nif fake:¦",
+      "after": "text = \"\"\"\nif fake:\n¦"
+    },
+    {
+      "name": "python unknown unfinished string",
+      "path": "sample.py",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "text = \"fake:¦",
+      "after": "text = \"fake:\n¦"
+    },
+    {
+      "name": "python two spaces",
+      "path": "sample.py",
+      "mode": "smart",
+      "unit": "  ",
+      "before": "if ok:\n  if more:¦",
+      "after": "if ok:\n  if more:\n    ¦"
+    },
+    {
+      "name": "tabs",
+      "path": "sample.py",
+      "mode": "smart",
+      "unit": "\t",
+      "before": "def f():\n\tif ok:¦",
+      "after": "def f():\n\tif ok:\n\t\t¦"
+    },
+    {
+      "name": "crlf",
+      "path": "sample.py",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "def f():\r\n    return 1¦",
+      "after": "def f():\r\n    return 1\r\n¦"
+    },
+    {
+      "name": "js braces",
+      "path": "sample.js",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "function f() {¦",
+      "after": "function f() {\n    ¦"
+    },
+    {
+      "name": "ts braces",
+      "path": "sample.ts",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "function f(): void {¦",
+      "after": "function f(): void {\n    ¦"
+    },
+    {
+      "name": "java braces",
+      "path": "sample.java",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "void run() {¦",
+      "after": "void run() {\n    ¦"
+    },
+    {
+      "name": "cs braces",
+      "path": "sample.cs",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "void Run() {¦",
+      "after": "void Run() {\n    ¦"
+    },
+    {
+      "name": "cpp braces",
+      "path": "sample.cpp",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "int main() {¦",
+      "after": "int main() {\n    ¦"
+    },
+    {
+      "name": "c braces",
+      "path": "sample.c",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "int main() {¦",
+      "after": "int main() {\n    ¦"
+    },
+    {
+      "name": "rs braces",
+      "path": "sample.rs",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "fn f<'a>() {¦",
+      "after": "fn f<'a>() {\n    ¦"
+    },
+    {
+      "name": "go braces",
+      "path": "sample.go",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "func f() {¦",
+      "after": "func f() {\n    ¦"
+    },
+    {
+      "name": "kt braces",
+      "path": "sample.kt",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "fun f() {¦",
+      "after": "fun f() {\n    ¦"
+    },
+    {
+      "name": "swift braces",
+      "path": "sample.swift",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "func f() {¦",
+      "after": "func f() {\n    ¦"
+    },
+    {
+      "name": "dart braces",
+      "path": "sample.dart",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "void main() {¦",
+      "after": "void main() {\n    ¦"
+    },
+    {
+      "name": "php braces",
+      "path": "sample.php",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "function run() {¦",
+      "after": "function run() {\n    ¦"
+    },
+    {
+      "name": "r braces",
+      "path": "sample.r",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "f <- function() {¦",
+      "after": "f <- function() {\n    ¦"
+    },
+    {
+      "name": "zig braces",
+      "path": "sample.zig",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "pub fn main() void {¦",
+      "after": "pub fn main() void {\n    ¦"
+    },
+    {
+      "name": "scala braces",
+      "path": "sample.scala",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "def main() {¦",
+      "after": "def main() {\n    ¦"
+    },
+    {
+      "name": "groovy braces",
+      "path": "sample.groovy",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "def run() {¦",
+      "after": "def run() {\n    ¦"
+    },
+    {
+      "name": "ps1 braces",
+      "path": "sample.ps1",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "function Run {¦",
+      "after": "function Run {\n    ¦"
+    },
+    {
+      "name": "existing brace split",
+      "path": "sample.js",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "function f() {¦}",
+      "after": "function f() {\n    ¦\n}"
+    },
+    {
+      "name": "existing spaced brace split",
+      "path": "sample.js",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "function f() {¦   }",
+      "after": "function f() {\n    ¦\n}"
+    },
+    {
+      "name": "javascript return stays in brace",
+      "path": "sample.js",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "function f() {\n    return 1;¦",
+      "after": "function f() {\n    return 1;\n    ¦"
+    },
+    {
+      "name": "closing brace",
+      "path": "sample.js",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "function f() {\n    work();\n    }¦",
+      "after": "function f() {\n    work();\n    }\n¦"
+    },
+    {
+      "name": "braces inside string",
+      "path": "sample.js",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "const value = \"{\";¦",
+      "after": "const value = \"{\";\n¦"
+    },
+    {
+      "name": "comment brace",
+      "path": "sample.js",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "// {¦",
+      "after": "// {\n¦"
+    },
+    {
+      "name": "template literal brace",
+      "path": "sample.js",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "const text = `\n{¦",
+      "after": "const text = `\n{\n¦"
+    },
+    {
+      "name": "nested expression closing",
+      "path": "sample.js",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "call(\n    other(\n        value\n    )¦",
+      "after": "call(\n    other(\n        value\n    )\n    ¦"
+    },
+    {
+      "name": "json pair",
+      "path": "sample.json",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "{\"values\": [¦]}",
+      "after": "{\"values\": [\n    ¦\n]}"
+    },
+    {
+      "name": "rb block",
+      "path": "sample.rb",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "def f¦",
+      "after": "def f\n    ¦"
+    },
+    {
+      "name": "rb closes",
+      "path": "sample.rb",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "def f\n    value\n    end¦",
+      "after": "def f\n    value\n    end\n¦"
+    },
+    {
+      "name": "lua block",
+      "path": "sample.lua",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "function f()¦",
+      "after": "function f()\n    ¦"
+    },
+    {
+      "name": "lua closes",
+      "path": "sample.lua",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "function f()\n    value\n    end¦",
+      "after": "function f()\n    value\n    end\n¦"
+    },
+    {
+      "name": "sh block",
+      "path": "sample.sh",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "if true; then¦",
+      "after": "if true; then\n    ¦"
+    },
+    {
+      "name": "sh closes",
+      "path": "sample.sh",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "if true; then\n    value\n    fi¦",
+      "after": "if true; then\n    value\n    fi\n¦"
+    },
+    {
+      "name": "ex block",
+      "path": "sample.ex",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "def run do¦",
+      "after": "def run do\n    ¦"
+    },
+    {
+      "name": "ex closes",
+      "path": "sample.ex",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "def run do\n    value\n    end¦",
+      "after": "def run do\n    value\n    end\n¦"
+    },
+    {
+      "name": "jl block",
+      "path": "sample.jl",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "function run()¦",
+      "after": "function run()\n    ¦"
+    },
+    {
+      "name": "jl closes",
+      "path": "sample.jl",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "function run()\n    value\n    end¦",
+      "after": "function run()\n    value\n    end\n¦"
+    },
+    {
+      "name": "sql block",
+      "path": "sample.sql",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "BEGIN¦",
+      "after": "BEGIN\n    ¦"
+    },
+    {
+      "name": "sql closes",
+      "path": "sample.sql",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "BEGIN\n    value\n    END¦",
+      "after": "BEGIN\n    value\n    END\n¦"
+    },
+    {
+      "name": "vb block",
+      "path": "sample.vb",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "Public Sub Run()¦",
+      "after": "Public Sub Run()\n    ¦"
+    },
+    {
+      "name": "vb closes",
+      "path": "sample.vb",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "Public Sub Run()\n    value\n    End Sub¦",
+      "after": "Public Sub Run()\n    value\n    End Sub\n¦"
+    },
+    {
+      "name": "ruby else",
+      "path": "sample.rb",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "if ok\n    work\nelse¦",
+      "after": "if ok\n    work\nelse\n    ¦"
+    },
+    {
+      "name": "haskell where",
+      "path": "sample.hs",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "f x =¦",
+      "after": "f x =\n    ¦"
+    },
+    {
+      "name": "fsharp equals",
+      "path": "sample.fs",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "let run () =¦",
+      "after": "let run () =\n    ¦"
+    },
+    {
+      "name": "yaml key",
+      "path": "sample.yaml",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "key:¦",
+      "after": "key:\n    ¦"
+    },
+    {
+      "name": "yaml quoted scalar",
+      "path": "sample.yaml",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "key: \"value\"¦",
+      "after": "key: \"value\"\n¦"
+    },
+    {
+      "name": "yaml literal opening",
+      "path": "sample.yaml",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "key: |¦",
+      "after": "key: |\n    ¦"
+    },
+    {
+      "name": "yaml literal content",
+      "path": "sample.yaml",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "key: |\n    text:¦",
+      "after": "key: |\n    text:\n    ¦"
+    },
+    {
+      "name": "html pair",
+      "path": "sample.html",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "<div>¦</div>",
+      "after": "<div>\n    ¦\n</div>"
+    },
+    {
+      "name": "html void",
+      "path": "sample.html",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "<br>¦",
+      "after": "<br>\n¦"
+    },
+    {
+      "name": "xml self closing",
+      "path": "sample.xml",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "<item/>¦",
+      "after": "<item/>\n¦"
+    },
+    {
+      "name": "xml closing",
+      "path": "sample.xml",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "<item>\n    value\n    </item>¦",
+      "after": "<item>\n    value\n    </item>\n¦"
+    },
+    {
+      "name": "fenced python",
+      "path": "sample.md",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "Prose:\n```python\ndef f():¦",
+      "after": "Prose:\n```python\ndef f():\n    ¦"
+    },
+    {
+      "name": "fenced ruby",
+      "path": "sample.md",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "~~~ruby\ndef f¦",
+      "after": "~~~ruby\ndef f\n    ¦"
+    },
+    {
+      "name": "hickory python",
+      "path": "sample.md",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "<h:file path=\"main.py\">\ndef f():¦",
+      "after": "<h:file path=\"main.py\">\ndef f():\n    ¦"
+    },
+    {
+      "name": "hickory typed copy",
+      "path": "sample.md",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "<h:copy id=\"body\" language=\"python\">\nif ok:¦",
+      "after": "<h:copy id=\"body\" language=\"python\">\nif ok:\n    ¦"
+    },
+    {
+      "name": "outside code",
+      "path": "sample.md",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "Prose:\n    words:¦",
+      "after": "Prose:\n    words:\n    ¦"
+    },
+    {
+      "name": "unknown fence",
+      "path": "sample.md",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "```unknown\nif fake:¦",
+      "after": "```unknown\nif fake:\n¦"
+    },
+    {
+      "name": "closed fence",
+      "path": "sample.md",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "```python\nif ok:\n```\nNote:¦",
+      "after": "```python\nif ok:\n```\nNote:\n¦"
+    },
+    {
+      "name": "unknown path",
+      "path": "sample.unknown",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "    anything {¦",
+      "after": "    anything {\n    ¦"
+    },
+    {
+      "name": "match mode",
+      "path": "sample.py",
+      "mode": "copy",
+      "unit": "    ",
+      "before": "    def f():¦",
+      "after": "    def f():\n    ¦"
+    },
+    {
+      "name": "none mode",
+      "path": "sample.py",
+      "mode": "none",
+      "unit": "    ",
+      "before": "    def f():¦",
+      "after": "    def f():\n¦"
+    },
+    {
+      "name": "unicode caret",
+      "path": "sample.py",
+      "mode": "smart",
+      "unit": "    ",
+      "before": "def café():¦",
+      "after": "def café():\n    ¦"
+    },
+    {
+      "name": "unbraced control",
+      "before": "if (ready)¦",
+      "after": "if (ready)\n    ¦",
+      "path": "sample.js",
+      "mode": "smart",
+      "unit": "    "
+    },
+    {
+      "name": "unbraced body done",
+      "before": "if (ready)\n    work();¦",
+      "after": "if (ready)\n    work();\n¦",
+      "path": "sample.js",
+      "mode": "smart",
+      "unit": "    "
+    },
+    {
+      "name": "nested unbraced body done",
+      "before": "if (ready)\n    if (more)\n        work();¦",
+      "after": "if (ready)\n    if (more)\n        work();\n¦",
+      "path": "sample.js",
+      "mode": "smart",
+      "unit": "    "
+    },
+    {
+      "name": "regex literal brace",
+      "before": "const re = /{/;¦",
+      "after": "const re = /{/;\n¦",
+      "path": "sample.js",
+      "mode": "smart",
+      "unit": "    "
+    },
+    {
+      "name": "regex class slash",
+      "before": "const re = /[/{}]/;¦",
+      "after": "const re = /[/{}]/;\n¦",
+      "path": "sample.js",
+      "mode": "smart",
+      "unit": "    "
+    },
+    {
+      "name": "html case insensitive",
+      "before": "<DIV>¦</DIV>",
+      "after": "<DIV>\n    ¦\n</DIV>",
+      "path": "sample.html",
+      "mode": "smart",
+      "unit": "    "
+    }
+  ]
+}
