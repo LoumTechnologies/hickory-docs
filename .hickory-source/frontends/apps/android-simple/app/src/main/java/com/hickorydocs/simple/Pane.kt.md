@@ -498,7 +498,7 @@ The grid scrolls inside its reserved viewport, labels rows and columns, and appl
 // One projection drives the text field, line numbers, debugger rail and grid anchors.
 // Its offsets always map back to the retained source, including Unicode and folds.
 data class EditorReplacement(val from: Int, val to: Int, val text: String)
-fun editorReplacements(folds: List<SimpleFold>, tables: List<InlineTable>, source: String = "", diagrams: List<InlineDiagram> = emptyList(), equations: List<InlineEquation> = emptyList(), outputs: Map<Int, String> = emptyMap()): List<EditorReplacement> {
+fun editorReplacements(folds: List<SimpleFold>, tables: List<InlineTable>, source: String = "", diagrams: List<InlineDiagram> = emptyList(), equations: List<InlineEquation> = emptyList(), outputs: Map<Int, String> = emptyMap(), fontScale: Float = 1f): List<EditorReplacement> {
     val tabs = mutableListOf<EditorReplacement>()
     var column = 0
     source.forEachIndexed { offset, char ->
@@ -509,11 +509,13 @@ fun editorReplacements(folds: List<SimpleFold>, tables: List<InlineTable>, sourc
     // projection maps every preview offset back to its unchanged source anchor.
     val math = equations.groupBy { it.line }.values.map { values ->
         val end = source.indexOf('\n', values.first().to).let { if (it < 0) source.length else it }
-        EditorReplacement(end, end, "\n \n \n ")
+        EditorReplacement(end, end, "\n ".repeat(kotlin.math.ceil(88f / (13f * fontScale.coerceAtLeast(.1f))).toInt() + 1))
     }
+    // Derive preview rows from the editor's 13sp font and current font scale.
+    // A reduced font must still reserve the fixed preview's height in dp.
     val outputSpace = outputs.keys.mapNotNull { line -> debugLineOffset(source, line)?.let { start ->
         val end = source.indexOf('\n', start).let { if (it < 0) source.length else it }
-        EditorReplacement(end, end, "\n ".repeat(9))
+        EditorReplacement(end, end, "\n ".repeat(kotlin.math.ceil(188f / (13f * fontScale.coerceAtLeast(.1f))).toInt() + 1))
     } }
     val candidates = outputSpace + math + diagrams.map { EditorReplacement(it.from, it.to, " \n".repeat(8) + " ") } + tabs + folds.map { EditorReplacement(it.from, it.to, " …") } + tables.map { EditorReplacement(it.from, it.to, " \n".repeat(it.displayRows - 1) + " ") }
     val result = mutableListOf<EditorReplacement>()
@@ -699,7 +701,7 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
     val tables = if (!buffer.tableSourceVisible) inlineTables(presentation).filter { it.from != buffer.sourceTable } else emptyList()
     val diagrams = if (!buffer.tableSourceVisible) presentation.diagrams.filter { it.from != buffer.sourceTable } else emptyList()
     val hiddenRanges = editorReplacements(folds, tables, diagrams = diagrams)
-    val replacements = editorReplacements(folds, tables, source, diagrams, if (buffer.inlineMarkup.source == source) buffer.inlineMarkup.equations else emptyList(), (buffer.recordedOutputPlacements() + debug?.outputPlacements(buffer).orEmpty()))
+    val replacements = editorReplacements(folds, tables, source, diagrams, if (buffer.inlineMarkup.source == source) buffer.inlineMarkup.equations else emptyList(), (buffer.recordedOutputPlacements() + debug?.outputPlacements(buffer).orEmpty()), fontScale = LocalDensity.current.fontScale)
     val display = editorDisplay(source, replacements)
     var textLayout by remember(buffer) { mutableStateOf<TextLayoutResult?>(null) }
     val paused = if (debug?.sourceMatches(buffer) == true) debug.line(buffer.file.path) else null
@@ -1109,7 +1111,7 @@ fun debugLineOffset(source: String, line: Int): Int? {
     val folds = buffer.activeFolds()
     val tables = if (buffer.inlineMarkup.source == source && !buffer.tableSourceVisible) inlineTables(buffer.inlineMarkup).filter { it.from != buffer.sourceTable } else emptyList()
     val diagrams = if (!buffer.tableSourceVisible) tablePresentation(buffer.inlineMarkup, source).diagrams.filter { it.from != buffer.sourceTable } else emptyList()
-    val replacements = editorReplacements(folds, tables, source, diagrams, if (buffer.inlineMarkup.source == source) buffer.inlineMarkup.equations else emptyList(), (buffer.recordedOutputPlacements() + debug?.outputPlacements(buffer).orEmpty()))
+    val replacements = editorReplacements(folds, tables, source, diagrams, if (buffer.inlineMarkup.source == source) buffer.inlineMarkup.equations else emptyList(), (buffer.recordedOutputPlacements() + debug?.outputPlacements(buffer).orEmpty()), fontScale = LocalDensity.current.fontScale)
     val display = editorDisplay(source, replacements)
     val paused = if (debug.sourceMatches(buffer)) debug.line(buffer.file.path) else null
     Box(Modifier.width(4.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant).pointerInput(buffer) {

@@ -6,6 +6,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @org.junit.Test fun previewWhitespaceScalesWithoutChangingSourceOffsets() {
+        // Contract: .hickory-source/frontends/contract.md
+        val source = "print(1)\nnext()\n"
+        val normal = editorReplacements(emptyList(), emptyList(), source, outputs = mapOf(0 to "1\n"), fontScale = 1f)
+        val reduced = editorReplacements(emptyList(), emptyList(), source, outputs = mapOf(0 to "1\n"), fontScale = .85f)
+        val next = source.indexOf("next")
+        assertTrue(editorDisplayOffset(next, reduced) > editorDisplayOffset(next, normal))
+        for (projection in listOf(normal, reduced)) {
+            val displayed = editorDisplay(source, projection)
+            val at = editorDisplayOffset(next, projection)
+            assertTrue(displayed.substring(at).startsWith("next()"))
+            assertEquals(next, editorSourceOffset(at, projection))
+        }
+    }
+
     @org.junit.Test fun containerShellSkipsProse() {
         val source = "<h:container name=\"dev\">\n# setup\necho \"ready\"\n</h:container>"
         val snapshot = computeInlineMarkup(source, "workbook.md")
