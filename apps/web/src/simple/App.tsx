@@ -151,6 +151,39 @@ export function App() {
     const document = buffers.values.get(tab);
     return document ? <Document buffer={document} /> : null;
   }
+  // Keep the scroll recipient while the pointer rests. Scrolling content under
+  // a stationary cursor must not silently transfer the next wheel to a grid.
+  useEffect(() => {
+    let owner: HTMLElement | null = null;
+    let pointer: { x: number; y: number } | null = null;
+    const moved = (event: MouseEvent) => {
+      if (pointer && (event.clientX !== pointer.x || event.clientY !== pointer.y)) owner = null;
+      pointer = { x: event.clientX, y: event.clientY };
+    };
+    const wheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.defaultPrevented) return;
+      moved(event);
+      const path = event.composedPath();
+      const target = path.find(node => node instanceof HTMLElement &&
+        /(auto|scroll)/.test(getComputedStyle(node).overflow + getComputedStyle(node).overflowY + getComputedStyle(node).overflowX) &&
+        (node.scrollHeight > node.clientHeight || node.scrollWidth > node.clientWidth)) as HTMLElement | undefined;
+      if (!owner?.isConnected) owner = target ?? null;
+      if (owner && target && owner !== target && path.includes(owner)) {
+        event.preventDefault();
+        const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? owner.clientHeight : 1;
+        owner.scrollBy(event.deltaX * scale, event.deltaY * scale);
+      }
+    };
+    const release = () => { owner = null; };
+    document.addEventListener("pointermove", moved, true);
+    document.addEventListener("pointerdown", release, true);
+    document.addEventListener("wheel", wheel, { capture: true, passive: false });
+    return () => {
+      document.removeEventListener("pointermove", moved, true);
+      document.removeEventListener("pointerdown", release, true);
+      document.removeEventListener("wheel", wheel, true);
+    };
+  }, []);
   return <main>
     {/* Shared gutter controls declare data-tip; mount their delegated reader here. */}
     <TooltipLayer />

@@ -605,7 +605,35 @@ private data class GridCaretRequest(val row: Int, val column: Int, val x: Float,
         }
     }
     val lexical = rebaseNativeTokens(highlighting.second.map { NativeLanguageSpan(it.first, it.last + 1, "keyword") }, highlighting.first, source)
-    Box(modifier) {
+    val wheelScale = with(LocalDensity.current) { 64.dp.toPx() }
+    val nestedWheelRanges by rememberUpdatedState((tables.map { it.from to it.to } + diagrams.map { it.from to it.to }).mapNotNull { (from, to) ->
+        val layout = textLayout ?: return@mapNotNull null
+        if (layout.layoutInput.text.text != display) return@mapNotNull null
+        val first = layout.getLineForOffset(editorDisplayOffset(from, replacements))
+        val last = layout.getLineForOffset(editorDisplayOffset(to, replacements).coerceAtMost(display.length))
+        (layout.getLineTop(first) - scroll.value) to (layout.getLineBottom(last) - scroll.value)
+    })
+    // Mouse wheels retain their recipient until physical pointer movement;
+    // touch drags keep their native nested-scroll behavior.
+    Box(modifier.pointerInput(buffer) {
+        var pointer: Offset? = null
+        var documentOwns: Boolean? = null
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                val change = event.changes.firstOrNull() ?: continue
+                if (pointer != change.position) { documentOwns = null; pointer = change.position }
+                if (event.type == androidx.compose.ui.input.pointer.PointerEventType.Scroll) {
+                    if (documentOwns == null) documentOwns = nestedWheelRanges.none { change.position.y >= it.first && change.position.y <= it.second }
+                    if (documentOwns == true) {
+                        val delta = change.scrollDelta.y * wheelScale
+                        event.changes.forEach { it.consume() }
+                        scope.launch { scroll.scrollTo((scroll.value + delta).toInt().coerceIn(0, scroll.maxValue)) }
+                    }
+                }
+            }
+        }
+    }) {
         Row(Modifier.fillMaxSize()) {
             BoxWithConstraints(Modifier.width(24.dp).fillMaxHeight().clipToBounds()) {
                 val density = LocalDensity.current

@@ -708,6 +708,9 @@ private typealias DiagramHost = UIHostingController<NativeDiagramPreview>
     #endif
     private var paintedInlineSource = ""
     private var hadInlineFonts = false
+    private var wheelMonitor: Any?
+    private weak var wheelOwner: NSScrollView?
+    private var wheelPointer: NSPoint?
     private var observer: NSObjectProtocol?
     init(_ buffer: DocumentBuffer) {
         self.buffer = buffer
@@ -726,7 +729,21 @@ private typealias DiagramHost = UIHostingController<NativeDiagramPreview>
         text.setAccessibilityLabel(buffer.file.path); text.delegate = self
         text.willCompose = { [weak self] in self?.buffer.clearMulti(); self?.unfoldAll() }
         scroll.hasVerticalScroller = true; scroll.documentView = text
-
+        // Retain the wheel recipient across gestures until the pointer moves.
+        // Tables and WebKit previews can move under a stationary mouse.
+        wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self, event.window === self.scroll.window,
+                  self.scroll.bounds.contains(self.scroll.convert(event.locationInWindow, from: nil)) else { return event }
+            let pointer = NSEvent.mouseLocation
+            if self.wheelPointer != pointer { self.wheelOwner = nil; self.wheelPointer = pointer }
+            let hit = self.scroll.hitTest(self.scroll.convert(event.locationInWindow, from: nil))
+            let target = (hit as? NSScrollView) ?? hit?.enclosingScrollView ?? self.scroll
+            if self.wheelOwner == nil { self.wheelOwner = target }
+            if let owner = self.wheelOwner, owner !== target {
+                owner.scrollWheel(with: event); return nil
+            }
+            return event
+        }
         buffer.navigate = { [weak self] fraction in
             guard let self else { return }
             self.unfoldAll()
@@ -754,6 +771,10 @@ private typealias DiagramHost = UIHostingController<NativeDiagramPreview>
         buffer.selectSourceRange = { [weak self] range, source in self?.selectSourceRange(range, source: source) ?? false }
         paint(buffer.language?.tokens ?? [], source: buffer.text)
         measureDebugLines()
+    }
+    deinit {
+        if let wheelMonitor { NSEvent.removeMonitor(wheelMonitor) }
+        if let observer { NotificationCenter.default.removeObserver(observer) }
     }
     func selectSourceRange(_ range: NSRange, source: String) -> Bool {
         guard text.string == source, buffer.text == source, !text.hasMarkedText(),
