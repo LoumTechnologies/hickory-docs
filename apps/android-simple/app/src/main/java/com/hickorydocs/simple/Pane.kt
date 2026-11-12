@@ -391,7 +391,7 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
 // One projection drives the text field, line numbers, debugger rail and grid anchors.
 // Its offsets always map back to the retained source, including Unicode and folds.
 data class EditorReplacement(val from: Int, val to: Int, val text: String)
-fun editorReplacements(folds: List<SimpleFold>, tables: List<InlineTable>, source: String = "", diagrams: List<InlineDiagram> = emptyList(), equations: List<InlineEquation> = emptyList()): List<EditorReplacement> {
+fun editorReplacements(folds: List<SimpleFold>, tables: List<InlineTable>, source: String = "", diagrams: List<InlineDiagram> = emptyList(), equations: List<InlineEquation> = emptyList(), outputs: Map<Int, String> = emptyMap()): List<EditorReplacement> {
     val tabs = mutableListOf<EditorReplacement>()
     var column = 0
     source.forEachIndexed { offset, char ->
@@ -404,7 +404,11 @@ fun editorReplacements(folds: List<SimpleFold>, tables: List<InlineTable>, sourc
         val end = source.indexOf('\n', values.first().to).let { if (it < 0) source.length else it }
         EditorReplacement(end, end, "\n \n \n ")
     }
-    val candidates = math + diagrams.map { EditorReplacement(it.from, it.to, " \n".repeat(8) + " ") } + tabs + folds.map { EditorReplacement(it.from, it.to, " …") } + tables.map { EditorReplacement(it.from, it.to, " \n".repeat(it.displayRows - 1) + " ") }
+    val outputSpace = outputs.keys.mapNotNull { line -> debugLineOffset(source, line)?.let { start ->
+        val end = source.indexOf('\n', start).let { if (it < 0) source.length else it }
+        EditorReplacement(end, end, "\n ".repeat(9))
+    } }
+    val candidates = outputSpace + math + diagrams.map { EditorReplacement(it.from, it.to, " \n".repeat(8) + " ") } + tabs + folds.map { EditorReplacement(it.from, it.to, " …") } + tables.map { EditorReplacement(it.from, it.to, " \n".repeat(it.displayRows - 1) + " ") }
     val result = mutableListOf<EditorReplacement>()
     for (item in candidates.sortedWith(compareBy<EditorReplacement> { it.from }.thenByDescending { it.to })) {
         if (result.lastOrNull()?.to?.let { it > item.from } != true) result.add(item)
@@ -583,7 +587,7 @@ private data class GridCaretRequest(val row: Int, val column: Int, val x: Float,
     val tables = if (!buffer.tableSourceVisible) inlineTables(presentation).filter { it.from != buffer.sourceTable } else emptyList()
     val diagrams = if (!buffer.tableSourceVisible) presentation.diagrams.filter { it.from != buffer.sourceTable } else emptyList()
     val hiddenRanges = editorReplacements(folds, tables, diagrams = diagrams)
-    val replacements = editorReplacements(folds, tables, source, diagrams, if (buffer.inlineMarkup.source == source) buffer.inlineMarkup.equations else emptyList())
+    val replacements = editorReplacements(folds, tables, source, diagrams, if (buffer.inlineMarkup.source == source) buffer.inlineMarkup.equations else emptyList(), (buffer.recordedOutputPlacements() + debug?.outputPlacements(buffer).orEmpty()))
     val display = editorDisplay(source, replacements)
     var textLayout by remember(buffer) { mutableStateOf<TextLayoutResult?>(null) }
     val paused = if (debug?.sourceMatches(buffer) == true) debug.line(buffer.file.path) else null
@@ -820,6 +824,14 @@ private data class GridCaretRequest(val row: Int, val column: Int, val x: Float,
                 val height = layout.getLineBottom(last) - layout.getLineTop(first)
                 InlineTableGrid(table, source, buffer, Modifier.offset { IntOffset(0, top.toInt() + with(density) { 8.dp.roundToPx() }) }.padding(horizontal = 8.dp).fillMaxWidth().height(with(density) { height.toDp() }))
             }
+            if (layout?.layoutInput?.text?.text == display) (buffer.recordedOutputPlacements() + debug?.outputPlacements(buffer).orEmpty()).forEach { (line, output) ->
+                val start = debugLineOffset(source, line) ?: return@forEach
+                val end = source.indexOf('\n', start).let { if (it < 0) source.length else it }
+                val top = layout.getLineBottom(layout.getLineForOffset(editorDisplayOffset(end, replacements))) - scroll.value
+                androidx.compose.foundation.text.selection.SelectionContainer(Modifier.offset { IntOffset(0, top.toInt() + with(density) { 8.dp.roundToPx() }) }.padding(horizontal = 8.dp).fillMaxWidth().height(180.dp).background(MaterialTheme.colorScheme.surfaceContainer).verticalScroll(rememberScrollState()).horizontalScroll(rememberScrollState()).semantics { contentDescription = "Run stdout and stderr" }) {
+                    Text(output, fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.padding(6.dp))
+                }
+            }
             if (layout != null && layout.layoutInput.text.text == display && inline.source == source) inline.equations.groupBy { it.line }.values.forEach { equations ->
                 val end = source.indexOf('\n', equations.first().to).let { if (it < 0) source.length else it }
                 val anchor = editorDisplayOffset(end, replacements)
@@ -963,7 +975,7 @@ fun debugLineOffset(source: String, line: Int): Int? {
     val folds = buffer.activeFolds()
     val tables = if (buffer.inlineMarkup.source == source && !buffer.tableSourceVisible) inlineTables(buffer.inlineMarkup).filter { it.from != buffer.sourceTable } else emptyList()
     val diagrams = if (!buffer.tableSourceVisible) tablePresentation(buffer.inlineMarkup, source).diagrams.filter { it.from != buffer.sourceTable } else emptyList()
-    val replacements = editorReplacements(folds, tables, source, diagrams, if (buffer.inlineMarkup.source == source) buffer.inlineMarkup.equations else emptyList())
+    val replacements = editorReplacements(folds, tables, source, diagrams, if (buffer.inlineMarkup.source == source) buffer.inlineMarkup.equations else emptyList(), (buffer.recordedOutputPlacements() + debug?.outputPlacements(buffer).orEmpty()))
     val display = editorDisplay(source, replacements)
     val paused = if (debug.sourceMatches(buffer)) debug.line(buffer.file.path) else null
     Box(Modifier.width(4.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant).pointerInput(buffer) {

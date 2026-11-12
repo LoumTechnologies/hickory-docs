@@ -778,6 +778,40 @@ function lineAtEvent(view: EditorView, block: { from: number }, event: Event): n
   return view.state.doc.lineAt(block.from).number - 1;
 }
 
+/** Output is presentation, never document text or a guessed execution trace. */
+export const setDebuggerOutput = StateEffect.define<{ events: { category: string; text: string; source?: string | null; line?: number | null }[]; program?: string | null; literate: boolean; path?: string }>();
+class RunOutput extends WidgetType {
+  constructor(readonly text: string) { super(); }
+  eq(other: RunOutput) { return other.text === this.text; }
+  toDOM() {
+    const block = document.createElement("pre"); block.className = "cm-run-output";
+    block.setAttribute("aria-label", "Run stdout and stderr"); block.setAttribute("role", "region");
+    block.setAttribute("contenteditable", "false"); block.textContent = this.text; return block;
+  }
+  ignoreEvent() { return true; }
+}
+const runOutputField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(value, tr) {
+    if (tr.docChanged) value = Decoration.none;
+    for (const effect of tr.effects) if (effect.is(setDebuggerOutput)) {
+      const { events, program, literate, path } = effect.value;
+      const blocks = literate ? structureOf(tr.state).blocks.filter(block => block.name === "file" || block.name === "exec") : [];
+      const groups = new Map<number, string[]>();
+      for (const event of events) {
+        const line = event.line == null || literate && event.source !== path ? null : tr.state.doc.line(Math.max(1, Math.min(tr.state.doc.lines, event.line + 1)));
+        const owner = blocks.find(block => line && line.from >= block.contentFrom && line.from <= block.contentTo) ?? blocks.find(block => block.attrs.path === program);
+        const at = owner ? tr.state.doc.lineAt(owner.to).to : tr.state.doc.length;
+        const location = event.source && event.line != null ? ` (${event.source}:${event.line + 1})` : "";
+        groups.set(at, [...(groups.get(at) ?? []), `[${event.category}${location}] ${event.text}`]);
+      }
+      value = Decoration.set([...groups].sort(([a], [b]) => a - b).map(([at, chunks]) => Decoration.widget({ widget: new RunOutput(chunks.join("")), block: true, side: 1 }).range(at)));
+    }
+    return value;
+  },
+  provide: field => EditorView.decorations.from(field),
+});
+
 export function debugEditor(options: DebugEditorOptions): Extension[] {
   // The eval affordance follows the paused line. Built here because its
   // widget needs the callbacks; drawn only when a handler exists to answer.
@@ -801,6 +835,7 @@ export function debugEditor(options: DebugEditorOptions): Extension[] {
       editBreakpoint(view, target, options); return true;
     }),
     pausedField,
+    runOutputField,
     stackField,
     flashField,
     pausedHighlight,

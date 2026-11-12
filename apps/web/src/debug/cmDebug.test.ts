@@ -18,6 +18,7 @@ import {
   setWatchValues,
   stackMarksOf,
   watchPlacements,
+  setDebuggerOutput,
 } from "./cmDebug";
 import { backwardsControl, type DebugCapabilities } from "./client";
 import { identifierAt } from "../lsp/cmLsp";
@@ -379,6 +380,25 @@ describe("which frames become gutter marks", () => {
   });
 });
 
+
+describe("read-only output next to program source", () => {
+  it("retains output labels without changing source and retires it after edits", () => {
+    const source = "print('hi')\n";
+    const view = new EditorView({ parent: document.body, state: EditorState.create({ doc: source, extensions: debugEditor({ language: "python", onToggleBreakpoint: () => {} }) }) });
+    view.dispatch({ effects: setDebuggerOutput.of({ literate: false, events: [
+      { category: "stdout", text: "hi\n", source: "main.py", line: 0 },
+      { category: "stderr", text: "warning\n" },
+    ] }) });
+    const output = view.dom.querySelector(".cm-run-output")!;
+    expect(output.textContent).toContain("[stdout (main.py:1)] hi");
+    expect(output.textContent).toContain("[stderr] warning");
+    expect(output.getAttribute("contenteditable")).toBe("false");
+    expect(view.state.doc.toString()).toBe(source);
+    view.dispatch({ changes: { from: 0, insert: "# changed\n" } });
+    expect(view.dom.querySelector(".cm-run-output")).toBeNull();
+    view.destroy();
+  });
+});
 
 describe("watches, in whitespace at their evaluation line", () => {
   it("places the result at its stopped frame, even when mentioned earlier", () => {

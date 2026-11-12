@@ -63,7 +63,7 @@ import { languageFromPath } from "../editor/languages";
 import { isDebuggable } from "../debug/languages";
 import { useFollowingDebugSession } from "../debug/plainDebugHosts";
 import { IDLE_SESSION } from "../debug/useDebugger";
-import { debugEditor, debugStateEffects, revealLine, breakpointLine } from "../debug/cmDebug";
+import { debugEditor, debugStateEffects, revealLine, breakpointLine, setDebuggerOutput } from "../debug/cmDebug";
 import { DebugLaunchRail } from "../debug/DebugRail";
 import { DebugStrip } from "../debug/DebugStrip";
 import { observationSourceChanged } from "../debug/observations";
@@ -292,6 +292,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
   }, [view, debuggable, language, literate, parserReady]);
   useEffect(() => {
     if (!view || !debuggable || literate && !parserReady) return;
+    view.dispatch({ effects: setDebuggerOutput.of({ events: changed ? [] : debug.output ?? [], program: debug.program, literate, path: buffer.file.path }) });
     view.dispatch({ effects: debugStateEffects(changed ? { ...debug, pausedLine: null, variables: [], frames: [], watches: [] } : debug) });
     if (!changed && debug.pausedLine !== null) {
       const line = view.state.doc.line(Math.max(1, Math.min(view.state.doc.lines, debug.pausedLine + 1)));

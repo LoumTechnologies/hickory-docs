@@ -138,6 +138,7 @@ footer { border-top: 1px solid GrayText; padding: 3px 9px; font-size: 11px; over
 .cm-debug-rail .more-actions__items { display: grid; gap: 4px; }
 .cm-debug-rail .more-actions__items .debug-strip__error { position: static; width: auto; }
 .tip { position: fixed; z-index: 1000; max-width: 22rem; padding: 4px 8px; border: 1px solid GrayText; border-radius: 4px; background: Canvas; color: CanvasText; box-shadow: 0 4px 12px #0003; font-size: 12px; white-space: pre-wrap; pointer-events: none; }
+.cm-run-output { max-height: 180px; overflow: auto; white-space: pre-wrap; user-select: text; margin: 4px 0; padding: 8px; border-left: 2px solid GrayText; background: color-mix(in srgb, CanvasText 5%, Canvas); color: CanvasText; font: 12px ui-monospace, monospace; }
 .cm-debug-value { color: GrayText; margin-left: 12px; font-style: italic; white-space: pre; }
 .cm-paused-line { background: color-mix(in srgb, Highlight 15%, Canvas); }
 .cm-paused-arrow { color: Highlight; }

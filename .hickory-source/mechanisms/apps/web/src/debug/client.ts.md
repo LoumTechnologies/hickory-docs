@@ -159,6 +159,7 @@ export type BindState = "bound" | "pending" | "refused";
 
 <storycode:copy id="f-9c2c3f79dace-DebugEvent">
 export type DebugEvent =
+  | { event: "run_output"; session: string; events: { category: string; text: string; source?: string | null; line?: number | null }[] }
   | { event: "reading"; session: string; reading: import("./observations").ObservationReading }
   | {
       event: "started";

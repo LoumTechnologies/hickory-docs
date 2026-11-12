@@ -122,6 +122,7 @@ The gutter has already selected a file block. After validating its saved bytes, 
 fun debugURI(path: String): String = "hick:///" + path.trimStart('/')
 data class NativeDebugTarget(val path: String, val line: Int, val end: Int)
 private val debugHTTP = OkHttpClient.Builder().retryOnConnectionFailure(false).build()
+data class NativeRunOutput(val category: String, val text: String, val source: String?, val line: Int?)
 class NativeDebugger(private val engine: Engine, private val scope: CoroutineScope) {
     var status by mutableStateOf("idle"); private set
     var message by mutableStateOf(""); private set
@@ -131,6 +132,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
     var variables by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var capabilities by mutableStateOf(JSONObject()); private set
     var breakpoints by mutableStateOf<Map<String, List<JSONObject>>>(emptyMap()); private set
+    var output by mutableStateOf<List<NativeRunOutput>>(emptyList()); private set
     var values by mutableStateOf<Map<String, String>>(emptyMap()); private set
     var watches by mutableStateOf<List<String>>(emptyList()); private set
     var profiles by mutableStateOf<List<JSONObject>>(emptyList()); private set
@@ -156,6 +158,34 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         if (path == owner && frame?.optBoolean("in_document") == true) return if (frame.isNull("line")) null else frame.getInt("line")
         if (frame?.optString("source") == path) return if (frame.isNull("source_line")) null else frame.getInt("source_line")
         return if (path == owner && selectedFrame == frames.firstOrNull()?.optInt("id")) pausedLine else null
+    }
+    fun outputPlacements(buffer: DocumentBuffer): Map<Int, String> {
+        if (!sourceMatches(buffer)) return emptyMap()
+        val context = inlineDebugContext(buffer.text, buffer.file.path)
+        val last = (buffer.text.count { it == '\n' } - if (buffer.text.endsWith('\n')) 1 else 0).coerceAtLeast(0)
+        val rows = buffer.text.split('\n')
+        fun blockEnd(line: Int): Int {
+            val header = context.launch.keys.filter { it <= line }.maxOrNull() ?: return line.coerceAtMost(last)
+            val declaration = rows.getOrNull(header)?.trim().orEmpty()
+            val fence = if (declaration.startsWith("```")) '`' else if (declaration.startsWith("~~~")) '~' else null
+            for (candidate in line + 1..last) {
+                val row = rows[candidate].trim()
+                if (fence != null && row.length >= 3 && row.all { it == fence }) return candidate
+                if (fence == null && row.startsWith("</") && row.contains(":file>")) return candidate
+            }
+            return last
+        }
+        val result = mutableMapOf<Int, String>()
+        for (chunk in output) {
+            var anchor = last
+            if (chunk.source == buffer.file.path && chunk.line != null) {
+                anchor = chunk.line
+                if (context.code[anchor] != null) anchor = blockEnd(anchor)
+            } else context.code.filterValues { it == launchProgram }.keys.maxOrNull()?.let { anchor = blockEnd(it) }
+            val location = if (chunk.source != null && chunk.line != null) " (${chunk.source}:${chunk.line + 1})" else ""
+            result[anchor] = result[anchor].orEmpty() + "[${chunk.category}$location] ${chunk.text}"
+        }
+        return result
     }
     fun sourceMatches(buffer: DocumentBuffer) = !buffer.dirty && buffer.text == (if (buffer.file.path == owner) launchSource else sourceSnapshots[buffer.file.path])
     fun rememberSource(buffer: DocumentBuffer) { if (active && buffer.file.path !in sourceSnapshots) sourceSnapshots = sourceSnapshots + (buffer.file.path to buffer.base) }
@@ -231,7 +261,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
             if (event.optString("doc") != debugURI(owner) || status !in listOf("starting", "stopping")) return
         } else if (event.optional("session") == null || event.optional("session") != sessionID) return
         when (kind) {
-            "started" -> { sessionID = event.getString("session"); capabilities = event.optJSONObject("capabilities") ?: JSONObject(); status = "running"; bind(event.optJSONArray("breakpoints"), owner); if (stopPending) { stopPending = false; stop() } }
+            "started" -> { output = emptyList(); sessionID = event.getString("session"); capabilities = event.optJSONObject("capabilities") ?: JSONObject(); status = "running"; bind(event.optJSONArray("breakpoints"), owner); if (stopPending) { stopPending = false; stop() } }
             "stopped" -> {
                 status = "paused"; frames = event.optJSONArray("frames")?.objects().orEmpty(); variables = event.optJSONArray("variables")?.objects().orEmpty(); topVariables = variables
                 pausedLine = if (event.isNull("line")) null else event.getInt("line"); selectedFrame = if (!event.isNull("selected_frame")) event.getInt("selected_frame") else frames.firstOrNull()?.optInt("id")
@@ -242,6 +272,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
             }
             "breakpoints" -> bind(event.optJSONArray("breakpoints"), owner)
             "source_breakpoints" -> event.optional("source")?.takeIf { it.startsWith("hick:///") }?.removePrefix("hick:///")?.let { bind(event.optJSONArray("breakpoints"), it) }
+            "run_output" -> output = (output + event.optJSONArray("events")?.objects().orEmpty().map { item -> NativeRunOutput(item.optString("category", "stdout"), item.optString("text"), item.optional("source"), if (item.has("line") && !item.isNull("line")) item.optInt("line") else null) }).takeLast(256)
             "value" -> if (status == "paused") values = values + (event.getString("expression") to event.getString("value"))
             "finished", "ended" -> { status = "finished"; sessionID = null; pausedLine = null; frames = emptyList(); variables = emptyList(); values = emptyMap() }
             "failed" -> { offer = event.optJSONObject("offer_install"); if (sessionID == null) fail(event.optString("message", "Debug launch failed. Check adapter installation and try again.")) else message = event.optString("message") + " Review the paused state before trying again." }

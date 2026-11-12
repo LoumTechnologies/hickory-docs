@@ -98,6 +98,7 @@ export interface DebugCapabilities {
 export type BindState = "bound" | "pending" | "refused";
 
 export type DebugEvent =
+  | { event: "run_output"; session: string; events: { category: string; text: string; source?: string | null; line?: number | null }[] }
   | { event: "reading"; session: string; reading: import("./observations").ObservationReading }
   | {
       event: "started";

@@ -1149,6 +1149,40 @@ function lineAtEvent(view: EditorView, block: { from: number }, event: Event): n
 ### `debugEditor`
 
 <storycode:copy id="f-9df55a31763b-debugEditor">
+/** Output is presentation, never document text or a guessed execution trace. */
+export const setDebuggerOutput = StateEffect.define<{ events: { category: string; text: string; source?: string | null; line?: number | null }[]; program?: string | null; literate: boolean; path?: string }>();
+class RunOutput extends WidgetType {
+  constructor(readonly text: string) { super(); }
+  eq(other: RunOutput) { return other.text === this.text; }
+  toDOM() {
+    const block = document.createElement("pre"); block.className = "cm-run-output";
+    block.setAttribute("aria-label", "Run stdout and stderr"); block.setAttribute("role", "region");
+    block.setAttribute("contenteditable", "false"); block.textContent = this.text; return block;
+  }
+  ignoreEvent() { return true; }
+}
+const runOutputField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(value, tr) {
+    if (tr.docChanged) value = Decoration.none;
+    for (const effect of tr.effects) if (effect.is(setDebuggerOutput)) {
+      const { events, program, literate, path } = effect.value;
+      const blocks = literate ? structureOf(tr.state).blocks.filter(block => block.name === "file" || block.name === "exec") : [];
+      const groups = new Map<number, string[]>();
+      for (const event of events) {
+        const line = event.line == null || literate && event.source !== path ? null : tr.state.doc.line(Math.max(1, Math.min(tr.state.doc.lines, event.line + 1)));
+        const owner = blocks.find(block => line && line.from >= block.contentFrom && line.from <= block.contentTo) ?? blocks.find(block => block.attrs.path === program);
+        const at = owner ? tr.state.doc.lineAt(owner.to).to : tr.state.doc.length;
+        const location = event.source && event.line != null ? ` (${event.source}:${event.line + 1})` : "";
+        groups.set(at, [...(groups.get(at) ?? []), `[${event.category}${location}] ${event.text}`]);
+      }
+      value = Decoration.set([...groups].sort(([a], [b]) => a - b).map(([at, chunks]) => Decoration.widget({ widget: new RunOutput(chunks.join("")), block: true, side: 1 }).range(at)));
+    }
+    return value;
+  },
+  provide: field => EditorView.decorations.from(field),
+});
+
 export function debugEditor(options: DebugEditorOptions): Extension[] {
   // The eval affordance follows the paused line. Built here because its
   // widget needs the callbacks; drawn only when a handler exists to answer.
@@ -1172,6 +1206,7 @@ export function debugEditor(options: DebugEditorOptions): Extension[] {
       editBreakpoint(view, target, options); return true;
     }),
     pausedField,
+    runOutputField,
     stackField,
     flashField,
     pausedHighlight,
@@ -1314,6 +1349,7 @@ import {
   setWatchValues,
   stackMarksOf,
   watchPlacements,
+  setDebuggerOutput,
 } from "./cmDebug";
 import { backwardsControl, type DebugCapabilities } from "./client";
 import { identifierAt } from "../lsp/cmLsp";
@@ -1726,6 +1762,25 @@ describe("which frames become gutter marks", () => {
 ### `expression_statement`
 
 <storycode:copy id="f-8d12c7278102-expression_statement-9">
+describe("read-only output next to program source", () => {
+  it("retains output labels without changing source and retires it after edits", () => {
+    const source = "print('hi')\n";
+    const view = new EditorView({ parent: document.body, state: EditorState.create({ doc: source, extensions: debugEditor({ language: "python", onToggleBreakpoint: () => {} }) }) });
+    view.dispatch({ effects: setDebuggerOutput.of({ literate: false, events: [
+      { category: "stdout", text: "hi\n", source: "main.py", line: 0 },
+      { category: "stderr", text: "warning\n" },
+    ] }) });
+    const output = view.dom.querySelector(".cm-run-output")!;
+    expect(output.textContent).toContain("[stdout (main.py:1)] hi");
+    expect(output.textContent).toContain("[stderr] warning");
+    expect(output.getAttribute("contenteditable")).toBe("false");
+    expect(view.state.doc.toString()).toBe(source);
+    view.dispatch({ changes: { from: 0, insert: "# changed\n" } });
+    expect(view.dom.querySelector(".cm-run-output")).toBeNull();
+    view.destroy();
+  });
+});
+
 describe("watches, in whitespace at their evaluation line", () => {
   it("places the result at its stopped frame, even when mentioned earlier", () => {
     const placements = watchPlacements(DOC, [{ expression: "unit_price", value: "9.99" }], 2);

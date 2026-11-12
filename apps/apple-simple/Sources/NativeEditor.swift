@@ -493,11 +493,11 @@ func simpleFoldRanges(_ source: String, markdown: Bool = false) -> [SimpleFold] 
 }
 #if os(macOS)
 private typealias FoldFont = NSFont
-private typealias EquationHost = NSHostingView<NativeMathView>
+private typealias EquationHost = NSHostingView<AnyView>
 private typealias DiagramHost = NSHostingView<NativeDiagramPreview>
 #else
 private typealias FoldFont = UIFont
-private typealias EquationHost = UIHostingController<NativeMathView>
+private typealias EquationHost = UIHostingController<AnyView>
 private typealias DiagramHost = UIHostingController<NativeDiagramPreview>
 #endif
 @MainActor private final class FoldLayout: NSObject, @preconcurrency NSLayoutManagerDelegate {
@@ -745,13 +745,20 @@ private typealias DiagramHost = UIHostingController<NativeDiagramPreview>
     private func presentEquations() {
         let source = text.string, storage = text.textStorage!
         let equations = buffer.inlineMarkup.source == source ? buffer.inlineMarkup.equations : []
-        let grouped = Dictionary(grouping: equations, by: \.line)
-        if equationSource != source {
+        var grouped = Dictionary(grouping: equations, by: \.line)
+        let outputs = buffer.recordedOutputPlacements().merging(buffer.runOutputSource == source ? buffer.runOutputs : [:]) { _, live in live }
+        var starts = [0]
+        for (index, unit) in source.utf16.enumerated() where unit == 10 { starts.append(index + 1) }
+        for (line, output) in outputs where starts.indices.contains(line) && starts[line] < storage.length {
+            grouped[line] = [InlineEquation(line: line, range: NSRange(location: starts[line], length: 0), body: output)]
+        }
+        let signature = source + "\0" + outputs.keys.sorted().map { "\($0):\(outputs[$0] ?? "")" }.joined()
+        if equationSource != signature {
             storage.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
-                if (value as? NSParagraphStyle)?.paragraphSpacing == 88 { storage.removeAttribute(.paragraphStyle, range: range) }
+                if (value as? NSParagraphStyle)?.paragraphSpacing == 88 || (value as? NSParagraphStyle)?.paragraphSpacing == 188 { storage.removeAttribute(.paragraphStyle, range: range) }
             }
             for host in equationViews.values { host.removeFromSuperview() }
-            equationViews = [:]; equationSource = source
+            equationViews = [:]; equationSource = signature
         }
         for line in Array(equationViews.keys) where grouped[line] == nil {
             if let host = equationViews.removeValue(forKey: line) { host.removeFromSuperview() }
@@ -759,16 +766,20 @@ private typealias DiagramHost = UIHostingController<NativeDiagramPreview>
         for (line, values) in grouped {
             guard let first = values.first, first.range.location < storage.length else { continue }
             let paragraph = (source as NSString).paragraphRange(for: NSRange(location: first.range.location, length: 0))
-            let style = NSMutableParagraphStyle(); style.paragraphSpacing = 88
-            if (storage.attribute(.paragraphStyle, at: first.range.location, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacing != 88 { storage.addAttribute(.paragraphStyle, value: style, range: paragraph) }
-            let preview = NativeMathView(source: values.map(\.body).joined(separator: " \\qquad "))
+            let height: CGFloat = outputs[line] == nil ? 80 : 180
+            let style = NSMutableParagraphStyle(); style.paragraphSpacing = height + 8
+            if (storage.attribute(.paragraphStyle, at: first.range.location, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacing != height + 8 { storage.addAttribute(.paragraphStyle, value: style, range: paragraph) }
+            let preview: AnyView
+            if let output = outputs[line] {
+                preview = AnyView(ScrollView([.horizontal, .vertical]) { Text(output).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(6) }.background(.quaternary.opacity(0.15)).accessibilityLabel("Run stdout and stderr"))
+            } else { preview = AnyView(NativeMathView(source: values.map(\.body).joined(separator: " \\qquad "))) }
             let host: EquationHost
             if let existing = equationViews[line] { existing.rootView = preview; host = existing }
             else { host = EquationHost(rootView: preview); equationViews[line] = host; text.addSubview(host) }
             let manager = text.layoutManager!, container = text.textContainer!
             let glyph = manager.glyphRange(forCharacterRange: NSRange(location: first.range.location, length: 1), actualCharacterRange: nil)
             let rect = manager.boundingRect(forGlyphRange: glyph, in: container), origin = text.textContainerOrigin
-            host.frame = CGRect(x: origin.x, y: rect.maxY + origin.y + 2, width: max(100, text.bounds.width - 16), height: 80)
+            host.frame = CGRect(x: origin.x, y: rect.maxY + origin.y + 2, width: max(100, text.bounds.width - 16), height: height)
         }
     }
 
@@ -1150,13 +1161,20 @@ import UIKit
     private func presentEquations() {
         let source = text.text ?? "", storage = text.textStorage
         let equations = buffer.inlineMarkup.source == source ? buffer.inlineMarkup.equations : []
-        let grouped = Dictionary(grouping: equations, by: \.line)
-        if equationSource != source {
+        var grouped = Dictionary(grouping: equations, by: \.line)
+        let outputs = buffer.recordedOutputPlacements().merging(buffer.runOutputSource == source ? buffer.runOutputs : [:]) { _, live in live }
+        var starts = [0]
+        for (index, unit) in source.utf16.enumerated() where unit == 10 { starts.append(index + 1) }
+        for (line, output) in outputs where starts.indices.contains(line) && starts[line] < storage.length {
+            grouped[line] = [InlineEquation(line: line, range: NSRange(location: starts[line], length: 0), body: output)]
+        }
+        let signature = source + "\0" + outputs.keys.sorted().map { "\($0):\(outputs[$0] ?? "")" }.joined()
+        if equationSource != signature {
             storage.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
-                if (value as? NSParagraphStyle)?.paragraphSpacing == 88 { storage.removeAttribute(.paragraphStyle, range: range) }
+                if (value as? NSParagraphStyle)?.paragraphSpacing == 88 || (value as? NSParagraphStyle)?.paragraphSpacing == 188 { storage.removeAttribute(.paragraphStyle, range: range) }
             }
             for host in equationViews.values { host.view.removeFromSuperview() }
-            equationViews = [:]; equationSource = source
+            equationViews = [:]; equationSource = signature
         }
         for line in Array(equationViews.keys) where grouped[line] == nil {
             if let host = equationViews.removeValue(forKey: line) { host.view.removeFromSuperview() }
@@ -1164,16 +1182,20 @@ import UIKit
         for (line, values) in grouped {
             guard let first = values.first, first.range.location < storage.length else { continue }
             let paragraph = (source as NSString).paragraphRange(for: NSRange(location: first.range.location, length: 0))
-            let style = NSMutableParagraphStyle(); style.paragraphSpacing = 88
-            if (storage.attribute(.paragraphStyle, at: first.range.location, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacing != 88 { storage.addAttribute(.paragraphStyle, value: style, range: paragraph) }
-            let preview = NativeMathView(source: values.map(\.body).joined(separator: " \\qquad "))
+            let height: CGFloat = outputs[line] == nil ? 80 : 180
+            let style = NSMutableParagraphStyle(); style.paragraphSpacing = height + 8
+            if (storage.attribute(.paragraphStyle, at: first.range.location, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacing != height + 8 { storage.addAttribute(.paragraphStyle, value: style, range: paragraph) }
+            let preview: AnyView
+            if let output = outputs[line] {
+                preview = AnyView(ScrollView([.horizontal, .vertical]) { Text(output).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(6) }.background(.quaternary.opacity(0.15)).accessibilityLabel("Run stdout and stderr"))
+            } else { preview = AnyView(NativeMathView(source: values.map(\.body).joined(separator: " \\qquad "))) }
             let host: EquationHost
             if let existing = equationViews[line] { existing.rootView = preview; host = existing }
             else { host = EquationHost(rootView: preview); equationViews[line] = host; text.addSubview(host.view) }
             let manager = text.layoutManager, container = text.textContainer
             let glyph = manager.glyphRange(forCharacterRange: NSRange(location: first.range.location, length: 1), actualCharacterRange: nil)
             let rect = manager.boundingRect(forGlyphRange: glyph, in: container), origin = CGPoint(x: text.textContainerInset.left, y: text.textContainerInset.top)
-            host.view.frame = CGRect(x: origin.x, y: rect.maxY + origin.y + 2, width: max(100, text.bounds.width - 16), height: 80)
+            host.view.frame = CGRect(x: origin.x, y: rect.maxY + origin.y + 2, width: max(100, text.bounds.width - 16), height: height)
         }
     }
 
@@ -1559,6 +1581,9 @@ struct LanguageEditor: View {
                     .accessibilityLabel("Resize right gutter").accessibilityAdjustableAction { direction in railWidth = min(220, max(24, railWidth + (direction == .increment ? 22 : -22))) }
                 NativeDebugRail(buffer: buffer, debug: debugger).frame(width: railWidth)
             }
+        }.onChange(of: debugger?.output ?? [], initial: true) { _, _ in
+            buffer.runOutputSource = buffer.text
+            buffer.runOutputs = debugger?.outputPlacements(buffer) ?? [:]
         }.overlay(alignment: .topTrailing) {
             Button("⌁") {
                 #if os(macOS)

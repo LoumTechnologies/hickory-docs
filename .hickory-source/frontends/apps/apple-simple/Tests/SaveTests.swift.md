@@ -102,6 +102,39 @@ These focused witnesses drive the native controller with explicit protocol event
 
 <ui:copy id="simple-apple-debug-witnesses">
 final class NativeDebugTests: XCTestCase {
+    @MainActor func testOutputIsReadOnlySourceAnchoredAndRevisionBound() throws {
+        // Contract: .hickory-source/frontends/contract.md
+        let source = "value = 1\nprint(value)\n"
+        let buffer = DocumentBuffer(file: FileNode(name: "main.py", path: "main.py", dir: false), text: FileText(path: "main.py", content: source, hash: "base"))
+        let debug = NativeDebugger(engine: try Engine(address: "http://fixture.invalid"))
+        debug.owner = "main.py"; debug.launchSource = source; debug.status = "starting"
+        debug.receive(["event": "started", "doc": "hick:///main.py", "session": "ours", "breakpoints": []])
+        debug.receive(["event": "run_output", "session": "old", "events": [["text": "wrong"]]])
+        XCTAssertTrue(debug.output.isEmpty)
+        debug.receive(["event": "run_output", "session": "ours", "events": [["category": "stdout", "text": "1\n"], ["category": "stderr", "text": "warning\n", "source": "main.py", "line": 1]]])
+        XCTAssertTrue(debug.outputPlacements(buffer)[1]?.contains("[stdout] 1") == true)
+        XCTAssertTrue(debug.outputPlacements(buffer)[1]?.contains("main.py:2") == true)
+        XCTAssertEqual(buffer.text, source); XCTAssertFalse(buffer.dirty)
+        buffer.text += "# edited"
+        XCTAssertTrue(debug.outputPlacements(buffer).isEmpty)
+        let document = "<h:file path=\"main.py\">\nprint(1)\n\nprint(2)\n</h:file>\n"
+        let book = DocumentBuffer(file: FileNode(name: "workbook.md", path: "workbook.md", dir: false), text: FileText(path: "workbook.md", content: document, hash: "base"))
+        debug.owner = "workbook.md"; debug.launchSource = document; debug.status = "starting"
+        debug.receive(["event": "started", "doc": "hick:///workbook.md", "session": "document", "breakpoints": []])
+        debug.receive(["event": "run_output", "session": "document", "events": [["category": "stdout", "text": "1\n", "source": "workbook.md", "line": 1]]])
+        XCTAssertNotNil(debug.outputPlacements(book)[4], "A blank line must not split the producing file block")
+    }
+    @MainActor func testRecordedOutputUsesByteSpanAfterUnicodeBlock() {
+        let source = "<h:exec>\necho café\n</h:exec>\n"
+        let buffer = DocumentBuffer(file: FileNode(name: "workbook.md", path: "workbook.md", dir: false), text: FileText(path: "workbook.md", content: source, hash: "base"))
+        buffer.receipts = [InlineReceipt(kind: "exec", span: [0, source.utf8.count - 1], command: nil, status: nil, transcript: [InlineReceiptEvent(kind: "out", data: "café\n")], recorded_output: nil)]
+        buffer.receiptSource = source
+        XCTAssertEqual(buffer.recordedOutputPlacements(), [2: "[out] café\n"])
+        XCTAssertEqual(buffer.text, source)
+        buffer.text += "changed"
+        XCTAssertTrue(buffer.recordedOutputPlacements().isEmpty)
+    }
+
     @MainActor func testNativeDebugRejectsOtherSessionAndCarriesBoundCondition() throws {
         let debug = NativeDebugger(engine: try Engine(address: "http://fixture.invalid"))
         debug.owner = "main.py"; debug.launchSource = "value = 1\nprint(value)\n"; debug.status = "starting"

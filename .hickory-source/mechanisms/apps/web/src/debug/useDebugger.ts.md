@@ -67,6 +67,7 @@ export interface Watch {
 
 <storycode:copy id="f-597e991b795b-DebugSession">
 export interface DebugSession {
+  output?: { category: string; text: string; source?: string | null; line?: number | null }[];
   reading?: import("./observations").ObservationReading | null;
   /** A tool this machine can fetch, when a missing one is why the last
    * attempt failed. Null the rest of the time. */
@@ -477,6 +478,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   exceptionFiltersRef.current = exceptionFilters;
   const [exitCode, setExitCode] = useState<number | null>(null);
   const [buildOutput, setBuildOutput] = useState<TranscriptEvent[]>([]);
+  const [output, setOutput] = useState<NonNullable<DebugSession["output"]>>([]);
 
   const sessionRef = useRef<string | null>(null);
   // The status as of right now, for callbacks that must not close over a
@@ -502,6 +504,9 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       eventEpoch.current++;
       renderEventEpoch(eventEpoch.current);
       switch (event.event) {
+        case "run_output":
+          setOutput(current => [...current, ...event.events].slice(-256));
+          break;
         case "reading":
           setReading(event.reading);
           break;
@@ -513,6 +518,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
         case "started": {
           setReading(null);
           sessionRef.current = event.session;
+          setOutput([]);
           setCapabilities(event.capabilities);
           setBreakpoints((current) => followMoves(current, event.breakpoints));
           setStatus("running");
@@ -926,6 +932,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       replaceBreakpoints: setBreakpoints,
       exitCode,
       buildOutput,
+      output,
       lastValue,
       watches,
       exceptionFilters,
@@ -960,6 +967,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       sourceBreakpoints, setSourceBreakpoints,
       exitCode,
       buildOutput,
+      output,
       lastValue,
       watches,
       exceptionFilters,

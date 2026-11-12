@@ -14,6 +14,18 @@ class ParityTest {
         assertTrue(snapshot.marks.none { it.kind == "heading" })
     }
 
+    @org.junit.Test fun recordedOutputUsesByteSpanAfterUnicodeBlock() {
+        // Contract: .hickory-source/frontends/contract.md
+        val source = "<h:exec>\necho café\n</h:exec>\n"
+        val buffer = DocumentBuffer(FileNode("workbook.md", "workbook.md", false, emptyList(), null, null), FileText(source, "base"))
+        buffer.receiptSource = source
+        buffer.receipts = listOf(org.json.JSONObject().put("span", org.json.JSONArray(listOf(0, source.toByteArray(Charsets.UTF_8).size - 1))).put("transcript", org.json.JSONArray().put(org.json.JSONObject().put("kind", "out").put("data", "café\n"))))
+        assertEquals(mapOf(2 to "[out] café\n"), buffer.recordedOutputPlacements())
+        assertEquals(source, buffer.text)
+        buffer.state.edit { append("changed") }
+        assertTrue(buffer.recordedOutputPlacements().isEmpty())
+    }
+
     @org.junit.Test fun patchAndPathFenceOfferOnlyOwnedCodeCandidates() {
         // Contract: .hickory-source/frontends/contract.md
         val source = "<hick:project/>\n<hick:file id=\"base\" path=\"x.py\">\nprint(1)\n</hick:file>\n```patch id=\"change\" after=\"base\"\n--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-print(1)\n+print(\"café 😀\")\n```\n```python path=\"other.py\"\nprint(3)\n```\n```diff\n--- a/fake.py\n+++ b/fake.py\n@@ -1 +1 @@\n-a\n+b\n```"

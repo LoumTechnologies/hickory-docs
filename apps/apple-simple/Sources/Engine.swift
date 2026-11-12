@@ -418,6 +418,9 @@ struct NativeDebugRender: Decodable {
     var blocks: [Block]
 }
 struct NativeDebugCatalog: Decodable { var profiles: [NativeDebugProfile]; var fingerprint: String; var viewed: String? }
+struct NativeRunOutput: Equatable {
+    var category: String; var text: String; var source: String?; var line: Int?
+}
 @MainActor @Observable final class NativeDebugger {
     var status = "idle"
     var message = ""
@@ -427,6 +430,7 @@ struct NativeDebugCatalog: Decodable { var profiles: [NativeDebugProfile]; var f
     var variables: [[String: Any]] = []
     var capabilities: [String: Any] = [:]
     var breakpoints: [String: [[String: Any]]] = [:]
+    var output: [NativeRunOutput] = []
     var values: [String: String] = [:]
     var watches: [String] = []
     var profiles: [NativeDebugProfile] = []
@@ -456,6 +460,36 @@ struct NativeDebugCatalog: Decodable { var profiles: [NativeDebugProfile]; var f
         if path == owner, frame?["in_document"] as? Bool == true { return frame?["line"] as? Int }
         if frame?["source"] as? String == path { return frame?["source_line"] as? Int }
         return path == owner && selectedFrame == frames.first?["id"] as? Int ? pausedLine : nil
+    }
+    func outputPlacements(_ buffer: DocumentBuffer) -> [Int: String] {
+        guard sourceMatches(buffer) else { return [:] }
+        let context = inlineDebugContext(buffer.text, path: buffer.file.path)
+        let last = max(0, buffer.text.components(separatedBy: "\n").count - 1 - (buffer.text.hasSuffix("\n") ? 1 : 0))
+        let rows = buffer.text.components(separatedBy: "\n")
+        func blockEnd(_ line: Int) -> Int {
+            guard let header = context.launch.keys.filter({ $0 <= line }).max(), rows.indices.contains(header) else { return min(last, line) }
+            let declaration = rows[header].trimmingCharacters(in: .whitespaces)
+            let fence = declaration.hasPrefix("```") ? "`" : declaration.hasPrefix("~~~") ? "~" : ""
+            if line < last {
+                for candidate in (line + 1)...last {
+                    let row = rows[candidate].trimmingCharacters(in: .whitespaces)
+                    if !fence.isEmpty && row.count >= 3 && row.allSatisfy({ String($0) == fence }) { return candidate }
+                    if fence.isEmpty && row.hasPrefix("</") && row.contains(":file>") { return candidate }
+                }
+            }
+            return last
+        }
+        var result: [Int: String] = [:]
+        for chunk in output {
+            var anchor = last
+            if let line = chunk.line, chunk.source == buffer.file.path {
+                anchor = line
+                if context.code[line] != nil { anchor = blockEnd(line) }
+            } else if let program = launchProgram, let end = context.code.filter({ $0.value == program }).keys.max() { anchor = blockEnd(end) }
+            let location = chunk.source.flatMap { path in chunk.line.map { " (\(path):\($0 + 1))" } } ?? ""
+            result[anchor, default: ""] += "[\(chunk.category)\(location)] \(chunk.text)"
+        }
+        return result
     }
     func sourceMatches(_ buffer: DocumentBuffer) -> Bool { !buffer.dirty && buffer.text == (buffer.file.path == owner ? launchSource : sourceSnapshots[buffer.file.path]) }
     func rememberSource(_ buffer: DocumentBuffer) {
@@ -541,6 +575,7 @@ struct NativeDebugCatalog: Decodable { var profiles: [NativeDebugProfile]; var f
         } else { guard let id = event["session"] as? String, id == sessionID else { return } }
         switch kind {
         case "started":
+            output = []
             sessionID = event["session"] as? String; capabilities = event["capabilities"] as? [String: Any] ?? [:]; status = "running"
             bind(event["breakpoints"] as? [[String: Any]] ?? [], path: owner)
             if stopPending { stopPending = false; stop() }
@@ -554,6 +589,11 @@ struct NativeDebugCatalog: Decodable { var profiles: [NativeDebugProfile]; var f
         case "breakpoints": bind(event["breakpoints"] as? [[String: Any]] ?? [], path: owner)
         case "source_breakpoints":
             if let source = event["source"] as? String, source.hasPrefix("hick:///") { bind(event["breakpoints"] as? [[String: Any]] ?? [], path: String(source.dropFirst(8))) }
+        case "run_output":
+            output = Array((output + (event["events"] as? [[String: Any]] ?? []).compactMap { item in
+                guard let text = item["text"] as? String else { return nil }
+                return NativeRunOutput(category: item["category"] as? String ?? "stdout", text: text, source: item["source"] as? String, line: item["line"] as? Int)
+            }).suffix(256))
         case "value":
             if status == "paused", let expression = event["expression"] as? String, let value = event["value"] as? String { values[expression] = value }
         case "finished", "ended": status = "finished"; sessionID = nil; pausedLine = nil; variables = []; frames = []; values = [:]

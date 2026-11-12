@@ -15,7 +15,9 @@ import Observation
     @ObservationIgnored var applyLanguageCompletion: ((NSRange, String, String, NSRange) -> Bool)?
     @ObservationIgnored var selection = NSRange(location: 0, length: 0)
     @ObservationIgnored var receiptEngine: Engine?
-    var receiptSource = ""
+    var receiptSource = "" { didSet { renderMarkup?() } }
+    var runOutputSource = ""
+    var runOutputs: [Int: String] = [:] { didSet { renderMarkup?() } }
     var receipts: [InlineReceipt] = []
     var receiptNotice = ""
     func refreshReceipts() async {
@@ -29,6 +31,19 @@ import Observation
             }
             receipts = page.blocks.filter { $0.kind == "exec" }; receiptSource = source; receiptNotice = ""
         } catch { if text == source { receiptNotice = "Recorded output unavailable. Retry after checking the server." } }
+    }
+    // Recorded execution receipts already carry an exact source-hash check.
+    // Their byte spans place the read-only transcript after the producing block.
+    func recordedOutputPlacements() -> [Int: String] {
+        guard receiptSource == text, !dirty else { return [:] }
+        let bytes = Array(text.utf8)
+        var result: [Int: String] = [:]
+        for receipt in receipts where receipt.span.count == 2 && receipt.span[0] >= 0 && receipt.span[1] > receipt.span[0] && receipt.span[1] <= bytes.count {
+            let chunks = (receipt.transcript ?? []).filter { ["out", "err", "stdout", "stderr"].contains($0.kind) }.map { "[\($0.kind)] \($0.data ?? "")" }.joined()
+            let output = chunks.isEmpty ? receipt.recorded_output ?? "" : chunks
+            if !output.isEmpty { result[bytes.prefix(receipt.span[1] - 1).filter { $0 == 10 }.count, default: ""] += output }
+        }
+        return result
     }
     func receipts(on line: Int) -> [InlineReceipt] {
         guard receiptSource == text, !dirty else { return [] }
