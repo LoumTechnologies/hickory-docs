@@ -90,6 +90,57 @@ To open a different folder, set `HICKORY_PROJECT_DIR` — the app uses it as
 given and says so if it cannot be opened, rather than falling back to a
 picker and hiding the typo.
 
+## Commit-triggered restarts
+
+`just dev`, `just dev-site`, `just dev-spatial-mock`, `just dev-web API_ORIGIN`,
+and `just simple-dev` (every target, including `ios`, `android` and `all`) start immediately and poll the resolved
+commit of this worktree every 300 ms. Commits, amends, checkout, reset, merge
+and rebase restart the session. Saving alone retains existing Vite hot reload;
+uncommitted edits are included when the next session starts. Linked worktrees,
+packed refs, detached HEAD and the first commit on an unborn branch use Git's
+own revision resolution. Outside Git, the command fails with guidance.
+
+The foreground Rust supervisor stops the owned process tree before restarting
+preparation and the app, with the same arguments and environment. It allows
+15 seconds for shutdown, then terminates remaining owned processes and refuses
+a replacement if they do not exit. Ctrl-C or termination stops supervision and
+children. `dev-stop` and `dev-clean` also end the desktop supervisor through a
+worktree-local stop token under `target/`, so a later commit cannot revive it.
+A successful window closure ends the command. Startup, build or
+runtime failures stay visible and wait for the next commit; they do not retry
+the same revision. Rapid commits coalesce; commits during preparation are checked
+while it runs. Do not run two sessions of the same target in one worktree.
+
+The desktop command retains its existing build, seed and dependency preparation.
+Scoped web commands install missing or changed lockfile dependencies automatically;
+unchanged dependencies are reused. Machine prerequisites remain Rust, Git and
+Node/npm (plus the existing native SDKs for native targets). Unix cleanup uses
+`ps`; Windows cleanup uses `taskkill /T`. The Apple comparison runner executes
+the bundled binary directly so it owns the app, rather than only a detached
+LaunchServices launcher.
+
+Mobile comparison sessions are an explicitly authorized exception to the skill’s
+one-shot phone-update rule: on a commit they rebuild, update in place and relaunch
+the native app on the same selected serial/UDID. A host session keeps an emulator
+or simulator it started alive across revisions, then stops it on final exit. App
+identity and data are retained; in-memory UI state can reset. `all` delegates to
+the same supervised platform commands. See [the comparison workflow](simple-frontends.md)
+for SDK prerequisites, target selection and `simple-reload-test` device acceptance.
+`dev-stop`, `dev-clean`, `dev-seed`, builds, generation, tests, checks, installations,
+releases and deployments remain one-shot.
+
+This focused update preserves existing public command names and scopes. It adds
+commit supervision and automatic preparation for scoped web servers; it does not
+claim to complete a repository-wide recipe naming migration or CI audit.
+
+Run the harmless process witnesses with
+`python3 -m unittest discover -s scripts/tests -p test_dev_supervisor.py -v`.
+They use disposable Git repositories, never commits in this checkout. They cover
+the restart trigger, startup races, failed revisions, process-tree ordering,
+arguments/environment, linked-worktree isolation and Ctrl-C. Host execution is
+separate from GUI, Linux and Windows acceptance; run the actual development
+command on each supported host before claiming those platform checks passed.
+
 ## API client codegen
 
 **Gone with the server.** `just codegen` and `just check-codegen` generated a

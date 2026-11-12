@@ -68014,6 +68014,51 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "simple-enter-fixtures"
       ]
+    },
+    "scripts/dev-supervisor.rs": {
+      "source": ".hickory-source/mechanisms/dev-commit-restarts.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "signals-and-revisions",
+        "owned-process-tree",
+        "restart-loop",
+        "frontend-preparation"
+      ],
+      "narrative_owner": "mechanism:dev-commit-restarts"
+    },
+    "scripts/tests/test_dev_supervisor.py": {
+      "source": ".hickory-source/mechanisms/dev-commit-restarts.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "construction": "fragments",
+      "fragments": [
+        "restart-witnesses"
+      ],
+      "narrative_owner": "mechanism:dev-commit-restarts"
+    },
+    "scripts/test-simple-mobile-reload.py": {
+      "source": ".hickory-source/frontends/scripts/test-simple-mobile-reload.py.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "construction": "fragments",
+      "fragments": [
+        "simple-mobile-reload-smoke"
+      ]
+    },
+    "crates/hickory-cli/examples/simple_dev/reload.rs": {
+      "source": ".hickory-source/frontends/crates/hickory-cli/examples/simple_dev.rs.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "simple-mobile-reload"
+      ]
     }
   },
   "evidence_records": [

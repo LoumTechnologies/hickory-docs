@@ -12,23 +12,42 @@ use tokio::{
     process::{Child, Command},
 };
 
+#[path = "simple_dev/reload.rs"]
+mod reload;
+#[cfg(test)]
+use reload::mobile_reload_command;
+use reload::supervise_mobile;
+
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().skip(1).collect();
     if let Some(result) = engine::run_argv(&args) {
         return result;
     }
     let platform = args.first().map(String::as_str).unwrap_or("browser");
+    let session_child = args.get(1).is_some_and(|arg| arg == "--session-child");
     ensure!(
-        args.len() <= 1 && ["browser", "apple", "ios", "android", "all"].contains(&platform),
+        (args.len() <= 1
+            || (args.len() == 2 && session_child && ["ios", "android"].contains(&platform)))
+            && ["browser", "apple", "ios", "android", "all"].contains(&platform),
         "Usage: just simple-dev browser|apple|ios|android|all"
     );
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()?;
+    env::set_current_dir(root)?;
     if ["apple", "ios", "all"].contains(&platform) {
         configure_xcode()?;
     }
     tokio::runtime::Runtime::new()?.block_on(async {
         let mut session = Session::default();
         let result = tokio::select! {
-            result = launch(platform, &mut session) => result,
+            result = async {
+                if ["ios", "android"].contains(&platform) && !session_child {
+                    supervise_mobile(platform, &mut session).await
+                } else {
+                    launch(platform, &mut session).await
+                }
+            } => result,
             result = interrupted() => result,
         };
         session.cleanup().await;
@@ -136,7 +155,7 @@ impl Session {
             }
         }
         for child in self.children.iter_mut().rev() {
-            if tokio::time::timeout(Duration::from_secs(5), child.wait())
+            if tokio::time::timeout(Duration::from_secs(30), child.wait())
                 .await
                 .is_err()
             {
@@ -248,7 +267,7 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
         let mut platforms = Vec::new();
         for platform in ["browser", "apple", "ios", "android"] {
             session.spawn(
-                cmd(env::current_exe()?, &[platform]).env("HICKORY_PROJECT_DIR", &project),
+                cmd("just", &["simple-dev", platform]).env("HICKORY_PROJECT_DIR", &project),
             )?;
             platforms.push(platform);
         }
@@ -415,15 +434,12 @@ async fn apple(root: &Path, session: &mut Session, api: &str) -> Result<()> {
         .run(&mut cmd("codesign", &["--force", "--sign", "-"]).arg(&bundle))
         .await?;
     println!("Opening {}", bundle.display());
-    let backend_env = format!("HICKORY_API_ORIGIN={api}");
-    let host_env = format!("HICKORY_SIMPLE_HOST_PID={}", std::process::id());
+    // Execute the bundled binary directly so Session owns the native app's lifetime.
     session
         .run(
-            cmd(
-                "open",
-                &["-n", "-W", "--env", &backend_env, "--env", &host_env],
-            )
-            .arg(&bundle),
+            Command::new(&executable)
+                .env("HICKORY_API_ORIGIN", api)
+                .env("HICKORY_SIMPLE_HOST_PID", std::process::id().to_string()),
         )
         .await
 }
@@ -488,7 +504,7 @@ fn device_serial(output: &str, requested: Option<&str>) -> Result<Option<String>
     );
     Ok(devices.first().map(|value| value.to_string()))
 }
-async fn android(root: &Path, session: &mut Session, api: &str) -> Result<()> {
+async fn android_device(session: &mut Session) -> Result<(PathBuf, String)> {
     let sdk = sdk()?;
     let adb_path = tool(&sdk, "platform-tools", "adb");
     let listing = session.output(&mut cmd(&adb_path, &["devices"])).await?;
@@ -550,6 +566,11 @@ async fn android(root: &Path, session: &mut Session, api: &str) -> Result<()> {
         booted,
         "Android device did not finish booting within two minutes"
     );
+    Ok((adb_path, serial))
+}
+
+async fn android(root: &Path, session: &mut Session, api: &str) -> Result<()> {
+    let (adb_path, serial) = android_device(session).await?;
     session
         .run(&mut cmd(
             "rustc",
@@ -569,6 +590,13 @@ async fn android(root: &Path, session: &mut Session, api: &str) -> Result<()> {
                 "target/simple-android-gradle"
             }),
             &[":app:assembleDebug"],
+        ))
+        .await?;
+    session
+        .run(&mut adb(
+            &adb_path,
+            &serial,
+            &["shell", "am", "force-stop", "com.hickorydocs.simple"],
         ))
         .await?;
     session
@@ -627,9 +655,10 @@ fn simulator(value: &Value, requested: Option<&str>) -> Result<(String, bool)> {
         .filter_map(Value::as_array)
         .flatten()
         .filter(|d| {
-            d["isAvailable"] == true
-                && (d["name"].as_str().unwrap_or("").starts_with("iPhone")
-                    || d["name"].as_str().unwrap_or("").starts_with("iPad"))
+            let kind = d["deviceTypeIdentifier"]
+                .as_str()
+                .unwrap_or_else(|| d["name"].as_str().unwrap_or(""));
+            d["isAvailable"] == true && (kind.contains("iPhone") || kind.contains("iPad"))
         })
         .collect();
     let selected = if let Some(id) = requested {
@@ -664,11 +693,38 @@ fn simulator(value: &Value, requested: Option<&str>) -> Result<(String, bool)> {
         selected["state"] == "Booted",
     ))
 }
-async fn ios(session: &mut Session, api: &str) -> Result<()> {
+fn simulator_application(simctl: &str) -> Result<PathBuf> {
+    let developer = Path::new(simctl.trim())
+        .ancestors()
+        .nth(3)
+        .context("Cannot locate the selected Xcode installation")?;
+    let contents = developer
+        .parent()
+        .context("Missing Xcode Contents directory")?;
+    [
+        developer.join("Applications/Simulator.app"),
+        contents.join("Applications/Simulator.app"),
+        contents.join("Applications/DeviceHub.app"),
+    ]
+    .into_iter()
+    .find(|path| path.is_dir())
+    .with_context(|| {
+        format!(
+            "No Simulator.app or DeviceHub.app beside {}; complete Xcode's device tools setup",
+            developer.display()
+        )
+    })
+}
+
+async fn ios_device(session: &mut Session) -> Result<String> {
     ensure!(
         cfg!(target_os = "macos"),
         "iOS simulator launch requires macOS and Xcode"
     );
+    let simctl = session
+        .output(&mut cmd("xcrun", &["--find", "simctl"]))
+        .await?;
+    let application = simulator_application(&simctl)?;
     let list = session
         .output(&mut cmd(
             "xcrun",
@@ -690,12 +746,20 @@ async fn ios(session: &mut Session, api: &str) -> Result<()> {
     session
         .run(&mut cmd("xcrun", &["simctl", "bootstatus", &device, "-b"]))
         .await?;
-    session
-        .run(&mut cmd(
-            "open",
-            &["-a", "Simulator", "--args", "-CurrentDeviceUDID", &device],
-        ))
-        .await?;
+    let mut show = cmd("open", &["-a"]);
+    show.arg(&application);
+    if application
+        .file_name()
+        .is_some_and(|name| name == "Simulator.app")
+    {
+        show.args(["--args", "-CurrentDeviceUDID", &device]);
+    }
+    session.run(&mut show).await?;
+    Ok(device)
+}
+
+async fn ios(session: &mut Session, api: &str) -> Result<()> {
+    let device = ios_device(session).await?;
     session
         .run(&mut cmd("just", &["simple-build", "ios"]))
         .await?;
@@ -781,10 +845,30 @@ mod tests {
     }
     #[test]
     fn ios_prefers_booted_target_and_honors_explicit_ipad() {
+        let root = tempfile::tempdir().unwrap();
+        let developer = root.path().join("Custom Xcode.app/Contents/Developer");
+        let tool = developer.join("usr/bin/simctl");
+        let classic = developer.join("Applications/Simulator.app");
+        std::fs::create_dir_all(&classic).unwrap();
+        assert_eq!(
+            simulator_application(tool.to_str().unwrap()).unwrap(),
+            classic
+        );
+        std::fs::remove_dir(&classic).unwrap();
+        let hub = developer
+            .parent()
+            .unwrap()
+            .join("Applications/DeviceHub.app");
+        std::fs::create_dir_all(&hub).unwrap();
+        assert_eq!(simulator_application(tool.to_str().unwrap()).unwrap(), hub);
+        std::fs::remove_dir(&hub).unwrap();
+        assert!(simulator_application(tool.to_str().unwrap()).is_err());
         let list = serde_json::json!({"devices":{"runtime":[
             {"name":"iPad Test","udid":"pad","state":"Shutdown","isAvailable":true},
             {"name":"iPhone Test","udid":"phone","state":"Booted","isAvailable":true},
-            {"name":"iPhone Missing","udid":"gone","state":"Shutdown","isAvailable":false}
+            {"name":"iPhone Missing","udid":"gone","state":"Shutdown","isAvailable":false},
+            {"name":"Reload acceptance","udid":"renamed","state":"Shutdown","isAvailable":true,"deviceTypeIdentifier":"com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro"},
+            {"name":"iPhone misleading name","udid":"watch","state":"Shutdown","isAvailable":true,"deviceTypeIdentifier":"com.apple.CoreSimulator.SimDeviceType.Apple-Watch-Series-11"}
         ]}});
         assert_eq!(simulator(&list, None).unwrap(), ("phone".into(), true));
         assert_eq!(
@@ -792,7 +876,69 @@ mod tests {
             ("pad".into(), false)
         );
         assert!(simulator(&list, Some("gone")).is_err());
+        assert_eq!(
+            simulator(&list, Some("renamed")).unwrap(),
+            ("renamed".into(), false)
+        );
+        assert!(simulator(&list, Some("watch")).is_err());
     }
+    #[test]
+    fn mobile_reload_pins_target_and_rebuilds_the_native_launcher() {
+        for (platform, key, target) in [
+            ("android", "ANDROID_SERIAL", "emulator-5582"),
+            ("ios", "HICKORY_IOS_DEVICE", "chosen-simulator-udid"),
+        ] {
+            let command = mobile_reload_command(platform, target);
+            let command = command.as_std();
+            let args: Vec<_> = command
+                .get_args()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect();
+            assert_eq!(
+                args,
+                [
+                    "cargo",
+                    "run",
+                    "--quiet",
+                    "--locked",
+                    "-p",
+                    "hickory-cli",
+                    "--example",
+                    "simple_dev",
+                    "--",
+                    platform,
+                    "--session-child"
+                ]
+            );
+            assert!(command.get_envs().any(|(name, value)| name == key && value == Some(std::ffi::OsStr::new(target))));
+        }
+        // Once selected, another connected device cannot redirect the update.
+        assert_eq!(
+            device_serial(
+                "List of devices attached\na\tdevice\nb\tdevice\n",
+                Some("a")
+            )
+            .unwrap()
+            .as_deref(),
+            Some("a")
+        );
+        assert!(device_serial("List of devices attached\nb\tdevice\n", Some("a")).is_err());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn mobile_reload_keeps_device_host_alive_until_final_shutdown() {
+        let mut host = Session::default();
+        host.spawn(&mut cmd("sleep", &["300"])).unwrap();
+        let mut revision = Session::default();
+        revision.spawn(&mut cmd("sleep", &["300"])).unwrap();
+        revision.cleanup().await;
+        assert!(revision.children[0].try_wait().unwrap().is_some());
+        assert!(host.children[0].try_wait().unwrap().is_none());
+        host.cleanup().await;
+        assert!(host.children[0].try_wait().unwrap().is_some());
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn cancellation_reaps_owned_process_and_its_descendant() {

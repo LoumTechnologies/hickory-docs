@@ -424,6 +424,19 @@ final class ParityTests: XCTestCase {
         XCTAssertEqual(snapshot.source, source)
         XCTAssertTrue(snapshot.debug.code.isEmpty)
     }
+    func testNativeAssetLayoutRetainsAppIdentityAndMath() throws {
+        let app = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".app")
+        defer { try? FileManager.default.removeItem(at: app) }
+        let assets = app.appendingPathComponent("HickoryAssets/Resources")
+        try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
+        let info = ["CFBundleIdentifier": "com.hickorydocs.asset-fixture", "CFBundleName": "AssetFixture", "CFBundlePackageType": "APPL"] as NSDictionary
+        XCTAssertTrue(info.write(to: app.appendingPathComponent("Info.plist"), atomically: true))
+        let html = assets.appendingPathComponent("math.html")
+        try "<p>local math</p>".write(to: html, atomically: true, encoding: .utf8)
+        let bundle = try XCTUnwrap(Bundle(url: app))
+        XCTAssertEqual(bundle.bundleIdentifier, "com.hickorydocs.asset-fixture")
+        XCTAssertEqual(nativeMathResource(roots: [], bundles: [bundle])?.resolvingSymlinksInPath(), html.resolvingSymlinksInPath())
+    }
     func testMissingMathBundleDoesNotTrap() {
         // Contract: .hickory-source/frontends/contract.md
         XCTAssertNil(nativeMathResource(roots: [URL(fileURLWithPath: "/missing/" + UUID().uuidString)], bundles: []))

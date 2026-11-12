@@ -18,7 +18,10 @@ targets:
         excludes: [Resources]
       - path: Sources/Resources
         type: folder
-        buildPhase: resources
+        buildPhase:
+          copyFiles:
+            destination: resources
+            subpath: HickoryAssets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hickorydocs.simple.mac
@@ -31,7 +34,10 @@ targets:
         excludes: [Resources]
       - path: Sources/Resources
         type: folder
-        buildPhase: resources
+        buildPhase:
+          copyFiles:
+            destination: resources
+            subpath: HickoryAssets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hickorydocs.simple.mobile

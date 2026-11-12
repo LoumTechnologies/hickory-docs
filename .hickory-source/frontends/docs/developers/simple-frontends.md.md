@@ -20,9 +20,13 @@ just simple-dev android
 just simple-dev all
 ```
 
-`all` opens all four frontends together on macOS, using the same workspace. A macOS Accessibility helper tries to arrange the browser, Mac app and simulator/emulator windows in a 2×2 grid on the first display. Set `HICKORY_COMPARISON_SCREEN=1` for the second display, and so on. The terminal running `just` needs Accessibility authorization in System Settings > Privacy & Security > Accessibility. Without it, the helper reports that layout was skipped and the frontends remain open. No permissions are changed automatically. It arranges each unique matching window once; close duplicate comparison windows when selection is ambiguous. Emulator minimum sizes and aspect ratios can prevent an exact fit. Native SDKs, simulator runtime and an Android device/AVD must already be installed. If one platform exits or fails, the runner stops the other sessions. Stop and rerun the whole comparison after saving edits.
+`all` opens all four frontends together on macOS, using the same workspace. A macOS Accessibility helper tries to arrange the browser, Mac app and simulator/emulator windows in a 2×2 grid on the first display. Set `HICKORY_COMPARISON_SCREEN=1` for the second display, and so on. The terminal running `just` needs Accessibility authorization in System Settings > Privacy & Security > Accessibility. Without it, the helper reports that layout was skipped and the frontends remain open. No permissions are changed automatically. It arranges each unique matching window once; close duplicate comparison windows when selection is ambiguous. Emulator minimum sizes and aspect ratios can prevent an exact fit. Native SDKs, simulator runtime and an Android device/AVD must already be installed. If a platform supervisor exits, the runner stops the other sessions. Build/update failures stay visible and retry on the next commit; the other frontends remain available.
 
-The browser hot-reloads its React source. Native source changes require a rebuild and relaunch; there is no common automatic, state-preserving hot reload in this comparison setup.
+The browser hot-reloads saved React source. Every target also rebuilds and relaunches when this worktree’s commit changes, including commits and amends during startup. Native saves alone do not trigger a full reload. Rebuilds use current working files, including uncommitted edits. Keep `simple-dev` running; no separate watch command is needed.
+
+For iOS and Android, the runner selects the simulator/device once, retains its UDID/serial, and keeps that device alive between revisions. It stops the old app session, rebuilds the launcher/engine and native UI, updates the existing installation, and relaunches with the new backend address. Android uses `adb install -r`; iOS uses `simctl install` on the same bundle identity. App data remains in place: no uninstall, app-data clear, simulator erase or emulator wipe is performed. A failed build or installation stays visible and waits for the next commit; a disconnected selected device never redirects the update onto another device. In-memory UI state can reset when the process restarts; persist edits/settings before expecting them to survive.
+
+This repeated mobile-update behavior is an explicit project exception authorized by the maintainer to `implement-just-interface`’s default prohibition on automatically repeating phone updates. Standalone installs, phone-update commands, releases and deployments remain one-shot.
 
 Each command starts a local workspace backend and opens the chosen frontend with its address already configured. Keep the command running while comparing; Ctrl-C stops the frontend session and disconnects the backend. Browser windows and previously running simulator windows remain open, but their development server/session stops. The original frontend is untouched.
 
@@ -30,13 +34,24 @@ The default workspace is the feature showcase at `.dev/simple-ui/project`, share
 
 Android requires Android Studio’s initial project sync, an installed SDK, and a connected authorized device or an AVD created in Device Manager. The runner builds, installs and opens the debug app, and forwards its backend port over ADB. One connected device is selected automatically; set `ANDROID_SERIAL` when several are attached. With none attached, the runner boots the sole AVD, or the one named by `HICKORY_ANDROID_AVD`. It removes its forwarding and stops the test app on exit; an emulator it started is stopped too. It leaves existing emulators and the shared ADB server running.
 
-iOS launches a simulator, not a physical phone. It prefers a booted iPhone/iPad and otherwise boots an available one. Set `HICKORY_IOS_DEVICE` to a simulator name or UDID to choose an iPad or another target. If multiple simulators are already booted, selection is required. The runner builds, installs and opens the app, and terminates its session on Ctrl-C. Only a simulator started by the runner is shut down.
+iOS launches a simulated device, not a physical phone. Xcode 27 opens Device Hub; older Xcode versions open Simulator. Select the running target in Device Hub if needed; the SDK update commands always use its pinned UDID. It prefers a booted iPhone/iPad and otherwise boots an available one. Set `HICKORY_IOS_DEVICE` to a simulator name or UDID to choose an iPad or another target. If multiple simulators are already booted, selection is required. The runner builds, installs and opens the app, and terminates its session on Ctrl-C. Only a simulator started by the runner is shut down.
 
 Native launches use the backend on the host: iOS simulator loopback and Android ADB reverse. A physical iPhone requires a separately reachable backend and manual connection; this recipe does not expose the loopback server on the network. A new launch of the same mobile app may replace a previous comparison session, so save edits before relaunching.
 
-The macOS recipe builds a locally signed `Hickory Simple.app` under `target/simple-apple-launch/`, then opens it through macOS Launch Services with normal Dock/menu activation. It opens a workspace window without waiting for a backend request. The app watches the development launcher’s lifetime, so Ctrl-C still stops this test app.
+The macOS recipe builds a locally signed `Hickory Simple.app` under `target/simple-apple-launch/`, then executes its bundled binary as an owned process so commit restarts and Ctrl-C can reliably stop the native app. It opens a workspace window without waiting for a backend request. The app watches the development launcher’s lifetime, so Ctrl-C still stops this test app.
 
-The Apple build requires full Xcode. `simple-dev` honors `DEVELOPER_DIR` and otherwise finds Xcode under `/Applications` if command-line tools are selected. For standalone build/test recipes, set `DEVELOPER_DIR` to your installed Xcode's `Contents/Developer` directory when needed. `xcodegen` is needed for the iOS project. Run `just simple-build ios`, then open `target/apple-simple-xcode/HickorySimple.xcodeproj` for device or simulator work. Device signing is not configured by this comparison scaffold.
+The Apple build requires full Xcode. `simple-dev` honors `DEVELOPER_DIR` and otherwise finds Xcode under `/Applications` if command-line tools are selected. For standalone build/test recipes, set `DEVELOPER_DIR` to your installed Xcode's `Contents/Developer` directory when needed. `xcodegen` is needed for the iOS project. Run `just simple-build ios`, then open `apps/apple-simple/HickorySimple.xcodeproj` for device or simulator work. Device signing is not configured by this comparison scaffold.
+
+## Verify native commit reloads
+
+Choose an already running target explicitly, then run one of these focused tests:
+
+```sh
+HICKORY_IOS_DEVICE=<booted-simulator-UDID> just simple-reload-test ios
+ANDROID_HOME=<installed-sdk> ANDROID_SERIAL=<connected-serial> just simple-reload-test android
+```
+
+The iOS test needs `xcrun` to resolve full Xcode; set `DEVELOPER_DIR` when command-line tools are selected. These tests perform real builds, in-place updates and relaunches after a first commit and amend in a temporary Git repository. They check changed app process IDs and a private data sentinel, plus stable Android device boot identity. They never commit or switch revisions in this checkout, uninstall the app, or reset the device. They remove only their sentinel and stop their app/backend session; the explicitly selected device remains running. These device tests are manual acceptance gates, excluded from unattended CI because they require SDKs and selected running targets. Focused command-construction, target-pinning and process-lifetime witnesses run through the Rust example’s tests.
 
 ## Tune editor behavior
 

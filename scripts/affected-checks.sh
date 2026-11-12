@@ -70,7 +70,7 @@ fi
 # `scripts/dev*.sh` mapped to rust+web — checks that build the things the dev
 # environment starts without ever executing the scripts that start them, so a
 # broken seed or a stale-fixture bug had nothing standing in its way.
-if matches "docker-compose.yml" || matches "scripts/dev*.sh" || matches "scripts/check-dev-seed.sh" || matches "justfile"; then
+if matches "scripts/test-simple-mobile-reload.py" || matches "scripts/dev-supervisor.rs" || matches "scripts/tests/test_dev_supervisor.py" || matches "docker-compose.yml" || matches "scripts/dev*.sh" || matches "scripts/check-dev-seed.sh" || matches "justfile"; then
   checks+=(rust web dev)
 fi
 

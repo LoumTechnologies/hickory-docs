@@ -281,4 +281,9 @@ is included with that control; opening a document is not generation authority.
 [Observe optional local checks](optional-checks.md) keeps provider facts separate from Git triggers.
 <storycode:include file="optional-checks.md" />
 
+
+## Commit-triggered development restarts
+
+<storycode:include file="dev-commit-restarts.md" />
+
 </storycode:doc>

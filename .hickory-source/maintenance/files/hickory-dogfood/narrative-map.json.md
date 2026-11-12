@@ -150815,6 +150815,55 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/smart-enter.md",
       "symbol": "simple-enter-fixtures",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "signals-and-revisions",
+      "output": "scripts/dev-supervisor.rs",
+      "page": ".hickory-source/mechanisms/dev-commit-restarts.md",
+      "symbol": "signals-and-revisions",
+      "basis": "authored explanation beside maintained implementation and focused process witnesses"
+    },
+    {
+      "id": "owned-process-tree",
+      "output": "scripts/dev-supervisor.rs",
+      "page": ".hickory-source/mechanisms/dev-commit-restarts.md",
+      "symbol": "owned-process-tree",
+      "basis": "authored explanation beside maintained implementation and focused process witnesses"
+    },
+    {
+      "id": "restart-loop",
+      "output": "scripts/dev-supervisor.rs",
+      "page": ".hickory-source/mechanisms/dev-commit-restarts.md",
+      "symbol": "restart-loop",
+      "basis": "authored explanation beside maintained implementation and focused process witnesses"
+    },
+    {
+      "id": "frontend-preparation",
+      "output": "scripts/dev-supervisor.rs",
+      "page": ".hickory-source/mechanisms/dev-commit-restarts.md",
+      "symbol": "frontend-preparation",
+      "basis": "authored explanation beside maintained implementation and focused process witnesses"
+    },
+    {
+      "id": "restart-witnesses",
+      "output": "scripts/tests/test_dev_supervisor.py",
+      "page": ".hickory-source/mechanisms/dev-commit-restarts.md",
+      "symbol": "restart-witnesses",
+      "basis": "authored explanation beside maintained implementation and focused process witnesses"
+    },
+    {
+      "id": "simple-mobile-reload",
+      "output": "crates/hickory-cli/examples/simple_dev/reload.rs",
+      "page": ".hickory-source/frontends/crates/hickory-cli/examples/simple_dev.rs.md",
+      "symbol": "simple-mobile-reload",
+      "basis": "authored device-lifetime explanation and focused real-process/device witnesses"
+    },
+    {
+      "id": "simple-mobile-reload-smoke",
+      "output": "scripts/test-simple-mobile-reload.py",
+      "page": ".hickory-source/frontends/scripts/test-simple-mobile-reload.py.md",
+      "symbol": "simple-mobile-reload-smoke",
+      "basis": "authored device-lifetime explanation and focused real-process/device witnesses"
     }
   ],
   "explanation_gaps": {

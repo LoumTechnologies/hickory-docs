@@ -5,6 +5,8 @@ For: maintainers changing this mechanism and reviewing the contracts that depend
 
 This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
 
+The development gate also runs the commit supervisor’s disposable Git/process witnesses. A passing build alone cannot prove that a restart frees the previous server’s ports or that saving a file avoids a full restart. CI and the local checks runner already call this same gate.
+
 <a id="output-51ce8d7bc875"></a>
 ## `scripts/check-dev-seed.sh`
 
@@ -31,6 +33,9 @@ This literal construction preserves embedded document syntax and exact file byte
 # Usage: scripts/check-dev-seed.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+python3 -m py_compile scripts/test-simple-mobile-reload.py
+python3 -m unittest discover -s scripts/tests -p test_dev_supervisor.py -v
 
 for script in scripts/dev.sh scripts/dev-seed.sh scripts/check-dev-seed.sh; do
   bash -n "$script"

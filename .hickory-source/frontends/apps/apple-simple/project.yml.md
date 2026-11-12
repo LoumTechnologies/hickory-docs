@@ -5,6 +5,8 @@ For maintainers iterating on the equivalent Apple, Android and browser editor fr
 
 Generate the Xcode project into an ignored build directory, using paths relative to this specification. Simulator builds need no signing identity. A server address is entered by the user, never compiled into the application.
 
+The build generates its ignored Xcode project beside this spec and the Sources directory. The installed XcodeGen emits folder references relative to the spec root even when a project is relocated; keeping the project beside its sources makes both Swift and Resources resolve consistently. Derived build products still go under target/, and no user configuration is needed. Copy the source Resources folder beneath HickoryAssets: a top-level Resources folder makes Foundation misclassify the flat iOS app bundle and lose its bundle identifier during installation.
+
 <ui:copy id="simple-9203f6a7de-0">
 name: HickorySimple
 options:
@@ -26,7 +28,10 @@ targets:
         excludes: [Resources]
       - path: Sources/Resources
         type: folder
-        buildPhase: resources
+        buildPhase:
+          copyFiles:
+            destination: resources
+            subpath: HickoryAssets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hickorydocs.simple.mac
@@ -39,7 +44,10 @@ targets:
         excludes: [Resources]
       - path: Sources/Resources
         type: folder
-        buildPhase: resources
+        buildPhase:
+          copyFiles:
+            destination: resources
+            subpath: HickoryAssets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hickorydocs.simple.mobile

@@ -1,4 +1,6 @@
 /target
+# Generated beside the Apple sources so XcodeGen folder references resolve.
+/apps/apple-simple/HickorySimple.xcodeproj/
 node_modules/
 dist/
 dist-site/

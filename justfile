@@ -95,6 +95,7 @@ fmt:
 # the LSP tests spawn the `hick-lsp` binary, which `cargo test` alone does not
 # produce, and without it they fail claiming no language server is installed.
 ci:
+    python3 -m unittest discover -s scripts/tests -p test_dev_supervisor.py -v
     python3 scripts/generate-api.py --check
     just test-review-complexity
     if [ "$(uname -s)" = Darwin ] && [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 26 ]; then just build-fskit; fi
@@ -110,9 +111,9 @@ ci:
     just test-browser-embedding
     just test-python-agent
 
-# Hot reload for the homepage, separate from the desktop app's entry.
-dev-site:
-    cd apps/web && npm run dev:site
+# Homepage hot reload and commit restarts, separate from the desktop app.
+dev-site: _dev-supervisor
+    target/dev-supervisor target/dev-supervisor --web-once dev:site
 
 # Check only the bulk-index/static-export behavior before publishing it.
 test-static-source:
@@ -161,22 +162,22 @@ site:
 
 # Hot-reloads the UI; the engine runs in the app's own process; closing the
 # window stops everything.
-# The desktop app, in dev mode, on a seeded scratch project.
-dev:
-    ./scripts/dev.sh
+# Desktop development on a seeded scratch project; commits restart the session.
+dev: _dev-supervisor
+    target/dev-supervisor --desktop ./scripts/dev.sh
 
 # Drive the Files editor against the live app started by `just dev`.
 test-e2e:
     HICKORY_E2E_URL="http://127.0.0.1:$((41000 + $(pwd | cksum | cut -d' ' -f1) % 8000))" npm --prefix apps/web run test:e2e
 
 # Stop anything a killed `just dev` left behind.
-dev-stop:
-    ./scripts/dev.sh stop
+dev-stop: _dev-supervisor
+    target/dev-supervisor --desktop-stop stop
 
 # Never another worktree's, and never a cache anyone would re-download.
 # Stop, then delete THIS worktree's dev scratch (.dev/).
-dev-clean:
-    ./scripts/dev.sh clean
+dev-clean: _dev-supervisor
+    target/dev-supervisor --desktop-stop clean
 
 # There are no accounts to seed — there is no server to sign in to.
 # Idempotent seed data: a two-stage chain of real documents for the app to open.
@@ -418,13 +419,13 @@ test-acp-live:
 check-web:
     cd apps/web && npm run typecheck
 
-# Headless-friendly workspace preview; prints its URL without opening a browser.
-dev-spatial-mock:
-    cd apps/web && npm run dev:mock
+# Headless workspace preview; prints its URL and restarts on commits.
+dev-spatial-mock: _dev-supervisor
+    target/dev-supervisor target/dev-supervisor --web-once dev:mock
 
-# Serve the real editor against an already-running scratch engine, without opening a browser.
-dev-web api_origin:
-    cd apps/web && HICKORY_API_ORIGIN={{quote(api_origin)}} npm run dev
+# Editor preview against the supplied engine; commits restart only this frontend.
+dev-web api_origin: _dev-supervisor
+    target/dev-supervisor target/dev-supervisor --web-once dev {{quote(api_origin)}}
 
 test-spatial-browser url:
     cd apps/web && HICKORY_E2E_CHANNEL=chromium HICKORY_SPATIAL_URL={{quote(url)}} npx playwright test e2e/spatialWorkspace.spec.ts
@@ -936,7 +937,7 @@ simple-build platform="browser":
     case {{quote(platform)}} in
       browser) cd apps/web; npx vite build --config vite.simple.config.ts ;;
       apple) swift build --package-path apps/apple-simple --scratch-path target/apple-simple-spm ;;
-      ios) mkdir -p target/apple-simple-xcode; xcodegen generate --spec apps/apple-simple/project.yml --project target/apple-simple-xcode; xcodebuild -project target/apple-simple-xcode/HickorySimple.xcodeproj -scheme HickorySimpleMobile -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath target/apple-simple-derived CODE_SIGNING_ALLOWED=NO build ;;
+      ios) xcodegen generate --spec apps/apple-simple/project.yml; xcodebuild -project apps/apple-simple/HickorySimple.xcodeproj -scheme HickorySimpleMobile -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath target/apple-simple-derived CODE_SIGNING_ALLOWED=NO build ;;
       android) mkdir -p target; rustc --edition=2021 scripts/simple-android-gradle.rs -o target/simple-android-gradle; target/simple-android-gradle :app:assembleDebug ;;
       *) echo 'Choose browser, apple, ios or android.' >&2; exit 2 ;;
     esac
@@ -953,6 +954,15 @@ simple-test platform="browser":
       *) echo 'Choose browser, apple or android.' >&2; exit 2 ;;
     esac
 
-# Launch browser, apple, ios, android, or all together; Ctrl-C stops the session.
-simple-dev platform="browser":
-    cargo run --quiet --locked -p hickory-cli --example simple_dev -- {{quote(platform)}}
+# Comparison frontends; commits rebuild/relaunch every target, including mobile.
+simple-dev platform="browser": _dev-supervisor
+    {{ if platform == "browser" { "target/dev-supervisor " } else if platform == "apple" { "target/dev-supervisor " } else { "" } }}cargo run --quiet --locked -p hickory-cli --example simple_dev -- {{quote(platform)}}
+
+# Real native update/relaunch and app-data preservation on an explicitly selected device.
+simple-reload-test platform:
+    python3 scripts/test-simple-mobile-reload.py {{quote(platform)}}
+
+# Compile the dependency-free Rust lifecycle tool; no Cargo workspace build needed.
+_dev-supervisor:
+    @mkdir -p target
+    @if [ ! -x target/dev-supervisor ] || [ scripts/dev-supervisor.rs -nt target/dev-supervisor ]; then rustc --edition 2024 scripts/dev-supervisor.rs -o target/dev-supervisor; fi

@@ -24,7 +24,7 @@ import WebKit
 func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main]) -> URL? {
     let candidates = bundles + roots.compactMap { Bundle(url: $0.appendingPathComponent("HickorySimple_HickorySimple.bundle")) }
     return candidates.lazy.compactMap { bundle in
-        bundle.url(forResource: "math", withExtension: "html", subdirectory: "Resources") ?? bundle.url(forResource: "math", withExtension: "html")
+        bundle.url(forResource: "math", withExtension: "html", subdirectory: "HickoryAssets/Resources") ?? bundle.url(forResource: "math", withExtension: "html", subdirectory: "Resources") ?? bundle.url(forResource: "math", withExtension: "html")
     }.first
 }
 @MainActor func makeMathView(_ coordinator: MathCoordinator) -> WKWebView {

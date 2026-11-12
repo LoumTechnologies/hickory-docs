@@ -39,7 +39,7 @@ final class SimpleEnterRules {
         let roots = [Bundle.main.resourceURL, Bundle.main.bundleURL, Bundle(for: EnterResourceMarker.self).bundleURL.deletingLastPathComponent(), URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()].compactMap { $0 }
         let bundles = [Bundle.main] + roots.compactMap { Bundle(url: $0.appendingPathComponent("HickorySimple_HickorySimple.bundle")) }
         for bundle in bundles {
-            if let url = bundle.url(forResource: "enter-rules", withExtension: "json", subdirectory: "Resources") ?? bundle.url(forResource: "enter-rules", withExtension: "json"),
+            if let url = bundle.url(forResource: "enter-rules", withExtension: "json", subdirectory: "HickoryAssets/Resources") ?? bundle.url(forResource: "enter-rules", withExtension: "json", subdirectory: "Resources") ?? bundle.url(forResource: "enter-rules", withExtension: "json"),
                let data = try? Data(contentsOf: url), let rules = try? SimpleEnterRules(data: data) { return rules }
         }
         return nil
