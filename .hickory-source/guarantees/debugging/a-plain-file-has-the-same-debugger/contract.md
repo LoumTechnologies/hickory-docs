@@ -46,9 +46,35 @@ Related contracts: [A Plain File Has The Same Debugger A Document Has](contract.
 <a id="f-450dfe6078f4-capabilities_are_read_from_the_adapters_own_answer"></a>
 ### `capabilities_are_read_from_the_adapters_own_answer`
 
+The output witness below checks both a reported source location and missing
+metadata. A one-based adapter line becomes a zero-based editor line; absent
+metadata must not invent line zero. The neighboring capability witness keeps
+optional debugger controls tied to the adapter's own answer.
+
 <storycode:copy id="f-450dfe6078f4-capabilities_are_read_from_the_adapters_own_answer">
 use super::*;
 
+// Output locations are optional adapter facts. A missing line must not be
+// turned into line zero or borrowed from the debugger's last paused frame.
+#[test]
+fn output_retains_reported_location_without_inventing_one() {
+    let root = tempfile::tempdir().unwrap();
+    let file = root.path().join("main.py");
+    std::fs::write(&file, "print(1)\n").unwrap();
+    let mapping = Mapping::identity(&file);
+    let located = Session::output_event(
+        &mapping,
+        json!({"category":"stdout", "output":"1\n", "source":{"path":file}, "line":3}),
+    );
+    assert_eq!(located["line"], 2);
+    assert_eq!(located["source"], file.to_string_lossy().as_ref());
+    assert_eq!(located["text"], "1\n");
+    let unlocated =
+        Session::output_event(&mapping, json!({"category":"stderr", "output":"oops\n"}));
+    assert!(unlocated["line"].is_null());
+    assert!(unlocated["source"].is_null());
+    assert_eq!(unlocated["category"], "stderr");
+}
 #[test]
 fn capabilities_are_read_from_the_adapters_own_answer() {
     // Every control is gated on one of these, so reading them wrongly
@@ -186,6 +212,8 @@ fn a_plain_file_maps_every_line_to_itself() {
     let lib = dir.path().join("lib.rs");
     std::fs::write(&main, "fn main() {}\n").unwrap();
     std::fs::write(&lib, "pub fn f() {}\n").unwrap();
+    // macOS temporary directories may be spelled through /var symlinks.
+    let main = main.canonicalize().unwrap();
     let mapping = Mapping::identity(&main);
     assert!(mapping.is_identity());
     assert_eq!(mapping.to_generated(7), Some((main.clone(), 7)));

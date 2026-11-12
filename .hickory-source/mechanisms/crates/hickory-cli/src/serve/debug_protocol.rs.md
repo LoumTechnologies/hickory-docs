@@ -169,6 +169,11 @@ fn repl() -> String {
 #[derive(Debug, Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
+    /// Read-only run output; locations are optional adapter facts, never guesses.
+    RunOutput {
+        session: String,
+        events: Vec<Value>,
+    },
     Reading {
         session: String,
         reading: hick_observe::reading::Reading,

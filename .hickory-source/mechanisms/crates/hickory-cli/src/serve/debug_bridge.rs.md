@@ -92,6 +92,12 @@ Handle one request and produce the responses to send back.
 Returns several because one action often has two answers: a step both
 moves and lands somewhere, and the app wants the landing.
 
+A short program can finish during its Start request. Retain its live session
+through the response batch even when completion removes it from the registry.
+Drain output before sending Finished, while clients can still recognize the
+session. The native `run_output` batch has its own wire name so browser-worker
+output events retain their separate streaming interface.
+
 <storycode:copy id="f-b6fc115ecefd-handle">
 /// Handle one request and produce the responses to send back.
 ///
@@ -102,6 +108,7 @@ pub async fn handle(
     root: &std::path::Path,
     request: Request,
 ) -> Vec<Response> {
+    let output_id = request.session_id().map(str::to_owned);
     let about = about_of(&request);
     let lines = lines_of(&request);
     let doc = match &request {
@@ -125,7 +132,8 @@ pub async fn handle(
         Some(live) => Some(live.operation.lock().await),
         None => None,
     };
-    let result = handle_inner(registry, root, request, &mut built).await;
+    let mut started_live = None;
+    let result = handle_inner(registry, root, request, &mut built, &mut started_live).await;
     let mut out = Vec::new();
     if !built.is_empty() {
         out.push(Response::Build {
@@ -154,6 +162,46 @@ pub async fn handle(
                 lines,
                 offer_install,
             })
+        }
+    }
+    // The operation retains its Live even when Finished reaps the registry.
+    // Send output before Finished, so clients still recognize its session.
+    let started = out.iter().find_map(|response| match response {
+        Response::Started { session, .. } => Some(session.clone()),
+        _ => None,
+    });
+    // A program can finish during Start itself; retain that Live across reaping.
+    let output_live = operation_live.as_ref().cloned().or(started_live);
+    if let Some(live) = output_live {
+        let events = live
+            .session
+            .take_output()
+            .into_iter()
+            .map(|mut event| {
+                if let Some(path) = event.get("source").and_then(Value::as_str) {
+                    if let Ok(relative) = std::path::Path::new(path).strip_prefix(root) {
+                        event["source"] = json!(relative.to_string_lossy());
+                    }
+                }
+                event
+            })
+            .collect::<Vec<_>>();
+        if !events.is_empty() {
+            let session = started.or(output_id).or_else(|| {
+                out.iter().find_map(|response| match response {
+                    Response::Stopped { session, .. }
+                    | Response::Finished { session, .. }
+                    | Response::Ended { session } => Some(session.clone()),
+                    _ => None,
+                })
+            });
+            if let Some(session) = session {
+                let at = out
+                    .iter()
+                    .position(|r| matches!(r, Response::Finished { .. } | Response::Ended { .. }))
+                    .unwrap_or(out.len());
+                out.insert(at, Response::RunOutput { session, events });
+            }
         }
     }
     out
@@ -247,6 +295,7 @@ async fn handle_inner(
     root: &std::path::Path,
     request: Request,
     built: &mut Vec<Value>,
+    started_live: &mut Option<Arc<crate::debug_sessions::Live>>,
 ) -> Result<Vec<Response>, Failure> {
     match request {
         Request::Located {
@@ -335,6 +384,7 @@ async fn handle_inner(
                     .await
             };
             let (session, live, statuses) = started.map_err(|e| (None, e))?;
+            *started_live = Some(live.clone());
             let mut out = vec![Response::Started {
                 session: session.clone(),
                 doc,

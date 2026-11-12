@@ -277,6 +277,9 @@ impl Step {
 
 /// One cell, being debugged.
 pub struct Session {
+    // Retain ordinary adapter output before configurationDone can start the
+    // program. A late UI subscriber must not lose the first print statement.
+    output: Arc<std::sync::Mutex<Vec<Value>>>,
     pub observation_source: Option<hick_observe::Source>,
     /// The breakpoint statuses as they stand, promoted in place by the
     /// `breakpoint` event. A plain `std` mutex because the event pump is not
@@ -503,10 +506,40 @@ impl Session {
         let (tx, stops) = mpsc::unbounded_channel();
         let exit: Arc<std::sync::Mutex<Option<Exit>>> = Arc::new(std::sync::Mutex::new(None));
         let ended = exit.clone();
+        let output = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let captured_output = output.clone();
         let mut watch = adapter.events();
         tokio::spawn(async move {
             while let Ok(event) = watch.recv().await {
                 match event.event.as_str() {
+                    "output" => {
+                        if matches!(
+                            event.body.get("category").and_then(Value::as_str),
+                            Some("stdout" | "stderr")
+                        ) {
+                            let mut held = captured_output.lock().unwrap();
+                            // Bound adapter-controlled memory. Keep the latest chunks.
+                            if held.len() == 256 {
+                                held.remove(0);
+                            }
+                            let mut body = event.body.clone();
+                            if let Some(text) = body.get("output").and_then(Value::as_str) {
+                                let end = text
+                                    .char_indices()
+                                    .map(|(at, _)| at)
+                                    .take_while(|at| *at <= 16384)
+                                    .last()
+                                    .unwrap_or(0);
+                                if text.len() > 16384 {
+                                    body["output"] = json!(format!(
+                                        "{}\n[output chunk truncated]\n",
+                                        &text[..end]
+                                    ));
+                                }
+                            }
+                            held.push(body);
+                        }
+                    }
                     "stopped" => {
                         if tx.send(Some(stopped_from(&event.body))).is_err() {
                             return;
@@ -572,6 +605,7 @@ impl Session {
         let is_supervisor = launch.multi_session && parent.is_none();
         let observation_source = mapping.observation_source();
         let session = Self {
+            output,
             observation_source,
             parent,
             adapter,
@@ -641,6 +675,32 @@ impl Session {
     /// was a clean exit, a failure code, or an adapter that simply went away.
     pub fn exit(&self) -> Option<Exit> {
         *self.exit.lock().unwrap()
+    }
+
+    /// Drain stdout/stderr with adapter-supplied locations mapped through the
+    /// same source provenance as stack frames. Missing locations stay absent.
+    pub fn take_output(&self) -> Vec<Value> {
+        std::mem::take(&mut *self.output.lock().unwrap())
+            .into_iter()
+            .map(|body| Self::output_event(&self.mapping, body))
+            .collect()
+    }
+    fn output_event(mapping: &Mapping, body: Value) -> Value {
+        let path = body
+            .pointer("/source/path")
+            .and_then(Value::as_str)
+            .map(PathBuf::from);
+        let line = body
+            .get("line")
+            .and_then(Value::as_u64)
+            .and_then(|n| u32::try_from(n).ok())
+            .and_then(|n| n.checked_sub(1));
+        let mapped = path
+            .as_ref()
+            .zip(line)
+            .and_then(|(p, l)| mapping.source_location(p, l));
+        json!({ "category": body.get("category"), "text": body.get("output"),
+                "source": mapped.as_ref().map(|(p, _)| p.to_string_lossy().into_owned()), "line": mapped.map(|(_, l)| l) })
     }
 
     pub fn events(&self) -> broadcast::Receiver<Event> {
