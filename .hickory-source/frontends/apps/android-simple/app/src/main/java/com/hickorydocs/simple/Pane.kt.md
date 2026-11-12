@@ -816,8 +816,13 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                     }
                     if (source == toString()) semantic.forEach { token -> addStyle(SpanStyle(color = color), token.from, token.to) }
                     if (inline.source == toString()) inline.marks.forEach { mark ->
+                        if (mark.kind.startsWith("syntax-") && semantic.any { it.from < mark.to && it.to > mark.from }) return@forEach
                         val style = when (mark.kind) {
                             "heading" -> SpanStyle(fontSize = maxOf(14, 25 - mark.level * 2).sp, fontWeight = FontWeight.SemiBold)
+                            "syntax-keyword" -> SpanStyle(color = androidx.compose.ui.graphics.Color(0xff9955cc))
+                            "syntax-string" -> SpanStyle(color = androidx.compose.ui.graphics.Color(0xff338855))
+                            "syntax-number" -> SpanStyle(color = androidx.compose.ui.graphics.Color(0xffbb7722))
+                            "syntax-comment" -> SpanStyle(color = androidx.compose.ui.graphics.Color(0xff888888))
                             "strong" -> SpanStyle(fontWeight = FontWeight.Bold)
                             "diff-add" -> SpanStyle(background = androidx.compose.ui.graphics.Color(0x2233aa55))
                             "diff-remove" -> SpanStyle(background = androidx.compose.ui.graphics.Color(0x22dd3344))

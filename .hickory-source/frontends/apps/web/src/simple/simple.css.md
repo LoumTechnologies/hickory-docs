@@ -156,6 +156,12 @@ footer { border-top: 1px solid GrayText; padding: 3px 9px; font-size: 11px; over
 .editor-cm-host .cm-panels-top { position: absolute; top: 0; right: 0; z-index: 20; max-width: 100%; border: 1px solid GrayText; box-shadow: 0 4px 12px #0003; }
 .editor-cm-host .cm-search { max-width: 360px; padding: 6px; background: Canvas; color: CanvasText; }
 .editor-cm-host .cm-search input { max-width: 100%; }
+/* Local grammar tokens remain visible before an LSP connects. */
+.tok-keyword, .tok-typeName, .tok-className { color: light-dark(#7942a8, #cb9ef5); }
+.tok-string, .tok-regexp { color: light-dark(#287447, #8bcf9b); }
+.tok-number, .tok-bool, .tok-null { color: light-dark(#986020, #e5b56c); }
+.tok-comment { color: GrayText; font-style: italic; }
+.tok-function, .tok-propertyName { color: light-dark(#2863a8, #91bdfa); }
 </ui:copy>
 
 Semantic classes need their own compact palette because this frontend does not load the primary workspace stylesheet. Use system light/dark colors so a server token becomes visibly colored without delaying text opening.

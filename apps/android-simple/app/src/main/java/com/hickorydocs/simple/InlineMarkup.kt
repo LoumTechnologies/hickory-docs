@@ -146,6 +146,48 @@ fun inlineDebugPath(source: String, path: String, line: Int, launch: Boolean = f
     return if (launch) context.launch[line] else context.code[line]
 }
 fun inlineLineAt(offset: Int, starts: List<Int>): Int { val found = starts.binarySearch(offset); return if (found >= 0) found else maxOf(0, -found - 2) }
+fun inlineSyntaxMarks(source: String, path: String): List<InlineMark> {
+    val markdown = path.substringAfterLast('.').lowercase() in listOf("md", "markdown")
+    val known = setOf("python", "py", "javascript", "js", "typescript", "ts", "jsx", "tsx", "rust", "rs", "go", "c", "cpp", "java", "cs", "kotlin", "kt", "swift", "ruby", "rb", "sh", "bash", "json", "yaml", "yml", "toml", "sql", "css", "html", "xml", "php")
+    val keywords = "and as assert async await break case catch class const continue def default del do elif else enum except export extends false False finally fn for from fun func function global if impl import in interface is lambda let match module mut new nil None not null or package pass private public raise return self static struct super switch this throw trait true True try type typeof use val var void when while with yield".split(' ').toSet()
+    val open = Regex("""^\s*<[\w.-]+:(file|copy|cut|exec|entry|patch|diagram|math|table)\b[^>]*>""")
+    val hint = Regex("""\b(language|path)\s*=\s*["']([^"']+)["']""")
+    val result = mutableListOf<InlineMark>()
+    var fence = ""; var payload = ""; var language = if (markdown) "" else path.substringAfterLast('.').lowercase(); var offset = 0
+    for (row in source.split('\n')) {
+        val start = offset; offset += row.length + 1; val trimmed = row.trim()
+        if (markdown) {
+            if (fence.isNotEmpty()) {
+                if (trimmed.length >= fence.length && trimmed.all { it == fence[0] }) { fence = ""; language = ""; continue }
+            } else if (payload.isNotEmpty()) {
+                if (trimmed.contains("</") && trimmed.contains(":" + payload + ">")) { payload = ""; language = ""; continue }
+            } else {
+                val marker = Regex("""^ {0,3}(`{3,}|~{3,})""").find(row)
+                if (marker != null) { fence = marker.value.trim(); language = row.substring(marker.range.last + 1).trim().substringBefore(' ').lowercase(); continue }
+                val match = open.find(row)
+                if (match != null) {
+                    payload = match.groupValues[1]; language = if (payload == "exec") "sh" else ""
+                    for (item in hint.findAll(match.value)) {
+                        val value = item.groupValues[2].lowercase()
+                        if (item.groupValues[1] == "language") { language = value; break }
+                        language = value.substringAfterLast('.', "")
+                    }
+                    if (trimmed.endsWith("/>") || trimmed.contains("</")) { payload = ""; language = "" }
+                }
+                continue
+            }
+        }
+        if (language !in known) continue
+        val hashComments = language in listOf("python", "py", "sh", "bash", "ruby", "rb", "yaml", "yml", "toml")
+        val lexer = Regex((if (hashComments) """#[^\n]*|""" else """//[^\n]*|""") + "\"(?:\\\\.|[^\"\\\\])*\"|'(?:\\\\.|[^'\\\\])*'|`(?:\\\\.|[^`\\\\])*`|\\b[0-9]+(?:\\.[0-9]+)?\\b|\\b[A-Za-z_][A-Za-z_0-9]*\\b")
+        for (match in lexer.findAll(row)) {
+            val token = match.value
+            val kind = when { token.startsWith('#') || token.startsWith("//") -> "comment"; token.startsWith('"') || token.startsWith('\'') || token.startsWith('`') -> "string"; token.first().isDigit() -> "number"; token in keywords -> "keyword"; else -> continue }
+            result.add(InlineMark("syntax-" + kind, start + match.range.first, start + match.range.last + 1))
+        }
+    }
+    return result
+}
 fun inlineDiagrams(source: String): List<InlineDiagram> {
     val open = Regex("""^ {0,3}<[\w.-]+:(file|copy|cut|exec|entry|patch|diagram|math|table)\b[^>]*>""")
     val renderer = Regex("""\brenderer\s*=\s*["']([^"']+)["']""")
@@ -232,5 +274,5 @@ fun computeInlineMarkup(source: String, path: String): InlineSnapshot {
         val isSeparator = separator.matches(row); val nextSeparator = rows.getOrNull(line + 1)?.let { separator.matches(it) } == true
         if (nextSeparator || table && row.contains('|')) { table = true; if (!isSeparator) cells.addAll(inlineCells(row, line, start)) } else if (!isSeparator) table = false
     }
-    return InlineSnapshot(source, starts, marks, cells, equations, debug, inlineDiagrams(source))
+    return InlineSnapshot(source, starts, marks + inlineSyntaxMarks(source, path), cells, equations, debug, inlineDiagrams(source))
 }

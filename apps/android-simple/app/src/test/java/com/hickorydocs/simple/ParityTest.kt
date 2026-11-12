@@ -6,6 +6,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @org.junit.Test fun fencedCodeHasLocalSyntaxWithoutInventedFileContext() {
+        // Contract: .hickory-source/frontends/contract.md
+        val source = "def is prose here\n```python\ndef coupon():\n    return \"café 😀\" # note\n```\n```unknown\ndef literal(): pass\n```"
+        val snapshot = computeInlineMarkup(source, "workbook.md")
+        val syntax = snapshot.marks.filter { it.kind.startsWith("syntax-") }
+        assertEquals(listOf("def", "return"), syntax.filter { it.kind == "syntax-keyword" }.map { source.substring(it.from, it.to) })
+        assertTrue(syntax.any { it.kind == "syntax-string" && source.substring(it.from, it.to) == "\"café 😀\"" })
+        assertTrue(syntax.any { it.kind == "syntax-comment" })
+        assertTrue(snapshot.debug.code.isEmpty())
+        assertTrue(snapshot.debug.launch.isEmpty())
+    }
+
     @org.junit.Test fun diagramDiscoveryKeepsLiteralExamplesAndUnicodeSafe() {
         // Contract: .hickory-source/frontends/contract.md
         val source = "😀\n```xml\n<h:diagram>ignored</h:diagram>\n```\n<h:file path=\"x.xml\">\n<h:diagram>also ignored</h:diagram>\n</h:file>\n<h:diagram renderer=\"graph\">{\"topology\":{\"nodes\":[]}}</h:diagram>\n<h:diagram>graph TD; A-->B</h:diagram>"

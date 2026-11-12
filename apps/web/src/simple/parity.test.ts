@@ -35,6 +35,20 @@ import { Buffer, Buffers } from "./buffers";
 import { api } from "../api/client";
 vi.mock("../api/client", () => ({ api: { files: vi.fn(), doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), fileOp: vi.fn(), openFile: vi.fn(), createDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agent: vi.fn() } }));
 describe("shared frontend layout contract", () => {
+  it("highlights ordinary fenced Python in the retained Simple source editor", async () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const source = "Prose\n```python\ndef coupon():\n    return \"café 😀\"\n```";
+    const buffers = new Buffers(() => {}), buffer = new Buffer({ path: "fenced.md", name: "fenced.md", dir: false }, source, "hash", () => {});
+    buffers.values.set(buffer.file.path, buffer);
+    const screen = render(createElement(Fragment, null, createElement(Document, { buffer }), createElement(RichOwners, { buffers })));
+    try {
+      await waitFor(() => expect(screen.container.querySelector(".cm-content .tok-keyword")?.textContent).toBe("def"), { timeout: 10000 });
+      expect(screen.container.querySelector(".cm-content .tok-string")?.textContent).toContain("café");
+      expect(buffer.text).toBe(source);
+      expect(buffer.dirty).toBe(false);
+      expect(screen.queryByRole("button", { name: /Debug .*coupon/ })).toBeNull();
+    } finally { screen.unmount(); }
+  }, 20000);
   it("includes graph canvas styles in rendered Simple shadow roots", async () => {
     // Contract: .hickory-source/frontends/contract.md
     const buffers = new Buffers(() => {});

@@ -179,6 +179,57 @@ func inlineLineAt(_ offset: Int, starts: [Int]) -> Int {
     while low < high { let middle = (low + high) / 2; if starts[middle] <= offset { low = middle + 1 } else { high = middle } }
     return max(0, low - 1)
 }
+// Local lexical colors need only the language hint, never an invented file URI.
+func inlineSyntaxMarks(_ source: String, path: String) -> [InlineMark] {
+    let markdown = ["md", "markdown"].contains((path as NSString).pathExtension.lowercased())
+    let known = Set(["python", "py", "javascript", "js", "typescript", "ts", "jsx", "tsx", "rust", "rs", "go", "c", "cpp", "java", "cs", "kotlin", "kt", "swift", "ruby", "rb", "sh", "bash", "json", "yaml", "yml", "toml", "sql", "css", "html", "xml", "php"])
+    let keywords = Set("and as assert async await break case catch class const continue def default del do elif else enum except export extends false False finally fn for from fun func function global if impl import in interface is lambda let match module mut new nil None not null or package pass private public raise return self static struct super switch this throw trait true True try type typeof use val var void when while with yield".split(separator: " ").map(String.init))
+    let open = try! NSRegularExpression(pattern: #"^\s*<[\w.-]+:(file|copy|cut|exec|entry|patch|diagram|math|table)\b[^>]*>"#)
+    let hint = try! NSRegularExpression(pattern: #"\b(language|path)\s*=\s*["']([^"']+)["']"#)
+    var result: [InlineMark] = [], fence = "", payload = "", language = markdown ? "" : (path as NSString).pathExtension.lowercased(), offset = 0
+    for row in source.components(separatedBy: "\n") {
+        let text = row as NSString, trimmed = row.trimmingCharacters(in: .whitespacesAndNewlines)
+        defer { offset += text.length + 1 }
+        if markdown {
+            if !fence.isEmpty {
+                if trimmed.count >= fence.count, trimmed.allSatisfy({ $0 == fence.first! }) { fence = ""; language = ""; continue }
+            } else if !payload.isEmpty {
+                if trimmed.contains("</"), trimmed.contains(":" + payload + ">") { payload = ""; language = ""; continue }
+            } else {
+                if let marker = row.range(of: #"^ {0,3}(`{3,}|~{3,})"#, options: .regularExpression) {
+                    fence = String(row[marker]).trimmingCharacters(in: .whitespaces)
+                    language = String(row[marker.upperBound...]).split(whereSeparator: { $0.isWhitespace }).first.map(String.init)?.lowercased() ?? ""; continue
+                }
+                if let match = open.firstMatch(in: row, range: NSRange(location: 0, length: text.length)) {
+                    payload = text.substring(with: match.range(at: 1)); language = payload == "exec" ? "sh" : ""
+                    let hints = hint.matches(in: row, range: match.range)
+                    for item in hints {
+                        let value = text.substring(with: item.range(at: 2)).lowercased()
+                        if text.substring(with: item.range(at: 1)) == "language" { language = value; break }
+                        language = (value as NSString).pathExtension
+                    }
+                    if trimmed.hasSuffix("/>") || trimmed.contains("</") { payload = ""; language = "" }
+                    continue
+                }
+                continue
+            }
+        }
+        guard known.contains(language) else { continue }
+        let hashComments = ["python", "py", "sh", "bash", "ruby", "rb", "yaml", "yml", "toml"].contains(language)
+        let pattern = (hashComments ? #"#[^\n]*|"# : #"//[^\n]*|"#) + #""(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\b[0-9]+(?:\.[0-9]+)?\b|\b[A-Za-z_][A-Za-z_0-9]*\b"#
+        let lexer = try! NSRegularExpression(pattern: pattern)
+        for match in lexer.matches(in: row, range: NSRange(location: 0, length: text.length)) {
+            let token = text.substring(with: match.range), kind: String
+            if token.hasPrefix("#") || token.hasPrefix("//") { kind = "comment" }
+            else if token.hasPrefix("\"") || token.hasPrefix("'") || token.hasPrefix("`") { kind = "string" }
+            else if token.first?.isNumber == true { kind = "number" }
+            else if keywords.contains(token) { kind = "keyword" }
+            else { continue }
+            result.append(InlineMark(kind: "syntax-" + kind, range: NSRange(location: offset + match.range.location, length: match.range.length)))
+        }
+    }
+    return result
+}
 func inlineDiagrams(_ source: String) -> [InlineDiagram] {
     let open = try! NSRegularExpression(pattern: #"^ {0,3}<[\w.-]+:(file|copy|cut|exec|entry|patch|diagram|math|table)\b[^>]*>"#)
     let renderer = try! NSRegularExpression(pattern: #"\brenderer\s*=\s*["']([^"']+)["']"#)
@@ -286,6 +337,7 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
             if !isSeparator { result.cells += inlineCells(row, line: line, offset: offset) }
         } else if !isSeparator { table = false }
     }
+    result.marks += inlineSyntaxMarks(source, path: path)
     result.diagrams = inlineDiagrams(source)
     return result
 }

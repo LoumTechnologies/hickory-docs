@@ -27,6 +27,12 @@ change the document height. Drop cells touched by a structural edit; the next
 background parse discovers their new structure. Cell-value edits retain their
 range and decode the new value, including empty values.
 
+Known fenced-code languages receive local lexical colors in the background,
+without assigning a fictitious workspace path or waiting for LSP installation.
+The same fallback colors file/copy bodies; semantic server colors remain an
+independent capability. Unknown languages retain literal editable source. These
+are bounded lexical previews, not full grammar parsing or project diagnostics.
+
 The Swift scanner returns source-backed styles and cell ranges. Escaped pipes and code-span pipes cannot create extra columns; applying a cell edit escapes literal pipes and retains all untouched bytes.
 
 <ui:copy id="simple-inline-model-0">
@@ -211,6 +217,57 @@ func inlineLineAt(_ offset: Int, starts: [Int]) -> Int {
     while low < high { let middle = (low + high) / 2; if starts[middle] <= offset { low = middle + 1 } else { high = middle } }
     return max(0, low - 1)
 }
+// Local lexical colors need only the language hint, never an invented file URI.
+func inlineSyntaxMarks(_ source: String, path: String) -> [InlineMark] {
+    let markdown = ["md", "markdown"].contains((path as NSString).pathExtension.lowercased())
+    let known = Set(["python", "py", "javascript", "js", "typescript", "ts", "jsx", "tsx", "rust", "rs", "go", "c", "cpp", "java", "cs", "kotlin", "kt", "swift", "ruby", "rb", "sh", "bash", "json", "yaml", "yml", "toml", "sql", "css", "html", "xml", "php"])
+    let keywords = Set("and as assert async await break case catch class const continue def default del do elif else enum except export extends false False finally fn for from fun func function global if impl import in interface is lambda let match module mut new nil None not null or package pass private public raise return self static struct super switch this throw trait true True try type typeof use val var void when while with yield".split(separator: " ").map(String.init))
+    let open = try! NSRegularExpression(pattern: #"^\s*<[\w.-]+:(file|copy|cut|exec|entry|patch|diagram|math|table)\b[^>]*>"#)
+    let hint = try! NSRegularExpression(pattern: #"\b(language|path)\s*=\s*["']([^"']+)["']"#)
+    var result: [InlineMark] = [], fence = "", payload = "", language = markdown ? "" : (path as NSString).pathExtension.lowercased(), offset = 0
+    for row in source.components(separatedBy: "\n") {
+        let text = row as NSString, trimmed = row.trimmingCharacters(in: .whitespacesAndNewlines)
+        defer { offset += text.length + 1 }
+        if markdown {
+            if !fence.isEmpty {
+                if trimmed.count >= fence.count, trimmed.allSatisfy({ $0 == fence.first! }) { fence = ""; language = ""; continue }
+            } else if !payload.isEmpty {
+                if trimmed.contains("</"), trimmed.contains(":" + payload + ">") { payload = ""; language = ""; continue }
+            } else {
+                if let marker = row.range(of: #"^ {0,3}(`{3,}|~{3,})"#, options: .regularExpression) {
+                    fence = String(row[marker]).trimmingCharacters(in: .whitespaces)
+                    language = String(row[marker.upperBound...]).split(whereSeparator: { $0.isWhitespace }).first.map(String.init)?.lowercased() ?? ""; continue
+                }
+                if let match = open.firstMatch(in: row, range: NSRange(location: 0, length: text.length)) {
+                    payload = text.substring(with: match.range(at: 1)); language = payload == "exec" ? "sh" : ""
+                    let hints = hint.matches(in: row, range: match.range)
+                    for item in hints {
+                        let value = text.substring(with: item.range(at: 2)).lowercased()
+                        if text.substring(with: item.range(at: 1)) == "language" { language = value; break }
+                        language = (value as NSString).pathExtension
+                    }
+                    if trimmed.hasSuffix("/>") || trimmed.contains("</") { payload = ""; language = "" }
+                    continue
+                }
+                continue
+            }
+        }
+        guard known.contains(language) else { continue }
+        let hashComments = ["python", "py", "sh", "bash", "ruby", "rb", "yaml", "yml", "toml"].contains(language)
+        let pattern = (hashComments ? #"#[^\n]*|"# : #"//[^\n]*|"#) + #""(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\b[0-9]+(?:\.[0-9]+)?\b|\b[A-Za-z_][A-Za-z_0-9]*\b"#
+        let lexer = try! NSRegularExpression(pattern: pattern)
+        for match in lexer.matches(in: row, range: NSRange(location: 0, length: text.length)) {
+            let token = text.substring(with: match.range), kind: String
+            if token.hasPrefix("#") || token.hasPrefix("//") { kind = "comment" }
+            else if token.hasPrefix("\"") || token.hasPrefix("'") || token.hasPrefix("`") { kind = "string" }
+            else if token.first?.isNumber == true { kind = "number" }
+            else if keywords.contains(token) { kind = "keyword" }
+            else { continue }
+            result.append(InlineMark(kind: "syntax-" + kind, range: NSRange(location: offset + match.range.location, length: match.range.length)))
+        }
+    }
+    return result
+}
 func inlineDiagrams(_ source: String) -> [InlineDiagram] {
     let open = try! NSRegularExpression(pattern: #"^ {0,3}<[\w.-]+:(file|copy|cut|exec|entry|patch|diagram|math|table)\b[^>]*>"#)
     let renderer = try! NSRegularExpression(pattern: #"\brenderer\s*=\s*["']([^"']+)["']"#)
@@ -318,6 +375,7 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
             if !isSeparator { result.cells += inlineCells(row, line: line, offset: offset) }
         } else if !isSeparator { table = false }
     }
+    result.marks += inlineSyntaxMarks(source, path: path)
     result.diagrams = inlineDiagrams(source)
     return result
 }
@@ -476,6 +534,48 @@ fun inlineDebugPath(source: String, path: String, line: Int, launch: Boolean = f
     return if (launch) context.launch[line] else context.code[line]
 }
 fun inlineLineAt(offset: Int, starts: List<Int>): Int { val found = starts.binarySearch(offset); return if (found >= 0) found else maxOf(0, -found - 2) }
+fun inlineSyntaxMarks(source: String, path: String): List<InlineMark> {
+    val markdown = path.substringAfterLast('.').lowercase() in listOf("md", "markdown")
+    val known = setOf("python", "py", "javascript", "js", "typescript", "ts", "jsx", "tsx", "rust", "rs", "go", "c", "cpp", "java", "cs", "kotlin", "kt", "swift", "ruby", "rb", "sh", "bash", "json", "yaml", "yml", "toml", "sql", "css", "html", "xml", "php")
+    val keywords = "and as assert async await break case catch class const continue def default del do elif else enum except export extends false False finally fn for from fun func function global if impl import in interface is lambda let match module mut new nil None not null or package pass private public raise return self static struct super switch this throw trait true True try type typeof use val var void when while with yield".split(' ').toSet()
+    val open = Regex("""^\s*<[\w.-]+:(file|copy|cut|exec|entry|patch|diagram|math|table)\b[^>]*>""")
+    val hint = Regex("""\b(language|path)\s*=\s*["']([^"']+)["']""")
+    val result = mutableListOf<InlineMark>()
+    var fence = ""; var payload = ""; var language = if (markdown) "" else path.substringAfterLast('.').lowercase(); var offset = 0
+    for (row in source.split('\n')) {
+        val start = offset; offset += row.length + 1; val trimmed = row.trim()
+        if (markdown) {
+            if (fence.isNotEmpty()) {
+                if (trimmed.length >= fence.length && trimmed.all { it == fence[0] }) { fence = ""; language = ""; continue }
+            } else if (payload.isNotEmpty()) {
+                if (trimmed.contains("</") && trimmed.contains(":" + payload + ">")) { payload = ""; language = ""; continue }
+            } else {
+                val marker = Regex("""^ {0,3}(`{3,}|~{3,})""").find(row)
+                if (marker != null) { fence = marker.value.trim(); language = row.substring(marker.range.last + 1).trim().substringBefore(' ').lowercase(); continue }
+                val match = open.find(row)
+                if (match != null) {
+                    payload = match.groupValues[1]; language = if (payload == "exec") "sh" else ""
+                    for (item in hint.findAll(match.value)) {
+                        val value = item.groupValues[2].lowercase()
+                        if (item.groupValues[1] == "language") { language = value; break }
+                        language = value.substringAfterLast('.', "")
+                    }
+                    if (trimmed.endsWith("/>") || trimmed.contains("</")) { payload = ""; language = "" }
+                }
+                continue
+            }
+        }
+        if (language !in known) continue
+        val hashComments = language in listOf("python", "py", "sh", "bash", "ruby", "rb", "yaml", "yml", "toml")
+        val lexer = Regex((if (hashComments) """#[^\n]*|""" else """//[^\n]*|""") + "\"(?:\\\\.|[^\"\\\\])*\"|'(?:\\\\.|[^'\\\\])*'|`(?:\\\\.|[^`\\\\])*`|\\b[0-9]+(?:\\.[0-9]+)?\\b|\\b[A-Za-z_][A-Za-z_0-9]*\\b")
+        for (match in lexer.findAll(row)) {
+            val token = match.value
+            val kind = when { token.startsWith('#') || token.startsWith("//") -> "comment"; token.startsWith('"') || token.startsWith('\'') || token.startsWith('`') -> "string"; token.first().isDigit() -> "number"; token in keywords -> "keyword"; else -> continue }
+            result.add(InlineMark("syntax-" + kind, start + match.range.first, start + match.range.last + 1))
+        }
+    }
+    return result
+}
 fun inlineDiagrams(source: String): List<InlineDiagram> {
     val open = Regex("""^ {0,3}<[\w.-]+:(file|copy|cut|exec|entry|patch|diagram|math|table)\b[^>]*>""")
     val renderer = Regex("""\brenderer\s*=\s*["']([^"']+)["']""")
@@ -562,7 +662,7 @@ fun computeInlineMarkup(source: String, path: String): InlineSnapshot {
         val isSeparator = separator.matches(row); val nextSeparator = rows.getOrNull(line + 1)?.let { separator.matches(it) } == true
         if (nextSeparator || table && row.contains('|')) { table = true; if (!isSeparator) cells.addAll(inlineCells(row, line, start)) } else if (!isSeparator) table = false
     }
-    return InlineSnapshot(source, starts, marks, cells, equations, debug, inlineDiagrams(source))
+    return InlineSnapshot(source, starts, marks + inlineSyntaxMarks(source, path), cells, equations, debug, inlineDiagrams(source))
 }
 </ui:copy>
 

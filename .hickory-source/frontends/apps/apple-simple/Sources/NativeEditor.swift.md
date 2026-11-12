@@ -1015,6 +1015,11 @@ private typealias DiagramHost = UIHostingController<NativeDiagramPreview>
                     default: font = .monospacedSystemFont(ofSize: 13, weight: .regular)
                     }
                     storage.addAttribute(.font, value: font, range: mark.range)
+                    if mark.kind.hasPrefix("syntax-"), !tokens.contains(where: { NSIntersectionRange($0.range, mark.range).length > 0 }) {
+                        let color: NSColor
+                        switch mark.kind { case "syntax-keyword": color = .systemPurple; case "syntax-string": color = .systemGreen; case "syntax-number": color = .systemOrange; default: color = .secondaryLabelColor }
+                        storage.addAttribute(.foregroundColor, value: color, range: mark.range)
+                    }
                     if mark.kind == "code" { storage.addAttribute(.backgroundColor, value: NSColor.quaternaryLabelColor, range: mark.range) }
                     if mark.kind == "diff-add" || mark.kind == "diff-remove" { storage.addAttribute(.backgroundColor, value: (mark.kind == "diff-add" ? NSColor.systemGreen : NSColor.systemRed).withAlphaComponent(0.15), range: mark.range) }
                 }
@@ -1376,6 +1381,11 @@ import UIKit
                     default: font = .monospacedSystemFont(ofSize: 13, weight: .regular)
                     }
                     storage.addAttribute(.font, value: font, range: mark.range)
+                    if mark.kind.hasPrefix("syntax-"), !tokens.contains(where: { NSIntersectionRange($0.range, mark.range).length > 0 }) {
+                        let color: UIColor
+                        switch mark.kind { case "syntax-keyword": color = .systemPurple; case "syntax-string": color = .systemGreen; case "syntax-number": color = .systemOrange; default: color = .secondaryLabel }
+                        storage.addAttribute(.foregroundColor, value: color, range: mark.range)
+                    }
                     if mark.kind == "code" { storage.addAttribute(.backgroundColor, value: UIColor.secondarySystemBackground, range: mark.range) }
                     if mark.kind == "diff-add" || mark.kind == "diff-remove" { storage.addAttribute(.backgroundColor, value: (mark.kind == "diff-add" ? UIColor.systemGreen : UIColor.systemRed).withAlphaComponent(0.15), range: mark.range) }
                 }

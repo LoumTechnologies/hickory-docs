@@ -113,6 +113,18 @@ final class ParityTests: XCTestCase {
         XCTAssertTrue(editor.text.subviews.contains { $0 is NSHostingView<NativeDiagramPreview> })
     }
     #endif
+    func testFencedCodeHasLocalSyntaxWithoutInventedFileContext() {
+        // Contract: .hickory-source/frontends/contract.md
+        let source = "def is prose here\n```python\ndef coupon():\n    return \"café 😀\" # note\n```\n```unknown\ndef literal(): pass\n```"
+        let snapshot = computeInlineMarkup(source, path: "workbook.md")
+        let text = source as NSString
+        let syntax = snapshot.marks.filter { $0.kind.hasPrefix("syntax-") }
+        XCTAssertEqual(syntax.filter { $0.kind == "syntax-keyword" }.map { text.substring(with: $0.range) }, ["def", "return"])
+        XCTAssertTrue(syntax.contains { $0.kind == "syntax-string" && text.substring(with: $0.range) == "\"café 😀\"" })
+        XCTAssertTrue(syntax.contains { $0.kind == "syntax-comment" })
+        XCTAssertTrue(snapshot.debug.code.isEmpty)
+        XCTAssertTrue(snapshot.debug.launch.isEmpty)
+    }
     func testSharedSmartEnterFixtures() throws {
         // Contract: .hickory-source/frontends/contract.md
         let apps = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
