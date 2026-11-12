@@ -118,6 +118,7 @@ final class ParityTests: XCTestCase {
         let marks = inlineSyntaxMarks(source, path: "workbook.md")
         XCTAssertTrue(marks.contains { $0.kind == "syntax-comment" })
         XCTAssertTrue(marks.contains { $0.kind == "syntax-string" })
+        XCTAssertFalse(computeInlineMarkup(source, path: "workbook.md").marks.contains { $0.kind == "heading" })
     }
     func testFencedCodeHasLocalSyntaxWithoutInventedFileContext() {
         // Contract: .hickory-source/frontends/contract.md

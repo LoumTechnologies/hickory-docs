@@ -6,6 +6,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @org.junit.Test fun containerShellSkipsProse() {
+        val source = "<h:container name=\"dev\">\n# setup\necho \"ready\"\n</h:container>"
+        val snapshot = computeInlineMarkup(source, "workbook.md")
+        assertTrue(snapshot.marks.any { it.kind == "syntax-comment" })
+        assertTrue(snapshot.marks.any { it.kind == "syntax-string" })
+        assertTrue(snapshot.marks.none { it.kind == "heading" })
+    }
+
     @org.junit.Test fun patchAndPathFenceOfferOnlyOwnedCodeCandidates() {
         // Contract: .hickory-source/frontends/contract.md
         val source = "<hick:project/>\n<hick:file id=\"base\" path=\"x.py\">\nprint(1)\n</hick:file>\n```patch id=\"change\" after=\"base\"\n--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-print(1)\n+print(\"café 😀\")\n```\n```python path=\"other.py\"\nprint(3)\n```\n```diff\n--- a/fake.py\n+++ b/fake.py\n@@ -1 +1 @@\n-a\n+b\n```"

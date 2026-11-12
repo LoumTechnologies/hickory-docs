@@ -296,7 +296,7 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
     let separator = try! NSRegularExpression(pattern: #"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$"#)
     let heading = try! NSRegularExpression(pattern: #"^(#{1,6})\s+"#)
     let styles = [("code", #"`[^`\n]+`"#), ("strong", #"\*\*[^*\n]+\*\*"#), ("em", #"(?<!\*)\*[^*\n]+\*(?!\*)"#), ("math", #"(?<!\\)\$([^$\n]+)\$"#)].map { ($0.0, try! NSRegularExpression(pattern: $0.1)) }
-    let opening = try! NSRegularExpression(pattern: #"^\s*<[A-Za-z_][\w.-]*:(file|copy|cut|exec|diagram|math|table)\b[^>]*>"#)
+    let opening = try! NSRegularExpression(pattern: #"^\s*<[A-Za-z_][\w.-]*:(file|copy|cut|exec|container|diagram|math|table)\b[^>]*>"#)
     var offset = 0, fence = "", payload = "", table = false, diffFence = false
     var equationStart: Int?, equationLine = 0
     var tableStart: Int?, tableLine = 0, delimiter = ","
