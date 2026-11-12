@@ -13,7 +13,7 @@ After text is visible, Markdown files load and attach the existing display-only 
 
 Search uses CodeMirror’s native search transactions and keymap. The panel is an absolute overlay, so showing it cannot resize the cached editor. Literal search treats backslashes as text; regex mode enables capture replacements. Read-only policy stays in editor state and search navigation reveals folded matches.
 
-The editor installs CodeMirror folding with its initial text. A linear indentation scan supplies regions without waiting for a parser or server; the existing LSP compartment may add language-specific regions later. A dedicated left gutter shows − on expanded headers and + on collapsed headers. CodeMirror anchors these controls to its measured lines. Folding changes editor decorations rather than buffer bytes, and the existing cached view keeps folds across tab moves. Debug launch actions keep their separate right-hand rail.
+The editor installs CodeMirror folding with its initial text. A linear indentation scan supplies regions without waiting for a parser or server; the existing LSP compartment may add language-specific regions later. Markdown ATX and Setext headings also fold through their next peer or ancestor; fenced and Hickory literal payloads suppress heading discovery. A dedicated left gutter shows − on expanded headers and + on collapsed headers. CodeMirror anchors these controls to its measured lines. Folding changes editor decorations rather than buffer bytes, and the existing cached view keeps folds across tab moves. Debug launch actions keep their separate right-hand rail.
 
 Tab inserts a detected indentation unit at the next stop, while selections use the editor’s block indentation. Nonblank leading whitespace selects tabs or the greatest common divisor of space indents; empty files default to four spaces. This policy is available immediately, before language services arrive.
 
@@ -133,7 +133,7 @@ export function simpleTab(view: EditorView): boolean {
   }), { userEvent: "input.indent" });
   return true;
 }
-export function simpleFoldRanges(source: string): { line: number; from: number; to: number }[] {
+export function simpleFoldRanges(source: string, markdown = false): { line: number; from: number; to: number }[] {
   const rows = source.split("\n"), stack: { line: number; indent: number; from: number }[] = [];
   const ranges: { line: number; from: number; to: number }[] = [];
   let offset = 0, last = -1;
@@ -146,12 +146,38 @@ export function simpleFoldRanges(source: string): { line: number; from: number; 
     }
     if (row !== undefined) { last = offset + row.length; stack.push({ line, indent, from: last }); offset = last + 1; }
   }
+  if (markdown) {
+    const headings: { line: number; level: number; from: number }[] = [], sections: typeof headings = [];
+    let at = 0, fence = "", payload = "", previous: { line: number; from: number } | null = null;
+    const starts: number[] = [];
+    rows.forEach((row, line) => {
+      starts.push(at); const from = at + row.length; at = from + 1;
+      const trimmed = row.trim();
+      if (payload) { if (trimmed.includes(`:${payload}>`) && trimmed.includes("</")) payload = ""; previous = null; return; }
+      if (fence) { if (trimmed.length >= fence.length && [...trimmed].every(char => char === fence[0])) fence = ""; previous = null; return; }
+      const marker = row.match(/^ {0,3}(`{3,}|~{3,})/);
+      if (marker) { fence = marker[1]; previous = null; return; }
+      const literal = row.match(/^ {0,3}<[\w.-]+:(file|copy|cut|exec|patch|entry|diagram|math|table)\b[^>]*>/);
+      if (literal) { if (!trimmed.includes("</") && !trimmed.endsWith("/>")) payload = literal[1]; previous = null; return; }
+      const heading = row.match(/^ {0,3}(#{1,6})(?:[ \t]+|$)/);
+      if (heading) { headings.push({ line, level: heading[1].length, from }); previous = null; }
+      else if (previous && /^ {0,3}(?:=+|-+)\s*$/.test(row)) { headings.push({ ...previous, level: trimmed[0] === "=" ? 1 : 2 }); previous = null; }
+      else previous = trimmed && !/^(?: {4}|\t)/.test(row) ? { line, from } : null;
+    });
+    for (const heading of [...headings, { line: rows.length, level: 0, from: source.length }]) {
+      while (sections.length && sections[sections.length - 1].level >= heading.level) {
+        const top = sections.pop()!, to = heading.line < rows.length ? starts[heading.line] - 1 : source.length;
+        if (to > top.from) { const old = ranges.findIndex(range => range.line === top.line); if (old >= 0) ranges.splice(old, 1); ranges.push({ line: top.line, from: top.from, to }); }
+      }
+      sections.push(heading);
+    }
+  }
   return ranges.sort((a, b) => a.from - b.from);
 }
 const foldCache = new WeakMap<EditorState["doc"], Map<number, { from: number; to: number }>>();
-function localFold(state: EditorState, from: number) {
+function localFold(state: EditorState, from: number, markdown: boolean) {
   let ranges = foldCache.get(state.doc);
-  if (!ranges) { ranges = new Map(simpleFoldRanges(state.doc.toString()).map(range => [range.from, range])); foldCache.set(state.doc, ranges); }
+  if (!ranges) { ranges = new Map(simpleFoldRanges(state.doc.toString(), markdown).map(range => [range.from, range])); foldCache.set(state.doc, ranges); }
   return ranges.get(state.doc.lineAt(from).to) ?? null;
 }
 const editors = new WeakMap<Buffer, { view: EditorView; language: Compartment; prose: Compartment; richAttached?: boolean; toggleBreakpoint?: (line: number) => void }>();
@@ -201,7 +227,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
           const query = tr.effects.find(effect => effect.is(setSearchQuery))?.value as SearchQuery | undefined;
           return query && !query.literal ? { effects: setSearchQuery.of(new SearchQuery({ ...query, literal: true })) } : null;
         }),
-        foldService.of(localFold), EditorView.lineWrapping, language.of([]), prose.of([]),
+        foldService.of((state, from) => localFold(state, from, /\.(md|markdown)$/i.test(buffer.file.path))), EditorView.lineWrapping, language.of([]), prose.of([]),
         keymap.of([...wordNavigationKeys, { key: "Enter", run: view => simpleEnter(view, buffer.file.path) }, { key: "Tab", run: simpleTab, shift: indentLess }, { key: "Ctrl-Space", run: startCompletion }, ...searchKeymap, ...foldKeymap, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
         EditorState.readOnly.of(buffer.readonly), EditorView.editable.of(!buffer.readonly),
         EditorView.contentAttributes.of({ "aria-label": buffer.file.path }),

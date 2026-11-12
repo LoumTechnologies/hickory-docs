@@ -323,7 +323,7 @@ fun simpleTabEdits(source: String, from: Int, to: Int, outdent: Boolean = false)
     } while (offset < to)
     return edits
 }
-fun simpleFoldRanges(source: String): List<SimpleFold> {
+fun simpleFoldRanges(source: String, markdown: Boolean = false): List<SimpleFold> {
     data class Header(val line: Int, val indent: Int, val end: Int)
     val rows = source.split('\n'); val stack = mutableListOf<Header>(); val result = mutableListOf<SimpleFold>()
     var offset = 0; var last = -1
@@ -336,6 +336,33 @@ fun simpleFoldRanges(source: String): List<SimpleFold> {
             if (last > header.end) result.add(SimpleFold(header.line, header.end, last))
         }
         if (row != null) { last = offset + row.length; stack.add(Header(line, indent, last)); offset = last + 1 }
+    }
+    if (markdown) {
+        data class Section(val line: Int, val level: Int, val end: Int)
+        val headings = mutableListOf<Section>(); val sections = mutableListOf<Section>(); val starts = mutableListOf<Int>()
+        var position = 0; var fence = ""; var payload = ""; var previous: Section? = null
+        for ((line, row) in rows.withIndex()) {
+            starts.add(position); val end = position + row.length; position = end + 1
+            val trimmed = row.trim()
+            if (payload.isNotEmpty()) { if (trimmed.contains(":" + payload + ">") && trimmed.contains("</")) payload = ""; previous = null; continue }
+            if (fence.isNotEmpty()) { if (trimmed.length >= fence.length && trimmed.all { it == fence[0] }) fence = ""; previous = null; continue }
+            val marker = Regex("""^ {0,3}(`{3,}|~{3,})""").find(row)
+            if (marker != null) { fence = marker.groupValues[1]; previous = null; continue }
+            val literal = Regex("""^ {0,3}<[\w.-]+:(file|copy|cut|exec|patch|entry|diagram|math|table)\b[^>]*>""").find(row)
+            if (literal != null) { if (!trimmed.contains("</") && !trimmed.endsWith("/>")) payload = literal.groupValues[1]; previous = null; continue }
+            val heading = Regex("""^ {0,3}(#{1,6})(?:[ \t]+|$)""").find(row)
+            if (heading != null) { headings.add(Section(line, heading.groupValues[1].length, end)); previous = null }
+            else if (previous != null && Regex("""^ {0,3}(?:=+|-+)\s*$""").matches(row)) { headings.add(previous.copy(level = if (trimmed[0] == '=') 1 else 2)); previous = null }
+            else previous = if (trimmed.isNotEmpty() && !row.startsWith("    ") && !row.startsWith('\t')) Section(line, 0, end) else null
+        }
+        for (heading in headings + Section(rows.size, 0, source.length)) {
+            while (sections.isNotEmpty() && sections.last().level >= heading.level) {
+                val top = sections.removeAt(sections.lastIndex)
+                val end = if (heading.line < rows.size) starts[heading.line] - 1 else source.length
+                if (end > top.end) { result.removeAll { it.line == top.line }; result.add(SimpleFold(top.line, top.end, end)) }
+            }
+            sections.add(heading)
+        }
     }
     return result.sortedBy { it.from }
 }
@@ -576,7 +603,7 @@ private data class GridCaretRequest(val row: Int, val column: Int, val x: Float,
             BoxWithConstraints(Modifier.width(24.dp).fillMaxHeight().clipToBounds()) {
                 val density = LocalDensity.current
                 val layout = textLayout
-                val headers = simpleFoldRanges(source).associateBy { it.line }
+                val headers = simpleFoldRanges(source, buffer.file.path.substringAfterLast('.').lowercase() in listOf("md", "markdown")).associateBy { it.line }
                 val height = with(density) { maxHeight.toPx() }
                 if (layout != null && layout.layoutInput.text.text == display) {
                     val first = layout.getLineForVerticalPosition(scroll.value.toFloat())

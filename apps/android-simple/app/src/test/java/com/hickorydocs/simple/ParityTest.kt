@@ -6,6 +6,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @org.junit.Test fun markdownHeadingFoldsRespectLiteralBodies() {
+        // Contract: .hickory-source/frontends/contract.md
+        val source = "# A\nintro 😀\n## B\nbody\n```python\n# comment\n```\n<h:file path=\"x.py\">\n# literal\n</h:file>\n## C\nlast\nNext\n====\nend"
+        val folds = simpleFoldRanges(source, true)
+        assertEquals(listOf(0, 2, 10, 12), folds.map { it.line })
+        assertEquals(source.indexOf("Next") - 1, folds[0].to)
+        assertTrue(source.substring(folds[1].from, folds[1].to).contains("# literal"))
+        assertTrue(simpleFoldRanges("# comment\nbody").isEmpty())
+        assertTrue(simpleFoldRanges("```python\n# comment\nbody", true).isEmpty())
+    }
+
     @org.junit.Test fun tablePresentationSurvivesPendingParse() {
         // Contract: .hickory-source/frontends/contract.md
         val source = "Before\n\n| A | B |\n| --- | --- |\n| café 😀 | 2 |\n\nAfter"

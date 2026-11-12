@@ -108,7 +108,7 @@ class DocumentBuffer(val file: FileNode, loaded: FileText) {
     }
     var foldSource by mutableStateOf<String?>(null)
     var foldedLines by mutableStateOf<Set<Int>>(emptySet())
-    fun activeFolds(): List<SimpleFold> = if (foldSource == text) simpleFoldRanges(text).filter { it.line in foldedLines } else emptyList()
+    fun activeFolds(): List<SimpleFold> = if (foldSource == text) simpleFoldRanges(text, file.path.substringAfterLast('.').lowercase() in listOf("md", "markdown")).filter { it.line in foldedLines } else emptyList()
     fun clearFolds() { foldSource = null; foldedLines = emptySet() }
     fun toggleFold(line: Int) {
         if (foldSource != text) clearFolds()

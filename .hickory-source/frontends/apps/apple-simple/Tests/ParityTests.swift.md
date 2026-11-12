@@ -65,6 +65,17 @@ final class ParityTests: XCTestCase {
         }
     }
     #endif
+    func testMarkdownHeadingFoldsRespectLiteralBodies() {
+        // Contract: .hickory-source/frontends/contract.md
+        let source = "# A\nintro 😀\n## B\nbody\n```python\n# comment\n```\n<h:file path=\"x.py\">\n# literal\n</h:file>\n## C\nlast\nNext\n====\nend"
+        let folds = simpleFoldRanges(source, markdown: true)
+        XCTAssertEqual(folds.map(\.line), [0, 2, 10, 12])
+        let text = source as NSString
+        XCTAssertEqual(NSMaxRange(folds[0].range), text.range(of: "Next").location - 1)
+        XCTAssertEqual(text.substring(with: folds[1].range), "\nbody\n```python\n# comment\n```\n<h:file path=\"x.py\">\n# literal\n</h:file>")
+        XCTAssertTrue(simpleFoldRanges("# comment\nbody").isEmpty)
+        XCTAssertTrue(simpleFoldRanges("```python\n# comment\nbody", markdown: true).isEmpty)
+    }
     func testSharedSmartEnterFixtures() throws {
         // Contract: .hickory-source/frontends/contract.md
         let apps = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

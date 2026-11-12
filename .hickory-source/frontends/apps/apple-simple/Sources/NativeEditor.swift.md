@@ -13,7 +13,7 @@ Search matches are computed off the main actor against an exact source/options s
 
 Fold state belongs to the cached native editor. Discover indentation regions with a stack and UTF-16 ranges, matching TextKit's character indices. The layout delegate marks folded glyphs null and suppresses their control-character advancement, retaining the original text storage for saves, selection, language services and undo. Hidden rows are omitted from the measured rails. Before an edit, retire the folds; refuse the first edit if it would touch hidden bytes so a collapsed selection cannot silently erase unseen code. Reveals unfold first. UIKit explicitly uses TextKit 1 so the same delegate mechanism is available on both Apple platforms.
 
-A fixed-width left gutter offers − to fold and + to unfold each visible header. It uses the same measured rows as line numbers so scrolling, wrapping and hidden rows keep controls anchored. Debugger actions stay on the right. Nested ranges remain independent, and folding is allowed on read-only files because it writes no source. This is indentation-based folding, not a claim of native language-server fold support.
+A fixed-width left gutter offers − to fold and + to unfold each visible header. It uses the same measured rows as line numbers so scrolling, wrapping and hidden rows keep controls anchored. Debugger actions stay on the right. Nested ranges remain independent, and folding is allowed on read-only files because it writes no source. Markdown additionally folds ATX and Setext headings through the next peer or ancestor. Fence markers and literal Hickory payloads suppress heading discovery, so Python comments cannot become sections. These are local structural folds; language-server ownership is independent.
 
 ## Keep background presentation from moving the viewport
 
@@ -598,7 +598,7 @@ struct SimpleFold: Equatable {
     var line: Int
     var range: NSRange
 }
-func simpleFoldRanges(_ source: String) -> [SimpleFold] {
+func simpleFoldRanges(_ source: String, markdown: Bool = false) -> [SimpleFold] {
     let rows = source.components(separatedBy: "\n")
     var stack: [(line: Int, indent: Int, end: Int)] = [], result: [SimpleFold] = []
     var offset = 0, last = -1
@@ -611,6 +611,51 @@ func simpleFoldRanges(_ source: String) -> [SimpleFold] {
             if last > header.end { result.append(SimpleFold(line: header.line, range: NSRange(location: header.end, length: last - header.end))) }
         }
         if let row { last = offset + row.utf16.count; stack.append((line, indent, last)); offset = last + 1 }
+    }
+    if markdown {
+        var headings: [(line: Int, level: Int, end: Int)] = [], stack: [(line: Int, level: Int, end: Int)] = []
+        var starts: [Int] = []
+        var position = 0, fence = "", payload = "", previous: (line: Int, end: Int)?
+        let opening = try! NSRegularExpression(pattern: #"^ {0,3}<[\w.-]+:(file|copy|cut|exec|patch|entry|diagram|math|table)\b[^>]*>"#)
+        for (line, row) in rows.enumerated() {
+            starts.append(position)
+            let end = position + row.utf16.count; position = end + 1
+            let trimmed = row.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !payload.isEmpty {
+                if trimmed.contains(":" + payload + ">"), trimmed.contains("</") { payload = "" }
+                previous = nil; continue
+            }
+            if !fence.isEmpty {
+                if trimmed.allSatisfy({ $0 == fence.first! }), trimmed.count >= fence.count { fence = "" }
+                previous = nil; continue
+            }
+            if row.prefix(while: { $0 == " " }).count <= 3, trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+                fence = String(trimmed.prefix { $0 == trimmed.first! }); previous = nil; continue
+            }
+            if let match = opening.firstMatch(in: row, range: NSRange(location: 0, length: row.utf16.count)) {
+                if !trimmed.contains("</"), !trimmed.hasSuffix("/>") { payload = (row as NSString).substring(with: match.range(at: 1)) }
+                previous = nil; continue
+            }
+            let indent = row.prefix { $0 == " " }.count
+            if indent <= 3, let match = row.range(of: #"^ {0,3}(#{1,6})(?:[ \t]+|$)"#, options: .regularExpression) {
+                let level = row[match].filter { $0 == "#" }.count
+                headings.append((line, level, end)); previous = nil
+            } else if indent <= 3, let title = previous, !trimmed.isEmpty,
+                      trimmed.allSatisfy({ $0 == "=" }) || trimmed.allSatisfy({ $0 == "-" }) {
+                headings.append((title.line, trimmed.first == "=" ? 1 : 2, title.end)); previous = nil
+            } else { previous = !trimmed.isEmpty && indent <= 3 && !row.hasPrefix("\t") ? (line, end) : nil }
+        }
+        for header in headings + [(rows.count, 0, source.utf16.count)] {
+            while let top = stack.last, top.level >= header.level {
+                stack.removeLast()
+                let end = header.line < rows.count ? starts[header.line] - 1 : source.utf16.count
+                if end > top.end {
+                    result.removeAll { $0.line == top.line }
+                    result.append(SimpleFold(line: top.line, range: NSRange(location: top.end, length: end - top.end)))
+                }
+            }
+            stack.append(header)
+        }
     }
     return result.sorted { $0.range.location < $1.range.location }
 }
@@ -727,7 +772,7 @@ private typealias FoldFont = UIFont
         buffer.selection = text.selectedRange(); buffer.text = text.string; measureDebugLines(); return true
     }
     func toggleFold(_ line: Int) {
-        guard let header = simpleFoldRanges(text.string).first(where: { $0.line == line }) else { return }
+        guard let header = simpleFoldRanges(text.string, markdown: ["md", "markdown"].contains((buffer.file.path as NSString).pathExtension.lowercased())).first(where: { $0.line == line }) else { return }
         if let index = folding.ranges.firstIndex(of: header.range) { folding.ranges.remove(at: index); buffer.foldedLines.remove(line) }
         else {
             guard !text.hasMarkedText() else { return }
@@ -1058,7 +1103,7 @@ import UIKit
         textViewDidChange(text); return true
     }
     func toggleFold(_ line: Int) {
-        guard let header = simpleFoldRanges(text.text ?? "").first(where: { $0.line == line }) else { return }
+        guard let header = simpleFoldRanges(text.text ?? "", markdown: ["md", "markdown"].contains((buffer.file.path as NSString).pathExtension.lowercased())).first(where: { $0.line == line }) else { return }
         if let index = folding.ranges.firstIndex(of: header.range) { folding.ranges.remove(at: index); buffer.foldedLines.remove(line) }
         else {
             guard text.markedTextRange == nil else { return }
@@ -1362,7 +1407,7 @@ struct LanguageEditor: View {
     var body: some View {
         HStack(spacing: 0) {
             GeometryReader { geometry in
-                let headers = Set(simpleFoldRanges(buffer.text).map(\.line))
+                let headers = Set(simpleFoldRanges(buffer.text, markdown: ["md", "markdown"].contains((buffer.file.path as NSString).pathExtension.lowercased())).map(\.line))
                 ZStack(alignment: .topLeading) {
                     ForEach(buffer.visibleDebugLines.filter { headers.contains($0.line) && $0.y >= 0 && $0.y < geometry.size.height }, id: \.line) { row in
                         Button(buffer.foldedLines.contains(row.line) ? "+" : "−") { buffer.toggleFold?(row.line) }

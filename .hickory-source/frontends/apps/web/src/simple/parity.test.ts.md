@@ -49,6 +49,16 @@ import { Buffer, Buffers } from "./buffers";
 import { api } from "../api/client";
 vi.mock("../api/client", () => ({ api: { files: vi.fn(), doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), fileOp: vi.fn(), openFile: vi.fn(), createDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agent: vi.fn() } }));
 describe("shared frontend layout contract", () => {
+  it("folds Markdown headings through peers and excludes literal bodies", () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const source = "# A\nintro 😀\n## B\nbody\n```python\n# comment\n```\n<h:file path=\"x.py\">\n# literal\n</h:file>\n## C\nlast\nNext\n====\nend";
+    const folds = simpleFoldRanges(source, true);
+    expect(folds.map(fold => fold.line)).toEqual([0, 2, 10, 12]);
+    expect(folds[0].to).toBe(source.indexOf("Next") - 1);
+    expect(source.slice(folds[1].from, folds[1].to)).toContain("# literal");
+    expect(simpleFoldRanges("# comment\nbody")).toEqual([]);
+    expect(simpleFoldRanges("```python\n# comment\nbody", true)).toEqual([]);
+  });
   it("applies the shared smart Enter language, context and mode fixtures", () => {
     // Contract: .hickory-source/frontends/contract.md
     for (const item of enterCases.cases) {
