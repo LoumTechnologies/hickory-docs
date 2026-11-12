@@ -852,10 +852,18 @@ import WebKit
 }
 // Inspect bundles without touching SwiftPM's fatal Bundle.module accessor.
 func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main]) -> URL? {
-    let candidates = bundles + roots.compactMap { Bundle(url: $0.appendingPathComponent("HickorySimple_HickorySimple.bundle")) }
-    return candidates.lazy.compactMap { bundle in
-        bundle.url(forResource: "math", withExtension: "html", subdirectory: "HickoryAssets/Resources") ?? bundle.url(forResource: "math", withExtension: "html", subdirectory: "Resources") ?? bundle.url(forResource: "math", withExtension: "html")
-    }.first
+    // Resource-only SwiftPM bundles need not initialize as Foundation Bundles.
+    // Inspect their installed directories too, including macOS Contents layout.
+    let installed = roots.flatMap { root in
+        [root, root.appendingPathComponent("HickorySimple_HickorySimple.bundle"), root.appendingPathComponent("HickorySimple_HickorySimple.resources")]
+    } + bundles.flatMap { [$0.bundleURL] + [$0.resourceURL].compactMap { $0 } }
+    for root in installed {
+        for relative in ["HickoryAssets/Resources/math.html", "Resources/math.html", "Contents/Resources/Resources/math.html", "Contents/Resources/math.html", "math.html"] {
+            let url = root.appendingPathComponent(relative)
+            if FileManager.default.isReadableFile(atPath: url.path) { return url }
+        }
+    }
+    return nil
 }
 @MainActor func makeMathView(_ coordinator: MathCoordinator) -> WKWebView {
     let configuration = WKWebViewConfiguration(); configuration.websiteDataStore = .nonPersistent(); configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
@@ -864,7 +872,7 @@ func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main]) -> URL? {
         URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()].compactMap { $0 }
     let url = nativeMathResource(roots: roots)
     if let url { view.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent()) }
-    else { view.loadHTMLString("<body><p>Math resource missing; source stays editable.</p><div id='math'></div><script>globalThis.renderMath=s=>document.getElementById('math').textContent=s</script></body>", baseURL: nil) }
+    else { view.loadHTMLString("<body><p>Preview resources are missing. Rebuild the app with its bundled assets; source stays editable.</p><div id='math'></div><script>globalThis.renderMath=globalThis.renderDiagram=s=>document.getElementById('math').textContent=s</script></body>", baseURL: nil) }
     return view
 }
 #if os(macOS)

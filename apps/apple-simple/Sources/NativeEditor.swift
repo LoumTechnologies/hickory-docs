@@ -493,9 +493,11 @@ func simpleFoldRanges(_ source: String, markdown: Bool = false) -> [SimpleFold] 
 }
 #if os(macOS)
 private typealias FoldFont = NSFont
+private typealias EquationHost = NSHostingView<NativeMathView>
 private typealias DiagramHost = NSHostingView<NativeDiagramPreview>
 #else
 private typealias FoldFont = UIFont
+private typealias EquationHost = UIHostingController<NativeMathView>
 private typealias DiagramHost = UIHostingController<NativeDiagramPreview>
 #endif
 @MainActor private final class FoldLayout: NSObject, @preconcurrency NSLayoutManagerDelegate {
@@ -524,6 +526,8 @@ private typealias DiagramHost = UIHostingController<NativeDiagramPreview>
     private var tableViewport: CGPoint?
     private var diagramSource = ""
     private var diagramAnchor: Int?
+    private var equationViews: [Int: EquationHost] = [:]
+    private var equationSource = ""
     private var diagramViews: [Int: DiagramHost] = [:]
     private var tableSnapshot = InlineSnapshot(source: "")
     private var tableSource = ""
@@ -554,6 +558,7 @@ private typealias DiagramHost = UIHostingController<NativeDiagramPreview>
         text.setAccessibilityLabel(buffer.file.path); text.delegate = self
         text.willCompose = { [weak self] in self?.buffer.clearMulti(); self?.unfoldAll() }
         scroll.hasVerticalScroller = true; scroll.documentView = text
+
         buffer.navigate = { [weak self] fraction in
             guard let self else { return }
             self.unfoldAll()
@@ -714,7 +719,40 @@ private typealias DiagramHost = UIHostingController<NativeDiagramPreview>
         if rows != buffer.visibleDebugLines { buffer.visibleDebugLines = rows }
     }
 
+    // Equations reserve trailing paragraph whitespace; the underlying source,
+    // selection and undo buffer stay intact while WebKit typesets independently.
+    private func presentEquations() {
+        let source = text.string, storage = text.textStorage!
+        let equations = buffer.inlineMarkup.source == source ? buffer.inlineMarkup.equations : []
+        let grouped = Dictionary(grouping: equations, by: \.line)
+        if equationSource != source {
+            storage.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+                if (value as? NSParagraphStyle)?.paragraphSpacing == 88 { storage.removeAttribute(.paragraphStyle, range: range) }
+            }
+            for host in equationViews.values { host.removeFromSuperview() }
+            equationViews = [:]; equationSource = source
+        }
+        for line in Array(equationViews.keys) where grouped[line] == nil {
+            if let host = equationViews.removeValue(forKey: line) { host.removeFromSuperview() }
+        }
+        for (line, values) in grouped {
+            guard let first = values.first, first.range.location < storage.length else { continue }
+            let paragraph = (source as NSString).paragraphRange(for: NSRange(location: first.range.location, length: 0))
+            let style = NSMutableParagraphStyle(); style.paragraphSpacing = 88
+            if (storage.attribute(.paragraphStyle, at: first.range.location, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacing != 88 { storage.addAttribute(.paragraphStyle, value: style, range: paragraph) }
+            let preview = NativeMathView(source: values.map(\.body).joined(separator: " \\qquad "))
+            let host: EquationHost
+            if let existing = equationViews[line] { existing.rootView = preview; host = existing }
+            else { host = EquationHost(rootView: preview); equationViews[line] = host; text.addSubview(host) }
+            let manager = text.layoutManager!, container = text.textContainer!
+            let glyph = manager.glyphRange(forCharacterRange: NSRange(location: first.range.location, length: 1), actualCharacterRange: nil)
+            let rect = manager.boundingRect(forGlyphRange: glyph, in: container), origin = text.textContainerOrigin
+            host.frame = CGRect(x: origin.x, y: rect.maxY + origin.y + 2, width: max(100, text.bounds.width - 16), height: 80)
+        }
+    }
+
     private func presentDiagrams() {
+        presentEquations()
         let source = text.string
         let storage = text.textStorage!
         let diagrams = !buffer.tableSourceVisible ? tableSnapshot.diagrams.filter { $0.id != buffer.sourceTable } : []
@@ -905,6 +943,8 @@ import UIKit
     private var tableViewport: CGPoint?
     private var diagramSource = ""
     private var diagramAnchor: Int?
+    private var equationViews: [Int: EquationHost] = [:]
+    private var equationSource = ""
     private var diagramViews: [Int: DiagramHost] = [:]
     private var tableSnapshot = InlineSnapshot(source: "")
     private var tableSource = ""
@@ -1084,7 +1124,40 @@ import UIKit
         if rows != buffer.visibleDebugLines { buffer.visibleDebugLines = rows }
     }
 
+    // Equations reserve trailing paragraph whitespace; the underlying source,
+    // selection and undo buffer stay intact while WebKit typesets independently.
+    private func presentEquations() {
+        let source = text.text ?? "", storage = text.textStorage
+        let equations = buffer.inlineMarkup.source == source ? buffer.inlineMarkup.equations : []
+        let grouped = Dictionary(grouping: equations, by: \.line)
+        if equationSource != source {
+            storage.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+                if (value as? NSParagraphStyle)?.paragraphSpacing == 88 { storage.removeAttribute(.paragraphStyle, range: range) }
+            }
+            for host in equationViews.values { host.view.removeFromSuperview() }
+            equationViews = [:]; equationSource = source
+        }
+        for line in Array(equationViews.keys) where grouped[line] == nil {
+            if let host = equationViews.removeValue(forKey: line) { host.view.removeFromSuperview() }
+        }
+        for (line, values) in grouped {
+            guard let first = values.first, first.range.location < storage.length else { continue }
+            let paragraph = (source as NSString).paragraphRange(for: NSRange(location: first.range.location, length: 0))
+            let style = NSMutableParagraphStyle(); style.paragraphSpacing = 88
+            if (storage.attribute(.paragraphStyle, at: first.range.location, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacing != 88 { storage.addAttribute(.paragraphStyle, value: style, range: paragraph) }
+            let preview = NativeMathView(source: values.map(\.body).joined(separator: " \\qquad "))
+            let host: EquationHost
+            if let existing = equationViews[line] { existing.rootView = preview; host = existing }
+            else { host = EquationHost(rootView: preview); equationViews[line] = host; text.addSubview(host.view) }
+            let manager = text.layoutManager, container = text.textContainer
+            let glyph = manager.glyphRange(forCharacterRange: NSRange(location: first.range.location, length: 1), actualCharacterRange: nil)
+            let rect = manager.boundingRect(forGlyphRange: glyph, in: container), origin = CGPoint(x: text.textContainerInset.left, y: text.textContainerInset.top)
+            host.view.frame = CGRect(x: origin.x, y: rect.maxY + origin.y + 2, width: max(100, text.bounds.width - 16), height: 80)
+        }
+    }
+
     private func presentDiagrams() {
+        presentEquations()
         let source = text.text ?? ""
         let storage = text.textStorage
         let diagrams = !buffer.tableSourceVisible ? tableSnapshot.diagrams.filter { $0.id != buffer.sourceTable } : []

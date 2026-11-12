@@ -427,6 +427,15 @@ final class ParityTests: XCTestCase {
         XCTAssertEqual(bundle.bundleIdentifier, "com.hickorydocs.asset-fixture")
         XCTAssertEqual(nativeMathResource(roots: [], bundles: [bundle])?.resolvingSymlinksInPath(), html.resolvingSymlinksInPath())
     }
+    func testResourceOnlySwiftPackageLayout() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent("HickorySimple_HickorySimple.bundle/Contents/Resources/Resources")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let html = directory.appendingPathComponent("math.html")
+        try "local preview".write(to: html, atomically: true, encoding: .utf8)
+        XCTAssertEqual(nativeMathResource(roots: [root], bundles: []), html)
+    }
     func testMissingMathBundleDoesNotTrap() {
         // Contract: .hickory-source/frontends/contract.md
         XCTAssertNil(nativeMathResource(roots: [URL(fileURLWithPath: "/missing/" + UUID().uuidString)], bundles: []))

@@ -391,14 +391,20 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
 // One projection drives the text field, line numbers, debugger rail and grid anchors.
 // Its offsets always map back to the retained source, including Unicode and folds.
 data class EditorReplacement(val from: Int, val to: Int, val text: String)
-fun editorReplacements(folds: List<SimpleFold>, tables: List<InlineTable>, source: String = "", diagrams: List<InlineDiagram> = emptyList()): List<EditorReplacement> {
+fun editorReplacements(folds: List<SimpleFold>, tables: List<InlineTable>, source: String = "", diagrams: List<InlineDiagram> = emptyList(), equations: List<InlineEquation> = emptyList()): List<EditorReplacement> {
     val tabs = mutableListOf<EditorReplacement>()
     var column = 0
     source.forEachIndexed { offset, char ->
         if (char == '\t') { val width = 4 - column % 4; tabs.add(EditorReplacement(offset, offset + 1, " ".repeat(width))); column += width }
         else if (char == '\n') column = 0 else column++
     }
-    val candidates = diagrams.map { EditorReplacement(it.from, it.to, " \n".repeat(8) + " ") } + tabs + folds.map { EditorReplacement(it.from, it.to, " …") } + tables.map { EditorReplacement(it.from, it.to, " \n".repeat(it.displayRows - 1) + " ") }
+    // Reserve read-only preview whitespace after the source paragraph. The
+    // projection maps every preview offset back to its unchanged source anchor.
+    val math = equations.groupBy { it.line }.values.map { values ->
+        val end = source.indexOf('\n', values.first().to).let { if (it < 0) source.length else it }
+        EditorReplacement(end, end, "\n \n \n ")
+    }
+    val candidates = math + diagrams.map { EditorReplacement(it.from, it.to, " \n".repeat(8) + " ") } + tabs + folds.map { EditorReplacement(it.from, it.to, " …") } + tables.map { EditorReplacement(it.from, it.to, " \n".repeat(it.displayRows - 1) + " ") }
     val result = mutableListOf<EditorReplacement>()
     for (item in candidates.sortedWith(compareBy<EditorReplacement> { it.from }.thenByDescending { it.to })) {
         if (result.lastOrNull()?.to?.let { it > item.from } != true) result.add(item)
@@ -577,7 +583,7 @@ private data class GridCaretRequest(val row: Int, val column: Int, val x: Float,
     val tables = if (!buffer.tableSourceVisible) inlineTables(presentation).filter { it.from != buffer.sourceTable } else emptyList()
     val diagrams = if (!buffer.tableSourceVisible) presentation.diagrams.filter { it.from != buffer.sourceTable } else emptyList()
     val hiddenRanges = editorReplacements(folds, tables, diagrams = diagrams)
-    val replacements = editorReplacements(folds, tables, source, diagrams)
+    val replacements = editorReplacements(folds, tables, source, diagrams, if (buffer.inlineMarkup.source == source) buffer.inlineMarkup.equations else emptyList())
     val display = editorDisplay(source, replacements)
     var textLayout by remember(buffer) { mutableStateOf<TextLayoutResult?>(null) }
     val paused = if (debug?.sourceMatches(buffer) == true) debug.line(buffer.file.path) else null
@@ -774,6 +780,13 @@ private data class GridCaretRequest(val row: Int, val column: Int, val x: Float,
                 val height = layout.getLineBottom(last) - layout.getLineTop(first)
                 InlineTableGrid(table, source, buffer, Modifier.offset { IntOffset(0, top.toInt() + with(density) { 8.dp.roundToPx() }) }.padding(horizontal = 8.dp).fillMaxWidth().height(with(density) { height.toDp() }))
             }
+            if (layout != null && layout.layoutInput.text.text == display && inline.source == source) inline.equations.groupBy { it.line }.values.forEach { equations ->
+                val end = source.indexOf('\n', equations.first().to).let { if (it < 0) source.length else it }
+                val anchor = editorDisplayOffset(end, replacements)
+                val row = layout.getLineForOffset(anchor)
+                val top = layout.getLineBottom(row) - scroll.value
+                NativeMathView(equations.joinToString(" \\qquad ") { it.body }, Modifier.offset { IntOffset(0, top.toInt() + with(density) { 8.dp.roundToPx() }) }.padding(horizontal = 8.dp).fillMaxWidth().height(80.dp))
+            }
             if (layout != null && layout.layoutInput.text.text == display) diagrams.forEach { diagram ->
                 val replacement = replacements.firstOrNull { it.from == diagram.from && it.to == diagram.to } ?: return@forEach
                 val anchor = editorDisplayOffset(diagram.from, replacements)
@@ -905,7 +918,7 @@ fun debugLineOffset(source: String, line: Int): Int? {
     val folds = buffer.activeFolds()
     val tables = if (buffer.inlineMarkup.source == source && !buffer.tableSourceVisible) inlineTables(buffer.inlineMarkup).filter { it.from != buffer.sourceTable } else emptyList()
     val diagrams = if (!buffer.tableSourceVisible) tablePresentation(buffer.inlineMarkup, source).diagrams.filter { it.from != buffer.sourceTable } else emptyList()
-    val replacements = editorReplacements(folds, tables, source, diagrams)
+    val replacements = editorReplacements(folds, tables, source, diagrams, if (buffer.inlineMarkup.source == source) buffer.inlineMarkup.equations else emptyList())
     val display = editorDisplay(source, replacements)
     val paused = if (debug.sourceMatches(buffer)) debug.line(buffer.file.path) else null
     Box(Modifier.width(4.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant).pointerInput(buffer) {
