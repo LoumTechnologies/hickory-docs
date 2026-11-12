@@ -646,6 +646,24 @@ describe("simple editor capability attachment", () => {
   });
 });
 describe("simple file commands", () => {
+  it.each(["ctrlKey", "metaKey"])("creates and focuses a new tab with %s+N while retaining edits", async modifier => {
+    vi.mocked(api.files).mockResolvedValue({ root: "workspace", tree: [] });
+    const screen = render(createElement(App));
+    try {
+      const press = (extra = {}) => fireEvent.keyDown(window, { key: "n", [modifier]: true, ...extra });
+      expect(press()).toBe(false);
+      const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+      act(() => view.dispatch({ changes: { from: 0, insert: "retained draft" } }));
+      expect(press({ shiftKey: true })).toBe(true);
+      expect(press({ altKey: true })).toBe(true);
+      expect(screen.getAllByRole("tab", { name: /Untitled/ })).toHaveLength(1);
+      expect(press()).toBe(false);
+      expect(screen.getAllByRole("tab", { name: /Untitled/ })).toHaveLength(2);
+      expect(screen.getByRole("tab", { name: "Untitled 2" }).getAttribute("aria-selected")).toBe("true");
+      fireEvent.click(screen.getByRole("tab", { name: /Untitled 1/ }));
+      expect(EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!.state.doc.toString()).toBe("retained draft");
+    } finally { screen.unmount(); }
+  });
   it("exposes the complete File menu and saves a new tab with a guarded destination", async () => {
     // Contract: .hickory-source/frontends/contract.md
     vi.mocked(api.files).mockResolvedValue({ root: "workspace", tree: [] });

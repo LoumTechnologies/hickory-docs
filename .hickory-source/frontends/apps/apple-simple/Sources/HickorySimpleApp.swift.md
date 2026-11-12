@@ -3,7 +3,7 @@
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
-The new app has its own product identity and window. A terminal launch must explicitly adopt the regular macOS activation policy before launch finishes, then activate once its workspace window appears. Otherwise the process can finish building and run without a discoverable foreground app. Activation runs at startup, independently of the backend connection. Launch Services owns the app process, so a development-only host PID makes the app stop when its launcher exits. That explicit Ctrl-C teardown ends the session; ordinary app Quit still checks unsaved buffers. Mac commands match the browser menu. Native window close and application termination refuse while any buffer is dirty or saving, rather than losing edits behind a closed tab.
+The new app has its own product identity and window. A terminal launch must explicitly adopt the regular macOS activation policy before launch finishes, then activate once its workspace window appears. Otherwise the process can finish building and run without a discoverable foreground app. Activation runs at startup, independently of the backend connection. Launch Services owns the app process, so a development-only host PID makes the app stop when its launcher exits. That explicit Ctrl-C teardown ends the session; ordinary app Quit still checks unsaved buffers. Mac commands match the browser menu. Cmd+N creates a tab; Cmd+Shift+N creates a window. Native window close and application termination refuse while any buffer is dirty or saving, rather than losing edits behind a closed tab.
 
 File commands act on the connected workspace: path entry opens a file or directory, New Tab keeps an unnamed buffer, and Save As exclusively creates a new destination before a hash-checked write. Existing destinations are never overwritten by Save As. Save All visits each named buffer; unnamed drafts ask for a path and failed saves retain their original edits. Refresh observes the tree without replacing open buffers.
 
@@ -33,7 +33,7 @@ import SwiftUI
                 Button("Connect…") { NotificationCenter.default.post(name: .simpleConnect, object: nil) }
                 Button("Open File") { workspace.chooseFileCommand("Open File") }.keyboardShortcut("o")
                 Button("Open Directory") { workspace.chooseFileCommand("Open Directory") }.keyboardShortcut("o", modifiers: [.command, .shift])
-                Button("New Tab") { workspace.newTab() }.keyboardShortcut("t")
+                Button("New Tab") { workspace.newTab() }.keyboardShortcut("n")
                 Button("New Window") { openWindow(id: "workspace") }.keyboardShortcut("n", modifiers: [.command, .shift])
             }
             CommandGroup(replacing: .saveItem) {

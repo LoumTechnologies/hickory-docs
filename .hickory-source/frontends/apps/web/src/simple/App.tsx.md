@@ -11,7 +11,7 @@ Pane content classifies internal tab drags before embedded text controls can con
 
 Each tab accepts a drop before itself; the surrounding strip remains the append target. Stop tab-drop bubbling so its parent cannot append the same tab afterward. An absolutely positioned insertion mark does not change tab widths or move editor content. Only layout identities change.
 
-File commands act on the connected workspace: path entry opens a file or directory, New Tab keeps an unnamed buffer, and Save As exclusively creates a new destination before a hash-checked write. Existing destinations are never overwritten by Save As. Save All visits each named buffer; unnamed drafts ask for a path and failed saves retain their original edits. Refresh observes the tree without replacing open buffers.
+File commands act on the connected workspace: path entry opens a file or directory, New Tab (Ctrl+N or Cmd+N) keeps an unnamed buffer, and Save As exclusively creates a new destination before a hash-checked write. Existing destinations are never overwritten by Save As. Save All visits each named buffer; unnamed drafts ask for a path and failed saves retain their original edits. Refresh observes the tree without replacing open buffers.
 
 <ui:copy id="simple-e8a50a27b2-0">
 import { TooltipLayer } from "../components/TooltipLayer";
@@ -156,10 +156,17 @@ export function App() {
     setLayout(current => move(current, active, target)); setFocused(target);
   }
   useEffect(() => {
-    const save = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key === "s") { event.preventDefault(); void saveCurrent(); } };
-    window.addEventListener("keydown", save); return () => window.removeEventListener("keydown", save);
-  }, [buffer]);
+    const command = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      if (!event.shiftKey && !event.altKey && event.key.toLowerCase() === "n") {
+        event.preventDefault(); newTab();
+      } else if (event.key === "s") { event.preventDefault(); void saveCurrent(); }
+    };
+    window.addEventListener("keydown", command); return () => window.removeEventListener("keydown", command);
+  }, [buffer, layout, focused]);
 </ui:copy>
+
+The window keyboard handler consumes Ctrl/Cmd+N before the browser default and uses the current layout and focused group so the draft opens beside the active document. Shift and Alt combinations remain available for other commands.
 
 Menu and tab-strip commands expose the same operations as native menus. Empty leaves accept drops. Recursive splits retain arbitrary arrangements; resizing updates only their proportions.
 

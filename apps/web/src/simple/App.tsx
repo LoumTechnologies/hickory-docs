@@ -140,9 +140,14 @@ export function App() {
     setLayout(current => move(current, active, target)); setFocused(target);
   }
   useEffect(() => {
-    const save = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key === "s") { event.preventDefault(); void saveCurrent(); } };
-    window.addEventListener("keydown", save); return () => window.removeEventListener("keydown", save);
-  }, [buffer]);
+    const command = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      if (!event.shiftKey && !event.altKey && event.key.toLowerCase() === "n") {
+        event.preventDefault(); newTab();
+      } else if (event.key === "s") { event.preventDefault(); void saveCurrent(); }
+    };
+    window.addEventListener("keydown", command); return () => window.removeEventListener("keydown", command);
+  }, [buffer, layout, focused]);
   const label = (tab: string) => tab === "files" ? "Files" : tab === "agent" ? "Agent" : tab === "terminal" ? "Terminal" : `${buffers.values.get(tab)?.file.name ?? tab.split("/").at(-1)}${buffers.values.get(tab)?.dirty ? " •" : ""}`;
   function content(tab: string) {
     if (tab === "files") return <div className="file-tree" aria-label="Files"><Tree nodes={tree} open={open} /></div>;

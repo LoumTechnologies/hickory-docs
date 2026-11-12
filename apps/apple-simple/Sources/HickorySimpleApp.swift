@@ -23,7 +23,7 @@ import SwiftUI
                 Button("Connect…") { NotificationCenter.default.post(name: .simpleConnect, object: nil) }
                 Button("Open File") { workspace.chooseFileCommand("Open File") }.keyboardShortcut("o")
                 Button("Open Directory") { workspace.chooseFileCommand("Open Directory") }.keyboardShortcut("o", modifiers: [.command, .shift])
-                Button("New Tab") { workspace.newTab() }.keyboardShortcut("t")
+                Button("New Tab") { workspace.newTab() }.keyboardShortcut("n")
                 Button("New Window") { openWindow(id: "workspace") }.keyboardShortcut("n", modifiers: [.command, .shift])
             }
             CommandGroup(replacing: .saveItem) {
