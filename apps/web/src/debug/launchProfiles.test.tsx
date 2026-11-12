@@ -20,6 +20,13 @@ it("uses the one discovered app while keeping the viewed library as the debug so
   expect(request).toHaveBeenCalledWith("POST","/api/launch-profiles",{uri:"hick-project:///a/library.py"});
 });
 // Guarantee: docs/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project.md
+it("starts the clicked Simple UI program among several applications without a picker",async()=>{
+  vi.mocked(request).mockResolvedValue(catalog([{...profile("other"),program:"other.py",default:true},profile("clicked")]));
+  render(<LaunchProfiles/>); const start=vi.fn();
+  await launchWithProfiles({uri:"hick:///source.md",program:"app.py"},start,{preferProgram:true});
+  expect(start).toHaveBeenCalledWith({id:"clicked",fingerprint:"one",name:"clicked"});
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
 it("shows an overlay choice for ambiguous targets and remembers the profile without its old project version",async()=>{
   vi.mocked(request).mockResolvedValue(catalog([profile("a"),profile("b")]));
   render(<LaunchProfiles/>);

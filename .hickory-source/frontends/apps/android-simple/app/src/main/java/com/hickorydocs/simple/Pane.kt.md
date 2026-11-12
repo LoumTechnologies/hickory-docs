@@ -969,6 +969,8 @@ explicit actions and do not become overflow content.
 
 BasicTextField reports its real text layout after readable content exists. We use that result and the existing scroll state to position one action per visible logical line, ignoring wrapped continuation rows. A ⋯ popover holds a grid of debug controls instead of stacking icons over later lines. Paused highlighting is an output transformation and values float beside the rail; neither changes the TextFieldState, selection or undo. Source changes hide positional observations until the run and displayed source agree.
 
+A successful gutter launch leaves the detail popover closed: the clicked line already supplied the target. Open details only when preparation needs a choice or reports a refusal; inspection controls remain explicitly available beside the line.
+
 <ui:copy id="simple-android-debug-rail">
 fun debugLineOffset(source: String, line: Int): Int? {
     if (line < 0) return null
@@ -1010,7 +1012,7 @@ fun debugLineOffset(source: String, line: Int): Int? {
                 if (top < 0 || top > height) continue
                 val held = debug.breakpoints[buffer.file.path]?.firstOrNull { it.optInt("line", -1) == line }
                 val actions = mutableListOf<Triple<String, String, () -> Unit>>()
-                if (buffer.inlineMarkup.source == source && buffer.inlineMarkup.debug.launch[line] != null) actions.add(Triple("▷", "Debug", { scope.launch { debug.prepare(buffer, line); opened = line } }))
+                if (buffer.inlineMarkup.source == source && buffer.inlineMarkup.debug.launch[line] != null) actions.add(Triple("▷", "Debug", { scope.launch { debug.prepare(buffer, line); opened = if (debug.active) null else line } }))
                 if (buffer.inlineMarkup.source == source && buffer.inlineMarkup.equations.any { it.line == line }) actions.add(Triple("ƒ", "Edit equation", { opened = line }))
                 if (buffer.receiptsOn(line).isNotEmpty()) actions.add(Triple("▤", "Recorded output", { opened = line }))
                 if (line == paused) {

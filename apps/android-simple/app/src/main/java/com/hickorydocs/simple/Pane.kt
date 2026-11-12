@@ -878,7 +878,7 @@ fun debugLineOffset(source: String, line: Int): Int? {
                 if (top < 0 || top > height) continue
                 val held = debug.breakpoints[buffer.file.path]?.firstOrNull { it.optInt("line", -1) == line }
                 val actions = mutableListOf<Triple<String, String, () -> Unit>>()
-                if (buffer.inlineMarkup.source == source && buffer.inlineMarkup.debug.launch[line] != null) actions.add(Triple("▷", "Debug", { scope.launch { debug.prepare(buffer, line); opened = line } }))
+                if (buffer.inlineMarkup.source == source && buffer.inlineMarkup.debug.launch[line] != null) actions.add(Triple("▷", "Debug", { scope.launch { debug.prepare(buffer, line); opened = if (debug.active) null else line } }))
                 if (buffer.inlineMarkup.source == source && buffer.inlineMarkup.equations.any { it.line == line }) actions.add(Triple("ƒ", "Edit equation", { opened = line }))
                 if (buffer.receiptsOn(line).isNotEmpty()) actions.add(Triple("▤", "Recorded output", { opened = line }))
                 if (line == paused) {

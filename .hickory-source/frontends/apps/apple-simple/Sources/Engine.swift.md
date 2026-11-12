@@ -455,6 +455,8 @@ Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet
 
 The native client uses the engine's binary 0x03 channel, whose line numbers already refer to document source. Launch resolution sends the displayed saved bytes to the existing profile endpoint. A socket generation and session identity reject late messages. Sending a control never retries a mutation; disconnects clear live observations. A workspace-owned controller survives tab switches, and cross-file stops ask the workspace to reveal the adapter's source line. The transport starts only on an explicit launch, independently of readable text.
 
+The gutter has already selected a file block. After validating its saved bytes, launch the matching program immediately; a sole application also needs no confirmation. Keep the picker only when discovery cannot identify that program and several applications remain. Automatic launch goes through the same fingerprint, buffer and session guards as a manual choice.
+
 <ui:copy id="simple-apple-debug-session">
 func nativeDebugURI(_ path: String) -> String { "hick:///" + path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) }
 struct DebugLine: Equatable { var line: Int; var y: Double; var height: Double }
@@ -466,7 +468,7 @@ struct NativeDebugRender: Decodable {
     struct Block: Decodable { var kind: String; var path: String?; var span: [Int]? }
     var blocks: [Block]
 }
-struct NativeDebugCatalog: Decodable { var profiles: [NativeDebugProfile]; var fingerprint: String }
+struct NativeDebugCatalog: Decodable { var profiles: [NativeDebugProfile]; var fingerprint: String; var viewed: String? }
 @MainActor @Observable final class NativeDebugger {
     var status = "idle"
     var message = ""
@@ -537,6 +539,7 @@ struct NativeDebugCatalog: Decodable { var profiles: [NativeDebugProfile]; var f
             let result: NativeDebugCatalog = try await engine.request("POST", "/api/launch-profiles", body: query)
             guard epoch == current, buffer.text == launchSource, !buffer.dirty else { return }
             catalog = result; profiles = result.profiles.filter(\.can_debug)
+            if let automatic = profiles.first(where: { $0.program == (target ?? result.viewed ?? owner) }) ?? (profiles.count == 1 ? profiles.first : nil) { launch(automatic); return }
             message = profiles.isEmpty ? "No debug launch targets. Configure a debug profile in this project and try again." : "Choose a debug target."
         } catch { if epoch == current { message = "\(error.localizedDescription) Save or refresh this file and try debugging again." } }
     }

@@ -32,7 +32,7 @@ function choose(catalog?: Catalog, error?: string, contextLabel?: string, notice
 
 /** The only frontend Run/Debug profile resolution path. Remember the target, never its version. */
 export async function launchWithProfiles(query: LaunchQuery, onDebug: (selection: LaunchSelection) => void,
-  options: {choose?: boolean; isCurrent?: () => boolean; contextLabel?: string} = {}): Promise<void> {
+  options: {choose?: boolean; preferProgram?: boolean; isCurrent?: () => boolean; contextLabel?: string} = {}): Promise<void> {
   const key = JSON.stringify(query);
   if(pending.has(key))return;
   pending.add(key);
@@ -42,9 +42,10 @@ export async function launchWithProfiles(query: LaunchQuery, onDebug: (selection
     const candidates = catalog.profiles.filter(p=>p.can_debug);
     const last=remembered.get(memory), known=catalog.profiles.find(p=>p.id===last);
     const unavailable=!!last && !known;
-    const preferred = known ?? catalog.profiles.find(p=>p.default);
+    const clicked = options.preferProgram ? candidates.find(p=>p.program === (query.program ?? catalog.viewed)) : undefined;
+    const preferred = clicked ?? known ?? catalog.profiles.find(p=>p.default);
     const automatic = preferred?.can_debug ? preferred : !preferred && candidates.length===1 ? candidates[0] : null;
-    const choice = !options.choose && !unavailable && automatic ? {profile:automatic,mode:"debug" as const} : await choose(catalog,undefined,options.contextLabel,unavailable?"The previous profile is unavailable in this project version. Choose another target.":undefined);
+    const choice = !options.choose && (!unavailable || clicked) && automatic ? {profile:automatic,mode:"debug" as const} : await choose(catalog,undefined,options.contextLabel,unavailable?"The previous profile is unavailable in this project version. Choose another target.":undefined);
     if(!choice)return;
     if(options.isCurrent && !options.isCurrent())throw new Error("The displayed code changed. Open Launch profiles again after saving or reloading it.");
     remembered.set(memory,choice.profile.id);

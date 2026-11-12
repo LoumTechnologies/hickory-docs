@@ -161,6 +161,8 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
             val result = engine.request("POST", "/api/launch-profiles", query)
             if (epoch != current || buffer.text != launchSource || buffer.dirty) return
             catalog = result; profiles = result.getJSONArray("profiles").objects().filter { it.optBoolean("can_debug") }
+            val automatic = profiles.firstOrNull { it.optString("program") == (target ?: result.optString("viewed", owner)) } ?: profiles.singleOrNull()
+            if (automatic != null) { launch(automatic); return }
             message = if (profiles.isEmpty()) "No debug launch targets. Configure a debug profile in this project and try again." else "Choose a debug target."
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
         catch (failure: Exception) { if (epoch == current) message = "${failure.message} Save or refresh this file and try debugging again." }

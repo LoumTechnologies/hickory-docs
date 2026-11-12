@@ -15,6 +15,7 @@ import { undo, isolateHistory } from "@codemirror/commands";
 import { currentCompletions } from "@codemirror/autocomplete";
 import { Document, simpleWordOffset, simpleWordMove, simpleFoldRanges, openFind, simpleIndent, simpleTab } from "./Document";
 vi.mock("../debug/launchProfiles", () => ({ launchWithProfiles: vi.fn(async (_query, start, options) => { if (options.isCurrent()) start({ id: "test", fingerprint: "test" }); }) }));
+import { launchWithProfiles } from "../debug/launchProfiles";
 import { IDLE_SESSION } from "../debug/useDebugger";
 import { useFollowingDebugSession } from "../debug/plainDebugHosts";
 vi.mock("../debug/plainDebugHosts", () => ({ useFollowingDebugSession: vi.fn(() => null), PlainDebugHosts: () => null }));
@@ -340,6 +341,7 @@ describe("simple inline DAP debugging", () => {
     try {
       fireEvent.click(await screen.findByRole("button", { name: "Debug hello.py" }));
       await waitFor(() => expect(start).toHaveBeenCalledWith("hello.py", {}, undefined, { id: "test", fingerprint: "test" }));
+      expect(launchWithProfiles).toHaveBeenLastCalledWith(expect.objectContaining({ program: "hello.py" }), expect.any(Function), expect.objectContaining({ preferProgram: true }));
     } finally { screen.unmount(); vi.mocked(useFollowingDebugSession).mockReturnValue(null); }
   });
   it("attaches paused values and controls without replacing the editor or its undo", async () => {

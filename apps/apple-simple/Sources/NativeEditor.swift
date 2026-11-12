@@ -1352,7 +1352,7 @@ struct NativeDebugRail: View {
         Button {
             opened = nil
             switch action {
-            case "debug": Task { await debug.prepare(buffer, line: line); details = line }
+            case "debug": Task { await debug.prepare(buffer, line: line); details = debug.active ? nil : line }
             case "continue", "over", "in", "out": debug.step(action)
             case "stop": debug.stop()
             default: details = line

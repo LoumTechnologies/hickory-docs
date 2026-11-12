@@ -348,7 +348,7 @@ class NativeDebugTest {
         var captured = JSONObject()
         listener.createContext("/api/launch-profiles") { exchange ->
             captured = JSONObject(exchange.requestBody.bufferedReader().readText())
-            val bytes = """{"profiles":[{"id":"python","name":"Python","can_debug":true,"program":"main.py"}],"fingerprint":"current"}""".toByteArray()
+            val bytes = """{"profiles":[{"id":"other","name":"Other","can_debug":true,"program":"other.py"},{"id":"python","name":"Python","can_debug":true,"program":"main.py"}],"fingerprint":"current"}""".toByteArray()
             exchange.sendResponseHeaders(200, bytes.size.toLong()); exchange.responseBody.use { it.write(bytes) }
         }
         listener.createContext("/api/docs/managed/render") { exchange ->
@@ -359,8 +359,10 @@ class NativeDebugTest {
         try {
             val buffer = DocumentBuffer(file(), FileText("value = 1\nprint(value)\n", "hash"))
             val requests = mutableListOf<JSONObject>(); debug.emitForTest = { requests.add(it) }
+            debug.toggle("main.py", 0, "value > 0")
             debug.prepare(buffer); assertEquals(buffer.text, captured.getString("expected_source"))
-            debug.toggle("main.py", 0, "value > 0"); debug.launch(debug.profiles.first())
+            assertEquals("starting", debug.status); assertTrue(debug.profiles.isEmpty())
+            assertEquals("python", requests.single().getJSONObject("profile").getString("id"))
             debug.receive(JSONObject("""{"event":"started","doc":"hick:///other.py","session":"wrong"}""")); assertNull(debug.sessionID)
             debug.receive(JSONObject("""{"event":"started","doc":"hick:///main.py","session":"ours","breakpoints":[{"line":0,"moved_to":1,"state":"bound"}]}"""))
             assertEquals("value > 0", debug.breakpoints["main.py"]!!.first().getString("condition"))
@@ -376,7 +378,7 @@ class NativeDebugTest {
             debug.evaluate("value", true); assertEquals(7, requests.last().getInt("frame"))
             debug.step("over"); assertEquals("over", requests.last().getString("how")); assertTrue(debug.variables.isEmpty())
             debug.receive(JSONObject("""{"event":"value","session":"ours","expression":"value","value":"old"}""")); assertTrue(debug.values.isEmpty())
-            debug.close(); debug.prepare(buffer); debug.launch(debug.profiles.first()); requests.clear(); debug.stop()
+            debug.close(); debug.prepare(buffer); requests.clear(); debug.stop()
             assertEquals("stopping", debug.status); assertTrue(requests.isEmpty())
             debug.receive(JSONObject("""{"event":"started","doc":"hick:///main.py","session":"late","breakpoints":[]}"""))
             assertEquals("stop", requests.last().getString("op")); assertEquals("late", requests.last().getString("session"))
@@ -393,7 +395,7 @@ class NativeDebugTest {
         val engine = Engine(origin!!); val file = FileNode("debug.py", "debug.py", false, emptyList(), null, null)
         val loaded = engine.file(file); val buffer = DocumentBuffer(file, loaded); val debug = NativeDebugger(engine, this)
         try {
-            debug.prepare(buffer); assertTrue(debug.message, debug.profiles.isNotEmpty()); debug.toggle(file.path, 1); debug.launch(debug.profiles.first())
+            debug.toggle(file.path, 1); debug.prepare(buffer)
             suspend fun paused() { repeat(200) { if (debug.status == "paused" || debug.status == "failed") return; kotlinx.coroutines.delay(50) } }
             paused(); assertEquals(debug.message, "paused", debug.status); debug.step("over"); paused()
             assertEquals(debug.message, "paused", debug.status); assertTrue(debug.variables.isNotEmpty())

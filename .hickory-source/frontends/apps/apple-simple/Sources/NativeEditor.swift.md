@@ -1428,6 +1428,8 @@ struct LanguageEditor: View {
 
 The fixed right rail measures actual visible logical lines, including wrapped text and scroll offset. Each line owns one button; the paused line uses a ⋯ popover with an adaptive grid of controls, so a tall action stack cannot move the next line's icon. Values appear as an overlay beside the stopped line and never enter the editable string. The same SwiftUI rail serves macOS and iOS. Native editor instances, selection and undo are untouched when debug events arrive.
 
+A successful gutter launch leaves the detail popover closed: the clicked line already supplied the target. Open details only when preparation needs a choice or reports a refusal; inspection controls remain explicitly available beside the line.
+
 <ui:copy id="simple-apple-debug-rail">
 struct InlineCellControl: View {
     var cell: InlineCell
@@ -1470,7 +1472,7 @@ struct NativeDebugRail: View {
         Button {
             opened = nil
             switch action {
-            case "debug": Task { await debug.prepare(buffer, line: line); details = line }
+            case "debug": Task { await debug.prepare(buffer, line: line); details = debug.active ? nil : line }
             case "continue", "over", "in", "out": debug.step(action)
             case "stop": debug.stop()
             default: details = line

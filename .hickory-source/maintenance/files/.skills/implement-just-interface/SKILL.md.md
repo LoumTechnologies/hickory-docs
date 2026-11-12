@@ -3,7 +3,7 @@
 
 For maintainers updating the repository’s agent guidance.
 
-This literal entry preserves the skill refresh committed in `efbe277f`. Keeping the
+This literal entry preserves the skill refresh, including commit-triggered development restarts. Keeping the
 installed guidance in the declared source makes regeneration reproduce the same
 instructions. Embedded Markdown and Hickory examples remain literal payload.
 
@@ -12,7 +12,8 @@ instructions. Embedded Markdown and Hickory examples remain literal payload.
 name: implement-just-interface
 description: >
   Add or standardize a repo-root justfile with commands appropriate to the
-  current repository. Use when asked to add just commands, give a repo a
+  current repository, including commit-triggered restarts for development
+  processes. Use when asked to add just commands, give a repo a
   standard task interface, rename nonstandard recipes, or maintain the shared
   command vocabulary.
   This skill is the ongoing reference for standard recipe names and behavior;
@@ -77,6 +78,9 @@ Treat `just` as the public interface to recurring repository operations. People 
    changed devenv/dev behavior when practical; report exactly what ran and
    what needs a device, GUI, credentials, or another supported OS. Adding a
    deploy/release/install recipe does not authorize executing it.
+   Validate automatic preparation from a fresh checkout or isolated copy with
+   project dependencies and generated outputs absent, then repeat to check
+   reuse. Do not delete the user's local dependencies or state for this check.
 
 ## Standard command contracts
 
@@ -87,7 +91,7 @@ These names are canonical for both new and existing interfaces. The same kind of
 | `default` | Show available recipes (`just --list`). Bare `just` must not build, install, launch, deploy, or delete anything. Ensure this is the actual default, not merely a recipe named `default` below a different first recipe. |
 | `devenv` | Prepare development dependencies and tooling using the repo's existing package manager and lockfiles. Safe to repeat. Document machine prerequisites separately. Rename `setup` to `devenv` and update callers; keep no alias. |
 | `doctor` | Diagnose required tools, versions, native SDKs, and local configuration; give actionable fixes and fail when requirements are missing. Do not silently install or change configuration. |
-| `dev` | Start the normal development experience using current source, including required local services. Build and open the app or start the appropriate development server as needed. State whether it opens a native window or serves a URL; clean up owned processes on exit unless project instructions require background mode. Consolidate `launch` and `dev-web` here when they serve this same goal. |
+| `dev` | Start the normal development experience using current source, including required local services. Build and open the app or start the appropriate development server as needed. State whether it opens a native window or serves a URL; restart on new commits as described below; clean up owned processes on exit unless project instructions require background mode. Consolidate `launch` and `dev-web` here when they serve this same goal. |
 | `check` | Fast, noninteractive feedback on the normal development scope: compile/type checks, static verification, and/or cheap tests as appropriate. Describe exclusions; do not imply this is all of CI. |
 | `test` | Run the normal automated test suite. Document excluded GUI, network, device, expensive, or ignored tests and expose meaningful ones separately. |
 | `lint` | Run configured linters; fail on violations. Keep automatic fixes explicit rather than silently changing source. |
@@ -114,8 +118,77 @@ These names are canonical for both new and existing interfaces. The same kind of
 | `deploy-staging`, `promote-production`, `teardown-staging`, `launch-state` | Use only for repos with these operational capabilities; retain their environment, approval, and data-safety contracts. `launch-state` reports release readiness; it is distinct from running the app with `dev`. |
 | `unstable-release` | Explicit release-channel operation when supported. Rename `release-unstable` to `unstable-release` and update its callers; remove the old entrypoint. State signing, upload, and credential requirements. |
 
+## Restart development processes on commits
+
+Make `dev` and other restartable, long-running local development commands
+restart automatically when the current checkout's commit changes. Include
+independently useful scoped development servers and bridges when safe to
+restart. Keep this behavior inside the canonical command; do not require a
+second public watch command. Preserve existing source-file hot reload where
+available: a commit adds a full restart, while saving files alone must not
+trigger this new supervisor.
+
+- Start immediately, then observe the resolved commit ID of this worktree's
+  `HEAD` (for example, `git rev-parse --verify HEAD`). Detect successful commits,
+  amends, and commit changes from checkout, reset, merge, or rebase. Ignore
+  changes confined to other worktrees. Support an unborn branch becoming its
+  first commit. Observe Git state without installing hooks or assuming `.git`
+  is a directory; worktrees, detached HEAD, and packed refs must work. A small
+  polling supervisor is sufficient; do not watch only `.git/HEAD`, whose
+  contents often stay unchanged when a branch advances.
+- On a changed commit, stop the owned process tree, wait for shutdown, rerun
+  required preparation/build steps, and start the app again with the original
+  arguments and environment. Coalesce rapid changes to the latest observed
+  commit and check again after startup so commits during a build are not lost.
+  Never overlap app instances or leave children holding ports. For native apps
+  whose launch command exits immediately, explicitly own and stop the launched
+  app; supervising only the launcher cannot restart the app reliably.
+- Keep the supervisor in the foreground. Ctrl-C or termination stops both it
+  and its owned children without another restart. Surface startup/build/runtime
+  failures; do not spin on the same failed revision. Waiting for the next commit
+  to retry is acceptable if the failure remains visible and documented.
+- Run against the current working tree, including any uncommitted edits. This
+  is a restart trigger, not an isolated committed snapshot: do not stash, reset,
+  clean, or change branches to implement it. Document that existing hot reload
+  can still show edits before a commit. Outside a Git checkout, either run once
+  with an explicit notice or fail with actionable guidance.
+- Keep one-shot commands (`check`, `test`, `build`, `ci`, formatting, generation)
+  one-shot. Do not automatically repeat installs, phone updates, releases,
+  deployments, destructive commands, or other external mutations. Document a
+  concrete reason when an otherwise eligible development command cannot safely
+  restart. Reuse existing lifecycle ownership from `$implement-dev-environment`
+  when present, and use the implementation-language/platform rules below.
+
+Verify the supervisor in a disposable Git repo with a harmless long-running
+child: initial launch, save without commit (no new full restart), new commit,
+amend, rapid commits including one during startup, failure followed by a new
+commit, and Ctrl-C cleanup. Check worktree Git resolution and that the old
+process tree exits before its replacement starts. Exercise the actual app
+restart when practical; report platform or GUI limitations. Document the
+trigger, shutdown behavior, failure recovery, and any exclusions in the target
+repo's developer docs.
+
 ## Names, implementation, and scope
 
+- Every operational recipe must do everything necessary for its documented
+  operation once machine prerequisites are installed. Never require the caller
+  to run `devenv`, install project dependencies, build another component,
+  generate required files, or start required local services first. Wire those
+  steps into recipe dependencies or shared preparation helpers. This applies
+  to scoped recipes and direct invocations as well as aggregate commands.
+  Keep `default` discovery-only and `doctor` diagnostic-only; `clean` must not
+  prepare artifacts it is about to remove. Preparation must still respect
+  each command's contract, including codegen drift checks and permissions for
+  external operations.
+- Distinguish machine prerequisites (such as the package manager, compiler,
+  Docker runtime, or native SDK) from project-local preparation (such as
+  `node_modules`, a virtual environment, repo-pinned CLI tools, generated
+  assets, and service initialization). Diagnose missing machine prerequisites
+  with actionable instructions; install or prepare project-local requirements
+  automatically using the repo's existing tools and lockfiles. For example,
+  `just dev` in a pnpm/Tauri project must install missing workspace dependencies
+  before invoking the local Tauri CLI, so a fresh checkout cannot fail with
+  `tauri: command not found` merely because `node_modules` is absent.
 - Use short lowercase kebab-case names and the canonical unqualified command
   for the primary product. A genuinely distinct component or focused feature
   uses `<scope>-<canonical-command>`: `studio-dev`, `studio-check`, `studio-build`,
@@ -131,8 +204,10 @@ These names are canonical for both new and existing interfaces. The same kind of
   under its standard name.
 - Private helpers such as `_ensure-node` are implementation details. Dependency
   preparation should detect missing or stale dependencies, respect lockfiles, and
-  avoid reinstalling on every invocation. Never turn `devenv` into an implicit
-  package upgrade or overwrite local configuration.
+  avoid reinstalling on every invocation. Share this preparation with `devenv`;
+  it is an explicit way to prepare the environment, not a mandatory first step.
+  Never turn preparation into an implicit package upgrade or overwrite local
+  configuration. Stop on preparation failure before running the dependent tool.
 - Use recipe dependencies for reusable prerequisites and existing runner
   filters for focused work. Do not add a public command for every temporary
   debugging invocation. Give a named recipe to a durable, recurring workflow.

@@ -112,12 +112,12 @@ function choose(catalog?: Catalog, error?: string, contextLabel?: string, notice
 <a id="f-1a7a9a03aa8d-launchWithProfiles"></a>
 ### `launchWithProfiles`
 
-The only frontend Run/Debug profile resolution path. Remember the target, never its version.
+Simple UI gutter gestures already identify a program: prefer that exact program over remembered or default applications elsewhere in the project. Keep profile fingerprint and displayed-source checks before launch. Other callers retain their existing selection policy, and explicit profile selection still opens the overlay.
 
 <storycode:copy id="f-1a7a9a03aa8d-launchWithProfiles">
 /** The only frontend Run/Debug profile resolution path. Remember the target, never its version. */
 export async function launchWithProfiles(query: LaunchQuery, onDebug: (selection: LaunchSelection) => void,
-  options: {choose?: boolean; isCurrent?: () => boolean; contextLabel?: string} = {}): Promise<void> {
+  options: {choose?: boolean; preferProgram?: boolean; isCurrent?: () => boolean; contextLabel?: string} = {}): Promise<void> {
   const key = JSON.stringify(query);
   if(pending.has(key))return;
   pending.add(key);
@@ -127,9 +127,10 @@ export async function launchWithProfiles(query: LaunchQuery, onDebug: (selection
     const candidates = catalog.profiles.filter(p=>p.can_debug);
     const last=remembered.get(memory), known=catalog.profiles.find(p=>p.id===last);
     const unavailable=!!last && !known;
-    const preferred = known ?? catalog.profiles.find(p=>p.default);
+    const clicked = options.preferProgram ? candidates.find(p=>p.program === (query.program ?? catalog.viewed)) : undefined;
+    const preferred = clicked ?? known ?? catalog.profiles.find(p=>p.default);
     const automatic = preferred?.can_debug ? preferred : !preferred && candidates.length===1 ? candidates[0] : null;
-    const choice = !options.choose && !unavailable && automatic ? {profile:automatic,mode:"debug" as const} : await choose(catalog,undefined,options.contextLabel,unavailable?"The previous profile is unavailable in this project version. Choose another target.":undefined);
+    const choice = !options.choose && (!unavailable || clicked) && automatic ? {profile:automatic,mode:"debug" as const} : await choose(catalog,undefined,options.contextLabel,unavailable?"The previous profile is unavailable in this project version. Choose another target.":undefined);
     if(!choice)return;
     if(options.isCurrent && !options.isCurrent())throw new Error("The displayed code changed. Open Launch profiles again after saving or reloading it.");
     remembered.set(memory,choice.profile.id);
@@ -282,6 +283,13 @@ it("uses the one discovered app while keeping the viewed library as the debug so
 
 <storycode:copy id="f-af7d3cd605b8-expression_statement-6">
 // Guarantee: docs/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project.md
+it("starts the clicked Simple UI program among several applications without a picker",async()=>{
+  vi.mocked(request).mockResolvedValue(catalog([{...profile("other"),program:"other.py",default:true},profile("clicked")]));
+  render(<LaunchProfiles/>); const start=vi.fn();
+  await launchWithProfiles({uri:"hick:///source.md",program:"app.py"},start,{preferProgram:true});
+  expect(start).toHaveBeenCalledWith({id:"clicked",fingerprint:"one",name:"clicked"});
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
 it("shows an overlay choice for ambiguous targets and remembers the profile without its old project version",async()=>{
   vi.mocked(request).mockResolvedValue(catalog([profile("a"),profile("b")]));
   render(<LaunchProfiles/>);

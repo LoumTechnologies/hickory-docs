@@ -116,6 +116,8 @@ Both file save forms carry the original baseline. Agent methods use the same wor
 
 OkHttp carries the same binary 0x03 session protocol used by Apple and the browser. The ViewModel owns this controller and its coroutine scope, so hiding a pane cannot cancel its debuggee. Socket callbacks publish on the UI scope only after checking the connection generation. Session identity filters late events, controls are never replayed after failure, and launch profiles bind the request to the displayed saved source. Debugger traffic never edits a buffer.
 
+The gutter has already selected a file block. After validating its saved bytes, launch the matching program immediately; a sole application also needs no confirmation. Keep the picker only when discovery cannot identify that program and several applications remain. Automatic launch goes through the same fingerprint, buffer and session guards as a manual choice.
+
 <ui:copy id="simple-android-debug-session">
 fun debugURI(path: String): String = "hick:///" + path.trimStart('/')
 data class NativeDebugTarget(val path: String, val line: Int, val end: Int)
@@ -183,6 +185,8 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
             val result = engine.request("POST", "/api/launch-profiles", query)
             if (epoch != current || buffer.text != launchSource || buffer.dirty) return
             catalog = result; profiles = result.getJSONArray("profiles").objects().filter { it.optBoolean("can_debug") }
+            val automatic = profiles.firstOrNull { it.optString("program") == (target ?: result.optString("viewed", owner)) } ?: profiles.singleOrNull()
+            if (automatic != null) { launch(automatic); return }
             message = if (profiles.isEmpty()) "No debug launch targets. Configure a debug profile in this project and try again." else "Choose a debug target."
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
         catch (failure: Exception) { if (epoch == current) message = "${failure.message} Save or refresh this file and try debugging again." }

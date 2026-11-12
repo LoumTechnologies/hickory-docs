@@ -417,7 +417,7 @@ struct NativeDebugRender: Decodable {
     struct Block: Decodable { var kind: String; var path: String?; var span: [Int]? }
     var blocks: [Block]
 }
-struct NativeDebugCatalog: Decodable { var profiles: [NativeDebugProfile]; var fingerprint: String }
+struct NativeDebugCatalog: Decodable { var profiles: [NativeDebugProfile]; var fingerprint: String; var viewed: String? }
 @MainActor @Observable final class NativeDebugger {
     var status = "idle"
     var message = ""
@@ -488,6 +488,7 @@ struct NativeDebugCatalog: Decodable { var profiles: [NativeDebugProfile]; var f
             let result: NativeDebugCatalog = try await engine.request("POST", "/api/launch-profiles", body: query)
             guard epoch == current, buffer.text == launchSource, !buffer.dirty else { return }
             catalog = result; profiles = result.profiles.filter(\.can_debug)
+            if let automatic = profiles.first(where: { $0.program == (target ?? result.viewed ?? owner) }) ?? (profiles.count == 1 ? profiles.first : nil) { launch(automatic); return }
             message = profiles.isEmpty ? "No debug launch targets. Configure a debug profile in this project and try again." : "Choose a debug target."
         } catch { if epoch == current { message = "\(error.localizedDescription) Save or refresh this file and try debugging again." } }
     }

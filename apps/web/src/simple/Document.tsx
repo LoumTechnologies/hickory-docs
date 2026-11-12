@@ -239,7 +239,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
     const source = buffer.text, target = literate ? program : undefined;
     await launchWithProfiles({ uri: `hick:///${buffer.file.path}`, program: target, ...(literate ? { expected_document: source } : { expected_source: source }) },
       profile => debugRef.current.start(target, {}, undefined, profile),
-      { isCurrent: () => !!view?.dom.isConnected && buffer.text === source && !buffer.dirty && !buffer.saving });
+      { preferProgram: true, isCurrent: () => !!view?.dom.isConnected && buffer.text === source && !buffer.dirty && !buffer.saving });
   };
   return <div className="document-body">
     {csv && <button type="button" className="simple-source-toggle" onClick={() => setCsvSource(value => !value)}>{csvSource ? "Edit table as grid" : "Edit source text"}</button>}

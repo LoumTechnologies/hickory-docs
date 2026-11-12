@@ -142,14 +142,18 @@ final class NativeDebugTests: XCTestCase {
         let file = FileNode(name: "source.md", path: "source.md", dir: false, doc_id: "managed")
         let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "base"))
         ResponseProtocol.status = 200
-        ResponseProtocol.response = Data(#"{"profiles":[{"id":"python","name":"Python","can_debug":true,"program":"main.py"}],"fingerprint":"current"}"#.utf8)
+        ResponseProtocol.response = Data(#"{"profiles":[{"id":"other","name":"Other","can_debug":true,"program":"other.py"},{"id":"python","name":"Python","can_debug":true,"program":"main.py"}],"fingerprint":"current"}"#.utf8)
         defer { ResponseProtocol.responsesByPath = [:] }
         ResponseProtocol.responsesByPath["/api/docs/managed/render"] = try JSONSerialization.data(withJSONObject: ["blocks": [["kind": "file", "path": "main.py", "span": [8, source.utf8.count]]]])
+        var requests: [[String: Any]] = []; debug.emitForTest = { requests.append($0) }
+        defer { debug.close() }
         await debug.prepare(buffer, line: 2)
         XCTAssertEqual(ResponseProtocol.captured["program"] as? String, "main.py")
         XCTAssertEqual(ResponseProtocol.captured["expected_document"] as? String, source)
         XCTAssertNil(ResponseProtocol.captured["expected_source"])
-        XCTAssertEqual(debug.profiles.count, 1)
+        XCTAssertEqual(debug.status, "starting"); XCTAssertTrue(debug.profiles.isEmpty)
+        XCTAssertEqual((requests.last?["profile"] as? [String: Any])?["id"] as? String, "python")
+        debug.close()
         buffer.text += "edited"; await debug.prepare(buffer)
         XCTAssertTrue(debug.message.contains("Save this file")); XCTAssertFalse(debug.sourceMatches(buffer))
     }
@@ -158,8 +162,7 @@ final class NativeDebugTests: XCTestCase {
         let engine = try Engine(address: origin), file = FileNode(name: "debug.py", path: "debug.py", dir: false)
         let loaded = try await engine.file(file), buffer = DocumentBuffer(file: file, text: loaded)
         let debug = NativeDebugger(engine: engine); defer { debug.close() }
-        await debug.prepare(buffer); let profile = try XCTUnwrap(debug.profiles.first, debug.message)
-        debug.toggle(file.path, line: 1); debug.launch(profile)
+        debug.toggle(file.path, line: 1); await debug.prepare(buffer)
         for _ in 0..<200 { if debug.status == "paused" || debug.status == "failed" { break }; try await Task.sleep(for: .milliseconds(50)) }
         XCTAssertEqual(debug.status, "paused", debug.message)
         guard debug.status == "paused" else { return }
