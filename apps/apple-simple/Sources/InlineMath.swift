@@ -21,7 +21,7 @@ import WebKit
     }
 }
 // Inspect bundles without touching SwiftPM's fatal Bundle.module accessor.
-func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main]) -> URL? {
+func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main, Bundle(for: MathCoordinator.self)]) -> URL? {
     // Resource-only SwiftPM bundles need not initialize as Foundation Bundles.
     // Inspect their installed directories too, including macOS Contents layout.
     let installed = roots.flatMap { root in
@@ -38,7 +38,8 @@ func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main]) -> URL? {
 @MainActor func makeMathView(_ coordinator: MathCoordinator) -> WKWebView {
     let configuration = WKWebViewConfiguration(); configuration.websiteDataStore = .nonPersistent(); configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
     let view = WKWebView(frame: .zero, configuration: configuration); view.navigationDelegate = coordinator
-    let roots = [Bundle.main.resourceURL, Bundle.main.bundleURL,
+    let owner = Bundle(for: MathCoordinator.self)
+    let roots = [Bundle.main.resourceURL, Bundle.main.bundleURL, owner.resourceURL, owner.bundleURL,
         URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()].compactMap { $0 }
     let url = nativeMathResource(roots: roots)
     if let url { view.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent()) }

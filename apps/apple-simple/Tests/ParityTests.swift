@@ -656,7 +656,8 @@ final class ParityTests: XCTestCase {
         for _ in 0..<100 { if coordinator.ready { break }; try await Task.sleep(for: .milliseconds(100)) }
         XCTAssertTrue(coordinator.ready, "Local math page did not load")
         let rendered = try await view.evaluateJavaScript("Boolean(document.querySelector('.katex'))") as? Bool
-        XCTAssertEqual(rendered, true)
+        let status = try await view.evaluateJavaScript("document.body.innerText") as? String
+        XCTAssertEqual(rendered, true, "Preview URL: \(view.url?.path ?? "none"); status: \(status ?? "unavailable")")
         coordinator.source = #"\href{javascript:alert(1)}{click}"#; coordinator.display(view)
         let links = try await view.evaluateJavaScript("document.querySelectorAll('a').length") as? Int
         XCTAssertEqual(links, 0)
