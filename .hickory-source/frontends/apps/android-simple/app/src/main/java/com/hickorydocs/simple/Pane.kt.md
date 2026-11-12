@@ -1078,6 +1078,11 @@ fun debugLineOffset(source: String, line: Int): Int? {
     repeat(line) { val next = source.indexOf('\n', offset); if (next < 0) return null; offset = next + 1 }
     return offset
 }
+// The tooltip floats over the document; its anchor keeps the icon's slot.
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable private fun GutterHint(label: String, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    TooltipBox(modifier = modifier, positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState(), content = content)
+}
 @OptIn(ExperimentalLayoutApi::class)
 @Composable private fun NativeDebugRail(buffer: DocumentBuffer, debug: NativeDebugger, layout: TextLayoutResult?, scroll: ScrollState) {
     val density = LocalDensity.current
@@ -1133,14 +1138,16 @@ fun debugLineOffset(source: String, line: Int): Int? {
                 val visible = if (actions.size <= capacity) actions.size else maxOf(0, capacity - 1)
                 Box(Modifier.offset { IntOffset(0, top.toInt()) }) {
                     actions.take(visible).forEachIndexed { index, (glyph, label, run) ->
-                        Text(glyph, fontSize = 13.sp, modifier = Modifier.offset((index % columns * 22).dp, (index / columns * 20).dp).width(22.dp).height(18.dp).clickable(onClick = run).semantics { contentDescription = "$label on line ${line + 1}" })
+                        GutterHint(label, Modifier.offset((index % columns * 22).dp, (index / columns * 20).dp)) {
+                            Text(glyph, fontSize = 13.sp, modifier = Modifier.width(22.dp).height(18.dp).clickable(onClick = run).semantics { contentDescription = "$label on line ${line + 1}" })
+                        }
                     }
                     if (visible < actions.size) Box(Modifier.offset((visible % columns * 22).dp, (visible / columns * 20).dp)) {
-                        Text("⋯", modifier = Modifier.width(22.dp).height(18.dp).clickable { overflow = line }.semantics { contentDescription = "More gutter icons on line ${line + 1}" })
+                        GutterHint("More line actions") { Text("⋯", modifier = Modifier.width(22.dp).height(18.dp).clickable { overflow = line }.semantics { contentDescription = "More gutter icons on line ${line + 1}" }) }
                         DropdownMenu(expanded = overflow == line, onDismissRequest = { overflow = null }) {
                             Column(Modifier.padding(4.dp)) {
                                 actions.drop(visible).chunked(4).forEach { row -> Row { row.forEach { (glyph, label, run) ->
-                                    Text(glyph, modifier = Modifier.size(24.dp).clickable { overflow = null; run() }.semantics { contentDescription = label })
+                                    GutterHint(label) { Text(glyph, modifier = Modifier.size(24.dp).clickable { overflow = null; run() }.semantics { contentDescription = label }) }
                                 } } }
                             }
                         }
