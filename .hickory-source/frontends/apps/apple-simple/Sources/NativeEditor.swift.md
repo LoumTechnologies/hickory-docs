@@ -1542,7 +1542,13 @@ struct LanguageEditor: View {
                     Button("Edit tables as grids") { buffer.sourceTable = nil; buffer.tableSourceVisible = false }.buttonStyle(.bordered).padding(4)
                 }
             }.overlay {
-                Canvas { context, _ in
+                // Paint stopped execution independently of selection and text styling.
+                // The source guard retires positional facts as soon as displayed bytes change.
+                Canvas { context, size in
+                    if let debugger, debugger.sourceMatches(buffer), let line = debugger.line(in: buffer.file.path),
+                       let row = buffer.visibleDebugLines.first(where: { $0.line == line }) {
+                        context.fill(Path(CGRect(x: 0, y: row.y, width: size.width, height: row.height)), with: .color(.yellow.opacity(0.18)))
+                    }
                     for rect in buffer.multiRects { context.fill(Path(rect), with: .color(.accentColor.opacity(rect.width <= 2 ? 0.8 : 0.22))) }
                 }.allowsHitTesting(false).clipped()
             }
@@ -1706,7 +1712,7 @@ struct NativeDebugRail: View {
                     }
                     if visible < items.count {
                         Button("⋯") { opened = opened == row.line ? nil : row.line }
-                            .buttonStyle(.bordered).frame(width: 22, height: 18)
+                            .buttonStyle(.bordered).frame(width: 22, height: 18).help("More line actions")
                             .accessibilityLabel("More gutter icons on line \(row.line + 1)")
                             .position(x: CGFloat(visible % columns) * 22 + 11, y: row.y + 9 + CGFloat(visible / columns) * 20)
                             .popover(isPresented: Binding(get: { opened == row.line }, set: { if !$0 { opened = nil } })) {

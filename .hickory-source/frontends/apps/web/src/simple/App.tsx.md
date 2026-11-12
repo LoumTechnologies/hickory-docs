@@ -14,6 +14,7 @@ Each tab accepts a drop before itself; the surrounding strip remains the append 
 File commands act on the connected workspace: path entry opens a file or directory, New Tab keeps an unnamed buffer, and Save As exclusively creates a new destination before a hash-checked write. Existing destinations are never overwritten by Save As. Save All visits each named buffer; unnamed drafts ask for a path and failed saves retain their original edits. Refresh observes the tree without replacing open buffers.
 
 <ui:copy id="simple-e8a50a27b2-0">
+import { TooltipLayer } from "../components/TooltipLayer";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { PlainDebugHosts } from "../debug/plainDebugHosts";
@@ -172,6 +173,8 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
     return document ? <Document buffer={document} /> : null;
   }
   return <main>
+    {/* Shared gutter controls declare data-tip; mount their delegated reader here. */}
+    <TooltipLayer />
     <PlainDebugHosts />
     <RichOwners buffers={buffers} />
     <nav aria-label="Menu" onClick={event => { if ((event.target as HTMLElement).closest("button")) event.currentTarget.querySelectorAll("details[open]").forEach(menu => menu.removeAttribute("open")); }}><details><summary>File</summary><div className="menu">

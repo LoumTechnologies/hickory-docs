@@ -1,3 +1,4 @@
+import { TooltipLayer } from "../components/TooltipLayer";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { PlainDebugHosts } from "../debug/plainDebugHosts";
@@ -151,6 +152,8 @@ export function App() {
     return document ? <Document buffer={document} /> : null;
   }
   return <main>
+    {/* Shared gutter controls declare data-tip; mount their delegated reader here. */}
+    <TooltipLayer />
     <PlainDebugHosts />
     <RichOwners buffers={buffers} />
     <nav aria-label="Menu" onClick={event => { if ((event.target as HTMLElement).closest("button")) event.currentTarget.querySelectorAll("details[open]").forEach(menu => menu.removeAttribute("open")); }}><details><summary>File</summary><div className="menu">

@@ -137,6 +137,7 @@ footer { border-top: 1px solid GrayText; padding: 3px 9px; font-size: 11px; over
 }
 .cm-debug-rail .more-actions__items { display: grid; gap: 4px; }
 .cm-debug-rail .more-actions__items .debug-strip__error { position: static; width: auto; }
+.tip { position: fixed; z-index: 1000; max-width: 22rem; padding: 4px 8px; border: 1px solid GrayText; border-radius: 4px; background: Canvas; color: CanvasText; box-shadow: 0 4px 12px #0003; font-size: 12px; white-space: pre-wrap; pointer-events: none; }
 .cm-debug-value { color: GrayText; margin-left: 12px; font-style: italic; white-space: pre; }
 .cm-paused-line { background: color-mix(in srgb, Highlight 15%, Canvas); }
 .cm-paused-arrow { color: Highlight; }
