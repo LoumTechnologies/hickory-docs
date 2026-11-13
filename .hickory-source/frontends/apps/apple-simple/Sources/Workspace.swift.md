@@ -188,7 +188,7 @@ import Observation
     private var generation = UUID()
     var active: String? { layout.nodes[focused]?.active }
     var currentBuffer: DocumentBuffer? { active.flatMap { buffers[$0] } }
-    var hasUnsavedChanges: Bool { !agent.prompt.isEmpty || !terminal.input.isEmpty || agent.running || terminal.sending || buffers.values.contains { $0.dirty || $0.saving } || debugger?.active == true }
+    var hasUnsavedChanges: Bool { !agent.prompt.isEmpty || agent.running || buffers.values.contains { $0.dirty || $0.saving } || debugger?.active == true }
     func connect() async -> Bool {
         guard !connecting else { return false }
         guard !hasUnsavedChanges else { status = "Save documents and send or clear draft messages before changing workspace servers."; return false }

@@ -1,7 +1,7 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'nonce-hickory-math'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src data:;">
-<link rel="stylesheet" href="node_modules/xterm.css"><link rel="stylesheet" href="katex/katex.min.css"><style>html{height:100%;color-scheme:light dark;font:14px system-ui}body{margin:0;height:100%;overflow:hidden}body.terminal-mode{color-scheme:dark;height:100%;margin:0;background:#10151d;color:#e6edf3;overflow:hidden}.terminal-mode #formula{position:static;width:auto;transform:none!important;height:100%;box-sizing:border-box;padding:6px;overflow:hidden}.terminal-mode .xterm-cursor-layer{display:none}#formula{position:absolute;width:max-content;padding:8px;transform-origin:top left;box-sizing:border-box}#status{position:absolute;bottom:0;font-size:11px}#formula .katex-display{margin:0}.inline-math{font-size:13px}.inline-math #formula{padding:1px}.display-math #formula{padding:4px}</style>
+<link rel="stylesheet" href="node_modules/xterm.css"><link rel="stylesheet" href="katex/katex.min.css"><style>html{height:100%;color-scheme:light dark;font:14px system-ui}body{margin:0;height:100%;overflow:hidden}body.terminal-mode{color-scheme:dark;height:100%;margin:0;background:#10151d;color:#e6edf3;overflow:hidden}.terminal-mode #formula{position:static;width:auto;transform:none!important;height:100%;box-sizing:border-box;padding:6px;overflow:hidden}.terminal-mode:not(.interactive-terminal) .xterm-cursor-layer{display:none}#formula{position:absolute;width:max-content;padding:8px;transform-origin:top left;box-sizing:border-box}#status{position:absolute;bottom:0;font-size:11px}#formula .katex-display{margin:0}.inline-math{font-size:13px}.inline-math #formula{padding:1px}.display-math #formula{padding:4px}</style>
 </head><body><div id="formula" aria-label="Typeset equation"></div><div id="status" role="status"></div>
 <script nonce="hickory-math" src="node_modules/xterm.js"></script><script nonce="hickory-math" src="node_modules/addon-fit.js"></script><script nonce="hickory-math" src="katex/katex.min.js"></script><script nonce="hickory-math" src="node_modules/mermaid.min.js"></script><script nonce="hickory-math">
 if (globalThis.hickoryTableMode || location.search === '?table') {
@@ -54,6 +54,33 @@ globalThis.renderNotebookOutput = function (source) {
   const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'node_modules/table.css'; document.head.append(css);
   const script = document.createElement('script'); script.src = 'node_modules/table.js'; script.nonce = 'hickory-math';
   script.onerror = () => { document.getElementById('status').textContent = 'Table renderer unavailable; output is shown as text.'; }; document.head.append(script);
+};
+// Interactive panes share xterm with output previews, but only this explicit
+// binding enables stdin. The host owns transport, session lifetime and errors.
+let interactiveTerminal;
+globalThis.startInteractiveTerminal = function () {
+  if (interactiveTerminal) return;
+  const node = document.getElementById('formula');
+  document.body.className = 'terminal-mode interactive-terminal';
+  node.setAttribute('aria-label', 'Terminal screen'); node.replaceChildren();
+  const post = message => {
+    if (globalThis.webkit?.messageHandlers?.terminal) webkit.messageHandlers.terminal.postMessage(message);
+    else if (globalThis.TerminalHost) TerminalHost.postMessage(JSON.stringify(message));
+  };
+  interactiveTerminal = new Terminal({convertEol:false, cursorBlink:true, fontSize:13, scrollback:5000, theme:{background:'#10151d',foreground:'#e6edf3'}});
+  const fit = new FitAddon.FitAddon(); interactiveTerminal.loadAddon(fit); interactiveTerminal.open(node);
+  interactiveTerminal.onData(data => post({kind:'input', data}));
+  let size = '';
+  const measure = () => {
+    if (!node.clientWidth || !node.clientHeight) return;
+    fit.fit();
+    const next = interactiveTerminal.rows + ':' + interactiveTerminal.cols;
+    if (size !== next) { size = next; post({kind:'resize',rows:interactiveTerminal.rows,cols:interactiveTerminal.cols}); }
+  };
+  new ResizeObserver(measure).observe(node); measure();
+};
+globalThis.writeInteractiveTerminal = function (base64) {
+  if (interactiveTerminal) interactiveTerminal.write(Uint8Array.from(atob(base64), c => c.charCodeAt(0)));
 };
 globalThis.renderTerminal = function (source) {
   const node = document.getElementById('formula'), status = document.getElementById('status');

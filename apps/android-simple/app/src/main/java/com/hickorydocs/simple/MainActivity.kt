@@ -34,7 +34,8 @@ class MainActivity : ComponentActivity() {
     }
     BackHandler(workspace.hasUnsavedChanges) { workspace.status = "Save your documents before leaving this workspace." }
     Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding().onPreviewKeyEvent {
-        if (it.type == KeyEventType.KeyDown && it.key == Key.S && (it.isCtrlPressed || it.isMetaPressed)) {
+        if (workspace.active == "terminal") false
+        else if (it.type == KeyEventType.KeyDown && it.key == Key.S && (it.isCtrlPressed || it.isMetaPressed)) {
             scope.launch { workspace.save() }; true
         } else if (it.type == KeyEventType.KeyDown && it.key == Key.F && (it.isCtrlPressed || it.isMetaPressed)) {
             workspace.currentBuffer?.showFind = true; workspace.currentBuffer != null

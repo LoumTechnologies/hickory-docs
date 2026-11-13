@@ -178,7 +178,7 @@ class Workspace : ViewModel() {
     val terminal = TerminalSession()
     val active get() = layout.nodes[focused]?.active
     val currentBuffer get() = buffers[active]
-    val hasUnsavedChanges get() = agent.prompt.isNotEmpty() || terminal.input.isNotEmpty() || agent.running || terminal.sending || buffers.values.any { it.dirty || it.saving } || debugger?.active == true
+    val hasUnsavedChanges get() = agent.prompt.isNotEmpty() || agent.running || buffers.values.any { it.dirty || it.saving } || debugger?.active == true
     suspend fun connect(): Boolean {
         if (connecting) return false
         if (hasUnsavedChanges) { status = "Save documents and send or clear draft messages before changing workspace servers."; return false }

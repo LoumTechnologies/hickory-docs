@@ -761,19 +761,12 @@ describe("simple frontend save safety", () => {
   });
 });
 describe("terminal and agent tab identity", () => {
-  it("opens the terminal once and retains unsent input when shown again", async () => {
+  // Contract: .hickory-source/frontends/contract.md — attaching is not spawning.
+  it("opens the terminal once when shown again", async () => {
     vi.mocked(api.openTerminal).mockResolvedValueOnce({ id: "pty" } as Awaited<ReturnType<typeof api.openTerminal>>);
-    const session = new TerminalSession(); session.input = "pending input";
+    const session = new TerminalSession();
     await session.open(); await session.open();
-    expect(api.openTerminal).toHaveBeenCalledTimes(1); expect(session.id).toBe("pty"); expect(session.input).toBe("pending input");
-  });
-  it("retains input after a refused terminal write without retry", async () => {
-    vi.mocked(api.terminalInput).mockRejectedValueOnce(new Error("disconnected"));
-    const session = new TerminalSession(); session.id = "pty"; session.input = "echo hello";
-    await session.send();
-    expect(api.terminalInput).toHaveBeenCalledTimes(1);
-    expect(api.terminalInput).toHaveBeenLastCalledWith("pty", "echo hello\r");
-    expect(session.input).toBe("echo hello"); expect(session.error).toContain("not retried");
+    expect(api.openTerminal).toHaveBeenCalledTimes(1); expect(session.id).toBe("pty");
   });
 
 });

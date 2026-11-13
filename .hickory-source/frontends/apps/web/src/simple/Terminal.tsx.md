@@ -3,18 +3,18 @@
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
-The existing backend already emulates the terminal screen. All three first frontends show that same plain-text screen and submit line input, interrupt and end-of-input. Session creation is an explicit menu action, never a mount effect. Hiding or moving the tab does not kill its process or lose pending input. Full cursor-key/ANSI client emulation is outside this first matched terminal slice.
+Use xterm to interpret the PTY byte stream and encode keyboard, paste and control input. A single WebSocket preserves input ordering without dropping keystrokes while a REST write is in flight. The pane only attaches: the workspace retains the session identity, and a later mount receives retained replay before live output. Disconnects are visible and never replay input. Fit the emulator to the available rectangle and send its actual cell dimensions to the PTY; never infer cell width from a fixed pixel constant.
 
 <ui:copy id="simple-5d9f52220f-0">
 import { useEffect, useRef, useSyncExternalStore } from "react";
+import { Terminal as Emulator } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import "@xterm/xterm/css/xterm.css";
 import { api } from "../api/client";
 export class TerminalSession {
   id: string | null = null;
   opening = false;
-  input = "";
-  screen = "";
   error = "";
-  sending = false;
   private version = 0;
   private listeners = new Set<() => void>();
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
@@ -27,55 +27,53 @@ export class TerminalSession {
     catch (reason) { this.error = `${String(reason)} Check the terminal backend, then choose Terminal again.`; }
     finally { this.opening = false; this.publish(); }
   }
-  async send(data = this.input + "\r", clear = true) {
-    if (!this.id || this.sending) return;
-    const submitted = this.input, id = this.id;
-    this.sending = true; this.error = ""; this.publish();
-    try { await api.terminalInput(id, data); if (clear && this.input === submitted) this.input = ""; }
-    catch (reason) { this.error = `${String(reason)} Input was not retried. Check the screen before sending again.`; }
-    finally { this.sending = false; this.publish(); }
-  }
 }
+</ui:copy>
+
+Attach the terminal renderer only once a session exists. Preserve byte order through one socket; disposal removes listeners and the view without sending a process-close request. Report disconnected input rather than silently discarding it or reconnecting and replaying keys.
+
+<ui:copy id="simple-terminal-web-attachment">
 export function Terminal({ session }: { session: TerminalSession }) {
   useSyncExternalStore(session.subscribe, session.snapshot);
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const id = session.id;
-    if (!id) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const refresh = async () => {
-      try {
-        let offset = 0, revision = "";
-        const bytes: number[] = [];
-        for (;;) {
-          const page = await api.terminalScreen(id, offset, revision);
-          bytes.push(...page.bytes); revision = page.revision;
-          if (page.next === null) break;
-          offset = page.next;
-        }
-        if (!cancelled && session.id === id) { session.screen = new TextDecoder().decode(new Uint8Array(bytes)); session.publish(); }
-      } catch (reason) { if (!cancelled) { session.error = `${String(reason)} Reopen Terminal to reconnect to this session.`; session.publish(); } }
-      if (!cancelled) timer = setTimeout(refresh, 250);
-    };
-    const observer = new ResizeObserver(entries => {
-      const rect = entries[0]?.contentRect;
-      if (rect) void api.terminalResize(id, Math.max(1, Math.min(60, Math.floor(rect.height / 17))), Math.max(1, Math.min(160, Math.floor(rect.width / 8))))
-        .catch(reason => { session.error = `${String(reason)} Resize the pane to retry its terminal size.`; session.publish(); });
+    const id = session.id, mount = host.current;
+    if (!id || !mount) return;
+    const terminal = new Emulator({ convertEol: false, cursorBlink: true, fontSize: 13, scrollback: 5000,
+      theme: { background: "#10151d", foreground: "#e6edf3" } });
+    const fit = new FitAddon(); terminal.loadAddon(fit); terminal.open(mount);
+    const socket = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/terminals/ws?session=${encodeURIComponent(id)}`);
+    socket.binaryType = "arraybuffer";
+    let active = true;
+    const fail = (message: string) => { if (active) { session.error = message; session.publish(); } };
+    socket.onopen = () => { if (active) { session.error = ""; session.publish(); measure(); } };
+    socket.onmessage = event => { if (active) terminal.write(typeof event.data === "string" ? event.data : new Uint8Array(event.data)); };
+    socket.onclose = () => fail("Terminal disconnected. Choose another tab and reopen Terminal to reconnect. Input was not retried.");
+    socket.onerror = () => fail("Cannot connect to Terminal. Check the workspace connection and reopen the tab.");
+    const typed = terminal.onData(data => {
+      if (socket.readyState === WebSocket.OPEN) socket.send(data);
+      else fail("Terminal is disconnected. Input was not sent. Reopen the tab before typing again.");
     });
-    if (host.current) observer.observe(host.current);
-    void refresh();
-    return () => { cancelled = true; clearTimeout(timer); observer.disconnect(); };
+    let lastSize = "";
+    function measure() {
+      if (!active || !mount!.clientWidth || !mount!.clientHeight) return;
+      fit.fit();
+      const size = `${terminal.rows}:${terminal.cols}`;
+      if (lastSize === size) return;
+      lastSize = size;
+      void api.terminalResize(id!, terminal.rows, terminal.cols).catch(reason => {
+        lastSize = ""; fail(`${String(reason)} Resize the pane to retry its terminal size.`);
+      });
+    }
+    const observer = new ResizeObserver(measure); observer.observe(mount);
+    const frame = requestAnimationFrame(measure);
+    // Attaching never creates or closes the backend session. Replay comes from
+    // this socket before live bytes, including ANSI cursor and mode sequences.
+    return () => { active = false; cancelAnimationFrame(frame); observer.disconnect(); typed.dispose(); socket.close(); terminal.dispose(); };
   }, [session, session.id]);
   return <div className="terminal-body">
-    <div ref={host} className="terminal-screen"><pre aria-label="Terminal screen">{session.screen}</pre></div>
+    <div ref={host} className="terminal-screen" aria-label="Terminal screen" />
     {session.error && <div role="alert" className="notice">{session.error}</div>}
-    <form onSubmit={event => { event.preventDefault(); void session.send(); }}>
-      <input aria-label="Terminal input" value={session.input} onChange={event => { session.input = event.target.value; session.publish(); }} autoComplete="off" spellCheck={false} />
-      <button disabled={!session.id || session.sending}>Send</button>
-      <button type="button" disabled={!session.id || session.sending} onClick={() => { void session.send("\u0003", false); }}>Interrupt</button>
-      <button type="button" disabled={!session.id || session.sending} onClick={() => { void session.send("\u0004", false); }}>EOF</button>
-    </form>
   </div>;
 }
 </ui:copy>
@@ -84,6 +82,6 @@ export function Terminal({ session }: { session: TerminalSession }) {
 
 Keep construction order explicit; the explanations above describe the decisions at each boundary.
 
-<ui:file path="apps/web/src/simple/Terminal.tsx"><ui:paste select="#simple-5d9f52220f-0"/></ui:file>
+<ui:file path="apps/web/src/simple/Terminal.tsx"><ui:paste select="#simple-5d9f52220f-0"/><ui:paste select="#simple-terminal-web-attachment"/></ui:file>
 
 </ui:doc>

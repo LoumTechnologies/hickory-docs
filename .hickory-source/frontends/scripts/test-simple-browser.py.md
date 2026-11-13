@@ -339,15 +339,55 @@ def acceptance(driver, folder):
     driver.act("agent"); driver.act("draft", text="unsent message")
     driver.act("move")
     assert driver.act("read-draft") == "unsent message"
+    terminal_acceptance(driver)
+    driver.act("screenshot", path=str(ROOT / "target/simple-browser.png"))
+
+def terminal_acceptance(driver):
+    # Contract: .hickory-source/frontends/contract.md. Real PTY and real keys.
     driver.act("terminal")
     driver.act("terminal-draft", text="printf 'hickory-terminal-check\\n'")
     driver.act("terminal-send")
     eventually(lambda: "hickory-terminal-check" in driver.act("terminal-screen").splitlines(), True)
-    driver.act("terminal-draft", text="pending terminal input")
+    # Cursor editing belongs to the shell, rather than a second input widget.
+    driver.act("terminal-draft", text="printf 'cursor-X\\n'")
+    for _ in range(4): driver.act("terminal-key", key="ArrowLeft")
+    driver.act("terminal-key", key="Backspace")
+    driver.act("terminal-draft", text="Y")
+    driver.act("terminal-key", key="End")
+    driver.act("terminal-send")
+    eventually(lambda: "cursorYX" in driver.act("terminal-screen").splitlines(), True)
+    driver.act("terminal-draft", text="printf 'retained-session\\n'")
     driver.act("move")
-    assert driver.act("read-terminal-draft") == "pending terminal input"
+    driver.act("terminal-send")
+    eventually(lambda: "retained-session" in driver.act("terminal-screen").splitlines(), True)
+    # Raw mode receives one key without Enter; alternate-screen output must render.
+    raw = "import os,tty,termios; old=termios.tcgetattr(0); tty.setraw(0); print('\\x1b[?1049h\\x1b[2J\\x1b[HRAW-READY',flush=True); b=os.read(0,1); termios.tcsetattr(0,termios.TCSADRAIN,old); print('\\x1b[?1049l\\r\\nRAW-'+b.hex(),flush=True)"
+    import shlex
+    driver.act("terminal-draft", text="python3 -c " + shlex.quote(raw)); driver.act("terminal-send")
+    eventually(lambda: "RAW-READY" in driver.act("terminal-screen"), True)
+    driver.act("terminal-key", key="Control+n")
+    eventually(lambda: "RAW-0e" in driver.act("terminal-screen").splitlines(), True)
+    before = driver.act("terminal-size")
+    assert before["separateInputs"] == 0, before
+    driver.act("terminal-resize", width=1350, height=900)
+    eventually(lambda: driver.act("terminal-size")["width"] > before["width"], True)
+    driver.act("terminal-draft", text="sleep 30")
+    driver.act("terminal-send")
+    driver.act("terminal-key", key="Control+c")
+    driver.act("terminal-draft", text="printf 'interrupt-ok\\n'")
+    driver.act("terminal-send")
+    eventually(lambda: "interrupt-ok" in driver.act("terminal-screen").splitlines(), True)
+    driver.act("terminal-draft", text="python3 -c \"import sys; print('EOF-READY',flush=True); print('EOF-'+str(len(sys.stdin.read(1))),flush=True)\"")
+    driver.act("terminal-send")
+    eventually(lambda: "EOF-READY" in driver.act("terminal-screen").splitlines(), True)
     driver.act("terminal-eof")
-    driver.act("screenshot", path=str(ROOT / "target/simple-browser.png"))
+    eventually(lambda: "EOF-0" in driver.act("terminal-screen").splitlines(), True)
+    protocol = driver.act("native-terminal-protocol", url=(ROOT / "apps/apple-simple/Sources/Resources/math.html").as_uri())
+    assert protocol["input"] == "café 😀\x1b[A\x03", protocol
+    assert protocol["sizes"][-1]["cols"] > protocol["sizes"][0]["cols"], protocol
+    assert protocol["color"] == 1 and protocol["cursor"] is False, protocol
+    assert "default-src 'none'" in protocol["network"], protocol
+
 
 def inline_features_acceptance(driver, folder):
     # These observations go through real DOM controls and exact workspace bytes.
@@ -438,7 +478,10 @@ if __name__ == "__main__":
             backend = origin(engine)
             vite = start(["node", "node_modules/vite/bin/vite.js", "--config", "vite.simple.config.ts", "--host", "127.0.0.1", "--port", str(ui_port), "--strictPort"], cwd=ROOT / "apps/web", env={**environment, "HICKORY_API_ORIGIN": backend}); processes.append(vite)
             driver = BrowserDriver(origin(vite) + "/simple.html")
-            if "--table-dataflow-only" in sys.argv:
+            if "--terminal-only" in sys.argv:
+                terminal_acceptance(driver)
+                print("Browser: direct PTY input, cursor editing, raw/alternate screen, resize, pane reattachment, interrupt, EOF and native renderer protocol passed")
+            elif "--table-dataflow-only" in sys.argv:
                 table_dataflow_acceptance(driver, folder, backend)
                 print("Browser and native bundle: named formulas, explicit Python inputs, published read-only tables and receipt refresh passed")
             elif "--spreadsheet-only" in sys.argv:

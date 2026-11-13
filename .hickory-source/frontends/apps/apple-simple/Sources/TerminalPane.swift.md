@@ -3,68 +3,145 @@
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
-The SwiftUI terminal owns no shell process. A workspace session retains its backend identity, text snapshot and unsent input across pane movement. Opening is explicit; polling is cancellable when hidden. Input mutations are never replayed automatically.
+The pane embeds the bundled xterm renderer in WebKit. Its local-only message bridge sends input over a native WebSocket in arrival order and forwards measured rows and columns to the engine. Raw output is passed as base64 bytes, preserving split UTF-8 sequences for xterm’s streaming parser. Detaching cancels transport, never the backend process. Queued input cannot cross a failed connection. Source-adjacent output previews remain read-only; only this explicit terminal binding enables stdin.
 
 <ui:copy id="simple-d7e70d9534-0">
 import SwiftUI
 import Observation
+import WebKit
 
 @MainActor @Observable final class TerminalSession {
     var id: String?
     var opening = false
-    var input = ""
-    var screen = ""
     var error = ""
-    var sending = false
     func open(using engine: Engine) async {
         guard id == nil, !opening else { return }
         opening = true; error = ""; defer { opening = false }
         do { id = try await engine.openTerminal().id }
         catch { self.error = "\(error.localizedDescription) Check the terminal backend, then choose Terminal again." }
     }
-    func send(using engine: Engine, data: String? = nil) async {
-        guard let id, !sending else { return }
-        let submitted = input
-        sending = true; error = ""; defer { sending = false }
-        do { try await engine.terminalInput(id, data: data ?? submitted + "\r"); if data == nil && input == submitted { input = "" } }
-        catch { self.error = "\(error.localizedDescription) Input was not retried. Check the screen before sending again." }
+}
+</ui:copy>
+
+Attach WebKit only to the bundled local renderer and open the PTY socket through the configured native engine session. Feed exact binary messages to xterm; cancelling this receive task detaches the pane without terminating the process.
+
+<ui:copy id="simple-terminal-apple-stream">
+// Only bundled local content can reach this bridge. The socket is native so
+// file-origin WebKit content never needs permission to contact workspace APIs.
+@MainActor final class TerminalCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+    let engine: Engine
+    let session: TerminalSession
+    let id: String
+    var socket: URLSessionWebSocketTask?
+    var receiving: Task<Void, Never>?
+    var sending: Task<Void, Never>?
+    var active = true
+    init(engine: Engine, session: TerminalSession, id: String) { self.engine = engine; self.session = session; self.id = id }
+    func fail(_ error: Error) {
+        guard active else { return }
+        session.error = "\(error.localizedDescription) Terminal disconnected. Reopen the tab to reconnect; input was not retried."
+        socket?.cancel(with: .goingAway, reason: nil); socket = nil
+    }
+    func webView(_ view: WKWebView, didFinish navigation: WKNavigation!) {
+        guard active, socket == nil else { return }
+        var url = URLComponents(url: engine.origin, resolvingAgainstBaseURL: false)!
+        url.scheme = url.scheme == "https" ? "wss" : "ws"; url.path = "/api/terminals/ws"
+        url.queryItems = [URLQueryItem(name: "session", value: id)]
+        let connection = engine.session.webSocketTask(with: url.url!); socket = connection; connection.resume()
+        receiving = Task { [weak self, weak view] in
+            guard let self, let view else { return }
+            do {
+                _ = try await view.evaluateJavaScript("globalThis.startInteractiveTerminal(); true")
+                while !Task.isCancelled && active {
+                    let message = try await connection.receive()
+                    guard active else { return }
+                    session.error = ""
+                    let bytes: Data
+                    switch message { case .data(let data): bytes = data; case .string(let text): bytes = Data(text.utf8); @unknown default: continue }
+                    _ = try await view.evaluateJavaScript("globalThis.writeInteractiveTerminal('\(bytes.base64EncodedString())'); true")
+                }
+            } catch { if !Task.isCancelled { fail(error) } }
+        }
+    }
+</ui:copy>
+
+WebKit sends input and measured cell sizes through a main-frame-only local bridge. Chain writes so rapid typing cannot overtake earlier keys, and clear the connection after a failed send so queued input cannot be retried. Dismantling disables callbacks before cancelling transport.
+
+<ui:copy id="simple-terminal-apple-input">
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard active, message.frameInfo.isMainFrame, message.frameInfo.request.url?.isFileURL == true,
+              let body = message.body as? [String: Any] else { return }
+        if body["kind"] as? String == "input", let data = body["data"] as? String {
+            // Each send waits for the previous one. A failed write cancels the
+            // connection; queued keys must never be retried on a new session.
+            let previous = sending
+            sending = Task { [weak self] in
+                await previous?.value
+                guard let self, active, let socket else { return }
+                do { try await socket.send(.string(data)) } catch { fail(error) }
+            }
+        } else if body["kind"] as? String == "resize", let rows = body["rows"] as? Int, let cols = body["cols"] as? Int,
+                  (1...1000).contains(rows), (1...1000).contains(cols) {
+            Task { [weak self] in
+                guard let self, active else { return }
+                do { try await engine.terminalResize(id, rows: rows, cols: cols) }
+                catch { if active { session.error = "\(error.localizedDescription) Resize the pane to retry its terminal size." } }
+            }
+        }
+    }
+    func webView(_ view: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        decisionHandler(action.request.url?.isFileURL == true ? .allow : .cancel)
+    }
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        fail(EngineError(message: "Terminal renderer stopped. Choose another tab and reopen Terminal."))
+    }
+    func stop(_ view: WKWebView) {
+        active = false; receiving?.cancel(); sending?.cancel(); socket?.cancel(with: .goingAway, reason: nil)
+        view.configuration.userContentController.removeScriptMessageHandler(forName: "terminal"); view.stopLoading()
+    }
+    func makeView() -> WKWebView {
+        let configuration = WKWebViewConfiguration(); configuration.websiteDataStore = .nonPersistent()
+        configuration.userContentController.add(self, name: "terminal")
+        let view = WKWebView(frame: .zero, configuration: configuration); view.navigationDelegate = self
+        let owner = Bundle(for: MathCoordinator.self)
+        let roots = [Bundle.main.resourceURL, Bundle.main.bundleURL, owner.resourceURL, owner.bundleURL,
+            URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()].compactMap { $0 }
+        if let url = nativeMathResource(roots: roots) { view.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent()) }
+        else { session.error = "Terminal resources are missing. Prepare bundled assets and rebuild the app." }
+        return view
     }
 }
+</ui:copy>
+
+AppKit and UIKit host the same coordinator. Session identity determines the renderer lifetime; ordinary error updates leave the existing emulator, selection and scrollback in place.
+
+<ui:copy id="simple-terminal-apple-hosts">
+#if os(macOS)
+struct InteractiveTerminal: NSViewRepresentable {
+    let engine: Engine; let session: TerminalSession; let id: String
+    func makeCoordinator() -> TerminalCoordinator { TerminalCoordinator(engine: engine, session: session, id: id) }
+    func makeNSView(context: Context) -> WKWebView { context.coordinator.makeView() }
+    func updateNSView(_ view: WKWebView, context: Context) {}
+    static func dismantleNSView(_ view: WKWebView, coordinator: TerminalCoordinator) { coordinator.stop(view) }
+}
+#else
+struct InteractiveTerminal: UIViewRepresentable {
+    let engine: Engine; let session: TerminalSession; let id: String
+    func makeCoordinator() -> TerminalCoordinator { TerminalCoordinator(engine: engine, session: session, id: id) }
+    func makeUIView(context: Context) -> WKWebView { context.coordinator.makeView() }
+    func updateUIView(_ view: WKWebView, context: Context) {}
+    static func dismantleUIView(_ view: WKWebView, coordinator: TerminalCoordinator) { coordinator.stop(view) }
+}
+#endif
 struct TerminalPane: View {
     let engine: Engine?
     @Bindable var session: TerminalSession
     var body: some View {
         VStack(spacing: 0) {
-            GeometryReader { geometry in
-                ScrollView([.horizontal, .vertical]) {
-                    Text(session.screen).font(.system(size: 13, design: .monospaced)).textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .topLeading).padding(6).accessibilityLabel("Terminal screen")
-                }.task(id: "\(session.id ?? ""):\(Int(geometry.size.width)):\(Int(geometry.size.height))") {
-                    guard let engine, let id = session.id else { return }
-                    do { try await engine.terminalResize(id, rows: max(1, min(60, Int(geometry.size.height / 17))), cols: max(1, min(160, Int(geometry.size.width / 8)))) }
-                    catch { session.error = "\(error.localizedDescription) Resize the pane to retry its terminal size." }
-                }
-            }
+            if let engine, let id = session.id { InteractiveTerminal(engine: engine, session: session, id: id).id(id) }
+            else { Text(session.opening ? "Opening Terminal…" : "Choose Terminal to connect.").frame(maxWidth: .infinity, maxHeight: .infinity) }
             if !session.error.isEmpty { Text(session.error).font(.caption).foregroundStyle(.red).padding(6) }
-            Divider()
-            HStack {
-                TextField("Terminal input", text: $session.input).accessibilityLabel("Terminal input").onSubmit { send() }
-                Button("Send") { send() }.disabled(session.id == nil || session.sending)
-                Button("Interrupt") { send("\u{03}") }.disabled(session.id == nil || session.sending)
-                Button("EOF") { send("\u{04}") }.disabled(session.id == nil || session.sending)
-            }.padding(6)
-        }.task(id: session.id) {
-            guard let engine, let id = session.id else { return }
-            while !Task.isCancelled {
-                do { let screen = try await engine.terminalScreen(id); guard !Task.isCancelled else { return }; if session.id == id { session.screen = screen } }
-                catch { if Task.isCancelled { return }; session.error = "\(error.localizedDescription) Reopen Terminal to reconnect to this session." }
-                do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
-            }
         }
-    }
-    private func send(_ data: String? = nil) {
-        guard let engine else { return }
-        Task { await session.send(using: engine, data: data) }
     }
 }
 </ui:copy>
@@ -73,6 +150,6 @@ struct TerminalPane: View {
 
 Keep construction order explicit; the explanations above describe the decisions at each boundary.
 
-<ui:file path="apps/apple-simple/Sources/TerminalPane.swift"><ui:paste select="#simple-d7e70d9534-0"/></ui:file>
+<ui:file path="apps/apple-simple/Sources/TerminalPane.swift"><ui:paste select="#simple-d7e70d9534-0"/><ui:paste select="#simple-terminal-apple-stream"/><ui:paste select="#simple-terminal-apple-input"/><ui:paste select="#simple-terminal-apple-hosts"/></ui:file>
 
 </ui:doc>

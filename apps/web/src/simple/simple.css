@@ -46,10 +46,8 @@ footer { border-top: 1px solid GrayText; padding: 3px 9px; font-size: 11px; over
 .agent-body textarea { flex: 1; min-width: 0; resize: vertical; background: Canvas; border: 1px solid GrayText; }
 .notice { padding: 6px; color: #b33; background: Canvas; max-height: 100px; overflow: auto; }
 .terminal-body { height: 100%; display: flex; flex-direction: column; }
-.terminal-screen { flex: 1; min-height: 0; overflow: auto; }
-.terminal-screen pre { margin: 6px; font: 13px/17px ui-monospace, monospace; }
-.terminal-body form { display: flex; padding: 6px; border-top: 1px solid GrayText; }
-.terminal-body input { flex: 1; min-width: 0; font: 13px ui-monospace, monospace; background: Canvas; color: CanvasText; border: 1px solid GrayText; }
+.terminal-screen { flex: 1; min-height: 0; position: relative; overflow: hidden; background: #10151d; }
+.terminal-screen > .xterm { position: absolute; inset: 6px; }
 .editor-row { flex: 1; min-height: 0; display: flex; overflow: hidden; }
 .editor-row .editor-host { min-width: 0; }
 .minimap { flex: 0 0 40px; width: 40px; height: 100%; color: GrayText; cursor: pointer; touch-action: none; border-left: 1px solid color-mix(in srgb, CanvasText 12%, Canvas); }

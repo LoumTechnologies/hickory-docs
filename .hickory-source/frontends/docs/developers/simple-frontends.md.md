@@ -129,7 +129,7 @@ To reorder, drag a tab onto the tab it should precede. Drop onto unused strip sp
 
 Use the File and View/Panes menus; no permanent feature toolbar is added. Generated outputs are read-only until source-mapped editing is connected. Save refuses conflicts and retains local edits. Dirty tabs refuse to close. Workspace lifetime retains document buffers and unsent agent messages when tabs move or hide.
 
-The terminal uses a real backend PTY and its emulated plain-text screen. It accepts line input, Interrupt and EOF; moving or hiding it retains its process and unsent input. Full ANSI color rendering, cursor-key interaction with full-screen terminal programs and terminal scrollback navigation are outside this matched first slice.
+The terminal connects the bundled xterm emulator to a real backend PTY. Type or paste directly into its screen; cursor keys, Ctrl+C and Ctrl+D go to the program. ANSI colors and full-screen terminal modes are supported. Resizing sends measured cell dimensions. Moving or hiding the pane retains its process; reattachment receives retained output. Connection failures are shown without retrying uncertain input. Run `python3 scripts/test-simple-browser.py --terminal-only` for the focused real-engine browser witness. Native WebKit and Android terminal acceptance still requires their platform toolchains.
 
 The agent uses the configured Python backend. Configure providers with the existing frontend; this first slice does not implement agent installation, provider settings, permission-review surfaces, or token streaming. It refreshes durable conversation history and provides explicit Send and Stop. No provider is required to edit files.
 

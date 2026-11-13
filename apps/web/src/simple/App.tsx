@@ -93,7 +93,7 @@ export function App() {
   }
   useEffect(() => { void loadFiles(); }, []);
   useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => { if (agent.prompt.length > 0 || terminal.input.length > 0 || agent.busy || terminal.sending || [...buffers.values.values()].some(buffer => buffer.dirty || buffer.saving)) event.preventDefault(); };
+    const warn = (event: BeforeUnloadEvent) => { if (agent.prompt.length > 0 || agent.busy || [...buffers.values.values()].some(buffer => buffer.dirty || buffer.saving)) event.preventDefault(); };
     window.addEventListener("beforeunload", warn); return () => window.removeEventListener("beforeunload", warn);
   }, [buffers, agent, terminal]);
   const currentGroup = groups(layout).find(group => group.id === focused) ?? groups(layout)[0];
@@ -141,6 +141,8 @@ export function App() {
   }
   useEffect(() => {
     const command = (event: KeyboardEvent) => {
+      // Terminal control keys belong to the PTY, including Ctrl+N and Ctrl+S.
+      if (event.defaultPrevented || (event.target instanceof Element && event.target.closest(".terminal-screen"))) return;
       if (!(event.metaKey || event.ctrlKey)) return;
       if (!event.shiftKey && !event.altKey && event.key.toLowerCase() === "n") {
         event.preventDefault(); newTab();

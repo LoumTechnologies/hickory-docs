@@ -307,11 +307,34 @@ try {
         case "alerts": value = await page.getByRole("alert").allTextContents(); break;
         case "tabs": value = await page.getByRole("tab").allTextContents(); break;
         case "terminal": await menu("View", "Terminal"); break;
-        case "terminal-draft": await page.getByRole("textbox", { name: "Terminal input", exact: true }).fill(request.text); break;
-        case "read-terminal-draft": value = await page.getByRole("textbox", { name: "Terminal input", exact: true }).inputValue(); break;
-        case "terminal-send": await page.getByRole("textbox", { name: "Terminal input", exact: true }).press("Enter"); break;
-        case "terminal-screen": value = await page.getByLabel("Terminal screen", { exact: true }).innerText(); break;
-        case "terminal-eof": await page.getByRole("button", { name: "EOF", exact: true }).click(); break;
+        case "terminal-draft": await page.locator(".terminal-screen .xterm-helper-textarea").focus(); await page.keyboard.insertText(request.text); break;
+        case "terminal-key": await page.locator(".terminal-screen .xterm-helper-textarea").focus(); await page.keyboard.press(request.key); break;
+        case "terminal-send": await page.locator(".terminal-screen .xterm-helper-textarea").press("Enter"); break;
+        case "terminal-screen": value = await page.locator(".terminal-screen .xterm-rows").innerText(); break;
+        case "terminal-size":
+          value = await page.locator(".terminal-screen").evaluate(node => ({ width: node.clientWidth, height: node.clientHeight, separateInputs: node.parentElement.querySelectorAll("form,input,button").length })); break;
+        case "terminal-resize": await page.setViewportSize({ width: request.width, height: request.height }); break;
+        case "native-terminal-protocol": {
+          const native = await browser.newPage({ viewport: { width: 640, height: 360 } });
+          try {
+            await native.addInitScript(() => { globalThis.messages = []; globalThis.TerminalHost = { postMessage: json => globalThis.messages.push(JSON.parse(json)) }; });
+            await native.goto(request.url);
+            await native.evaluate(() => globalThis.startInteractiveTerminal());
+            await native.waitForFunction(() => globalThis.messages.some(message => message.kind === "resize"));
+            await native.locator(".xterm-helper-textarea").focus();
+            await native.keyboard.insertText("café 😀"); await native.keyboard.press("ArrowUp"); await native.keyboard.press("Control+c");
+            await native.evaluate(() => {
+              const bytes = new TextEncoder().encode("\x1b[?1049h\x1b[2J\x1b[H\x1b[31mred café 😀\x1b[0m");
+              for (const byte of bytes) globalThis.writeInteractiveTerminal(btoa(String.fromCharCode(byte)));
+            });
+            await native.waitForFunction(() => interactiveTerminal.buffer.active.getLine(0).translateToString(true) === "red café 😀");
+            await native.setViewportSize({width:800,height:480});
+            await native.waitForFunction(() => globalThis.messages.filter(message => message.kind === "resize").length > 1);
+            value = await native.evaluate(() => ({ input: globalThis.messages.filter(message => message.kind === "input").map(message => message.data).join(""), sizes: globalThis.messages.filter(message => message.kind === "resize"), color: interactiveTerminal.buffer.active.getLine(0).getCell(0).getFgColor(), cursor: interactiveTerminal.options.disableStdin, network: document.querySelector('meta[http-equiv="Content-Security-Policy"]').content }));
+          } finally { await native.close(); }
+          break;
+        }
+        case "terminal-eof": await page.locator(".terminal-screen .xterm-helper-textarea").press("Control+d"); break;
         case "agent": await menu("View", "Agent"); break;
         case "draft": await page.getByRole("textbox", { name: "Message", exact: true }).fill(request.text); break;
         case "read-draft": value = await page.getByRole("textbox", { name: "Message", exact: true }).inputValue(); break;

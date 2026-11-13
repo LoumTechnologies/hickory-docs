@@ -81,16 +81,15 @@ final class SaveTests: XCTestCase {
         ResponseProtocol.captured = [:]; buffer.text = "replacement"; await buffer.save(using: engine)
         XCTAssertTrue(ResponseProtocol.captured.isEmpty); XCTAssertTrue(buffer.readOnly)
     }
-    @MainActor func testTerminalRetainsDraftWhenReopenedAndInputFails() async throws {
+    // Contract: .hickory-source/frontends/contract.md — reopening retains the PTY identity.
+    @MainActor func testTerminalReopenKeepsExistingSession() async throws {
         let (engine, _) = try fixture()
         ResponseProtocol.status = 200; ResponseProtocol.response = Data(#"{"id":"pty"}"#.utf8)
-        let session = TerminalSession(); session.input = "echo hello"
-        await session.open(using: engine); await session.open(using: engine)
-        XCTAssertEqual(session.id, "pty"); XCTAssertEqual(session.input, "echo hello")
-        ResponseProtocol.status = 409; ResponseProtocol.response = Data(#"{"error":"disconnected"}"#.utf8)
-        await session.send(using: engine)
-        XCTAssertEqual(ResponseProtocol.captured["data"] as? String, "echo hello\r")
-        XCTAssertEqual(session.input, "echo hello"); XCTAssertTrue(session.error.contains("not retried"))
+        let session = TerminalSession()
+        await session.open(using: engine)
+        ResponseProtocol.status = 409; ResponseProtocol.response = Data(#"{"error":"must not open twice"}"#.utf8)
+        await session.open(using: engine)
+        XCTAssertEqual(session.id, "pty"); XCTAssertTrue(session.error.isEmpty)
     }
 
 }

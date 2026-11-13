@@ -150899,6 +150899,41 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/crates/hick-literate/src/table_inputs.rs.md",
       "symbol": "notebook-table-inputs",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-terminal-web-attachment",
+      "output": "apps/web/src/simple/Terminal.tsx",
+      "page": ".hickory-source/frontends/apps/web/src/simple/Terminal.tsx.md",
+      "symbol": "simple-terminal-web-attachment",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-terminal-apple-stream",
+      "output": "apps/apple-simple/Sources/TerminalPane.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/TerminalPane.swift.md",
+      "symbol": "simple-terminal-apple-stream",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-terminal-apple-input",
+      "output": "apps/apple-simple/Sources/TerminalPane.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/TerminalPane.swift.md",
+      "symbol": "simple-terminal-apple-input",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-terminal-apple-hosts",
+      "output": "apps/apple-simple/Sources/TerminalPane.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/TerminalPane.swift.md",
+      "symbol": "simple-terminal-apple-hosts",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-terminal-android-attachment",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/TerminalPane.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/TerminalPane.kt.md",
+      "symbol": "simple-terminal-android-attachment",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {
