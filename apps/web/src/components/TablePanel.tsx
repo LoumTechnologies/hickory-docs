@@ -655,6 +655,37 @@ export function TablePanel({
     return true;
   };
 
+  // Start a sweep from the selected cell; unselected cells still allow native panning.
+  const touchSweep = useRef<{ id: number; from: CellAt; point: boolean; moved: boolean } | null>(null);
+  const lastTouch = useRef<{ at: CellAt; time: number } | null>(null);
+  const touchDown = (event: React.PointerEvent<HTMLTableCellElement>, row: number, column: number) => {
+    if (!["touch", "pen"].includes(event.pointerType) || !editable || (event.target as HTMLElement).closest("input,button")) return;
+    event.preventDefault(); event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    touchSweep.current = { id: event.pointerId, from: { row, column }, point: !!pointing, moved: false };
+    if (pointing) pointTo(row, column); else select(row, column);
+  };
+  const touchMove = (event: React.PointerEvent<HTMLTableCellElement>) => {
+    const sweep = touchSweep.current; if (!sweep || sweep.id !== event.pointerId) return;
+    const scope = event.currentTarget.getRootNode() as Document | ShadowRoot;
+    const target = scope.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("td[data-fill-row]");
+    if (!target || !gridRef.current?.contains(target)) return;
+    const row = Number(target.dataset.fillRow), column = Number(target.dataset.fillColumn);
+    if (row === sweep.from.row && column === sweep.from.column && !sweep.moved) return;
+    sweep.moved = true;
+    if (sweep.point) pointRangeTo(sweep.from, row, column);
+    else setSelection(extendTo(cellSelection(sweep.from.row, sweep.from.column), row, column, height, width));
+  };
+  const touchUp = (event: React.PointerEvent<HTMLTableCellElement>) => {
+    const sweep = touchSweep.current; if (!sweep || sweep.id !== event.pointerId) return;
+    touchSweep.current = null;
+    if (!sweep.point && !sweep.moved) {
+      const previous = lastTouch.current, now = Date.now();
+      if (previous && previous.at.row === sweep.from.row && previous.at.column === sweep.from.column && now - previous.time < 400) edit(sweep.from.row, sweep.from.column);
+      lastTouch.current = { at: sweep.from, time: now };
+    } else lastTouch.current = null;
+  };
+
   /** Track a formula-range drag from the table cell, not only its inner text
    * span. The resize edges sit above that span, so `mouseenter` alone misses
    * a real drag that crosses an edge. */
@@ -1319,6 +1350,13 @@ export function TablePanel({
                           (isHeaderRow ? "table-panel__names " : "") + (fill.includes(row, column) ? "table-fill-preview" : "")
                         }
                         data-fill-row={row} data-fill-column={column}
+                        style={{ touchAction: pointing || (active?.row === row && active.column === column) ? "none" : "auto" }}
+                        onPointerDown={event => touchDown(event, row, column)}
+                        onPointerMove={touchMove}
+                        onPointerUp={touchUp}
+                        onPointerCancel={() => { touchSweep.current = null; }}
+                        onLostPointerCapture={() => { touchSweep.current = null; }}
+                        onClickCapture={event => { if ("pointerType" in event.nativeEvent && ["touch", "pen"].includes(String(event.nativeEvent.pointerType))) { event.preventDefault(); event.stopPropagation(); } }}
                         onMouseEnter={() => fill.over(row, column)}
                         onContextMenu={(event) => openMenu(event, row, column)}
                         onMouseMove={() => pointRangeOver(row, column)}

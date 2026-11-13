@@ -1,7 +1,7 @@
 // Guarantee: docs/guarantees/authoring/markdown-tables-use-the-table-editor.md
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MarkdownTable } from "./MarkdownTable";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MarkdownTable, mountNativeTable } from "./MarkdownTable";
 import { markdownCells, markdownRows, writeMarkdownTable } from "../lib/markdownTable";
 import { markdownTableBlocks } from "../editor/markdownTables";
 import { parseHickDoc } from "../editor/hickDoc";
@@ -100,4 +100,59 @@ describe("Markdown tables", () => {
     const invalid = '| A | B |\n| --- |';
     expect(markdownTableBlocks(parseHickDoc(invalid), invalid)).toEqual([]);
   });
+});
+
+describe("locally hosted native spreadsheet", () => {
+  it("edits Markdown through a revisioned host request and preserves selection and height after acknowledgement", async () => {
+    const host = document.createElement("div"); document.body.append(host);
+    const messages: Record<string, unknown>[] = [];
+    let bridge!: ReturnType<typeof mountNativeTable>;
+    await act(async () => { bridge = mountNativeTable(host, message => messages.push(message)); bridge.update({ revision: "one", source, format: "markdown", readonly: false }); });
+    try {
+      fireEvent.click(screen.getByText("120"));
+      fireEvent.keyDown(screen.getByLabelText("Table height"), { key: "Home" });
+      fireEvent.doubleClick(screen.getByText("120"));
+      const input = screen.getByRole("textbox", { name: "Cell contents" });
+      fireEvent.change(input, { target: { value: "121" } }); fireEvent.keyDown(input, { key: "Enter" });
+      expect(messages).toContainEqual({ kind: "change", revision: "one", source: source.replace("120", "121") });
+      await act(async () => { bridge.update({ revision: "two", source: source.replace("120", "121"), format: "markdown", readonly: false }); });
+      expect(screen.getByText("121")).toBeTruthy();
+      expect(host.querySelector<HTMLElement>(".table-panel__scroll")?.style.height).toBe("64px");
+      const before = messages.filter(event => event.kind === "change").length;
+      await act(async () => { bridge.update({ revision: "three", source, format: "markdown", readonly: true }); });
+      fireEvent.doubleClick(screen.getByText("120"));
+      expect(messages.filter(event => event.kind === "change")).toHaveLength(before);
+    } finally { await act(async () => bridge.dispose()); host.remove(); }
+  });
+  it("uses the native formula transport and ignores an obsolete result after source changes", async () => {
+    const host = document.createElement("div"); document.body.append(host);
+    const messages: Record<string, unknown>[] = [];
+    let bridge!: ReturnType<typeof mountNativeTable>;
+    await act(async () => { bridge = mountNativeTable(host, message => messages.push(message)); bridge.update({ revision: "one", source: "=1+1", format: "csv", readonly: false, language: "python" }); });
+    try {
+      await waitFor(() => expect(messages.some(event => event.operation === "evaluate")).toBe(true));
+      const request = messages.find(event => event.operation === "evaluate")!;
+      expect(request.rows).toEqual([["=1+1"]]);
+      await act(async () => bridge.update({ revision: "two", source: "current", format: "csv", readonly: false, language: "python" }));
+      await act(async () => bridge.reply(request.id as number, { values: { A1: "2" }, errors: {} }));
+      expect(screen.getByRole("gridcell", { name: "current" })).toBeTruthy();
+      expect(screen.queryByRole("gridcell", { name: "2" })).toBeNull();
+    } finally { await act(async () => bridge.dispose()); host.remove(); }
+  });
+});
+
+it("returns a failed native rendering capability to its host without writing source", async () => {
+  // Contract: .hickory-source/frontends/contract.md
+  const host = document.createElement("div"); document.body.append(host);
+  const messages: Record<string, unknown>[] = [];
+  const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+  let bridge!: ReturnType<typeof mountNativeTable>;
+  await act(async () => { bridge = mountNativeTable(host, message => messages.push(message)); bridge.update({ revision: "one", source: "data", format: "csv", readonly: false }); });
+  try {
+    await waitFor(() => expect(messages.some(message => message.operation === "languages")).toBe(true));
+    const request = messages.find(message => message.operation === "languages")!;
+    await act(async () => bridge.reply(request.id as number, { languages: null }));
+    await waitFor(() => expect(messages).toContainEqual({ kind: "unavailable" }));
+    expect(messages.some(message => message.kind === "change")).toBe(false);
+  } finally { await act(async () => bridge.dispose()); host.remove(); consoleError.mockRestore(); }
 });

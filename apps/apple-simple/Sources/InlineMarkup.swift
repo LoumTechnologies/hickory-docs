@@ -10,12 +10,13 @@ struct InlineEquation: Identifiable, Sendable {
     var id: Int { range.location }
 }
 struct InlineDiagram: Identifiable, Sendable { var line: Int; var range: NSRange; var body: String; var renderer: String; var id: Int { range.location } }
-struct InlineSnapshot: Sendable { var diagrams: [InlineDiagram] = []; var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = []; var debug = InlineDebugContext() }
+struct InlineSnapshot: Sendable { var diagrams: [InlineDiagram] = []; var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = []; var debug = InlineDebugContext(); var gridOverrides: [InlineTable] = [] }
 // Tables are presentation ranges over the original source, never replacement text.
 struct InlineTable: Identifiable, Sendable {
     var range: NSRange; var rows: [[InlineCell]]
     var id: Int { range.location }
-    var height: CGFloat { min(320, CGFloat(rows.count + 2) * 30) }
+    var preferredHeight: CGFloat? = nil
+    var height: CGFloat { preferredHeight ?? max(280, min(420, CGFloat(rows.count + 5) * 30)) }
 }
 func tablePresentation(_ snapshot: InlineSnapshot, source: String) -> InlineSnapshot {
     if snapshot.source == source { return snapshot }
@@ -25,6 +26,16 @@ func tablePresentation(_ snapshot: InlineSnapshot, source: String) -> InlineSnap
     while suffix < min(old.count, new.count) - prefix, old[old.count - suffix - 1] == new[new.count - suffix - 1] { suffix += 1 }
     let end = old.count - suffix, delta = new.count - old.count, text = source as NSString
     var result = InlineSnapshot(source: source)
+    // Preserve a changed grid's anchor until the background scanner supplies new cells.
+    // These old rows grant no write authority; the host edits the exact new range.
+    result.gridOverrides = inlineTables(snapshot).compactMap { table in
+        let tail = NSMaxRange(table.range)
+        let insertionAfterNewline = prefix == end && prefix >= tail && prefix - tail <= 2 && (snapshot.source as NSString).substring(with: NSRange(location: tail, length: prefix - tail)).allSatisfy { $0 == "\r" || $0 == "\n" }
+        guard prefix >= table.range.location, (end <= tail || insertionAfterNewline), end >= table.range.location,
+              ((snapshot.source as NSString).substring(with: NSRange(location: prefix, length: end - prefix)) + (source as NSString).substring(with: NSRange(location: prefix, length: new.count - suffix - prefix))).contains(where: { "\n,|".contains($0) }) else { return nil }
+        var table = table; table.range.length += delta
+        return table.range.length > 0 ? table : nil
+    }
     for (index, char) in new.enumerated() where char == 10 { result.lineStarts.append(index + 1) }
     result.cells = snapshot.cells.compactMap { cell in
         var cell = cell
@@ -63,7 +74,11 @@ func inlineTables(_ snapshot: InlineSnapshot) -> [InlineTable] {
         var rows = [header], last = line + 1, next = line + 2
         consumed.insert(line)
         while let cells = lines[next] { rows.append(cells); consumed.insert(next); last = next; next += 1 }
-        let start = snapshot.lineStarts[line]
+        var start = snapshot.lineStarts[line]
+        if line > 0 {
+            let previous = source.substring(with: NSRange(location: snapshot.lineStarts[line - 1], length: start - snapshot.lineStarts[line - 1])).trimmingCharacters(in: .whitespacesAndNewlines)
+            if previous.hasPrefix("<" + "!-- hickory-table-formats: ") && previous.hasSuffix(" --" + ">") { start = snapshot.lineStarts[line - 1] }
+        }
         let end = NSMaxRange(source.lineRange(for: NSRange(location: snapshot.lineStarts[last], length: 0)))
         // Retain the final newline outside the replacement so following prose keeps its own paragraph.
         var to = end
@@ -85,7 +100,7 @@ func inlineTables(_ snapshot: InlineSnapshot) -> [InlineTable] {
         for cell in cells { if cell.column == 0 { rows.append([]) }; rows[rows.count - 1].append(cell) }
         result.append(InlineTable(range: NSRange(location: first.range.location, length: NSMaxRange(last.range) - first.range.location), rows: rows))
     }
-    return result.sorted { $0.range.location < $1.range.location }
+    return (result.filter { table in !snapshot.gridOverrides.contains { NSIntersectionRange($0.range, table.range).length > 0 } } + snapshot.gridOverrides).sorted { $0.range.location < $1.range.location }
 }
 func inlineCellText(_ value: String, format: String = "markdown", delimiter: String = ",") -> String {
     if format == "csv" { return value.contains(delimiter) || value.contains("\n") || value.contains("\r") || value.contains("\"") ? "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\"" : value }
@@ -306,7 +321,7 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
     for (index, unit) in source.utf16.enumerated() { if unit == 10 { starts.append(index + 1) } }
     var result = InlineSnapshot(source: source, lineStarts: starts, debug: inlineDebugContext(source, path: path))
     if (path as NSString).pathExtension.lowercased() == "csv", source.utf16.count <= 200_000 {
-        result.cells = inlineCSVCells(source, line: 0, offset: 0, delimiter: ","); return result
+        result.cells = source.isEmpty ? [InlineCell(line: 0, column: 0, range: NSRange(location: 0, length: 0), value: "", format: "csv")] : inlineCSVCells(source, line: 0, offset: 0, delimiter: ","); return result
     }
     guard ["md", "markdown"].contains((path as NSString).pathExtension.lowercased()), source.utf16.count <= 200_000 else { return result }
     let rows = source.components(separatedBy: "\n")
@@ -392,4 +407,16 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
     }
     result.diagrams = inlineDiagrams(source)
     return result
+}
+
+// Only a declaration directly before this body supplies table attributes.
+func inlineTableAttribute(_ name: String, table: InlineTable, source: String) -> String? {
+    guard table.rows.first?.first?.format == "csv", table.range.location <= (source as NSString).length else { return nil }
+    let prefix = (source as NSString).substring(to: table.range.location) as NSString
+    let tag = try! NSRegularExpression(pattern: #"<[\w.-]+:table\b[^>]*>"#)
+    guard let match = tag.matches(in: prefix as String, range: NSRange(location: 0, length: prefix.length)).last,
+          prefix.substring(from: NSMaxRange(match.range)).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+    let declaration = prefix.substring(with: match.range) as NSString
+    let attr = try! NSRegularExpression(pattern: "\\b" + NSRegularExpression.escapedPattern(for: name) + #"\s*=\s*["']([^"']*)["']"#)
+    return attr.firstMatch(in: declaration as String, range: NSRange(location: 0, length: declaration.length)).map { declaration.substring(with: $0.range(at: 1)) }
 }

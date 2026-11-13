@@ -35,6 +35,41 @@ import WebKit
 @testable import HickorySimple
 
 final class ParityTests: XCTestCase {
+    @MainActor func testEmptyCSVAndFormattedMarkdownRetainExactEditRanges() throws {
+        // Contract: .hickory-source/frontends/contract.md
+        let empty = try XCTUnwrap(inlineTables(computeInlineMarkup("", path: "empty.csv")).first)
+        XCTAssertEqual(empty.range, NSRange(location: 0, length: 0))
+        #if os(macOS)
+        let file = FileNode(name: "empty.csv", path: "empty.csv", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: "", hash: "base"))
+        let editor = MacEditor(buffer)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = editor.scroll; defer { window.contentView = nil }
+        buffer.inlineMarkup = computeInlineMarkup("", path: file.path); buffer.renderMarkup?()
+        XCTAssertTrue(editor.applyTableEdit(NativeSourceEdit(range: empty.range, text: "first"), source: ""))
+        XCTAssertEqual(buffer.text, "first")
+        editor.text.undoManager?.undo(); XCTAssertEqual(buffer.text, "")
+        #endif
+        let formatted = "<" + "!-- hickory-table-formats: B2:USD --" + ">\n| A | B |\n| --- | --- |\n| x | 2 |"
+        let table = try XCTUnwrap(inlineTables(computeInlineMarkup(formatted, path: "table.md")).first)
+        XCTAssertEqual((formatted as NSString).substring(with: table.range), formatted)
+    }
+    func testStructuralTablePresentationAndDeclaredFormulaLanguage() throws {
+        // Contract: .hickory-source/frontends/contract.md
+        let source = "<h:table language=\"python\" header=\"false\">\n1,=A1+1\n</h:table>\nAfter"
+        let parsed = computeInlineMarkup(source, path: "table.md")
+        let table = try XCTUnwrap(inlineTables(parsed).first)
+        XCTAssertEqual(inlineTableAttribute("language", table: table, source: source), "python")
+        XCTAssertEqual(inlineTableAttribute("header", table: table, source: source), "false")
+        let changed = source.replacingOccurrences(of: "1,=A1+1", with: "1,=A1+1\n2,=A2+1")
+        let grid = try XCTUnwrap(inlineTables(tablePresentation(parsed, source: changed)).first)
+        XCTAssertEqual((changed as NSString).substring(with: grid.range), "1,=A1+1\n2,=A2+1")
+        XCTAssertTrue(changed.hasSuffix("</h:table>\nAfter"))
+        let csv = "1,2\n"
+        let standalone = try XCTUnwrap(inlineTables(computeInlineMarkup(csv, path: "data.csv")).first)
+        XCTAssertNil(inlineTableAttribute("language", table: standalone, source: csv))
+    }
+
     func testTablePresentationSurvivesPendingParse() throws {
         // Contract: .hickory-source/frontends/contract.md
         let source = "Before\n\n| A | B |\n| --- | --- |\n| café 😀 | 2 |\n\nAfter"
@@ -51,6 +86,55 @@ final class ParityTests: XCTestCase {
         }
     }
     #if os(macOS)
+    @MainActor func testSharedSpreadsheetWebKitGuardsSourceAndNativeUndo() throws {
+        // Contract: .hickory-source/frontends/contract.md
+        let source = "1,2\n3,4\n"
+        let file = FileNode(name: "grid.csv", path: "grid.csv", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "base"))
+        let editor = MacEditor(buffer)
+        let table = try XCTUnwrap(inlineTables(computeInlineMarkup(source, path: file.path)).first)
+        let sourceWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        sourceWindow.contentView = editor.scroll
+        let coordinator = NativeTableCoordinator(table: table, source: source, buffer: buffer, onReady: {})
+        let resource = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Sources/Resources/math.html")
+        let view = makeNativeTableView(coordinator, resource: resource)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = view
+        defer { coordinator.mounted = false; view.stopLoading(); view.configuration.userContentController.removeScriptMessageHandler(forName: "table"); window.orderOut(nil); sourceWindow.orderOut(nil) }
+        func pump(_ condition: () -> Bool) {
+            let deadline = Date().addingTimeInterval(8)
+            while !condition() && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.02)) }
+        }
+        func evaluate(_ script: String) throws -> Any? {
+            var result: Result<Any?, Error>?
+            view.evaluateJavaScript(script) { value, error in result = error.map(Result.failure) ?? .success(value) }
+            pump { result != nil }
+            return try XCTUnwrap(result).get()
+        }
+        pump { coordinator.ready }
+        let diagnostic = try? evaluate("JSON.stringify({url:location.href,mode:globalThis.hickoryTableMode,bridge:typeof globalThis.hickoryTable,body:document.body?.className,scripts:[...document.scripts].map(s=>s.src)})")
+        XCTAssertTrue(coordinator.ready, "The bundled shared spreadsheet must load inside actual WKWebView: \(String(describing: diagnostic))")
+        guard coordinator.ready else { return }
+        let wrong = "window.webkit.messageHandlers.table.postMessage({kind:'change',revision:'obsolete',source:'wrong'})"
+        try evaluate(wrong + "; null")
+        XCTAssertEqual(buffer.text, source)
+        let event: [String: Any] = ["kind": "change", "revision": coordinator.revision, "source": "9,2\n3,40"]
+        let json = String(data: try JSONSerialization.data(withJSONObject: event), encoding: .utf8)!
+        try evaluate("window.webkit.messageHandlers.table.postMessage(" + json + "); null")
+        pump { buffer.text != source }
+        XCTAssertEqual(buffer.text, "9,2\n3,40\n")
+        // A delayed parser may still offer the old shorter range. Only the
+        // exact range from this host's acknowledged edit can authorize a repeat.
+        coordinator.update(table: table, source: buffer.text)
+        let second: [String: Any] = ["kind": "change", "revision": coordinator.revision, "source": "9,2\n3,400"]
+        let next = String(data: try JSONSerialization.data(withJSONObject: second), encoding: .utf8)!
+        try evaluate("window.webkit.messageHandlers.table.postMessage(" + next + "); null")
+        pump { buffer.text == "9,2\n3,400\n" }
+        XCTAssertEqual(buffer.text, "9,2\n3,400\n")
+        editor.text.undoManager?.undo()
+        editor.text.undoManager?.undo()
+        XCTAssertEqual(buffer.text, source)
+    }
     @MainActor func testEnterAndBackgroundPresentationKeepTableAndViewport() throws {
         // Contract: .hickory-source/frontends/contract.md
         for hasTable in [false, true] {

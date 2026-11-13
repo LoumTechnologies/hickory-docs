@@ -49,3 +49,13 @@ for package, original, name in [("@xterm/xterm", "lib/xterm.js", "xterm.js"), ("
         with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as temporary:
             temporary.write(data); staged = temporary.name
         os.chmod(staged, 0o644); os.replace(staged, destination)
+
+# Bundle the existing spreadsheet locally for WKWebView and Android WebView.
+# esbuild is pinned by the web lockfile; no network or second formula engine.
+import json
+import subprocess
+bundle = ROOT / "apps/apple-simple/Sources/Resources/node_modules/table.js"
+bundle.parent.mkdir(parents=True, exist_ok=True)
+entry = "import { mountNativeTable } from " + json.dumps(str(ROOT / "apps/web/src/components/MarkdownTable.tsx")) + ";\n" + "import " + json.dumps(str(ROOT / "apps/web/src/styles.css")) + ";\n" + "globalThis.hickoryTable = mountNativeTable(document.getElementById('formula'), message => { const json = JSON.stringify(message); if (globalThis.webkit?.messageHandlers?.table) globalThis.webkit.messageHandlers.table.postMessage(JSON.parse(json)); else globalThis.HickoryTable?.postMessage(json); });"
+subprocess.run([str(ROOT / "apps/web/node_modules/.bin/esbuild"), "--bundle", "--format=iife", "--platform=browser", "--jsx=automatic", "--define:import.meta.env={}", "--log-level=warning", "--outfile=" + str(bundle)], input=entry, text=True, cwd=ROOT / "apps/web", check=True)
+print("Prepared shared native spreadsheet resources.")

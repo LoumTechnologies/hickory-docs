@@ -294,6 +294,8 @@ const clampTo = (value: number, least: number, most: number) =>
 
 Simple grids opt into an explicit session formula-language choice when their source has no language declaration. Discover available interpreters independently; a failed discovery never hides data. A declared table language stays authoritative. The optional transport lets a local native surface use the same evaluate and trace endpoints through its host, without granting arbitrary networking to the embedded page.
 
+Touch and pen can sweep from a selected cell to extend a rectangle, or drag a referenced cell into a formula range. Capture that pointer and hit-test within the grid’s own document or shadow root; pointer capture otherwise keeps reporting the starting cell. Keep panning available on unselected cells. Cancellation retires the sweep, compatibility clicks cannot collapse its result, and a second stationary tap opens a cell for editing.
+
 <storycode:copy id="f-38d5395d7736-TablePanel">
 export function TablePanel({
   source,
@@ -771,6 +773,37 @@ export function TablePanel({
     setCaretWanted(written.caret);
     setPointer({ row, column });
     return true;
+  };
+
+  // Start a sweep from the selected cell; unselected cells still allow native panning.
+  const touchSweep = useRef<{ id: number; from: CellAt; point: boolean; moved: boolean } | null>(null);
+  const lastTouch = useRef<{ at: CellAt; time: number } | null>(null);
+  const touchDown = (event: React.PointerEvent<HTMLTableCellElement>, row: number, column: number) => {
+    if (!["touch", "pen"].includes(event.pointerType) || !editable || (event.target as HTMLElement).closest("input,button")) return;
+    event.preventDefault(); event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    touchSweep.current = { id: event.pointerId, from: { row, column }, point: !!pointing, moved: false };
+    if (pointing) pointTo(row, column); else select(row, column);
+  };
+  const touchMove = (event: React.PointerEvent<HTMLTableCellElement>) => {
+    const sweep = touchSweep.current; if (!sweep || sweep.id !== event.pointerId) return;
+    const scope = event.currentTarget.getRootNode() as Document | ShadowRoot;
+    const target = scope.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("td[data-fill-row]");
+    if (!target || !gridRef.current?.contains(target)) return;
+    const row = Number(target.dataset.fillRow), column = Number(target.dataset.fillColumn);
+    if (row === sweep.from.row && column === sweep.from.column && !sweep.moved) return;
+    sweep.moved = true;
+    if (sweep.point) pointRangeTo(sweep.from, row, column);
+    else setSelection(extendTo(cellSelection(sweep.from.row, sweep.from.column), row, column, height, width));
+  };
+  const touchUp = (event: React.PointerEvent<HTMLTableCellElement>) => {
+    const sweep = touchSweep.current; if (!sweep || sweep.id !== event.pointerId) return;
+    touchSweep.current = null;
+    if (!sweep.point && !sweep.moved) {
+      const previous = lastTouch.current, now = Date.now();
+      if (previous && previous.at.row === sweep.from.row && previous.at.column === sweep.from.column && now - previous.time < 400) edit(sweep.from.row, sweep.from.column);
+      lastTouch.current = { at: sweep.from, time: now };
+    } else lastTouch.current = null;
   };
 
   /** Track a formula-range drag from the table cell, not only its inner text
@@ -1437,6 +1470,13 @@ export function TablePanel({
                           (isHeaderRow ? "table-panel__names " : "") + (fill.includes(row, column) ? "table-fill-preview" : "")
                         }
                         data-fill-row={row} data-fill-column={column}
+                        style={{ touchAction: pointing || (active?.row === row && active.column === column) ? "none" : "auto" }}
+                        onPointerDown={event => touchDown(event, row, column)}
+                        onPointerMove={touchMove}
+                        onPointerUp={touchUp}
+                        onPointerCancel={() => { touchSweep.current = null; }}
+                        onLostPointerCapture={() => { touchSweep.current = null; }}
+                        onClickCapture={event => { if ("pointerType" in event.nativeEvent && ["touch", "pen"].includes(String(event.nativeEvent.pointerType))) { event.preventDefault(); event.stopPropagation(); } }}
                         onMouseEnter={() => fill.over(row, column)}
                         onContextMenu={(event) => openMenu(event, row, column)}
                         onMouseMove={() => pointRangeOver(row, column)}

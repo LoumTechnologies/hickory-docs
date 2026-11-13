@@ -4,10 +4,10 @@ data class InlineMark(val kind: String, val from: Int, val to: Int, val level: I
 data class InlineCell(val line: Int, val column: Int, val from: Int, val to: Int, val value: String, val format: String = "markdown", val delimiter: String = ",")
 data class InlineEquation(val line: Int, val from: Int, val to: Int, val body: String)
 data class InlineDiagram(val line: Int, val from: Int, val to: Int, val body: String, val renderer: String)
-data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf(0), val marks: List<InlineMark> = emptyList(), val cells: List<InlineCell> = emptyList(), val equations: List<InlineEquation> = emptyList(), val debug: InlineDebugContext = InlineDebugContext(), val diagrams: List<InlineDiagram> = emptyList())
+data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf(0), val marks: List<InlineMark> = emptyList(), val cells: List<InlineCell> = emptyList(), val equations: List<InlineEquation> = emptyList(), val debug: InlineDebugContext = InlineDebugContext(), val diagrams: List<InlineDiagram> = emptyList(), val gridOverrides: List<InlineTable> = emptyList())
 // Keep source offsets authoritative while the field displays a grid-sized placeholder.
-data class InlineTable(val from: Int, val to: Int, val rows: List<List<InlineCell>>) {
-    val displayRows: Int get() = minOf(10, rows.size + 2)
+data class InlineTable(val from: Int, val to: Int, val rows: List<List<InlineCell>>, val visibleRows: Int? = null) {
+    val displayRows: Int get() = visibleRows ?: maxOf(22, minOf(32, rows.size * 2 + 10))
 }
 fun tablePresentation(snapshot: InlineSnapshot, source: String): InlineSnapshot {
     if (snapshot.source == source) return snapshot
@@ -33,7 +33,13 @@ fun tablePresentation(snapshot: InlineSnapshot, source: String): InlineSnapshot 
         val mapped = when { diagram.to <= prefix -> diagram; diagram.from >= end -> diagram.copy(from = diagram.from + delta, to = diagram.to + delta); else -> null }
         mapped?.copy(line = inlineLineAt(mapped.from, starts))
     }
-    return InlineSnapshot(source, lineStarts = starts, cells = cells, diagrams = diagrams)
+    val changed = old.substring(prefix, end) + source.substring(prefix, source.length - suffix)
+    val grids = inlineTables(snapshot).filter { table ->
+        val afterNewline = prefix == end && prefix >= table.to && prefix - table.to <= 2 && old.substring(table.to, prefix).all { it == '\r' || it == '\n' }
+        prefix >= table.from && (end <= table.to || afterNewline) && end >= table.from && changed.any { char -> char in "\n,|" }
+    }
+        .map { it.copy(to = it.to + delta) }.filter { it.to > it.from }
+    return InlineSnapshot(source, lineStarts = starts, cells = cells, diagrams = diagrams, gridOverrides = grids)
 }
 fun inlineTables(snapshot: InlineSnapshot): List<InlineTable> {
     val lines = snapshot.cells.filter { it.format == "markdown" }.groupBy { it.line }
@@ -46,7 +52,9 @@ fun inlineTables(snapshot: InlineSnapshot): List<InlineTable> {
         consumed.add(line)
         while (lines.containsKey(next)) { rows.add(lines.getValue(next)); consumed.add(next); last = next; next++ }
         val end = snapshot.source.indexOf('\n', snapshot.lineStarts[last]).let { if (it < 0) snapshot.source.length else it }
-        result.add(InlineTable(snapshot.lineStarts[line], if (end > 0 && snapshot.source[end - 1] == '\r') end - 1 else end, rows))
+        val previous = if (line > 0) snapshot.source.substring(snapshot.lineStarts[line - 1], snapshot.lineStarts[line]).trim() else ""
+        val start = if (previous.startsWith("<" + "!-- hickory-table-formats: ") && previous.endsWith(" --" + ">")) snapshot.lineStarts[line - 1] else snapshot.lineStarts[line]
+        result.add(InlineTable(start, if (end > 0 && snapshot.source[end - 1] == '\r') end - 1 else end, rows))
     }
     val csv = snapshot.cells.filter { it.format == "csv" }.sortedBy { it.from }
     val groups = mutableListOf<MutableList<InlineCell>>()
@@ -60,7 +68,7 @@ fun inlineTables(snapshot: InlineSnapshot): List<InlineTable> {
         for (cell in cells) { if (cell.column == 0) rows.add(mutableListOf()); rows.last().add(cell) }
         result.add(InlineTable(cells.first().from, cells.last().to, rows))
     }
-    return result.sortedBy { it.from }
+    return (result.filter { table -> snapshot.gridOverrides.none { it.from < table.to && table.from < it.to } } + snapshot.gridOverrides).sortedBy { it.from }
 }
 fun inlineCellText(value: String, format: String = "markdown", delimiter: String = ","): String {
     if (format == "csv") return if (value.contains(delimiter) || value.contains('\n') || value.contains('\r') || value.contains('"')) "\"" + value.replace("\"", "\"\"") + "\"" else value
@@ -249,7 +257,7 @@ fun inlineDiagrams(source: String): List<InlineDiagram> {
 fun computeInlineMarkup(source: String, path: String): InlineSnapshot {
     val starts = mutableListOf(0); source.forEachIndexed { index, char -> if (char == '\n') starts.add(index + 1) }
     val debug = inlineDebugContext(source, path)
-    if (path.substringAfterLast('.', "").lowercase() == "csv" && source.length <= 200_000) return InlineSnapshot(source, lineStarts = starts, cells = inlineCSVCells(source, 0, 0, ","), debug = debug)
+    if (path.substringAfterLast('.', "").lowercase() == "csv" && source.length <= 200_000) return InlineSnapshot(source, lineStarts = starts, cells = if (source.isEmpty()) listOf(InlineCell(0, 0, 0, 0, "", "csv")) else inlineCSVCells(source, 0, 0, ","), debug = debug)
     if (path.substringAfterLast('.', "").lowercase() !in listOf("md", "markdown") || source.length > 200_000) return InlineSnapshot(source, lineStarts = starts, debug = debug)
     val rows = source.split('\n'); val marks = mutableListOf<InlineMark>(); val cells = mutableListOf<InlineCell>(); val equations = mutableListOf<InlineEquation>()
     val separator = Regex("^\\s*\\|?\\s*:?-{3,}:?\\s*(\\|\\s*:?-{3,}:?\\s*)+\\|?\\s*$")
@@ -311,4 +319,12 @@ fun computeInlineMarkup(source: String, path: String): InlineSnapshot {
         if (rows.getOrNull(line)?.startsWith('+') == true) inlineSyntaxMarks(rows[line].drop(1), target).map { it.copy(from = it.from + starts[line] + 1, to = it.to + starts[line] + 1) } else emptyList()
     }
     return InlineSnapshot(source, starts, marks + inlineSyntaxMarks(source, path) + patchMarks, cells, equations, debug, inlineDiagrams(source))
+}
+
+fun inlineTableAttribute(name: String, table: InlineTable, source: String): String? {
+    if (table.rows.firstOrNull()?.firstOrNull()?.format != "csv" || table.from > source.length) return null
+    val prefix = source.substring(0, table.from)
+    val tag = Regex("""<[\w.-]+:table\b[^>]*>""").findAll(prefix).lastOrNull() ?: return null
+    if (prefix.substring(tag.range.last + 1).isNotBlank()) return null
+    return Regex("""\b${Regex.escape(name)}\s*=\s*["']([^"']*)["']""").find(tag.value)?.groupValues?.get(1)
 }

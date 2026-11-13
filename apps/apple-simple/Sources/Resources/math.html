@@ -4,9 +4,15 @@
 <link rel="stylesheet" href="node_modules/xterm.css"><link rel="stylesheet" href="katex/katex.min.css"><style>html{height:100%;color-scheme:light dark;font:14px system-ui}body{margin:0;height:100%;overflow:hidden}body.terminal-mode{color-scheme:dark;height:100%;margin:0;background:#10151d;color:#e6edf3;overflow:hidden}.terminal-mode #formula{position:static;width:auto;transform:none!important;height:100%;box-sizing:border-box;padding:6px;overflow:hidden}.terminal-mode .xterm-cursor-layer{display:none}#formula{position:absolute;width:max-content;padding:8px;transform-origin:top left;box-sizing:border-box}#status{position:absolute;bottom:0;font-size:11px}#formula .katex-display{margin:0}.inline-math{font-size:13px}.inline-math #formula{padding:1px}.display-math #formula{padding:4px}</style>
 </head><body><div id="formula" aria-label="Typeset equation"></div><div id="status" role="status"></div>
 <script nonce="hickory-math" src="node_modules/xterm.js"></script><script nonce="hickory-math" src="node_modules/addon-fit.js"></script><script nonce="hickory-math" src="katex/katex.min.js"></script><script nonce="hickory-math" src="node_modules/mermaid.min.js"></script><script nonce="hickory-math">
+if (globalThis.hickoryTableMode || location.search === '?table') {
+  document.body.className = 'table-mode'; document.getElementById('formula').setAttribute('aria-label', 'Inline table grid');
+  const style = document.createElement('style'); style.textContent = '#formula{position:static!important;width:100%!important;padding:0;transform:none!important;box-sizing:border-box}#status{display:none}body{overflow:auto}#formula.native-table-fill{height:100vh}.native-table-fill>.table-panel{height:100%;margin:0;display:flex;flex-direction:column}.native-table-fill .table-panel__scroll{flex:1;min-height:0}'; document.head.append(style);
+  const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'node_modules/table.css'; document.head.append(css);
+  const script = document.createElement('script'); script.src = 'node_modules/table.js'; script.nonce = 'hickory-math'; document.head.append(script);
+}
 // Transforms do not change layout dimensions, avoiding a ResizeObserver feedback loop.
 function fitPreview() {
-  if (document.body.classList.contains('terminal-mode')) return;
+  if (document.body.classList.contains('terminal-mode') || document.body.classList.contains('table-mode')) return;
   const node = document.getElementById('formula');
   const width = node.offsetWidth, height = node.offsetHeight;
   if (globalThis.mathRevision !== undefined && document.querySelector('.katex')) {

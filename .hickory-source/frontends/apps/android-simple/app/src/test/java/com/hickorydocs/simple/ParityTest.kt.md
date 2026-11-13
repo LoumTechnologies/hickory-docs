@@ -18,6 +18,29 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @Test fun emptyCSVAndFormattedMarkdownRetainExactEditRanges() {
+        // Contract: .hickory-source/frontends/contract.md
+        val empty = inlineTables(computeInlineMarkup("", "empty.csv")).single()
+        assertEquals(0, empty.from); assertEquals(0, empty.to)
+        val formatted = "<" + "!-- hickory-table-formats: B2:USD --" + ">\n| A | B |\n| --- | --- |\n| x | 2 |"
+        val table = inlineTables(computeInlineMarkup(formatted, "table.md")).single()
+        assertEquals(formatted, formatted.substring(table.from, table.to))
+    }
+    @Test fun structuralTablePresentationAndDeclaredFormulaLanguage() {
+        // Contract: .hickory-source/frontends/contract.md
+        val source = "<h:table language=\"python\" header=\"false\">\n1,=A1+1\n</h:table>\nAfter"
+        val parsed = computeInlineMarkup(source, "table.md")
+        val table = inlineTables(parsed).single()
+        assertEquals("python", inlineTableAttribute("language", table, source))
+        assertEquals("false", inlineTableAttribute("header", table, source))
+        val changed = source.replace("1,=A1+1", "1,=A1+1\n2,=A2+1")
+        val grid = inlineTables(tablePresentation(parsed, changed)).single()
+        assertEquals("1,=A1+1\n2,=A2+1", changed.substring(grid.from, grid.to))
+        assertTrue(changed.endsWith("</h:table>\nAfter"))
+        val csv = "1,2\n"
+        assertEquals(null, inlineTableAttribute("language", inlineTables(computeInlineMarkup(csv, "data.csv")).single(), csv))
+    }
+
     @org.junit.Test fun expectationsShareTerminalPreviewWithoutScanningLiteralExamples() {
         val source = "<h:exec>\necho hi\n<h:diagram>inert</h:diagram>\n<h:expect>\nhi\n</h:expect>\n</h:exec>\n<h:expect/>\n<h:file path=\"example.md\">\n<h:expect>inert</h:expect>\n</h:file>"
         val blocks = computeInlineMarkup(source, "book.md").diagrams

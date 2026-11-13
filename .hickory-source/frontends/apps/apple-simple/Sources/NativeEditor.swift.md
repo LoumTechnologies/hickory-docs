@@ -160,8 +160,11 @@ The controllers below own composition, selection, permission and undo checks. Se
 
 The spreadsheet is a child view inside the retained native text view. It shows lettered columns, numbered rows and editable cells, with a bounded viewport for large tables. Before a grid commit, make the source view the native undo owner and retain its selection and viewport through the following scan. A focus-loss commit cannot reenter itself. Return or leaving a cell commits through the same source snapshot and permission checks as other contextual edits. Revealing source changes presentation only. The [AppKit witness](../Tests/ParityTests.swift.md) checks the grid's actual frame, the position of following prose, source identity and undo; it does not certify iOS gestures.
 
+A locally bundled instance of the established spreadsheet replaces the small grid only after its ready message. Until then the native cells remain readable and editable. The page has no network access; its three formula operations use the existing Engine transport. Revision, current source, permission and native edit checks precede every replacement. Both AppKit and UIKit keep their text storage and undo path. Height reports update layout attributes, never source bytes; the two hosts reserve the same bounded height. The embedded page can neither navigate to remote content nor choose an arbitrary backend route.
+
 <ui:copy id="simple-native-table-grid">
 import SwiftUI
+import WebKit
 // The grid is hosted inside the text view at a source-backed layout anchor.
 // Cell commits go through the editor's snapshot/permission guard and native undo.
 struct NativeTableGrid: View {
@@ -169,7 +172,19 @@ struct NativeTableGrid: View {
     @State private var caretTarget: Int?
     @State private var caretRequest = GridCaretRequest()
     @State private var preferredX: CGFloat?
+    @State private var sharedReady = false
+    @State private var legacyFocused = false
+    private var showShared: Bool { sharedReady && !legacyFocused }
     var body: some View {
+        ZStack {
+            legacyBody.opacity(showShared ? 0 : 1).allowsHitTesting(!showShared).accessibilityHidden(showShared)
+            VStack(spacing: 0) {
+                HStack { Text("Table").font(.caption); Spacer(); Button("Edit source text") { buffer.sourceTable = table.id }.buttonStyle(.bordered) }.frame(height: 28).padding(.horizontal, 6)
+                NativeSpreadsheet(table: table, source: source, buffer: buffer, onReady: { sharedReady = true }, onUnavailable: { sharedReady = false })
+            }.opacity(showShared ? 1 : 0).allowsHitTesting(showShared).accessibilityHidden(!showShared)
+        }
+    }
+    private var legacyBody: some View {
         VStack(spacing: 0) {
             HStack { Text("Table").font(.caption); Spacer(); Button("Edit source text") { buffer.sourceTable = table.id }.buttonStyle(.bordered) }.frame(height: 28).padding(.horizontal, 6)
             ScrollView([.horizontal, .vertical]) {
@@ -192,7 +207,7 @@ struct NativeTableGrid: View {
                                     preferredX = dc == 0 ? goal : nil
                                     caretRequest = GridCaretRequest(x: goal, edge: dc)
                                     caretTarget = nextRow * 10000 + nextColumn
-                                }, onCaretActivity: { preferredX = nil }).frame(width: 140, height: 28).border(.secondary.opacity(0.3))
+                                }, onCaretActivity: { preferredX = nil }, onEditing: { legacyFocused = $0 }).frame(width: 140, height: 28).border(.secondary.opacity(0.3))
                             }
                         }
                     }
@@ -256,19 +271,20 @@ private struct NativeGridCell: View {
     @State private var notice = ""
     var request: GridCaretRequest?; var onFocus: () -> Void; var move: (Int, Int, CGFloat) -> Void
     var onCaretActivity: () -> Void = {}
+    var onEditing: (Bool) -> Void = { _ in }
     @State private var committing = false
     private func commit() {
         guard !committing, draft != cell.value else { return }
         committing = true; defer { committing = false }
-        if buffer.applyTableEdit?(NativeSourceEdit(range: cell.range, text: inlineCellText(draft, format: cell.format, delimiter: cell.delimiter)), source) != true { notice = "Table changed. Reopen the cell and try again." }
+        if buffer.inlineMarkup.source != source || buffer.applyTableEdit?(NativeSourceEdit(range: cell.range, text: inlineCellText(draft, format: cell.format, delimiter: cell.delimiter)), source) != true { notice = "Table changed. Reopen the cell and try again." }
     }
     var body: some View {
-        GridCellField(text: $draft, request: request, readOnly: buffer.readOnly, onFocus: onFocus, onCommit: commit,
+        GridCellField(text: $draft, request: request, readOnly: buffer.readOnly, onFocus: { onEditing(true); onFocus() }, onCommit: { commit(); onEditing(false) },
             onArrow: { dr, dc, x in commit(); move(dr, dc, x) }, onCaretActivity: onCaretActivity)
             .padding(.horizontal, 5)
             .accessibilityLabel("Row \(row + 1), column \(tableColumnName(cell.column))")
             .onAppear { draft = cell.value }.onChange(of: cell.value) { _, value in draft = value }
-            .onDisappear { commit() }.help(notice.isEmpty ? "Edit cell; press Return to apply" : notice)
+            .onDisappear { commit(); onEditing(false) }.help(notice.isEmpty ? "Edit cell; press Return to apply" : notice)
     }
 }
 #if os(macOS)
@@ -415,6 +431,128 @@ struct GridCellField: UIViewRepresentable {
         func textFieldDidEndEditing(_ textField: UITextField) { parent.onCommit() }
         func textFieldShouldReturn(_ textField: UITextField) -> Bool { parent.onCommit(); return false }
     }
+}
+#endif
+
+// Local shared spreadsheet: only exact-source edits and formula RPC cross this boundary.
+@MainActor final class NativeTableCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+    var table: InlineTable; var source: String; var buffer: DocumentBuffer
+    weak var view: WKWebView?
+    var onReady: () -> Void
+    var revision = UUID().uuidString
+    var ready = false
+    var mounted = true
+    var onUnavailable: () -> Void = {}
+    var allowedURL: URL?
+    private var identity = ""
+    private var acceptedSource: String?
+    private var acceptedRange: NSRange?
+    private var writable: Bool { !buffer.readOnly && (buffer.inlineMarkup.source == source || acceptedSource == source) }
+    func update(table: InlineTable, source: String) {
+        self.table = table; self.source = source
+        if acceptedSource == source, let range = acceptedRange { self.table.range = range }
+        display()
+    }
+    init(table: InlineTable, source: String, buffer: DocumentBuffer, onReady: @escaping () -> Void) { self.table = table; self.source = source; self.buffer = buffer; self.onReady = onReady }
+    func display() {
+        guard ready, NSMaxRange(table.range) <= (source as NSString).length else { return }
+        let key = source + "\0" + String(!writable) + "\0" + NSStringFromRange(table.range)
+        if key != identity { identity = key; revision = UUID().uuidString }
+        var snapshot: [String: Any] = ["revision": revision, "source": (source as NSString).substring(with: table.range), "format": table.rows.first?.first?.format ?? "csv", "delimiter": table.rows.first?.first?.delimiter ?? ",", "readonly": !writable, "header": inlineTableAttribute("header", table: table, source: source) != "false"]
+        snapshot["language"] = inlineTableAttribute("language", table: table, source: source)
+        send("update", snapshot)
+    }
+    private func send(_ method: String, _ value: Any) {
+        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]), let json = String(data: data, encoding: .utf8) else { return }
+        view?.evaluateJavaScript("globalThis.hickoryTable?." + method + "(" + json + ")", completionHandler: nil)
+    }
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard mounted, view != nil, message.frameInfo.isMainFrame, message.frameInfo.request.url?.isFileURL == true,
+              message.frameInfo.request.url == allowedURL, let event = message.body as? [String: Any], let kind = event["kind"] as? String else { return }
+        if kind == "ready" { ready = true; display(); onReady(); return }
+        if kind == "unavailable" { ready = false; onUnavailable(); return }
+        if kind == "formula" {
+            guard let id = event["id"] as? Int, let operation = event["operation"] as? String, ["languages", "evaluate", "trace"].contains(operation) else { return }
+            let engine = buffer.receiptEngine
+            Task { [weak self] in
+                do {
+                    guard let engine else { throw EngineError(message: "Reconnect to the workspace to evaluate formulas. Table source is still editable.") }
+                    let body: [String: Any]? = operation == "languages" ? nil : ["language": event["language"] as? String ?? "", "rows": event["rows"] as? [[String]] ?? []]
+                    let result: NativeTableJSON = try await engine.request(operation == "languages" ? "GET" : "POST", "/api/formula/" + operation, body: body)
+                    self?.reply(id, result.object, nil)
+                } catch { self?.reply(id, NSNull(), error.localizedDescription) }
+            }
+            return
+        }
+        guard event["revision"] as? String == revision, buffer.text == source else { display(); return }
+        if kind == "height", let height = event["height"] as? Double, height.isFinite {
+            buffer.tableHeights[table.id] = min(1200, max(180, height)); buffer.renderMarkup?(); return
+        }
+        if kind == "change", writable, let value = event["source"] as? String, value.utf16.count <= 1_000_000 {
+            let edit = NativeSourceEdit(range: table.range, text: value)
+            acceptedSource = (source as NSString).replacingCharacters(in: table.range, with: value)
+            acceptedRange = NSRange(location: table.range.location, length: value.utf16.count)
+            if buffer.applyTableEdit?(edit, source) == true {
+                table.range.length = value.utf16.count; source = buffer.text
+            } else { acceptedSource = nil; acceptedRange = nil }
+            display()
+        }
+    }
+    private func reply(_ id: Int, _ value: Any, _ error: String?) {
+        guard let data = try? JSONSerialization.data(withJSONObject: [id, value, error as Any? ?? NSNull()]), let json = String(data: data, encoding: .utf8) else { return }
+        view?.evaluateJavaScript("globalThis.hickoryTable?.reply(..." + json + ")", completionHandler: nil)
+    }
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { ready = false; onUnavailable() }
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        decisionHandler(navigationAction.targetFrame?.isMainFrame != false && navigationAction.request.url == allowedURL ? .allow : .cancel)
+    }
+}
+// Preserve arbitrary host JSON without evaluating or interpreting formula values locally.
+indirect enum NativeTableJSON: Decodable {
+    case value(Any), array([NativeTableJSON]), object([String: NativeTableJSON])
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() { self = .value(NSNull()) }
+        else if let v = try? c.decode(Bool.self) { self = .value(v) }
+        else if let v = try? c.decode(String.self) { self = .value(v) }
+        else if let v = try? c.decode(Double.self) { self = .value(v) }
+        else if let v = try? c.decode([NativeTableJSON].self) { self = .array(v) }
+        else { self = .object(try c.decode([String: NativeTableJSON].self)) }
+    }
+    var object: Any { switch self { case .value(let v): return v; case .array(let v): return v.map(\.object); case .object(let v): return v.mapValues(\.object) } }
+}
+@MainActor func makeNativeTableView(_ coordinator: NativeTableCoordinator, resource: URL? = nil) -> WKWebView {
+    let configuration = WKWebViewConfiguration(); configuration.websiteDataStore = .nonPersistent()
+    configuration.userContentController.add(coordinator, name: "table")
+    configuration.userContentController.addUserScript(WKUserScript(source: "globalThis.hickoryTableMode = true", injectionTime: .atDocumentStart, forMainFrameOnly: true))
+    let view = WKWebView(frame: .zero, configuration: configuration); coordinator.view = view; view.navigationDelegate = coordinator
+    let owner = Bundle(for: MathCoordinator.self)
+    let roots = [Bundle.main.resourceURL, Bundle.main.bundleURL, owner.resourceURL, owner.bundleURL, URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()].compactMap { $0 }
+    if let file = resource ?? nativeMathResource(roots: roots) {
+        coordinator.allowedURL = file
+        view.loadFileURL(file, allowingReadAccessTo: file.deletingLastPathComponent())
+    }
+    return view
+}
+struct NativeSpreadsheet: View {
+    var table: InlineTable; var source: String; var buffer: DocumentBuffer; var onReady: () -> Void; var onUnavailable: () -> Void = {}
+    var body: some View { NativeSpreadsheetView(table: table, source: source, buffer: buffer, onReady: onReady, onUnavailable: onUnavailable) }
+}
+#if os(macOS)
+struct NativeSpreadsheetView: NSViewRepresentable {
+    var table: InlineTable; var source: String; var buffer: DocumentBuffer; var onReady: () -> Void; var onUnavailable: () -> Void = {}
+    func makeCoordinator() -> NativeTableCoordinator { NativeTableCoordinator(table: table, source: source, buffer: buffer, onReady: onReady) }
+    func makeNSView(context: Context) -> WKWebView { makeNativeTableView(context.coordinator) }
+    func updateNSView(_ view: WKWebView, context: Context) { context.coordinator.onReady = onReady; context.coordinator.onUnavailable = onUnavailable; context.coordinator.update(table: table, source: source) }
+    static func dismantleNSView(_ view: WKWebView, coordinator: NativeTableCoordinator) { coordinator.mounted = false; view.stopLoading(); view.configuration.userContentController.removeScriptMessageHandler(forName: "table"); view.navigationDelegate = nil }
+}
+#else
+struct NativeSpreadsheetView: UIViewRepresentable {
+    var table: InlineTable; var source: String; var buffer: DocumentBuffer; var onReady: () -> Void; var onUnavailable: () -> Void = {}
+    func makeCoordinator() -> NativeTableCoordinator { NativeTableCoordinator(table: table, source: source, buffer: buffer, onReady: onReady) }
+    func makeUIView(context: Context) -> WKWebView { makeNativeTableView(context.coordinator) }
+    func updateUIView(_ view: WKWebView, context: Context) { context.coordinator.onReady = onReady; context.coordinator.onUnavailable = onUnavailable; context.coordinator.update(table: table, source: source) }
+    static func dismantleUIView(_ view: WKWebView, coordinator: NativeTableCoordinator) { coordinator.mounted = false; view.stopLoading(); view.configuration.userContentController.removeScriptMessageHandler(forName: "table"); view.navigationDelegate = nil }
 }
 #endif
 
@@ -1129,7 +1267,7 @@ private struct EquationLayout: Equatable {
         let storage = text.textStorage!
         if buffer.inlineMarkup.source == source { tableSnapshot = buffer.inlineMarkup }
         else { tableSnapshot = tablePresentation(tableSnapshot, source: source) }
-        let tables = !buffer.tableSourceVisible ? inlineTables(tableSnapshot).filter { $0.id != buffer.sourceTable } : []
+        let tables: [InlineTable] = !buffer.tableSourceVisible ? inlineTables(tableSnapshot).filter { $0.id != buffer.sourceTable }.map { value in var value = value; value.preferredHeight = buffer.tableHeights[value.id]; return value } : []
         let geometryChanged = folding.tables.map { [$0.range.location, $0.range.length, Int($0.height)] } != tables.map { [$0.range.location, $0.range.length, Int($0.height)] }
         if tableSource != source || tableSourceVisible != buffer.tableSourceVisible || sourceTable != buffer.sourceTable || geometryChanged {
             tableSource = source; tableSourceVisible = buffer.tableSourceVisible; sourceTable = buffer.sourceTable
@@ -1148,7 +1286,7 @@ private struct EquationLayout: Equatable {
             text.typingAttributes[.paragraphStyle] = tabs
             folding.tables = tables
             text.tableRanges = folding.tables.map(\.range)
-            for table in folding.tables {
+            for table in folding.tables where table.range.length > 0 {
                 let style = NSMutableParagraphStyle(); style.minimumLineHeight = table.height; style.maximumLineHeight = table.height
                 storage.addAttribute(.paragraphStyle, value: style, range: NSRange(location: table.range.location, length: 1))
                 storage.addAttribute(.foregroundColor, value: NSColor.clear, range: table.range)
@@ -1166,9 +1304,9 @@ private struct EquationLayout: Equatable {
         }
         let manager = text.layoutManager!, container = text.textContainer!
         for table in folding.tables {
-            if storage.attribute(.foregroundColor, at: table.range.location, effectiveRange: nil) as? NSColor != .clear { storage.addAttribute(.foregroundColor, value: NSColor.clear, range: table.range) }
-            let glyph = manager.glyphRange(forCharacterRange: NSRange(location: table.range.location, length: 1), actualCharacterRange: nil)
-            let rect = manager.boundingRect(forGlyphRange: glyph, in: container)
+            if table.range.length > 0 && storage.attribute(.foregroundColor, at: table.range.location, effectiveRange: nil) as? NSColor != .clear { storage.addAttribute(.foregroundColor, value: NSColor.clear, range: table.range) }
+            let glyph = manager.glyphRange(forCharacterRange: NSRange(location: table.range.location, length: min(1, table.range.length)), actualCharacterRange: nil)
+            let rect = table.range.length == 0 ? CGRect.zero : manager.boundingRect(forGlyphRange: glyph, in: container)
             tableViews[table.id]?.frame = NSRect(x: text.textContainerOrigin.x, y: rect.minY + text.textContainerOrigin.y, width: max(100, text.bounds.width - 16), height: table.height)
         }
         presentDiagrams()
@@ -1622,7 +1760,7 @@ import UIKit
         let storage = text.textStorage
         if buffer.inlineMarkup.source == source { tableSnapshot = buffer.inlineMarkup }
         else { tableSnapshot = tablePresentation(tableSnapshot, source: source) }
-        let tables = !buffer.tableSourceVisible ? inlineTables(tableSnapshot).filter { $0.id != buffer.sourceTable } : []
+        let tables: [InlineTable] = !buffer.tableSourceVisible ? inlineTables(tableSnapshot).filter { $0.id != buffer.sourceTable }.map { value in var value = value; value.preferredHeight = buffer.tableHeights[value.id]; return value } : []
         let geometryChanged = folding.tables.map { [$0.range.location, $0.range.length, Int($0.height)] } != tables.map { [$0.range.location, $0.range.length, Int($0.height)] }
         if tableSource != source || tableSourceVisible != buffer.tableSourceVisible || sourceTable != buffer.sourceTable || geometryChanged {
             tableSource = source; tableSourceVisible = buffer.tableSourceVisible; sourceTable = buffer.sourceTable
@@ -1641,7 +1779,7 @@ import UIKit
             text.typingAttributes[.paragraphStyle] = tabs
             folding.tables = tables
             text.tableRanges = folding.tables.map(\.range)
-            for table in folding.tables {
+            for table in folding.tables where table.range.length > 0 {
                 let style = NSMutableParagraphStyle(); style.minimumLineHeight = table.height; style.maximumLineHeight = table.height
                 storage.addAttribute(.paragraphStyle, value: style, range: NSRange(location: table.range.location, length: 1))
                 storage.addAttribute(.foregroundColor, value: UIColor.clear, range: table.range)
@@ -1659,9 +1797,9 @@ import UIKit
         }
         let manager = text.layoutManager, container = text.textContainer
         for table in folding.tables {
-            if storage.attribute(.foregroundColor, at: table.range.location, effectiveRange: nil) as? UIColor != .clear { storage.addAttribute(.foregroundColor, value: UIColor.clear, range: table.range) }
-            let glyph = manager.glyphRange(forCharacterRange: NSRange(location: table.range.location, length: 1), actualCharacterRange: nil)
-            let rect = manager.boundingRect(forGlyphRange: glyph, in: container)
+            if table.range.length > 0 && storage.attribute(.foregroundColor, at: table.range.location, effectiveRange: nil) as? UIColor != .clear { storage.addAttribute(.foregroundColor, value: UIColor.clear, range: table.range) }
+            let glyph = manager.glyphRange(forCharacterRange: NSRange(location: table.range.location, length: min(1, table.range.length)), actualCharacterRange: nil)
+            let rect = table.range.length == 0 ? CGRect.zero : manager.boundingRect(forGlyphRange: glyph, in: container)
             tableViews[table.id]?.view.frame = CGRect(x: text.textContainerInset.left, y: rect.minY + text.textContainerInset.top, width: max(100, text.bounds.width - text.textContainerInset.left - text.textContainerInset.right), height: table.height)
         }
         presentDiagrams()

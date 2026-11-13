@@ -495,6 +495,8 @@ The output transformation replaces only displayed bytes with a bounded set of pl
 
 The grid scrolls inside its reserved viewport, labels rows and columns, and applies a cell on Return/Done or focus loss. A stale snapshot or read-only owner cannot authorize a write. Source reveal removes the presentation transformation; it does not recreate the field or its undo stack.
 
+The local shared spreadsheet sends typed messages through a narrow Android bridge. Source changes must name the current revision, match the entire current text, and pass DocumentBuffer’s permission/composition guard. Compose’s existing text-state edit retains undo. Only three fixed formula routes are forwarded. Network loads and nonlocal navigation are disabled. Readable native cells remain until the local bundle announces readiness. Height changes update the placeholder projection at the current font scale, keeping subsequent prose below the same grid rectangle.
+
 <ui:copy id="simple-android-table-grid">
 // A terminal screen has no stdin path. Expectations and captured bytes use
 // the same renderer; editing an expectation goes back to its guarded source.
@@ -582,7 +584,7 @@ class GridVerticalCaretGoal {
     fun reset() { x = null }
 }
 private data class GridCaretRequest(val row: Int, val column: Int, val x: Float, val edge: Int, val serial: Int)
-@Composable private fun InlineTableGrid(table: InlineTable, source: String, buffer: DocumentBuffer, modifier: Modifier = Modifier) {
+@Composable private fun NativeFallbackTableGrid(table: InlineTable, source: String, buffer: DocumentBuffer, modifier: Modifier = Modifier, onEditing: (Boolean) -> Unit = {}) {
     var navigation by remember { mutableStateOf<GridCaretRequest?>(null) }
     var navigationSerial by remember { mutableStateOf(0) }
     val verticalGoal = remember { GridVerticalCaretGoal() }
@@ -621,7 +623,7 @@ private data class GridCaretRequest(val row: Int, val column: Int, val x: Float,
                         }
                         var notice by remember { mutableStateOf("") }
                         var focused by remember { mutableStateOf(false) }
-                        val commit = { if (draft.text != cell.value && !buffer.applySourceEdits(listOf(NativeSourceEdit(cell.from, cell.to, inlineCellText(draft.text, cell.format, cell.delimiter))), source)) notice = "Table changed. Reopen the cell and try again." }
+                        val commit = { if (draft.text != cell.value && (buffer.inlineMarkup.source != source || !buffer.applySourceEdits(listOf(NativeSourceEdit(cell.from, cell.to, inlineCellText(draft.text, cell.format, cell.delimiter))), source))) notice = "Table changed. Reopen the cell and try again." }
                         val latestCommit by rememberUpdatedState(commit)
                         DisposableEffect(Unit) { onDispose { latestCommit() } }
                         BasicTextField(value = draft, onValueChange = { if (it.text != draft.text || it.selection != draft.selection) verticalGoal.reset(); draft = it }, readOnly = buffer.readOnly, singleLine = true, onTextLayout = { layout = it },
@@ -653,7 +655,7 @@ private data class GridCaretRequest(val row: Int, val column: Int, val x: Float,
                                     }
                                 }
                                 .onFocusChanged { state ->
-                                    val wasFocused = focused; focused = state.isFocused
+                                    val wasFocused = focused; focused = state.isFocused; onEditing(focused)
                                     if (focused && caretTarget != (row to cell.column)) { verticalGoal.reset(); caretTarget = row to cell.column }
                                     if (focused && navigation?.let { it.row != row || it.column != cell.column } == true) navigation = null
                                     if (wasFocused && !focused) commit()
@@ -663,6 +665,105 @@ private data class GridCaretRequest(val row: Int, val column: Int, val x: Float,
                 }
             }
           }
+        }
+    }
+}
+
+// The local page owns spreadsheet gestures; this controller owns source authority.
+private class NativeTableController(val buffer: DocumentBuffer, val scope: kotlinx.coroutines.CoroutineScope, val onReady: () -> Unit, val onUnavailable: () -> Unit) {
+    var table: InlineTable? = null
+    var source = ""
+    var revision = java.util.UUID.randomUUID().toString()
+    var readOnly = true
+    private var acceptedSource: String? = null
+    private var acceptedTable: InlineTable? = null
+    var ready = false
+    var view: android.webkit.WebView? = null
+    fun update(value: InlineTable, text: String) {
+        val current = if (acceptedSource == text) acceptedTable ?: value else value
+        val unavailable = buffer.readOnly || (buffer.inlineMarkup.source != text && acceptedSource != text)
+        if (source != text || table?.from != current.from || table?.to != current.to || readOnly != unavailable) revision = java.util.UUID.randomUUID().toString()
+        table = current; source = text; readOnly = unavailable
+        display()
+    }
+    fun display() {
+        val table = table ?: return
+        if (!ready || table.to > source.length) return
+        val snapshot = org.json.JSONObject().put("revision", revision).put("source", source.substring(table.from, table.to))
+            .put("format", table.rows.firstOrNull()?.firstOrNull()?.format ?: "csv").put("delimiter", table.rows.firstOrNull()?.firstOrNull()?.delimiter ?: ",")
+            .put("readonly", readOnly).put("language", inlineTableAttribute("language", table, source))
+            .put("header", inlineTableAttribute("header", table, source) != "false")
+        view?.evaluateJavascript("globalThis.hickoryTable?.update($snapshot)", null)
+    }
+    @android.webkit.JavascriptInterface fun postMessage(json: String) {
+        if (json.length > 1_100_000) return
+        view?.post { runCatching { receive(org.json.JSONObject(json)) } }
+    }
+    private fun receive(event: org.json.JSONObject) {
+        if (view == null) return
+        when (event.optString("kind")) {
+            "ready" -> { ready = true; display(); onReady() }
+            "unavailable" -> { ready = false; onUnavailable() }
+            "formula" -> {
+                val operation = event.optString("operation")
+                if (operation !in listOf("languages", "evaluate", "trace") || !event.has("id")) return
+                val id = event.getInt("id")
+                scope.launch {
+                    try {
+                        val engine = buffer.receiptEngine ?: error("Reconnect to the workspace to evaluate formulas. Table source is still editable.")
+                        val body = if (operation == "languages") null else org.json.JSONObject().put("language", event.optString("language")).put("rows", event.optJSONArray("rows") ?: org.json.JSONArray())
+                        val result = engine.request(if (operation == "languages") "GET" else "POST", "/api/formula/$operation", body)
+                        reply(id, result, null)
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                    catch (error: Exception) { reply(id, org.json.JSONObject.NULL, error.message ?: "Formula request failed. Check the workspace connection and retry.") }
+                }
+            }
+            "height" -> if (event.optString("revision") == revision && buffer.text == source) {
+                val height = event.optDouble("height")
+                if (height.isFinite()) table?.let { buffer.tableHeights[it.from] = height.toInt().coerceIn(180, 1200) }
+            }
+            "change" -> {
+                val table = table ?: return
+                if (event.optString("revision") != revision || buffer.text != source || buffer.readOnly || (buffer.inlineMarkup.source != source && acceptedSource != source) || !event.has("source")) { display(); return }
+                val text = event.getString("source")
+                if (text.length > 1_000_000) return
+                acceptedSource = source.replaceRange(table.from, table.to, text); acceptedTable = table.copy(to = table.from + text.length)
+                if (buffer.applySourceEdits(listOf(NativeSourceEdit(table.from, table.to, text)), source)) update(acceptedTable!!, buffer.text)
+                else { acceptedSource = null; acceptedTable = null; display() }
+            }
+        }
+    }
+    private fun reply(id: Int, value: Any, error: String?) {
+        val args = org.json.JSONArray().put(id).put(value).put(error ?: org.json.JSONObject.NULL)
+        view?.evaluateJavascript("globalThis.hickoryTable?.reply(...$args)", null)
+    }
+}
+@android.annotation.SuppressLint("SetJavaScriptEnabled")
+@Composable private fun InlineTableGrid(table: InlineTable, source: String, buffer: DocumentBuffer, modifier: Modifier = Modifier) {
+    var ready by remember { mutableStateOf(false) }
+    var legacyFocused by remember { mutableStateOf(false) }
+    val showShared = ready && !legacyFocused
+    val scope = rememberCoroutineScope()
+    val controller = remember(buffer) { NativeTableController(buffer, scope, onReady = { ready = true }, onUnavailable = { ready = false }) }
+    Box(modifier) {
+        if (!showShared) NativeFallbackTableGrid(table, source, buffer, Modifier.fillMaxSize(), onEditing = { legacyFocused = it })
+        Column(Modifier.fillMaxSize().then(if (showShared) Modifier else Modifier.clearAndSetSemantics { hideFromAccessibility() })) {
+            if (showShared) Row(Modifier.fillMaxWidth().height(28.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Table", fontSize = 12.sp, modifier = Modifier.weight(1f).padding(start = 6.dp))
+                Text("Edit source text", fontSize = 12.sp, modifier = Modifier.clickable { buffer.sourceTable = table.from }.padding(horizontal = 6.dp))
+            }
+            androidx.compose.ui.viewinterop.AndroidView(modifier = Modifier.fillMaxWidth().weight(1f), factory = { context ->
+                android.webkit.WebView(context).apply {
+                    controller.view = this
+                    settings.javaScriptEnabled = true; settings.allowFileAccess = false; settings.allowContentAccess = false; settings.blockNetworkLoads = true
+                    addJavascriptInterface(controller, "HickoryTable")
+                    webViewClient = object : android.webkit.WebViewClient() {
+                        override fun shouldOverrideUrlLoading(view: android.webkit.WebView, request: android.webkit.WebResourceRequest): Boolean = request.url.toString() != "file:///android_asset/math.html?table"
+                        override fun onRenderProcessGone(view: android.webkit.WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean { ready = false; controller.view = null; view.destroy(); return true }
+                    }
+                    loadUrl("file:///android_asset/math.html?table")
+                }
+            }, update = { view -> view.visibility = if (showShared) android.view.View.VISIBLE else android.view.View.INVISIBLE; controller.update(table, source) }, onRelease = { controller.view = null; it.removeJavascriptInterface("HickoryTable"); it.stopLoading(); it.destroy() })
         }
     }
 }
@@ -712,7 +813,7 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
     val selection = buffer.state.selection
     val folds = buffer.activeFolds()
     val presentation = tablePresentation(inline, source)
-    val tables = if (!buffer.tableSourceVisible) inlineTables(presentation).filter { it.from != buffer.sourceTable } else emptyList()
+    val tables = if (!buffer.tableSourceVisible) inlineTables(presentation).filter { it.from != buffer.sourceTable }.map { table -> buffer.tableHeights[table.from]?.let { height -> table.copy(visibleRows = kotlin.math.ceil(height / (13f * LocalDensity.current.fontScale.coerceAtLeast(.1f))).toInt()) } ?: table } else emptyList()
     val diagrams = if (!buffer.tableSourceVisible) presentation.diagrams.filter { it.from != buffer.sourceTable } else emptyList()
     val hiddenRanges = editorReplacements(folds, tables, diagrams = diagrams)
     val replacements = editorReplacements(folds, tables, source, diagrams, if (buffer.inlineMarkup.source == source) buffer.inlineMarkup.equations else emptyList(), (buffer.recordedOutputPlacements() + debug?.outputPlacements(buffer).orEmpty()), fontScale = LocalDensity.current.fontScale)

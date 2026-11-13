@@ -1,6 +1,6 @@
 import { chromium } from "../apps/web/node_modules/@playwright/test/index.mjs";
 import { createInterface } from "node:readline";
-let browser, page;
+let browser, page, nativeTable;
 const lines = createInterface({ input: process.stdin });
 async function menu(name, action) {
   await page.locator("nav").getByText(name, { exact: true }).click();
@@ -88,6 +88,82 @@ try {
           await page.keyboard.insertText(request.text);
           value = await content.locator('[class*="cm-st-"]').allTextContents();
           break;
+        }
+        case "native-table": {
+          await page.close(); page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+          nativeTable = { revision: "native:0", source: request.source, format: request.format, readonly: false, language: "python", header: false };
+          let revision = 0;
+          await page.exposeBinding("tableHostMessage", async (_, json) => {
+            const message = JSON.parse(json);
+            if (message.kind === "ready") {
+              await page.waitForFunction(() => !!globalThis.hickoryTable);
+              await page.evaluate(snapshot => globalThis.hickoryTable.update(snapshot), nativeTable);
+            } else if (message.kind === "formula") {
+              try {
+                const response = await fetch(`${request.backend}/api/formula/${message.operation}`, { method: message.operation === "languages" ? "GET" : "POST", headers: { "Content-Type": "application/json" }, ...(message.operation === "languages" ? {} : { body: JSON.stringify({ language: message.language, rows: message.rows }) }) });
+                const value = await response.json();
+                await page.evaluate(({ id, value, error }) => globalThis.hickoryTable.reply(id, value, error), { id: message.id, value, error: response.ok ? undefined : JSON.stringify(value) });
+              } catch (error) { await page.evaluate(({ id, error }) => globalThis.hickoryTable.reply(id, null, error), { id: message.id, error: String(error) }); }
+            } else if (message.kind === "change" && message.revision === nativeTable.revision && !nativeTable.readonly) {
+              nativeTable = { ...nativeTable, source: message.source, revision: `native:${++revision}` };
+              await page.evaluate(snapshot => globalThis.hickoryTable.update(snapshot), nativeTable);
+            }
+          });
+          await page.addInitScript(() => { globalThis.HickoryTable = { postMessage: value => { void globalThis.tableHostMessage(value); } }; });
+          await page.goto(request.url); await page.getByTestId("table-panel").waitFor(); break;
+        }
+        case "native-table-source": value = nativeTable.source; break;
+        case "spreadsheet-select": {
+          const table = page.getByTestId("table-panel");
+          const cell = (r, c) => table.locator(`.table-panel__cell[data-row="${r}"][data-column="${c}"]`);
+          await cell(request.row, request.column).click();
+          if (request.endRow !== undefined) await cell(request.endRow, request.endColumn).click({ modifiers: ["Shift"] });
+          value = await table.getByTestId("table-panel-name").textContent(); break;
+        }
+        case "spreadsheet-touch-range": {
+          const table = page.getByTestId("table-panel");
+          const cell = (r, c) => table.locator(`.table-panel__cell[data-row="${r}"][data-column="${c}"]`);
+          await cell(request.row, request.column).click();
+          const a = await cell(request.row, request.column).boundingBox(), b = await cell(request.endRow, request.endColumn).boundingBox();
+          const input = await page.context().newCDPSession(page);
+          const point = box => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
+          await input.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point(a)] });
+          await input.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [point(b)] });
+          await input.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+          await input.detach();
+          value = await table.getByTestId("table-panel-name").textContent(); break;
+        }
+        case "spreadsheet-structure": await page.getByTestId("table-panel").getByRole("button", { name: request.button, exact: true }).click(); break;
+        case "spreadsheet-formula-point": {
+          const table = page.getByTestId("table-panel");
+          const cell = (r, c) => table.locator(`.table-panel__cell[data-row="${r}"][data-column="${c}"]`);
+          await cell(request.row, request.column).click();
+          const bar = table.locator(".table-panel__formula"); await bar.fill(request.prefix);
+          const start = await cell(request.fromRow, request.fromColumn).boundingBox();
+          const end = await cell(request.toRow, request.toColumn).boundingBox();
+          if (request.touch) {
+            const input = await page.context().newCDPSession(page);
+            await input.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: start.x + start.width / 2, y: start.y + start.height / 2 }] });
+            await input.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: end.x + end.width / 2, y: end.y + end.height / 2 }] });
+            await input.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] }); await input.detach();
+          } else {
+            await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2); await page.mouse.down();
+            await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 8 }); await page.mouse.up();
+          }
+          value = await bar.inputValue();
+          // Return the picked draft before committing an expression in the next action.
+          break;
+        }
+        case "spreadsheet-formula": {
+          const bar = page.getByTestId("table-panel").locator(".table-panel__formula");
+          await bar.fill(request.value); await bar.press("Enter"); break;
+        }
+        case "spreadsheet-value": value = await page.getByTestId("table-panel").locator(`.table-panel__cell[data-row="${request.row}"][data-column="${request.column}"]`).textContent(); break;
+        case "spreadsheet-language": await page.getByLabel("Formula language (session)").selectOption(request.language); break;
+        case "spreadsheet-height": {
+          const handle = page.getByLabel("Table height", { exact: true });
+          await handle.focus(); await handle.press(request.key);
+          value = await page.getByTestId("table-panel-scroll").evaluate(node => node.getBoundingClientRect().height); break;
         }
         case "table-edit": {
           const table = page.getByTestId("table-panel");

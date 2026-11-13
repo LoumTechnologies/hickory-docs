@@ -45,6 +45,8 @@ are bounded lexical previews, not full grammar parsing or project diagnostics.
 
 The Swift scanner returns source-backed styles and cell ranges. Escaped pipes and code-span pipes cannot create extra columns; applying a cell edit escapes literal pipes and retains all untouched bytes.
 
+Whole-table structural edits retain a temporary presentation anchor until the background scanner catches up. Old cell rows describe presentation only; the shared spreadsheet writes the exact current table range through the host guard. Keep the Markdown number-format comment inside that replacement and admit a zero-length first cell for an empty standalone CSV. Split HTML comment delimiters in source-language strings so the literate compiler does not treat them as document comments.
+
 <ui:copy id="simple-inline-model-0">
 import Foundation
 struct InlineMark: Sendable { var kind: String; var range: NSRange; var level: Int = 0 }
@@ -58,12 +60,13 @@ struct InlineEquation: Identifiable, Sendable {
     var id: Int { range.location }
 }
 struct InlineDiagram: Identifiable, Sendable { var line: Int; var range: NSRange; var body: String; var renderer: String; var id: Int { range.location } }
-struct InlineSnapshot: Sendable { var diagrams: [InlineDiagram] = []; var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = []; var debug = InlineDebugContext() }
+struct InlineSnapshot: Sendable { var diagrams: [InlineDiagram] = []; var source: String; var lineStarts: [Int] = [0]; var marks: [InlineMark] = []; var cells: [InlineCell] = []; var equations: [InlineEquation] = []; var debug = InlineDebugContext(); var gridOverrides: [InlineTable] = [] }
 // Tables are presentation ranges over the original source, never replacement text.
 struct InlineTable: Identifiable, Sendable {
     var range: NSRange; var rows: [[InlineCell]]
     var id: Int { range.location }
-    var height: CGFloat { min(320, CGFloat(rows.count + 2) * 30) }
+    var preferredHeight: CGFloat? = nil
+    var height: CGFloat { preferredHeight ?? max(280, min(420, CGFloat(rows.count + 5) * 30)) }
 }
 func tablePresentation(_ snapshot: InlineSnapshot, source: String) -> InlineSnapshot {
     if snapshot.source == source { return snapshot }
@@ -73,6 +76,16 @@ func tablePresentation(_ snapshot: InlineSnapshot, source: String) -> InlineSnap
     while suffix < min(old.count, new.count) - prefix, old[old.count - suffix - 1] == new[new.count - suffix - 1] { suffix += 1 }
     let end = old.count - suffix, delta = new.count - old.count, text = source as NSString
     var result = InlineSnapshot(source: source)
+    // Preserve a changed grid's anchor until the background scanner supplies new cells.
+    // These old rows grant no write authority; the host edits the exact new range.
+    result.gridOverrides = inlineTables(snapshot).compactMap { table in
+        let tail = NSMaxRange(table.range)
+        let insertionAfterNewline = prefix == end && prefix >= tail && prefix - tail <= 2 && (snapshot.source as NSString).substring(with: NSRange(location: tail, length: prefix - tail)).allSatisfy { $0 == "\r" || $0 == "\n" }
+        guard prefix >= table.range.location, (end <= tail || insertionAfterNewline), end >= table.range.location,
+              ((snapshot.source as NSString).substring(with: NSRange(location: prefix, length: end - prefix)) + (source as NSString).substring(with: NSRange(location: prefix, length: new.count - suffix - prefix))).contains(where: { "\n,|".contains($0) }) else { return nil }
+        var table = table; table.range.length += delta
+        return table.range.length > 0 ? table : nil
+    }
     for (index, char) in new.enumerated() where char == 10 { result.lineStarts.append(index + 1) }
     result.cells = snapshot.cells.compactMap { cell in
         var cell = cell
@@ -111,7 +124,11 @@ func inlineTables(_ snapshot: InlineSnapshot) -> [InlineTable] {
         var rows = [header], last = line + 1, next = line + 2
         consumed.insert(line)
         while let cells = lines[next] { rows.append(cells); consumed.insert(next); last = next; next += 1 }
-        let start = snapshot.lineStarts[line]
+        var start = snapshot.lineStarts[line]
+        if line > 0 {
+            let previous = source.substring(with: NSRange(location: snapshot.lineStarts[line - 1], length: start - snapshot.lineStarts[line - 1])).trimmingCharacters(in: .whitespacesAndNewlines)
+            if previous.hasPrefix("<" + "!-- hickory-table-formats: ") && previous.hasSuffix(" --" + ">") { start = snapshot.lineStarts[line - 1] }
+        }
         let end = NSMaxRange(source.lineRange(for: NSRange(location: snapshot.lineStarts[last], length: 0)))
         // Retain the final newline outside the replacement so following prose keeps its own paragraph.
         var to = end
@@ -133,7 +150,7 @@ func inlineTables(_ snapshot: InlineSnapshot) -> [InlineTable] {
         for cell in cells { if cell.column == 0 { rows.append([]) }; rows[rows.count - 1].append(cell) }
         result.append(InlineTable(range: NSRange(location: first.range.location, length: NSMaxRange(last.range) - first.range.location), rows: rows))
     }
-    return result.sorted { $0.range.location < $1.range.location }
+    return (result.filter { table in !snapshot.gridOverrides.contains { NSIntersectionRange($0.range, table.range).length > 0 } } + snapshot.gridOverrides).sorted { $0.range.location < $1.range.location }
 }
 func inlineCellText(_ value: String, format: String = "markdown", delimiter: String = ",") -> String {
     if format == "csv" { return value.contains(delimiter) || value.contains("\n") || value.contains("\r") || value.contains("\"") ? "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\"" : value }
@@ -354,7 +371,7 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
     for (index, unit) in source.utf16.enumerated() { if unit == 10 { starts.append(index + 1) } }
     var result = InlineSnapshot(source: source, lineStarts: starts, debug: inlineDebugContext(source, path: path))
     if (path as NSString).pathExtension.lowercased() == "csv", source.utf16.count <= 200_000 {
-        result.cells = inlineCSVCells(source, line: 0, offset: 0, delimiter: ","); return result
+        result.cells = source.isEmpty ? [InlineCell(line: 0, column: 0, range: NSRange(location: 0, length: 0), value: "", format: "csv")] : inlineCSVCells(source, line: 0, offset: 0, delimiter: ","); return result
     }
     guard ["md", "markdown"].contains((path as NSString).pathExtension.lowercased()), source.utf16.count <= 200_000 else { return result }
     let rows = source.components(separatedBy: "\n")
@@ -441,6 +458,18 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
     result.diagrams = inlineDiagrams(source)
     return result
 }
+
+// Only a declaration directly before this body supplies table attributes.
+func inlineTableAttribute(_ name: String, table: InlineTable, source: String) -> String? {
+    guard table.rows.first?.first?.format == "csv", table.range.location <= (source as NSString).length else { return nil }
+    let prefix = (source as NSString).substring(to: table.range.location) as NSString
+    let tag = try! NSRegularExpression(pattern: #"<[\w.-]+:table\b[^>]*>"#)
+    guard let match = tag.matches(in: prefix as String, range: NSRange(location: 0, length: prefix.length)).last,
+          prefix.substring(from: NSMaxRange(match.range)).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+    let declaration = prefix.substring(with: match.range) as NSString
+    let attr = try! NSRegularExpression(pattern: "\\b" + NSRegularExpression.escapedPattern(for: name) + #"\s*=\s*["']([^"']*)["']"#)
+    return attr.firstMatch(in: declaration as String, range: NSRange(location: 0, length: declaration.length)).map { declaration.substring(with: $0.range(at: 1)) }
+}
 </ui:copy>
 
 <ui:file path="apps/apple-simple/Sources/InlineMarkup.swift"><ui:paste select="#simple-inline-model-0"/></ui:file>
@@ -454,10 +483,10 @@ data class InlineMark(val kind: String, val from: Int, val to: Int, val level: I
 data class InlineCell(val line: Int, val column: Int, val from: Int, val to: Int, val value: String, val format: String = "markdown", val delimiter: String = ",")
 data class InlineEquation(val line: Int, val from: Int, val to: Int, val body: String)
 data class InlineDiagram(val line: Int, val from: Int, val to: Int, val body: String, val renderer: String)
-data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf(0), val marks: List<InlineMark> = emptyList(), val cells: List<InlineCell> = emptyList(), val equations: List<InlineEquation> = emptyList(), val debug: InlineDebugContext = InlineDebugContext(), val diagrams: List<InlineDiagram> = emptyList())
+data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf(0), val marks: List<InlineMark> = emptyList(), val cells: List<InlineCell> = emptyList(), val equations: List<InlineEquation> = emptyList(), val debug: InlineDebugContext = InlineDebugContext(), val diagrams: List<InlineDiagram> = emptyList(), val gridOverrides: List<InlineTable> = emptyList())
 // Keep source offsets authoritative while the field displays a grid-sized placeholder.
-data class InlineTable(val from: Int, val to: Int, val rows: List<List<InlineCell>>) {
-    val displayRows: Int get() = minOf(10, rows.size + 2)
+data class InlineTable(val from: Int, val to: Int, val rows: List<List<InlineCell>>, val visibleRows: Int? = null) {
+    val displayRows: Int get() = visibleRows ?: maxOf(22, minOf(32, rows.size * 2 + 10))
 }
 fun tablePresentation(snapshot: InlineSnapshot, source: String): InlineSnapshot {
     if (snapshot.source == source) return snapshot
@@ -483,7 +512,13 @@ fun tablePresentation(snapshot: InlineSnapshot, source: String): InlineSnapshot 
         val mapped = when { diagram.to <= prefix -> diagram; diagram.from >= end -> diagram.copy(from = diagram.from + delta, to = diagram.to + delta); else -> null }
         mapped?.copy(line = inlineLineAt(mapped.from, starts))
     }
-    return InlineSnapshot(source, lineStarts = starts, cells = cells, diagrams = diagrams)
+    val changed = old.substring(prefix, end) + source.substring(prefix, source.length - suffix)
+    val grids = inlineTables(snapshot).filter { table ->
+        val afterNewline = prefix == end && prefix >= table.to && prefix - table.to <= 2 && old.substring(table.to, prefix).all { it == '\r' || it == '\n' }
+        prefix >= table.from && (end <= table.to || afterNewline) && end >= table.from && changed.any { char -> char in "\n,|" }
+    }
+        .map { it.copy(to = it.to + delta) }.filter { it.to > it.from }
+    return InlineSnapshot(source, lineStarts = starts, cells = cells, diagrams = diagrams, gridOverrides = grids)
 }
 fun inlineTables(snapshot: InlineSnapshot): List<InlineTable> {
     val lines = snapshot.cells.filter { it.format == "markdown" }.groupBy { it.line }
@@ -496,7 +531,9 @@ fun inlineTables(snapshot: InlineSnapshot): List<InlineTable> {
         consumed.add(line)
         while (lines.containsKey(next)) { rows.add(lines.getValue(next)); consumed.add(next); last = next; next++ }
         val end = snapshot.source.indexOf('\n', snapshot.lineStarts[last]).let { if (it < 0) snapshot.source.length else it }
-        result.add(InlineTable(snapshot.lineStarts[line], if (end > 0 && snapshot.source[end - 1] == '\r') end - 1 else end, rows))
+        val previous = if (line > 0) snapshot.source.substring(snapshot.lineStarts[line - 1], snapshot.lineStarts[line]).trim() else ""
+        val start = if (previous.startsWith("<" + "!-- hickory-table-formats: ") && previous.endsWith(" --" + ">")) snapshot.lineStarts[line - 1] else snapshot.lineStarts[line]
+        result.add(InlineTable(start, if (end > 0 && snapshot.source[end - 1] == '\r') end - 1 else end, rows))
     }
     val csv = snapshot.cells.filter { it.format == "csv" }.sortedBy { it.from }
     val groups = mutableListOf<MutableList<InlineCell>>()
@@ -510,7 +547,7 @@ fun inlineTables(snapshot: InlineSnapshot): List<InlineTable> {
         for (cell in cells) { if (cell.column == 0) rows.add(mutableListOf()); rows.last().add(cell) }
         result.add(InlineTable(cells.first().from, cells.last().to, rows))
     }
-    return result.sortedBy { it.from }
+    return (result.filter { table -> snapshot.gridOverrides.none { it.from < table.to && table.from < it.to } } + snapshot.gridOverrides).sortedBy { it.from }
 }
 fun inlineCellText(value: String, format: String = "markdown", delimiter: String = ","): String {
     if (format == "csv") return if (value.contains(delimiter) || value.contains('\n') || value.contains('\r') || value.contains('"')) "\"" + value.replace("\"", "\"\"") + "\"" else value
@@ -699,7 +736,7 @@ fun inlineDiagrams(source: String): List<InlineDiagram> {
 fun computeInlineMarkup(source: String, path: String): InlineSnapshot {
     val starts = mutableListOf(0); source.forEachIndexed { index, char -> if (char == '\n') starts.add(index + 1) }
     val debug = inlineDebugContext(source, path)
-    if (path.substringAfterLast('.', "").lowercase() == "csv" && source.length <= 200_000) return InlineSnapshot(source, lineStarts = starts, cells = inlineCSVCells(source, 0, 0, ","), debug = debug)
+    if (path.substringAfterLast('.', "").lowercase() == "csv" && source.length <= 200_000) return InlineSnapshot(source, lineStarts = starts, cells = if (source.isEmpty()) listOf(InlineCell(0, 0, 0, 0, "", "csv")) else inlineCSVCells(source, 0, 0, ","), debug = debug)
     if (path.substringAfterLast('.', "").lowercase() !in listOf("md", "markdown") || source.length > 200_000) return InlineSnapshot(source, lineStarts = starts, debug = debug)
     val rows = source.split('\n'); val marks = mutableListOf<InlineMark>(); val cells = mutableListOf<InlineCell>(); val equations = mutableListOf<InlineEquation>()
     val separator = Regex("^\\s*\\|?\\s*:?-{3,}:?\\s*(\\|\\s*:?-{3,}:?\\s*)+\\|?\\s*$")
@@ -762,6 +799,14 @@ fun computeInlineMarkup(source: String, path: String): InlineSnapshot {
     }
     return InlineSnapshot(source, starts, marks + inlineSyntaxMarks(source, path) + patchMarks, cells, equations, debug, inlineDiagrams(source))
 }
+
+fun inlineTableAttribute(name: String, table: InlineTable, source: String): String? {
+    if (table.rows.firstOrNull()?.firstOrNull()?.format != "csv" || table.from > source.length) return null
+    val prefix = source.substring(0, table.from)
+    val tag = Regex("""<[\w.-]+:table\b[^>]*>""").findAll(prefix).lastOrNull() ?: return null
+    if (prefix.substring(tag.range.last + 1).isNotBlank()) return null
+    return Regex("""\b${Regex.escape(name)}\s*=\s*["']([^"']*)["']""").find(tag.value)?.groupValues?.get(1)
+}
 </ui:copy>
 
 <ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/InlineMarkup.kt"><ui:paste select="#simple-inline-model-1"/></ui:file>
@@ -776,9 +821,15 @@ The local math page loads only bundled KaTeX and fonts. Formula strings enter th
 <link rel="stylesheet" href="node_modules/xterm.css"><link rel="stylesheet" href="katex/katex.min.css"><style>html{height:100%;color-scheme:light dark;font:14px system-ui}body{margin:0;height:100%;overflow:hidden}body.terminal-mode{color-scheme:dark;height:100%;margin:0;background:#10151d;color:#e6edf3;overflow:hidden}.terminal-mode #formula{position:static;width:auto;transform:none!important;height:100%;box-sizing:border-box;padding:6px;overflow:hidden}.terminal-mode .xterm-cursor-layer{display:none}#formula{position:absolute;width:max-content;padding:8px;transform-origin:top left;box-sizing:border-box}#status{position:absolute;bottom:0;font-size:11px}#formula .katex-display{margin:0}.inline-math{font-size:13px}.inline-math #formula{padding:1px}.display-math #formula{padding:4px}</style>
 </head><body><div id="formula" aria-label="Typeset equation"></div><div id="status" role="status"></div>
 <script nonce="hickory-math" src="node_modules/xterm.js"></script><script nonce="hickory-math" src="node_modules/addon-fit.js"></script><script nonce="hickory-math" src="katex/katex.min.js"></script><script nonce="hickory-math" src="node_modules/mermaid.min.js"></script><script nonce="hickory-math">
+if (globalThis.hickoryTableMode || location.search === '?table') {
+  document.body.className = 'table-mode'; document.getElementById('formula').setAttribute('aria-label', 'Inline table grid');
+  const style = document.createElement('style'); style.textContent = '#formula{position:static!important;width:100%!important;padding:0;transform:none!important;box-sizing:border-box}#status{display:none}body{overflow:auto}#formula.native-table-fill{height:100vh}.native-table-fill>.table-panel{height:100%;margin:0;display:flex;flex-direction:column}.native-table-fill .table-panel__scroll{flex:1;min-height:0}'; document.head.append(style);
+  const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'node_modules/table.css'; document.head.append(css);
+  const script = document.createElement('script'); script.src = 'node_modules/table.js'; script.nonce = 'hickory-math'; document.head.append(script);
+}
 // Transforms do not change layout dimensions, avoiding a ResizeObserver feedback loop.
 function fitPreview() {
-  if (document.body.classList.contains('terminal-mode')) return;
+  if (document.body.classList.contains('terminal-mode') || document.body.classList.contains('table-mode')) return;
   const node = document.getElementById('formula');
   const width = node.offsetWidth, height = node.offsetHeight;
   if (globalThis.mathRevision !== undefined && document.querySelector('.katex')) {
@@ -922,6 +973,16 @@ for package, original, name in [("@xterm/xterm", "lib/xterm.js", "xterm.js"), ("
         with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as temporary:
             temporary.write(data); staged = temporary.name
         os.chmod(staged, 0o644); os.replace(staged, destination)
+
+# Bundle the existing spreadsheet locally for WKWebView and Android WebView.
+# esbuild is pinned by the web lockfile; no network or second formula engine.
+import json
+import subprocess
+bundle = ROOT / "apps/apple-simple/Sources/Resources/node_modules/table.js"
+bundle.parent.mkdir(parents=True, exist_ok=True)
+entry = "import { mountNativeTable } from " + json.dumps(str(ROOT / "apps/web/src/components/MarkdownTable.tsx")) + ";\n" + "import " + json.dumps(str(ROOT / "apps/web/src/styles.css")) + ";\n" + "globalThis.hickoryTable = mountNativeTable(document.getElementById('formula'), message => { const json = JSON.stringify(message); if (globalThis.webkit?.messageHandlers?.table) globalThis.webkit.messageHandlers.table.postMessage(JSON.parse(json)); else globalThis.HickoryTable?.postMessage(json); });"
+subprocess.run([str(ROOT / "apps/web/node_modules/.bin/esbuild"), "--bundle", "--format=iife", "--platform=browser", "--jsx=automatic", "--define:import.meta.env={}", "--log-level=warning", "--outfile=" + str(bundle)], input=entry, text=True, cwd=ROOT / "apps/web", check=True)
+print("Prepared shared native spreadsheet resources.")
 </ui:copy>
 
 <ui:file path="scripts/prepare-simple-resources.py"><ui:paste select="#simple-inline-math-1"/></ui:file>

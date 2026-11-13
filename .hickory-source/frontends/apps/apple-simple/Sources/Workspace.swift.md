@@ -63,6 +63,7 @@ import Observation
     // A source reveal changes presentation only; the editor and its undo stack stay alive.
     @ObservationIgnored var applyTableEdit: ((NativeSourceEdit, String) -> Bool)?
     var sourceTable: Int? { didSet { renderMarkup?() } }
+    var tableHeights: [Int: CGFloat] = [:]
     var tableSourceVisible = false { didSet { renderMarkup?() } }
     var inlineMarkup = InlineSnapshot(source: "")
     @ObservationIgnored var renderMarkup: (() -> Void)?

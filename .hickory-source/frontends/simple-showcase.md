@@ -251,7 +251,7 @@ Checkpoint 080: scroll the minimap, search for this number, and return to the fi
 
 ## Keep a plain data file beside inline tables
 
-A standalone CSV remains ordinary text in this slice. The workbook supplies the inline grid; this file instead exercises Unicode, quoted commas and long wrapped rows in the plain editor.
+A standalone CSV opens in the same spreadsheet grid as inline tables. This file exercises Unicode, quoted commas and long rows. Use **Edit source text** to inspect its original CSV and **Edit table as grid** to return. Choose a formula language for the grid session before entering formulas in plain CSV.
 
 <ui:copy id="simple-showcase-3">
 name,price_cents,description

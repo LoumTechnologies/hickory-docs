@@ -24,6 +24,8 @@ disk bytes. This flow uses no editor internals; the platform driver owns only
 keyboard spelling and visible control lookup. Run it alone with
 `python3 scripts/test-simple-browser.py --editor-navigation-only`.
 
+Run `python3 scripts/test-simple-browser.py --spreadsheet-only` for the focused spreadsheet flow. The same assertions drive the web simple UI and the exact local native bundle: range selection and contraction, row/column add/remove, formula-range dragging, a real Python result, and keyboard viewport sizing. The Python flow imports no frontend implementation. Its native host adapter forwards only formula HTTP requests and acknowledges revisioned source requests; it does not establish actual UIKit or Android device gesture acceptance. AppKit’s separate WKWebView and undo witness covers that platform boundary.
+
 <ui:copy id="simple-0799b7d31b-0">
 # Contract: .hickory-source/frontends/contract.md
 """Focused real-engine browser acceptance for the independent frontend."""
@@ -203,6 +205,46 @@ def folding_acceptance(driver, folder):
     driver.act("undo", path=path)
     eventually(lambda: driver.act("content", path=path), source)
 
+def spreadsheet_acceptance(driver, folder, backend):
+    # One UI flow over the browser grid and the exact locally bundled native grid.
+    source = "1,2,3\n4,5,6\n7,8,9\n"
+    driver.act("open", path="spreadsheet.csv")
+    driver.act("spreadsheet-language", language="python")
+    for native in [False, True]:
+        if native:
+            driver.act("native-table", url=(ROOT / "apps/apple-simple/Sources/Resources/math.html").as_uri() + "?table", backend=backend, source=source, format="csv")
+        assert driver.act("spreadsheet-select", row=0, column=0, endRow=1, endColumn=1) == "A1:B2"
+        assert driver.act("spreadsheet-select", row=0, column=0, endRow=0, endColumn=1) == "A1:B1"
+        touch_range = driver.act("spreadsheet-touch-range", row=0, column=0, endRow=1, endColumn=1)
+        assert touch_range == "A1:B2", touch_range
+        driver.act("spreadsheet-structure", button="+ Row")
+        driver.act("spreadsheet-structure", button="+ Column")
+        driver.act("spreadsheet-select", row=3, column=3)
+        driver.act("spreadsheet-structure", button="− Row")
+        driver.act("spreadsheet-select", row=0, column=3)
+        driver.act("spreadsheet-structure", button="− Column")
+        draft = driver.act("spreadsheet-formula-point", row=2, column=2, prefix="=sum(", fromRow=0, fromColumn=0, toRow=1, toColumn=1, touch=True)
+        assert draft == "=sum(A1:B2", draft
+        driver.act("spreadsheet-formula", value=draft + ")")
+        eventually(lambda: driver.act("spreadsheet-value", row=2, column=2), "12")
+        assert driver.act("spreadsheet-height", key="Home") == 64
+        assert driver.act("spreadsheet-height", key="ArrowDown") == 88
+        if native:
+            assert "=sum(A1:B2)" in driver.act("native-table-source")
+            driver.act("native-table", url=(ROOT / "apps/apple-simple/Sources/Resources/math.html").as_uri() + "?table", backend=backend, source="", format="csv")
+            driver.act("spreadsheet-select", row=0, column=0)
+            driver.act("spreadsheet-formula", value="first")
+            eventually(lambda: driver.act("native-table-source"), "first")
+        else:
+            driver.act("save")
+            eventually(lambda: "=sum(A1:B2)" in (folder / "spreadsheet.csv").read_text(), True)
+            driver.act("open", path="empty.csv")
+            driver.act("spreadsheet-select", row=0, column=0)
+            driver.act("spreadsheet-formula", value="first")
+            driver.act("save")
+            eventually(lambda: (folder / "empty.csv").read_text(), "first")
+
+
 def table_acceptance(driver, folder):
     path = "table.md"; original = (folder / path).read_text()
     driver.act("open", path=path)
@@ -333,6 +375,8 @@ if __name__ == "__main__":
         (folder / "source.md").write_text('<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n# A literate document\n\n**bold** and *italic*\n</h:doc>\n')
         (folder / "table.md").write_text('<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\nBefore\n\n| A | B |\n| --- | ---: |\n| café 😀 | 120 |\n\nAfter\n</h:doc>\n')
         (folder / "stock.csv").write_text('Product,Stock\nPen,30\n')
+        (folder / "empty.csv").write_text("")
+        (folder / "spreadsheet.csv").write_text("1,2,3\n4,5,6\n7,8,9\n")
         (folder / "caret.csv").write_text("Label,Count\nabcdefghijk,1\nx,2\nabcdefghijklm,3\n")
         (folder / "cache.py").write_text("counter = 1\nprint(counter)\n")
         (folder / "debug.py").write_text("value = 1\nvalue += 1\nprint(value)\n")
@@ -345,7 +389,10 @@ if __name__ == "__main__":
             backend = origin(engine)
             vite = start(["node", "node_modules/vite/bin/vite.js", "--config", "vite.simple.config.ts", "--host", "127.0.0.1", "--port", str(ui_port), "--strictPort"], cwd=ROOT / "apps/web", env={**environment, "HICKORY_API_ORIGIN": backend}); processes.append(vite)
             driver = BrowserDriver(origin(vite) + "/simple.html")
-            if "--inline-features-only" in sys.argv:
+            if "--spreadsheet-only" in sys.argv:
+                spreadsheet_acceptance(driver, folder, backend)
+                print("Browser and native bundle: range selection, structure, formula range picking, real Python evaluation and height controls passed")
+            elif "--inline-features-only" in sys.argv:
                 inline_features_acceptance(driver, folder)
                 print("Browser: real inline diagram, fenced syntax colors, heading fold and editable project patch passed")
             elif "--smart-enter-only" in sys.argv:
@@ -378,7 +425,8 @@ if __name__ == "__main__":
             else:
                 markdown_acceptance(driver)
                 acceptance(driver, folder)
-                print("Browser: real plain/literate saves, conflict refusal, moved undo and agent draft passed")
+                spreadsheet_acceptance(driver, folder, backend)
+                print("Browser: real saves, conflict refusal, retained undo/drafts and shared spreadsheet flow passed")
         finally:
             if driver: driver.close()
             for process in reversed(processes): stop(process)
