@@ -121,7 +121,9 @@ impl Workbook {
             if a.bytes().all(|c| c.is_ascii_alphabetic())
                 && b.bytes().all(|c| c.is_ascii_alphabetic())
             {
-                if table.rows.len() <= usize::from(table.header) { return Ok(out); }
+                if table.rows.len() <= usize::from(table.header) {
+                    return Ok(out);
+                }
                 let first = CellRef::parse(&format!("{a}{}", 1 + usize::from(table.header)))
                     .ok_or_else(|| anyhow::anyhow!("Invalid column {a}"))?;
                 let last = CellRef::parse(&format!("{b}1"))
@@ -564,8 +566,17 @@ pub fn output_table(id: &str, output: &str) -> Result<Table> {
     );
     let record = &records[0];
     ensure!(
-        record["has_more"] != true && record["columns_truncated"] != true,
-        "Output {id} is a truncated preview; increase its display limit before using it as input"
+        record["has_more"] != true
+            && record["columns_truncated"] != true
+            && record
+                .get("offset")
+                .is_none_or(|value| value.as_u64() == Some(0))
+            && record
+                .get("total")
+                .filter(|value| !value.is_null())
+                .is_none_or(|value| value.as_u64()
+                    == record["rows"].as_array().map(|rows| rows.len() as u64)),
+        "Output {id} is an incomplete preview; publish offset=0 and complete rows/columns before using it as input"
     );
     let header = record["schema"]
         .as_array()
@@ -676,7 +687,8 @@ mod tests {
     }
     #[tokio::test]
     async fn whole_columns_skip_declared_headers() -> Result<()> {
-        let mut prices = table("Prices", &[&["Price"], &["3"], &["5"]]); prices.header = true;
+        let mut prices = table("Prices", &[&["Price"], &["3"], &["5"]]);
+        prices.header = true;
         let book = Workbook::new(vec![prices, table("Result", &[&["=sum(Prices!A:A)"]])])?;
         let root = tempfile::tempdir()?;
         let result = book.evaluate(root.path(), &["Result".into()]).await?;
@@ -794,6 +806,16 @@ mod tests {
             }
         );
         assert!(output_table("Result", &output.replace("false", "true")).is_err());
+        for (name, value) in [("offset", 1), ("total", 2)] {
+            let mut record: Json = serde_json::from_str(
+                output
+                    .strip_prefix(hick_lang::notebook::DISPLAY_PREFIX)
+                    .unwrap(),
+            )?;
+            record[name] = serde_json::json!(value);
+            let preview = format!("{}{}", hick_lang::notebook::DISPLAY_PREFIX, record);
+            assert!(output_table("Result", &preview).is_err());
+        }
         Ok(())
     }
 }

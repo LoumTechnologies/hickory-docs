@@ -24,6 +24,10 @@ fn table_dataflow_orders_producers_and_tracks_source() {
     ));
     let program = hick_lang::notebook::python_program(&dag.execs[0].command).unwrap();
     assert!(program.contains("# HICKORY_TABLE_CONTEXT"));
+    let columns = parse_and_build(&source.replace("=Published!B2", "=sum(Published!B:B)")).unwrap();
+    assert!(columns.edges.iter().any(
+        |edge| matches!(&edge.reason, DependencyReason::Table { table } if table == "Published")
+    ));
     let changed = parse_and_build(&source.replace("=Published!B2", "=Published!B2 * 2")).unwrap();
     assert_ne!(dag.execs[0].command, changed.execs[0].command);
     assert_eq!(

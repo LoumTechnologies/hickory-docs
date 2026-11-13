@@ -16,6 +16,8 @@ try {
         case "launch":
           browser = await chromium.launch({ headless: true }); page = await browser.newPage({ viewport: { width: 1100, height: 750 } });
           await page.goto(request.url); break;
+        case "browser-surface":
+          await page.close(); page = await browser.newPage({ viewport: { width: 1100, height: 750 } }); await page.goto(request.url); break;
         case "inline-feature-state": {
           if (request.kind === "diagram") {
             const graph = page.locator(".rendered-diagram");
@@ -89,9 +91,28 @@ try {
           value = await content.locator('[class*="cm-st-"]').allTextContents();
           break;
         }
+        case "table-dataflow-state": {
+          const tables = page.getByTestId("table-panel"); await tables.nth(2).waitFor();
+          const totals = tables.nth(1).locator('.table-panel__cell[data-column="2"]');
+          await totals.nth(1).filter({ hasText: request.tea }).waitFor();
+          const receipt = tables.nth(2).locator('.table-panel__cell[data-row="1"][data-column="1"]');
+          if (request.total !== undefined) { await receipt.filter({ hasText: request.total }).waitFor(); await page.getByRole("region", { name: "Read-only table" }).getByRole("cell", { name: request.total, exact: true }).waitFor(); }
+          value = { tea: await totals.nth(1).textContent(), cake: await totals.nth(2).textContent(), total: await receipt.textContent(), readonly: await page.getByRole("region", { name: "Read-only table" }).count() }; break;
+        }
+        case "table-dataflow-edit": {
+          const cell = page.getByTestId("table-panel").nth(0).locator('.table-panel__cell[data-row="1"][data-column="1"]');
+          await cell.dblclick(); const input = page.getByTestId("table-panel").nth(0).locator(".table-panel__input"); await input.fill(request.value); await input.press("Enter"); break;
+        }
+        case "refresh-recorded": await page.getByRole("button", { name: "Refresh recorded output", exact: true }).click(); break;
+        case "native-output": {
+          await page.goto(request.url);
+          await page.evaluate(source => globalThis.renderNotebookOutput(source), request.source);
+          const region = page.getByRole("region", { name: "Read-only table" }); await region.waitFor();
+          value = { text: await region.textContent(), editable: await page.locator('.table-panel,[contenteditable="true"]').count() }; break;
+        }
         case "native-table": {
           await page.close(); page = await browser.newPage({ viewport: { width: 900, height: 700 } });
-          nativeTable = { revision: "native:0", source: request.source, format: request.format, readonly: false, language: "python", header: false };
+          nativeTable = { revision: "native:0", source: request.source, format: request.format, readonly: false, language: "python", header: request.header ?? false, scope: request.scope };
           let revision = 0;
           await page.exposeBinding("tableHostMessage", async (_, json) => {
             const message = JSON.parse(json);
@@ -100,7 +121,7 @@ try {
               await page.evaluate(snapshot => globalThis.hickoryTable.update(snapshot), nativeTable);
             } else if (message.kind === "formula") {
               try {
-                const response = await fetch(`${request.backend}/api/formula/${message.operation}`, { method: message.operation === "languages" ? "GET" : "POST", headers: { "Content-Type": "application/json" }, ...(message.operation === "languages" ? {} : { body: JSON.stringify({ language: message.language, rows: message.rows }) }) });
+                const response = await fetch(`${request.backend}/api/formula/${message.operation}`, { method: message.operation === "languages" ? "GET" : "POST", headers: { "Content-Type": "application/json" }, ...(message.operation === "languages" ? {} : { body: JSON.stringify({ language: message.language, rows: message.rows, scope: message.scope }) }) });
                 const value = await response.json();
                 await page.evaluate(({ id, value, error }) => globalThis.hickoryTable.reply(id, value, error), { id: message.id, value, error: response.ok ? undefined : JSON.stringify(value) });
               } catch (error) { await page.evaluate(({ id, error }) => globalThis.hickoryTable.reply(id, null, error), { id: message.id, error: String(error) }); }

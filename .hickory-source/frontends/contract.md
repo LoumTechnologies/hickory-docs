@@ -76,6 +76,30 @@ Inline presentation preserves editable source. Browser reuses the existing rich 
 
 Simple inline tables and standalone CSV files share the established grid’s rectangular selection, Shift extension/contraction, formula cell/range picking, fill, clipboard handling, row/column insertion and removal, and independent viewport height. The formula syntax and evaluator remain the existing language-backed engine, including dependency ordering and trace debugging. A declared table language remains authoritative. Plain CSV and Markdown offer an explicit formula-language choice for the current grid session; that choice does not alter file syntax or silently persist a language declaration. Formula and parser failures retain readable data. Native formula bridges expose only language discovery, evaluation and tracing, not arbitrary HTTP requests. Each native write names an exact source revision and passes the host’s live permission/composition checks and undo transaction. Height is presentation state and never enters CSV bytes. Pending structural parses retain the table’s range without granting old cell ranges write authority. Empty CSV files can start with the grid’s first cell, and Markdown formatting comments remain part of their table’s replacement range.
 
+Named tables use document-local identifier IDs. Every simple frontend resolves
+`Prices!B2`, locked addresses and cell ranges through the existing formula
+backends. Whole-column selectors exclude declared headers. Cell dependencies
+order formula evaluation; ranges and columns remain selectors. Declared Python
+`tables=` inputs use that same graph and expose computed values alongside raw
+source. A block's `table=` attribute publishes one complete read-only table.
+Generated equals-prefixed strings remain data, and truncated previews cannot
+silently become inputs. Observing formulas never executes producing blocks.
+Only current saved recordings supply generated values. Refreshing recorded
+output recalculates dependent grids without replacing their editors. The small
+[tables example](../../examples/simple-ui/tables.md) is included in every newly
+prepared default project. See the [cell graph and execution boundary](../mechanisms/crates/hick-formula/src/workbook.rs.md)
+for construction and focused witnesses. Browser acceptance uses the real engine
+and the shared local native bundle; physical iOS/Android gestures, IME and
+accessibility still require device acceptance.
+The focused `python3 scripts/test-simple-browser.py --table-dataflow-only` witness
+passed against the real engine: observing formulas did not create the producer's
+file witness; explicit runs published totals of 11 and 13; refresh updated the
+existing grid; and the local native bundle evaluated qualified references and
+kept generated equals-prefixed text read-only. Eighteen focused browser component
+and reference-rewrite tests also passed. These do not establish physical device
+acceptance.
+
+
 All simple frontends attach the existing engine DAP debugger inline for plain files and Hickory file blocks. Pressing a gutter launch icon immediately starts the application matching that file block (or the viewed plain file), without asking the author to select it again. A sole discovered application also starts automatically; a picker remains only for multiple applications when none matches the clicked source. Source freshness and profile fingerprints still guard startup. Launch icons occupy a fixed right column; active step, continue, stop, stack, watch and evaluation controls follow the paused line. Sessions survive tab switching and movement. Unsaved text refuses launch and hides positional values until saved. The browser reuses the existing editor debugger; Apple shares a SwiftUI rail across macOS and iOS; Android uses a Compose rail. Native controllers retain one active workspace session. Native launch icons appear at supported file declarations, equation icons at equations, output icons at receipts, and session controls at the paused line. Detail panels contain stack, condition, evaluate and watch controls; adapter capabilities gate optional actions. Native locals describe the stopped top frame; selecting a caller clears those locals and evaluates watches in that selected frame. Launch uses the clicked declaration’s file path and saved-source expectation; the engine validates the program and source mapping. Native source candidates are computed in the background snapshot, avoiding a document rescan for every displayed icon. A missing Apple math resource bundle falls back to readable equation text instead of trapping in SwiftPM’s generated resource accessor.
 
 Configurable Smart Enter, 2026-11-11: the same 87 source/caret fixture cases

@@ -176,6 +176,8 @@ every attribute is a contract; silently ignoring a typo is never useful.
 Keep this table at the parser/registry seam so every host can ask the same
 question without pulling in an executor or a UI.
 
+Notebook execution declares its language, selected table inputs and published table ID at this shared validation boundary. Accept those exact attributes before either execution or weaving; retain typo rejection for neighboring names. The execution DAG separately validates Python support, selectors and cycles.
+
 <storycode:copy id="f-5260198b0a7b-accepted_attributes">
 /// Attributes accepted by each built-in hick element.
 ///
@@ -204,6 +206,9 @@ fn accepted_attributes(element: &str) -> Option<&'static [&'static str]> {
         "allow" => &["container", "read", "write"],
         "fork" => &["name", "from", "to", "container", "image"],
         "exec" => &[
+            "language",
+            "tables",
+            "table",
             "container",
             "image",
             "mount",
@@ -1025,6 +1030,17 @@ mod tests {
         r
     }
 
+    #[test]
+    fn explicit_notebook_table_inputs_and_outputs_are_valid_attributes() {
+        let source =
+            r#"<hick:exec language="python" tables="Orders" table="Summary">pass</hick:exec>"#;
+        assert!(attribute_errors(source, &hick_lang::parse(source).unwrap()).is_empty());
+        let typo = source.replace("tables=", "tablez=");
+        assert_eq!(
+            attribute_errors(&typo, &hick_lang::parse(&typo).unwrap())[0].attribute,
+            "tablez"
+        );
+    }
     #[test]
     fn a_block_serialises_flat() {
         let block = Block::new("note", (3, 9))

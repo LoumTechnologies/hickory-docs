@@ -797,7 +797,9 @@ pub fn build_dag(doc: &HickDocument) -> Result<FlowDag, DagValidationError> {
         for table in &mut graph_tables {
             if table.pending {
                 table.pending = false;
-                table.rows = vec![vec![serde_json::Value::Null]];
+                // Reserve a header and one data row so whole-column selectors retain
+                // the producing table even before its real output exists.
+                table.rows = vec![vec![serde_json::Value::Null]; 2];
             }
         }
         let book = hick_formula::workbook::Workbook::new(graph_tables).map_err(|error| {

@@ -4,6 +4,8 @@ A runnable Python project and executable workbook for the browser, macOS, iOS
 and Android simple UIs. Python 3.10+ is sufficient for the program and tests.
 Language servers, debug adapters and an agent provider are optional services.
 
+Open [tables.md](tables.md) for named-table formulas and a read-only Python output.
+
 ## Start with an editable copy
 
 From the Hickory repository root:

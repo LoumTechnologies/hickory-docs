@@ -11,9 +11,9 @@ def main():
     root = source.parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dest", type=Path, default=root / ".dev/simple-ui/project")
-    parser.add_argument("--record", action="store_true", help="run the supplied cell on the host and cache its real output")
+    parser.add_argument("--record", action="store_true", help="run the supplied cells on the host and cache their real output")
     args = parser.parse_args()
-    executable = root / "target/debug/hick"
+    executable = root / "target/debug" / ("hick.exe" if os.name == "nt" else "hick")
     if not executable.is_file():
         parser.error("Build the CLI first: cargo build --locked -p hickory-cli --bin hick")
     destination = args.dest.resolve()
@@ -27,6 +27,8 @@ def main():
     command = [str(executable), "run" if args.record else "weave", "README.md"]
     if args.record:
         command.append("--cache")
+    subprocess.run(command, cwd=destination, env=environment, check=True)
+    command[2] = "tables.md"
     subprocess.run(command, cwd=destination, env=environment, check=True)
     print(f"Demo ready: {destination}")
     print(f'HICKORY_PROJECT_DIR="{destination}" just simple-dev browser')

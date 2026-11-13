@@ -68084,6 +68084,15 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "notebook-table-inputs"
       ],
       "narrative_owner": "mechanism:crates/hick-literate"
+    },
+    "examples/simple-ui/tables.md": {
+      "source": ".hickory-source/frontends/simple-showcase.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "example",
+      "sha256": "247982753922ef8511e47f14d92894c570acca9770e3617950183a52b5c2f192",
+      "construction": "entry",
+      "fragments": []
     }
   },
   "evidence_records": [

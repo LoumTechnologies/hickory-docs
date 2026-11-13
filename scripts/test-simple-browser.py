@@ -54,6 +54,7 @@ def eventually(read, expected):
 
 class BrowserDriver:
     def __init__(self, url):
+        self.url = url
         self.process = start(["node", "scripts/simple-browser-driver.mjs"])
         try: self.act("launch", url=url)
         except Exception:
@@ -329,6 +330,43 @@ def inline_features_acceptance(driver, folder):
             assert any('print(2)' in text for text in state["code"]), state
         assert (folder / path).read_text() == original, "Presentation must not save source"
 
+
+def table_dataflow_acceptance(driver, folder, backend):
+    """One real dataflow exercised through browser and native shared surfaces."""
+    driver.act("browser-surface", url=driver.url)
+    path = folder / "tables.md"
+    def record():
+        result = subprocess.run([str(ROOT / "target/debug/hick"), "run", "tables.md", "--cache"], cwd=folder, env={**os.environ, "HICKORY_EXECUTOR": "local", "HICKORY_STATE_DIR": str(folder.parent / "state")}, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+    marker = folder / "table-producer-ran"
+    driver.act("open", path="tables.md")
+    state = driver.act("table-dataflow-state", tea="6")
+    assert state["readonly"] == 0 and not marker.exists(), state
+    record()
+    assert marker.read_text() == "ran"
+    driver.act("refresh-recorded")
+    state = driver.act("table-dataflow-state", tea="6", total="11")
+    assert state == {"tea": "6", "cake": "5", "total": "11", "readonly": 1}, state
+    marker.unlink()
+    driver.act("table-dataflow-edit", value="4")
+    driver.act("save")
+    eventually(lambda: "Tea,4" in path.read_text(), True)
+    state = driver.act("table-dataflow-state", tea="8")
+    assert state["tea"] == "8" and state["cake"] == "5" and not marker.exists(), state
+    record()
+    assert marker.read_text() == "ran"
+    driver.act("refresh-recorded")
+    state = driver.act("table-dataflow-state", tea="8", total="13")
+    assert state["total"] == "13" and state["readonly"] == 1, state
+    source = path.read_text()
+    order = re.search(r'<hick:table id="Order"[^>]*>\n(.*?)</hick:table>', source, re.S).group(1)
+    driver.act("native-table", url=(ROOT / "apps/apple-simple/Sources/Resources/math.html").as_uri() + "?table", backend=backend, source=order, format="csv", header=True, scope={"source": source, "table": "Order"})
+    # The same real formula route receives the full document through the native bridge.
+    eventually(lambda: driver.act("spreadsheet-value", row=1, column=2), "8")
+    output = "\x1eHICKORY_DISPLAY " + json.dumps({"kind": "table", "schema": [{"name": "Value", "dtype": "text"}], "rows": [["=1+1"]], "offset": 0, "has_more": False})
+    state = driver.act("native-output", url=(ROOT / "apps/apple-simple/Sources/Resources/math.html").as_uri(), source=output)
+    assert "=1+1" in state["text"] and state["editable"] == 0, state
+
 if __name__ == "__main__":
     processes = []; driver = None
     with tempfile.TemporaryDirectory(prefix="hickory-simple-") as temporary:
@@ -338,6 +376,9 @@ if __name__ == "__main__":
         (folder / "diagram.md").write_text('<hick:diagram renderer="graph">{"topology":{"nodes":[{"id":"a"},{"id":"b"},{"id":"c"}],"edges":[{"from":"a","to":"b"}]}}</hick:diagram>')
         (folder / "fenced.md").write_text('# Fenced section\n\n```python\ndef coupon():\n    return "café 😀"\n```\n')
         (folder / "patch.md").write_text('<hick:project/>\n<hick:file id="base" path="x.py">\nprint(1)\n</hick:file>\n```patch id="change" after="base"\n--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-print(1)\n+print(2)\n```\n')
+        table_source = (ROOT / "examples/simple-ui/tables.md").read_text()
+        table_source = table_source.replace('order = table("Order")', f'from pathlib import Path\nPath({str(folder / "table-producer-ran")!r}).write_text("ran")\norder = table("Order")')
+        (folder / "tables.md").write_text(table_source)
         (folder / "notes.txt").write_text("before")
         (folder / "enter.py").write_text("class C:\n    def f():")
         (folder / "words.txt").write_text("THIS_IS_ONE_WORD HTTPServer42 café😀")
@@ -360,7 +401,10 @@ if __name__ == "__main__":
             backend = origin(engine)
             vite = start(["node", "node_modules/vite/bin/vite.js", "--config", "vite.simple.config.ts", "--host", "127.0.0.1", "--port", str(ui_port), "--strictPort"], cwd=ROOT / "apps/web", env={**environment, "HICKORY_API_ORIGIN": backend}); processes.append(vite)
             driver = BrowserDriver(origin(vite) + "/simple.html")
-            if "--spreadsheet-only" in sys.argv:
+            if "--table-dataflow-only" in sys.argv:
+                table_dataflow_acceptance(driver, folder, backend)
+                print("Browser and native bundle: named formulas, explicit Python inputs, published read-only tables and receipt refresh passed")
+            elif "--spreadsheet-only" in sys.argv:
                 spreadsheet_acceptance(driver, folder, backend)
                 print("Browser and native bundle: range selection, structure, formula range picking, real Python evaluation and height controls passed")
             elif "--inline-features-only" in sys.argv:
@@ -397,7 +441,8 @@ if __name__ == "__main__":
                 markdown_acceptance(driver)
                 acceptance(driver, folder)
                 spreadsheet_acceptance(driver, folder, backend)
-                print("Browser: real saves, conflict refusal, retained undo/drafts and shared spreadsheet flow passed")
+                table_dataflow_acceptance(driver, folder, backend)
+                print("Browser: real saves, conflict refusal, retained undo/drafts, shared spreadsheet and table dataflow passed")
         finally:
             if driver: driver.close()
             for process in reversed(processes): stop(process)
