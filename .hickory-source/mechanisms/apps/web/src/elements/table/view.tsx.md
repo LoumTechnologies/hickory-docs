@@ -45,6 +45,7 @@ export const tableView: ElementView = {
       // scrolling (styles.css hides the internal overflow until then).
       <Engaged className="rendered-table rendered-table--laned">
         <Panel
+          chooseFormulaLanguage={cx.simpleTables}
           sourceCurrent={sourceCurrent}
           sourceIdentity={`${cx.path ?? "unnamed document"}#table:${slot.index}@${slot.at}`}
           laneRight

@@ -314,7 +314,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
   };
   return <div className="document-body">
     {csv && <button type="button" className="simple-source-toggle" onClick={() => setCsvSource(value => !value)}>{csvSource ? "Edit table as grid" : "Edit source text"}</button>}
-    {csv && csvReady && !csvSource && view && <Suspense fallback={<span>Loading table…</span>}><CsvGrid source={buffer.text} header delimiter="," sourceCurrent={() => !buffer.readonly && view.state.doc.toString() === tableSource && buffer.text === tableSource}
+    {csv && csvReady && !csvSource && view && <Suspense fallback={<span>Loading table…</span>}><CsvGrid source={buffer.text} chooseFormulaLanguage header delimiter="," sourceCurrent={() => !buffer.readonly && view.state.doc.toString() === tableSource && buffer.text === tableSource}
       onChange={buffer.readonly ? undefined : text => { if (!buffer.readonly && buffer.text === tableSource && view.state.doc.toString() === tableSource) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text }, userEvent: "input.table" }); }} /></Suspense>}
     <div className="editor-row" style={{ ...(csv && csvReady && !csvSource && view ? { display: "none" } : {}), "--simple-rail-width": `${railWidth}px` } as React.CSSProperties}><div ref={host} className="editor-host editor-cm-host" /><Minimap buffer={buffer} />
       <div className="simple-rail-resize" role="separator" aria-label="Resize right gutter" tabIndex={0}

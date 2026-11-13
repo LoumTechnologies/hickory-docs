@@ -133,6 +133,10 @@ export interface TablePanelProps {
    * is what it was before formulas existed and what a table of shell snippets
    * still needs it to be. */
   language?: string;
+  /** Explicit opt-in for plain CSV/Markdown; the choice lasts for this grid session. */
+  chooseFormulaLanguage?: boolean;
+  /** Native hosts forward only formula requests to the same workspace backend. */
+  formulaApi?: Pick<typeof api, "evaluateFormulas" | "traceFormulas" | "formulaLanguages">;
   /** How big this table was left last time. Seeded once — the panel owns it
    * from then on and reports changes through `onLayout`. */
   layout?: TableLayout;
@@ -288,6 +292,8 @@ const clampTo = (value: number, least: number, most: number) =>
 <a id="f-38d5395d7736-TablePanel"></a>
 ### `TablePanel`
 
+Simple grids opt into an explicit session formula-language choice when their source has no language declaration. Discover available interpreters independently; a failed discovery never hides data. A declared table language stays authoritative. The optional transport lets a local native surface use the same evaluate and trace endpoints through its host, without granting arbitrary networking to the embedded page.
+
 <storycode:copy id="f-38d5395d7736-TablePanel">
 export function TablePanel({
   source,
@@ -297,12 +303,23 @@ export function TablePanel({
   sourceCurrent,
   sourceIdentity,
   formats,
-  language,
+  language: declaredLanguage,
+  chooseFormulaLanguage = false,
+  formulaApi = api,
   layout,
   onLayout,
   laneRight = false,
   fitProseDefault = false,
 }: TablePanelProps) {
+  const [chosenLanguage, setChosenLanguage] = useState("");
+  const [languages, setLanguages] = useState<string[]>([]);
+  const language = declaredLanguage || (chooseFormulaLanguage ? chosenLanguage : undefined);
+  useEffect(() => {
+    if (!chooseFormulaLanguage || declaredLanguage) return;
+    let live = true;
+    void formulaApi.formulaLanguages().then(result => { if (live) setLanguages(result.languages); }).catch(() => { /* Text and editing remain available without formula discovery. */ });
+    return () => { live = false; };
+  }, [chooseFormulaLanguage, declaredLanguage, formulaApi]);
   // Parsed from the source on every render rather than held as state: the
   // document is the truth, and a second copy here would drift the moment
   // somebody edited the CSV as text instead.
@@ -338,7 +355,7 @@ export function TablePanel({
     // spawn an interpreter per keypress and show numbers flickering through
     // half-typed expressions.
     const timer = window.setTimeout(() => {
-      api.evaluateFormulas(language, table.rows).then(
+      formulaApi.evaluateFormulas(language, table.rows).then(
         (answer) => {
           if (!live) return;
           setComputed({ ...answer, source, language, status: "ok" });
@@ -361,7 +378,7 @@ export function TablePanel({
     };
     // `source` stands in for the rows, which are rebuilt per render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [language, source, hasFormulas]);
+  }, [language, source, hasFormulas, formulaApi]);
 
   // What is selected, which survives losing focus — see the note at the top.
   // A rectangle, whose ANCHOR is the active cell.
@@ -1665,6 +1682,10 @@ export function TablePanel({
             draft={editing && active ? { ...active, value: draft } : null}
             sourceCurrent={sourceIsCurrent}
             onChange={(next, actor) => { const ok = apply(next, false, actor); if (ok) setEditing(false); return ok; }} />}
+          {chooseFormulaLanguage && !declaredLanguage && <select aria-label="Formula language (session)" value={chosenLanguage} onChange={event => setChosenLanguage(event.target.value)} data-tip="Formula language for this grid session; CSV and Markdown keep their original syntax">
+            <option value="">Formulas off</option>
+            {languages.map(value => <option key={value} value={value}>{value}</option>)}
+          </select>}
           {language && (
             <button
               type="button"
@@ -1746,6 +1767,7 @@ export function TablePanel({
           a person cannot see by looking at the grid. */}
       {debugging && language && (
         <FormulaDebugger
+          trace={formulaApi.traceFormulas}
           owner={parent}
           language={language}
           rows={table.rows}

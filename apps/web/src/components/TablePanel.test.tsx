@@ -280,6 +280,26 @@ describe("a table the reader may not edit", () => {
 });
 
 describe("formulas", () => {
+  it("simple grids opt into the host formula language without changing source syntax", async () => {
+    const formulaApi = { formulaLanguages: vi.fn().mockResolvedValue({ languages: ["python"] }), evaluateFormulas: vi.fn().mockResolvedValue({ values: { A2: "2" }, errors: {} }), traceFormulas: vi.fn() };
+    const onChange = vi.fn();
+    grid({ source: "value\n=1+1\n", chooseFormulaLanguage: true, formulaApi, onChange });
+    await screen.findByRole("option", { name: "python" });
+    expect(formulaApi.evaluateFormulas).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Formula language (session)"), { target: { value: "python" } });
+    await waitFor(() => expect(computedCell()?.textContent).toBe("2"));
+    expect(formulaApi.evaluateFormulas).toHaveBeenCalledWith("python", [["value"], ["=1+1"]]);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+  it("keeps a declared language authoritative and data readable when discovery fails", async () => {
+    const formulaApi = { formulaLanguages: vi.fn().mockRejectedValue(Error("offline")), evaluateFormulas: vi.fn(), traceFormulas: vi.fn() };
+    const { rerender } = grid({ chooseFormulaLanguage: true, formulaApi });
+    expect(screen.getByText("Ada")).toBeTruthy();
+    await waitFor(() => expect(formulaApi.formulaLanguages).toHaveBeenCalledTimes(1));
+    rerender(<TablePanel source={CSV} chooseFormulaLanguage language="python" formulaApi={formulaApi} />);
+    expect(screen.queryByLabelText("Formula language (session)")).toBeNull();
+  });
+
   it("asks for nothing when the table names no language", () => {
     // A cell beginning with `=` is then just text, which is what a table of
     // shell snippets needs it to be.
@@ -537,6 +557,16 @@ describe("a size the table keeps", () => {
   });
 });
 
+
+it("resizes table height from the keyboard without changing table source", () => {
+  const onLayout = vi.fn(), onChange = vi.fn();
+  grid({ layout: { height: 180 }, onLayout, onChange });
+  fireEvent.keyDown(screen.getByLabelText("Table height"), { key: "ArrowDown" });
+  expect(onLayout).toHaveBeenLastCalledWith({ height: 204 });
+  fireEvent.keyDown(screen.getByLabelText("Table height"), { key: "Home" });
+  expect(onLayout).toHaveBeenLastCalledWith({ height: 64 });
+  expect(onChange).not.toHaveBeenCalled();
+});
 // A body cell and a row number can read the same — row 1 and a cell holding
 // "1" — so these say which they mean rather than relying on the text alone.
 const cell = (text: string) => screen.getByText(text, { selector: ".table-panel__cell" });

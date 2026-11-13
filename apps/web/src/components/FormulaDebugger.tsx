@@ -27,6 +27,7 @@ import type { FormulaStep } from "../api/types";
 export interface FormulaDebuggerProps {
   /** The language the formulas are written in. */
   language: string;
+  trace?: typeof api.traceFormulas;
   /** The grid, exactly as the CSV parses. */
   rows: string[][];
   /** Changes whenever the table's text does, so a trace is never stale: an
@@ -41,6 +42,7 @@ export interface FormulaDebuggerProps {
 }
 
 export function FormulaDebugger({
+  trace = api.traceFormulas,
   language,
   rows,
   revision,
@@ -62,7 +64,7 @@ export function FormulaDebugger({
     let live = true;
     setSteps(null);
     setTrouble(null);
-    api.traceFormulas(language, rows).then(
+    trace(language, rows).then(
       (trace) => {
         if (!live) return;
         setLoadedFor(traceKey); setSteps(trace.steps);
@@ -86,7 +88,7 @@ export function FormulaDebugger({
     };
     // `revision` stands in for the rows, which are rebuilt on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [language, revision]);
+  }, [language, revision, trace]);
 
   const step = steps && steps.length > 0 ? steps[Math.min(at, steps.length - 1)] : null;
 

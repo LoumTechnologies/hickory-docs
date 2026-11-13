@@ -140,9 +140,9 @@ export function HeightResizer({
 }) {
   const bar = useRef<HTMLDivElement | null>(null);
 
-  // Mouse events rather than pointer events, matching `Resizer` beside
-  // it: two drag handles on one component that behave differently is a thing
-  // somebody eventually trips over.
+  const touch = useRef<{ id: number; y: number; height: number } | null>(null);
+  const currentHeight = () => height ?? (bar.current?.previousElementSibling as HTMLElement | null)?.getBoundingClientRect().height ?? MIN_GRID_HEIGHT;
+  // Retain mouse behavior; touch and pen use captured pointer movement.
   const onMouseDown = (event: React.MouseEvent) => {
     event.preventDefault();
     const scroller = bar.current?.previousElementSibling as HTMLElement | null;
@@ -171,6 +171,24 @@ export function HeightResizer({
       role="separator"
       aria-label="Table height"
       aria-orientation="horizontal"
+      tabIndex={0}
+      aria-valuemin={MIN_GRID_HEIGHT}
+      aria-valuenow={height}
+      style={{ touchAction: "none" }}
+      onKeyDown={event => {
+        if (!["ArrowUp", "ArrowDown", "Home"].includes(event.key)) return;
+        event.preventDefault();
+        onResize(event.key === "Home" ? MIN_GRID_HEIGHT : Math.max(MIN_GRID_HEIGHT, currentHeight() + (event.key === "ArrowUp" ? -24 : 24)));
+      }}
+      onPointerDown={event => {
+        if (event.pointerType === "mouse") return;
+        event.preventDefault(); touch.current = { id: event.pointerId, y: event.clientY, height: currentHeight() };
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }}
+      onPointerMove={event => { const start = touch.current; if (start?.id === event.pointerId) onResize(Math.max(MIN_GRID_HEIGHT, Math.round(start.height + event.clientY - start.y))); }}
+      onPointerUp={() => { touch.current = null; }}
+      onPointerCancel={() => { touch.current = null; }}
+      onLostPointerCapture={() => { touch.current = null; }}
       data-testid="height-resizer"
       data-tip="Drag to see more rows at a time, or fewer"
       onMouseDown={onMouseDown}
