@@ -10,7 +10,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
   "format": 1,
   "starting_revision": "9461830eeee3b5c7f8cfe9c45edf3c1cdd060350",
   "policy": "Narrative ownership is separate from semantic verification. Existing source comments are retained explanation candidates; undocumented declarations remain explicit review work.",
-  "code_outputs": 1848,
+  "code_outputs": 1850,
   "relocated_annotated_tests": 184,
   "fragments": [
     {
@@ -148173,14 +148173,14 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "id": "static-apps-web-src-embed-SourceFileTree-tsx-0",
       "output": "apps/web/src/embed/SourceFileTree.tsx",
       "page": ".hickory-source/mechanisms/apps/web/src/embed/SourceFileTree.tsx.md",
-      "symbol": "Browse published files with the app\u2019s compact file buffer",
+      "symbol": "Browse published files with the app’s compact file buffer",
       "basis": "explained-decision"
     },
     {
       "id": "static-apps-web-src-embed-SourceFileTree-tsx-1",
       "output": "apps/web/src/embed/SourceFileTree.tsx",
       "page": ".hickory-source/mechanisms/apps/web/src/embed/SourceFileTree.tsx.md",
-      "symbol": "Browse published files with the app\u2019s compact file buffer",
+      "symbol": "Browse published files with the app’s compact file buffer",
       "basis": "explained-decision"
     },
     {
@@ -149728,7 +149728,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "id": "just-gutter-apps-web-src-editor-gutterIconLayout-ts-4",
       "output": "apps/web/src/editor/gutterIconLayout.ts",
       "page": ".hickory-source/mechanisms/apps/web/src/editor/gutterActions.ts.md",
-      "symbol": "Position the existing marker within a fixed slot without increasing its gutter cell\u2019s height",
+      "symbol": "Position the existing marker within a fixed slot without increasing its gutter cell’s height",
       "basis": "reviewed-explanation"
     },
     {
@@ -150864,6 +150864,41 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/scripts/test-simple-mobile-reload.py.md",
       "symbol": "simple-mobile-reload-smoke",
       "basis": "authored device-lifetime explanation and focused real-process/device witnesses"
+    },
+    {
+      "id": "workbook-model",
+      "output": "crates/hick-formula/src/workbook.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-formula/src/workbook.rs.md",
+      "symbol": "workbook-model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workbook-graph",
+      "output": "crates/hick-formula/src/workbook.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-formula/src/workbook.rs.md",
+      "symbol": "workbook-graph",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workbook-outputs",
+      "output": "crates/hick-formula/src/workbook.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-formula/src/workbook.rs.md",
+      "symbol": "workbook-outputs",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workbook-witnesses",
+      "output": "crates/hick-formula/src/workbook.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-formula/src/workbook.rs.md",
+      "symbol": "workbook-witnesses",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "notebook-table-inputs",
+      "output": "crates/hick-literate/src/table_inputs.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-literate/src/table_inputs.rs.md",
+      "symbol": "notebook-table-inputs",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

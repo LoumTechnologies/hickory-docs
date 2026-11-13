@@ -8720,7 +8720,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "origin": "docs/guarantees/collaboration/one-road-out-with-a-toll-booth.md",
       "page": ".hickory-source/guarantees/collaboration/one-road-out-with-a-toll-booth/contract.md",
       "domain": "collaboration",
-      "title": "One Road Out, With A Toll Booth On It \u2014 Never An Airgap",
+      "title": "One Road Out, With A Toll Booth On It — Never An Airgap",
       "disposition": "retained-requirement",
       "review": "not verified",
       "references": [
@@ -9420,7 +9420,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "origin": "docs/guarantees/debugging/an-adapter-that-listens-is-connected-to.md",
       "page": ".hickory-source/guarantees/debugging/an-adapter-that-listens-is-connected-to/contract.md",
       "domain": "debugging",
-      "title": "Use the adapter\u2019s transport and the current measured language support",
+      "title": "Use the adapter’s transport and the current measured language support",
       "disposition": "reconciled-requirement",
       "review": "not verified",
       "references": [
@@ -14491,7 +14491,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "origin": "docs/guarantees/lineage/a-refactor-records-what-it-moved.md",
       "page": ".hickory-source/guarantees/lineage/a-refactor-records-what-it-moved/contract.md",
       "domain": "lineage",
-      "title": "A Refactor Records What It Moved \u2014 Byte-Exactly, And Only When Continuity Is On",
+      "title": "A Refactor Records What It Moved — Byte-Exactly, And Only When Continuity Is On",
       "disposition": "retained-requirement",
       "review": "not verified",
       "references": [
@@ -14661,7 +14661,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "origin": "docs/guarantees/lineage/agent-lineage-degrades-without-a-session.md",
       "page": ".hickory-source/guarantees/lineage/agent-lineage-degrades-without-a-session/contract.md",
       "domain": "lineage",
-      "title": "Agent-Authored Bytes Always Report Session, Turn, And A Git-Derived Author \u2014 Even When The Session Cannot Be Read",
+      "title": "Agent-Authored Bytes Always Report Session, Turn, And A Git-Derived Author — Even When The Session Cannot Be Read",
       "disposition": "retained-requirement",
       "review": "not verified",
       "references": [
@@ -68059,6 +68059,31 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "simple-mobile-reload"
       ]
+    },
+    "crates/hick-formula/src/workbook.rs": {
+      "source": ".hickory-source/mechanisms/crates/hick-formula/src/workbook.rs.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "workbook-model",
+        "workbook-graph",
+        "workbook-outputs",
+        "workbook-witnesses"
+      ],
+      "narrative_owner": "mechanism:crates/hick-formula"
+    },
+    "crates/hick-literate/src/table_inputs.rs": {
+      "source": ".hickory-source/mechanisms/crates/hick-literate/src/table_inputs.rs.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "construction": "fragments",
+      "fragments": [
+        "notebook-table-inputs"
+      ],
+      "narrative_owner": "mechanism:crates/hick-literate"
     }
   },
   "evidence_records": [

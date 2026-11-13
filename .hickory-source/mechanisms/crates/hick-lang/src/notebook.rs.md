@@ -15,10 +15,59 @@ Turn declared document constructions into immutable project trees, retaining byt
 
 Rich stdout records survive the ordinary cell recording and weave paths.
 
+Use one neutral CSV reader for authoring, formula dependency discovery and notebook inputs. Keeping this pure conversion in the language layer lets the execution DAG inspect table declarations without executing code. The literate CSV renderer retains its public wrapper and existing round-trip witnesses.
+
 <storycode:copy id="f-50eecbee18eb-DISPLAY_PREFIX">
 //! Rich stdout records survive the ordinary cell recording and weave paths.
 use serde_json::Value;
 pub const DISPLAY_PREFIX: &str = "\u{1e}HICKORY_DISPLAY ";
+
+
+pub fn csv_rows(text: &str, delimiter: char) -> Vec<Vec<String>> {
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    let mut row: Vec<String> = Vec::new();
+    let mut field = String::new();
+    let mut quoted = false;
+    let mut chars = text.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if quoted {
+            if ch == '"' {
+                if chars.peek() == Some(&'"') {
+                    chars.next();
+                    field.push('"');
+                } else {
+                    quoted = false;
+                }
+            } else {
+                field.push(ch);
+            }
+            continue;
+        }
+        if ch == '"' && field.is_empty() {
+            quoted = true;
+        } else if ch == delimiter {
+            row.push(std::mem::take(&mut field));
+        } else if ch == '\r' {
+            // A lone \r or the \r of a \r\n: either way the row ends here.
+            if chars.peek() == Some(&'\n') {
+                chars.next();
+            }
+            row.push(std::mem::take(&mut field));
+            rows.push(std::mem::take(&mut row));
+        } else if ch == '\n' {
+            row.push(std::mem::take(&mut field));
+            rows.push(std::mem::take(&mut row));
+        } else {
+            field.push(ch);
+        }
+    }
+    if !field.is_empty() || !row.is_empty() {
+        row.push(field);
+        rows.push(row);
+    }
+    rows
+}
 
 </storycode:copy>
 <a id="f-50eecbee18eb-render_output"></a>
@@ -128,6 +177,21 @@ pub fn python_command(source: &str) -> String {
     format!("python3 -c \"exec(bytes.fromhex('{hex}'))\"")
 }
 
+/// Include authored table inputs in the normal cache identity without running them.
+pub fn with_table_context(command: &str, context: &str) -> Option<String> {
+    let program = python_program(command)?;
+    let program = program.replacen(
+        "\n# HICKORY_CELL_SOURCE\n",
+        &format!("\n# HICKORY_TABLE_CONTEXT {context}\n# HICKORY_CELL_SOURCE\n"),
+        1,
+    );
+    let hex: String = program
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    Some(format!("python3 -c \"exec(bytes.fromhex('{hex}'))\""))
+}
 </storycode:copy>
 <a id="f-50eecbee18eb-python_program"></a>
 ### `python_program`
@@ -174,6 +238,32 @@ pub fn source_command(command: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn python_table_inputs_and_readonly_output_boundaries() {
+        let source = r###"import contextlib,io,json,runpy
+runtime=globals()
+runtime['table'].__globals__['_HICKORY_TABLES']={'Orders':{'columns':['Total'],'rows':[[11]]}}
+a=runtime['table']('Orders');assert a['Total']==[11];a.rows[0][0]=99;assert runtime['table']('Orders')['Total']==[11]
+try:runtime['table']('Missing');raise AssertionError('undeclared read accepted')
+except KeyError:pass
+out=io.StringIO()
+with contextlib.redirect_stdout(out):runtime['display_table'](['Value'],[['=do_not_execute'],[2]],limit=1)
+value=json.loads(out.getvalue().split('HICKORY_DISPLAY ',1)[1]);assert value['rows']==[['=do_not_execute']] and value['has_more']
+try:runtime['display_table'](['a'],[[1,2]]);raise AssertionError('ragged output accepted')
+except ValueError:pass
+print('table input isolation, declaration, literal output and preview limits passed')
+"###;
+        let result = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(python_program(&python_command(source)).unwrap())
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
     #[test]
     fn python_source_and_runtime_survive_the_command_boundary() {
         let source = "display(\"hello\")\nprint('$HOME; `no shell`')\n";

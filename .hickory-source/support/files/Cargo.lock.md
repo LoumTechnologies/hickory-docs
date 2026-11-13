@@ -3201,6 +3201,7 @@ dependencies = [
  "hick-condition",
  "hick-exec",
  "hick-flow",
+ "hick-formula",
  "hick-lang",
  "log",
  "serde",
@@ -3232,6 +3233,7 @@ name = "hick-formula"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "hick-lang",
  "hick-plugins",
  "serde",
  "serde_json",
@@ -3308,6 +3310,7 @@ dependencies = [
  "hick-dap",
  "hick-exec",
  "hick-feature",
+ "hick-formula",
  "hick-handlers",
  "hick-lang",
  "hick-merge",

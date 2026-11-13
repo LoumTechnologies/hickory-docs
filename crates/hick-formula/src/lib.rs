@@ -44,6 +44,7 @@
 
 pub mod backend;
 pub mod evaluate;
+pub mod workbook;
 pub mod graph;
 pub mod protocol;
 pub mod session;

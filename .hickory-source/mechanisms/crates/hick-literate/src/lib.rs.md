@@ -62,6 +62,7 @@ pub mod config;
 
 <storycode:copy id="f-e099e80d2a99-csv_table">
 pub mod csv_table;
+pub mod table_inputs;
 </storycode:copy>
 <a id="f-e099e80d2a99-discovery"></a>
 ### `discovery`
@@ -3352,7 +3353,19 @@ pub async fn run_pipeline_live(
                 // Send notebook Python through stdin rather than a shell argument:
                 // cmd.exe has an 8191-character command limit, and Python has a
                 // different executable name on Windows. Code never becomes shell text.
-                let python = hick_lang::notebook::python_program(&exec_info.command);
+                let python = match hick_lang::notebook::python_program(&exec_info.command) {
+                    Some(program) => Some(
+                        table_inputs::program(
+                            &documents[doc_index].1,
+                            exec_info.source_line,
+                            program,
+                            &executor.transcripts(),
+                            &working_dir,
+                        )
+                        .await?,
+                    ),
+                    None => None,
+                };
                 if python.is_some() && stdin_content.is_some() {
                     anyhow::bail!("Python notebook cells cannot also declare a stdin source");
                 }
@@ -3636,7 +3649,6 @@ pub async fn run_pipeline_live(
         span_files,
     })
 }
-
 </storycode:copy>
 <a id="f-e099e80d2a99-run_pipeline_weave"></a>
 ### `run_pipeline_weave`

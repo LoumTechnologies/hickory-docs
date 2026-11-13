@@ -17,6 +17,7 @@ publish = false
 license.workspace = true
 
 [dependencies]
+hick-lang = { path = "../hick-lang" }
 hick-plugins = { path = "../hick-plugins" }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }

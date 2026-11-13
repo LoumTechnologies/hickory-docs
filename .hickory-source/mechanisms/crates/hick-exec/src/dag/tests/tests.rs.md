@@ -21,6 +21,41 @@ fn parse_and_build(src: &str) -> Result<FlowDag, DagValidationError> {
     build_dag(&doc)
 }
 
+#[test]
+fn table_dataflow_orders_producers_and_tracks_source() {
+    let source = r#"<h:doc xmlns:h="http://www.hickorydocs.com/1.0">
+<h:table id="Input" language="python">Value
+=Published!B2
+</h:table>
+<h:exec id="consumer" container="consumer" image="python:3.12" language="python" tables="Input">print(table("Input").rows)</h:exec>
+<h:exec id="producer" container="producer" image="python:3.12" language="python" table="Published">display_table(["Key", "Value"], [["total", 7]])</h:exec>
+</h:doc>"#;
+    let dag = parse_and_build(source).unwrap();
+    assert_eq!(
+        dag.topological_order(),
+        vec![dag.execs[1].id, dag.execs[0].id]
+    );
+    assert!(dag.edges.iter().any(
+        |edge| matches!(&edge.reason, DependencyReason::Table { table } if table == "Published")
+    ));
+    let program = hick_lang::notebook::python_program(&dag.execs[0].command).unwrap();
+    assert!(program.contains("# HICKORY_TABLE_CONTEXT"));
+    let changed = parse_and_build(&source.replace("=Published!B2", "=Published!B2 * 2")).unwrap();
+    assert_ne!(dag.execs[0].command, changed.execs[0].command);
+    assert_eq!(
+        hick_lang::notebook::source_command(&dag.execs[0].command),
+        hick_lang::notebook::source_command(&changed.execs[0].command)
+    );
+}
+#[test]
+fn table_dataflow_rejects_unknown_inputs_and_real_cycles() {
+    let source = r#"<h:doc xmlns:h="http://www.hickorydocs.com/1.0">
+<h:exec container="a" image="python:3.12" language="python" tables="B" table="A">pass</h:exec>
+<h:exec container="b" image="python:3.12" language="python" tables="A" table="B">pass</h:exec>
+</h:doc>"#;
+    assert!(parse_and_build(source).is_err());
+    assert!(parse_and_build(&source.replace("tables=\"B\"", "tables=\"Missing\"")).is_err());
+}
 </storycode:copy>
 [Read the test `freeze_attribute_parses_both_values` beside its requirement](../../../../../../guarantees/verification/freeze-is-declared-per-cell/contract.md#f-cc538e30a76b-freeze_attribute_parses_both_values).
 <a id="f-cc538e30a76b-freeze_attribute_defaults_to_inherit"></a>

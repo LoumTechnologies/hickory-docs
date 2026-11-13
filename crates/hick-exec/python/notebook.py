@@ -84,3 +84,50 @@ def display(value, *, mime=None, limit=100):
     if len(encoded) > 8 * 1024 * 1024:
         raise ValueError("Display exceeds 8 MiB; reduce the table limit or image size")
     print(_HICKORY_PREFIX + encoded, flush=True)
+
+# Named notebook inputs are immutable snapshots, not shared kernel variables.
+_HICKORY_TABLES = {}
+_HICKORY_RAW_TABLES = {}
+
+class _HickoryTable:
+    def __init__(self, value):
+        # Copy so modifying a local Python result cannot mutate another read.
+        value = _h_json.loads(_h_json.dumps(value))
+        self.columns = value["columns"]
+        self.rows = value["rows"]
+
+    def column(self, name):
+        if self.columns.count(name) != 1:
+            raise KeyError(f"Column {name!r} must identify one column; inspect table.columns")
+        at = self.columns.index(name)
+        return [row[at] if at < len(row) else None for row in self.rows]
+
+    def __getitem__(self, name):
+        return self.column(name)
+
+
+def table(name, *, raw=False):
+    """Read a declared tables= input, including a range/column selector."""
+    values = _HICKORY_RAW_TABLES if raw else _HICKORY_TABLES
+    if name not in values:
+        raise KeyError(f"Table input {name!r} is unavailable; declare it in this code block's tables= attribute and run its producers")
+    return _HickoryTable(values[name])
+
+
+def display_table(columns, rows, *, limit=100):
+    """Publish an ordinary Python iterable as a read-only table; no packages needed."""
+    import itertools
+    limit = max(1, min(int(limit), 1000))
+    columns = list(columns)
+    if not columns or len(columns) > 256 or any(not isinstance(name, str) for name in columns):
+        raise ValueError("Use between 1 and 256 text column names")
+    sample = list(itertools.islice(iter(rows), limit + 1))
+    if any(not isinstance(row, (list, tuple)) or len(row) != len(columns) for row in sample):
+        raise ValueError("Each output row must have one value for every column")
+    result = {"kind": "table", "schema": [{"name": name, "dtype": "value"} for name in columns],
+              "rows": [[_h_value(value) for value in row] for row in sample[:limit]],
+              "offset": 0, "has_more": len(sample) > limit, "total": len(sample) if len(sample) <= limit else None}
+    encoded = _h_json.dumps(result, ensure_ascii=True, allow_nan=False)
+    if len(encoded) > 8 * 1024 * 1024:
+        raise ValueError("Display exceeds 8 MiB; reduce the table limit")
+    print(_HICKORY_PREFIX + encoded, flush=True)

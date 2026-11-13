@@ -12,4 +12,7 @@ Follow the named module below to its maintained code, original rationale and rel
 - [`crates/hick-formula/tests/backends.rs`](tests/backends.rs.md)
 <storycode:include file="tests/backends.rs.md" />
 
+- [Document table dataflow](src/workbook.rs.md)
+<storycode:include file="src/workbook.rs.md" />
+
 </storycode:doc>

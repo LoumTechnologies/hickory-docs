@@ -22,49 +22,7 @@
 /// than a parse error), and an unterminated quoted field ends with the text
 /// rather than swallowing it.
 pub fn parse_csv(text: &str, delimiter: char) -> Vec<Vec<String>> {
-    let mut rows: Vec<Vec<String>> = Vec::new();
-    let mut row: Vec<String> = Vec::new();
-    let mut field = String::new();
-    let mut quoted = false;
-    let mut chars = text.chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        if quoted {
-            if ch == '"' {
-                if chars.peek() == Some(&'"') {
-                    chars.next();
-                    field.push('"');
-                } else {
-                    quoted = false;
-                }
-            } else {
-                field.push(ch);
-            }
-            continue;
-        }
-        if ch == '"' && field.is_empty() {
-            quoted = true;
-        } else if ch == delimiter {
-            row.push(std::mem::take(&mut field));
-        } else if ch == '\r' {
-            // A lone \r or the \r of a \r\n: either way the row ends here.
-            if chars.peek() == Some(&'\n') {
-                chars.next();
-            }
-            row.push(std::mem::take(&mut field));
-            rows.push(std::mem::take(&mut row));
-        } else if ch == '\n' {
-            row.push(std::mem::take(&mut field));
-            rows.push(std::mem::take(&mut row));
-        } else {
-            field.push(ch);
-        }
-    }
-    if !field.is_empty() || !row.is_empty() {
-        row.push(field);
-        rows.push(row);
-    }
-    rows
+    hick_lang::notebook::csv_rows(text, delimiter)
 }
 
 /// The delimiter an attribute names, defaulting to a comma.

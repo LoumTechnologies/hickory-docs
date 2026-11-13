@@ -97,6 +97,7 @@ pub mod backend;
 
 <storycode:copy id="f-0d41e38bffcc-evaluate">
 pub mod evaluate;
+pub mod workbook;
 </storycode:copy>
 <a id="f-0d41e38bffcc-graph"></a>
 ### `graph`

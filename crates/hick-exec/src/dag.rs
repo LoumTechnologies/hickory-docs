@@ -3,7 +3,7 @@
 //! Analyzes all `<hick:exec>` elements in a parsed hick document and builds
 //! a directed acyclic graph of dependencies based on information flow.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt;
 
 use hick_lang::{HickDocument, HickNode, HickTag};
@@ -35,6 +35,8 @@ pub struct DagEdge {
 /// Why one exec depends on another.
 #[derive(Debug, Clone)]
 pub enum DependencyReason {
+    /// A code block consumes a table or selected formula cells.
+    Table { table: String },
     /// Two execs in the same container → sequential by document order.
     ContainerState { container: String },
     /// Exec A writes to a volume, exec B reads from it.
@@ -61,10 +63,10 @@ pub enum DependencyReason {
     /// See `docs/guarantees/agent/an-agent-cell-is-a-dag-barrier.md`.
     AgentBarrier { agent: String },
 }
-
 impl fmt::Display for DependencyReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            DependencyReason::Table { table } => write!(f, "table ({table})"),
             DependencyReason::ContainerState { container } => {
                 write!(f, "container state ({container})")
             }
@@ -79,7 +81,6 @@ impl fmt::Display for DependencyReason {
         }
     }
 }
-
 // ---------------------------------------------------------------------------
 // Agent cells
 // ---------------------------------------------------------------------------
@@ -297,6 +298,8 @@ impl FlowDag {
 
 #[derive(Debug, thiserror::Error)]
 pub enum DagValidationError {
+    #[error("table dependency: {message}")]
+    TableFlow { message: String },
     #[error("cycle detected involving {0}")]
     Cycle(ExecId),
 
@@ -377,7 +380,6 @@ pub enum DagValidationError {
     )]
     AgentWithoutPrompt { line: usize },
 }
-
 // ---------------------------------------------------------------------------
 // DAG Construction
 // ---------------------------------------------------------------------------
@@ -632,6 +634,90 @@ pub fn build_dag(doc: &HickDocument) -> Result<FlowDag, DagValidationError> {
         }
     }
 
+    // Table selectors declare real dataflow, including formula cells between
+    // a producer and its consumer. Unknown outputs remain placeholders here;
+    // only an explicit run will supply their recorded values.
+    if doc
+        .find_tags("exec")
+        .iter()
+        .any(|tag| tag.get_attribute("tables").is_some())
+    {
+        let declared_tables = hick_formula::workbook::document_tables(doc, &BTreeMap::new())
+            .map_err(|error| DagValidationError::TableFlow {
+                message: error.to_string(),
+            })?;
+        let context = serde_json::to_string(&declared_tables).unwrap();
+        let mut graph_tables = declared_tables;
+        for table in &mut graph_tables {
+            if table.pending {
+                table.pending = false;
+                table.rows = vec![vec![serde_json::Value::Null]];
+            }
+        }
+        let book = hick_formula::workbook::Workbook::new(graph_tables).map_err(|error| {
+            DagValidationError::TableFlow {
+                message: error.to_string(),
+            }
+        })?;
+        let producers: HashMap<_, _> = doc
+            .find_tags("exec")
+            .iter()
+            .filter_map(|tag| {
+                tag.get_attribute("table")
+                    .map(|name| (name.to_string(), tag.source_line))
+            })
+            .collect();
+        let by_line: HashMap<_, _> = execs
+            .iter()
+            .map(|info| (info.source_line, info.id))
+            .collect();
+        for info in &mut execs {
+            let Some(tag) = doc
+                .find_tags("exec")
+                .into_iter()
+                .find(|tag| tag.source_line == info.source_line)
+            else {
+                continue;
+            };
+            let Some(inputs) = tag.get_attribute("tables") else {
+                continue;
+            };
+            let selectors: Vec<String> = inputs
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect();
+            let deps =
+                book.dependencies(&selectors)
+                    .map_err(|error| DagValidationError::TableFlow {
+                        message: format!("line {}: {error}", tag.source_line),
+                    })?;
+            let mut tables: BTreeSet<String> = deps.into_iter().map(|cell| cell.table).collect();
+            tables.extend(
+                selectors
+                    .iter()
+                    .map(|selector| selector.split('!').next().unwrap().to_string()),
+            );
+            for table in tables {
+                if let Some(from) = producers.get(&table).and_then(|line| by_line.get(line)) {
+                    edges.push(DagEdge {
+                        from: *from,
+                        to: info.id,
+                        reason: DependencyReason::Table { table },
+                    });
+                }
+            }
+            info.command = hick_lang::notebook::with_table_context(&info.command, &context)
+                .ok_or_else(|| DagValidationError::TableFlow {
+                    message: format!(
+                        "line {}: tables= requires language=\"python\"",
+                        tag.source_line
+                    ),
+                })?;
+        }
+    }
+
     // Validate
     let dag = FlowDag {
         execs,
@@ -658,7 +744,6 @@ pub fn build_dag(doc: &HickDocument) -> Result<FlowDag, DagValidationError> {
         volumes: dag.volumes,
     })
 }
-
 // ---------------------------------------------------------------------------
 // Extraction helpers
 // ---------------------------------------------------------------------------

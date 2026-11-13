@@ -64,4 +64,6 @@ Follow the named module below to its maintained code, original rationale and rel
 - [`crates/hick-literate/tests/support/prediction_privacy.rs`](tests/support/prediction_privacy.rs.md)
 <storycode:include file="tests/support/prediction_privacy.rs.md" />
 
+- [Notebook table inputs](src/table_inputs.rs.md)
+<storycode:include file="src/table_inputs.rs.md" />
 </storycode:doc>

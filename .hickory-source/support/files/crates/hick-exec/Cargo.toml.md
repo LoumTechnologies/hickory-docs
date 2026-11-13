@@ -17,6 +17,8 @@ publish = false
 license.workspace = true
 
 [dependencies]
+serde_json = "1"
+hick-formula = { path = "../hick-formula" }
 hick-condition = { path = "../hick-condition" }
 hick-flow = { path = "../hick-flow" }
 hick-lang = { path = "../hick-lang" }
