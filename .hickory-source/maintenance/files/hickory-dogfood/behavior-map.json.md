@@ -67260,7 +67260,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "f684f75c252abc83cc4831d248e2ce59c90fbcd712b84d40051a03603bc26e9c",
       "construction": "fragments",
       "fragments": [
-        "simple-35d92a1eac-0"
+        "simple-35d92a1eac-0",
+        "simple-browser-motion"
       ]
     },
     "apps/apple-simple/Package.swift": {
@@ -67364,7 +67365,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "simple-apple-file-rows",
         "simple-mac-native-tab-drag",
         "simple-mac-tab-pointer-source",
-        "simple-mac-tab-drop-surfaces"
+        "simple-mac-tab-drop-surfaces",
+        "simple-apple-motion"
       ]
     },
     "apps/apple-simple/Sources/HickorySimpleApp.swift": {
@@ -67540,7 +67542,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "simple-android-search-model",
         "simple-android-language-preview",
         "simple-0d1e071614-1",
-        "simple-android-debug-rail"
+        "simple-android-debug-rail",
+        "simple-android-motion"
       ]
     },
     "apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentPane.kt": {

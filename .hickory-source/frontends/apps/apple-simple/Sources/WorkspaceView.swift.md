@@ -129,6 +129,7 @@ A split reserves five points for its resize handle. A leaf owns a fixed-height t
 struct PaneView: View {
     var workspace: Workspace
     let id: String
+    @Environment(\.accessibilityReduceMotion) private var reducedMotion
     @State private var initialRatio: Double?
     @State private var dropBefore: String?
     @State private var paneEdge: String?
@@ -169,7 +170,9 @@ struct PaneView: View {
                                     #endif
                                     Button("×") { workspace.close(tab) }.accessibilityLabel("Close \(workspace.label(tab))")
                                 }.padding(.horizontal, 5).frame(height: 28)
-                                    .background(node.active == tab ? Color.accentColor.opacity(0.12) : Color.clear)
+                                    .animation(SimpleMotion.animation(100, reduced: reducedMotion)) {
+                                        $0.background(node.active == tab ? Color.accentColor.opacity(0.12) : Color.clear)
+                                    }
                                     .overlay(alignment: .top) { if node.active == tab { Rectangle().fill(Color.accentColor).frame(height: 2) } }
                                     .overlay(alignment: .leading) { if dropBefore == tab { Rectangle().fill(Color.accentColor).frame(width: 2) } }
                                     #if os(macOS)
@@ -236,11 +239,12 @@ struct PaneView: View {
                                         .overlay { Rectangle().stroke(Color.accentColor, lineWidth: 2) }
                                         .frame(width: geometry.size.width * ((edge == "left" || edge == "right") ? 0.5 : 1),
                                                height: geometry.size.height * ((edge == "top" || edge == "bottom") ? 0.5 : 1))
+                                        .modifier(SimpleReveal(milliseconds: 80))
                                         .allowsHitTesting(false)
                                 }
                             }
                     }
-                }.buttonStyle(.plain).clipped().onChange(of: workspace.draggingTab) { _, tab in
+                }.buttonStyle(SimpleChromeButtonStyle()).clipped().onChange(of: workspace.draggingTab) { _, tab in
                     if tab == nil { paneEdge = nil; dropBefore = nil }
                 }
             }
@@ -459,10 +463,61 @@ final class NativeTabDropView: NSView {
 #endif
 </ui:copy>
 
+## Animate paint independently of source state
+
+A shared curve and durations match the browser and Compose chrome. The button
+style changes only its background, preserving compact hit targets and line
+anchors. Restrict SwiftUI animation to the background or opacity modifier;
+putting it on the pane would also interpolate editor geometry during docking.
+Search and drag previews fade on insertion and disappear immediately on removal.
+Native popovers and sheets retain their system transitions. Reduce Motion
+removes our animation. The modifier never replaces or keys its content, so the
+editor, selection and undo owner survive the reveal.
+
+<ui:copy id="simple-apple-motion">
+
+// Keep this paint policy local to chrome; never animate an editor subtree.
+enum SimpleMotion {
+    static func animation(_ milliseconds: Double, reduced: Bool) -> Animation? {
+        reduced ? nil : .timingCurve(0, 0, 0.2, 1, duration: milliseconds / 1000)
+    }
+}
+struct SimpleReveal: ViewModifier {
+    var milliseconds: Double = 120
+    @Environment(\.accessibilityReduceMotion) private var reduced
+    @State private var visible = false
+    func body(content: Content) -> some View {
+        content.animation(SimpleMotion.animation(milliseconds, reduced: reduced)) {
+            $0.opacity(visible || reduced ? 1 : 0)
+        }.onAppear { visible = true }
+    }
+}
+struct SimpleChromeButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        SimpleChromeButtonBody(label: configuration.label, pressed: configuration.isPressed)
+    }
+}
+private struct SimpleChromeButtonBody<Label: View>: View {
+    let label: Label
+    let pressed: Bool
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.accessibilityReduceMotion) private var reduced
+    @State private var hovered = false
+    var body: some View {
+        label.contentShape(Rectangle())
+            .animation(SimpleMotion.animation(80, reduced: reduced)) {
+                $0.background(Color.primary.opacity(enabled ? (pressed ? 0.12 : hovered ? 0.08 : 0) : 0))
+            }
+            .opacity(enabled ? 1 : 0.45)
+            .onHover { hovered = $0 }
+    }
+}
+</ui:copy>
+
 ## Assemble the maintained output
 
 Keep construction order explicit; the explanations above describe the decisions at each boundary.
 
-<ui:file path="apps/apple-simple/Sources/WorkspaceView.swift"><ui:paste select="#simple-80f4e5a1a0-0"/><ui:paste select="#simple-80f4e5a1a0-1"/><ui:paste select="#simple-apple-pane-edge-drop"/><ui:paste select="#simple-apple-file-rows"/><ui:paste select="#simple-mac-native-tab-drag"/><ui:paste select="#simple-mac-tab-pointer-source"/><ui:paste select="#simple-mac-tab-drop-surfaces"/></ui:file>
+<ui:file path="apps/apple-simple/Sources/WorkspaceView.swift"><ui:paste select="#simple-80f4e5a1a0-0"/><ui:paste select="#simple-80f4e5a1a0-1"/><ui:paste select="#simple-apple-pane-edge-drop"/><ui:paste select="#simple-apple-file-rows"/><ui:paste select="#simple-mac-native-tab-drag"/><ui:paste select="#simple-mac-tab-pointer-source"/><ui:paste select="#simple-mac-tab-drop-surfaces"/><ui:paste select="#simple-apple-motion"/></ui:file>
 
 </ui:doc>

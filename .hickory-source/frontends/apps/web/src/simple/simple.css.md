@@ -171,10 +171,56 @@ footer { border-top: 1px solid GrayText; padding: 3px 9px; font-size: 11px; over
 
 Semantic classes need their own compact palette because this frontend does not load the primary workspace stylesheet. Use system light/dark colors so a server token becomes visibly colored without delaying text opening.
 
+## Add motion without moving the editor
+
+Use the same 80 ms feedback, 100 ms tab emphasis, 120 ms reveal and
+`(0, 0, .2, 1)` curve as the native chrome. Animate only paint: menus,
+search and gutter overflow stay anchored, and drag geometry follows the pointer
+immediately. Dismissal removes custom panels immediately, so stale controls
+cannot intercept input during an exit animation. Native menus keep system motion.
+Reduced motion sets these durations to zero, including when the preference
+changes while a panel is visible. Do not apply transitions to editor text,
+syntax colors, pane dimensions or incoming output.
+
+<ui:copy id="simple-browser-motion">
+/* Motion affects paint only: content, anchors and hit targets stay stationary. */
+:root {
+  --simple-motion-feedback: 80ms;
+  --simple-motion-emphasis: 100ms;
+  --simple-motion-reveal: 120ms;
+  --simple-motion-easing: cubic-bezier(0, 0, .2, 1);
+}
+button, summary {
+  transition: background-color var(--simple-motion-feedback) var(--simple-motion-easing),
+    color var(--simple-motion-feedback) var(--simple-motion-easing),
+    opacity var(--simple-motion-feedback) var(--simple-motion-easing);
+}
+button:active:not(:disabled), summary:active {
+  background: color-mix(in srgb, CanvasText 12%, Canvas);
+}
+.tab { transition: background-color var(--simple-motion-emphasis) var(--simple-motion-easing); }
+@keyframes simple-reveal { from { opacity: 0; } to { opacity: 1; } }
+.menu, .tip, .cm-lsp-hover, .cm-lsp-signature,
+.cm-debug-rail .more-actions__items, .cm-debug-rail .debug-strip__error,
+.cm-debug-rail .debug-strip__missing, .launch-profile-picker,
+.editor-cm-host .cm-panels-top {
+  animation: simple-reveal var(--simple-motion-reveal) var(--simple-motion-easing);
+}
+.pane-drop-preview { animation: simple-reveal var(--simple-motion-feedback) var(--simple-motion-easing); }
+/* Remove just our motion; embedded editors retain their own accessibility policy. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --simple-motion-feedback: 0ms;
+    --simple-motion-emphasis: 0ms;
+    --simple-motion-reveal: 0ms;
+  }
+}
+</ui:copy>
+
 ## Assemble the maintained output
 
 Keep construction order explicit; the explanations above describe the decisions at each boundary.
 
-<ui:file path="apps/web/src/simple/simple.css"><ui:paste select="#simple-35d92a1eac-0"/></ui:file>
+<ui:file path="apps/web/src/simple/simple.css"><ui:paste select="#simple-35d92a1eac-0"/><ui:paste select="#simple-browser-motion"/></ui:file>
 
 </ui:doc>

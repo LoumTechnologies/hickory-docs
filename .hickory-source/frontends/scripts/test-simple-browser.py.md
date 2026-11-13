@@ -34,6 +34,12 @@ bridge and checks literal output safety. Python owns the scenario; the driver
 owns browser selectors. This exercises the shared native bundle, not physical
 iOS or Android gesture acceptance.
 
+Before replacement, the search witness creates an unsaved draft and opens the
+panel under normal and reduced motion. Check a stationary, identical editor
+through the reveal, then undo the draft and verify disk was never touched.
+This proves browser preservation; native animation and device accessibility
+still require acceptance on the corresponding platform.
+
 <ui:copy id="simple-0799b7d31b-0">
 # Contract: .hickory-source/frontends/contract.md
 """Focused real-engine browser acceptance for the independent frontend."""
@@ -186,6 +192,13 @@ def search_acceptance(driver, folder):
     path = "search.txt"
     source = (folder / path).read_text()
     driver.act("open", path=path)
+    driver.act("append", path=path, text="unsaved motion witness")
+    for reduced in (False, True):
+        state = driver.act("motion-search", path=path, reduced=reduced)
+        assert state == {"duration": "0s" if reduced else "0.12s", "sameEditor": True, "stable": True}, state
+    driver.act("undo", path=path)
+    eventually(lambda: driver.act("search-source", path=path), source)
+    assert (folder / path).read_text() == source, "Opening search must not save the draft"
     size = driver.act("editor-size", path=path)
     driver.act("search-open")
     assert driver.act("editor-size", path=path) == size
@@ -195,7 +208,7 @@ def search_acceptance(driver, folder):
     eventually(lambda: (folder / path).read_text(), "😀 12\n34\n")
     driver.act("search-close")
     driver.act("undo", path=path)
-    eventually(lambda: driver.act("content", path=path), source)
+    eventually(lambda: driver.act("search-source", path=path), source)
 
 def folding_acceptance(driver, folder):
     path = "fold.txt"

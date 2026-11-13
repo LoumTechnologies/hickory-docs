@@ -149,6 +149,13 @@ def search_acceptance(driver, folder):
     path = "search.txt"
     source = (folder / path).read_text()
     driver.act("open", path=path)
+    driver.act("append", path=path, text="unsaved motion witness")
+    for reduced in (False, True):
+        state = driver.act("motion-search", path=path, reduced=reduced)
+        assert state == {"duration": "0s" if reduced else "0.12s", "sameEditor": True, "stable": True}, state
+    driver.act("undo", path=path)
+    eventually(lambda: driver.act("search-source", path=path), source)
+    assert (folder / path).read_text() == source, "Opening search must not save the draft"
     size = driver.act("editor-size", path=path)
     driver.act("search-open")
     assert driver.act("editor-size", path=path) == size
@@ -158,7 +165,7 @@ def search_acceptance(driver, folder):
     eventually(lambda: (folder / path).read_text(), "😀 12\n34\n")
     driver.act("search-close")
     driver.act("undo", path=path)
-    eventually(lambda: driver.act("content", path=path), source)
+    eventually(lambda: driver.act("search-source", path=path), source)
 
 def folding_acceptance(driver, folder):
     path = "fold.txt"

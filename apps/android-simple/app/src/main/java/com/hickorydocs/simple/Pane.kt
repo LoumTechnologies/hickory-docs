@@ -2,6 +2,9 @@ package com.hickorydocs.simple
 
 import android.graphics.Paint
 import android.graphics.Typeface
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import android.content.ClipData
@@ -107,19 +110,24 @@ private const val TAB_MIME = "application/vnd.hickorydocs.tab"
             .dragAndDropTarget(shouldStartDragAndDrop = { TAB_MIME in it.mimeTypes() }, target = target).horizontalScroll(rememberScrollState())) {
             val activeColor = MaterialTheme.colorScheme.primary
             node.tabs.forEach { tab ->
-                val tabTarget = tabDropTarget(workspace, id, tab) { targeted ->
-                    if (targeted) dropBefore = tab else if (dropBefore == tab) dropBefore = null
-                }
-                Row(Modifier.background(if (node.active == tab) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer)
-                    .drawWithContent {
-                        drawContent()
-                        if (node.active == tab) drawRect(activeColor, size = Size(size.width, 2.dp.toPx()))
-                        if (dropBefore == tab) drawRect(activeColor, size = Size(2.dp.toPx(), size.height))
+                key(tab) {
+                    val tabTarget = tabDropTarget(workspace, id, tab) { targeted ->
+                        if (targeted) dropBefore = tab else if (dropBefore == tab) dropBefore = null
                     }
-                    .dragAndDropTarget(shouldStartDragAndDrop = { TAB_MIME in it.mimeTypes() }, target = tabTarget)
-                    .dragAndDropSource { _ -> DragAndDropTransferData(ClipData(ClipDescription("hickory-tab", arrayOf(TAB_MIME)), ClipData.Item(tab))) }) {
-                    Text(workspace.label(tab), fontSize = 13.sp, modifier = Modifier.clickable { workspace.layout = workspace.layout.activate(tab, id); workspace.focused = id }.padding(horizontal = 7.dp, vertical = 5.dp))
-                    Text("×", modifier = Modifier.clickable { workspace.close(tab) }.semantics { contentDescription = "Close ${workspace.label(tab)}" }.padding(horizontal = 6.dp, vertical = 5.dp))
+                    val tabColor by animateColorAsState(
+                        if (node.active == tab) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+                        animationSpec = tween(SIMPLE_EMPHASIS_MS, easing = SimpleMotionEasing), label = "Tab emphasis")
+                    Row(Modifier.background(tabColor)
+                        .drawWithContent {
+                            drawContent()
+                            if (node.active == tab) drawRect(activeColor, size = Size(size.width, 2.dp.toPx()))
+                            if (dropBefore == tab) drawRect(activeColor, size = Size(2.dp.toPx(), size.height))
+                        }
+                        .dragAndDropTarget(shouldStartDragAndDrop = { TAB_MIME in it.mimeTypes() }, target = tabTarget)
+                        .dragAndDropSource { _ -> DragAndDropTransferData(ClipData(ClipDescription("hickory-tab", arrayOf(TAB_MIME)), ClipData.Item(tab))) }) {
+                        Text(workspace.label(tab), fontSize = 13.sp, modifier = Modifier.clickable { workspace.layout = workspace.layout.activate(tab, id); workspace.focused = id }.padding(horizontal = 7.dp, vertical = 5.dp))
+                        Text("×", modifier = Modifier.clickable { workspace.close(tab) }.semantics { contentDescription = "Close ${workspace.label(tab)}" }.padding(horizontal = 6.dp, vertical = 5.dp))
+                    }
                 }
             }
             Spacer(Modifier.width(20.dp).height(29.dp))
@@ -144,7 +152,7 @@ private const val TAB_MIME = "application/vnd.hickorydocs.tab"
                 "bottom" -> Modifier.align(androidx.compose.ui.Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(.5f)
                 else -> Modifier.fillMaxSize()
             }
-            Box(preview.background(color.copy(alpha = .18f)).border(2.dp, color))
+            Box(preview.simpleReveal(SIMPLE_FEEDBACK_MS).background(color.copy(alpha = .18f)).border(2.dp, color))
         }
         listOf("left", "right", "top", "bottom", "center").forEach { edge ->
             val target = remember(workspace, group, edge) { object : DragAndDropTarget {
@@ -1037,7 +1045,7 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
         if (buffer.showMulti) AlertDialog(onDismissRequest = { buffer.showMulti = false }, title = { Text("Edit selections") }, text = {
             OutlinedTextField(buffer.multiText, { buffer.multiText = it }, label = { Text("Insert at selections") })
         }, confirmButton = { TextButton(enabled = !buffer.readOnly, onClick = { buffer.replaceMultiple(buffer.multiText); buffer.showMulti = false; buffer.focusSource?.invoke() }) { Text("Apply to selections") } }, dismissButton = { TextButton(onClick = { buffer.showMulti = false }) { Text("Cancel") } })
-        if (buffer.showFind) NativeFindPanel(buffer, Modifier.align(Alignment.TopEnd).padding(4.dp).widthIn(max = 360.dp).fillMaxWidth())
+        if (buffer.showFind) NativeFindPanel(buffer, Modifier.simpleReveal().align(Alignment.TopEnd).padding(4.dp).widthIn(max = 360.dp).fillMaxWidth())
     }
 }
 @Composable private fun PaneContent(workspace: Workspace, tab: String?, group: String) {
@@ -1219,4 +1227,17 @@ fun debugLineOffset(source: String, line: Int): Int? {
             }
         }
     }
+}
+
+// Compose's animation clock honors the system animator duration scale.
+private val SimpleMotionEasing = androidx.compose.animation.core.CubicBezierEasing(0f, 0f, .2f, 1f)
+private const val SIMPLE_FEEDBACK_MS = 80
+private const val SIMPLE_EMPHASIS_MS = 100
+private const val SIMPLE_REVEAL_MS = 120
+@Composable private fun Modifier.simpleReveal(milliseconds: Int = SIMPLE_REVEAL_MS): Modifier {
+    val opacity = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) {
+        opacity.animateTo(1f, androidx.compose.animation.core.tween(milliseconds, easing = SimpleMotionEasing))
+    }
+    return this.graphicsLayer { alpha = opacity.value }
 }

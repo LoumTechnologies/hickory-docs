@@ -150934,6 +150934,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/TerminalPane.kt.md",
       "symbol": "simple-terminal-android-attachment",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-browser-motion",
+      "output": "apps/web/src/simple/simple.css",
+      "page": ".hickory-source/frontends/apps/web/src/simple/simple.css.md",
+      "symbol": "simple-browser-motion",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-apple-motion",
+      "output": "apps/apple-simple/Sources/WorkspaceView.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/WorkspaceView.swift.md",
+      "symbol": "simple-apple-motion",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-android-motion",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt.md",
+      "symbol": "simple-android-motion",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

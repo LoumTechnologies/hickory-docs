@@ -150,3 +150,35 @@ footer { border-top: 1px solid GrayText; padding: 3px 9px; font-size: 11px; over
 .tok-number, .tok-bool, .tok-null { color: light-dark(#986020, #e5b56c); }
 .tok-comment { color: GrayText; font-style: italic; }
 .tok-function, .tok-propertyName { color: light-dark(#2863a8, #91bdfa); }
+/* Motion affects paint only: content, anchors and hit targets stay stationary. */
+:root {
+  --simple-motion-feedback: 80ms;
+  --simple-motion-emphasis: 100ms;
+  --simple-motion-reveal: 120ms;
+  --simple-motion-easing: cubic-bezier(0, 0, .2, 1);
+}
+button, summary {
+  transition: background-color var(--simple-motion-feedback) var(--simple-motion-easing),
+    color var(--simple-motion-feedback) var(--simple-motion-easing),
+    opacity var(--simple-motion-feedback) var(--simple-motion-easing);
+}
+button:active:not(:disabled), summary:active {
+  background: color-mix(in srgb, CanvasText 12%, Canvas);
+}
+.tab { transition: background-color var(--simple-motion-emphasis) var(--simple-motion-easing); }
+@keyframes simple-reveal { from { opacity: 0; } to { opacity: 1; } }
+.menu, .tip, .cm-lsp-hover, .cm-lsp-signature,
+.cm-debug-rail .more-actions__items, .cm-debug-rail .debug-strip__error,
+.cm-debug-rail .debug-strip__missing, .launch-profile-picker,
+.editor-cm-host .cm-panels-top {
+  animation: simple-reveal var(--simple-motion-reveal) var(--simple-motion-easing);
+}
+.pane-drop-preview { animation: simple-reveal var(--simple-motion-feedback) var(--simple-motion-easing); }
+/* Remove just our motion; embedded editors retain their own accessibility policy. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --simple-motion-feedback: 0ms;
+    --simple-motion-emphasis: 0ms;
+    --simple-motion-reveal: 0ms;
+  }
+}

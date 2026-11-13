@@ -238,6 +238,37 @@ try {
             return { heading: style(".cm-md-h1"), bold: style(".cm-md-strong"), italic: style(".cm-md-em"), size: parseFloat(getComputedStyle(element).fontSize) };
           }); break;
         }
+        case "motion-search": {
+          await page.emulateMedia({ reducedMotion: request.reduced ? "reduce" : "no-preference" });
+          const content = editor(request.path);
+          const before = await content.evaluate(node => {
+            const scroller = node.closest(".cm-scroller");
+            return { text: node.textContent, x: scroller.scrollLeft, y: scroller.scrollTop,
+              width: scroller.clientWidth, height: scroller.clientHeight };
+          });
+          const identity = await content.elementHandle();
+          await menu("Edit", "Find and replace");
+          const panel = page.locator(".cm-panels-top");
+          const duration = await panel.evaluate(node => getComputedStyle(node).animationDuration);
+          // Sample throughout the reveal, not just after it has settled.
+          const samples = await content.evaluate(async node => {
+            const scroller = node.closest(".cm-scroller"); const result = [];
+            for (let frame = 0; frame < 12; frame++) {
+              await new Promise(resolve => requestAnimationFrame(resolve));
+              result.push({ text: node.textContent, x: scroller.scrollLeft, y: scroller.scrollTop,
+                width: scroller.clientWidth, height: scroller.clientHeight });
+            }
+            return result;
+          });
+          const sameEditor = await content.evaluate((node, original) => node === original, identity);
+          await page.getByLabel("close", { exact: true }).click();
+          await identity.dispose();
+          value = { duration, sameEditor, stable: samples.every(sample => JSON.stringify(sample) === JSON.stringify(before)) };
+          break;
+        }
+        case "search-source":
+          // DOM innerText adds a layout newline for an empty final CodeMirror line.
+          value = (await editor(request.path).locator(".cm-line").allTextContents()).join("\n"); break;
         case "search-open": await menu("Edit", "Find and replace"); break;
         case "search-query":
           await page.getByLabel("Find", { exact: true }).fill(request.query);

@@ -584,6 +584,10 @@ formula reveals source, and typing into hidden math first reveals it without
 applying that edit. Explicit contextual edits retain the existing snapshot,
 permission, composition and undo checks. Presentation never replaces storage bytes.
 
+Chrome buttons share the paint-only feedback style in `WorkspaceView.swift`.
+The floating find panel uses its reveal modifier; source text and editor layout
+remain outside the animation scope. Gutter popovers keep native presentation.
+
 <ui:copy id="simple-7fad175521-0">
 // Only inspect the current logical line. Identifier movement never waits for parsing.
 private let simpleWholeWord = try! NSRegularExpression(pattern: #"[\p{L}\p{N}_][\p{L}\p{M}\p{N}_\u200C\u200D]*"#)
@@ -1968,7 +1972,7 @@ struct LanguageEditor: View {
                 ZStack(alignment: .topLeading) {
                     ForEach(buffer.visibleDebugLines.filter { headers.contains($0.line) && $0.y >= 0 && $0.y < geometry.size.height }, id: \.line) { row in
                         Button(buffer.foldedLines.contains(row.line) ? "+" : "−") { buffer.toggleFold?(row.line) }
-                            .buttonStyle(.plain).font(.system(size: 13)).frame(width: 24, height: min(18, row.height))
+                            .buttonStyle(SimpleChromeButtonStyle()).font(.system(size: 13)).frame(width: 24, height: min(18, row.height))
                             .accessibilityLabel("\(buffer.foldedLines.contains(row.line) ? "Unfold" : "Fold") line \(row.line + 1)")
                             .position(x: 12, y: row.y + row.height / 2)
                     }
@@ -2108,6 +2112,7 @@ struct LanguageEditor: View {
             if buffer.showFind {
                 GeometryReader { geometry in
                     ScrollView { NativeFindPanel(buffer: buffer) }
+                        .modifier(SimpleReveal())
                         .frame(width: min(360, max(0, geometry.size.width - 8)), height: min(240, max(0, geometry.size.height - 8)))
                         .padding(4).frame(maxWidth: .infinity, alignment: .trailing)
                 }
@@ -2171,7 +2176,7 @@ struct NativeDebugRail: View {
             default: details = line
             }
         } label: { Image(systemName: symbol(action)).frame(width: 20, height: 18) }
-        .buttonStyle(.plain).disabled(action == "debug" && (debug.active || buffer.dirty || buffer.saving)).help(action.capitalized).accessibilityLabel("\(action.capitalized) on line \(line + 1)")
+        .buttonStyle(SimpleChromeButtonStyle()).disabled(action == "debug" && (debug.active || buffer.dirty || buffer.saving)).help(action.capitalized).accessibilityLabel("\(action.capitalized) on line \(line + 1)")
     }
     var body: some View {
         GeometryReader { geometry in

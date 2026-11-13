@@ -106,6 +106,7 @@ extension Notification.Name { static let simpleConnect = Notification.Name("hick
 struct PaneView: View {
     var workspace: Workspace
     let id: String
+    @Environment(\.accessibilityReduceMotion) private var reducedMotion
     @State private var initialRatio: Double?
     @State private var dropBefore: String?
     @State private var paneEdge: String?
@@ -146,7 +147,9 @@ struct PaneView: View {
                                     #endif
                                     Button("×") { workspace.close(tab) }.accessibilityLabel("Close \(workspace.label(tab))")
                                 }.padding(.horizontal, 5).frame(height: 28)
-                                    .background(node.active == tab ? Color.accentColor.opacity(0.12) : Color.clear)
+                                    .animation(SimpleMotion.animation(100, reduced: reducedMotion)) {
+                                        $0.background(node.active == tab ? Color.accentColor.opacity(0.12) : Color.clear)
+                                    }
                                     .overlay(alignment: .top) { if node.active == tab { Rectangle().fill(Color.accentColor).frame(height: 2) } }
                                     .overlay(alignment: .leading) { if dropBefore == tab { Rectangle().fill(Color.accentColor).frame(width: 2) } }
                                     #if os(macOS)
@@ -213,11 +216,12 @@ struct PaneView: View {
                                         .overlay { Rectangle().stroke(Color.accentColor, lineWidth: 2) }
                                         .frame(width: geometry.size.width * ((edge == "left" || edge == "right") ? 0.5 : 1),
                                                height: geometry.size.height * ((edge == "top" || edge == "bottom") ? 0.5 : 1))
+                                        .modifier(SimpleReveal(milliseconds: 80))
                                         .allowsHitTesting(false)
                                 }
                             }
                     }
-                }.buttonStyle(.plain).clipped().onChange(of: workspace.draggingTab) { _, tab in
+                }.buttonStyle(SimpleChromeButtonStyle()).clipped().onChange(of: workspace.draggingTab) { _, tab in
                     if tab == nil { paneEdge = nil; dropBefore = nil }
                 }
             }
@@ -397,3 +401,40 @@ final class NativeTabDropView: NSView {
     }
 }
 #endif
+
+// Keep this paint policy local to chrome; never animate an editor subtree.
+enum SimpleMotion {
+    static func animation(_ milliseconds: Double, reduced: Bool) -> Animation? {
+        reduced ? nil : .timingCurve(0, 0, 0.2, 1, duration: milliseconds / 1000)
+    }
+}
+struct SimpleReveal: ViewModifier {
+    var milliseconds: Double = 120
+    @Environment(\.accessibilityReduceMotion) private var reduced
+    @State private var visible = false
+    func body(content: Content) -> some View {
+        content.animation(SimpleMotion.animation(milliseconds, reduced: reduced)) {
+            $0.opacity(visible || reduced ? 1 : 0)
+        }.onAppear { visible = true }
+    }
+}
+struct SimpleChromeButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        SimpleChromeButtonBody(label: configuration.label, pressed: configuration.isPressed)
+    }
+}
+private struct SimpleChromeButtonBody<Label: View>: View {
+    let label: Label
+    let pressed: Bool
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.accessibilityReduceMotion) private var reduced
+    @State private var hovered = false
+    var body: some View {
+        label.contentShape(Rectangle())
+            .animation(SimpleMotion.animation(80, reduced: reduced)) {
+                $0.background(Color.primary.opacity(enabled ? (pressed ? 0.12 : hovered ? 0.08 : 0) : 0))
+            }
+            .opacity(enabled ? 1 : 0.45)
+            .onHover { hovered = $0 }
+    }
+}

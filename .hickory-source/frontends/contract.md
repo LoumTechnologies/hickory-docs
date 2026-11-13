@@ -7,6 +7,29 @@ Given a reachable existing Hickory engine, each frontend exposes the same four p
 
 Terminal panes accept typing, paste, cursor keys, Ctrl+C and Ctrl+D directly in the terminal emulator, without a separate command field. ANSI colors, cursor positioning and full-screen terminal modes are interpreted by xterm. The PTY receives measured cell dimensions when the pane resizes. Moving or hiding a pane detaches its renderer without closing the backend session; reattachment receives retained replay before live output. Transport failure is visible, and uncertain input is never automatically retried.
 
+Custom chrome uses short paint-only motion: 80 ms feedback, 100 ms tab
+background emphasis and 120 ms floating-search reveals, with the same
+`(0, 0, .2, 1)` curve in CSS, SwiftUI and Compose. Drag-preview geometry follows
+the current target immediately while its first appearance fades in. Native
+controls, menus, popovers and sheets retain their platform feedback. Custom
+panels disappear immediately on dismissal. Reduced-motion preferences disable
+added browser/Apple motion; Compose uses the system animator duration scale.
+Animation never delays commands, saves, editor content or capability attachment,
+and never interpolates pane dimensions or gutter anchors. The focused
+`python3 scripts/test-simple-browser.py --search-only` witness checks live normal
+and reduced-motion search reveals, stationary editor geometry, unchanged text,
+retained editor identity and undo of an unsaved draft. Native visual timing,
+keyboard/IME and accessibility behavior still require device acceptance.
+
+Motion verification on 2026-11-13: the focused real-engine browser search flow
+passed under normal and reduced motion, including unchanged editor identity,
+geometry and text throughout rendered frames, unsaved-draft undo and exact regex
+replacement bytes on disk. Browser TypeScript checking and the simple production
+bundle passed. macOS built with full Xcode, shared Apple source type-checked for
+the iOS simulator, and Android `:app:compileDebugKotlin` passed offline. These are
+compilation receipts for native targets, not visual, IME or accessibility
+acceptance and not an iOS app or Android APK packaging receipt.
+
 Opening text does not wait for rendering, provenance, debugging or language services. Pane splitting, resizing and moving retain document buffer identities and unsent agent messages. Drag a tab to the outer twenty percent of pane content to split left, right, above or below; the shaded half previews its destination. The middle appends the dragged tab to that existing group and activates it without adding a split. Corners select left/right. Center drops preview the whole target pane. A successful drop moves the existing tab into a fresh equal split and focuses it; any empty group closes automatically and its surviving sibling fills the freed rectangle. Closing the last tab in a group does the same, except that closing the final document retains its empty pane and tab strip beside Files. Reopening a file uses that document pane, including files whose cached buffers survived closing. If all tabs are closed, one empty root remains available. An explicit Split command may create a temporary empty destination until the next close or move. Stale or unknown payloads do not create splits. Drag a tab onto another tab to insert before it, or onto unused strip space to append, within a group or across panes. Drag indicators overlay tab edges without resizing the strip. Self-drops and obsolete source/destination identities leave membership unchanged. Both drag and menu movement are available. Dirty document tabs refuse to close.
 
 A plain save includes its original content hash. A literate save includes its original source as both room and disk expectation. Failed saves retain edits. A successful reply marks only the submitted snapshot saved; typing during that request remains dirty. Save and agent mutations are never automatically replayed by these frontends after transport failure.
