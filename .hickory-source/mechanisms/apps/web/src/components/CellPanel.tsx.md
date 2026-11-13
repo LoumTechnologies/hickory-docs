@@ -96,6 +96,14 @@ export interface CellPanelProps {
 <a id="f-c3c409b02e61-CellPanel"></a>
 ### `CellPanel`
 
+Compare expected stdout with captured stdout inside the shared read-only terminal.
+Red minus rows are expected lines missing from the run; green plus rows are
+actual additions, with unchanged context between them. Saved output can supply
+the actual bytes when a transcript is unavailable. Escape control characters in
+diff rows so output cannot move the cursor and erase the comparison markers;
+the original expected and replay terminals still interpret their original bytes.
+
+
 The strip below an exec cell in the Document view: what the cell IS and
 what it did — container, status, and, only when it adds information, the
 output. Nothing in here is clickable: every verb this cell has (run,
@@ -145,7 +153,7 @@ export function CellPanel({
 
   const verified = !running && !block?.runError && block?.status === "ok" && !!block?.expect;
   const failedExpect =
-    !running && !block?.runError && block?.status === "failed" && !!block?.expect && transcript.length > 0;
+    !running && !block?.runError && block?.status === "failed" && !!block?.expect && (transcript.length > 0 || savedOnly);
   const diff = useMemo(
     () => (failedExpect && block?.expect ? diffLines(block.expect.body, stdout) : null),
     [failedExpect, block?.expect, stdout],
@@ -201,15 +209,14 @@ export function CellPanel({
       {diff && (
         <div className="cell-diff" data-testid="cell-diff">
           <div className="cell-diff-title">output vs expected</div>
-          <pre>
-            {diff.map((l, i) => (
-              <span key={i} className={`d-${l.kind}`}>
-                {l.kind === "del" ? "- " : l.kind === "ins" ? "+ " : "  "}
-                {l.text}
-                {"\n"}
-              </span>
-            ))}
-          </pre>
+          <InlineTerminal label="Expected vs actual output diff terminal" text={
+            "\x1b[1m--- Expected\n+++ Actual\x1b[0m\n" + diff.map(l => {
+              const color = l.kind === "del" ? "\x1b[31m" : l.kind === "ins" ? "\x1b[32m" : "";
+              const marker = l.kind === "del" ? "- " : l.kind === "ins" ? "+ " : "  ";
+              const literal = l.text.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, c => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`);
+              return `${color}${marker}${literal}\x1b[0m\n`;
+            }).join("")
+          } />
         </div>
       )}
       {showExpected && (expectedOutput ?? block.expect?.body) !== undefined && <InlineTerminal text={expectedOutput ?? block.expect!.body} label="Expected output terminal" />}
@@ -355,7 +362,7 @@ describe("CellPanel de-duplication", () => {
     expect(container.querySelector(".transcript")).toBeTruthy();
   });
 
-  it("failed cell with expect: compact line diff of actual vs expected", () => {
+  it("failed cell with expect: colored terminal diff of actual vs expected", async () => {
     const { container } = render(
       <CellPanel
         block={cell({
@@ -369,9 +376,12 @@ describe("CellPanel de-duplication", () => {
         })}
       />,
     );
-    const diff = screen.getByTestId("cell-diff");
+    await new Promise(resolve => setTimeout(resolve, 60));
+    const diff = screen.getByLabelText("Expected vs actual output diff terminal");
     expect(diff.textContent).toContain("- banana,5");
     expect(diff.textContent).toContain("+ cherry,7");
+    expect(diff.querySelector(".xterm-fg-1")?.textContent).toContain("- banana,5");
+    expect(diff.querySelector(".xterm-fg-2")?.textContent).toContain("+ cherry,7");
     // Transcript stays collapsed behind Replay (the diff is the second copy).
     expect(container.querySelector(".transcript")).toBeNull();
     // The Replay verb lives on the rail; `hasReplay` is what puts it there,
@@ -379,6 +389,15 @@ describe("CellPanel de-duplication", () => {
     expect(
       hasReplay({ status: "failed", hasExpect: true, transcriptLength: 3, running: false }),
     ).toBe(true);
+  });
+
+  it("compares saved output and keeps cursor controls literal in diff rows", async () => {
+    render(<CellPanel block={cell({ status: "failed", transcript: [], expect: { match: "exact", body: "wanted\n" } })} recordedOutput={"actual\r\x1b[2K\n"} />);
+    await new Promise(resolve => setTimeout(resolve, 60));
+    const diff = screen.getByLabelText("Expected vs actual output diff terminal");
+    expect(diff.textContent).toContain("- wanted");
+    expect(diff.textContent).toContain("+ actual\\x0d\\x1b[2K");
+    expect(diff.querySelector(".xterm-fg-2")?.textContent).toContain("+ actual");
   });
 
   it("cell without expect keeps its transcript visible — that IS the output", () => {

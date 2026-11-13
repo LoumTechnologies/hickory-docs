@@ -91,7 +91,7 @@ export function CellPanel({
 
   const verified = !running && !block?.runError && block?.status === "ok" && !!block?.expect;
   const failedExpect =
-    !running && !block?.runError && block?.status === "failed" && !!block?.expect && transcript.length > 0;
+    !running && !block?.runError && block?.status === "failed" && !!block?.expect && (transcript.length > 0 || savedOnly);
   const diff = useMemo(
     () => (failedExpect && block?.expect ? diffLines(block.expect.body, stdout) : null),
     [failedExpect, block?.expect, stdout],
@@ -147,15 +147,14 @@ export function CellPanel({
       {diff && (
         <div className="cell-diff" data-testid="cell-diff">
           <div className="cell-diff-title">output vs expected</div>
-          <pre>
-            {diff.map((l, i) => (
-              <span key={i} className={`d-${l.kind}`}>
-                {l.kind === "del" ? "- " : l.kind === "ins" ? "+ " : "  "}
-                {l.text}
-                {"\n"}
-              </span>
-            ))}
-          </pre>
+          <InlineTerminal label="Expected vs actual output diff terminal" text={
+            "\x1b[1m--- Expected\n+++ Actual\x1b[0m\n" + diff.map(l => {
+              const color = l.kind === "del" ? "\x1b[31m" : l.kind === "ins" ? "\x1b[32m" : "";
+              const marker = l.kind === "del" ? "- " : l.kind === "ins" ? "+ " : "  ";
+              const literal = l.text.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, c => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`);
+              return `${color}${marker}${literal}\x1b[0m\n`;
+            }).join("")
+          } />
         </div>
       )}
       {showExpected && (expectedOutput ?? block.expect?.body) !== undefined && <InlineTerminal text={expectedOutput ?? block.expect!.body} label="Expected output terminal" />}

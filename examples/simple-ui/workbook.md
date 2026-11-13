@@ -72,6 +72,22 @@ Save the document before debugging so the adapter runs the displayed project.
 +    print(f"Coupon receipt: {total} cents")
 ```
 
+## A rendered diff
+
+This display-only diff shows the coupon receipt change. Red minus rows show the
+old text; green plus rows show the replacement. Unlike the patch above, this
+block does not change generated files.
+
+```diff
+--- a/generated/coupon.py
++++ b/generated/coupon.py
+@@ -6,3 +6,3 @@
+ if __name__ == "__main__":
+     total = coupon_total(2350, 20)
+-    print(f"Coupon total: {total} cents")
++    print(f"Coupon receipt: {total} cents")
+```
+
 ## A real recorded execution
 
 Open [the recorded execution example](README.md#recorded-execution) to inspect

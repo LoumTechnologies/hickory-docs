@@ -49,7 +49,7 @@ describe("CellPanel de-duplication", () => {
     expect(container.querySelector(".transcript")).toBeTruthy();
   });
 
-  it("failed cell with expect: compact line diff of actual vs expected", () => {
+  it("failed cell with expect: colored terminal diff of actual vs expected", async () => {
     const { container } = render(
       <CellPanel
         block={cell({
@@ -63,9 +63,12 @@ describe("CellPanel de-duplication", () => {
         })}
       />,
     );
-    const diff = screen.getByTestId("cell-diff");
+    await new Promise(resolve => setTimeout(resolve, 60));
+    const diff = screen.getByLabelText("Expected vs actual output diff terminal");
     expect(diff.textContent).toContain("- banana,5");
     expect(diff.textContent).toContain("+ cherry,7");
+    expect(diff.querySelector(".xterm-fg-1")?.textContent).toContain("- banana,5");
+    expect(diff.querySelector(".xterm-fg-2")?.textContent).toContain("+ cherry,7");
     // Transcript stays collapsed behind Replay (the diff is the second copy).
     expect(container.querySelector(".transcript")).toBeNull();
     // The Replay verb lives on the rail; `hasReplay` is what puts it there,
@@ -73,6 +76,15 @@ describe("CellPanel de-duplication", () => {
     expect(
       hasReplay({ status: "failed", hasExpect: true, transcriptLength: 3, running: false }),
     ).toBe(true);
+  });
+
+  it("compares saved output and keeps cursor controls literal in diff rows", async () => {
+    render(<CellPanel block={cell({ status: "failed", transcript: [], expect: { match: "exact", body: "wanted\n" } })} recordedOutput={"actual\r\x1b[2K\n"} />);
+    await new Promise(resolve => setTimeout(resolve, 60));
+    const diff = screen.getByLabelText("Expected vs actual output diff terminal");
+    expect(diff.textContent).toContain("- wanted");
+    expect(diff.textContent).toContain("+ actual\\x0d\\x1b[2K");
+    expect(diff.querySelector(".xterm-fg-2")?.textContent).toContain("+ actual");
   });
 
   it("cell without expect keeps its transcript visible — that IS the output", () => {
