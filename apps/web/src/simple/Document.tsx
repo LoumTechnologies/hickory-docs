@@ -171,12 +171,12 @@ export function Document({ buffer }: { buffer: Buffer }) {
   }, []);
   const language = languageFromPath(buffer.file.path);
   const literate = /\.(md|markdown)$/i.test(buffer.file.path);
-  const debuggable = literate || isDebuggable(language);
+  const debuggable = !buffer.transient && (literate || isDebuggable(language));
   const debug = useFollowingDebugSession(buffer.file.path) ?? IDLE_SESSION;
   const debugRef = useRef(debug); debugRef.current = debug;
   const changed = buffer.dirty || observationSourceChanged(debug.reading, buffer.text);
   const [debugNotice, setDebugNotice] = useState("");
-  const session = useWorkspaceLsp(buffer.file.path, buffer.text);
+  const session = useWorkspaceLsp(buffer.transient ? "" : buffer.file.path, buffer.text);
   const [capabilities, refreshCapabilities] = useState(0);
   useEffect(() => session.client?.onServerCapabilities(() => refreshCapabilities(value => value + 1)), [session.client]);
   useLayoutEffect(() => {
@@ -202,7 +202,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
       ] }) });
       cached = { view, language, prose }; editors.set(buffer, cached); window.dispatchEvent(new Event(SIMPLE_EDITOR_ATTACHED));
     }
-    cached.toggleBreakpoint = line => debugRef.current.toggleBreakpoint(line);
+    cached.toggleBreakpoint = line => { if (!buffer.transient) debugRef.current.toggleBreakpoint(line); };
     host.current?.append(cached.view.dom);
     window.dispatchEvent(new Event(SIMPLE_EDITOR_ATTACHED));
     setView(cached.view);
@@ -282,7 +282,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
     {csv && <button type="button" className="simple-source-toggle" onClick={() => setCsvSource(value => !value)}>{csvSource ? "Edit table as grid" : "Edit source text"}</button>}
     {csv && csvReady && !csvSource && view && <Suspense fallback={<span>Loading table…</span>}><CsvGrid source={buffer.text} chooseFormulaLanguage header delimiter="," sourceCurrent={() => !buffer.readonly && view.state.doc.toString() === tableSource && buffer.text === tableSource}
       onChange={buffer.readonly ? undefined : text => { if (!buffer.readonly && buffer.text === tableSource && view.state.doc.toString() === tableSource) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text }, userEvent: "input.table" }); }} /></Suspense>}
-    <div className="editor-row" style={{ ...(csv && csvReady && !csvSource && view ? { display: "none" } : {}), "--simple-rail-width": `${railWidth}px` } as React.CSSProperties}><div ref={host} className="editor-host editor-cm-host" /><Minimap buffer={buffer} />
+    <div className="editor-row" style={{ ...(csv && csvReady && !csvSource && view ? { display: "none" } : {}), "--simple-rail-width": `${railWidth}px` } as React.CSSProperties}><div ref={host} className="editor-host editor-cm-host" />{!buffer.transient && <Minimap buffer={buffer} />}
       <div className="simple-rail-resize" role="separator" aria-label="Resize right gutter" tabIndex={0}
         onKeyDown={event => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setRailWidth(width => Math.max(24, Math.min(220, width + (event.key === "ArrowLeft" ? 22 : -22)))); } }}
         onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); }}

@@ -150955,6 +150955,69 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt.md",
       "symbol": "simple-android-motion",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "claude-subscription-profile",
+      "output": "crates/hickory-cli/src/serve/subscription.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/subscription.rs.md",
+      "symbol": "Admit a subscription CLI without granting an agent loop",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "claude-subscription-admission",
+      "output": "crates/hickory-cli/src/serve/subscription.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/subscription.rs.md",
+      "symbol": "Refuse API authentication and incomplete responses",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "claude-subscription-inference",
+      "output": "crates/hickory-cli/src/serve/subscription.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/subscription.rs.md",
+      "symbol": "Return model text to Hickory's Python loop",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "claude-subscription-refusal-tests",
+      "output": "crates/hickory-cli/src/serve/subscription.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/subscription.rs.md",
+      "symbol": "Check the billing and completion refusal boundary",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "simple-agent-document-session",
+      "output": "apps/web/src/simple/Agent.tsx",
+      "page": ".hickory-source/frontends/apps/web/src/simple/Agent.tsx.md",
+      "symbol": "Retain documents across pane moves and sends",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "simple-agent-history-refresh",
+      "output": "apps/web/src/simple/Agent.tsx",
+      "page": ".hickory-source/frontends/apps/web/src/simple/Agent.tsx.md",
+      "symbol": "Refresh history independently of the composer",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "simple-apple-agent-pane",
+      "output": "apps/apple-simple/Sources/AgentPane.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/AgentPane.swift.md",
+      "symbol": "Compose native literate messages without file writes",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "simple-android-agent-pane",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentPane.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentPane.kt.md",
+      "symbol": "Reuse the document renderer inside message cards",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "simple-android-agent-message-controls",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentPane.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentPane.kt.md",
+      "symbol": "Bound long messages without changing their source",
+      "basis": "authored-explanation"
     }
   ],
   "explanation_gaps": {

@@ -251,3 +251,24 @@ async fn cancellation_kills_native_process() {
     .await
     .expect("cancelled Grok process remained alive");
 }
+
+#[tokio::test]
+async fn bounded_subscription_stdin_roundtrips_without_a_shell() {
+    // Contract: .hickory-source/frontends/contract.md — inference-only transport.
+    let input = "# Task\n\nprint('café 😀')".as_bytes().to_vec();
+    let actual = process::capture_input(
+        fixture("import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())"),
+        Some(input.clone()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(actual, input);
+    assert!(
+        process::capture_input(
+            fixture("import sys; sys.stdin.buffer.read(); print('x'*1100000)"),
+            Some(input)
+        )
+        .await
+        .is_err()
+    );
+}

@@ -393,9 +393,11 @@ export const api = {
     backend?: string,
     context?: AgentEditorContext,
     experiment?: { features: string[]; timeout_seconds?: number },
+    effort?: string,
   ) =>
     request<{ session_id: string }>("POST", `/api/docs/${docId}/agent`, {
       backend,
+      effort,
       context,
       ...(experiment ? { experiment } : {}),
       prompt,

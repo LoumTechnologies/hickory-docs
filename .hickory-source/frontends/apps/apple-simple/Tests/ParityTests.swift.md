@@ -35,6 +35,21 @@ import WebKit
 @testable import HickorySimple
 
 final class ParityTests: XCTestCase {
+    @MainActor func testAgentMessagesUseLiterateBuffersWithoutFileOwnership() {
+        // Contract: .hickory-source/frontends/contract.md
+        let session = AgentSession()
+        session.prompt = "# Draft\n\n**Hello**"
+        let draft = session.draft
+        session.provider = "claude-subscription"; session.model = "sonnet"; session.effort = "high"
+        XCTAssertTrue(session.draft === draft)
+        XCTAssertEqual(session.prompt, "# Draft\n\n**Hello**")
+        XCTAssertFalse(draft.readOnly); XCTAssertNil(draft.file.doc_id)
+        let message = session.document("old-user", "# Previous question")
+        XCTAssertTrue(message.readOnly); XCTAssertNil(message.file.doc_id)
+        XCTAssertTrue(session.document("old-user", "# Previous question") === message)
+        XCTAssertEqual(message.text, "# Previous question")
+    }
+
     @MainActor func testEmptyCSVAndFormattedMarkdownRetainExactEditRanges() throws {
         // Contract: .hickory-source/frontends/contract.md
         let empty = try XCTUnwrap(inlineTables(computeInlineMarkup("", path: "empty.csv")).first)

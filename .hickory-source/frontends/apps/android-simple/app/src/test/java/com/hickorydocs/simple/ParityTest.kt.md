@@ -18,6 +18,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @Test fun agentMessagesUseLiterateBuffersWithoutFileOwnership() {
+        // Contract: .hickory-source/frontends/contract.md
+        val session = AgentSession()
+        session.prompt = "# Draft\n\n**Hello**"
+        val draft = session.draft
+        session.provider = "claude-subscription"; session.model = "sonnet"; session.effort = "high"
+        assertTrue(session.draft === draft)
+        assertEquals("# Draft\n\n**Hello**", session.prompt)
+        assertTrue(!draft.readOnly); assertEquals(null, draft.file.docID)
+        val message = session.document("old-user", "# Previous question")
+        assertTrue(message.readOnly); assertEquals(null, message.file.docID)
+        assertTrue(session.document("old-user", "# Previous question") === message)
+        assertEquals("# Previous question", message.text)
+    }
+
     @Test fun emptyCSVAndFormattedMarkdownRetainExactEditRanges() {
         // Contract: .hickory-source/frontends/contract.md
         val empty = inlineTables(computeInlineMarkup("", "empty.csv")).single()

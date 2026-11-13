@@ -53,13 +53,15 @@ pub fn select_client(
             "Subscription Codex is unavailable for private prediction inference; no fallback was attempted.",
         ));
     }
-    let client = Client::new(state, selection.model.as_deref())
+    let mut client = Client::new(state, selection.model.as_deref())
         .map_err(|e| ApiError::unavailable(format!("{e:#}")))?;
+    client.effort = selection.effort.clone();
     let model = client.model_name().to_string();
     Ok((Arc::new(client), SELECTOR.into(), model))
 }
 
 pub struct Client {
+    effort: Option<String>,
     binary: std::path::PathBuf,
     model: String,
 }
@@ -70,6 +72,7 @@ impl Client {
             "Subscription Codex is unavailable during private prediction; no fallback was attempted."
         );
         Ok(Self {
+            effort: None,
             binary: binary(state)?,
             model: model.unwrap_or(DEFAULT_MODEL).into(),
         })
@@ -91,7 +94,7 @@ fn inference_command(
 ) -> Result<tokio::process::Command> {
     ensure!(
         cfg!(target_os = "macos") && Path::new("/usr/bin/sandbox-exec").is_file(),
-        "Subscription Codex inference currently requires macOS sandbox-exec. Choose an API provider explicitly on this platform; Hickory will not switch billing automatically."
+        "Subscription Codex inference requires a macOS workspace server with sandbox-exec. Connect to that server and retry; Hickory will not switch to API billing."
     );
     let home = std::env::var_os("HOME")
         .context("HOME is missing; restart Hickory from your user account.")?;
@@ -342,7 +345,11 @@ impl LlmClient for Client {
             "Codex input exceeds the transport limit"
         );
         let scratch = tempfile::tempdir()?;
-        let cmd = inference_command(&self.binary, scratch.path(), &self.model)?;
+        let mut cmd = inference_command(&self.binary, scratch.path(), &self.model)?;
+        if let Some(effort) = &self.effort {
+            // Append an explicit config override; the enum is quoted as TOML.
+            cmd.args(["-c", &format!("model_reasoning_effort={effort:?}")]);
+        }
         let binary = self.binary.clone();
         Ok(Box::pin(futures::stream::once(async move {
             let _scratch = scratch;
@@ -493,10 +500,15 @@ async fn usage(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
     result.map_err(|_| ApiError::unavailable("Codex usage is unavailable. Check native Codex sign-in and update Codex CLI, then retry."))
 }
 pub fn routes() -> axum::Router<LocalState> {
-    axum::Router::new().route(
-        "/agents/codex-subscription",
-        axum::routing::get(status).post(login),
-    ).route("/agents/codex-subscription/usage", axum::routing::get(usage))
+    axum::Router::new()
+        .route(
+            "/agents/codex-subscription",
+            axum::routing::get(status).post(login),
+        )
+        .route(
+            "/agents/codex-subscription/usage",
+            axum::routing::get(usage),
+        )
 }
 #[cfg(test)]
 mod tests {
@@ -537,6 +549,7 @@ mod tests {
             ),
         ] {
             let choice = super::super::agent::DocSelection {
+                effort: None,
                 provider: Some(selector.into()),
                 model: None,
             };

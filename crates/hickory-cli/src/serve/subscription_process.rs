@@ -13,9 +13,21 @@ pub fn command(
     files: &[PathBuf],
     denied: &[PathBuf],
 ) -> Result<tokio::process::Command> {
+    command_with_helpers(binary, scratch, roots, files, denied, &[])
+}
+
+/// Trusted credential utilities are fixed by the adapter, never by model input.
+pub fn command_with_helpers(
+    binary: &Path,
+    scratch: &Path,
+    roots: &[PathBuf],
+    files: &[PathBuf],
+    denied: &[PathBuf],
+    helpers: &[PathBuf],
+) -> Result<tokio::process::Command> {
     ensure!(
         cfg!(target_os = "macos") && Path::new("/usr/bin/sandbox-exec").is_file(),
-        "Subscription inference currently requires macOS sandbox-exec. Choose another provider explicitly; no API fallback was attempted."
+        "Subscription inference requires a macOS workspace server with sandbox-exec. Connect to that server and retry; no API fallback was attempted."
     );
     let binary = binary.canonicalize()?;
     let scratch = scratch.canonicalize()?;
@@ -62,11 +74,16 @@ pub fn command(
     for file in files {
         writes.push_str(&format!("(require-not (literal {}))", quote(file)?));
     }
+    let mut executions = format!("(require-not (literal {}))", quote(&binary)?);
+    for helper in helpers {
+        executions.push_str(&format!(
+            "(require-not (literal {}))",
+            quote(&helper.canonicalize()?)?
+        ));
+    }
     let mut profile = format!(
-        "(version 1)(allow default)(deny process-exec (require-not (literal {})))(deny file-read-data (require-all {}))(deny file-write* (require-all {}))",
-        quote(&binary)?,
-        reads,
-        writes
+        "(version 1)(allow default)(deny process-exec (require-all {}))(deny file-read-data (require-all {}))(deny file-write* (require-all {}))",
+        executions, reads, writes
     );
     for path in denied {
         profile.push_str(&format!("(deny file-read* (subpath {}))", quote(path)?));
@@ -93,16 +110,27 @@ impl Drop for Running {
         let _ = self.child.start_kill();
     }
 }
-pub async fn capture(mut command: tokio::process::Command) -> Result<Vec<u8>> {
+pub async fn capture(command: tokio::process::Command) -> Result<Vec<u8>> {
+    capture_input(command, None).await
+}
+pub async fn capture_input(
+    mut command: tokio::process::Command,
+    input: Option<Vec<u8>>,
+) -> Result<Vec<u8>> {
     #[cfg(unix)]
     command.process_group(0);
     let mut child = command
-        .stdin(Stdio::null())
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true)
         .spawn()
         .context("The native CLI could not start. Install/update it and retry.")?;
+    let stdin = child.stdin.take();
     let stdout = child
         .stdout
         .take()
@@ -112,10 +140,21 @@ pub async fn capture(mut command: tokio::process::Command) -> Result<Vec<u8>> {
         child,
     };
     let mut bytes = Vec::new();
-    stdout
-        .take((LIMIT + 1) as u64)
-        .read_to_end(&mut bytes)
-        .await?;
+    let write = async move {
+        use tokio::io::AsyncWriteExt;
+        if let (Some(mut stdin), Some(input)) = (stdin, input) {
+            stdin.write_all(&input).await?;
+            stdin.shutdown().await?;
+        }
+        Ok::<_, std::io::Error>(())
+    };
+    let read = async {
+        stdout
+            .take((LIMIT + 1) as u64)
+            .read_to_end(&mut bytes)
+            .await
+    };
+    tokio::try_join!(write, read)?;
     ensure!(
         bytes.len() <= LIMIT,
         "Native CLI output exceeded its safety limit. No model action was admitted."

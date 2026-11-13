@@ -784,7 +784,7 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
 
 <ui:copy id="simple-android-table-editor">
 @OptIn(ExperimentalFoundationApi::class)
-@Composable private fun LanguageEditor(buffer: DocumentBuffer, debug: NativeDebugger?, modifier: Modifier = Modifier) {
+@Composable internal fun LanguageEditor(buffer: DocumentBuffer, debug: NativeDebugger?, modifier: Modifier = Modifier) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val editorPreferences = remember(context) { context.getSharedPreferences("editor", android.content.Context.MODE_PRIVATE) }
     val enterRules = remember(context) { runCatching { SimpleEnterRules(context.assets.open("enter-rules.json").bufferedReader().use { it.readText() }) }.getOrNull() }

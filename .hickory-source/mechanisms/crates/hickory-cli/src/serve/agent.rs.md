@@ -112,6 +112,7 @@ The per-document model choice the dock last posted. `None` fields mean
 pub struct DocSelection {
     pub provider: Option<String>,
     pub model: Option<String>,
+    pub effort: Option<String>,
 }
 </storycode:copy>
 <a id="f-2ce16640df92-AgentHub"></a>
@@ -426,6 +427,8 @@ for the requested implementation.
 #[derive(Deserialize)]
 pub struct AgentRequest {
     #[serde(default)]
+    pub effort: Option<String>,
+    #[serde(default)]
     pub experiment: Option<super::acp::experiments::Options>,
     #[serde(default)]
     pub backend: Option<String>,
@@ -472,6 +475,27 @@ pub async fn start_turn(
     Path(id): Path<String>,
     Json(body): Json<AgentRequest>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
+    if let Some(effort) = body.effort.as_deref() {
+        if !["low", "medium", "high", "xhigh", "max"].contains(&effort) {
+            return Err(ApiError::bad_request(
+                "Unknown effort. Choose a listed effort level and retry.",
+            ));
+        }
+        if !body
+            .provider
+            .as_deref()
+            .is_some_and(super::subscription::is_subscription)
+        {
+            return Err(ApiError::bad_request(
+                "Effort selection requires an explicit subscription provider.",
+            ));
+        }
+        if body.provider.as_deref() == Some("grok-subscription") {
+            return Err(ApiError::bad_request(
+                "Grok subscription effort is managed by Grok. Choose Default and retry.",
+            ));
+        }
+    }
     let backend = body.backend.clone().unwrap_or_else(|| {
         state
             .agent
@@ -557,16 +581,18 @@ pub async fn start_turn(
         return Err(ApiError::bad_request(format!(
             "unknown provider {p:?} — choose one of: {}",
             format!(
-                "{}, codex-subscription, grok-subscription",
+                "{}, codex-subscription, claude-subscription, grok-subscription",
                 ProviderSelection::ALL.join(", ")
             )
         )));
     }
     let session_root = super::agent_context::session_root(&state, &id)?;
     state.agent.hydrate(&session_root, &id, &doc_path);
-    let selection = state
-        .agent
-        .update_selection(&id, body.provider.clone(), body.model.clone());
+    let mut selection =
+        state
+            .agent
+            .update_selection(&id, body.provider.clone(), body.model.clone());
+    selection.effort = body.effort.clone();
 
     // Provider next, before anything is recorded: a machine with no key
     // gets a configuration note, never a half-started turn. The leading

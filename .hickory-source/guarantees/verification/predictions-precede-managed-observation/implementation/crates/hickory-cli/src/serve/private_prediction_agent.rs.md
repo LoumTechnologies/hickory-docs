@@ -240,6 +240,7 @@ pub(super) async fn start(
             super::agent::selected_client_with_limit(
                 &state,
                 &super::agent::DocSelection {
+                    effort: None,
                     provider: body.provider,
                     model: body.model,
                 },

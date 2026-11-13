@@ -312,6 +312,19 @@ def acceptance(driver, folder):
     terminal_acceptance(driver)
     driver.act("screenshot", path=str(ROOT / "target/simple-browser.png"))
 
+def agent_acceptance(driver, folder):
+    # Real retained session + real HTTP refusal: no live provider is invoked.
+    text = "# Explain this\n\n```python\nprint('café 😀')\n```"
+    state = driver.act("agent-documents", text=text)
+    assert state["readonly"] and state["stable"], state
+    assert state["retained"] == text, state
+    assert state["payload"] == {"backend": "python", "prompt": text,
+        "parent_id": "agent-history", "provider": "claude-subscription",
+        "model": "unavailable-model", "effort": "high"}, state
+    assert "# Previous question" in state["history"], state
+    driver.act("screenshot", path=str(ROOT / "target/simple-agent.png"))
+
+
 def terminal_acceptance(driver):
     # Contract: .hickory-source/frontends/contract.md. Real PTY and real keys.
     driver.act("terminal")
@@ -439,6 +452,14 @@ if __name__ == "__main__":
         (folder / "caret.csv").write_text("Label,Count\nabcdefghijk,1\nx,2\nabcdefghijklm,3\n")
         (folder / "cache.py").write_text("counter = 1\nprint(counter)\n")
         (folder / "debug.py").write_text("value = 1\nvalue += 1\nprint(value)\n")
+        if "--agent-only" in sys.argv:
+            (folder / "sessions").mkdir()
+            (folder / "sessions/agent.md").write_text("""<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-11-13T10:00:00Z" doc=".hick-workspace-agent">
+<hick:user id="u1" turn="agent-history" provider="codex-subscription" model="test"># Previous question</hick:user>
+<hick:assistant># Previous answer</hick:assistant>
+<hick:context kind="acp-turn-status">{"turn":"agent-history","status":"ok"}</hick:context>
+</hick:session>
+""")
         environment = {**os.environ, "HICKORY_STATE_DIR": str(Path(temporary) / "state")}
         try:
             with socket.socket() as reservation:
@@ -448,7 +469,10 @@ if __name__ == "__main__":
             backend = origin(engine)
             vite = start(["node", "node_modules/vite/bin/vite.js", "--config", "vite.simple.config.ts", "--host", "127.0.0.1", "--port", str(ui_port), "--strictPort"], cwd=ROOT / "apps/web", env={**environment, "HICKORY_API_ORIGIN": backend}); processes.append(vite)
             driver = BrowserDriver(origin(vite) + "/simple.html")
-            if "--terminal-only" in sys.argv:
+            if "--agent-only" in sys.argv:
+                agent_acceptance(driver, folder)
+                print("Browser: literate history, read-only messages, retained draft, subscription controls and Python-only HTTP request passed")
+            elif "--terminal-only" in sys.argv:
                 terminal_acceptance(driver)
                 print("Browser: direct PTY input, cursor editing, raw/alternate screen, resize, pane reattachment, interrupt, EOF and native renderer protocol passed")
             elif "--table-dataflow-only" in sys.argv:

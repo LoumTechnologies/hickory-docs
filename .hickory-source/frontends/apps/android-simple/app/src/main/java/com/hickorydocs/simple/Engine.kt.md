@@ -92,8 +92,8 @@ Both file save forms carry the original baseline. Agent methods use the same wor
     suspend fun turns(): List<AgentTurn> = request("GET", "/api/docs/workspace/agent/turns").getJSONArray("turns").objects().map {
         AgentTurn(it.getString("id"), it.getString("prompt"), it.optional("answer"), it.optional("error"), it.getString("status"))
     }
-    suspend fun send(prompt: String, parent: String?): String = request("POST", "/api/docs/workspace/agent",
-        JSONObject().put("prompt", prompt).put("parent_id", parent ?: JSONObject.NULL).put("backend", "python")).getString("session_id")
+    suspend fun send(prompt: String, parent: String?, provider: String, model: String, effort: String): String = request("POST", "/api/docs/workspace/agent",
+        JSONObject().put("prompt", prompt).put("parent_id", parent ?: JSONObject.NULL).put("backend", "python").put("provider", provider).put("model", model).put("effort", effort.ifEmpty { null })).getString("session_id")
     suspend fun stop() { request("POST", "/api/docs/workspace/agent/stop", JSONObject()) }
     suspend fun openTerminal(): String = request("POST", "/api/terminals", JSONObject().put("title", "Terminal")).getString("id")
     suspend fun terminalInput(id: String, data: String) { request("POST", "/api/terminals/$id/input", JSONObject().put("data", data)) }

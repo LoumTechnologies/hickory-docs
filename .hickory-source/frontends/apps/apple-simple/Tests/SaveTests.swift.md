@@ -39,6 +39,18 @@ final class ResponseProtocol: URLProtocol {
     override func stopLoading() {}
 }
 final class SaveTests: XCTestCase {
+    @MainActor func testAgentRequestUsesSubscriptionAndPythonBackend() async throws {
+        let (engine, _) = try fixture()
+        ResponseProtocol.status = 200; ResponseProtocol.responsesByPath = [:]
+        ResponseProtocol.response = Data("{\"session_id\":\"turn\"}".utf8)
+        _ = try await engine.send("# Task", parent: nil, provider: "claude-subscription", model: "sonnet", effort: "high")
+        XCTAssertEqual(ResponseProtocol.captured["backend"] as? String, "python")
+        XCTAssertEqual(ResponseProtocol.captured["provider"] as? String, "claude-subscription")
+        XCTAssertEqual(ResponseProtocol.captured["model"] as? String, "sonnet")
+        XCTAssertEqual(ResponseProtocol.captured["effort"] as? String, "high")
+        XCTAssertEqual(ResponseProtocol.captured["prompt"] as? String, "# Task")
+    }
+
     @MainActor private func fixture(doc: String? = nil, generated: String? = nil) throws -> (Engine, DocumentBuffer) {
         let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [ResponseProtocol.self]
         let engine = try Engine(address: "http://fixture.invalid", session: URLSession(configuration: configuration))

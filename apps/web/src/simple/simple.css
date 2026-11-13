@@ -182,3 +182,30 @@ button:active:not(:disabled), summary:active {
     --simple-motion-reveal: 0ms;
   }
 }
+
+.agent-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px; border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent); }
+.agent-heading span, .message-label, .agent-composer small { color: GrayText; font-size: 12px; }
+.agent-body .conversation { padding: 18px max(12px, calc((100% - 820px) / 2)); scroll-behavior: smooth; }
+.agent-empty { padding: 40px 12px; text-align: center; color: GrayText; }
+.agent-empty h2 { color: CanvasText; font-size: 22px; }
+.agent-message { margin-bottom: 24px; }
+.agent-message.user-message { margin-left: 32px; padding: 10px 14px; border-radius: 14px; background: color-mix(in srgb, CanvasText 4%, Canvas); }
+.agent-body .cm-debug-rail { display: none; }
+.agent-message .cm-gutters { background: transparent; border: 0; }
+.agent-message .cm-lineNumbers { opacity: 0; }
+.agent-message:hover .cm-lineNumbers, .agent-message:focus-within .cm-lineNumbers { opacity: .55; }
+.agent-message .document-body { height: auto; min-height: 60px; max-height: 480px; }
+.agent-message .cm-editor { height: auto !important; max-height: 480px; }
+.agent-message .cm-scroller { max-height: 480px; }
+.agent-message .editor-row, .agent-composer .editor-row { min-height: 0; }
+.agent-message .simple-rail-resize, .agent-message .simple-debug-rail, .agent-composer .simple-rail-resize, .agent-composer .simple-debug-rail { display: none; }
+.agent-body .agent-composer { display: flex; flex-direction: column; gap: 8px; margin: 0 auto; width: min(820px, 100%); box-sizing: border-box; padding: 12px; border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: 16px 16px 0 0; background: color-mix(in srgb, CanvasText 3%, Canvas); }
+.agent-composer > .document-body { height: clamp(100px, 20vh, 250px); flex: none; }
+.agent-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.agent-controls label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; min-width: 0; }
+.agent-controls input { width: 140px; }
+.agent-controls select, .agent-controls input { max-width: 100%; box-sizing: border-box; border-radius: 7px; padding: 5px; background: Canvas; color: CanvasText; border: 1px solid GrayText; }
+.agent-send { display: flex; gap: 6px; margin-left: auto; }
+.agent-send button { padding: 7px 12px; border-radius: 9px; }
+.agent-send button:last-child { background: CanvasText; color: Canvas; }
+.agent-composer small { line-height: 1.4; }

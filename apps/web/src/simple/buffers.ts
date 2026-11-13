@@ -8,7 +8,7 @@ export class Buffer {
   error = "";
   version = 0;
   private listeners = new Set<() => void>();
-  constructor(readonly file: FileNode, content: string, hash: string, private shellChanged: () => void) {
+  constructor(readonly file: FileNode, content: string, hash: string, private shellChanged: () => void, readonly transient = false) {
     this.text = this.base = content; this.hash = hash;
   }
   get dirty() { return this.text !== this.base; }
@@ -22,7 +22,7 @@ export class Buffer {
     if (dirty !== this.dirty) this.shellChanged();
   }
   async save() {
-    if (this.readonly || this.saving || !this.dirty) return;
+    if (this.transient || this.readonly || this.saving || !this.dirty) return;
     const text = this.text, base = this.base, hash = this.hash;
     this.saving = true; this.error = ""; this.shellChanged(); this.publish();
     try {

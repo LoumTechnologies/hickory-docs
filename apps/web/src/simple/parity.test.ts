@@ -23,7 +23,7 @@ import { launchWithProfiles } from "../debug/launchProfiles";
 import { IDLE_SESSION } from "../debug/useDebugger";
 import { useFollowingDebugSession } from "../debug/plainDebugHosts";
 vi.mock("../debug/plainDebugHosts", () => ({ useFollowingDebugSession: vi.fn(() => null), PlainDebugHosts: () => null }));
-import { MarkdownMessage } from "./Agent";
+import { Agent, AgentSession, MarkdownMessage } from "./Agent";
 import { App } from "./App";
 import { useWorkspaceLsp } from "../lsp/useLsp";
 import { LspClient } from "../lsp/client";
@@ -35,7 +35,7 @@ import { activate, groups, initialLayout, move, remove, split, dock, dropEdge, i
 import { TerminalSession } from "./Terminal";
 import { Buffer, Buffers } from "./buffers";
 import { api } from "../api/client";
-vi.mock("../api/client", () => ({ api: { formulaLanguages: vi.fn().mockResolvedValue({ languages: ["python"] }), files: vi.fn(), doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), fileOp: vi.fn(), openFile: vi.fn(), createDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agent: vi.fn() } }));
+vi.mock("../api/client", () => ({ api: { formulaLanguages: vi.fn().mockResolvedValue({ languages: ["python"] }), files: vi.fn(), doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), fileOp: vi.fn(), openFile: vi.fn(), createDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agentTurns: vi.fn().mockResolvedValue({ turns: [] }), agentStop: vi.fn(), agent: vi.fn() } }));
 describe("shared frontend layout contract", () => {
   it("constructs patch fences and offers source-mapped patch debugging in Simple", async () => {
     // Contract: .hickory-source/frontends/contract.md
@@ -769,4 +769,62 @@ describe("terminal and agent tab identity", () => {
     expect(api.openTerminal).toHaveBeenCalledTimes(1); expect(session.id).toBe("pty");
   });
 
+});
+
+describe("simple literate subscription agent", () => {
+  // Contract: .hickory-source/frontends/contract.md — only Python executes code.
+  it("sends the exact draft with subscription, model and effort; retains edits made during send", async () => {
+    let resolve!: (value: { session_id: string }) => void;
+    vi.mocked(api.agent).mockReturnValueOnce(new Promise(done => { resolve = done; }));
+    const session = new AgentSession();
+    session.provider = "claude-subscription"; session.model = "sonnet"; session.effort = "high";
+    session.prompt = "# Task\n\n```python\nprint('café')\n```";
+    const submitted = session.prompt;
+    const sending = session.send();
+    await session.send(); // A second click cannot create another turn.
+    expect(api.agent).toHaveBeenLastCalledWith("workspace", submitted, undefined, "claude-subscription", "sonnet", "python", undefined, undefined, "high");
+    session.prompt = "# Next task";
+    resolve({ session_id: "turn-1" }); await sending;
+    expect(session.prompt).toBe("# Next task");
+    expect(session.turns.at(-1)?.prompt).toBe(submitted);
+    const history = session.document("turn-1-user", submitted);
+    history.edit("changed"); await history.save(); await session.draft.save();
+    expect(history.text).toBe(submitted); expect(history.readonly).toBe(true);
+    expect(session.draft.transient).toBe(true);
+  });
+  it("retains a failed draft without retry or API-provider fallback", async () => {
+    vi.mocked(api.agent).mockRejectedValueOnce(new Error("Sign in to the subscription"));
+    const session = new AgentSession(); session.prompt = "Keep my draft";
+    const before = vi.mocked(api.agent).mock.calls.length;
+    await session.send();
+    expect(session.prompt).toBe("Keep my draft"); expect(session.turns).toEqual([]);
+    expect(session.error).toContain("not retried"); expect(api.agent).toHaveBeenCalledTimes(before + 1);
+  });
+  it("uses literate editors for history and draft and keeps the editor while changing provider", async () => {
+    const session = new AgentSession(); session.prompt = "# Draft\n\n**Hello**";
+    session.turns = [{ id: "old", prompt: "# Question", answer: "# Answer", status: "ok", parent_id: null, error: null, created_at: "", provider: "codex-subscription", model: "test", usage: null }];
+    // Do not let asynchronous history replace the deliberately supplied turn.
+    vi.mocked(api.agentTurns).mockReturnValueOnce(new Promise(() => {}));
+    const screen = render(createElement(Agent, { session }));
+    try {
+      await waitFor(() => expect(screen.container.querySelectorAll(".cm-editor").length).toBe(3));
+      const content = screen.container.querySelector<HTMLElement>('[aria-label="conversation/draft.md"]')!;
+      const view = EditorView.findFromDOM(content)!;
+      act(() => view.dispatch({ selection: { anchor: 3 } }));
+      fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "grok-subscription" } });
+      expect(screen.getByLabelText("Effort").hasAttribute("disabled")).toBe(true);
+      expect(screen.container.querySelector('[aria-label="conversation/draft.md"]')).toBe(content);
+      expect(view.state.selection.main.head).toBe(3); expect(session.prompt).toContain("**Hello**");
+      const previous = screen.container.querySelector<HTMLElement>('[aria-label="conversation/old-user.md"]')!;
+      expect(EditorView.findFromDOM(previous)!.state.readOnly).toBe(true);
+      act(() => { session.setTurns(session.turns.map(turn => ({ ...turn, answer: "# Updated answer" }))); session.publish(); });
+      expect(screen.container.querySelector('[aria-label="conversation/old-user.md"]')).toBe(previous);
+      expect(screen.container.querySelector('[aria-label="conversation/old-agent.md"]')?.textContent).toContain("Updated answer");
+      expect(screen.container.querySelector('[aria-label="conversation/draft.md"]')).toBe(content);
+      act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: "!" } }));
+      expect(session.prompt.endsWith("!")).toBe(true);
+      act(() => { undo(view); }); expect(session.prompt.endsWith("!")).toBe(false);
+      expect(vi.mocked(useWorkspaceLsp).mock.calls.some(([path]) => path === "conversation/draft.md")).toBe(false);
+    } finally { screen.unmount(); }
+  });
 });

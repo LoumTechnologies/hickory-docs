@@ -1212,6 +1212,10 @@ struct NativeEditor: NSViewRepresentable {
         return MacEditorHost(editor.scroll) { [weak editor] in editor?.measureDebugLines() }
     }
     func updateNSView(_ view: NSView, context: Context) {
+        if let editor = EditorCache.views[buffer.id], editor.text.string != buffer.text {
+            editor.text.string = buffer.text
+            editor.text.undoManager?.removeAllActions()
+        }
         (view as? MacEditorHost)?.attach(); view.needsLayout = true
         Task { @MainActor in EditorCache.views[buffer.id]?.measureDebugLines() }
     }
@@ -1702,6 +1706,10 @@ struct NativeEditor: UIViewRepresentable {
         return MobileEditorHost(editor.text) { [weak editor] in editor?.measureDebugLines() }
     }
     func updateUIView(_ view: UIView, context: Context) {
+        if let editor = EditorCache.views[buffer.id], editor.text.text != buffer.text {
+            editor.text.text = buffer.text
+            editor.text.undoManager?.removeAllActions()
+        }
         (view as? MobileEditorHost)?.attach(); view.setNeedsLayout()
         Task { @MainActor in EditorCache.views[buffer.id]?.measureDebugLines() }
     }

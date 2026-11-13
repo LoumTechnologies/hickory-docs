@@ -367,6 +367,30 @@ try {
         }
         case "terminal-eof": await page.locator(".terminal-screen .xterm-helper-textarea").press("Control+d"); break;
         case "agent": await menu("View", "Agent"); break;
+        case "agent-documents": {
+          await menu("View", "Agent");
+          const draft = editor("conversation/draft.md");
+          await draft.fill(request.text);
+          const history = editor("conversation/agent-history-user.md");
+          await history.waitFor();
+          const before = await history.textContent();
+          await history.click(); await page.keyboard.type("cannot edit");
+          const readonly = await history.getAttribute("contenteditable") === "false" && await history.textContent() === before;
+          await draft.click(); await page.keyboard.press("End");
+          const caret = await draft.evaluate(node => window.getSelection()?.anchorOffset);
+          await page.getByLabel("Provider", { exact: true }).selectOption("claude-subscription");
+          await page.getByLabel("Model", { exact: true }).fill("unavailable-model");
+          await page.getByLabel("Effort", { exact: true }).selectOption("high");
+          const stable = await draft.evaluate(node => { window.agentDraft = node; return node.isConnected; });
+          const sent = page.waitForRequest(req => req.method() === "POST" && req.url().endsWith("/api/docs/workspace/agent"));
+          await page.getByRole("button", { name: "Send ↑", exact: true }).click();
+          const payload = (await sent).postDataJSON();
+          await page.getByRole("alert").filter({ hasText: "not retried" }).waitFor();
+          const retained = await draft.locator(".cm-line").allTextContents().then(lines => lines.join("\n"));
+          await menu("View", "Files"); await menu("View", "Agent");
+          value = { readonly, payload, retained, stable: stable && await draft.evaluate(node => node === window.agentDraft), history: before };
+          break;
+        }
         case "draft": await page.getByRole("textbox", { name: "Message", exact: true }).fill(request.text); break;
         case "read-draft": value = await page.getByRole("textbox", { name: "Message", exact: true }).inputValue(); break;
         case "screenshot": await page.screenshot({ path: request.path }); break;

@@ -915,6 +915,11 @@ mod observation_capability_tests {
     #[test]
     fn receiving_debugger_evidence_does_not_grant_python_debugger_capabilities() {
         for name in [
+            "exec",
+            "shell",
+            "run_command",
+            "terminal_input",
+            "python",
             "debug_start",
             "debug_state",
             "debug_eval",

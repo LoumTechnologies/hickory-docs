@@ -5,6 +5,20 @@ For maintainers extending the new frontends without silently changing the compar
 
 Given a reachable existing Hickory engine, each frontend exposes the same four pane kinds: files, text document, workspace agent and terminal. Plain and literate source open as text. Generated outputs open read-only in this slice. File and pane commands remain in menus or tab strips; editor content has no permanent feature toolbar.
 
+The workspace agent presents previous prompts and replies as read-only literate
+Markdown documents, and the unsent message as an editable literate document with
+Send beneath it. Keep the draft editor alive through provider changes and pane
+moves. Explicit ChatGPT, Claude Code and Grok subscription choices and model IDs
+are sent to the Hickory Python agent; only its Monty interpreter admits generated
+code. Provider-native tools and API billing fallback are unavailable in this
+surface. Effort is explicit for ChatGPT and Claude; Grok currently manages its own
+effort, so its control remains at Default. A model may reject an unsupported effort.
+Subscriptions use the native CLI's existing sign-in on the workspace server.
+Current provider process confinement requires macOS; clients on other platforms
+can connect to that server. No unconfined fallback is permitted. Completed answers
+refresh through durable history polling; token-by-token subscription streaming is
+not claimed. Drafts are retained in the workspace session, not saved as files.
+
 Terminal panes accept typing, paste, cursor keys, Ctrl+C and Ctrl+D directly in the terminal emulator, without a separate command field. ANSI colors, cursor positioning and full-screen terminal modes are interpreted by xterm. The PTY receives measured cell dimensions when the pane resizes. Moving or hiding a pane detaches its renderer without closing the backend session; reattachment receives retained replay before live output. Transport failure is visible, and uncertain input is never automatically retried.
 
 Custom chrome uses short paint-only motion: 80 ms feedback, 100 ms tab
@@ -215,6 +229,20 @@ Tab reordering extension, 2026-11-07: all eleven shared layout scenarios passed 
 Language UI extension, 2026-11-07: fifteen browser frontend witnesses passed, including controlled JSON-RPC colors/completion attached after typing with editor identity, selection and undo preserved. Ten Swift witnesses passed. The Apple source type-checked for the simulator and the complete Android source compiled with the installed Kotlin/Compose compiler. The browser bundle built. Live browser acceptance still fails during Chromium host startup, and Android APK assembly remains blocked by Maven DNS. Native UI acceptance remains unverified.
 
 Interactive terminal replacement, 2026-11-13: the focused real-engine browser witness (`python3 scripts/test-simple-browser.py --terminal-only`) exercises direct input, shell cursor editing, a raw-mode key without Enter, ANSI alternate-screen output, pane resize, a partial command across pane movement, Ctrl+C and Ctrl+D. Its local native-renderer protocol check exercises Unicode output split into individual bytes, ANSI color, input/control-key encoding, cursor availability and measured resize messages. TypeScript checking and the focused session-identity witness passed. Source/output checks and ownership audit passed before final verification. Apple and Android host transport/lifecycle code was inspected, but their platform builds, native WebKit/WebView keyboard/IME interaction and device runtime acceptance have not been executed on this Linux host. The shared HTML browser check does not establish native platform acceptance.
+
+Literate subscription agent extension, 2026-11-13: the focused real-engine
+browser witness (`python3 scripts/test-simple-browser.py --agent-only`) passed
+for retained history, read-only previous messages, exact subscription/model/effort
+and Python-backend request, failed-send draft retention and editor identity through
+pane movement. Six selected browser document/session witnesses passed. Two Monty
+worker witnesses passed, including refusal of filesystem access, subprocess imports,
+`eval`, excessive allocation and unbounded loops. The real confined-worker broker
+witness `model_cannot_invoke_shell_or_verify_through_the_broker` passed. Two runtime
+profile unit witnesses passed. Claude authentication/result admission unit checks
+passed. These are focused checks, not broad regressions or a live subscription
+acceptance run. Apple and Android tests were added but cannot be executed here:
+this Linux checkout has no Swift/Xcode or Android SDK/compiler toolchain. Native
+layout, keyboard/IME, sign-in and live provider acceptance remain unverified.
 
 Earlier baseline verification: 2026-11-07, Codex. Partially verified. Eleven TypeScript witnesses, seven Swift witnesses and four shared Kotlin pane scenarios passed. The complete Apple source type-checked for an iOS simulator target. A native-browser walkthrough observed a plain-file save and undo after splitting and moving its tab. A real PTY check observed Unicode input, screen output and resize, then closed its test session.
 

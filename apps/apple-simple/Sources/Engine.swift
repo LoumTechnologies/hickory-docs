@@ -72,8 +72,8 @@ struct Engine {
         return result.hash
     }
     func turns() async throws -> AgentHistory { try await request("GET", "/api/docs/workspace/agent/turns") }
-    func send(_ prompt: String, parent: String?) async throws -> StartedTurn {
-        try await request("POST", "/api/docs/workspace/agent", body: ["prompt": prompt, "parent_id": parent as Any? ?? NSNull(), "backend": "python"])
+    func send(_ prompt: String, parent: String?, provider: String, model: String, effort: String) async throws -> StartedTurn {
+        try await request("POST", "/api/docs/workspace/agent", body: ["prompt": prompt, "parent_id": parent as Any? ?? NSNull(), "backend": "python", "provider": provider, "model": model, "effort": effort.isEmpty ? NSNull() : effort as Any])
     }
     func stop() async throws {
         struct Stopped: Decodable { var stopping: String }
