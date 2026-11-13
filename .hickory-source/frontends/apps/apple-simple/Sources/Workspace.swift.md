@@ -196,7 +196,8 @@ import Observation
         do {
             let next = try Engine(address: address)
             let tree = try await next.files()
-            agent.turns = []; agent.error = ""; terminal.id = nil; terminal.screen = ""; terminal.error = ""
+            // The terminal renderer owns screen contents; reconnect by clearing the session ID.
+            agent.turns = []; agent.error = ""; terminal.id = nil; terminal.error = ""
             debugger?.close()
             for buffer in buffers.values { buffer.language?.close() }
             generation = UUID(); engine = next; debugger = NativeDebugger(engine: next)
