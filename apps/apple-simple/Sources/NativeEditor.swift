@@ -294,7 +294,13 @@ struct GridCellField: UIViewRepresentable {
         let key = source + "\0" + String(!writable) + "\0" + NSStringFromRange(table.range)
         if key != identity { identity = key; revision = UUID().uuidString }
         var snapshot: [String: Any] = ["revision": revision, "source": (source as NSString).substring(with: table.range), "format": table.rows.first?.first?.format ?? "csv", "delimiter": table.rows.first?.first?.delimiter ?? ",", "readonly": !writable, "header": inlineTableAttribute("header", table: table, source: source) != "false"]
+        snapshot["calculationRevision"] = buffer.receiptRevision
         snapshot["language"] = inlineTableAttribute("language", table: table, source: source)
+        if let id = inlineTableAttribute("id", table: table, source: source) {
+            var context: [String: Any] = ["source": source, "table": id]
+            context["document"] = buffer.file.doc_id
+            snapshot["scope"] = context
+        }
         send("update", snapshot)
     }
     private func send(_ method: String, _ value: Any) {
@@ -312,7 +318,8 @@ struct GridCellField: UIViewRepresentable {
             Task { [weak self] in
                 do {
                     guard let engine else { throw EngineError(message: "Reconnect to the workspace to evaluate formulas. Table source is still editable.") }
-                    let body: [String: Any]? = operation == "languages" ? nil : ["language": event["language"] as? String ?? "", "rows": event["rows"] as? [[String]] ?? []]
+                    var body: [String: Any]? = operation == "languages" ? nil : ["language": event["language"] as? String ?? "", "rows": event["rows"] as? [[String]] ?? []]
+                    if let context = event["scope"] as? [String: Any] { body?["scope"] = context }
                     let result: NativeTableJSON = try await engine.request(operation == "languages" ? "GET" : "POST", "/api/formula/" + operation, body: body)
                     self?.reply(id, result.object, nil)
                 } catch { self?.reply(id, NSNull(), error.localizedDescription) }
@@ -371,10 +378,11 @@ indirect enum NativeTableJSON: Decodable {
 }
 struct NativeSpreadsheet: View {
     var table: InlineTable; var source: String; var buffer: DocumentBuffer; var onReady: () -> Void; var onUnavailable: () -> Void = {}
-    var body: some View { NativeSpreadsheetView(table: table, source: source, buffer: buffer, onReady: onReady, onUnavailable: onUnavailable) }
+    var body: some View { NativeSpreadsheetView(calculationRevision: buffer.receiptRevision, table: table, source: source, buffer: buffer, onReady: onReady, onUnavailable: onUnavailable) }
 }
 #if os(macOS)
 struct NativeSpreadsheetView: NSViewRepresentable {
+    var calculationRevision: String = ""
     var table: InlineTable; var source: String; var buffer: DocumentBuffer; var onReady: () -> Void; var onUnavailable: () -> Void = {}
     func makeCoordinator() -> NativeTableCoordinator { NativeTableCoordinator(table: table, source: source, buffer: buffer, onReady: onReady) }
     func makeNSView(context: Context) -> WKWebView { makeNativeTableView(context.coordinator) }
@@ -383,6 +391,7 @@ struct NativeSpreadsheetView: NSViewRepresentable {
 }
 #else
 struct NativeSpreadsheetView: UIViewRepresentable {
+    var calculationRevision: String = ""
     var table: InlineTable; var source: String; var buffer: DocumentBuffer; var onReady: () -> Void; var onUnavailable: () -> Void = {}
     func makeCoordinator() -> NativeTableCoordinator { NativeTableCoordinator(table: table, source: source, buffer: buffer, onReady: onReady) }
     func makeUIView(context: Context) -> WKWebView { makeNativeTableView(context.coordinator) }

@@ -19,6 +19,10 @@ import { describe, expect, it } from "vitest";
 import { moveFormulaReferences, shiftFormulaReferences } from "./formulaReferences";
 
 describe("formula references through structural edits", () => {
+  it("keeps another table's cells and ranges fixed during local structural edits", () => {
+    expect(shiftFormulaReferences("=Other!$A$1 + sum(Other!A1:B2) + A1", "row", 0))
+      .toBe("=Other!$A$1 + sum(Other!A1:B2) + A2");
+  });
   it("follows inserted rows and columns, including range endpoints", () => {
     expect(shiftFormulaReferences("=sum(A1:B2)", "row", 1)).toBe("=sum(A1:B3)");
     expect(shiftFormulaReferences("=sum(A1:B2)", "column", 1)).toBe("=sum(A1:C2)");

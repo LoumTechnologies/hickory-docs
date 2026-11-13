@@ -817,7 +817,7 @@ The local math page loads only bundled KaTeX and fonts. Formula strings enter th
 <ui:copy id="simple-inline-math-0">
 <!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'nonce-hickory-math'; style-src 'self' 'unsafe-inline'; font-src 'self' data:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'nonce-hickory-math'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src data:;">
 <link rel="stylesheet" href="node_modules/xterm.css"><link rel="stylesheet" href="katex/katex.min.css"><style>html{height:100%;color-scheme:light dark;font:14px system-ui}body{margin:0;height:100%;overflow:hidden}body.terminal-mode{color-scheme:dark;height:100%;margin:0;background:#10151d;color:#e6edf3;overflow:hidden}.terminal-mode #formula{position:static;width:auto;transform:none!important;height:100%;box-sizing:border-box;padding:6px;overflow:hidden}.terminal-mode .xterm-cursor-layer{display:none}#formula{position:absolute;width:max-content;padding:8px;transform-origin:top left;box-sizing:border-box}#status{position:absolute;bottom:0;font-size:11px}#formula .katex-display{margin:0}.inline-math{font-size:13px}.inline-math #formula{padding:1px}.display-math #formula{padding:4px}</style>
 </head><body><div id="formula" aria-label="Typeset equation"></div><div id="status" role="status"></div>
 <script nonce="hickory-math" src="node_modules/xterm.js"></script><script nonce="hickory-math" src="node_modules/addon-fit.js"></script><script nonce="hickory-math" src="katex/katex.min.js"></script><script nonce="hickory-math" src="node_modules/mermaid.min.js"></script><script nonce="hickory-math">
@@ -829,7 +829,7 @@ if (globalThis.hickoryTableMode || location.search === '?table') {
 }
 // Transforms do not change layout dimensions, avoiding a ResizeObserver feedback loop.
 function fitPreview() {
-  if (document.body.classList.contains('terminal-mode') || document.body.classList.contains('table-mode')) return;
+  if (document.body.classList.contains('notebook-mode') || document.body.classList.contains('terminal-mode') || document.body.classList.contains('table-mode')) return;
   const node = document.getElementById('formula');
   const width = node.offsetWidth, height = node.offsetHeight;
   if (globalThis.mathRevision !== undefined && document.querySelector('.katex')) {
@@ -860,6 +860,18 @@ globalThis.renderMath = function (formula, inline = false, revision = 0) {
 };
 // This screen has no input binding and never executes expected/output bytes.
 let outputTerminal, outputFit, outputBytes = '', outputResize;
+globalThis.renderNotebookOutput = function (source) {
+  globalThis.hickoryOutputSource = source;
+  if (globalThis.hickoryOutput) { globalThis.hickoryOutput.update(source); return; }
+  document.body.className = 'notebook-mode';
+  const node = document.getElementById('formula'); node.textContent = source;
+  node.style.cssText = 'position:static;width:100%;height:100%;overflow:auto;transform:none;padding:4px';
+  if (globalThis.hickoryOutputLoading) return;
+  globalThis.hickoryOutputLoading = true;
+  const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'node_modules/table.css'; document.head.append(css);
+  const script = document.createElement('script'); script.src = 'node_modules/table.js'; script.nonce = 'hickory-math';
+  script.onerror = () => { document.getElementById('status').textContent = 'Table renderer unavailable; output is shown as text.'; }; document.head.append(script);
+};
 globalThis.renderTerminal = function (source) {
   const node = document.getElementById('formula'), status = document.getElementById('status');
   document.body.classList.add('terminal-mode'); status.textContent = '';
@@ -980,7 +992,7 @@ import json
 import subprocess
 bundle = ROOT / "apps/apple-simple/Sources/Resources/node_modules/table.js"
 bundle.parent.mkdir(parents=True, exist_ok=True)
-entry = "import { mountNativeTable } from " + json.dumps(str(ROOT / "apps/web/src/components/MarkdownTable.tsx")) + ";\n" + "import " + json.dumps(str(ROOT / "apps/web/src/styles.css")) + ";\n" + "globalThis.hickoryTable = mountNativeTable(document.getElementById('formula'), message => { const json = JSON.stringify(message); if (globalThis.webkit?.messageHandlers?.table) globalThis.webkit.messageHandlers.table.postMessage(JSON.parse(json)); else globalThis.HickoryTable?.postMessage(json); });"
+entry = "import { mountNativeTable, mountNativeOutput } from " + json.dumps(str(ROOT / "apps/web/src/components/MarkdownTable.tsx")) + ";\n" + "import " + json.dumps(str(ROOT / "apps/web/src/styles.css")) + ";\n" + "if (document.body.classList.contains('notebook-mode')) { globalThis.hickoryOutput = mountNativeOutput(document.getElementById('formula')); globalThis.hickoryOutput.update(globalThis.hickoryOutputSource || ''); } else globalThis.hickoryTable = mountNativeTable(document.getElementById('formula'), message => { const json = JSON.stringify(message); if (globalThis.webkit?.messageHandlers?.table) globalThis.webkit.messageHandlers.table.postMessage(JSON.parse(json)); else globalThis.HickoryTable?.postMessage(json); });"
 subprocess.run([str(ROOT / "apps/web/node_modules/.bin/esbuild"), "--bundle", "--format=iife", "--platform=browser", "--jsx=automatic", "--define:import.meta.env={}", "--log-level=warning", "--outfile=" + str(bundle)], input=entry, text=True, cwd=ROOT / "apps/web", check=True)
 print("Prepared shared native spreadsheet resources.")
 </ui:copy>
@@ -1009,7 +1021,8 @@ import WebKit
         let key = (diagramRenderer.map { "diagram:" + $0 } ?? "math") + "\0" + String(inline) + "\0" + source
         guard displayed != key else { return }
         displayed = key; revision += 1
-        if diagramRenderer == "terminal" { view.evaluateJavaScript("globalThis.renderTerminal(" + json + ")", completionHandler: nil) }
+        if diagramRenderer == "notebook" { view.evaluateJavaScript("globalThis.renderNotebookOutput(" + json + ")", completionHandler: nil) }
+        else if diagramRenderer == "terminal" { view.evaluateJavaScript("globalThis.renderTerminal(" + json + ")", completionHandler: nil) }
         else if let renderer = diagramRenderer, let data = try? JSONSerialization.data(withJSONObject: renderer, options: .fragmentsAllowed), let engine = String(data: data, encoding: .utf8) {
             view.evaluateJavaScript("globalThis.renderDiagram(" + json + "," + engine + ")", completionHandler: nil)
         } else { view.evaluateJavaScript("globalThis.renderMath(" + json + "," + String(inline) + "," + String(revision) + ")", completionHandler: nil) }
@@ -1081,9 +1094,9 @@ struct NativeInlineTerminal: View {
     var editSource: (() -> Void)? = nil
     var body: some View {
         VStack(spacing: 0) {
-            HStack { Image(systemName: "terminal"); Text("Terminal"); Spacer(); if let editSource { Button("Edit source text", action: editSource).buttonStyle(.plain) } }
+            HStack { Image(systemName: "terminal"); Text(text.contains("\u{1e}HICKORY_DISPLAY ") ? "Output" : "Terminal"); Spacer(); if let editSource { Button("Edit source text", action: editSource).buttonStyle(.plain) } }
                 .font(.system(size: 11, design: .monospaced)).padding(6).background(Color(red: 0.11, green: 0.15, blue: 0.2))
-            NativeMathView(source: text, diagramRenderer: "terminal")
+            NativeMathView(source: text, diagramRenderer: text.contains("\u{1e}HICKORY_DISPLAY ") ? "notebook" : "terminal")
         }.foregroundStyle(Color(red: 0.9, green: 0.93, blue: 0.95)).background(Color(red: 0.06, green: 0.08, blue: 0.11))
             .clipShape(RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(.gray.opacity(0.5))).accessibilityLabel("Output terminal")
     }
@@ -1147,10 +1160,10 @@ import org.json.JSONObject
                     if (url == "file:///android_asset/math.html") view.evaluateJavascript(view.tag as? String ?: "", null)
                 }
             }
-            tag = if (diagramRenderer == "terminal") "globalThis.renderTerminal(" + JSONObject.quote(source) + ")" else if (diagramRenderer == null) "globalThis.renderMath(" + JSONObject.quote(source) + ")" else "globalThis.renderDiagram(" + JSONObject.quote(source) + "," + JSONObject.quote(diagramRenderer) + ")"; loadUrl("file:///android_asset/math.html")
+            tag = if (diagramRenderer == "notebook") "globalThis.renderNotebookOutput(" + JSONObject.quote(source) + ")" else if (diagramRenderer == "terminal") "globalThis.renderTerminal(" + JSONObject.quote(source) + ")" else if (diagramRenderer == null) "globalThis.renderMath(" + JSONObject.quote(source) + ")" else "globalThis.renderDiagram(" + JSONObject.quote(source) + "," + JSONObject.quote(diagramRenderer) + ")"; loadUrl("file:///android_asset/math.html")
         }
     }, update = { view ->
-        val script = if (diagramRenderer == "terminal") "globalThis.renderTerminal(" + JSONObject.quote(source) + ")" else if (diagramRenderer == null) "globalThis.renderMath(" + JSONObject.quote(source) + ")" else "globalThis.renderDiagram(" + JSONObject.quote(source) + "," + JSONObject.quote(diagramRenderer) + ")"
+        val script = if (diagramRenderer == "notebook") "globalThis.renderNotebookOutput(" + JSONObject.quote(source) + ")" else if (diagramRenderer == "terminal") "globalThis.renderTerminal(" + JSONObject.quote(source) + ")" else if (diagramRenderer == null) "globalThis.renderMath(" + JSONObject.quote(source) + ")" else "globalThis.renderDiagram(" + JSONObject.quote(source) + "," + JSONObject.quote(diagramRenderer) + ")"
         if (view.tag != script) {
             view.tag = script
             view.evaluateJavascript("if(globalThis.renderDiagram){" + script + "}", null)
@@ -1202,6 +1215,7 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
   useSyncExternalStore(buffer.subscribe, buffer.snapshot);
   const [slots, setSlots] = useState<RenderedSlot[]>([]);
   const [modules, setModules] = useState<Awaited<ReturnType<typeof load>> | null>(null);
+  const [receiptRevision, refreshReceipts] = useState(0);
   const [blocks, setBlocks] = useState<{ source: string; blocks: Block[] }>({ source: "", blocks: [] });
   useEffect(() => {
     if (buffer.text.length > 200_000) return;
@@ -1244,7 +1258,7 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
       if (!cancelled && buffer.text === source && !buffer.dirty && result.document === id && result.source_hash.replace(/^sha256:/, "") === expected) setBlocks({ source, blocks: result.blocks });
     }).catch(() => { /* Saved receipts are optional, never a reason to hide source. */ });
     return () => { cancelled = true; };
-  }, [buffer, buffer.base, buffer.dirty]);
+  }, [buffer, buffer.base, buffer.dirty, receiptRevision]);
   if (!modules) return null;
   const saved: Block[] = [];
   if (blocks.source === buffer.text && !buffer.dirty) {
@@ -1270,6 +1284,7 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
         if (view.state.doc !== captured) return;
         view.dispatch({ effects: modules.rendered.showBlockSource.of(slot.at), selection: { anchor: Math.min(slot.at, view.state.doc.length) }, scrollIntoView: true }); view.focus();
       }}>Edit source text</button>}
+      {slot.kind === "exec" && buffer.file.doc_id && <button type="button" disabled={buffer.dirty} onClick={() => refreshReceipts(value => value + 1)}>Refresh recorded output</button>}
       {modules.elements.elementViews[slot.kind].render(slot, context)}
     </SlotPortal>;
   })}</>;

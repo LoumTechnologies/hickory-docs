@@ -503,11 +503,11 @@ The local shared spreadsheet sends typed messages through a narrow Android bridg
 @Composable private fun NativeInlineTerminal(text: String, modifier: Modifier = Modifier, editSource: (() -> Unit)? = null) {
     Column(modifier.background(androidx.compose.ui.graphics.Color(0xff10151d), androidx.compose.foundation.shape.RoundedCornerShape(6.dp)).border(1.dp, androidx.compose.ui.graphics.Color(0xff354152), androidx.compose.foundation.shape.RoundedCornerShape(6.dp)).clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp)).semantics { contentDescription = "Output terminal" }) {
         Row(Modifier.fillMaxWidth().background(androidx.compose.ui.graphics.Color(0xff1d2633)).padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Text("›_  Terminal", color = androidx.compose.ui.graphics.Color(0xffe6edf3), fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+            Text(if (text.contains("\u001eHICKORY_DISPLAY ")) "Output" else "›_  Terminal", color = androidx.compose.ui.graphics.Color(0xffe6edf3), fontFamily = FontFamily.Monospace, fontSize = 11.sp)
             Spacer(Modifier.weight(1f))
             if (editSource != null) Text("Edit source text", color = androidx.compose.ui.graphics.Color(0xffe6edf3), fontSize = 11.sp, modifier = Modifier.clickable(onClick = editSource))
         }
-        NativeMathView(text, Modifier.fillMaxWidth().weight(1f), diagramRenderer = "terminal")
+        NativeMathView(text, Modifier.fillMaxWidth().weight(1f), diagramRenderer = if (text.contains("\u001eHICKORY_DISPLAY ")) "notebook" else "terminal")
     }
 }
 
@@ -691,8 +691,9 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
         if (!ready || table.to > source.length) return
         val snapshot = org.json.JSONObject().put("revision", revision).put("source", source.substring(table.from, table.to))
             .put("format", table.rows.firstOrNull()?.firstOrNull()?.format ?: "csv").put("delimiter", table.rows.firstOrNull()?.firstOrNull()?.delimiter ?: ",")
-            .put("readonly", readOnly).put("language", inlineTableAttribute("language", table, source))
+            .put("calculationRevision", buffer.receipts.toString()).put("readonly", readOnly).put("language", inlineTableAttribute("language", table, source))
             .put("header", inlineTableAttribute("header", table, source) != "false")
+        inlineTableAttribute("id", table, source)?.let { id -> snapshot.put("scope", org.json.JSONObject().put("source", source).put("table", id).put("document", buffer.file.docID)) }
         view?.evaluateJavascript("globalThis.hickoryTable?.update($snapshot)", null)
     }
     @android.webkit.JavascriptInterface fun postMessage(json: String) {
@@ -712,6 +713,7 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
                     try {
                         val engine = buffer.receiptEngine ?: error("Reconnect to the workspace to evaluate formulas. Table source is still editable.")
                         val body = if (operation == "languages") null else org.json.JSONObject().put("language", event.optString("language")).put("rows", event.optJSONArray("rows") ?: org.json.JSONArray())
+                        event.optJSONObject("scope")?.let { body?.put("scope", it) }
                         val result = engine.request(if (operation == "languages") "GET" else "POST", "/api/formula/$operation", body)
                         reply(id, result, null)
                     } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }

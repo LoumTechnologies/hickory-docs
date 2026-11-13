@@ -1181,6 +1181,9 @@ that ARE formulas — echoing literals back would make the response the size
 of the table for no reason.
 
 <storycode:copy id="f-8a4c3188ff6c-FormulaResults">
+/** Exact document snapshot and named table used by the shared resolver. */
+export interface FormulaScope { source: string; table: string; document?: string }
+
 /** What a table's formulas came to. Keyed by A1 label, and only for cells
  * that ARE formulas — echoing literals back would make the response the size
  * of the table for no reason. */

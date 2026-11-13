@@ -1,3 +1,7 @@
+import { useMemo } from "react";
+import { api } from "../../api/client";
+import type { FormulaScope } from "../../api/types";
+import type { TablePanelProps } from "../../components/TablePanel";
 import { markdownTableBlocks } from "../../editor/markdownTables";
 import { structureOf } from "../../editor/wysiwyg";
 import { replaceTable } from "../../editor/tableEdit";
@@ -6,6 +10,16 @@ import { Engaged } from "../../components/Engaged";
 import { TablePanel } from "../../components/TablePanel";
 import { tableKey } from "../../lib/uiState";
 import type { ElementView } from "../types";
+
+function DocumentTable({ scope, markdown, revision, ...props }: TablePanelProps & { scope?: FormulaScope; markdown: boolean; revision?: string }) {
+  const formulaApi = useMemo(() => ({
+    formulaLanguages: api.formulaLanguages,
+    evaluateFormulas: (language: string, rows: string[][]) => api.evaluateFormulas(language, rows, scope),
+    traceFormulas: (language: string, rows: string[][]) => api.traceFormulas(language, rows, scope),
+  }), [scope?.source, scope?.table, scope?.document, revision]);
+  const Panel = markdown ? MarkdownTable : TablePanel;
+  return <Panel {...props} formulaApi={formulaApi} />;
+}
 
 /** `<hick:table>`: CSV in the document, drawn and edited as a grid. */
 export const tableView: ElementView = {
@@ -19,14 +33,16 @@ export const tableView: ElementView = {
     const block = structure && document ? structure.blocks.find(b => b.from === slot.at) ?? markdownTableBlocks(structure, document.toString()).find(b => b.from === slot.at) : null;
     const anchored = !!block && cx.view?.state.doc.sliceString(block.contentFrom, block.contentTo) === slot.text;
     const sourceCurrent = () => anchored && !!cx.view?.dom.isConnected && !cx.view.state.readOnly && cx.view.state.doc === document;
-    const Panel = slot.table?.format === "markdown" ? MarkdownTable : TablePanel;
     const key = tableKey(cx.path, slot.index, slot.table?.path);
     return (
       // Behind the engage gate: at rest the wheel scrolls the DOCUMENT
       // through the grid; clicking into the table is what buys its own
       // scrolling (styles.css hides the internal overflow until then).
       <Engaged className="rendered-table rendered-table--laned">
-        <Panel
+        <DocumentTable
+          markdown={slot.table?.format === "markdown"}
+          revision={JSON.stringify(cx.execBlocks ?? [])}
+          scope={block?.attrs.id && document ? { source: document.toString(), table: block.attrs.id, document: cx.docId } : undefined}
           chooseFormulaLanguage={cx.simpleTables}
           sourceCurrent={sourceCurrent}
           sourceIdentity={`${cx.path ?? "unnamed document"}#table:${slot.index}@${slot.at}`}

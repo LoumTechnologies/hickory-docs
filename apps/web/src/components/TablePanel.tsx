@@ -217,11 +217,13 @@ export function TablePanel({
   // the file keeps the FORMULA, which is the thing worth reviewing and the
   // thing that still works when the machine has no interpreter. The value is
   // a view of it, recomputed, exactly as a spreadsheet shows a cell.
-  const [computed, setComputed] = useState<{
+  const [calculated, setComputed] = useState<{
     values: Record<string, string>;
     errors: Record<string, string>;
-    source?: string; language?: string; status?: "ok" | "failed";
+    source?: string; language?: string; transport?: typeof formulaApi; status?: "ok" | "failed";
   }>({ values: {}, errors: {} });
+  const computed = calculated.source === source && calculated.language === language && calculated.transport === formulaApi
+    ? calculated : { values: {} as Record<string, string>, errors: {} as Record<string, string>, source: undefined, language: undefined, status: undefined };
   const [formulaNote, setFormulaNote] = useState<string | null>(null);
 
   const hasFormulas = table.rows.some((row) => row.some(isFormula));
@@ -240,14 +242,14 @@ export function TablePanel({
       formulaApi.evaluateFormulas(language, table.rows).then(
         (answer) => {
           if (!live) return;
-          setComputed({ ...answer, source, language, status: "ok" });
+          setComputed({ ...answer, source, language, transport: formulaApi, status: "ok" });
           setFormulaNote(null);
         },
         (error: unknown) => {
           if (!live) return;
           // A missing interpreter is the common case and not a fault: the
           // table still renders and still edits, it just does not compute.
-          setComputed({ values: {}, errors: {}, source, language, status: "failed" });
+          setComputed({ values: {}, errors: {}, source, language, transport: formulaApi, status: "failed" });
           setFormulaNote(
             error instanceof Error ? error.message : String(error),
           );

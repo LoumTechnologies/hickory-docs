@@ -88,11 +88,11 @@ export function generatedApi(request: typeof Request) { return {
    * is asked anything, so this is one call whatever language the formulas
    * are in. The backend installs itself on first use — it is a script the
    * binary carries, not a download. */
-  evaluateFormulas: (language: Parameters<ApiRoutes["evaluateFormulas"]>[0], rows: Parameters<ApiRoutes["evaluateFormulas"]>[1]) => request<Response<"evaluateFormulas">>("POST", "/api/formula/evaluate", { language, rows }),
+  evaluateFormulas: (language: Parameters<ApiRoutes["evaluateFormulas"]>[0], rows: Parameters<ApiRoutes["evaluateFormulas"]>[1], scope?: Parameters<ApiRoutes["evaluateFormulas"]>[2]) => request<Response<"evaluateFormulas">>("POST", "/api/formula/evaluate", { language, rows, scope }),
 /** The same evaluation, cell by cell — what the table's debugger steps
    * through. The same code path on the host, so the steps can never disagree
    * with the values the grid is showing. */
-  traceFormulas: (language: Parameters<ApiRoutes["traceFormulas"]>[0], rows: Parameters<ApiRoutes["traceFormulas"]>[1]) => request<Response<"traceFormulas">>("POST", "/api/formula/trace", { language, rows }),
+  traceFormulas: (language: Parameters<ApiRoutes["traceFormulas"]>[0], rows: Parameters<ApiRoutes["traceFormulas"]>[1], scope?: Parameters<ApiRoutes["traceFormulas"]>[2]) => request<Response<"traceFormulas">>("POST", "/api/formula/trace", { language, rows, scope }),
 /** Languages this machine can evaluate formulas in right now. */
   formulaLanguages: () => request<Response<"formulaLanguages">>("GET", "/api/formula/languages"),
 /** The branch, and whether anything is uncommitted. */

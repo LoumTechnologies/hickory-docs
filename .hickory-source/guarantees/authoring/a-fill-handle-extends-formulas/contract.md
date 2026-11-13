@@ -409,8 +409,9 @@ Rewrite every A1 reference (including both ends of an A1 range).
 export function rewriteFormulaReferences(formula: string, move: (cell: Cell) => Cell): string {
   if (!formula.trimStart().startsWith("=")) return formula;
   return formula.replace(
-    /(^|[^A-Za-z0-9_])((?:\$?[A-Za-z]{1,2}\$?\d+)(?::\$?[A-Za-z]{1,2}\$?\d+)?)(?![A-Za-z0-9_])/g,
+    /[A-Za-z_][A-Za-z0-9_]*!\$?[A-Za-z]{1,2}\$?\d+(?::\$?[A-Za-z]{1,2}\$?\d+)?|(^|[^A-Za-z0-9_!:$])((?:\$?[A-Za-z]{1,2}\$?\d+)(?::\$?[A-Za-z]{1,2}\$?\d+)?)(?![A-Za-z0-9_])/g,
     (_whole, before: string, reference: string) => {
+      if (!reference) return _whole;
       const rewritten = reference.replace(/\$?[A-Za-z]{1,2}\$?\d+/g, (part: string) => {
         const columnAbsolute = part.startsWith("$");
         const rowAbsolute = /\$\d+$/.test(part);

@@ -29,6 +29,7 @@ import Observation
     var runOutputSource = ""
     var runOutputs: [Int: String] = [:] { didSet { renderMarkup?() } }
     var receipts: [InlineReceipt] = []
+    var receiptRevision = ""
     var receiptNotice = ""
     func refreshReceipts() async {
         guard let engine = receiptEngine, let id = file.doc_id else { return }
@@ -39,7 +40,7 @@ import Observation
             guard text == source, !dirty, page.document == id, page.source_hash.replacingOccurrences(of: "sha256:", with: "") == nativeSourceHash(source) else {
                 receiptNotice = "Recorded output belongs to another source revision. Save or refresh before retrying."; return
             }
-            receipts = page.blocks.filter { $0.kind == "exec" }; receiptSource = source; receiptNotice = ""
+            receipts = page.blocks.filter { $0.kind == "exec" }; receiptRevision = UUID().uuidString; receiptSource = source; receiptNotice = ""
         } catch { if text == source { receiptNotice = "Recorded output unavailable. Retry after checking the server." } }
     }
     // Recorded execution receipts already carry an exact source-hash check.

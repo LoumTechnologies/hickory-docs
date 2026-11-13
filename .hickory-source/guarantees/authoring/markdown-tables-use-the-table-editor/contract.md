@@ -51,7 +51,7 @@ Related contracts: [Markdown tables use the table editor](contract.md).
 // Guarantee: docs/guarantees/authoring/markdown-tables-use-the-table-editor.md
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MarkdownTable, mountNativeTable } from "./MarkdownTable";
+import { MarkdownTable, mountNativeTable, mountNativeOutput } from "./MarkdownTable";
 import { markdownCells, markdownRows, writeMarkdownTable } from "../lib/markdownTable";
 import { markdownTableBlocks } from "../editor/markdownTables";
 import { parseHickDoc } from "../editor/hickDoc";
@@ -188,11 +188,12 @@ describe("locally hosted native spreadsheet", () => {
     const host = document.createElement("div"); document.body.append(host);
     const messages: Record<string, unknown>[] = [];
     let bridge!: ReturnType<typeof mountNativeTable>;
-    await act(async () => { bridge = mountNativeTable(host, message => messages.push(message)); bridge.update({ revision: "one", source: "=1+1", format: "csv", readonly: false, language: "python" }); });
+    await act(async () => { bridge = mountNativeTable(host, message => messages.push(message)); bridge.update({ revision: "one", source: "=1+1", format: "csv", readonly: false, language: "python", scope: { source: "whole document", table: "Orders", document: "doc" } }); });
     try {
       await waitFor(() => expect(messages.some(event => event.operation === "evaluate")).toBe(true));
       const request = messages.find(event => event.operation === "evaluate")!;
       expect(request.rows).toEqual([["=1+1"]]);
+      expect(request.scope).toEqual({ source: "whole document", table: "Orders", document: "doc" });
       await act(async () => bridge.update({ revision: "two", source: "current", format: "csv", readonly: false, language: "python" }));
       await act(async () => bridge.reply(request.id as number, { values: { A1: "2" }, errors: {} }));
       expect(screen.getByRole("gridcell", { name: "current" })).toBeTruthy();
@@ -215,6 +216,37 @@ it("returns a failed native rendering capability to its host without writing sou
     await waitFor(() => expect(messages).toContainEqual({ kind: "unavailable" }));
     expect(messages.some(message => message.kind === "change")).toBe(false);
   } finally { await act(async () => bridge.dispose()); host.remove(); consoleError.mockRestore(); }
+});
+
+it("renders a published table as literal read-only values in the native surface", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  let bridge!: ReturnType<typeof mountNativeOutput>;
+  await act(async () => { bridge = mountNativeOutput(host); bridge.update("\x1eHICKORY_DISPLAY " + JSON.stringify({ kind: "table", schema: [{ name: "Value", dtype: "text" }], rows: [["=1+1"]], offset: 0, has_more: false })); });
+  try {
+    expect(screen.getByText("=1+1")).toBeTruthy();
+    expect(host.querySelector(".table-panel")).toBeNull();
+    expect(host.querySelector('[contenteditable="true"]')).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Cell contents" })).toBeNull();
+  } finally { await act(async () => bridge.dispose()); host.remove(); }
+});
+
+it("recalculates unchanged native formulas when recorded outputs refresh", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const messages: Record<string, unknown>[] = [];
+  let bridge!: ReturnType<typeof mountNativeTable>;
+  const snapshot = { revision: "one", source: "=Summary!B2", format: "csv" as const, readonly: false, language: "python", scope: { source: "document", table: "Receipt" } };
+  await act(async () => { bridge = mountNativeTable(host, event => messages.push(event)); bridge.update(snapshot); });
+  try {
+    await waitFor(() => expect(messages.filter(event => event.operation === "evaluate")).toHaveLength(1));
+    const first = messages.find(event => event.operation === "evaluate")!;
+    await act(async () => bridge.reply(first.id as number, { values: { A1: "7" }, errors: {} }));
+    await act(async () => bridge.update({ ...snapshot, calculationRevision: "new recording" }));
+    expect(screen.queryByRole("gridcell", { name: "7" })).toBeNull();
+    await waitFor(() => expect(messages.filter(event => event.operation === "evaluate")).toHaveLength(2));
+    const second = messages.filter(event => event.operation === "evaluate")[1];
+    await act(async () => bridge.reply(second.id as number, { values: { A1: "11" }, errors: {} }));
+    expect(screen.getByRole("gridcell", { name: "11" })).toBeTruthy();
+  } finally { await act(async () => bridge.dispose()); host.remove(); }
 });
 </storycode:copy>
 

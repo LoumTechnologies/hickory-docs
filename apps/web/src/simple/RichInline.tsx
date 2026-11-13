@@ -35,6 +35,7 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
   useSyncExternalStore(buffer.subscribe, buffer.snapshot);
   const [slots, setSlots] = useState<RenderedSlot[]>([]);
   const [modules, setModules] = useState<Awaited<ReturnType<typeof load>> | null>(null);
+  const [receiptRevision, refreshReceipts] = useState(0);
   const [blocks, setBlocks] = useState<{ source: string; blocks: Block[] }>({ source: "", blocks: [] });
   useEffect(() => {
     if (buffer.text.length > 200_000) return;
@@ -77,7 +78,7 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
       if (!cancelled && buffer.text === source && !buffer.dirty && result.document === id && result.source_hash.replace(/^sha256:/, "") === expected) setBlocks({ source, blocks: result.blocks });
     }).catch(() => { /* Saved receipts are optional, never a reason to hide source. */ });
     return () => { cancelled = true; };
-  }, [buffer, buffer.base, buffer.dirty]);
+  }, [buffer, buffer.base, buffer.dirty, receiptRevision]);
   if (!modules) return null;
   const saved: Block[] = [];
   if (blocks.source === buffer.text && !buffer.dirty) {
@@ -103,6 +104,7 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
         if (view.state.doc !== captured) return;
         view.dispatch({ effects: modules.rendered.showBlockSource.of(slot.at), selection: { anchor: Math.min(slot.at, view.state.doc.length) }, scrollIntoView: true }); view.focus();
       }}>Edit source text</button>}
+      {slot.kind === "exec" && buffer.file.doc_id && <button type="button" disabled={buffer.dirty} onClick={() => refreshReceipts(value => value + 1)}>Refresh recorded output</button>}
       {modules.elements.elementViews[slot.kind].render(slot, context)}
     </SlotPortal>;
   })}</>;

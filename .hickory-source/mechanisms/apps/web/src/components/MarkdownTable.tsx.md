@@ -20,7 +20,9 @@ The native bundle mounts this same Markdown/CSV adapter, rather than maintaining
 Initially fill the native editor’s already reserved rectangle instead of shrinking the document when the richer capability arrives. Once the user explicitly changes viewport height, let that chosen scroller height determine the native anchor. Row insertion and column sizing do not silently contract the original viewport.
 
 <storycode:copy id="f-04adf2e0e8b7-MarkdownTable">
-import { Component, useState, type ReactNode } from "react";
+import { NotebookOutputs } from "./NotebookOutputs";
+import { notebookOutputs } from "../lib/notebookOutput";
+import { Component, useMemo, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { TablePanel, type TableLayout, type TablePanelProps } from "./TablePanel";
 import { parseCsv, writeCsv } from "../lib/csv";
@@ -38,6 +40,8 @@ export function MarkdownTable({ source, onChange, ...props }: TablePanelProps) {
 export interface NativeTableSnapshot {
   revision: string; source: string; format: "csv" | "markdown"; readonly: boolean;
   delimiter?: string; language?: string; header?: boolean;
+  scope?: import("../api/types").FormulaScope;
+  calculationRevision?: string;
 }
 type NativeTableMessage = { kind: string; revision?: string; [key: string]: unknown };
 /** The native page has no network capability. Only formula RPC and guarded edits leave it. */
@@ -49,15 +53,16 @@ export function mountNativeTable(host: HTMLElement, post: (message: NativeTableM
     const id = ++serial;
     const timer = setTimeout(() => { pending.delete(id); reject(Error("Formula request timed out. Check the workspace connection and retry.")); }, 30000);
     pending.set(id, { resolve: value => resolve(value as T), reject, timer });
-    post({ kind: "formula", id, operation, language, rows });
+    post({ kind: "formula", id, operation, language, rows, scope: current?.scope });
   });
   const formulaApi: NonNullable<TablePanelProps["formulaApi"]> = {
     formulaLanguages: () => rpc("languages"), evaluateFormulas: (language, rows) => rpc("evaluate", language, rows), traceFormulas: (language, rows) => rpc("trace", language, rows),
   };
   function Surface({ snapshot }: { snapshot: NativeTableSnapshot }) {
+    const scopedApi = useMemo(() => ({ ...formulaApi }), [snapshot.scope?.source, snapshot.scope?.table, snapshot.calculationRevision]);
     const [layout, setLayout] = useState<TableLayout>({});
     const Panel = snapshot.format === "markdown" ? MarkdownTable : TablePanel;
-    return <Panel source={snapshot.source} delimiter={snapshot.delimiter} language={snapshot.language} header={snapshot.header} chooseFormulaLanguage formulaApi={formulaApi}
+    return <Panel source={snapshot.source} delimiter={snapshot.delimiter} language={snapshot.language} header={snapshot.header} chooseFormulaLanguage formulaApi={scopedApi}
       sourceIdentity="native-inline-table" sourceCurrent={() => current === snapshot && !writing && !current.readonly}
       layout={layout} onLayout={next => { if (next.height !== undefined) host.classList.remove("native-table-fill"); setLayout(next); }}
       onChange={snapshot.readonly ? undefined : source => {
@@ -93,6 +98,12 @@ export function mountNativeTable(host: HTMLElement, post: (message: NativeTableM
   };
   post({ kind: "ready" });
   return bridge;
+}
+
+/** Published outputs have no editing callbacks and never interpret equals-prefixed values. */
+export function mountNativeOutput(host: HTMLElement) {
+  const root = createRoot(host);
+  return { update(source: string) { const value = notebookOutputs(source); root.render(<><NotebookOutputs outputs={value.outputs} />{value.text.trim() && <pre>{value.text}</pre>}</>); }, dispose() { root.unmount(); } };
 }
 </storycode:copy>
 

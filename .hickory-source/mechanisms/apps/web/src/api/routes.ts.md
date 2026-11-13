@@ -128,11 +128,11 @@ types; no second response schema is maintained here.
    * is asked anything, so this is one call whatever language the formulas
    * are in. The backend installs itself on first use — it is a script the
    * binary carries, not a download. */
-  evaluateFormulas(language: string, rows: string[][]): POST<"/api/formula/evaluate", Types.FormulaResults>;
+  evaluateFormulas(language: string, rows: string[][], scope?: Types.FormulaScope): POST<"/api/formula/evaluate", Types.FormulaResults>;
 /** The same evaluation, cell by cell — what the table's debugger steps
    * through. The same code path on the host, so the steps can never disagree
    * with the values the grid is showing. */
-  traceFormulas(language: string, rows: string[][]): POST<"/api/formula/trace", Types.FormulaTrace>;
+  traceFormulas(language: string, rows: string[][], scope?: Types.FormulaScope): POST<"/api/formula/trace", Types.FormulaTrace>;
 /** Languages this machine can evaluate formulas in right now. */
   formulaLanguages(): GET<"/api/formula/languages", { languages: string[] }>;
 </storycode:copy>
