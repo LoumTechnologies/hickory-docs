@@ -41,7 +41,11 @@ including whitespace before an existing closer, passes the same hidden-source,
 composition and permission checks as other edits. Changing the persisted Enter
 mode affects open editors; the platform retains its own undo transaction.
 
+Standalone CSV uses the same isolated stylesheet as inline rich widgets. Mount its established grid in a stable shadow root so empty cells, resize handles and menus retain their real geometry without importing the full workspace theme into the simple shell. Loading this optional surface never replaces the cached source editor or its undo history.
+
 <ui:copy id="simple-1a4a59fc95-0">
+import { createPortal } from "react-dom";
+import type { TablePanelProps } from "../components/TablePanel";
 import { smartEnter, enterMode } from "./SmartEnter";
 import { gutterIconLayout, layoutEditorGutters } from "../editor/gutterIconLayout";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -70,7 +74,15 @@ import { observationSourceChanged } from "../debug/observations";
 import { api } from "../api/client";
 import { launchWithProfiles } from "../debug/launchProfiles";
 import { claimReveal, onRevealLine, openLocation } from "../lib/revealLine";
-const CsvGrid = lazy(() => import("../components/TablePanel").then(module => ({ default: module.TablePanel })));
+const CsvGrid = lazy(async () => {
+  const [{ TablePanel }, css] = await Promise.all([import("../components/TablePanel"), import("../styles.css?inline")]);
+  return { default: function CsvSurface(props: TablePanelProps) {
+    const host = useRef<HTMLDivElement>(null);
+    const [root, setRoot] = useState<ShadowRoot | null>(null);
+    useLayoutEffect(() => { if (host.current) setRoot(host.current.shadowRoot ?? host.current.attachShadow({ mode: "open" })); }, []);
+    return <div ref={host} className="simple-csv-grid">{root && createPortal(<><style>{css.default.replaceAll(":root", ":host")}</style><TablePanel {...props} /></>, root)}</div>;
+  } };
+});
 export type WordNavigationMode = "native" | "word" | "pieces";
 export function wordNavigationMode(modifier: "control" | "alt"): WordNavigationMode {
   try { const value = localStorage.getItem(`editor.${modifier}Arrow`); return value === "word" || value === "pieces" ? value : "native"; }

@@ -51,7 +51,7 @@ import { activate, groups, initialLayout, move, remove, split, dock, dropEdge, i
 import { TerminalSession } from "./Terminal";
 import { Buffer, Buffers } from "./buffers";
 import { api } from "../api/client";
-vi.mock("../api/client", () => ({ api: { files: vi.fn(), doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), fileOp: vi.fn(), openFile: vi.fn(), createDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agent: vi.fn() } }));
+vi.mock("../api/client", () => ({ api: { formulaLanguages: vi.fn().mockResolvedValue({ languages: ["python"] }), files: vi.fn(), doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), fileOp: vi.fn(), openFile: vi.fn(), createDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agent: vi.fn() } }));
 describe("shared frontend layout contract", () => {
   it("constructs patch fences and offers source-mapped patch debugging in Simple", async () => {
     // Contract: .hickory-source/frontends/contract.md
@@ -269,7 +269,9 @@ describe("simple inline rich editing", () => {
     const buffer = new Buffer({ path: "stock.csv", name: "stock.csv", dir: false }, source, "hash", () => {});
     const screen = render(createElement(Document, { buffer }));
     try {
-      const table = await screen.findByTestId("table-panel");
+      const csvRoot = () => screen.container.querySelector(".simple-csv-grid")?.shadowRoot;
+      await waitFor(() => expect(csvRoot()?.querySelector('[data-testid="table-panel"]')).toBeTruthy());
+      const table = csvRoot()!.querySelector('[data-testid="table-panel"]')! as HTMLElement;
       const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
       const grid = within(table);
       fireEvent.click(grid.getByRole("gridcell", { name: "Café" }));
@@ -279,12 +281,12 @@ describe("simple inline rich editing", () => {
       fireEvent.keyDown(input, { key: "Enter" });
       await waitFor(() => expect(buffer.text).toContain('"two,""quotes"""'));
       fireEvent.click(screen.getByRole("button", { name: "Edit source text" }));
-      expect(screen.queryByTestId("table-panel")).toBeNull();
+      expect(csvRoot()?.querySelector('[data-testid="table-panel"]')).toBeFalsy();
       expect(EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)).toBe(view);
       act(() => { undo(view); });
       expect(buffer.text).toBe(source);
       fireEvent.click(screen.getByRole("button", { name: "Edit table as grid" }));
-      expect(await screen.findByTestId("table-panel")).toBeTruthy();
+      await waitFor(() => expect(csvRoot()?.querySelector('[data-testid="table-panel"]')).toBeTruthy());
     } finally { screen.unmount(); }
   });
   it("keeps source and undo usable while the parser needed by table grids is loading", async () => {
