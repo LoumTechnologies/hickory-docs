@@ -68336,6 +68336,105 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "simple-shared-language-wire-fixture"
       ]
+    },
+    "apps/web/src/simple/WorkspaceAnalysis.ts": {
+      "source": ".hickory-source/frontends/workspace-analysis-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "f2513384393b318f98a7dffa95786793c796c7674874b82079b38bda70c08bc0",
+      "construction": "fragments",
+      "fragments": [
+        "simple-workspace-analysis-browser"
+      ]
+    },
+    "apps/apple-simple/Sources/WorkspaceAnalysis.swift": {
+      "source": ".hickory-source/frontends/workspace-analysis-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "8338aff71e75831526c9a2d665f876b55b81ca994a9e01eb3a35a2232794934d",
+      "construction": "fragments",
+      "fragments": [
+        "simple-workspace-analysis-apple"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/WorkspaceAnalysis.kt": {
+      "source": ".hickory-source/frontends/workspace-analysis-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "a8c8b031de95295d23608bbdc52bab7580b33112d5c6042056042d41e576dcaf",
+      "construction": "fragments",
+      "fragments": [
+        "simple-workspace-analysis-android"
+      ]
+    },
+    "apps/web/src/simple/WorkspaceAnalysis.test.ts": {
+      "source": ".hickory-source/frontends/workspace-analysis-browser-tests.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "313af0119e422420c2459dd91ebc97e5feedcfa00f55de9d524944099c310d87",
+      "construction": "fragments",
+      "fragments": [
+        "simple-workspace-analysis-browser-tests"
+      ]
+    },
+    "apps/apple-simple/Tests/WorkspaceAnalysisTests.swift": {
+      "source": ".hickory-source/frontends/workspace-analysis-apple-tests.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "b5ca8c5843d82c19cb745a34f107c198fc05149c9415915ceb9c6fe04ebceb99",
+      "construction": "fragments",
+      "fragments": [
+        "simple-workspace-analysis-apple-tests"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/WorkspaceAnalysisTest.kt": {
+      "source": ".hickory-source/frontends/workspace-analysis-android-tests.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "845c73b0981eada02395f6e82c53a0a1e6cd35b2e4cedc27fbcfb67d0ede6478",
+      "construction": "fragments",
+      "fragments": [
+        "simple-workspace-analysis-android-tests"
+      ]
+    },
+    "apps/web/src/simple/WorkspaceAnalysisView.tsx": {
+      "source": ".hickory-source/frontends/workspace-analysis-browser-view.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "51dc6ce1cab4dc4fb7bde8cdb539ddb492cc7b9d11f0eba5af7d0fc84bf35a92",
+      "construction": "fragments",
+      "fragments": [
+        "simple-workspace-analysis-browser-view"
+      ]
+    },
+    "apps/apple-simple/Sources/WorkspaceAnalysisView.swift": {
+      "source": ".hickory-source/frontends/workspace-analysis-apple-view.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "809c87a3c85b8f9ac46d9987c594d8013d54f1a829bfe3f6967f444f3611a7c2",
+      "construction": "fragments",
+      "fragments": [
+        "simple-workspace-analysis-apple-view"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/WorkspaceAnalysisView.kt": {
+      "source": ".hickory-source/frontends/workspace-analysis-android-view.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "454905c5e6af0cff9f97ce5cae8db8199e6fbc5278ffc5cd1b5023d5d1a805cd",
+      "construction": "fragments",
+      "fragments": [
+        "simple-workspace-analysis-android-view"
+      ]
     }
   },
   "evidence_records": [

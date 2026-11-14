@@ -89,6 +89,17 @@ final class SaveTests: XCTestCase {
         let reopened=try await connection.request("fixture/fast",params:params(b),owner:ownerB)
         XCTAssertEqual((reopened as? [String:Any])?["text"] as? String,"new second")
         let final=try await metrics();XCTAssertEqual(final.connections,2);XCTAssertNil(final.documents[a]);XCTAssertEqual(final.documents[b],"new second");XCTAssertEqual(final.documents[c],"third");XCTAssertEqual(Set(final.ids).count,final.ids.count)
+        let file=FileNode(name:"outline.py",path:"outline.py",dir:false,language:"python")
+        let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:"source",hash:"base"))
+        let service=NativeLanguage(engine:engine,buffer:buffer,connection:connection);service.start();defer {service.close()}
+        let reading=Task {try await service.readOutline(source:"source")}
+        try await Task.sleep(for:.milliseconds(10));buffer.selection=NSRange(location:3,length:0)
+        let outline=try await reading.value
+        XCTAssertEqual(outline.first?.name,"background");XCTAssertEqual(buffer.selection.location,3);XCTAssertFalse(service.showingSuggestions)
+        let stale=Task {try await service.readOutline(source:"source")}
+        try await Task.sleep(for:.milliseconds(10));buffer.text="draft"
+        do {_=try await stale.value;XCTFail("Source changed during outline read")} catch {}
+        XCTAssertEqual(buffer.text,"draft")
         #endif
     }
 

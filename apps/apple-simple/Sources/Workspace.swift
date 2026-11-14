@@ -188,6 +188,18 @@ import Observation
             if generation == current, search.revision == request { showWorkspaceSearch = false }
         } catch { if generation == current, search.revision == request { search.notice = error.localizedDescription } }
     }
+    var analysis = WorkspaceAnalysis()
+    var showAnalysis = false
+    func startAnalysis() {
+        let model=analysis, current=generation, files=rootFiles
+        Task { _ = await model.run(files,load:{file in
+            guard self.generation==current else {throw CancellationError()}
+            return try await self.loadBuffer(file)
+        },outline:{file,source in
+            guard self.generation==current,let service=self.buffers[file.path]?.language else {throw EngineError(message:"Language service unavailable. Retry analysis.")}
+            return try await service.readOutline(source:source)
+        }) }
+    }
     var showProblems = false
     var problems: [WorkspaceProblem] {
         buffers.values.sorted { $0.file.path < $1.file.path }.flatMap { buffer -> [WorkspaceProblem] in
@@ -246,6 +258,7 @@ import Observation
             debugger?.close()
             for buffer in buffers.values { buffer.language?.close() }
             languageConnection?.close();languageConnection=nil
+            analysis.stop(); analysis=WorkspaceAnalysis(); showAnalysis=false
             generation = UUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; debugger = NativeDebugger(engine: next)
             debugger?.onLocation = { [weak self] path, line in Task { await self?.revealDebug(path, line: line) } }; files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); buffers = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
             layout = PaneLayout(); focused = "document-group"; status = tree.root

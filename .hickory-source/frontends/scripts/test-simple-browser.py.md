@@ -174,6 +174,31 @@ def workspace_search_acceptance(driver, folder):
     eventually(lambda: driver.act("search-source", path=path), original)
 
 
+def workspace_analysis_acceptance(driver, folder):
+    # Contract: .hickory-source/frontends/contract.md. Unopened sources join the retained report index.
+    path="cache.py"; original=(folder/path).read_text()
+    driver.act("open",path=path);driver.act("append",path=path,text="\n# retained draft")
+    size=driver.act("editor-size",path=path)
+    driver.act("analysis-open",via="menu");driver.act("analysis-start")
+    deadline=time.monotonic()+120
+    while time.monotonic()<deadline:
+        report=driver.act("analysis-state",path=path)
+        assert report["size"]==size,"Analysis resized code"
+        assert "# retained draft" in report["source"],"Analysis replaced the active draft"
+        if report["finished"]: break
+        time.sleep(.1)
+    assert report["finished"],report
+    assert "background.py" in report["text"] and "unclassified excluded" in report["text"],report
+    assert "unavailable" not in report["text"],report
+    driver.act("analysis-close");driver.act("problems-open",via="status")
+    eventually(lambda:"background.py" in driver.act("problems-state",path=path)["text"],True)
+    driver.act("problems-close");driver.act("analysis-open",via="status")
+    assert driver.act("analysis-state",path=path)["size"]==size
+    driver.act("analysis-close")
+    assert (folder/path).read_text()==original,"Analysis saved a draft"
+    assert (folder/"background.py").read_text()=='def background():\n    amount: int = "wrong"\n    return amount\n'
+
+
 def problems_acceptance(driver, folder):
     # Contract: .hickory-source/frontends/contract.md. Real provider messages and UI geometry.
     path = "problem.py"; original = (folder / path).read_text()
@@ -647,10 +672,11 @@ if __name__ == "__main__":
         (folder / "caret.csv").write_text("Label,Count\nabcdefghijk,1\nx,2\nabcdefghijklm,3\n")
         (folder / "renamea.py").write_text("value = 42\n")
         (folder / "renameb.py").write_text("from renamea import value\nprint(value)\n")
+        (folder / "background.py").write_text('def background():\n    amount: int = "wrong"\n    return amount\n')
         (folder / "problem.py").write_text('amount: int = "wrong"\n')
         (folder / "navigation.py").write_text("from semantic_target import value\nprint(value)\n\ndef calculate(amount):\n    return adjust(amount)\n\ndef adjust(amount):\n    return amount + 1\n\ncalculate(value)\n")
         (folder / "semantic_target.py").write_text("prefix = 0; value = 42\n")
-        if "--semantic-navigation-only" in sys.argv or "--problems-only" in sys.argv or "--workspace-changes-only" in sys.argv:
+        if "--semantic-navigation-only" in sys.argv or "--problems-only" in sys.argv or "--workspace-changes-only" in sys.argv or "--workspace-analysis-only" in sys.argv:
             subprocess.run([str(ROOT / "target/debug/hick"), "lsp", "install", "python", "--root", str(folder)], check=True, timeout=180)
         (folder / "cache.py").write_text("counter = 1\nprint(counter)\n")
         (folder / "debug.py").write_text("value = 1\nvalue += 1\nprint(value)\n")
@@ -707,6 +733,9 @@ if __name__ == "__main__":
             elif "--workspace-search-only" in sys.argv:
                 workspace_search_acceptance(driver, folder)
                 print("Browser: exhaustive workspace regex search, Unicode columns, stationary geometry, retained editor, stale-source refusal and unchanged disk passed")
+            elif "--workspace-analysis-only" in sys.argv:
+                workspace_analysis_acceptance(driver,folder)
+                print("Browser: workspace acquisition, unopened-source diagnostics, unchanged active editor/draft/geometry, floating status/menu report and unchanged disk passed")
             elif "--problems-only" in sys.argv:
                 problems_acceptance(driver, folder)
                 print("Browser: source-hash-bound provider Problems, precise next-problem navigation, status/menu access, stationary geometry, retained draft and unchanged disk passed")

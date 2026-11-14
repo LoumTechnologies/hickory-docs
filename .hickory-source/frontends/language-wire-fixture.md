@@ -153,7 +153,9 @@ class Peer(BaseHTTPRequestHandler):
             return
         with lock:
             result = {"uri": uri, "text": self.documents.get(uri), "method": method}
-        timer = threading.Timer(.5 if method == "fixture/block" else .07 if method == "fixture/slow" else .001, lambda: self.send({"jsonrpc": "2.0", "id": identifier, "result": result}))
+        if method == "textDocument/documentSymbol":
+            result = [{"name": "background", "kind": 12, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}, "selectionRange": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}]
+        timer = threading.Timer(.5 if method == "fixture/block" else .07 if method in ("fixture/slow", "textDocument/documentSymbol") else .001, lambda: self.send({"jsonrpc": "2.0", "id": identifier, "result": result}))
         timer.daemon = True
         timer.start()
 

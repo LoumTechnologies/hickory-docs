@@ -69,7 +69,7 @@ class MainActivity : ComponentActivity() {
                 "Refresh" to { scope.launch { workspace.refresh() }; Unit },
                 "Close tab" to { workspace.active?.let(workspace::close); Unit }
             ))
-            CommandMenu("Edit", listOf("Rename symbol" to { workspace.changes.open("rename",workspace) }, "Refactor and quick fixes" to { workspace.changes.open("actions",workspace) }, "Preview formatting" to { workspace.changes.open("format",workspace) }, "Undo workspace change" to { workspace.changes.open("undo",workspace) }, "Redo workspace change" to { workspace.changes.open("redo",workspace) }, "Find in workspace" to { workspace.showWorkspaceSearch = true }, "Problems" to { workspace.showProblems = true }, "Next problem" to { scope.launch { workspace.navigateProblem(1) }; Unit }, "Previous problem" to { scope.launch { workspace.navigateProblem(-1) }; Unit }, "Navigate back" to { scope.launch { workspace.navigateHistory(-1) }; Unit }, "Navigate forward" to { scope.launch { workspace.navigateHistory(1) }; Unit }, "Find and replace" to { workspace.currentBuffer?.showFind = true; Unit },
+            CommandMenu("Edit", listOf("Rename symbol" to { workspace.changes.open("rename",workspace) }, "Refactor and quick fixes" to { workspace.changes.open("actions",workspace) }, "Preview formatting" to { workspace.changes.open("format",workspace) }, "Undo workspace change" to { workspace.changes.open("undo",workspace) }, "Redo workspace change" to { workspace.changes.open("redo",workspace) }, "Find in workspace" to { workspace.showWorkspaceSearch = true }, "Problems" to { workspace.showProblems = true }, "Workspace analysis" to { workspace.showAnalysis = true }, "Next problem" to { scope.launch { workspace.navigateProblem(1) }; Unit }, "Previous problem" to { scope.launch { workspace.navigateProblem(-1) }; Unit }, "Navigate back" to { scope.launch { workspace.navigateHistory(-1) }; Unit }, "Navigate forward" to { scope.launch { workspace.navigateHistory(1) }; Unit }, "Find and replace" to { workspace.currentBuffer?.showFind = true; Unit },
                 "Column selection" to { workspace.currentBuffer?.selectRectangle(); Unit },
                 "Add cursor below" to { workspace.currentBuffer?.addCursor(1); Unit }, "Add cursor above" to { workspace.currentBuffer?.addCursor(-1); Unit }))
             CommandMenu("View", listOf(
@@ -84,6 +84,10 @@ class MainActivity : ComponentActivity() {
         HorizontalDivider()
         Row(Modifier.fillMaxWidth().height(24.dp).padding(horizontal = 8.dp)) {
             Text(workspace.status, fontSize = 11.sp, maxLines = 1, modifier = Modifier.weight(1f))
+            Box {
+                Text(if(workspace.analysis.running) "Reading ${workspace.analysis.completed}/${workspace.analysis.scope.files.size}" else "Analysis",fontSize=11.sp,maxLines=1,modifier=Modifier.width(112.dp).clickable(role=androidx.compose.ui.semantics.Role.Button) {workspace.showAnalysis=!workspace.showAnalysis}.padding(horizontal=4.dp))
+                DropdownMenu(expanded=workspace.showAnalysis,onDismissRequest={workspace.showAnalysis=false}) {WorkspaceAnalysisView(workspace)}
+            }
             Box {
                 Text("Problems ${workspace.problems.size}", fontSize = 11.sp, maxLines = 1, modifier = Modifier.widthIn(min = 88.dp, max = 144.dp).clickable(role = androidx.compose.ui.semantics.Role.Button) { workspace.showProblems = !workspace.showProblems }.padding(horizontal = 4.dp))
                 DropdownMenu(expanded = workspace.showProblems, onDismissRequest = { workspace.showProblems = false }) { WorkspaceProblemsView(workspace) }

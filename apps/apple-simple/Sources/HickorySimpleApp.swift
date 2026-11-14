@@ -43,6 +43,7 @@ import SwiftUI
                 Button("Redo workspace change") { workspace.changes.open("redo",workspace:workspace) }
                 Button("Find in workspace") { workspace.showWorkspaceSearch = true }
                 Button("Problems") { workspace.showProblems = true }
+                Button("Workspace analysis") { workspace.showAnalysis = true }
                 Button("Next problem") { Task { await workspace.navigateProblem(1) } }
                 Button("Previous problem") { Task { await workspace.navigateProblem(-1) } }
                 Button("Navigate back") { Task { await workspace.navigateHistory(-1) } }.disabled(!workspace.navigationTrail.canBack)

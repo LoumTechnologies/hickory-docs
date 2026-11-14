@@ -518,6 +518,14 @@ class NativeLanguage(engine: Engine, private val buffer: DocumentBuffer, private
             catch (error: Exception) { if (epoch == current) status = "Language colors unavailable: ${error.message}. Retry language services." }
         }
     }
+    // A read-only background query must not open UI or depend on the caret.
+    suspend fun readOutline(source:String):List<SemanticLocation> {
+        check(buffer.text==source) {"Source changed before analysis. Run again."}
+        sync();val current=epoch
+        val result=request("textDocument/documentSymbol",JSONObject().put("textDocument",doc()))
+        check(epoch==current && buffer.text==source) {"Source or provider changed during analysis. Run again."}
+        return semanticLocations(result,uri).filter {it.uri==uri}
+    }
     suspend fun navigate(query: SemanticQuery) {
         val source = buffer.text; val selection = buffer.state.selection; val current = epoch; val id = ++navigation
         locationSource = source; locationSelection = selection; locations = emptyList(); locationStatus = "Searching…"

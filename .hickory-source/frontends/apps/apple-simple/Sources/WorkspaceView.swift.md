@@ -58,6 +58,7 @@ struct WorkspaceView: View {
                 Button("Redo workspace change") { workspace.changes.open("redo",workspace:workspace) }
                 Button("Find in workspace") { workspace.showWorkspaceSearch = true }
                 Button("Problems") { workspace.showProblems = true }
+                Button("Workspace analysis") { workspace.showAnalysis = true }
                 Button("Next problem") { Task { await workspace.navigateProblem(1) } }
                 Button("Previous problem") { Task { await workspace.navigateProblem(-1) } }
                 Button("Navigate back") { Task { await workspace.navigateHistory(-1) } }.disabled(!workspace.navigationTrail.canBack)
@@ -87,6 +88,8 @@ struct WorkspaceView: View {
                     if let language = buffer.language { Text(language.status).lineLimit(1).frame(maxWidth: 310).help(language.status) }
                     Text(buffer.readOnly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved")
                 }
+                Button(workspace.analysis.running ? "Reading \(workspace.analysis.completed)/\(workspace.analysis.scope.files.count)":"Analysis") { workspace.showAnalysis.toggle() }
+                    .frame(width:112).lineLimit(1).popover(isPresented:$workspace.showAnalysis) { WorkspaceAnalysisView(workspace:workspace) }
                 Button("Problems \(workspace.problems.count)") { workspace.showProblems.toggle() }
                     .popover(isPresented: $workspace.showProblems) { WorkspaceProblemsView(workspace: workspace) }
                 Button("⋯") { connection = true }.help("Workspace connection")

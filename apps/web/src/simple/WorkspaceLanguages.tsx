@@ -3,7 +3,7 @@ import { useWorkspaceLsp, type LspSession } from "../lsp/useLsp";
 import { documentUri } from "../lsp/documentUri";
 import type { Buffer, Buffers } from "./buffers";
 import { diagnosticBoundSource } from "../lsp/diagnosticRevision";
-import { reportedProblems } from "./Intelligence";
+import { reportedProblems, semanticLocations } from "./Intelligence";
 // Buffer lifetime owns language knowledge; a pane only borrows its session.
 class LanguageEntry {
   constructor(private changed: () => void = () => {}) {}
@@ -17,10 +17,18 @@ class LanguageEntry {
     this.problemCache = { source: buffer.text, diagnostics: session.diagnostics, diagnosticSource: session.diagnosticSource, reports };
     return reports;
   }
+  private source = "";
+  readyFor(source: string): Promise<LspSession> {
+    return new Promise((resolve,reject) => {
+      const check=()=>{if(this.value.ready && this.value.client && this.source===source) {clearTimeout(timeout);unsubscribe();resolve(this.value);}};
+      const timeout=setTimeout(()=>{unsubscribe();reject(new Error("Language session unavailable. Retry analysis."));},12000);
+      const unsubscribe=this.subscribe(check);check();
+    });
+  }
   private listeners = new Set<() => void>();
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
   read = () => this.value;
-  publish(value: LspSession) { this.value = value; for (const listener of this.listeners) listener(); this.changed(); }
+  publish(value: LspSession, source = "") { this.source = source; this.value = value; for (const listener of this.listeners) listener(); this.changed(); }
 }
 class WorkspaceLanguages {
   private version = 0;
@@ -37,7 +45,7 @@ function LanguageOwner({ buffer, registry }: { buffer: Buffer; registry: Workspa
   useSyncExternalStore(buffer.subscribe, buffer.snapshot);
   const session = useWorkspaceLsp(buffer.transient ? "" : buffer.file.path, buffer.text);
   useEffect(() => {
-    registry.entry(buffer).publish(session);
+    registry.entry(buffer).publish(session,buffer.text);
   }, [buffer, registry, session.client, session.uri, session.ready, session.diagnostics, session.diagnosticSource, buffer.text]);
   useEffect(() => () => registry.entry(buffer).publish({ client: null, uri: "", ready: false, diagnostics: [] }), [buffer, registry]);
   return null;
@@ -62,6 +70,16 @@ export function useWorkspaceLanguageLookup() {
   const registry = useContext(languageContext) ?? emptyWorkspace;
   useSyncExternalStore(registry.subscribe, registry.snapshot);
   return (buffer: Buffer) => registry.entry(buffer).read();
+}
+export function useWorkspaceOutlineReader() {
+  const registry=useContext(languageContext) ?? emptyWorkspace;
+  return async (buffer: Buffer,source: string) => {
+    const session=await registry.entry(buffer).readyFor(source);
+    if(buffer.text!==source) throw new Error("Source changed before analysis. Run again.");
+    const result=await session.client!.request("textDocument/documentSymbol",{textDocument:{uri:session.uri}});
+    if(buffer.text!==source || registry.entry(buffer).read().client!==session.client) throw new Error("Source or provider changed during analysis. Run again.");
+    return semanticLocations(result,session.uri).filter(location=>location.uri===session.uri);
+  };
 }
 export function useHasWorkspaceLanguages() { return useContext(languageContext) !== null; }
 const emptyWorkspace = new WorkspaceLanguages();

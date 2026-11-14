@@ -151354,6 +151354,69 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/language-wire-fixture.md",
       "symbol": "simple-shared-language-wire-fixture",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-workspace-analysis-browser",
+      "output": "apps/web/src/simple/WorkspaceAnalysis.ts",
+      "page": ".hickory-source/frontends/workspace-analysis-browser.md",
+      "symbol": "simple-workspace-analysis-browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-workspace-analysis-apple",
+      "output": "apps/apple-simple/Sources/WorkspaceAnalysis.swift",
+      "page": ".hickory-source/frontends/workspace-analysis-apple.md",
+      "symbol": "simple-workspace-analysis-apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-workspace-analysis-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/WorkspaceAnalysis.kt",
+      "page": ".hickory-source/frontends/workspace-analysis-android.md",
+      "symbol": "simple-workspace-analysis-android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-workspace-analysis-browser-tests",
+      "output": "apps/web/src/simple/WorkspaceAnalysis.test.ts",
+      "page": ".hickory-source/frontends/workspace-analysis-browser-tests.md",
+      "symbol": "simple-workspace-analysis-browser-tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-workspace-analysis-apple-tests",
+      "output": "apps/apple-simple/Tests/WorkspaceAnalysisTests.swift",
+      "page": ".hickory-source/frontends/workspace-analysis-apple-tests.md",
+      "symbol": "simple-workspace-analysis-apple-tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-workspace-analysis-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/WorkspaceAnalysisTest.kt",
+      "page": ".hickory-source/frontends/workspace-analysis-android-tests.md",
+      "symbol": "simple-workspace-analysis-android-tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-workspace-analysis-browser-view",
+      "output": "apps/web/src/simple/WorkspaceAnalysisView.tsx",
+      "page": ".hickory-source/frontends/workspace-analysis-browser-view.md",
+      "symbol": "simple-workspace-analysis-browser-view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-workspace-analysis-apple-view",
+      "output": "apps/apple-simple/Sources/WorkspaceAnalysisView.swift",
+      "page": ".hickory-source/frontends/workspace-analysis-apple-view.md",
+      "symbol": "simple-workspace-analysis-apple-view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-workspace-analysis-android-view",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/WorkspaceAnalysisView.kt",
+      "page": ".hickory-source/frontends/workspace-analysis-android-view.md",
+      "symbol": "simple-workspace-analysis-android-view",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

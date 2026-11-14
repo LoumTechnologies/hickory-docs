@@ -56,6 +56,14 @@ class ParityTest {
                 assertEquals("new second",(connection.request("fixture/fast",params(b),ownerB) as JSONObject).getString("text"))
                 val final=metrics();assertEquals(2,final.getInt("connections"));assertFalse(final.getJSONObject("documents").has(a));assertEquals("new second",final.getJSONObject("documents").getString(b));assertEquals("third",final.getJSONObject("documents").getString(c))
                 val ids=final.getJSONArray("ids");assertEquals(ids.length(),(0 until ids.length()).map {ids.getInt(it)}.toSet().size)
+                val file=FileNode("outline.py","outline.py",false,emptyList(),null,null,"python");val buffer=DocumentBuffer(file,FileText("source","base"))
+                val service=NativeLanguage(engine,buffer,this,connection);service.start()
+                try {
+                    val reading=async {service.readOutline("source")};delay(10);buffer.state.edit {selection=androidx.compose.ui.text.TextRange(3)}
+                    assertEquals("background",reading.await().first().name);assertEquals(3,buffer.state.selection.start);assertTrue(service.locations.isEmpty())
+                    val stale=async {runCatching {service.readOutline("source")}};delay(10);buffer.state.edit {replace(0,length,"draft")}
+                    assertTrue(stale.await().isFailure);assertEquals("draft",buffer.text)
+                } finally {service.close()}
             } finally {connection.close()}
         } finally {process.destroy();process.waitFor(5,java.util.concurrent.TimeUnit.SECONDS)}
     }

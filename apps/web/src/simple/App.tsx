@@ -1,4 +1,5 @@
 import { WorkspaceChanges, requestWorkspaceChange } from "./WorkspaceChanges";
+import { WorkspaceAnalysisView, requestWorkspaceAnalysis } from "./WorkspaceAnalysisView";
 import { WorkspaceSearch } from "./WorkspaceSearch";
 import { SimpleLanguages } from "./WorkspaceLanguages";
 import { WorkspaceProblems, requestProblemNavigation } from "./Problems";
@@ -256,6 +257,7 @@ export function App() {
       <button onClick={() => requestWorkspaceChange("undo")}>Undo workspace change</button>
       <button onClick={() => requestWorkspaceChange("redo")}>Redo workspace change</button>
       <button onClick={() => setShowProblems(true)}>Problems</button>
+      <button onClick={requestWorkspaceAnalysis}>Workspace analysis</button>
       <button onClick={() => requestProblemNavigation(1)}>Next problem</button>
       <button onClick={() => requestProblemNavigation(-1)}>Previous problem</button>
       <button disabled={!trail.canBack} onClick={() => navigateHistory(-1)}>Navigate back</button>
@@ -278,7 +280,7 @@ export function App() {
       resize={(id, ratio) => setLayout(current => update(current, id, node => isGroup(node) ? node : { ...node, ratio }))} /></div>
     <WorkspaceChanges buffers={buffers} current={() => buffer} focus={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />
     <WorkspaceSearch visible={showWorkspaceSearch} close={() => { setShowWorkspaceSearch(false); if (buffer) editorForBuffer(buffer)?.view.focus(); }} buffers={buffers} files={workspaceFiles} />
-    <footer role="status"><WorkspaceProblems buffers={buffers} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{notice ? `${notice} · ` : ""}{buffer ? `${buffer.file.name} · ${buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
+    <footer role="status"><WorkspaceAnalysisView buffers={buffers} files={workspaceFiles} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} /><WorkspaceProblems buffers={buffers} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{notice ? `${notice} · ` : ""}{buffer ? `${buffer.file.name} · ${buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
   </main></SimpleLanguages>;
 }
 function Tree({ nodes, open }: { nodes: FileNode[]; open: (file: FileNode) => void }) {

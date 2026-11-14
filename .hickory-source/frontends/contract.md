@@ -40,6 +40,14 @@ The browser language-session binding is a separate workspace module shared by th
 Verification: four focused browser component/protocol checks passed for source/version admission, stale/unversioned retention, wraparound and editor retention. Two focused diagnostic/Problems checks passed on each native implementation; TypeScript checking and the iOS simulator build passed. The real Python browser `--problems-only` flow passed for reported messages, status/menu access, stationary geometry, retained draft and unchanged disk bytes. Native pointer/popover acceptance remains unverified.
 
 
+## Bounded workspace knowledge acquisition
+
+Workspace analysis is available from the existing Edit menu and status bar on browser, macOS, iOS and Android. Its floating report distinguishes attempted files, readable sources, provider-returned symbol lists, unavailable or stale reads, and generated/unclassified exclusions. Two workers each await a source load and outline before taking another file. Stop prevents further admission while current reads drain; another run cannot multiply that limit. Closing the report does not stop the run. It reads retained drafts without changing the active pane, caret or layout and does not save them. Background diagnostics join the existing source-bound Problems index independently; an empty outline or absent diagnostic is not a verification verdict.
+
+The model accepts source/outline adapters rather than owning UI or transport. Native workspace connections and browser retained sessions are shared with existing editors. Background outline reads depend on source and provider identity, not the caret or language-tools popup. A changed source rejects its reply. Source text remains available even if a provider read fails. Changing native workspace servers stops the previous scheduler and creates a fresh report model. Report rows become stale when their captured source no longer matches the retained buffer.
+
+Focused scheduler witnesses on all three implementations cover the two-read bound, drain-before-restart, stale draft rejection, independent failure and continued work. Native wire witnesses also exercise caret-independent outline reads and changed-source refusal. The real Python browser `--workspace-analysis-only` flow passed for unopened-source diagnostics joining Problems, retained active draft/editor dimensions, status/menu report access and unchanged disk bytes. TypeScript checking and the iOS simulator build passed. These checks do not establish provider completeness or native pointer acceptance.
+
 ## Existing and extended editor behavior
 
 Given a reachable existing Hickory engine, each frontend exposes the same four pane kinds: files, text document, workspace agent and terminal. Plain and literate source open as text. Generated outputs open read-only in this slice. File and pane commands remain in menus or tab strips; editor content has no permanent feature toolbar.

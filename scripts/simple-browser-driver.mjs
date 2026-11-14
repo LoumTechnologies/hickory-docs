@@ -161,6 +161,16 @@ try {
         case "workspace-search-hit": await page.getByRole("dialog", { name: "Find in workspace", exact: true }).getByRole("button", { name: request.label, exact: true }).click(); break;
         case "workspace-search-notice": value = await page.getByRole("dialog", { name: "Find in workspace", exact: true }).innerText(); break;
         case "workspace-search-close": await page.getByRole("button", { name: "Close workspace search", exact: true }).click(); break;
+        case "analysis-open":
+          if(request.via==="menu") await menu("Edit","Workspace analysis");
+          else await page.getByRole("button",{name:"Workspace analysis status",exact:true}).click();
+          await page.getByRole("dialog",{name:"Workspace analysis",exact:true}).waitFor();break;
+        case "analysis-start": await page.getByRole("button",{name:"Read workspace",exact:true}).click();break;
+        case "analysis-close": await page.getByRole("button",{name:"Close analysis",exact:true}).click();break;
+        case "analysis-state": {
+          const panel=page.getByRole("dialog",{name:"Workspace analysis",exact:true});
+          value={text:await panel.innerText(),finished:await panel.getByRole("button",{name:"Read workspace",exact:true}).isEnabled(),source:await editor(request.path).innerText(),size:await editor(request.path).locator("..").evaluate(node=>({width:node.clientWidth,height:node.clientHeight}))};break;
+        }
         case "problem-count": {
           const control = page.getByRole("button", { name: /^Problems: \d+ reported$/ });
           value = Number((await control.getAttribute("aria-label")).match(/\d+/)[0]); break;

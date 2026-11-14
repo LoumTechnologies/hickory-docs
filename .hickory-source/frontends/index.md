@@ -94,4 +94,22 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="language-wire-fixture.md" />
 
+<ui:include file="workspace-analysis-browser.md" />
+
+<ui:include file="workspace-analysis-apple.md" />
+
+<ui:include file="workspace-analysis-android.md" />
+
+<ui:include file="workspace-analysis-browser-tests.md" />
+
+<ui:include file="workspace-analysis-apple-tests.md" />
+
+<ui:include file="workspace-analysis-android-tests.md" />
+
+<ui:include file="workspace-analysis-browser-view.md" />
+
+<ui:include file="workspace-analysis-apple-view.md" />
+
+<ui:include file="workspace-analysis-android-view.md" />
+
 </ui:doc>

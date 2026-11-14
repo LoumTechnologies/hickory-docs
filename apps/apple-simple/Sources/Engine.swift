@@ -337,6 +337,14 @@ func rebaseNativeTokens(_ tokens: [NativeSemanticToken], from old: String, to ne
             }
         }
     }
+    // Background reads depend on source and connection, never the current caret or popup.
+    func readOutline(source: String) async throws -> [SemanticLocation] {
+        guard let buffer, buffer.text == source else { throw EngineError(message:"Source changed before analysis. Run again.") }
+        sync(); let current = epoch
+        let result = try await request("textDocument/documentSymbol", ["textDocument":["uri":uri]])
+        guard epoch == current, buffer.text == source else { throw EngineError(message:"Source or provider changed during analysis. Run again.") }
+        return semanticLocations(result,defaultURI:uri).filter {$0.uri == uri}
+    }
     func navigate(_ query: SemanticQuery) async {
         showingSuggestions = true
         guard let buffer else { return }
