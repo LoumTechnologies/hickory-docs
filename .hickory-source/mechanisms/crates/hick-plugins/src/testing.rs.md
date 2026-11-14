@@ -93,7 +93,7 @@ pub fn test_command(
         return Err("test file is outside the workspace".into());
     }
     match crate::registry().interface(language, crate::InterfaceKind::TestRunner) {
-        Some(crate::Interface::TestRunner { plan }) => plan(root, file, name),
+        Some(crate::Interface::TestRunner { plan, .. }) => plan(root, file, name),
         _ => Err(format!("hick does not know how to run {language} tests")),
     }
 }
@@ -103,6 +103,14 @@ pub fn test_command(
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-plugins/src/testing.rs"><storycode:paste select="#f-9a1aec043cf8-Planner"/><storycode:paste select="#f-9a1aec043cf8-TestCommand"/><storycode:paste select="#f-9a1aec043cf8-nearest"/><storycode:paste select="#f-9a1aec043cf8-nearest_glob"/><storycode:paste select="#f-9a1aec043cf8-test_command"/></storycode:file>
+## Separate source recognition from an explicit runner
+
+The test capability exposes a pure source detector alongside its command planner. Editors can attach source candidates in the background without executing a collector or acquiring a project environment. Confirmed runner IDs and results remain in the existing coverage/test service.
+
+<storycode:copy id="test-source-candidates-module">
+pub mod candidates;
+</storycode:copy>
+
+<storycode:file path="crates/hick-plugins/src/testing.rs"><storycode:paste select="#f-9a1aec043cf8-Planner"/><storycode:paste select="#f-9a1aec043cf8-TestCommand"/><storycode:paste select="#f-9a1aec043cf8-nearest"/><storycode:paste select="#f-9a1aec043cf8-nearest_glob"/><storycode:paste select="#f-9a1aec043cf8-test_command"/><storycode:paste select="#test-source-candidates-module"/></storycode:file>
 
 </storycode:doc>

@@ -21,7 +21,10 @@ pub static PLUGIN: Plugin = Plugin {
                     `src/main.rs`",
             },
         },
-        Interface::TestRunner { plan: test_command },
+        Interface::TestRunner {
+            plan: test_command,
+            detect: Some(crate::testing::candidates::rust),
+        },
         Interface::Syntax {
             file_names: &[],
             extensions: &[("rs", "rust", crate::routing::Highlight::Editor)],

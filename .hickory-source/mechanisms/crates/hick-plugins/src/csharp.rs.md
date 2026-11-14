@@ -36,7 +36,10 @@ pub static PLUGIN: Plugin = Plugin {
                     `dotnet new` writes",
             },
         },
-        Interface::TestRunner { plan: test_command },
+        Interface::TestRunner {
+            plan: test_command,
+            detect: Some(crate::testing::candidates::csharp),
+        },
         Interface::TypedClient {
             languages: &["csharp"],
             target: crate::typed_client::emit::Target::CSharp,

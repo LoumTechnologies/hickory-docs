@@ -47,7 +47,10 @@ pub static PLUGIN: Plugin = Plugin {
             languages: &["typescript"],
             target: crate::typed_client::emit::Target::TypeScript,
         },
-        Interface::TestRunner { plan: test_command },
+        Interface::TestRunner {
+            plan: test_command,
+            detect: Some(crate::testing::candidates::javascript),
+        },
         Interface::Formula(FormulaBackend {
             language: "javascript",
             aliases: &["javascript", "js", "node", "mjs", "typescript", "ts"],

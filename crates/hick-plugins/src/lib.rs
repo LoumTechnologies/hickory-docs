@@ -113,6 +113,7 @@ pub enum Interface {
     },
     TestRunner {
         plan: testing::Planner,
+        detect: Option<testing::candidates::Detector>,
     },
     CodeModel {
         bin: &'static str,

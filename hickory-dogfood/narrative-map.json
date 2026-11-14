@@ -151556,6 +151556,104 @@
       "page": ".hickory-source/frontends/workspace-command-button-apple.md",
       "symbol": "simple-workspace-command-button-apple",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "test-source-candidates-module",
+      "output": "crates/hick-plugins/src/testing.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-plugins/src/testing.rs.md",
+      "symbol": "Separate source recognition from an explicit runner",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-source-candidate-types",
+      "output": "crates/hick-plugins/src/testing/candidates.rs",
+      "page": ".hickory-source/mechanisms/test-source-candidates.md",
+      "symbol": "test-source-candidate-types",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-source-candidate-parser",
+      "output": "crates/hick-plugins/src/testing/candidates.rs",
+      "page": ".hickory-source/mechanisms/test-source-candidates.md",
+      "symbol": "test-source-candidate-parser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-source-python-candidates",
+      "output": "crates/hick-plugins/src/testing/candidates.rs",
+      "page": ".hickory-source/mechanisms/test-source-candidates.md",
+      "symbol": "test-source-python-candidates",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-source-rust-candidates",
+      "output": "crates/hick-plugins/src/testing/candidates.rs",
+      "page": ".hickory-source/mechanisms/test-source-candidates.md",
+      "symbol": "test-source-rust-candidates",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-source-script-candidates",
+      "output": "crates/hick-plugins/src/testing/candidates.rs",
+      "page": ".hickory-source/mechanisms/test-source-candidates.md",
+      "symbol": "test-source-script-candidates",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-source-text-candidates",
+      "output": "crates/hick-plugins/src/testing/candidates.rs",
+      "page": ".hickory-source/mechanisms/test-source-candidates.md",
+      "symbol": "test-source-text-candidates",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-source-candidate-dispatch",
+      "output": "crates/hick-plugins/src/testing/candidates.rs",
+      "page": ".hickory-source/mechanisms/test-source-candidates.md",
+      "symbol": "test-source-candidate-dispatch",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-source-witness-prefix",
+      "output": "crates/hick-plugins/src/testing/candidates.rs",
+      "page": ".hickory-source/mechanisms/test-source-candidates.md",
+      "symbol": "test-source-witness-prefix",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-source-python-witness",
+      "output": "crates/hick-plugins/src/testing/candidates.rs",
+      "page": ".hickory-source/mechanisms/test-source-candidates.md",
+      "symbol": "test-source-python-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-source-rust-witness",
+      "output": "crates/hick-plugins/src/testing/candidates.rs",
+      "page": ".hickory-source/mechanisms/test-source-candidates.md",
+      "symbol": "test-source-rust-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-source-script-witness",
+      "output": "crates/hick-plugins/src/testing/candidates.rs",
+      "page": ".hickory-source/mechanisms/test-source-candidates.md",
+      "symbol": "test-source-script-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-source-heuristic-witness",
+      "output": "crates/hick-plugins/src/testing/candidates.rs",
+      "page": ".hickory-source/mechanisms/test-source-candidates.md",
+      "symbol": "test-source-heuristic-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-source-witness-suffix",
+      "output": "crates/hick-plugins/src/testing/candidates.rs",
+      "page": ".hickory-source/mechanisms/test-source-candidates.md",
+      "symbol": "test-source-witness-suffix",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

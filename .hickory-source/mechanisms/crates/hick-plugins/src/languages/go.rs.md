@@ -25,7 +25,10 @@ pub static PLUGIN: Plugin = Plugin {
             languages: &["go"],
             target: crate::typed_client::emit::Target::Go,
         },
-        Interface::TestRunner { plan: test_command },
+        Interface::TestRunner {
+            plan: test_command,
+            detect: Some(crate::testing::candidates::go),
+        },
         Interface::Syntax {
             file_names: &[],
             extensions: &[("go", "go", crate::routing::Highlight::Editor)],

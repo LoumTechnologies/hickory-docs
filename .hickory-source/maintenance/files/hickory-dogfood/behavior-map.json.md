@@ -47559,7 +47559,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-9a1aec043cf8-TestCommand",
         "f-9a1aec043cf8-nearest",
         "f-9a1aec043cf8-nearest_glob",
-        "f-9a1aec043cf8-test_command"
+        "f-9a1aec043cf8-test_command",
+        "test-source-candidates-module"
       ],
       "anchor": "output-9a1aec043cf8",
       "narrative_owner": "mechanism:crates/hick-plugins"
@@ -68665,6 +68666,29 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "simple-workspace-command-button-apple"
+      ]
+    },
+    "crates/hick-plugins/src/testing/candidates.rs": {
+      "source": ".hickory-source/mechanisms/test-source-candidates.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "7c7d929a19ee352fd551be16df05eebe94aa8adb2458855ded85fbc0122e72b4",
+      "construction": "fragments",
+      "fragments": [
+        "test-source-candidate-types",
+        "test-source-candidate-parser",
+        "test-source-python-candidates",
+        "test-source-rust-candidates",
+        "test-source-script-candidates",
+        "test-source-text-candidates",
+        "test-source-candidate-dispatch",
+        "test-source-witness-prefix",
+        "test-source-python-witness",
+        "test-source-rust-witness",
+        "test-source-script-witness",
+        "test-source-heuristic-witness",
+        "test-source-witness-suffix"
       ]
     }
   },

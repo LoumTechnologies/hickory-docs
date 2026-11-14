@@ -41,7 +41,10 @@ pub static PLUGIN: Plugin = Plugin {
             languages: &["python"],
             target: crate::typed_client::emit::Target::Python,
         },
-        Interface::TestRunner { plan: test_command },
+        Interface::TestRunner {
+            plan: test_command,
+            detect: Some(crate::testing::candidates::python),
+        },
         Interface::Formula(FormulaBackend {
             language: "python",
             aliases: &["python", "py", "python3"],

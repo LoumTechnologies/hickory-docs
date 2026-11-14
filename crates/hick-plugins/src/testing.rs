@@ -54,7 +54,8 @@ pub fn test_command(
         return Err("test file is outside the workspace".into());
     }
     match crate::registry().interface(language, crate::InterfaceKind::TestRunner) {
-        Some(crate::Interface::TestRunner { plan }) => plan(root, file, name),
+        Some(crate::Interface::TestRunner { plan, .. }) => plan(root, file, name),
         _ => Err(format!("hick does not know how to run {language} tests")),
     }
 }
+pub mod candidates;
