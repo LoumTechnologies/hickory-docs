@@ -151515,6 +151515,55 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/search-everywhere-android-tests.md",
       "symbol": "simple-search-everywhere-android-tests",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-workspace-command-adapters-apple",
+      "output": "apps/apple-simple/Sources/WorkspaceCommandAdapters.swift",
+      "page": ".hickory-source/frontends/workspace-command-adapters-apple.md",
+      "symbol": "simple-workspace-command-adapters-apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-workspace-command-adapters-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/WorkspaceCommandAdapters.kt",
+      "page": ".hickory-source/frontends/workspace-command-adapters-android.md",
+      "symbol": "simple-workspace-command-adapters-android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-search-everywhere-apple-view",
+      "output": "apps/apple-simple/Sources/SearchEverywhereView.swift",
+      "page": ".hickory-source/frontends/search-everywhere-apple-view.md",
+      "symbol": "simple-search-everywhere-apple-view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-search-everywhere-android-view",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SearchEverywhereView.kt",
+      "page": ".hickory-source/frontends/search-everywhere-android-view.md",
+      "symbol": "simple-search-everywhere-android-view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-search-everywhere-browser-view",
+      "output": "apps/web/src/simple/SearchEverywhereView.tsx",
+      "page": ".hickory-source/frontends/search-everywhere-browser-view.md",
+      "symbol": "simple-search-everywhere-browser-view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-search-everywhere-apple-view-tests",
+      "output": "apps/apple-simple/Tests/SearchEverywhereViewTests.swift",
+      "page": ".hickory-source/frontends/search-everywhere-apple-view-tests.md",
+      "symbol": "simple-search-everywhere-apple-view-tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-workspace-command-button-apple",
+      "output": "apps/apple-simple/Sources/WorkspaceCommandButton.swift",
+      "page": ".hickory-source/frontends/workspace-command-button-apple.md",
+      "symbol": "simple-workspace-command-button-apple",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

@@ -131,6 +131,41 @@ def workspace_search_acceptance(driver, folder):
     eventually(lambda: driver.act("search-source", path=path), original)
 
 
+def search_everywhere_acceptance(driver,folder):
+    # Contract: .hickory-source/frontends/contract.md. Real provider, menus and keyboard through one target model.
+    driver.act("everywhere-open",via="menu");driver.act("everywhere-query",kind="action",query="Rename symbol")
+    initial=driver.act("everywhere-state");assert initial["disabled"]==1 and "Open a source file first" in initial["text"],initial
+    driver.act("everywhere-close")
+    path="cache.py";original=(folder/path).read_text();symbols=(folder/"symbols.py").read_text()
+    driver.act("open",path=path);driver.act("append",path=path,text="\n# retained search draft")
+    identity=driver.act("mark-editor",path=path);rect=driver.act("editor-rect",path=path)
+    driver.act("everywhere-open",via="shortcut");driver.act("everywhere-query",kind="type",query="wdgt")
+    assert driver.act("everywhere-state",path=path)["options"]==[]
+    driver.act("everywhere-start");deadline=time.monotonic()+120
+    while time.monotonic()<deadline:
+        report=driver.act("everywhere-state",path=path)
+        assert report["rect"]==rect and report["identity"]==identity and "# retained search draft" in report["source"],report
+        if report["finished"]:break
+        time.sleep(.1)
+    assert report["finished"] and len(report["options"])==1 and "Widget" in report["options"][0] and "symbols.py" in report["options"][0],report
+    driver.act("everywhere-choose",keyboard=True)
+    eventually(lambda:driver.act("caret-offset",path="symbols.py"),6)
+    assert driver.act("editor-rect",path="symbols.py")==rect
+    driver.act("everywhere-open",via="menu");driver.act("everywhere-query",kind="member",query="render")
+    report=driver.act("everywhere-state",path="symbols.py");assert any("render" in item and "symbols.py" in item for item in report["options"]),report
+    driver.act("everywhere-query",kind="action",query="Problems");driver.act("everywhere-choose")
+    eventually(lambda:"background.py" in driver.act("problems-state",path="symbols.py")["text"],True);driver.act("problems-close")
+    driver.act("append",path="symbols.py",text="\n# changed source")
+    driver.act("everywhere-open",via="shortcut");driver.act("everywhere-query",kind="type",query="Widget")
+    assert driver.act("everywhere-state",path="symbols.py")["options"]==[],"Changed source kept an old type target"
+    driver.act("everywhere-query",kind="file",query="cache.py");driver.act("everywhere-choose",keyboard=True)
+    driver.act("everywhere-open",via="menu");driver.act("everywhere-query",kind="file",query="cache.py")
+    final=driver.act("everywhere-state",path=path)
+    assert final["identity"]==identity and final["rect"]==rect and "# retained search draft" in final["source"],final
+    driver.act("everywhere-close")
+    assert (folder/path).read_text()==original and (folder/"symbols.py").read_text()==symbols,"Search saved source drafts"
+
+
 def workspace_analysis_acceptance(driver, folder):
     # Contract: .hickory-source/frontends/contract.md. Unopened sources join the retained report index.
     path="cache.py"; original=(folder/path).read_text()
@@ -629,11 +664,12 @@ if __name__ == "__main__":
         (folder / "caret.csv").write_text("Label,Count\nabcdefghijk,1\nx,2\nabcdefghijklm,3\n")
         (folder / "renamea.py").write_text("value = 42\n")
         (folder / "renameb.py").write_text("from renamea import value\nprint(value)\n")
+        (folder / "symbols.py").write_text("class Widget:\n    def render(self):\n        return 1\n")
         (folder / "background.py").write_text('def background():\n    amount: int = "wrong"\n    return amount\n')
         (folder / "problem.py").write_text('amount: int = "wrong"\n')
         (folder / "navigation.py").write_text("from semantic_target import value\nprint(value)\n\ndef calculate(amount):\n    return adjust(amount)\n\ndef adjust(amount):\n    return amount + 1\n\ncalculate(value)\n")
         (folder / "semantic_target.py").write_text("prefix = 0; value = 42\n")
-        if "--semantic-navigation-only" in sys.argv or "--problems-only" in sys.argv or "--workspace-changes-only" in sys.argv or "--workspace-analysis-only" in sys.argv:
+        if "--semantic-navigation-only" in sys.argv or "--problems-only" in sys.argv or "--workspace-changes-only" in sys.argv or "--workspace-analysis-only" in sys.argv or "--search-everywhere-only" in sys.argv:
             subprocess.run([str(ROOT / "target/debug/hick"), "lsp", "install", "python", "--root", str(folder)], check=True, timeout=180)
         (folder / "cache.py").write_text("counter = 1\nprint(counter)\n")
         (folder / "debug.py").write_text("value = 1\nvalue += 1\nprint(value)\n")
@@ -690,6 +726,9 @@ if __name__ == "__main__":
             elif "--workspace-search-only" in sys.argv:
                 workspace_search_acceptance(driver, folder)
                 print("Browser: exhaustive workspace regex search, Unicode columns, stationary geometry, retained editor, stale-source refusal and unchanged disk passed")
+            elif "--search-everywhere-only" in sys.argv:
+                search_everywhere_acceptance(driver,folder)
+                print("Browser: shared menu/action commands, disabled reasons, keyboard entry, real type/member search, source-bound reveal, stale-type retirement, retained editor/draft/geometry and unchanged disk passed")
             elif "--workspace-analysis-only" in sys.argv:
                 workspace_analysis_acceptance(driver,folder)
                 print("Browser: workspace acquisition, unopened-source diagnostics, unchanged active editor/draft/geometry, floating status/menu report and unchanged disk passed")

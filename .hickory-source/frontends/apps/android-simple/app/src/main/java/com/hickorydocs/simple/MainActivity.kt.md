@@ -39,6 +39,8 @@ class MainActivity : ComponentActivity() {
     var connection by remember { mutableStateOf(workspace.engine == null) }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
+    val descriptors=remember {runCatching {context.assets.open("commands.json").bufferedReader().use {commandDescriptors(it.readText())}}.getOrDefault(emptyList())}
+    val commands=workspace.commands(descriptors,mapOf("file.connect" to {connection=true},"file.window" to {context.startActivity(android.content.Intent(context,MainActivity::class.java).putExtra("hickory_api_origin",workspace.address).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_DOCUMENT or android.content.Intent.FLAG_ACTIVITY_MULTIPLE_TASK));Unit}))
     LaunchedEffect(initialAddress) {
         if (workspace.engine == null && workspace.address.isEmpty() && !initialAddress.isNullOrEmpty()) {
             workspace.address = initialAddress
@@ -47,7 +49,8 @@ class MainActivity : ComponentActivity() {
     }
     BackHandler(workspace.hasUnsavedChanges) { workspace.status = "Save your documents before leaving this workspace." }
     Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding().onPreviewKeyEvent {
-        if (workspace.active == "terminal") false
+        if(it.type==KeyEventType.KeyDown&&it.key==Key.P&&(it.isCtrlPressed||it.isMetaPressed)) {workspace.showEverywhere=true;true}
+        else if (workspace.active == "terminal") false
         else if (it.type == KeyEventType.KeyDown && it.key == Key.S && (it.isCtrlPressed || it.isMetaPressed)) {
             scope.launch { workspace.save() }; true
         } else if (it.type == KeyEventType.KeyDown && it.key == Key.F && (it.isCtrlPressed || it.isMetaPressed)) {
@@ -57,27 +60,9 @@ class MainActivity : ComponentActivity() {
         } else false
     }) {
         Row(Modifier.fillMaxWidth().height(32.dp)) {
-            CommandMenu("File", listOf(
-                "Connect…" to { connection = true },
-                "Open File" to { workspace.chooseFileCommand("Open File") },
-                "Open Directory" to { workspace.chooseFileCommand("Open Directory") },
-                "New Tab" to { workspace.newTab() },
-                "New Window" to { context.startActivity(android.content.Intent(context, MainActivity::class.java).putExtra("hickory_api_origin", workspace.address).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_DOCUMENT or android.content.Intent.FLAG_ACTIVITY_MULTIPLE_TASK)); Unit },
-                "Save" to { scope.launch { workspace.save() }; Unit },
-                "Save As" to { workspace.chooseFileCommand("Save As") },
-                "Save All" to { scope.launch { workspace.saveAll() }; Unit },
-                "Refresh" to { scope.launch { workspace.refresh() }; Unit },
-                "Close tab" to { workspace.active?.let(workspace::close); Unit }
-            ))
-            CommandMenu("Edit", listOf("Rename symbol" to { workspace.changes.open("rename",workspace) }, "Refactor and quick fixes" to { workspace.changes.open("actions",workspace) }, "Preview formatting" to { workspace.changes.open("format",workspace) }, "Undo workspace change" to { workspace.changes.open("undo",workspace) }, "Redo workspace change" to { workspace.changes.open("redo",workspace) }, "Find in workspace" to { workspace.showWorkspaceSearch = true }, "Problems" to { workspace.showProblems = true }, "Workspace analysis" to { workspace.showAnalysis = true }, "Next problem" to { scope.launch { workspace.navigateProblem(1) }; Unit }, "Previous problem" to { scope.launch { workspace.navigateProblem(-1) }; Unit }, "Navigate back" to { scope.launch { workspace.navigateHistory(-1) }; Unit }, "Navigate forward" to { scope.launch { workspace.navigateHistory(1) }; Unit }, "Find and replace" to { workspace.currentBuffer?.showFind = true; Unit },
-                "Column selection" to { workspace.currentBuffer?.selectRectangle(); Unit },
-                "Add cursor below" to { workspace.currentBuffer?.addCursor(1); Unit }, "Add cursor above" to { workspace.currentBuffer?.addCursor(-1); Unit }))
-            CommandMenu("View", listOf(
-                "Files" to { workspace.show("files") }, "Agent" to { workspace.show("agent") },
-                "Terminal" to { scope.launch { workspace.openTerminal() }; Unit },
-                "Split right" to { workspace.split("horizontal") }, "Split below" to { workspace.split("vertical") },
-                "Move tab to next group" to { workspace.moveNext() }
-            ))
+            CommandMenu("File",commands.filter {it.group=="File"})
+            CommandMenu("Edit",commands.filter {it.group=="Edit"})
+            CommandMenu("View",commands.filter {it.group=="View"})
         }
         HorizontalDivider()
         Box(Modifier.weight(1f)) { Pane(workspace, workspace.layout.rootID) }
@@ -99,6 +84,7 @@ class MainActivity : ComponentActivity() {
         Column { Text("Enter a path in the connected workspace. Save As requires an unused path; an empty directory path opens the root.", fontSize = 12.sp)
             OutlinedTextField(workspace.filePath, { workspace.filePath = it }, label = { Text("Workspace path") }, singleLine = true) }
     }, confirmButton = { TextButton(onClick = { scope.launch { workspace.performFileCommand() } }) { Text("OK") } }, dismissButton = { TextButton(onClick = { workspace.fileCommand = null; workspace.savingAll = false }) { Text("Cancel") } })
+    if(workspace.showEverywhere) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showEverywhere=false;workspace.currentBuffer?.focusSource?.invoke()}) {Surface {SearchEverywhereView(workspace,commands)}}
     if (workspace.changes.mode != null) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.changes.close(workspace)}) { Surface { WorkspaceChangesView(workspace) } }
     if (workspace.showWorkspaceSearch) androidx.compose.ui.window.Dialog(onDismissRequest = { workspace.showWorkspaceSearch = false; workspace.search.revision = java.util.UUID.randomUUID(); workspace.currentBuffer?.focusSource?.invoke() }) { Surface { WorkspaceSearchView(workspace) } }
     if (connection) AlertDialog(onDismissRequest = { connection = false }, title = { Text("Workspace server") }, text = {
@@ -110,12 +96,12 @@ class MainActivity : ComponentActivity() {
     }, confirmButton = { TextButton(enabled = !workspace.connecting, onClick = { scope.launch { if (workspace.connect()) connection = false } }) { Text("Connect") } },
         dismissButton = { TextButton(onClick = { connection = false }) { Text("Cancel") } })
 }
-@Composable private fun CommandMenu(label: String, commands: List<Pair<String, () -> Unit>>) {
+@Composable private fun CommandMenu(label: String, commands: List<WorkspaceCommand>) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         TextButton(onClick = { expanded = true }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) { Text(label, fontSize = 13.sp) }
         DropdownMenu(expanded, { expanded = false }) {
-            commands.forEach { (name, action) -> DropdownMenuItem(text = { Text(name) }, onClick = { expanded = false; action() }) }
+            commands.forEach { command -> DropdownMenuItem(text = { Text(command.label) },enabled=command.reason==null,onClick = { expanded = false; command.run() }) }
         }
     }
 }

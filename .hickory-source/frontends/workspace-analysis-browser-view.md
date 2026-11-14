@@ -11,13 +11,13 @@ import {createPortal} from "react-dom";
 import type {FileNode} from "../api/types";
 import type {Buffers} from "./buffers";
 import {WorkspaceAnalysis} from "./WorkspaceAnalysis";
-import {useWorkspaceOutlineReader} from "./WorkspaceLanguages";
+import {useWorkspaceAnalysisRunner} from "./WorkspaceLanguages";
 const SHOW="hickory:simple:workspace-analysis";
 export function requestWorkspaceAnalysis(){window.dispatchEvent(new Event(SHOW));}
-export function WorkspaceAnalysisView({buffers,files,focusCurrent}:{buffers:Buffers;files:FileNode[];focusCurrent:()=>void}) {
-  const [model]=useState(()=>new WorkspaceAnalysis());useSyncExternalStore(model.subscribe,model.snapshot);
+export function WorkspaceAnalysisView({buffers,files,model,focusCurrent}:{buffers:Buffers;files:FileNode[];model:WorkspaceAnalysis;focusCurrent:()=>void}) {
+  useSyncExternalStore(model.subscribe,model.snapshot);
   const [visible,setVisible]=useState(false),[query,setQuery]=useState(""),[page,setPage]=useState(0);const panel=useRef<HTMLDivElement>(null);
-  const read=useWorkspaceOutlineReader();
+  const run=useWorkspaceAnalysisRunner(model,buffers,files);
   useEffect(()=>{const show=()=>setVisible(true);window.addEventListener(SHOW,show);return()=>{window.removeEventListener(SHOW,show);model.stop();};},[model]);
   useEffect(()=>{if(visible)panel.current?.focus();},[visible]);
   const close=()=>{setVisible(false);focusCurrent();};
@@ -28,7 +28,7 @@ export function WorkspaceAnalysisView({buffers,files,focusCurrent}:{buffers:Buff
       <button aria-label="Close analysis" onClick={close}>×</button><strong>Workspace analysis</strong>
       <p>{model.completed}/{model.scope.files.length} attempted · {[...model.knowledge.values()].filter(item=>item.source!==undefined).length} sources read · {model.scope.generated} generated and {model.scope.unclassified} unclassified excluded.</p>
       <p>Provider symbols and diagnostics arrive independently. Zero symbols may mean no declarations, unsupported analysis or indexing. This is not verification.</p>
-      <button disabled={model.running} onClick={()=>{void model.run(files,file=>buffers.open(file),async(file,source)=>{const buffer=buffers.values.get(file.path);if(!buffer)throw Error("Source no longer retained. Retry.");return read(buffer,source);});}}>Read workspace</button>
+      <button disabled={model.running} onClick={()=>{void run();}}>Read workspace</button>
       <button disabled={!model.running||model.stopping} onClick={()=>model.stop()}>{model.stopping?"Stopping…":"Stop"}</button>
       <input aria-label="Filter analysis" value={query} onChange={event=>{setQuery(event.target.value);setPage(0);}}/>
       {reports.slice(selected*100,(selected+1)*100).map(item=><div key={item.path}><strong>{item.path}</strong><p>{item.source !== undefined && buffers.values.get(item.path)?.text !== item.source ? "stale" : item.state} · {item.locations.length} symbols · {item.notice}</p></div>)}

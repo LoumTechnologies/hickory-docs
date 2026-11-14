@@ -179,6 +179,8 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         catch (failure: Exception) { if (generation == current && search.revision == request) search.notice = failure.message.orEmpty() }
     }
     var analysis by mutableStateOf(WorkspaceAnalysis()); private set
+    var showEverywhere by mutableStateOf(false)
+    fun runCommand(action:suspend ()->Unit) {workspaceScope.launch {action()}}
     var showAnalysis by mutableStateOf(false)
     fun startAnalysis() {
         val model=analysis;val current=generation;val files=rootFiles
@@ -242,7 +244,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
             agent.turns = emptyList(); agent.error = ""; terminal.id = null; terminal.error = ""
             debugger?.close(); debugger = NativeDebugger(next, workspaceScope)
             debugger?.onLocation = { path, line -> workspaceScope.launch { revealDebug(path, line) } }
-            buffers.values.forEach { it.language?.close() }; languageConnection?.close();languageConnection=null; analysis.stop();analysis=WorkspaceAnalysis();showAnalysis=false;generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); buffers.clear(); loading.values.forEach {it.cancel()}; loading.clear()
+            buffers.values.forEach { it.language?.close() }; languageConnection?.close();languageConnection=null; analysis.stop();analysis=WorkspaceAnalysis();showAnalysis=false;showEverywhere=false;generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); buffers.clear(); loading.values.forEach {it.cancel()}; loading.clear()
             layout = PaneLayout(); focused = "document-group"; status = root
             return true
         } catch (cancelled: CancellationException) { throw cancelled }
@@ -318,7 +320,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         val buffer = buffers[path] ?: return
         if (buffer.dirty && !allowDirty && departed?.path != path) { status = "Save $path and query again before using a cross-file source position."; return }
         val source = buffer.text
-        if (expectedSource != null && source != expectedSource) { status = "Problem source changed. Refresh diagnostics."; return }
+        if (expectedSource != null && source != expectedSource) { status = "Source changed. Refresh the query before navigating."; return }
         val offset = languageOffset(source, org.json.JSONObject().put("line", location.line).put("character", location.character))
             ?: run { status = "Location no longer fits $path. Query again."; return }
         if (buffer.selectSourceRange(offset, offset, source)) { if (recordHistory) navigationTrail = navigationTrail.record(departed, location); buffer.focusSource?.invoke() }

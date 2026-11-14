@@ -1,5 +1,11 @@
 [
   {
+    "id": "file.connect",
+    "label": "Connect…",
+    "group": "File",
+    "requires": "always"
+  },
+  {
     "id": "file.open",
     "label": "Open File",
     "group": "File",
@@ -20,12 +26,6 @@
   {
     "id": "file.window",
     "label": "New Window",
-    "group": "File",
-    "requires": "always"
-  },
-  {
-    "id": "file.connect",
-    "label": "Connect…",
     "group": "File",
     "requires": "always"
   },

@@ -45,6 +45,10 @@ nav summary { list-style: none; cursor: pointer; padding: 3px; }
 .simple-workspace-problems { position: fixed; z-index: 40; right: 8px; top: 32px; width: min(420px, calc(100dvw - 16px)); max-height: calc(100dvh - 64px); overflow: auto; padding: 8px; background: Canvas; color: CanvasText; border: 1px solid GrayText; box-shadow: 0 4px 12px #0003; }
 .simple-workspace-problems > div > button { display: block; width: 100%; overflow-wrap: anywhere; }
 .simple-workspace-problems input { width: 100%; }
+.simple-search-everywhere [role="listbox"] { max-height: 45dvh; overflow: auto; }
+.simple-search-everywhere [role="option"] { display: block; width: 100%; text-align: left; overflow-wrap: anywhere; }
+.simple-search-everywhere [role="option"] small { display: block; font-size: 11px; }
+.simple-search-everywhere [role="option"][aria-selected="true"] { outline: 1px solid Highlight; outline-offset: -1px; }
 .simple-workspace-problems input[type="checkbox"] { width: auto; }
 .simple-workspace-problems pre { overflow: auto; max-height: 240px; font-size: 11px; }
 .simple-workspace-problems select { max-width: 100%; }

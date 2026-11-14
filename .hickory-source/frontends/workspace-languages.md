@@ -91,6 +91,10 @@ export function useWorkspaceOutlineReader() {
     return semanticLocations(result,session.uri).filter(location=>location.uri===session.uri);
   };
 }
+export function useWorkspaceAnalysisRunner(model: import("./WorkspaceAnalysis").WorkspaceAnalysis,buffers: Buffers,files: import("../api/types").FileNode[]) {
+  const read=useWorkspaceOutlineReader();
+  return ()=>model.run(files,file=>buffers.open(file),async(file,source)=>{const buffer=buffers.values.get(file.path);if(!buffer)throw new Error("Source no longer retained. Retry analysis.");return read(buffer,source);});
+}
 export function useHasWorkspaceLanguages() { return useContext(languageContext) !== null; }
 const emptyWorkspace = new WorkspaceLanguages();
 export function useWorkspaceProblems(buffers: Buffers) {

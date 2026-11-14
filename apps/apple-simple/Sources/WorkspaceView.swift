@@ -12,49 +12,17 @@ struct WorkspaceView: View {
     @Environment(\.openWindow) private var openWindow
     @Bindable var workspace: Workspace
     @State private var connection = false
+    private var menuCommands:[WorkspaceCommand] {workspace.commands(ui:["file.window":{openWindow(id:"workspace")},"file.connect":{connection=true}])}
     var body: some View {
         VStack(spacing: 0) {
             #if !os(macOS)
             HStack {
-                Menu("File") {
-                    Button("Connect…") { connection = true }
-                    Button("Open File") { workspace.chooseFileCommand("Open File") }
-                    Button("Open Directory") { workspace.chooseFileCommand("Open Directory") }
-                    Button("New Tab") { workspace.newTab() }
-                    Button("New Window") { openWindow(id: "workspace") }
-                    Button("Save") { Task { await workspace.save() } }.disabled(workspace.currentBuffer == nil)
-                    Button("Save As") { workspace.chooseFileCommand("Save As") }.disabled(workspace.currentBuffer == nil)
-                    Button("Save All") { Task { await workspace.saveAll() } }
-                    Button("Refresh") { Task { await workspace.refresh() } }
-                    Button("Close tab") { if let active = workspace.active { workspace.close(active) } }
-                }
+                Menu("File") {ForEach(menuCommands.filter {$0.group=="File"}) {WorkspaceCommandButton(command:$0)}}
                 Menu("Edit") {
                     EditorNavigationSettings()
-                    Button("Find and replace") { workspace.currentBuffer?.showFind = true }.keyboardShortcut("f").disabled(workspace.currentBuffer == nil)
-                Button("Rename symbol") { workspace.changes.open("rename",workspace:workspace) }.disabled(workspace.currentBuffer == nil)
-                Button("Refactor and quick fixes") { workspace.changes.open("actions",workspace:workspace) }.disabled(workspace.currentBuffer == nil)
-                Button("Preview formatting") { workspace.changes.open("format",workspace:workspace) }.disabled(workspace.currentBuffer == nil)
-                Button("Undo workspace change") { workspace.changes.open("undo",workspace:workspace) }
-                Button("Redo workspace change") { workspace.changes.open("redo",workspace:workspace) }
-                Button("Find in workspace") { workspace.showWorkspaceSearch = true }
-                Button("Problems") { workspace.showProblems = true }
-                Button("Workspace analysis") { workspace.showAnalysis = true }
-                Button("Next problem") { Task { await workspace.navigateProblem(1) } }
-                Button("Previous problem") { Task { await workspace.navigateProblem(-1) } }
-                Button("Navigate back") { Task { await workspace.navigateHistory(-1) } }.disabled(!workspace.navigationTrail.canBack)
-                Button("Navigate forward") { Task { await workspace.navigateHistory(1) } }.disabled(!workspace.navigationTrail.canForward)
-                ForEach(SemanticQuery.allCases) { query in
-                    Button(query.label) { Task { await workspace.currentBuffer?.language?.navigate(query) } }.disabled(workspace.currentBuffer == nil)
+                    ForEach(menuCommands.filter {$0.group=="Edit"}) {WorkspaceCommandButton(command:$0)}
                 }
-                Button("Language tools") {
-                    Task { await workspace.currentBuffer?.language?.inspect() }
-                    Task { await workspace.currentBuffer?.language?.complete() }
-                }.keyboardShortcut(.space, modifiers: .control).disabled(workspace.currentBuffer == nil)
-                Button("Column selection") { workspace.currentBuffer?.selectRectangle() }.disabled(workspace.currentBuffer == nil)
-                Button("Add cursor below") { workspace.currentBuffer?.addCursor(1) }.keyboardShortcut(.downArrow, modifiers: [.command, .option]).disabled(workspace.currentBuffer == nil)
-                Button("Add cursor above") { workspace.currentBuffer?.addCursor(-1) }.keyboardShortcut(.upArrow, modifiers: [.command, .option]).disabled(workspace.currentBuffer == nil)
-                }
-                PaneMenu(workspace: workspace)
+                Menu("View") {ForEach(menuCommands.filter {$0.group=="View"}) {WorkspaceCommandButton(command:$0)}}
                 Spacer()
             }.padding(.horizontal, 8).frame(height: 32)
             Divider()
@@ -75,6 +43,7 @@ struct WorkspaceView: View {
                 Button("⋯") { connection = true }.help("Workspace connection")
             }.font(.system(size: 11)).padding(.horizontal, 8).frame(height: 24)
         }
+        .popover(isPresented:$workspace.showEverywhere) {SearchEverywhereView(workspace:workspace,commands:menuCommands)}
         .sheet(isPresented: Binding(get: { workspace.fileCommand != nil }, set: { if !$0 { workspace.fileCommand = nil; workspace.savingAll = false } })) {
             VStack(alignment: .leading, spacing: 12) {
                 Text(workspace.fileCommand ?? "File").font(.headline)

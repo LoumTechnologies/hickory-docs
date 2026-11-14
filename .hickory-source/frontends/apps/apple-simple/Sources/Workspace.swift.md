@@ -199,6 +199,7 @@ import Observation
         } catch { if generation == current, search.revision == request { search.notice = error.localizedDescription } }
     }
     var analysis = WorkspaceAnalysis()
+    var showEverywhere = false
     var showAnalysis = false
     func startAnalysis() {
         let model=analysis, current=generation, files=rootFiles
@@ -268,7 +269,7 @@ import Observation
             debugger?.close()
             for buffer in buffers.values { buffer.language?.close() }
             languageConnection?.close();languageConnection=nil
-            analysis.stop(); analysis=WorkspaceAnalysis(); showAnalysis=false
+            analysis.stop(); analysis=WorkspaceAnalysis(); showAnalysis=false; showEverywhere=false
             generation = UUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; debugger = NativeDebugger(engine: next)
             debugger?.onLocation = { [weak self] path, line in Task { await self?.revealDebug(path, line: line) } }; files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); buffers = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
             layout = PaneLayout(); focused = "document-group"; status = tree.root
@@ -372,7 +373,7 @@ Foreground file opening and background intelligence share one acquisition path. 
         guard generation == current, active == path, let buffer = buffers[path] else { return }
         if buffer.dirty && !allowDirty && departed?.path != path { status = "Save \(path) and query again before using a cross-file source position."; return }
         let source = buffer.text
-        if let expectedSource, source != expectedSource { status = "Problem source changed. Refresh diagnostics."; return }
+        if let expectedSource, source != expectedSource { status = "Source changed. Refresh the query before navigating."; return }
         guard let offset = languageOffset(source, ["line": location.line, "character": location.character]) else { status = "Location no longer fits \(path). Query again."; return }
         for _ in 0..<20 {
             guard generation == current, buffer.text == source, (!buffer.dirty || allowDirty || departed?.path == path) else { return }

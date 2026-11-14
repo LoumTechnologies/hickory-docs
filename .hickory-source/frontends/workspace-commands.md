@@ -8,6 +8,12 @@ Menus and action search need one vocabulary and one availability decision. The s
 <ui:copy id="simple-workspace-command-descriptors">
 [
   {
+    "id": "file.connect",
+    "label": "Connect…",
+    "group": "File",
+    "requires": "always"
+  },
+  {
     "id": "file.open",
     "label": "Open File",
     "group": "File",
@@ -28,12 +34,6 @@ Menus and action search need one vocabulary and one availability decision. The s
   {
     "id": "file.window",
     "label": "New Window",
-    "group": "File",
-    "requires": "always"
-  },
-  {
-    "id": "file.connect",
-    "label": "Connect…",
     "group": "File",
     "requires": "always"
   },

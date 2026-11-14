@@ -68581,6 +68581,83 @@
       "fragments": [
         "simple-search-everywhere-android-tests"
       ]
+    },
+    "apps/apple-simple/Sources/WorkspaceCommandAdapters.swift": {
+      "source": ".hickory-source/frontends/workspace-command-adapters-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "bc1a05de05c084bc1cef608c9cec7421d6319c9fdb640a1b6f071235febf1e41",
+      "construction": "fragments",
+      "fragments": [
+        "simple-workspace-command-adapters-apple"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/WorkspaceCommandAdapters.kt": {
+      "source": ".hickory-source/frontends/workspace-command-adapters-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "5009aca304e856d6532181a57769c7f732bb8f4a883eec58e97f4ccb22804c8b",
+      "construction": "fragments",
+      "fragments": [
+        "simple-workspace-command-adapters-android"
+      ]
+    },
+    "apps/apple-simple/Sources/SearchEverywhereView.swift": {
+      "source": ".hickory-source/frontends/search-everywhere-apple-view.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "7c748bc1040e1909ef44b50c65730dd07c07a5b7c8721d10d3408768e22aa440",
+      "construction": "fragments",
+      "fragments": [
+        "simple-search-everywhere-apple-view"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SearchEverywhereView.kt": {
+      "source": ".hickory-source/frontends/search-everywhere-android-view.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "ea6fedee9f1cf929741aa9c26e1a8dd082d00a9faecb3f14f5e7bbaeeab7259a",
+      "construction": "fragments",
+      "fragments": [
+        "simple-search-everywhere-android-view"
+      ]
+    },
+    "apps/web/src/simple/SearchEverywhereView.tsx": {
+      "source": ".hickory-source/frontends/search-everywhere-browser-view.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "a868091f3a65b75016e5bc2d1ce18635fe96ae96fa0e42145c475f1d06e9d6d0",
+      "construction": "fragments",
+      "fragments": [
+        "simple-search-everywhere-browser-view"
+      ]
+    },
+    "apps/apple-simple/Tests/SearchEverywhereViewTests.swift": {
+      "source": ".hickory-source/frontends/search-everywhere-apple-view-tests.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "aa12bfc1be0fc2e312f8e27ea96e45a4f470592a0d0fdf1feabdfc3bfaddd772",
+      "construction": "fragments",
+      "fragments": [
+        "simple-search-everywhere-apple-view-tests"
+      ]
+    },
+    "apps/apple-simple/Sources/WorkspaceCommandButton.swift": {
+      "source": ".hickory-source/frontends/workspace-command-button-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "07e15d19078a01f37f04258d2e4c0c75faa6d7658b3eeb85bccab1bdc45f5b62",
+      "construction": "fragments",
+      "fragments": [
+        "simple-workspace-command-button-apple"
+      ]
     }
   },
   "evidence_records": [

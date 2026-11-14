@@ -68,7 +68,7 @@ import { smartEnter, enterMode } from "./SmartEnter";
 import { gutterIconLayout, layoutEditorGutters } from "../editor/gutterIconLayout";
 import { Compartment, EditorState, StateEffect, EditorSelection } from "@codemirror/state";
 import { EditorView, keymap, drawSelection, lineNumbers, rectangularSelection, crosshairCursor } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap, indentMore, indentLess } from "@codemirror/commands";
+import { addCursorAbove, addCursorBelow, defaultKeymap, history, historyKeymap, indentMore, indentLess } from "@codemirror/commands";
 import { codeFolding, foldKeymap, foldService, foldGutter, indentUnit } from "@codemirror/language";
 import { search, searchKeymap, openSearchPanel, SearchQuery, setSearchQuery } from "@codemirror/search";
 import { completionKeymap, startCompletion } from "@codemirror/autocomplete";
@@ -214,6 +214,18 @@ const editors = new WeakMap<Buffer, { view: EditorView; language: Compartment; p
 export const SIMPLE_EDITOR_ATTACHED = "hickory:simple-editor-attached";
 export function editorForBuffer(buffer: Buffer) { return editors.get(buffer); }
 export function openFind(buffer: Buffer) { const view = editors.get(buffer)?.view; if (view) openSearchPanel(view); }
+export function runEditorCommand(buffer: Buffer,command: "tools"|"rectangle"|"cursorBelow"|"cursorAbove") {
+  const view=editors.get(buffer)?.view;if(!view)return false;view.focus();
+  if(command==="tools")return startCompletion(view);
+  if(command==="cursorBelow")return addCursorBelow(view);
+  if(command==="cursorAbove")return addCursorAbove(view);
+  const range=view.state.selection.main,doc=view.state.doc,anchor=doc.lineAt(range.anchor),head=doc.lineAt(range.head);
+  const left=Math.min(range.anchor-anchor.from,range.head-head.from),right=Math.max(range.anchor-anchor.from,range.head-head.from),ranges=[];
+  const column=(text:string,at:number)=>{at=Math.min(at,text.length);return at>0&&at<text.length&&/[\uD800-\uDBFF]/.test(text[at-1])&&/[\uDC00-\uDFFF]/.test(text[at])?at-1:at;};
+  for(let number=Math.min(anchor.number,head.number);number<=Math.max(anchor.number,head.number);number++){const line=doc.line(number);ranges.push(EditorSelection.range(line.from+column(line.text,left),line.from+column(line.text,right)));}
+  view.dispatch({selection:EditorSelection.create(ranges),scrollIntoView:true});return true;
+}
+
 export function Document({ buffer }: { buffer: Buffer }) {
   const host = useRef<HTMLDivElement>(null);
   const [csvReady, setCsvReady] = useState(false);

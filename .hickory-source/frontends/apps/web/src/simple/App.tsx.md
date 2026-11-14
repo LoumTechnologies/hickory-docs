@@ -16,6 +16,10 @@ File commands act on the connected workspace: path entry opens a file or directo
 A document component belongs to one buffer path. Switching tabs mounts the next component around its already cached editor; it does not reuse React state that still points to the previous file's editor. Without that identity boundary, a queued cross-file reveal can be consumed by the detached old editor before the destination mounts. The cache retains selection and undo when the original tab returns.
 
 <ui:copy id="simple-e8a50a27b2-0">
+import { workspaceCommands, type CommandContext } from "./WorkspaceCommands";
+import { SearchEverywhereView } from "./SearchEverywhereView";
+import { WorkspaceAnalysis as WorkspaceAnalysisModel } from "./WorkspaceAnalysis";
+import { runEditorCommand } from "./Document";
 import { WorkspaceChanges, requestWorkspaceChange } from "./WorkspaceChanges";
 import { WorkspaceAnalysisView, requestWorkspaceAnalysis } from "./WorkspaceAnalysisView";
 import { WorkspaceSearch } from "./WorkspaceSearch";
@@ -66,6 +70,8 @@ export function App() {
   const [tree, setTree] = useState<FileNode[]>([]);
   const [workspaceFiles, setWorkspaceFiles] = useState<FileNode[]>([]);
   const [notice, setNotice] = useState("");
+  const [analysis] = useState(() => new WorkspaceAnalysisModel());
+  const [showEverywhere, setShowEverywhere] = useState(false);
   const [showProblems, setShowProblems] = useState(false);
   const [showWorkspaceSearch, setShowWorkspaceSearch] = useState(false);
   const [trail] = useState(() => new NavigationTrail());
@@ -171,7 +177,7 @@ export function App() {
     const file = buffers.values.get(location.path)?.file ?? find(workspaceFiles);
     if (file) { void open(file).then(() => {
       const target = buffers.values.get(file.path); if (!target) return;
-      if (location.expectedSource !== undefined && target.text !== location.expectedSource) { setNotice("Problem source changed. Refresh diagnostics before navigating."); return; }
+      if (location.expectedSource !== undefined && target.text !== location.expectedSource) { setNotice("Source changed. Refresh the query before navigating."); return; }
       if (location.expectedSource === undefined && location.recordHistory !== false && location.character !== undefined && target.dirty && file.path !== buffer?.file.path) { setNotice(`Save ${file.path} and query again before using a cross-file source position.`); return; }
       if (location.recordHistory !== false) {
         const start = { line: location.line - 1, character: location.character ?? 0 };
@@ -258,42 +264,33 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
       document.removeEventListener("wheel", wheel, true);
     };
   }, []);
+  const context:CommandContext={editor:!!buffer,writable:!!buffer&&!buffer.readonly,dirty:buffer?.dirty??false,saving:buffer?.saving??false,back:trail.canBack,forward:trail.canForward,tab:!!active,groups:groups(layout).length};
+  const contextRef=useRef(context);contextRef.current=context;
+  const handlers:Record<string,()=>void>={
+    "file.open":()=>{void openPath();},"file.directory":()=>{void openPath(true);},"file.new":newTab,"file.window":()=>{window.open(window.location.href,"_blank","noopener");},
+    "file.save":()=>{void saveCurrent();},"file.saveAs":()=>{void saveAs();},"file.saveAll":()=>{void saveAll();},"file.refresh":()=>{void loadFiles();},"file.close":()=>{if(active)close(active);},
+    "shell.search":()=>setShowEverywhere(true),"edit.find":()=>{if(buffer)openFind(buffer);},"workspace.find":()=>setShowWorkspaceSearch(true),
+    "symbol.rename":()=>requestWorkspaceChange("rename"),"symbol.actions":()=>requestWorkspaceChange("actions"),"document.format":()=>requestWorkspaceChange("format"),"workspace.undo":()=>requestWorkspaceChange("undo"),"workspace.redo":()=>requestWorkspaceChange("redo"),
+    "workspace.problems":()=>setShowProblems(true),"workspace.analysis":requestWorkspaceAnalysis,"problem.next":()=>requestProblemNavigation(1),"problem.previous":()=>requestProblemNavigation(-1),"navigation.back":()=>navigateHistory(-1),"navigation.forward":()=>navigateHistory(1),
+    "view.files":()=>openTab("files"),"view.agent":()=>openTab("agent"),"view.terminal":()=>{void openTerminal();},"view.splitRight":()=>divide("horizontal"),"view.splitBelow":()=>divide("vertical"),"view.move":nextGroup,
+  };
+  for(const query of semanticQueries)handlers[`semantic.${query.kind}`]=()=>{if(buffer){const text=query.kind==="symbols"?window.prompt("Search workspace symbols",""):"";if(text!==null)openSemanticQuery(buffer,query.kind,text);}};
+  for(const command of ["tools","rectangle","cursorBelow","cursorAbove"] as const)handlers[`editor.${command}`]=()=>{if(buffer&&!runEditorCommand(buffer,command))setNotice("Editor command unavailable. Wait for the editor or language service, then retry.");};
+  const handlersRef=useRef(handlers);handlersRef.current=handlers;
+  const commands=workspaceCommands(()=>contextRef.current,Object.fromEntries(Object.keys(handlers).map(id=>[id,()=>handlersRef.current[id]?.()])));
+  const commandMenu=(group:string)=>commands.filter(command=>command.group===group&&command.id in handlers).map(command=><button key={command.id} disabled={command.reason!==null} title={command.reason??command.label} onClick={command.run}>{command.label}</button>);
   return <SimpleLanguages buffers={buffers}><main>
     {/* Shared gutter controls declare data-tip; mount their delegated reader here. */}
     <TooltipLayer />
     <PlainDebugHosts />
     <RichOwners buffers={buffers} />
     <nav aria-label="Menu" onClick={event => { if ((event.target as HTMLElement).closest("button")) event.currentTarget.querySelectorAll("details[open]").forEach(menu => menu.removeAttribute("open")); }}><details><summary>File</summary><div className="menu">
-      <button onClick={() => { void openPath(); }}>Open File</button>
-      <button onClick={() => { void openPath(true); }}>Open Directory</button>
-      <button onClick={newTab}>New Tab</button>
-      <button onClick={() => window.open(window.location.href, "_blank", "noopener")}>New Window</button>
-      <button disabled={!buffer || buffer.readonly || !buffer.dirty || buffer.saving} onClick={() => { void saveCurrent(); }}>Save</button>
-      <button disabled={!buffer || buffer.saving} onClick={() => { void saveAs(); }}>Save As</button>
-      <button onClick={() => { void saveAll(); }}>Save All</button>
-      <button onClick={() => { void loadFiles(); }}>Refresh</button>
-      <button disabled={!active} onClick={() => active && close(active)}>Close tab</button>
+      {commandMenu("File")}
     </div></details><details><summary>Edit</summary><div className="menu">
-      <button disabled={!buffer} onClick={() => buffer && openFind(buffer)}>Find and replace</button>
-      <button onClick={event => { setShowWorkspaceSearch(true); event.currentTarget.closest("details")?.removeAttribute("open"); }}>Find in workspace</button>
-      <button disabled={!buffer} onClick={event => { requestWorkspaceChange("rename"); event.currentTarget.closest("details")?.removeAttribute("open"); }}>Rename symbol</button>
-      <button disabled={!buffer} onClick={event => { requestWorkspaceChange("actions"); event.currentTarget.closest("details")?.removeAttribute("open"); }}>Refactor and quick fixes</button>
-      <button disabled={!buffer} onClick={event => { requestWorkspaceChange("format"); event.currentTarget.closest("details")?.removeAttribute("open"); }}>Preview formatting</button>
-      <button onClick={() => requestWorkspaceChange("undo")}>Undo workspace change</button>
-      <button onClick={() => requestWorkspaceChange("redo")}>Redo workspace change</button>
-      <button onClick={() => setShowProblems(true)}>Problems</button>
-      <button onClick={requestWorkspaceAnalysis}>Workspace analysis</button>
-      <button onClick={() => requestProblemNavigation(1)}>Next problem</button>
-      <button onClick={() => requestProblemNavigation(-1)}>Previous problem</button>
-      <button disabled={!trail.canBack} onClick={() => navigateHistory(-1)}>Navigate back</button>
-      <button disabled={!trail.canForward} onClick={() => navigateHistory(1)}>Navigate forward</button>
-      {semanticQueries.map(query => <button key={query.kind} disabled={!buffer} onClick={event => { if (buffer) { const text = query.kind === "symbols" ? window.prompt("Search workspace symbols", "") : ""; if (text !== null) openSemanticQuery(buffer, query.kind, text); } event.currentTarget.closest("details")?.removeAttribute("open"); }}>{query.label}</button>)}
+      {commandMenu("Edit")}
       <EditorSettings />
     </div></details><details><summary>View</summary><div className="menu">
-      <button onClick={() => openTab("files")}>Files</button><button onClick={() => openTab("agent")}>Agent</button>
-      <button onClick={() => { void openTerminal(); }}>Terminal</button>
-      <button onClick={() => divide("horizontal")}>Split right</button><button onClick={() => divide("vertical")}>Split below</button>
-      <button disabled={!active || groups(layout).length < 2} onClick={nextGroup}>Move tab to next group</button>
+      {commandMenu("View")}
     </div></details><span className="app-name">Hickory Simple</span></nav>
     <div className="workspace"><LayoutView node={layout} focused={focused} focus={setFocused} label={label} content={content} close={close}
       drop={(tab, target, before) => { setLayout(current => move(current, tab, target, before)); setFocused(target); }}
@@ -303,9 +300,10 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
         if (next !== layout) { setLayout(next); setFocused(id); }
       }}
       resize={(id, ratio) => setLayout(current => update(current, id, node => isGroup(node) ? node : { ...node, ratio }))} /></div>
+    <SearchEverywhereView visible={showEverywhere} setVisible={setShowEverywhere} buffers={buffers} files={workspaceFiles} analysis={analysis} commands={commands} openFile={path=>{const file=buffers.values.get(path)?.file??findPath(path);if(file)void openFileVisit(file);else setNotice("File no longer listed. Refresh the workspace.");}} focusCurrent={()=>{if(buffer)editorForBuffer(buffer)?.view.focus();}} />
     <WorkspaceChanges buffers={buffers} current={() => buffer} focus={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />
     <WorkspaceSearch visible={showWorkspaceSearch} close={() => { setShowWorkspaceSearch(false); if (buffer) editorForBuffer(buffer)?.view.focus(); }} buffers={buffers} files={workspaceFiles} />
-    <footer role="status"><WorkspaceAnalysisView buffers={buffers} files={workspaceFiles} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} /><WorkspaceProblems buffers={buffers} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{notice ? `${notice} · ` : ""}{buffer ? `${buffer.file.name} · ${buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
+    <footer role="status"><WorkspaceAnalysisView buffers={buffers} files={workspaceFiles} model={analysis} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} /><WorkspaceProblems buffers={buffers} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{notice ? `${notice} · ` : ""}{buffer ? `${buffer.file.name} · ${buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
   </main></SimpleLanguages>;
 }
 function Tree({ nodes, open }: { nodes: FileNode[]; open: (file: FileNode) => void }) {

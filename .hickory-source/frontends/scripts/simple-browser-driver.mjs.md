@@ -183,6 +183,27 @@ try {
         case "workspace-search-hit": await page.getByRole("dialog", { name: "Find in workspace", exact: true }).getByRole("button", { name: request.label, exact: true }).click(); break;
         case "workspace-search-notice": value = await page.getByRole("dialog", { name: "Find in workspace", exact: true }).innerText(); break;
         case "workspace-search-close": await page.getByRole("button", { name: "Close workspace search", exact: true }).click(); break;
+        case "everywhere-open":
+          if(request.via==="shortcut")await page.keyboard.press(process.platform==="darwin"?"Meta+p":"Control+p");else await menu("Edit","Search Everywhere");
+          await page.getByRole("dialog",{name:"Search Everywhere",exact:true}).waitFor();break;
+        case "everywhere-query": {
+          const panel=page.getByRole("dialog",{name:"Search Everywhere",exact:true});
+          await panel.getByRole("combobox",{name:"Search scope",exact:true}).selectOption(request.kind??"all");
+          await panel.getByRole("combobox",{name:"Search files, types, members and actions",exact:true}).fill(request.query);break;
+        }
+        case "everywhere-state": {
+          const panel=page.getByRole("dialog",{name:"Search Everywhere",exact:true}),options=panel.getByRole("listbox").getByRole("option");
+          value=await panel.evaluate(node=>{const options=[...node.querySelectorAll('[role="listbox"] [role="option"]')];return {text:node.innerText,options:options.map(item=>item.textContent),disabled:options.filter(item=>item.disabled).length,finished:!node.querySelector('button[aria-label="Read workspace"]').disabled};});
+          if(request.path){value.source=await editor(request.path).innerText();value.identity=await editor(request.path).getAttribute("data-simple-acceptance-identity");value.rect=await editor(request.path).locator("..").evaluate(node=>{const r=node.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};});}break;
+        }
+        case "everywhere-start":await page.getByRole("dialog",{name:"Search Everywhere",exact:true}).getByRole("button",{name:"Read workspace",exact:true}).click();break;
+        case "everywhere-close":await page.getByRole("button",{name:"Close Search Everywhere",exact:true}).click();break;
+        case "everywhere-choose": {
+          const panel=page.getByRole("dialog",{name:"Search Everywhere",exact:true});
+          if(request.keyboard)await panel.getByRole("combobox",{name:"Search files, types, members and actions",exact:true}).press("Enter");else await panel.getByRole("listbox").getByRole("option").nth(request.index??0).click();break;
+        }
+        case "mark-editor":value=await editor(request.path).evaluate(node=>node.dataset.simpleAcceptanceIdentity ||= crypto.randomUUID());break;
+        case "editor-rect":value=await editor(request.path).locator("..").evaluate(node=>{const r=node.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};});break;
         case "analysis-open":
           if(request.via==="menu") await menu("Edit","Workspace analysis");
           else await page.getByRole("button",{name:"Workspace analysis status",exact:true}).click();

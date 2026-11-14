@@ -18,6 +18,7 @@ import SwiftUI
     #if os(macOS)
     @NSApplicationDelegateAdaptor(ApplicationDelegate.self) private var delegate
     #endif
+    private var menuCommands:[WorkspaceCommand] {workspace.commands(ui:["file.window":{openWindow(id:"workspace")},"file.connect":{NotificationCenter.default.post(name:.simpleConnect,object:nil)}])}
     var body: some Scene {
         #if os(macOS)
         WindowGroup("Hickory Simple", id: "workspace") {
@@ -30,49 +31,17 @@ import SwiftUI
                 }
         }.commands {
             CommandGroup(replacing: .newItem) {
-                Button("Connect…") { NotificationCenter.default.post(name: .simpleConnect, object: nil) }
-                Button("Open File") { workspace.chooseFileCommand("Open File") }.keyboardShortcut("o")
-                Button("Open Directory") { workspace.chooseFileCommand("Open Directory") }.keyboardShortcut("o", modifiers: [.command, .shift])
-                Button("New Tab") { workspace.newTab() }.keyboardShortcut("n")
-                Button("New Window") { openWindow(id: "workspace") }.keyboardShortcut("n", modifiers: [.command, .shift])
+                ForEach(menuCommands.filter {["file.connect","file.open","file.directory","file.new","file.window"].contains($0.id)}) {WorkspaceCommandButton(command:$0)}
             }
             CommandGroup(replacing: .saveItem) {
-                Button("Save") { Task { await workspace.save() } }.keyboardShortcut("s").disabled(workspace.currentBuffer == nil || workspace.currentBuffer?.readOnly == true)
-                Button("Save As") { workspace.chooseFileCommand("Save As") }.keyboardShortcut("s", modifiers: [.command, .shift]).disabled(workspace.currentBuffer == nil)
-                Button("Save All") { Task { await workspace.saveAll() } }
-                Button("Refresh") { Task { await workspace.refresh() } }
-                Button("Close tab") { if let active = workspace.active { workspace.close(active) } }.keyboardShortcut("w")
+                ForEach(menuCommands.filter {["file.save","file.saveAs","file.saveAll","file.refresh","file.close"].contains($0.id)}) {WorkspaceCommandButton(command:$0)}
             }
             CommandGroup(after: .textEditing) {
                 EditorNavigationSettings()
-                Button("Find and replace") { workspace.currentBuffer?.showFind = true }.keyboardShortcut("f").disabled(workspace.currentBuffer == nil)
-                Button("Rename symbol") { workspace.changes.open("rename",workspace:workspace) }.disabled(workspace.currentBuffer == nil)
-                Button("Refactor and quick fixes") { workspace.changes.open("actions",workspace:workspace) }.disabled(workspace.currentBuffer == nil)
-                Button("Preview formatting") { workspace.changes.open("format",workspace:workspace) }.disabled(workspace.currentBuffer == nil)
-                Button("Undo workspace change") { workspace.changes.open("undo",workspace:workspace) }
-                Button("Redo workspace change") { workspace.changes.open("redo",workspace:workspace) }
-                Button("Find in workspace") { workspace.showWorkspaceSearch = true }
-                Button("Problems") { workspace.showProblems = true }
-                Button("Workspace analysis") { workspace.showAnalysis = true }
-                Button("Next problem") { Task { await workspace.navigateProblem(1) } }
-                Button("Previous problem") { Task { await workspace.navigateProblem(-1) } }
-                Button("Navigate back") { Task { await workspace.navigateHistory(-1) } }.disabled(!workspace.navigationTrail.canBack)
-                Button("Navigate forward") { Task { await workspace.navigateHistory(1) } }.disabled(!workspace.navigationTrail.canForward)
-                ForEach(SemanticQuery.allCases) { query in
-                    Button(query.label) { Task { await workspace.currentBuffer?.language?.navigate(query) } }.disabled(workspace.currentBuffer == nil)
-                }
-                Button("Language tools") {
-                    Task { await workspace.currentBuffer?.language?.inspect() }
-                    Task { await workspace.currentBuffer?.language?.complete() }
-                }.keyboardShortcut(.space, modifiers: .control).disabled(workspace.currentBuffer == nil)
-                Button("Column selection") { workspace.currentBuffer?.selectRectangle() }.disabled(workspace.currentBuffer == nil)
-                Button("Add cursor below") { workspace.currentBuffer?.addCursor(1) }.keyboardShortcut(.downArrow, modifiers: [.command, .option]).disabled(workspace.currentBuffer == nil)
-                Button("Add cursor above") { workspace.currentBuffer?.addCursor(-1) }.keyboardShortcut(.upArrow, modifiers: [.command, .option]).disabled(workspace.currentBuffer == nil)
+                ForEach(menuCommands.filter {$0.group=="Edit"}) {WorkspaceCommandButton(command:$0)}
             }
             CommandMenu("Panes") {
-                Button("Files") { workspace.show("files") }; Button("Agent") { workspace.show("agent") }; Button("Terminal") { Task { await workspace.openTerminal() } }
-                Button("Split right") { workspace.split("horizontal") }; Button("Split below") { workspace.split("vertical") }
-                Button("Move tab to next group") { workspace.moveToNext() }
+                ForEach(menuCommands.filter {$0.group=="View"}) {WorkspaceCommandButton(command:$0)}
             }
         }
         #else
