@@ -63,6 +63,7 @@ struct WorkspaceView: View {
                 Button("⋯") { connection = true }.help("Workspace connection")
             }.font(.system(size: 11)).padding(.horizontal, 8).frame(height: 24)
         }
+        .popover(isPresented:$workspace.showTests) {TestSourcesView(workspace:workspace).onKeyPress(.escape){workspace.showTests=false;workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:$workspace.showEverywhere) {SearchEverywhereView(workspace:workspace,commands:menuCommands)}
         .sheet(isPresented: Binding(get: { workspace.fileCommand != nil }, set: { if !$0 { workspace.fileCommand = nil; workspace.savingAll = false } })) {
             VStack(alignment: .leading, spacing: 12) {

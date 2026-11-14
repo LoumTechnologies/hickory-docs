@@ -158,4 +158,12 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="test-sources-android.md" />
 
+<ui:include file="test-source-view-browser.md" />
+
+<ui:include file="test-source-view-apple.md" />
+
+<ui:include file="test-source-view-android.md" />
+
+<ui:include file="test-source-browser-witness.md" />
+
 </ui:doc>

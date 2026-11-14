@@ -114,6 +114,12 @@
     "requires": "always"
   },
   {
+    "id": "workspace.tests",
+    "label": "Source tests",
+    "group": "Edit",
+    "requires": "always"
+  },
+  {
     "id": "workspace.analysis",
     "label": "Workspace analysis",
     "group": "Edit",

@@ -199,6 +199,8 @@ import Observation
         } catch { if generation == current, search.revision == request { search.notice = error.localizedDescription } }
     }
     var analysis = WorkspaceAnalysis()
+    var testSources=TestSourcesModel()
+    var showTests=false
     var showEverywhere = false
     var showAnalysis = false
     func startAnalysis() {
@@ -269,7 +271,7 @@ import Observation
             debugger?.close()
             for buffer in buffers.values { buffer.language?.close() }
             languageConnection?.close();languageConnection=nil
-            analysis.stop(); analysis=WorkspaceAnalysis(); showAnalysis=false; showEverywhere=false
+            analysis.stop(); analysis=WorkspaceAnalysis(); showAnalysis=false; showEverywhere=false;showTests=false;testSources=TestSourcesModel()
             generation = UUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; debugger = NativeDebugger(engine: next)
             debugger?.onLocation = { [weak self] path, line in Task { await self?.revealDebug(path, line: line) } }; files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); buffers = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
             layout = PaneLayout(); focused = "document-group"; status = tree.root

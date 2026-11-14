@@ -68806,6 +68806,60 @@
       "fragments": [
         "test-sources-android-witness"
       ]
+    },
+    "apps/web/src/simple/TestSourcesView.tsx": {
+      "source": ".hickory-source/frontends/test-source-view-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "7e89ef8a10c2f07211e6738360dd34693976b3addccb7014b4b38767e527cfde",
+      "construction": "fragments",
+      "fragments": [
+        "source-test-view-browser-0",
+        "source-test-view-browser-1",
+        "source-test-view-browser-2"
+      ]
+    },
+    "apps/apple-simple/Sources/TestSourcesView.swift": {
+      "source": ".hickory-source/frontends/test-source-view-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "9be123cc7e1333c729cbb10af291c7176615e9068601c98c52196bc88920e6f9",
+      "construction": "fragments",
+      "fragments": [
+        "source-test-view-apple-0",
+        "source-test-view-apple-1",
+        "source-test-view-apple-2",
+        "source-test-view-apple-3"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/TestSourcesView.kt": {
+      "source": ".hickory-source/frontends/test-source-view-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "d454323b19b16c252f3ab85755e63ed897a66dda36f7f31352bdc37515ca6ed8",
+      "construction": "fragments",
+      "fragments": [
+        "source-test-view-android-0",
+        "source-test-view-android-1",
+        "source-test-view-android-2",
+        "source-test-view-android-3"
+      ]
+    },
+    "scripts/test-source-tests-browser.py": {
+      "source": ".hickory-source/frontends/test-source-browser-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "1904ab559797d23130610a19508997ea3ef7f39d731c592132e4a9e4c61669af",
+      "construction": "fragments",
+      "fragments": [
+        "source-tests-browser-setup",
+        "source-tests-browser-run",
+        "source-tests-browser-retention"
+      ]
     }
   },
   "evidence_records": [

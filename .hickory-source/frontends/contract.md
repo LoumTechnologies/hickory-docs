@@ -381,4 +381,12 @@ The separate versioned saved-run route recomputes those facts and rechecks both 
 
 Verification: four focused service witnesses, four source-detector witnesses and the C# scope witness passed. The real HTTP witness verifies read-only inspection, foreign compiler origins, stale contributor refusal, strict protocol selection and an actual dependency-free Rust test run in a disposable workspace. TypeScript checking, API codegen consistency and source reconstruction/audit passed. This establishes the common engine protocol; simple-platform testing UI acceptance remains separate work.
 
+## Floating source-test interaction
+
+The shared Edit-menu command opens Source tests on browser, macOS, iOS and Android without resizing the editor. Explicit read-only inspection uses the current source and an optional construction entry; paged candidates retain syntax/heuristic/dynamic confidence and unsupported/partial notices. Name-filter runs and containing runner scopes are separate choices. A model guards relevant draft/workspace identity before execution, while the engine independently guards saved contributors and target bytes. Relevant browser buffer subscriptions also retire observations after further edits to an already-dirty draft.
+
+Closing the floating view retains observed terminal identities and output. A selected run can be refreshed or opened in the existing terminal surface. Each record retains the admission fingerprint, target hash and checked contributor hashes; historical terminal output never becomes current per-case verification. Per-run request tickets reject obsolete output reads. Source navigation verifies the destination's exact hash after loading and carries its matching text through the existing guarded reveal path. Replacing a native workspace replaces its observation model.
+
+Verification: the focused browser flow uses the actual menu and engine to run a dependency-free Rust test, checks real success output, exact source-name caret navigation, admission-history disclosure, retained editor/session identity, stationary editor dimensions, unsaved-draft preservation and stale saved-source refusal. It also checks immediate stale retirement after another edit to an already-dirty buffer. Focused source-model and command checks, TypeScript checking, macOS/Android compilation and the iOS simulator build passed. These checks do not establish native pointer/IME acceptance. Source-adjacent gutter access, structured runner discovery/results, test debugging and coverage integration are subsequent testing work.
+
 </ui:doc>

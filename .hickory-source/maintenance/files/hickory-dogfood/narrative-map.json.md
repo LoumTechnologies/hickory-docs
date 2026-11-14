@@ -151900,6 +151900,104 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/test-sources-android.md",
       "symbol": "test-sources-android-witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-view-browser-0",
+      "output": "apps/web/src/simple/TestSourcesView.tsx",
+      "page": ".hickory-source/frontends/test-source-view-browser.md",
+      "symbol": "source-test-view-browser-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-view-browser-1",
+      "output": "apps/web/src/simple/TestSourcesView.tsx",
+      "page": ".hickory-source/frontends/test-source-view-browser.md",
+      "symbol": "source-test-view-browser-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-view-browser-2",
+      "output": "apps/web/src/simple/TestSourcesView.tsx",
+      "page": ".hickory-source/frontends/test-source-view-browser.md",
+      "symbol": "source-test-view-browser-2",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-view-apple-0",
+      "output": "apps/apple-simple/Sources/TestSourcesView.swift",
+      "page": ".hickory-source/frontends/test-source-view-apple.md",
+      "symbol": "source-test-view-apple-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-view-apple-1",
+      "output": "apps/apple-simple/Sources/TestSourcesView.swift",
+      "page": ".hickory-source/frontends/test-source-view-apple.md",
+      "symbol": "source-test-view-apple-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-view-apple-2",
+      "output": "apps/apple-simple/Sources/TestSourcesView.swift",
+      "page": ".hickory-source/frontends/test-source-view-apple.md",
+      "symbol": "source-test-view-apple-2",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-view-apple-3",
+      "output": "apps/apple-simple/Sources/TestSourcesView.swift",
+      "page": ".hickory-source/frontends/test-source-view-apple.md",
+      "symbol": "source-test-view-apple-3",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-view-android-0",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/TestSourcesView.kt",
+      "page": ".hickory-source/frontends/test-source-view-android.md",
+      "symbol": "source-test-view-android-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-view-android-1",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/TestSourcesView.kt",
+      "page": ".hickory-source/frontends/test-source-view-android.md",
+      "symbol": "source-test-view-android-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-view-android-2",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/TestSourcesView.kt",
+      "page": ".hickory-source/frontends/test-source-view-android.md",
+      "symbol": "source-test-view-android-2",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-view-android-3",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/TestSourcesView.kt",
+      "page": ".hickory-source/frontends/test-source-view-android.md",
+      "symbol": "source-test-view-android-3",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-tests-browser-setup",
+      "output": "scripts/test-source-tests-browser.py",
+      "page": ".hickory-source/frontends/test-source-browser-witness.md",
+      "symbol": "source-tests-browser-setup",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-tests-browser-run",
+      "output": "scripts/test-source-tests-browser.py",
+      "page": ".hickory-source/frontends/test-source-browser-witness.md",
+      "symbol": "source-tests-browser-run",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-tests-browser-retention",
+      "output": "scripts/test-source-tests-browser.py",
+      "page": ".hickory-source/frontends/test-source-browser-witness.md",
+      "symbol": "source-tests-browser-retention",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

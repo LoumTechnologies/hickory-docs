@@ -1,3 +1,5 @@
+import { TestSourcesView } from "./TestSourcesView";
+import type { TestSourcePoint } from "../api/testSources";
 import { workspaceCommands, type CommandContext } from "./WorkspaceCommands";
 import { SearchEverywhereView } from "./SearchEverywhereView";
 import { WorkspaceAnalysis as WorkspaceAnalysisModel } from "./WorkspaceAnalysis";
@@ -53,6 +55,8 @@ export function App() {
   const [workspaceFiles, setWorkspaceFiles] = useState<FileNode[]>([]);
   const [notice, setNotice] = useState("");
   const [analysis] = useState(() => new WorkspaceAnalysisModel());
+  const [showTests,setShowTests]=useState(false);
+  const [workspaceRoot,setWorkspaceRoot]=useState("");
   const [showEverywhere, setShowEverywhere] = useState(false);
   const [showProblems, setShowProblems] = useState(false);
   const [showWorkspaceSearch, setShowWorkspaceSearch] = useState(false);
@@ -108,7 +112,7 @@ export function App() {
     }
   }
   async function loadFiles() {
-    try { const response = await api.files(); setTree(response.tree); setWorkspaceFiles(response.tree); setStatus(response.root); }
+    try { const response = await api.files(); setTree(response.tree); setWorkspaceFiles(response.tree); setWorkspaceRoot(response.root); setStatus(response.root); }
     catch (error) { setNotice(`${String(error)} Start the Hickory backend, then choose Refresh files.`); }
   }
   useEffect(() => { void loadFiles(); }, []);
@@ -246,7 +250,7 @@ export function App() {
     "file.save":()=>{void saveCurrent();},"file.saveAs":()=>{void saveAs();},"file.saveAll":()=>{void saveAll();},"file.refresh":()=>{void loadFiles();},"file.close":()=>{if(active)close(active);},
     "shell.search":()=>setShowEverywhere(true),"edit.find":()=>{if(buffer)openFind(buffer);},"workspace.find":()=>setShowWorkspaceSearch(true),
     "symbol.rename":()=>requestWorkspaceChange("rename"),"symbol.actions":()=>requestWorkspaceChange("actions"),"document.format":()=>requestWorkspaceChange("format"),"workspace.undo":()=>requestWorkspaceChange("undo"),"workspace.redo":()=>requestWorkspaceChange("redo"),
-    "workspace.problems":()=>setShowProblems(true),"workspace.analysis":requestWorkspaceAnalysis,"problem.next":()=>requestProblemNavigation(1),"problem.previous":()=>requestProblemNavigation(-1),"navigation.back":()=>navigateHistory(-1),"navigation.forward":()=>navigateHistory(1),
+    "workspace.tests":()=>setShowTests(true),"workspace.problems":()=>setShowProblems(true),"workspace.analysis":requestWorkspaceAnalysis,"problem.next":()=>requestProblemNavigation(1),"problem.previous":()=>requestProblemNavigation(-1),"navigation.back":()=>navigateHistory(-1),"navigation.forward":()=>navigateHistory(1),
     "view.files":()=>openTab("files"),"view.agent":()=>openTab("agent"),"view.terminal":()=>{void openTerminal();},"view.splitRight":()=>divide("horizontal"),"view.splitBelow":()=>divide("vertical"),"view.move":nextGroup,
   };
   for(const query of semanticQueries)handlers[`semantic.${query.kind}`]=()=>{if(buffer){const text=query.kind==="symbols"?window.prompt("Search workspace symbols",""):"";if(text!==null)openSemanticQuery(buffer,query.kind,text);}};
@@ -275,6 +279,13 @@ export function App() {
         if (next !== layout) { setLayout(next); setFocused(id); }
       }}
       resize={(id, ratio) => setLayout(current => update(current, id, node => isGroup(node) ? node : { ...node, ratio }))} /></div>
+    <TestSourcesView buffers={buffers} visible={showTests} close={()=>{setShowTests(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} current={entry=>buffer?{workspace:workspaceRoot,request:{path:buffer.file.path,source:buffer.text,...(entry?{project_entry:entry}:{}),sources:Object.fromEntries([...buffers.values].filter(([,item])=>!item.readonly).map(([path,item])=>[path,item.text]))}}:null} navigate={async(point:TestSourcePoint)=>{
+      const file=buffers.values.get(point.path)?.file??findPath(point.path);if(!file)throw new Error("Source no longer listed. Refresh files and candidates.");
+      const target=await buffers.open(file),source=target.text;
+      const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(source));const hash=[...new Uint8Array(bytes)].map(byte=>byte.toString(16).padStart(2,"0")).join("");
+      if(target.text!==source||hash!==point.hash.toLowerCase())throw new Error("Source changed. Refresh candidates before navigating.");
+      openLocation(point.path,point.line,point.character,true,source);setShowTests(false);
+    }} terminal={id=>{terminal.id=id;terminal.error="";terminal.publish();openTab("terminal");setShowTests(false);}} />
     <SearchEverywhereView visible={showEverywhere} setVisible={setShowEverywhere} buffers={buffers} files={workspaceFiles} analysis={analysis} commands={commands} openFile={path=>{const file=buffers.values.get(path)?.file??findPath(path);if(file)void openFileVisit(file);else setNotice("File no longer listed. Refresh the workspace.");}} focusCurrent={()=>{if(buffer)editorForBuffer(buffer)?.view.focus();}} />
     <WorkspaceChanges buffers={buffers} current={() => buffer} focus={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />
     <WorkspaceSearch visible={showWorkspaceSearch} close={() => { setShowWorkspaceSearch(false); if (buffer) editorForBuffer(buffer)?.view.focus(); }} buffers={buffers} files={workspaceFiles} />

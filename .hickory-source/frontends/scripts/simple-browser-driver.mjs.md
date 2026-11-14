@@ -125,6 +125,29 @@ try {
           await page.locator("nav").getByText("Edit", { exact: true }).click();
           value = { control: await page.getByRole("combobox", { name: "Ctrl + Left/Right", exact: true }).inputValue(), alt: await page.getByRole("combobox", { name: "Alt/Option + Left/Right", exact: true }).inputValue() };
           await page.locator("nav").getByText("Edit", { exact: true }).click(); break;
+
+        case "source-tests-open": await menu("Edit","Source tests");await page.getByRole("dialog",{name:"Source tests",exact:true}).waitFor();break;
+        case "source-tests-read": {
+          const panel=page.getByRole("dialog",{name:"Source tests",exact:true});await panel.getByRole("button",{name:"Refresh candidates",exact:true}).click();
+          await panel.getByRole("button",{name:"Refresh candidates",exact:true}).waitFor();
+          value={text:await panel.innerText(),runEnabled:await panel.getByRole("button",{name:"Run name filter",exact:true}).first().isEnabled()};break;
+        }
+        case "source-tests-state": {
+          const panel=page.getByRole("dialog",{name:"Source tests",exact:true});value={text:await panel.innerText(),runEnabled:await panel.getByRole("button",{name:"Run name filter",exact:true}).first().isEnabled()};break;
+        }
+        case "source-tests-run": {
+          const panel=page.getByRole("dialog",{name:"Source tests",exact:true});await panel.getByRole("button",{name:"Run name filter",exact:true}).first().click();
+          await page.waitForFunction(()=>{const panel=document.querySelector('.simple-source-tests');return panel && [...panel.querySelectorAll('button')].some(button=>button.textContent==='Run name filter'&&!button.disabled) && !!panel.querySelector('[role="status"]')?.textContent;});
+          value={text:await panel.innerText()};break;
+        }
+        case "source-tests-refresh-run": {
+          const panel=page.getByRole("dialog",{name:"Source tests",exact:true});await panel.getByRole("button",{name:"Refresh this run",exact:true}).click();
+          await page.waitForTimeout(100);value={text:await panel.innerText()};break;
+        }
+        case "source-tests-edit": await editor(request.path).click({position:{x:16,y:8}});await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");await page.keyboard.insertText(request.text);break;
+        case "source-tests-source": await page.getByRole("dialog",{name:"Source tests",exact:true}).getByRole("button",{name:/^Open authored source/}).first().click();await page.getByRole("dialog",{name:"Source tests",exact:true}).waitFor({state:"detached"});break;
+        case "source-tests-revisions": {const panel=page.getByRole("dialog",{name:"Source tests",exact:true});await panel.getByText("Saved revisions checked at admission",{exact:true}).click();value=await panel.innerText();break;}
+        case "source-tests-close": await page.getByRole("button",{name:"Close source tests",exact:true}).click();break;
         case "remember-editor": rememberedEditors.set(request.path, await editor(request.path).elementHandle()); break;
         case "editor-is-retained": value = await editor(request.path).evaluate((node, previous) => node === previous, rememberedEditors.get(request.path)); break;
         case "navigate-history":
