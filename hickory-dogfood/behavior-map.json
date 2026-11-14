@@ -69338,6 +69338,72 @@
       "fragments": [
         "coverage-source-binding-android-witness"
       ]
+    },
+    "apps/web/src/simple/ReferenceSources.ts": {
+      "source": ".hickory-source/mechanisms/reference-source-acquisition.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "4d994805f96be5d5c6221ecf0508cc89a1bb14e465bd8c8374ad02a81c172166",
+      "construction": "fragments",
+      "fragments": [
+        "reference-source-acquisition-browser"
+      ]
+    },
+    "apps/web/src/simple/ReferenceSources.test.ts": {
+      "source": ".hickory-source/mechanisms/reference-source-acquisition.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "1a43381123959cd77e620f31797fae6fd14dd1bb353072d6c7119fd2fefca42e",
+      "construction": "fragments",
+      "fragments": [
+        "reference-source-acquisition-browser-witness"
+      ]
+    },
+    "apps/apple-simple/Sources/ReferenceSources.swift": {
+      "source": ".hickory-source/mechanisms/reference-source-acquisition.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "524ef8d9a1464f18e51a00aa654c0320f153c4ad4939ca88671a331f78e40014",
+      "construction": "fragments",
+      "fragments": [
+        "reference-source-acquisition-apple"
+      ]
+    },
+    "apps/apple-simple/Tests/ReferenceSourcesTests.swift": {
+      "source": ".hickory-source/mechanisms/reference-source-acquisition.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "96a1195a40031b5b33a7890fd63ed6fdc8461c6a6ec30f57a97232331c3d32e5",
+      "construction": "fragments",
+      "fragments": [
+        "reference-source-acquisition-apple-witness"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/ReferenceSources.kt": {
+      "source": ".hickory-source/mechanisms/reference-source-acquisition.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "29ee6bf42fbf143594cfb8a4f9c05fb06e2aad496880537f3c765eefc29e6027",
+      "construction": "fragments",
+      "fragments": [
+        "reference-source-acquisition-android"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/ReferenceSourcesTest.kt": {
+      "source": ".hickory-source/mechanisms/reference-source-acquisition.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "82a0f3428d00346b5b375ec0b36d6ac5658727bc430d2533c57e7621af9351d3",
+      "construction": "fragments",
+      "fragments": [
+        "reference-source-acquisition-android-witness"
+      ]
     }
   },
   "evidence_records": [

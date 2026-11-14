@@ -152404,6 +152404,48 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/coverage-view-android.md",
       "symbol": "coverage-source-binding-android-witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "reference-source-acquisition-browser",
+      "output": "apps/web/src/simple/ReferenceSources.ts",
+      "page": ".hickory-source/mechanisms/reference-source-acquisition.md",
+      "symbol": "reference-source-acquisition-browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "reference-source-acquisition-browser-witness",
+      "output": "apps/web/src/simple/ReferenceSources.test.ts",
+      "page": ".hickory-source/mechanisms/reference-source-acquisition.md",
+      "symbol": "reference-source-acquisition-browser-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "reference-source-acquisition-apple",
+      "output": "apps/apple-simple/Sources/ReferenceSources.swift",
+      "page": ".hickory-source/mechanisms/reference-source-acquisition.md",
+      "symbol": "reference-source-acquisition-apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "reference-source-acquisition-apple-witness",
+      "output": "apps/apple-simple/Tests/ReferenceSourcesTests.swift",
+      "page": ".hickory-source/mechanisms/reference-source-acquisition.md",
+      "symbol": "reference-source-acquisition-apple-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "reference-source-acquisition-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/ReferenceSources.kt",
+      "page": ".hickory-source/mechanisms/reference-source-acquisition.md",
+      "symbol": "reference-source-acquisition-android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "reference-source-acquisition-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/ReferenceSourcesTest.kt",
+      "page": ".hickory-source/mechanisms/reference-source-acquisition.md",
+      "symbol": "reference-source-acquisition-android-witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {
