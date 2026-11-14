@@ -93,6 +93,8 @@ including whitespace before an existing closer, passes the same hidden-source,
 composition and permission checks as other edits. Changing the persisted Enter
 mode affects open editors; the platform retains its own undo transaction.
 
+Source revisions below use the [exact UTF-8 mechanism](../../../../mechanisms/native-source-revisions.md). Swift linguistic equality does not establish identical program bytes. The buffer and language snapshots retain their String-facing renderer API, while exact revision values drive observation and source-derived work.
+
 <ui:copy id="simple-native-search-model">
 struct NativeSourceEdit: Equatable, Sendable { var range: NSRange; var text: String }
 struct NativeSearchRequest: Equatable, Sendable {
@@ -272,9 +274,9 @@ private struct NativeGridCell: View {
     var onEditing: (Bool) -> Void = { _ in }
     @State private var committing = false
     private func commit() {
-        guard !committing, draft != cell.value else { return }
+        guard !committing, !exactUTF8(draft,cell.value) else { return }
         committing = true; defer { committing = false }
-        if buffer.inlineMarkup.source != source || buffer.applyTableEdit?(NativeSourceEdit(range: cell.range, text: inlineCellText(draft, format: cell.format, delimiter: cell.delimiter)), source) != true { notice = "Table changed. Reopen the cell and try again." }
+        if !exactUTF8(buffer.inlineMarkup.source,source) || buffer.applyTableEdit?(NativeSourceEdit(range: cell.range, text: inlineCellText(draft, format: cell.format, delimiter: cell.delimiter)), source) != true { notice = "Table changed. Reopen the cell and try again." }
     }
     var body: some View {
         GridCellField(text: $draft, request: request, readOnly: buffer.readOnly, onFocus: { onEditing(true); onFocus() }, onCommit: { commit(); onEditing(false) },
@@ -299,7 +301,7 @@ struct GridCellField: NSViewRepresentable {
     }
     func updateNSView(_ field: NSTextField, context: Context) {
         context.coordinator.parent = self
-        if field.stringValue != text { field.stringValue = text }
+        if !exactUTF8(field.stringValue,text) { field.stringValue = text }
         field.isEditable = !readOnly; field.isSelectable = true
         guard let request, context.coordinator.applied != request.id else { return }
         DispatchQueue.main.async { [weak field, weak coordinator = context.coordinator] in
@@ -404,7 +406,7 @@ struct GridCellField: UIViewRepresentable {
     }
     func updateUIView(_ field: GridKeyboardField, context: Context) {
         context.coordinator.parent = self
-        if field.text != text { context.coordinator.applyingRequest = true; field.text = text; context.coordinator.applyingRequest = false }
+        if !exactUTF8(field.text,text) { context.coordinator.applyingRequest = true; field.text = text; context.coordinator.applyingRequest = false }
         field.isEnabled = !readOnly
         guard let request, context.coordinator.applied != request.id else { return }
         DispatchQueue.main.async { [weak field, weak coordinator = context.coordinator] in
@@ -445,17 +447,17 @@ struct GridCellField: UIViewRepresentable {
     private var identity = ""
     private var acceptedSource: String?
     private var acceptedRange: NSRange?
-    private var writable: Bool { !buffer.readOnly && (buffer.inlineMarkup.source == source || acceptedSource == source) }
+    private var writable: Bool { !buffer.readOnly && (exactUTF8(buffer.inlineMarkup.source,source) || exactUTF8(acceptedSource,source)) }
     func update(table: InlineTable, source: String) {
         self.table = table; self.source = source
-        if acceptedSource == source, let range = acceptedRange { self.table.range = range }
+        if exactUTF8(acceptedSource,source), let range = acceptedRange { self.table.range = range }
         display()
     }
     init(table: InlineTable, source: String, buffer: DocumentBuffer, onReady: @escaping () -> Void) { self.table = table; self.source = source; self.buffer = buffer; self.onReady = onReady }
     func display() {
         guard ready, NSMaxRange(table.range) <= (source as NSString).length else { return }
         let key = source + "\0" + String(!writable) + "\0" + NSStringFromRange(table.range)
-        if key != identity { identity = key; revision = UUID().uuidString }
+        if !exactUTF8(key,identity) { identity = key; revision = UUID().uuidString }
         var snapshot: [String: Any] = ["revision": revision, "source": (source as NSString).substring(with: table.range), "format": table.rows.first?.first?.format ?? "csv", "delimiter": table.rows.first?.first?.delimiter ?? ",", "readonly": !writable, "header": inlineTableAttribute("header", table: table, source: source) != "false"]
         snapshot["calculationRevision"] = buffer.receiptRevision
         snapshot["language"] = inlineTableAttribute("language", table: table, source: source)
@@ -489,7 +491,7 @@ struct GridCellField: UIViewRepresentable {
             }
             return
         }
-        guard event["revision"] as? String == revision, buffer.text == source else { display(); return }
+        guard event["revision"] as? String == revision, exactUTF8(buffer.text,source) else { display(); return }
         if kind == "height", let height = event["height"] as? Double, height.isFinite {
             buffer.tableHeights[table.id] = min(1200, max(30, height)); buffer.renderMarkup?(); return
         }
@@ -978,13 +980,13 @@ private struct EquationLayout: Equatable {
         if let observer { NotificationCenter.default.removeObserver(observer) }
     }
     func selectSourceRange(_ range: NSRange, source: String) -> Bool {
-        guard text.string == source, buffer.text == source, !text.hasMarkedText(),
+        guard exactUTF8(text.string,source), exactUTF8(buffer.text,source), !text.hasMarkedText(),
               validSourceEdits([NativeSourceEdit(range: range, text: "")], length: (source as NSString).length) else { return false }
         if !buffer.applyingMulti { buffer.clearMulti() }
         buffer.tableSourceVisible = true; unfoldAll(); text.setSelectedRange(range); buffer.selection = range; text.scrollRangeToVisible(range); return true
     }
     func applyTableEdit(_ edit: NativeSourceEdit, source: String) -> Bool {
-        guard buffer.text == source, !buffer.readOnly else { return false }
+        guard exactUTF8(buffer.text,source), !buffer.readOnly else { return false }
         let selection = text.selectedRange(), viewport = scroll.contentView.bounds.origin
         guard applySourceEdits([edit], source: source) else { return false }
         text.setSelectedRange(tableEditSelection(selection, edit: edit))
@@ -993,10 +995,10 @@ private struct EquationLayout: Equatable {
         return true
     }
     func canReflectWorkspaceEdits(_ edits: [NativeSourceEdit], source: String) -> Bool {
-        !buffer.readOnly && text.isEditable && text.string == source && buffer.text == source && !text.hasMarkedText() && validSourceEdits(edits, length: (source as NSString).length)
+        !buffer.readOnly && text.isEditable && exactUTF8(text.string,source) && exactUTF8(buffer.text,source) && !text.hasMarkedText() && validSourceEdits(edits, length: (source as NSString).length)
     }
     func applySourceEdits(_ edits: [NativeSourceEdit], source: String, expectedModelSource: String? = nil) -> Bool {
-        guard !buffer.readOnly, text.isEditable, text.string == source, buffer.text == (expectedModelSource ?? source), !text.hasMarkedText(),
+        guard !buffer.readOnly, text.isEditable, exactUTF8(text.string,source), exactUTF8(buffer.text,expectedModelSource ?? source), !text.hasMarkedText(),
               validSourceEdits(edits, length: (source as NSString).length) else { return false }
         let wasMulti = buffer.applyingMulti; buffer.applyingMulti = true
         if !wasMulti { buffer.clearMulti() }
@@ -1030,7 +1032,7 @@ private struct EquationLayout: Equatable {
     func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
         if buffer.applyingMulti { return true }
         if text.undoManager?.isUndoing == true || text.undoManager?.isRedoing == true { buffer.clearMulti(); unfoldAll(); return true }
-        if buffer.multiSource == buffer.text, buffer.multiRanges.count > 1, let replacementString, !text.hasMarkedText() {
+        if exactUTF8(buffer.multiSource,buffer.text), buffer.multiRanges.count > 1, let replacementString, !text.hasMarkedText() {
             _ = buffer.replaceMultiple(replacementString, affected: affectedCharRange); return false
         }
         if let equation = folding.equations.first(where: { NSIntersectionRange($0.range, affectedCharRange).length > 0 || affectedCharRange.length == 0 && affectedCharRange.location > $0.range.location && NSLocationInRange(affectedCharRange.location, $0.range) }) {
@@ -1092,7 +1094,7 @@ private struct EquationLayout: Equatable {
         manager.ensureLayout(forBoundingRect: visible, in: container)
         let glyphs = manager.glyphRange(forBoundingRect: visible, in: container)
         let visibleCharacters = manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
-        let starts = buffer.inlineMarkup.source == (source as String) ? buffer.inlineMarkup.lineStarts : nil
+        let starts = exactUTF8(buffer.inlineMarkup.source,source as String) ? buffer.inlineMarkup.lineStarts : nil
         var rows: [DebugLine] = []
         manager.enumerateLineFragments(forGlyphRange: glyphs) { rect, _, _, range, _ in
             let offset = manager.characterIndexForGlyph(at: range.location)
@@ -1109,7 +1111,7 @@ private struct EquationLayout: Equatable {
             }
         }
         var selections: [CGRect] = []
-        if buffer.multiSource == text.string, let window = text.window {
+        if exactUTF8(buffer.multiSource,text.string), let window = text.window {
             for range in buffer.multiRanges.dropFirst() where range.location <= NSMaxRange(visibleCharacters) && NSMaxRange(range) >= visibleCharacters.location {
                 let screen = text.firstRect(forCharacterRange: range, actualRange: nil)
                 let rect = text.convert(window.convertFromScreen(screen), from: nil).offsetBy(dx: -scroll.contentView.bounds.minX, dy: -scroll.contentView.bounds.minY)
@@ -1126,11 +1128,11 @@ private struct EquationLayout: Equatable {
         let source = text.string, storage = text.textStorage!
         let manager = text.layoutManager!, container = text.textContainer!
         let previous = folding.equations
-        if mathSource != source {
+        if !exactUTF8(mathSource,source) {
             for host in mathViews.values { host.removeFromSuperview() }
             mathViews = [:]; mathMeasurements = [:]; mathRequests = [:]; mathSource = source
         }
-        let equations = buffer.inlineMarkup.source == source ? buffer.inlineMarkup.equations.filter { equation in
+        let equations = exactUTF8(buffer.inlineMarkup.source,source) ? buffer.inlineMarkup.equations.filter { equation in
             equation.id != buffer.sourceTable && NSMaxRange(equation.renderedRange) <= storage.length &&
                 !folding.ranges.contains(where: { NSIntersectionRange($0, equation.renderedRange).length > 0 })
         } : []
@@ -1142,7 +1144,7 @@ private struct EquationLayout: Equatable {
         for equation in equations where mathViews[equation.id] == nil {
             let request = UUID(); mathRequests[equation.id] = request
             let preview = AnyView(NativeMathView(source: equation.body, inline: !equation.displayBlock, onSize: { [weak self] size in
-                guard let self, self.mathSource == source, self.buffer.text == source,
+                guard let self, exactUTF8(self.mathSource,source), exactUTF8(self.buffer.text,source),
                       self.buffer.sourceTable != equation.id, self.mathRequests[equation.id] == request else { return }
                 if self.mathMeasurements[equation.id] != size {
                     self.mathMeasurements[equation.id] = size
@@ -1189,7 +1191,7 @@ private struct EquationLayout: Equatable {
         let source = text.string, storage = text.textStorage!
         presentMath()
         var grouped: [Int: [InlineEquation]] = [:]
-        let outputs = buffer.recordedOutputPlacements().merging(buffer.runOutputSource == source ? buffer.runOutputs : [:]) { _, live in live }
+        let outputs = buffer.recordedOutputPlacements().merging(exactUTF8(buffer.runOutputSource,source) ? buffer.runOutputs : [:]) { _, live in live }
         var starts = [0]
         for (index, unit) in source.utf16.enumerated() where unit == 10 { starts.append(index + 1) }
         for (line, output) in outputs where starts.indices.contains(line) && starts[line] < storage.length {
@@ -1232,7 +1234,7 @@ private struct EquationLayout: Equatable {
         let storage = text.textStorage!
         let diagrams = !buffer.tableSourceVisible ? tableSnapshot.diagrams.filter { $0.id != buffer.sourceTable } : []
         let changed = diagrams.map(\.range) != folding.diagrams.map(\.range)
-        if diagramSource != source || diagramAnchor != buffer.sourceTable || changed {
+        if !exactUTF8(diagramSource,source) || diagramAnchor != buffer.sourceTable || changed {
             diagramSource = source; diagramAnchor = buffer.sourceTable
             storage.beginEditing()
             let tabs = NSMutableParagraphStyle()
@@ -1287,11 +1289,11 @@ private struct EquationLayout: Equatable {
         let restore = preserveViewport(); defer { restore() }
         let source = text.string
         let storage = text.textStorage!
-        if buffer.inlineMarkup.source == source { tableSnapshot = buffer.inlineMarkup }
+        if exactUTF8(buffer.inlineMarkup.source,source) { tableSnapshot = buffer.inlineMarkup }
         else { tableSnapshot = tablePresentation(tableSnapshot, source: source) }
         let tables: [InlineTable] = !buffer.tableSourceVisible ? inlineTables(tableSnapshot).filter { $0.id != buffer.sourceTable }.map { value in var value = value; value.preferredHeight = buffer.tableHeights[value.id]; return value } : []
         let geometryChanged = folding.tables.map { [$0.range.location, $0.range.length, Int($0.height)] } != tables.map { [$0.range.location, $0.range.length, Int($0.height)] }
-        if tableSource != source || tableSourceVisible != buffer.tableSourceVisible || sourceTable != buffer.sourceTable || geometryChanged {
+        if !exactUTF8(tableSource,source) || tableSourceVisible != buffer.tableSourceVisible || sourceTable != buffer.sourceTable || geometryChanged {
             tableSource = source; tableSourceVisible = buffer.tableSourceVisible; sourceTable = buffer.sourceTable
             storage.beginEditing()
             for table in folding.tables {
@@ -1332,13 +1334,13 @@ private struct EquationLayout: Equatable {
             tableViews[table.id]?.frame = NSRect(x: text.textContainerOrigin.x, y: rect.minY + text.textContainerOrigin.y, width: max(100, text.bounds.width - 16), height: table.height)
         }
         presentDiagrams()
-        if let viewport = tableViewport, buffer.inlineMarkup.source == source {
+        if let viewport = tableViewport, exactUTF8(buffer.inlineMarkup.source,source) {
             tableViewport = nil
             scroll.contentView.scroll(to: viewport); scroll.reflectScrolledClipView(scroll.contentView)
         }
     }
     private func paint(_ tokens: [NativeSemanticToken], source: String) {
-        guard text.string == source, !text.hasMarkedText(), let storage = text.textStorage else { return }
+        guard exactUTF8(text.string,source), !text.hasMarkedText(), let storage = text.textStorage else { return }
         let restore = preserveViewport(); defer { restore() }
         storage.beginEditing()
         storage.addAttribute(.foregroundColor, value: NSColor.textColor, range: NSRange(location: 0, length: storage.length))
@@ -1354,7 +1356,7 @@ private struct EquationLayout: Equatable {
             }
             storage.addAttribute(.foregroundColor, value: color, range: token.range)
         }
-        if buffer.inlineMarkup.source == source && paintedInlineSource != source && (!buffer.inlineMarkup.marks.isEmpty || hadInlineFonts) && (source.utf16.count <= 200_000 || hadInlineFonts) {
+        if exactUTF8(buffer.inlineMarkup.source,source) && !exactUTF8(paintedInlineSource,source) && (!buffer.inlineMarkup.marks.isEmpty || hadInlineFonts) && (source.utf16.count <= 200_000 || hadInlineFonts) {
             storage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: NSRange(location: 0, length: storage.length))
             storage.removeAttribute(.backgroundColor, range: NSRange(location: 0, length: storage.length))
             if source.utf16.count <= 200_000 {
@@ -1410,7 +1412,7 @@ struct NativeEditor: NSViewRepresentable {
         return MacEditorHost(editor.scroll) { [weak editor] in editor?.measureDebugLines() }
     }
     func updateNSView(_ view: NSView, context: Context) {
-        if let editor = EditorCache.views[buffer.id], editor.text.string != buffer.text {
+        if let editor = EditorCache.views[buffer.id], !exactUTF8(editor.text.string,buffer.text) {
             editor.text.string = buffer.text
             editor.text.undoManager?.removeAllActions()
         }
@@ -1489,13 +1491,13 @@ import UIKit
         measureDebugLines()
     }
     func selectSourceRange(_ range: NSRange, source: String) -> Bool {
-        guard text.text == source, buffer.text == source, text.markedTextRange == nil,
+        guard exactUTF8(text.text,source), exactUTF8(buffer.text,source), text.markedTextRange == nil,
               validSourceEdits([NativeSourceEdit(range: range, text: "")], length: (source as NSString).length) else { return false }
         if !buffer.applyingMulti { buffer.clearMulti() }
         buffer.tableSourceVisible = true; unfoldAll(); text.selectedRange = range; buffer.selection = range; text.scrollRangeToVisible(range); return true
     }
     func applyTableEdit(_ edit: NativeSourceEdit, source: String) -> Bool {
-        guard buffer.text == source, !buffer.readOnly else { return false }
+        guard exactUTF8(buffer.text,source), !buffer.readOnly else { return false }
         let selection = text.selectedRange, viewport = text.contentOffset
         guard applySourceEdits([edit], source: source) else { return false }
         text.selectedRange = tableEditSelection(selection, edit: edit)
@@ -1503,10 +1505,10 @@ import UIKit
         return true
     }
     func canReflectWorkspaceEdits(_ edits: [NativeSourceEdit], source: String) -> Bool {
-        !buffer.readOnly && text.isEditable && text.text == source && buffer.text == source && text.markedTextRange == nil && validSourceEdits(edits, length: (source as NSString).length)
+        !buffer.readOnly && text.isEditable && exactUTF8(text.text,source) && exactUTF8(buffer.text,source) && text.markedTextRange == nil && validSourceEdits(edits, length: (source as NSString).length)
     }
     func applySourceEdits(_ edits: [NativeSourceEdit], source: String, expectedModelSource: String? = nil) -> Bool {
-        guard !buffer.readOnly, text.isEditable, text.text == source, buffer.text == (expectedModelSource ?? source), text.markedTextRange == nil,
+        guard !buffer.readOnly, text.isEditable, exactUTF8(text.text,source), exactUTF8(buffer.text,expectedModelSource ?? source), text.markedTextRange == nil,
               validSourceEdits(edits, length: (source as NSString).length) else { return false }
         let replacements: [(UITextRange, String)] = edits.sorted(by: { $0.range.location > $1.range.location }).compactMap { edit in
             guard let start = text.position(from: text.beginningOfDocument, offset: edit.range.location),
@@ -1575,7 +1577,7 @@ import UIKit
             return false
         }
         if textView.undoManager?.isUndoing == true || textView.undoManager?.isRedoing == true { buffer.clearMulti(); unfoldAll(); return true }
-        if buffer.multiSource == buffer.text, buffer.multiRanges.count > 1, textView.markedTextRange == nil {
+        if exactUTF8(buffer.multiSource,buffer.text), buffer.multiRanges.count > 1, textView.markedTextRange == nil {
             _ = buffer.replaceMultiple(text, affected: range); return false
         }
         if tableSourceEditHitsGrid(range, selection: textView.selectedRange, tables: self.text.tableRanges) { return false }
@@ -1601,7 +1603,7 @@ import UIKit
         manager.ensureLayout(forBoundingRect: visible, in: container)
         let glyphs = manager.glyphRange(forBoundingRect: visible, in: container)
         let visibleCharacters = manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
-        let starts = buffer.inlineMarkup.source == (source as String) ? buffer.inlineMarkup.lineStarts : nil
+        let starts = exactUTF8(buffer.inlineMarkup.source,source as String) ? buffer.inlineMarkup.lineStarts : nil
         var rows: [DebugLine] = []
         manager.enumerateLineFragments(forGlyphRange: glyphs) { rect, _, _, range, _ in
             let offset = manager.characterIndexForGlyph(at: range.location)
@@ -1617,7 +1619,7 @@ import UIKit
             }
         }
         var selections: [CGRect] = []
-        if buffer.multiSource == text.text {
+        if exactUTF8(buffer.multiSource,text.text) {
             for range in buffer.multiRanges.dropFirst() where range.location <= NSMaxRange(visibleCharacters) && NSMaxRange(range) >= visibleCharacters.location {
                 guard let start = text.position(from: text.beginningOfDocument, offset: range.location), let end = text.position(from: start, offset: range.length), let target = text.textRange(from: start, to: end) else { continue }
                 let rects = range.length == 0 ? [text.caretRect(for: start)] : text.selectionRects(for: target).map(\.rect)
@@ -1634,11 +1636,11 @@ import UIKit
         let source = text.text ?? "", storage = text.textStorage
         let manager = text.layoutManager, container = text.textContainer
         let previous = folding.equations
-        if mathSource != source {
+        if !exactUTF8(mathSource,source) {
             for host in mathViews.values { host.view.removeFromSuperview() }
             mathViews = [:]; mathMeasurements = [:]; mathRequests = [:]; mathSource = source
         }
-        let equations = buffer.inlineMarkup.source == source ? buffer.inlineMarkup.equations.filter { equation in
+        let equations = exactUTF8(buffer.inlineMarkup.source,source) ? buffer.inlineMarkup.equations.filter { equation in
             equation.id != buffer.sourceTable && NSMaxRange(equation.renderedRange) <= storage.length &&
                 !folding.ranges.contains(where: { NSIntersectionRange($0, equation.renderedRange).length > 0 })
         } : []
@@ -1650,7 +1652,7 @@ import UIKit
         for equation in equations where mathViews[equation.id] == nil {
             let request = UUID(); mathRequests[equation.id] = request
             let preview = AnyView(NativeMathView(source: equation.body, inline: !equation.displayBlock, onSize: { [weak self] size in
-                guard let self, self.mathSource == source, self.buffer.text == source,
+                guard let self, exactUTF8(self.mathSource,source), exactUTF8(self.buffer.text,source),
                       self.buffer.sourceTable != equation.id, self.mathRequests[equation.id] == request else { return }
                 if self.mathMeasurements[equation.id] != size {
                     self.mathMeasurements[equation.id] = size
@@ -1697,7 +1699,7 @@ import UIKit
         let source = text.text ?? "", storage = text.textStorage
         presentMath()
         var grouped: [Int: [InlineEquation]] = [:]
-        let outputs = buffer.recordedOutputPlacements().merging(buffer.runOutputSource == source ? buffer.runOutputs : [:]) { _, live in live }
+        let outputs = buffer.recordedOutputPlacements().merging(exactUTF8(buffer.runOutputSource,source) ? buffer.runOutputs : [:]) { _, live in live }
         var starts = [0]
         for (index, unit) in source.utf16.enumerated() where unit == 10 { starts.append(index + 1) }
         for (line, output) in outputs where starts.indices.contains(line) && starts[line] < storage.length {
@@ -1740,7 +1742,7 @@ import UIKit
         let storage = text.textStorage
         let diagrams = !buffer.tableSourceVisible ? tableSnapshot.diagrams.filter { $0.id != buffer.sourceTable } : []
         let changed = diagrams.map(\.range) != folding.diagrams.map(\.range)
-        if diagramSource != source || diagramAnchor != buffer.sourceTable || changed {
+        if !exactUTF8(diagramSource,source) || diagramAnchor != buffer.sourceTable || changed {
             diagramSource = source; diagramAnchor = buffer.sourceTable
             storage.beginEditing()
             let tabs = NSMutableParagraphStyle()
@@ -1795,11 +1797,11 @@ import UIKit
         let restore = preserveViewport(); defer { restore() }
         let source = text.text ?? ""
         let storage = text.textStorage
-        if buffer.inlineMarkup.source == source { tableSnapshot = buffer.inlineMarkup }
+        if exactUTF8(buffer.inlineMarkup.source,source) { tableSnapshot = buffer.inlineMarkup }
         else { tableSnapshot = tablePresentation(tableSnapshot, source: source) }
         let tables: [InlineTable] = !buffer.tableSourceVisible ? inlineTables(tableSnapshot).filter { $0.id != buffer.sourceTable }.map { value in var value = value; value.preferredHeight = buffer.tableHeights[value.id]; return value } : []
         let geometryChanged = folding.tables.map { [$0.range.location, $0.range.length, Int($0.height)] } != tables.map { [$0.range.location, $0.range.length, Int($0.height)] }
-        if tableSource != source || tableSourceVisible != buffer.tableSourceVisible || sourceTable != buffer.sourceTable || geometryChanged {
+        if !exactUTF8(tableSource,source) || tableSourceVisible != buffer.tableSourceVisible || sourceTable != buffer.sourceTable || geometryChanged {
             tableSource = source; tableSourceVisible = buffer.tableSourceVisible; sourceTable = buffer.sourceTable
             storage.beginEditing()
             for table in folding.tables {
@@ -1840,12 +1842,12 @@ import UIKit
             tableViews[table.id]?.view.frame = CGRect(x: text.textContainerInset.left, y: rect.minY + text.textContainerInset.top, width: max(100, text.bounds.width - text.textContainerInset.left - text.textContainerInset.right), height: table.height)
         }
         presentDiagrams()
-        if let viewport = tableViewport, buffer.inlineMarkup.source == source {
+        if let viewport = tableViewport, exactUTF8(buffer.inlineMarkup.source,source) {
             tableViewport = nil; text.setContentOffset(viewport, animated: false)
         }
     }
     private func paint(_ tokens: [NativeSemanticToken], source: String) {
-        guard text.text == source, text.markedTextRange == nil else { return }
+        guard exactUTF8(text.text,source), text.markedTextRange == nil else { return }
         let storage = text.textStorage
         let restore = preserveViewport(); defer { restore() }
         storage.beginEditing()
@@ -1862,7 +1864,7 @@ import UIKit
             }
             storage.addAttribute(.foregroundColor, value: color, range: token.range)
         }
-        if buffer.inlineMarkup.source == source && paintedInlineSource != source && (!buffer.inlineMarkup.marks.isEmpty || hadInlineFonts) && (source.utf16.count <= 200_000 || hadInlineFonts) {
+        if exactUTF8(buffer.inlineMarkup.source,source) && !exactUTF8(paintedInlineSource,source) && (!buffer.inlineMarkup.marks.isEmpty || hadInlineFonts) && (source.utf16.count <= 200_000 || hadInlineFonts) {
             storage.addAttribute(.font, value: UIFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: NSRange(location: 0, length: storage.length))
             storage.removeAttribute(.backgroundColor, range: NSRange(location: 0, length: storage.length))
             if source.utf16.count <= 200_000 {
@@ -1915,7 +1917,7 @@ struct NativeEditor: UIViewRepresentable {
         return MobileEditorHost(editor.text) { [weak editor] in editor?.measureDebugLines() }
     }
     func updateUIView(_ view: UIView, context: Context) {
-        if let editor = EditorCache.views[buffer.id], editor.text.text != buffer.text {
+        if let editor = EditorCache.views[buffer.id], !exactUTF8(editor.text.text,buffer.text) {
             editor.text.text = buffer.text
             editor.text.undoManager?.removeAllActions()
         }
@@ -2069,7 +2071,7 @@ struct LanguageEditor: View {
                     .accessibilityLabel("Resize right gutter").accessibilityAdjustableAction { direction in railWidth = min(220, max(24, railWidth + (direction == .increment ? 22 : -22))) }
                 NativeDebugRail(buffer: buffer, debug: debugger).frame(width: railWidth)
             }
-        }.onChange(of:buffer.text,initial:true){_,_ in buffer.readTestSources()}
+        }.onChange(of:buffer.sourceRevision,initial:true){_,_ in buffer.readTestSources()}
         .onChange(of: debugger?.output ?? [], initial: true) { _, _ in
             buffer.runOutputSource = buffer.text
             buffer.runOutputs = debugger?.outputPlacements(buffer) ?? [:]
@@ -2095,7 +2097,7 @@ struct LanguageEditor: View {
                             if !language.locationStatus.isEmpty { Text(language.locationStatus).font(.caption).textSelection(.enabled) }
                             ForEach(language.locations) { location in
                                 Button(location.label) { language.open(location) }
-                                    .disabled(location.path == nil || buffer.text != language.locationSource || buffer.selection != language.locationSelection)
+                                    .disabled(location.path == nil || !exactUTF8(buffer.text,language.locationSource) || buffer.selection != language.locationSelection)
                             }
                             if !language.hover.isEmpty || !language.signature.isEmpty {
                                 Text("Last received information; refresh for current position.").font(.caption).foregroundStyle(.secondary)
@@ -2103,9 +2105,9 @@ struct LanguageEditor: View {
                                 if !language.signature.isEmpty { Text(language.signature).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
                             }
                             if !language.diagnostics.isEmpty {
-                                if language.diagnosticSource != buffer.text { Text("Cached diagnostics; refresh pending.").font(.caption) }
+                                if !exactUTF8(language.diagnosticSource,buffer.text) { Text("Cached diagnostics; refresh pending.").font(.caption) }
                                 ForEach(Array(language.diagnostics.prefix(100))) { item in
-                                    if item.range != nil { Button(item.message) { language.reveal(item) }.disabled(language.diagnosticSource != buffer.text) }
+                                    if item.range != nil { Button(item.message) { language.reveal(item) }.disabled(!exactUTF8(language.diagnosticSource,buffer.text)) }
                                     else { Text(item.message + " (server message; source version unavailable)").font(.caption).textSelection(.enabled) }
                                 }
                             }
@@ -2115,7 +2117,7 @@ struct LanguageEditor: View {
                                     ForEach(language.suggestions) { item in
                                         Button { language.accept(item) } label: {
                                             VStack(alignment: .leading) { Text(item.label).font(.system(.body, design: .monospaced)); Text(item.detail).font(.caption).foregroundStyle(.secondary) }
-                                        }.disabled(item.source != buffer.text || item.selection != buffer.selection || buffer.readOnly)
+                                        }.disabled(!exactUTF8(item.source,buffer.text) || item.selection != buffer.selection || buffer.readOnly)
                                     }
                                 }.frame(maxWidth: .infinity, alignment: .leading)
                             }.frame(height: 180)
@@ -2125,7 +2127,7 @@ struct LanguageEditor: View {
                     }.padding() }.frame(width: 350, height: 420)
                 }
         }.overlay(alignment: .topLeading) {
-            if buffer.multiSource == buffer.text && buffer.multiRanges.count > 1 {
+            if exactUTF8(buffer.multiSource,buffer.text) && buffer.multiRanges.count > 1 {
                 HStack {
                     Button("\(buffer.multiRanges.count) selections") { buffer.showMulti = true }
                     Button("×") { buffer.clearMulti() }.accessibilityLabel("Clear selections")
@@ -2169,7 +2171,7 @@ struct InlineCellControl: View {
         HStack {
             TextField("Column \(cell.column + 1)", text: $draft).textFieldStyle(.roundedBorder)
             Button("Apply") {
-                guard draft != cell.value else { return }
+                guard !exactUTF8(draft,cell.value) else { return }
                 if buffer.applySourceEdits?([NativeSourceEdit(range: cell.range, text: inlineCellText(draft, format: cell.format, delimiter: cell.delimiter))], source) != true { notice = "Table changed. Reopen this row and try again." }
             }.disabled(buffer.readOnly)
             if !notice.isEmpty { Text(notice).font(.caption) }
@@ -2186,7 +2188,7 @@ struct NativeDebugRail: View {
     @State private var condition = ""
     private var paused: Int? { debug.sourceMatches(buffer) ? debug.line(in: buffer.file.path) : nil }
     private func embeddedAnchors(_ line: Int) -> [Int] {
-        guard buffer.inlineMarkup.source == buffer.text else { return [] }
+        guard exactUTF8(buffer.inlineMarkup.source,buffer.text) else { return [] }
         return buffer.inlineMarkup.diagrams.filter { $0.line == line }.map(\.id)
             + buffer.inlineMarkup.equations.filter { $0.line == line }.map(\.id)
             + inlineTables(buffer.inlineMarkup).filter { table in buffer.inlineMarkup.lineStarts.lastIndex(where: { $0 <= table.range.location }) == line }.map(\.id)
@@ -2195,8 +2197,8 @@ struct NativeDebugRail: View {
         var result: [String] = []
         if testLines.contains(line){result.append("tests")}
         result += embeddedAnchors(line).map { "source:\($0)" }
-        if buffer.inlineMarkup.source == buffer.text && buffer.inlineMarkup.debug.launch[line] != nil { result.append("debug") }
-        if buffer.inlineMarkup.source == buffer.text && buffer.inlineMarkup.equations.contains(where: { $0.line == line }) { result.append("equation") }
+        if exactUTF8(buffer.inlineMarkup.source,buffer.text) && buffer.inlineMarkup.debug.launch[line] != nil { result.append("debug") }
+        if exactUTF8(buffer.inlineMarkup.source,buffer.text) && buffer.inlineMarkup.equations.contains(where: { $0.line == line }) { result.append("equation") }
         if !buffer.receipts(on: line).isEmpty { result.append("output") }
         if paused == line { result += ["continue", "over", "in", "out", "stop", "inspect"] }
         return result
@@ -2254,7 +2256,7 @@ struct NativeDebugRail: View {
     @ViewBuilder private func controls(_ line: Int) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Line \(line + 1) · \(debug.status)").font(.caption)
-            if buffer.inlineMarkup.source == buffer.text {
+            if exactUTF8(buffer.inlineMarkup.source,buffer.text) {
                 ForEach(Array(buffer.inlineMarkup.equations.filter { $0.line == line }.prefix(4))) { equation in
                     InlineEquationControl(equation: equation, source: buffer.text, buffer: buffer).id("math:\(equation.id):\(buffer.text)")
                 }

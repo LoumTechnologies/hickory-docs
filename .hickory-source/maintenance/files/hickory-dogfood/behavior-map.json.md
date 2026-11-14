@@ -69137,6 +69137,28 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "coverage-projection-shared-fixture"
       ]
+    },
+    "apps/apple-simple/Tests/SourceRevisionTests.swift": {
+      "source": ".hickory-source/mechanisms/native-source-revisions.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "f2ee717805b92e4608a6a75de319671ad20ee1fc094de4beaf905886acf5006d",
+      "construction": "fragments",
+      "fragments": [
+        "native-source-revision-witness"
+      ]
+    },
+    "apps/apple-simple/Sources/SourceRevision.swift": {
+      "source": ".hickory-source/mechanisms/native-source-revisions.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "e4c4644bf1f17e5053c7ce8bd99437f8c0ac6b6628a3f8cf3f6a63ba1ae4bfa1",
+      "construction": "fragments",
+      "fragments": [
+        "native-exact-source-identity"
+      ]
     }
   },
   "evidence_records": [

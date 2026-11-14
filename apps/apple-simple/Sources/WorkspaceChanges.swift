@@ -31,7 +31,7 @@ import Observation
         let sources = workspace.sourceSnapshots()
         captured = (sources,{ [weak self, weak origin, weak language] in
             guard let self, let origin, let language else { return false }
-            return self.revision == request && origin.text == source && origin.selection == selection && origin.language === language && language.proposalIdentity == identity
+            return self.revision == request && exactUTF8(origin.text,source) && origin.selection == selection && origin.language === language && language.proposalIdentity == identity
         })
         plan = nil; choices = []; referencePaths = []; notice = "Preparing complete source changes…"
         let kind = mode ?? "actions", nextName = name

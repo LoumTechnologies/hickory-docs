@@ -18,7 +18,7 @@ struct AnalysisKnowledge: Identifiable {
                 do {
                     let buffer = try await load(file); source = buffer.text
                     let locations = try await outline(file,buffer.text)
-                    let current = buffer.text == source
+                    let current = exactUTF8(buffer.text,source)
                     knowledge[file.path] = AnalysisKnowledge(path:file.path,source:source,locations:current ? locations : [],state:current ? "ready":"stale",notice:current ? "Provider outline returned; diagnostics arrive independently.":"Source changed during analysis. Run again.")
                 } catch { knowledge[file.path] = AnalysisKnowledge(path:file.path,source:source,locations:[],state:"unavailable",notice:error.localizedDescription) }
                 completed += 1
@@ -28,6 +28,6 @@ struct AnalysisKnowledge: Identifiable {
         _ = await (first.value,second.value); running = false; stopping = false; return true
     }
     func current(_ path: String, source: String) -> AnalysisKnowledge? {
-        guard let item = knowledge[path],item.state == "ready",item.source == source else { return nil }; return item
+        guard let item = knowledge[path],item.state == "ready",exactUTF8(item.source,source) else { return nil }; return item
     }
 }

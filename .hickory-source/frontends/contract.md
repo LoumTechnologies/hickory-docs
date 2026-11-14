@@ -419,4 +419,10 @@ A shared projection contract now has TypeScript, Swift and Kotlin representation
 
 Verification: all three implementations pass the same five fixture cases, including the fixture loaded from actual native resource bundles. TypeScript checking, native compilation and reconstruction/audit pass. These witnesses validate projection semantics; editor binding and shared native coverage-surface acceptance remain separate work.
 
+## Exact native source revisions
+
+Apple source identity compares exact UTF-8 rather than Swift's canonical Unicode equality. Normalization-only edits remain dirty and publish buffer/language observation changes; stale source-derived navigation, diagnostics, test hints, table edits and proposed changes retire on the same byte distinction. Renderer-facing String APIs remain intact. This is a source-revision mechanism, not a filesystem path normalization policy.
+
+Verification: five focused Unicode witnesses first reproduced the dirty-state, observation and change-plan failures, then passed with the mechanism. Eleven focused source-revision, source-test/index and workspace-analysis cases pass, and the iOS simulator build succeeds. Reconstruction and ownership audit pass. These checks do not establish native pointer/IME acceptance.
+
 </ui:doc>

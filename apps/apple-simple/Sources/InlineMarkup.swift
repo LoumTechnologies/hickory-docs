@@ -31,7 +31,7 @@ struct InlineTable: Identifiable, Sendable {
     var height: CGFloat { preferredHeight ?? min(420, CGFloat(rows.count + 1) * 30 + 2) }
 }
 func tablePresentation(_ snapshot: InlineSnapshot, source: String) -> InlineSnapshot {
-    if snapshot.source == source { return snapshot }
+    if exactUTF8(snapshot.source,source) { return snapshot }
     let old = Array(snapshot.source.utf16), new = Array(source.utf16)
     var prefix = 0, suffix = 0
     while prefix < min(old.count, new.count), old[prefix] == new[prefix] { prefix += 1 }

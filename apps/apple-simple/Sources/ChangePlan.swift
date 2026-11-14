@@ -1,6 +1,8 @@
 import Foundation
 struct SourceSnapshot { var text: String; var writable: Bool }
-struct SourceReplacement: Equatable { var from: Int; var to: Int; var text: String }
+struct SourceReplacement: Equatable { var from: Int; var to: Int; var text: String
+    static func ==(lhs:Self,rhs:Self)->Bool {lhs.from==rhs.from&&lhs.to==rhs.to&&exactUTF8(lhs.text,rhs.text)}
+}
 struct SourcePatch { var path: String; var before: String; var after: String; var edits: [SourceReplacement] }
 struct ChangePlan { var title: String; var patches: [SourcePatch] }
 private func changeOffset(_ source: String, _ raw: Any?) throws -> Int {
@@ -45,7 +47,7 @@ func planWorkspaceEdit(_ title: String, raw: Any, sources: [String: SourceSnapsh
         let before = sources[path]!.text
         let after = NSMutableString(string: before)
         for item in edits.reversed() { after.replaceCharacters(in: NSRange(location:item.from,length:item.to-item.from), with: item.text) }
-        if before != after as String { patches.append(SourcePatch(path:path,before:before,after:after as String,edits:edits)) }
+        if !exactUTF8(before,after as String) { patches.append(SourcePatch(path:path,before:before,after:after as String,edits:edits)) }
     }
     guard !patches.isEmpty else { throw EngineError(message: "The provider proposed no source changes") }
     return ChangePlan(title:title,patches:patches)
@@ -61,7 +63,7 @@ func invertChangePlan(_ plan: ChangePlan) -> ChangePlan {
     })
 }
 func validateChangePlan(_ plan: ChangePlan, sources: [String: SourceSnapshot]) -> String? {
-    for patch in plan.patches { guard let source = sources[patch.path], source.writable, source.text == patch.before else { return "Source changed, is unavailable, read-only or saving: \(patch.path). Prepare a fresh proposal." } }
+    for patch in plan.patches { guard let source = sources[patch.path], source.writable, exactUTF8(source.text,patch.before) else { return "Source changed, is unavailable, read-only or saving: \(patch.path). Prepare a fresh proposal." } }
     return nil
 }
 func validateReferencedTargets(_ plan: ChangePlan, referencePaths: [String]) throws {

@@ -108,7 +108,7 @@ struct NativeDiagramPreview: View {
     var body: some View {
         if diagram.renderer == "terminal" { NativeInlineTerminal(text: diagram.body, editSource: { buffer.sourceTable = diagram.id }) }
         else { NativeMathView(source: diagram.body, diagramRenderer: diagram.renderer, onSize: { size in
-            guard buffer.text == buffer.inlineMarkup.source, buffer.inlineMarkup.diagrams.contains(where: { $0.id == diagram.id && $0.body == diagram.body }), buffer.diagramSizes[diagram.id] != size else { return }
+            guard exactUTF8(buffer.text,buffer.inlineMarkup.source), buffer.inlineMarkup.diagrams.contains(where: { $0.id == diagram.id && $0.body == diagram.body }), buffer.diagramSizes[diagram.id] != size else { return }
             buffer.diagramSizes[diagram.id] = size; buffer.renderMarkup?()
         }, onLink: { buffer.openDiagramFile?($0) }).background(.background) }
     }

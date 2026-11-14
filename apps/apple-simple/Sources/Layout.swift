@@ -66,7 +66,7 @@ struct PaneLayout {
     mutating func move(_ tab: String, to target: String, before: String? = nil) {
         guard let destination = groups().first(where: { $0.id == target }),
               groups().contains(where: { $0.tabs.contains(tab) }),
-              before == nil || destination.tabs.contains(before!), before != tab else { return }
+              before == nil || destination.tabs.contains(before!), !exactUTF8(before,tab) else { return }
         detach(tab)
         guard var node = nodes[target] else { return }
         let index = before.flatMap { node.tabs.firstIndex(of: $0) } ?? node.tabs.count

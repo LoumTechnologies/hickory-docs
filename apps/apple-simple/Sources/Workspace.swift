@@ -4,11 +4,13 @@ import Observation
 @MainActor @Observable final class DocumentBuffer: Identifiable {
     let id = UUID()
     let file: FileNode
-    var text: String {
-        didSet { let changed = text != base; if dirty != changed { dirty = changed }; if text != oldValue { language?.changed(); refreshInline() } }
+    private var sourceValue:ExactSourceText {
+        didSet {let changed = !exactUTF8(text,base);if dirty != changed {dirty=changed};if sourceValue != oldValue {language?.changed();refreshInline()}}
     }
+    var text:String {get {sourceValue.text} set {sourceValue=ExactSourceText(newValue)}}
+    var sourceRevision:ExactSourceText {sourceValue}
     @ObservationIgnored var base: String {
-        didSet { let changed = text != base; if dirty != changed { dirty = changed } }
+        didSet { let changed = !exactUTF8(text,base); if dirty != changed { dirty = changed } }
     }
     @ObservationIgnored var navigate: ((Double) -> Void)?
     @ObservationIgnored var renderLanguage: (([NativeSemanticToken], String) -> Void)?
@@ -27,16 +29,16 @@ import Observation
         let source = text; receiptNotice = "Loading recorded output…"
         do {
             let page: InlineReceiptPage = try await engine.request("GET", "/api/docs/" + id + "/render")
-            guard text == source, !dirty, page.document == id, page.source_hash.replacingOccurrences(of: "sha256:", with: "") == nativeSourceHash(source) else {
+            guard exactUTF8(text,source), !dirty, page.document == id, page.source_hash.replacingOccurrences(of: "sha256:", with: "") == nativeSourceHash(source) else {
                 receiptNotice = "Recorded output belongs to another source revision. Save or refresh before retrying."; return
             }
             receipts = page.blocks.filter { $0.kind == "exec" }; receiptRevision = UUID().uuidString; receiptSource = source; receiptNotice = ""
-        } catch { if text == source { receiptNotice = "Recorded output unavailable. Retry after checking the server." } }
+        } catch { if exactUTF8(text,source) { receiptNotice = "Recorded output unavailable. Retry after checking the server." } }
     }
     // Recorded execution receipts already carry an exact source-hash check.
     // Their byte spans place the read-only transcript after the producing block.
     func recordedOutputPlacements() -> [Int: String] {
-        guard receiptSource == text, !dirty else { return [:] }
+        guard exactUTF8(receiptSource,text), !dirty else { return [:] }
         let bytes = Array(text.utf8)
         var result: [Int: String] = [:]
         for receipt in receipts where receipt.span.count == 2 && receipt.span[0] >= 0 && receipt.span[1] > receipt.span[0] && receipt.span[1] <= bytes.count {
@@ -47,7 +49,7 @@ import Observation
         return result
     }
     func receipts(on line: Int) -> [InlineReceipt] {
-        guard receiptSource == text, !dirty else { return [] }
+        guard exactUTF8(receiptSource,text), !dirty else { return [] }
         let bytes = Array(text.utf8)
         return receipts.filter { $0.span.count == 2 && $0.span[0] >= 0 && $0.span[1] >= $0.span[0] && $0.span[1] <= bytes.count && bytes.prefix($0.span[0]).filter { $0 == 10 }.count == line }
     }
@@ -68,7 +70,7 @@ import Observation
             guard !Task.isCancelled else { return }
             let job = Task.detached { computeInlineMarkup(source, path: path) }
             let result = await withTaskCancellationHandler(operation: { await job.value }, onCancel: { job.cancel() })
-            guard !Task.isCancelled, let self, self.text == source else { return }
+            guard !Task.isCancelled, let self, exactUTF8(self.text,source) else { return }
             self.inlineMarkup = result; self.renderMarkup?()
         }
     }
@@ -94,24 +96,24 @@ import Observation
         _ = selectMultiple(ranges, source: text)
     }
     func addCursor(_ direction: Int) {
-        let active = multiSource == text ? multiRanges : []
+        let active = exactUTF8(multiSource,text) ? multiRanges : []
         let anchor = (direction > 0 ? active.last : active.first)?.location ?? selection.location
         let pos = languagePosition(text, anchor), rows = text.components(separatedBy: "\n")
         let row = pos["line"]! + direction
         guard rows.indices.contains(row), let offset = languageOffset(text, ["line": row, "character": min(pos["character"]!, rows[row].utf16.count)]) else { return }
-        _ = selectMultiple((multiSource == text && !multiRanges.isEmpty ? multiRanges : [selection]) + [NSRange(location: offset, length: 0)], source: text)
+        _ = selectMultiple((exactUTF8(multiSource,text) && !multiRanges.isEmpty ? multiRanges : [selection]) + [NSRange(location: offset, length: 0)], source: text)
     }
     func clearMulti() { multiSource = ""; multiRanges = []; multiRects = [] }
     func selectMultiple(_ ranges: [NSRange], source: String) -> Bool {
         let sorted = Array(Set(ranges)).sorted { $0.location < $1.location }
-        guard text == source, sorted.count > 1, sorted.count <= 256,
+        guard exactUTF8(text,source), sorted.count > 1, sorted.count <= 256,
               validSourceEdits(sorted.map { NativeSourceEdit(range: $0, text: "") }, length: source.utf16.count) else { return false }
         applyingMulti = true; defer { applyingMulti = false }
         guard selectSourceRange?(sorted[0], source) == true else { return false }
         multiSource = source; multiRanges = sorted; return true
     }
     func replaceMultiple(_ replacement: String, affected: NSRange? = nil) -> Bool {
-        guard !readOnly, multiSource == text, multiRanges.count > 1 else { return false }
+        guard !readOnly, exactUTF8(multiSource,text), multiRanges.count > 1 else { return false }
         let source = text as NSString
         var ranges = multiRanges
         if let affected, let primary = ranges.first, affected != primary {
@@ -157,7 +159,7 @@ import Observation
     private(set) var dirty = false
     var readOnly: Bool { file.generated_by != nil }
     init(file: FileNode, text: FileText) {
-        self.file = file; self.text = text.content; base = text.content; hash = text.hash; refreshInline()
+        self.file = file; self.sourceValue = ExactSourceText(text.content); base = text.content; hash = text.hash; refreshInline()
     }
     func save(using engine: Engine) async {
         guard dirty, !saving, !readOnly else { return }
@@ -210,7 +212,7 @@ import Observation
     var problems: [WorkspaceProblem] {
         buffers.values.sorted { $0.file.path < $1.file.path }.flatMap { buffer -> [WorkspaceProblem] in
             guard let language = buffer.language else { return [] }
-            let matchesSource = language.diagnosticSource == buffer.text
+            let matchesSource = exactUTF8(language.diagnosticSource,buffer.text)
             return language.diagnostics.map { diagnostic in
                 let source: String? = diagnostic.location == nil ? nil : language.diagnosticSource
                 let current = source != nil && matchesSource
@@ -221,7 +223,7 @@ import Observation
     }
     func openProblem(_ problem: WorkspaceProblem, precise: Bool = true) async {
         if !precise { if let buffer = buffers[problem.path] { await open(buffer.file) }; return }
-        guard problem.current, let location = problem.location, let source = problem.source, buffers[problem.path]?.text == source else {
+        guard problem.current, let location = problem.location, let source = problem.source, exactUTF8(buffers[problem.path]?.text,source) else {
             status = "Problem source changed or its location is unversioned. Refresh diagnostics."; showProblems = true; return
         }
         await openSemanticLocation(location, allowDirty: true, expectedSource: source); showProblems = false
@@ -362,10 +364,10 @@ import Observation
         guard generation == current, active == path, let buffer = buffers[path] else { return }
         if buffer.dirty && !allowDirty && departed?.path != path { status = "Save \(path) and query again before using a cross-file source position."; return }
         let source = buffer.text
-        if let expectedSource, source != expectedSource { status = "Source changed. Refresh the query before navigating."; return }
+        if let expectedSource, !exactUTF8(source,expectedSource) { status = "Source changed. Refresh the query before navigating."; return }
         guard let offset = languageOffset(source, ["line": location.line, "character": location.character]) else { status = "Location no longer fits \(path). Query again."; return }
         for _ in 0..<20 {
-            guard generation == current, buffer.text == source, (!buffer.dirty || allowDirty || departed?.path == path) else { return }
+            guard generation == current, exactUTF8(buffer.text,source), (!buffer.dirty || allowDirty || departed?.path == path) else { return }
             if buffer.selectSourceRange?(NSRange(location: offset, length: 0), source) == true { if recordHistory { navigationTrail.record(from: departed, to: location) }; buffer.focusSource?(); return }
             try? await Task.sleep(for: .milliseconds(25))
         }
@@ -435,7 +437,7 @@ import Observation
             let submitted = source.text
             source.saving = true; defer { source.saving = false }
             func finish() {
-                if source.text == submitted { layout.remove(source.file.path); buffers.removeValue(forKey: source.file.path) }
+                if exactUTF8(source.text,submitted) { layout.remove(source.file.path); buffers.removeValue(forKey: source.file.path) }
             }
             do {
                 struct Created: Decodable { var path: String }

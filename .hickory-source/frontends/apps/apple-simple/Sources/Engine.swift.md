@@ -7,6 +7,8 @@ Decode only the fields this frontend needs. The address is explicit runtime conf
 
 Read managed Markdown through its document ID, using the source response without requesting rendering. Plain text retains the hash-based file endpoint. Document saves continue through the room-aware document endpoint with the loaded source baseline.
 
+Source revisions below use the [exact UTF-8 mechanism](../../../../mechanisms/native-source-revisions.md). Swift linguistic equality does not establish identical program bytes. The buffer and language snapshots retain their String-facing renderer API, while exact revision values drive observation and source-derived work.
+
 <ui:copy id="simple-ff9425b170-0">
 import Foundation
 import CryptoKit
@@ -256,24 +258,29 @@ func rebaseNativeTokens(_ tokens: [NativeSemanticToken], from old: String, to ne
     }
 }
 @MainActor @Observable final class NativeLanguage {
-    var symbolQuery = ""
+    private var symbolQueryRevision=ExactSourceText("")
+    var symbolQuery:String {get {symbolQueryRevision.text} set {symbolQueryRevision=ExactSourceText(newValue)}}
     var locations: [SemanticLocation] = []
     var locationStatus = ""
     var locationSymbolQuery: String?
-    var locationSource = ""
+    private var locationSourceRevision=ExactSourceText("")
+    var locationSource:String {get {locationSourceRevision.text} set {locationSourceRevision=ExactSourceText(newValue)}}
     var locationSelection = NSRange(location: 0, length: 0)
     private var navigationID = UUID()
     var status = "Language server connecting…"
     var tokens: [NativeSemanticToken] = []
-    var tokenSource = ""
+    private var tokenSourceRevision=ExactSourceText("")
+    var tokenSource:String {get {tokenSourceRevision.text} set {tokenSourceRevision=ExactSourceText(newValue)}}
     var suggestions: [NativeCompletion] = []
     var showingSuggestions = false
     var diagnostics: [NativeDiagnostic] = []
-    var diagnosticSource = ""
+    private var diagnosticSourceRevision=ExactSourceText("")
+    var diagnosticSource:String {get {diagnosticSourceRevision.text} set {diagnosticSourceRevision=ExactSourceText(newValue)}}
     var hover = ""
     var signature = ""
     var inlayHints: [String] = []
-    var inspectionSource = ""
+    private var inspectionSourceRevision=ExactSourceText("")
+    var inspectionSource:String {get {inspectionSourceRevision.text} set {inspectionSourceRevision=ExactSourceText(newValue)}}
     var inspectionSelection = NSRange(location: 0, length: 0)
     private var diagnosticID = UUID()
     private var inspectionID = UUID()
@@ -316,7 +323,7 @@ func rebaseNativeTokens(_ tokens: [NativeSemanticToken], from old: String, to ne
             let items = params["diagnostics"] as? [[String:Any]] ?? []
             let evidence = items.contains { ($0["data"] as? [String:Any])?["hickory"] != nil }
             if !evidence {
-                guard buffer.text == sent else { return }
+                guard exactUTF8(buffer.text,sent) else { return }
                 if let incoming = params["version"] as? Int, incoming != version { return }
             }
             let source = buffer.text, expectedVersion = version, identity = epoch, request = UUID()
@@ -324,7 +331,7 @@ func rebaseNativeTokens(_ tokens: [NativeSemanticToken], from old: String, to ne
             diagnostics = items.enumerated().map { index,item in NativeDiagnostic(id:index,message:item["message"] as? String ?? "Language diagnostic",severity:item["severity"] as? Int ?? 1,range:nil) }
             Task { [weak self, weak buffer] in
                 let decoded = await Task.detached { decodeNativeDiagnostics(params,source:source,expectedVersion:expectedVersion) }.value
-                guard let self, let buffer, self.epoch == identity, self.diagnosticID == request, buffer.text == source, evidence || self.sent == source else { return }
+                guard let self, let buffer, self.epoch == identity, self.diagnosticID == request, exactUTF8(buffer.text,source), evidence || exactUTF8(self.sent,source) else { return }
                 self.diagnostics = decoded; self.diagnosticSource = source
             }
             return
@@ -349,7 +356,7 @@ Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet
 
 <ui:copy id="simple-apple-language-snapshots">
     private func sync() {
-        guard let text = buffer?.text, text != sent else { return }
+        guard let text = buffer?.text, !exactUTF8(text,sent) else { return }
         sent = text; version += 1
         if let owner=subscription {connection.change(owner:owner,source:text,version:version)}
     }
@@ -372,10 +379,10 @@ Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet
             }
             guard let source = self.buffer?.text else { return }
             for attempt in 0..<5 {
-                guard !Task.isCancelled, self.buffer?.text == source, self.epoch == current else { return }
+                guard !Task.isCancelled, exactUTF8(self.buffer?.text,source), self.epoch == current else { return }
                 do {
                     let result = try await self.request("textDocument/semanticTokens/full", ["textDocument": ["uri": self.uri]]) as? [String: Any]
-                    guard !Task.isCancelled, self.buffer?.text == source, self.epoch == current else { return }
+                    guard !Task.isCancelled, exactUTF8(self.buffer?.text,source), self.epoch == current else { return }
                     let data = result?["data"] as? [Int]
                     let fresh = decodeNativeTokens(data ?? [], legend: self.legend, source: source)
                     if !fresh.isEmpty || (attempt == 4 && data?.isEmpty == true) {
@@ -391,10 +398,10 @@ Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet
     }
     // Background reads depend on source and connection, never the current caret or popup.
     func readOutline(source: String) async throws -> [SemanticLocation] {
-        guard let buffer, buffer.text == source else { throw EngineError(message:"Source changed before analysis. Run again.") }
+        guard let buffer, exactUTF8(buffer.text,source) else { throw EngineError(message:"Source changed before analysis. Run again.") }
         sync(); let current = epoch
         let result = try await request("textDocument/documentSymbol", ["textDocument":["uri":uri]])
-        guard epoch == current, buffer.text == source else { throw EngineError(message:"Source or provider changed during analysis. Run again.") }
+        guard epoch == current, exactUTF8(buffer.text,source) else { throw EngineError(message:"Source or provider changed during analysis. Run again.") }
         return semanticLocations(result,defaultURI:uri).filter {$0.uri == uri}
     }
     func navigate(_ query: SemanticQuery) async {
@@ -415,25 +422,25 @@ Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet
                 guard items.count <= 32 else { throw EngineError(message: "Too many call targets. Choose a more specific symbol.") }
                 var answers: [Any] = []
                 for item in items {
-                    guard navigationID == id, epoch == current, buffer.text == source, buffer.selection == selection else { return }
+                    guard navigationID == id, epoch == current, exactUTF8(buffer.text,source), buffer.selection == selection else { return }
                     answers.append(try await request(query == .callers ? "callHierarchy/incomingCalls" : "callHierarchy/outgoingCalls", ["item": item]))
                 }
                 result = answers
             }
-            guard navigationID == id, epoch == current, buffer.text == source, buffer.selection == selection else {
+            guard navigationID == id, epoch == current, exactUTF8(buffer.text,source), buffer.selection == selection else {
                 if navigationID == id, epoch == current { locationStatus = "Source or cursor changed. Run the query again." }; return
             }
             locations = semanticLocations(result, defaultURI: query == .outline ? uri : nil)
             locationStatus = locations.isEmpty ? "No results. The provider may still be indexing or may not support this query. Retry or choose another symbol." : "\(locations.count) locations\(locations.count >= 10000 ? "; narrow the query for more" : "")"
         } catch {
-            if navigationID == id, epoch == current, buffer.text == source, buffer.selection == selection {
+            if navigationID == id, epoch == current, exactUTF8(buffer.text,source), buffer.selection == selection {
                 locationStatus = "\(query.label) unavailable: \(error.localizedDescription). Retry language services."
             }
         }
     }
     func open(_ location: SemanticLocation) {
-        guard let buffer, buffer.text == locationSource, buffer.selection == locationSelection,
-              locations.contains(location), location.path != nil, locationSymbolQuery == nil || locationSymbolQuery == symbolQuery else {
+        guard let buffer, exactUTF8(buffer.text,locationSource), buffer.selection == locationSelection,
+              locations.contains(location), location.path != nil, locationSymbolQuery == nil || exactUTF8(locationSymbolQuery,symbolQuery) else {
             locationStatus = "Location is stale or outside authored workspace files. Run the query again."; return
         }
         if location.path == buffer.file.path {
@@ -460,7 +467,7 @@ Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet
                     var params: [String: Any] = ["textDocument": ["uri": self.uri], "position": position]
                     if method == "textDocument/inlayHint" { params["range"] = ["start": ["line": 0, "character": 0], "end": languagePosition(source, source.utf16.count)] }
                     guard let result = try? await self.request(method, params), !(result is NSNull), self.epoch == current, self.inspectionID == id,
-                          self.buffer?.text == source, self.buffer?.selection == selection else { return }
+                          exactUTF8(self.buffer?.text,source), self.buffer?.selection == selection else { return }
                     if method == "textDocument/hover" { self.hover = nativeMarkupText((result as? [String: Any])?["contents"]) }
                     if method == "textDocument/signatureHelp" {
                         self.signature = ((result as? [String: Any])?["signatures"] as? [[String: Any]] ?? []).compactMap { $0["label"] as? String }.joined(separator: "\n")
@@ -477,7 +484,7 @@ Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet
         }
     }
     func reveal(_ diagnostic: NativeDiagnostic) {
-        guard let buffer, buffer.text == diagnosticSource, let range = diagnostic.range else { return }
+        guard let buffer, exactUTF8(buffer.text,diagnosticSource), let range = diagnostic.range else { return }
         _ = buffer.selectSourceRange?(range, diagnosticSource)
     }
     var proposalIdentity: UUID { epoch }
@@ -493,7 +500,7 @@ Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet
         default: method = "textDocument/codeAction"; params["range"] = ["start":languagePosition(source,selection.location),"end":languagePosition(source,NSMaxRange(selection))]; params["context"] = ["diagnostics":[]]
         }
         let result = try await request(method,params)
-        guard epoch == identity, buffer.text == source, buffer.selection == selection else { throw EngineError(message: "Source, selection or provider changed. Prepare again.") }
+        guard epoch == identity, exactUTF8(buffer.text,source), buffer.selection == selection else { throw EngineError(message: "Source, selection or provider changed. Prepare again.") }
         return kind == "format" ? ["changes":[uri:result]] : result
     }
     func complete() async {
@@ -506,9 +513,9 @@ Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet
             // The bridge prepares virtual files asynchronously after full-text sync.
             // Keep the popup responsive while typing settles; never use an obsolete position.
             try await Task.sleep(for: .milliseconds(350))
-            guard self.buffer?.text == source, self.buffer?.selection == selection, epoch == current, completionID == id else { return }
+            guard exactUTF8(self.buffer?.text,source), self.buffer?.selection == selection, epoch == current, completionID == id else { return }
             let result = try await request("textDocument/completion", ["textDocument": ["uri": uri], "position": languagePosition(source, selection.location)])
-            guard self.buffer?.text == source, self.buffer?.selection == selection, epoch == current, completionID == id else { return }
+            guard exactUTF8(self.buffer?.text,source), self.buffer?.selection == selection, epoch == current, completionID == id else { return }
             guard !(result is NSNull) else { return }
             let items = result as? [[String: Any]] ?? (result as? [String: Any])?["items"] as? [[String: Any]] ?? []
             let ns = source as NSString
@@ -534,7 +541,7 @@ Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet
         } catch { if epoch == current { status = "Completion unavailable: \(error.localizedDescription)" } }
     }
     func accept(_ completion: NativeCompletion) {
-        guard let buffer, !buffer.readOnly, buffer.text == completion.source, buffer.selection == completion.selection,
+        guard let buffer, !buffer.readOnly, exactUTF8(buffer.text,completion.source), buffer.selection == completion.selection,
               buffer.applyLanguageCompletion?(completion.range, completion.insert, completion.source, completion.selection) == true else {
             status = "Suggestion is out of date. Request completions again."; return
         }
@@ -625,7 +632,7 @@ struct NativeRunOutput: Equatable {
         var result: [Int: String] = [:]
         for chunk in output {
             var anchor = last
-            if let line = chunk.line, chunk.source == buffer.file.path {
+            if let line = chunk.line, exactUTF8(chunk.source,buffer.file.path) {
                 anchor = line
                 if context.code[line] != nil { anchor = blockEnd(line) }
             } else if let program = launchProgram, let end = context.code.filter({ $0.value == program }).keys.max() { anchor = blockEnd(end) }
@@ -633,7 +640,7 @@ struct NativeRunOutput: Equatable {
         }
         return result
     }
-    func sourceMatches(_ buffer: DocumentBuffer) -> Bool { !buffer.dirty && buffer.text == (buffer.file.path == owner ? launchSource : sourceSnapshots[buffer.file.path]) }
+    func sourceMatches(_ buffer: DocumentBuffer) -> Bool { !buffer.dirty && exactUTF8(buffer.text,buffer.file.path == owner ? launchSource : sourceSnapshots[buffer.file.path]) }
     func rememberSource(_ buffer: DocumentBuffer) {
         if active && sourceSnapshots[buffer.file.path] == nil { sourceSnapshots[buffer.file.path] = buffer.base }
     }
@@ -648,7 +655,7 @@ struct NativeRunOutput: Equatable {
             if literate && target == nil {
                 guard let id = buffer.file.doc_id else { message = "Refresh files to discover this document before choosing a file block to debug."; return }
                 let rendered: NativeDebugRender = try await engine.request("GET", "/api/docs/" + id + "/render")
-                guard epoch == current, buffer.text == launchSource, !buffer.dirty else { return }
+                guard epoch == current, exactUTF8(buffer.text,launchSource), !buffer.dirty else { return }
                 targets = rendered.blocks.compactMap { block in
                     guard block.kind == "file", let path = block.path, let span = block.span, span.count == 2,
                           span[0] >= 0, span[1] >= span[0], span[1] <= launchSource.utf8.count else { return nil }
@@ -662,7 +669,7 @@ struct NativeRunOutput: Equatable {
             var query: [String: Any] = ["uri": nativeDebugURI(owner), literate ? "expected_document" : "expected_source": launchSource]
             if let target { query["program"] = target }
             let result: NativeDebugCatalog = try await engine.request("POST", "/api/launch-profiles", body: query)
-            guard epoch == current, buffer.text == launchSource, !buffer.dirty else { return }
+            guard epoch == current, exactUTF8(buffer.text,launchSource), !buffer.dirty else { return }
             catalog = result; profiles = result.profiles.filter(\.can_debug)
             if let automatic = profiles.first(where: { $0.program == (target ?? result.viewed ?? owner) }) ?? (profiles.count == 1 ? profiles.first : nil) { launch(automatic); return }
             message = profiles.isEmpty ? "No debug launch targets. Configure a debug profile in this project and try again." : "Choose a debug target."
@@ -670,7 +677,7 @@ struct NativeRunOutput: Equatable {
     }
     func launch(_ profile: NativeDebugProfile) {
         guard let buffer = launchBuffer, let catalog, profiles.contains(where: { $0.id == profile.id }),
-              buffer.text == launchSource, !buffer.dirty, !buffer.saving, !active else {
+              exactUTF8(buffer.text,launchSource), !buffer.dirty, !buffer.saving, !active else {
             message = "The source or launch target changed. Save and choose Debug again."; return
         }
         status = "starting"; message = ""; profiles = []; values = [:]; variables = []; frames = []; pausedLine = nil; offer = nil

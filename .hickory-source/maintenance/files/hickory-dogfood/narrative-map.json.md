@@ -152271,6 +152271,20 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/coverage-line-projection.md",
       "symbol": "coverage-projection-shared-fixture",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "native-source-revision-witness",
+      "output": "apps/apple-simple/Tests/SourceRevisionTests.swift",
+      "page": ".hickory-source/mechanisms/native-source-revisions.md",
+      "symbol": "native-source-revision-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-exact-source-identity",
+      "output": "apps/apple-simple/Sources/SourceRevision.swift",
+      "page": ".hickory-source/mechanisms/native-source-revisions.md",
+      "symbol": "native-exact-source-identity",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

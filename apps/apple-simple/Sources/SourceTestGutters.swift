@@ -9,7 +9,7 @@ extension Workspace {
         guard !rows.isEmpty else {status="Source changed. Wait for test inspection or use Source tests in Edit.";return}
         let index=sourceTestIndex,source=buffer.text
         await open(buffer.file)
-        guard sourceTestIndex === index,buffer.text==source,currentBuffer === buffer else {return}
+        guard sourceTestIndex === index,exactUTF8(buffer.text,source),currentBuffer === buffer else {return}
         let model=testSources
         model.query=rows.count==1 ? rows[0].candidate.name:"";showTests=true
         await model.refresh(self)
