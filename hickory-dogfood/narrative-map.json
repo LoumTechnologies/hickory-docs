@@ -151654,6 +151654,160 @@
       "page": ".hickory-source/mechanisms/test-source-candidates.md",
       "symbol": "test-source-witness-suffix",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "test-source-protocol-types",
+      "output": "apps/web/src/api/testSources.ts",
+      "page": ".hickory-source/mechanisms/test-source-protocol.md",
+      "symbol": "test-source-protocol-types",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-service-types",
+      "output": "crates/hickory-cli/src/serve/source_tests.rs",
+      "page": ".hickory-source/mechanisms/test-source-service.md",
+      "symbol": "source-test-service-types",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-service-paths",
+      "output": "crates/hickory-cli/src/serve/source_tests.rs",
+      "page": ".hickory-source/mechanisms/test-source-service.md",
+      "symbol": "source-test-service-paths",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-service-identities",
+      "output": "crates/hickory-cli/src/serve/source_tests.rs",
+      "page": ".hickory-source/mechanisms/test-source-service.md",
+      "symbol": "source-test-service-identities",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-service-inputs",
+      "output": "crates/hickory-cli/src/serve/source_tests.rs",
+      "page": ".hickory-source/mechanisms/test-source-service.md",
+      "symbol": "source-test-service-inputs",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-service-analysis",
+      "output": "crates/hickory-cli/src/serve/source_tests.rs",
+      "page": ".hickory-source/mechanisms/test-source-service.md",
+      "symbol": "source-test-service-analysis",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-service-saved-guards",
+      "output": "crates/hickory-cli/src/serve/source_tests.rs",
+      "page": ".hickory-source/mechanisms/test-source-service.md",
+      "symbol": "source-test-service-saved-guards",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-service-run-admission",
+      "output": "crates/hickory-cli/src/serve/source_tests.rs",
+      "page": ".hickory-source/mechanisms/test-source-service.md",
+      "symbol": "source-test-service-run-admission",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-service-http",
+      "output": "crates/hickory-cli/src/serve/source_tests.rs",
+      "page": ".hickory-source/mechanisms/test-source-service.md",
+      "symbol": "source-test-service-http",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-service-test-prefix",
+      "output": "crates/hickory-cli/src/serve/source_tests.rs",
+      "page": ".hickory-source/mechanisms/test-source-service.md",
+      "symbol": "source-test-service-test-prefix",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-service-plain-witness",
+      "output": "crates/hickory-cli/src/serve/source_tests.rs",
+      "page": ".hickory-source/mechanisms/test-source-service.md",
+      "symbol": "source-test-service-plain-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-service-document-witness",
+      "output": "crates/hickory-cli/src/serve/source_tests.rs",
+      "page": ".hickory-source/mechanisms/test-source-service.md",
+      "symbol": "source-test-service-document-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-service-project-witness",
+      "output": "crates/hickory-cli/src/serve/source_tests.rs",
+      "page": ".hickory-source/mechanisms/test-source-service.md",
+      "symbol": "source-test-service-project-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-service-scope-witness",
+      "output": "crates/hickory-cli/src/serve/source_tests.rs",
+      "page": ".hickory-source/mechanisms/test-source-service.md",
+      "symbol": "source-test-service-scope-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-service-test-suffix",
+      "output": "crates/hickory-cli/src/serve/source_tests.rs",
+      "page": ".hickory-source/mechanisms/test-source-service.md",
+      "symbol": "source-test-service-test-suffix",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-run-provider-scope",
+      "output": "crates/hick-plugins/src/testing.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-plugins/src/testing.rs.md",
+      "symbol": "Name the scope a runner actually accepts",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-tests-http-fixture",
+      "output": "scripts/test-source-candidates.py",
+      "page": ".hickory-source/mechanisms/test-source-http-witness.md",
+      "symbol": "source-tests-http-fixture",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-tests-http-readonly",
+      "output": "scripts/test-source-candidates.py",
+      "page": ".hickory-source/mechanisms/test-source-http-witness.md",
+      "symbol": "source-tests-http-readonly",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-tests-http-contributors",
+      "output": "scripts/test-source-candidates.py",
+      "page": ".hickory-source/mechanisms/test-source-http-witness.md",
+      "symbol": "source-tests-http-contributors",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-tests-http-dynamic",
+      "output": "scripts/test-source-candidates.py",
+      "page": ".hickory-source/mechanisms/test-source-http-witness.md",
+      "symbol": "source-tests-http-dynamic",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-tests-http-execution",
+      "output": "scripts/test-source-candidates.py",
+      "page": ".hickory-source/mechanisms/test-source-http-witness.md",
+      "symbol": "source-tests-http-execution",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "csharp-test-scope-witness",
+      "output": "crates/hick-plugins/src/csharp.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-plugins/src/csharp.rs.md",
+      "symbol": "Prove project scope beside a solution",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

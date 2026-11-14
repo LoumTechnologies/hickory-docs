@@ -44,6 +44,7 @@ pub static PLUGIN: Plugin = Plugin {
         Interface::TestRunner {
             plan: test_command,
             detect: Some(crate::testing::candidates::python),
+            scope: crate::testing::Scope::File,
         },
         Interface::Formula(FormulaBackend {
             language: "python",

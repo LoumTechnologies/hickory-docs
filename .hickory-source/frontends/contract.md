@@ -373,4 +373,12 @@ Apple and Android retain per-buffer language knowledge while borrowing one works
 
 The shared local wire fixture exercises Hickory channel framing with actual native WebSocket clients; it does not simulate a language provider or establish provider semantics. The separate rebuilt-engine/provider witnesses remain the evidence for semantic reads, refactorings and source-bound diagnostics.
 
+## Source-backed test facts and saved-run admission
+
+The shared engine exposes read-only source test candidates for plain files, local literate constructions and an explicitly chosen project closure. Syntax-backed candidates retain separate authored and runtime locations; heuristic and dynamic declarations stay labeled. Candidate identity binds the workspace, input fingerprints, target bytes and provider runner scope. Optional capture registers compiler output in memory without materialization. Source candidates are not confirmed runner case IDs or test results.
+
+The separate versioned saved-run route recomputes those facts and rechecks both target and authored contributor bytes before opening a terminal. Unknown execution modes/fields, stale scans and dynamic name-filter selections refuse admission. Files remain mutable during execution; admission does not claim frozen source. JavaScript literal names are escaped as runner regex filters. C# planning names one explicit project and refuses ambiguous project ownership.
+
+Verification: four focused service witnesses, four source-detector witnesses and the C# scope witness passed. The real HTTP witness verifies read-only inspection, foreign compiler origins, stale contributor refusal, strict protocol selection and an actual dependency-free Rust test run in a disposable workspace. TypeScript checking, API codegen consistency and source reconstruction/audit passed. This establishes the common engine protocol; simple-platform testing UI acceptance remains separate work.
+
 </ui:doc>

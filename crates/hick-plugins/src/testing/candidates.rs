@@ -15,7 +15,7 @@ pub struct TestCandidate {
     pub character: u32,
     pub byte: usize,
     pub name: String,
-    /// A declaration/family name filter, never a confirmed runner case ID.
+    /// A provider-planned declaration/family filter, never a confirmed runner case ID.
     pub name_filter: Option<String>,
     pub confidence: Confidence,
 }
@@ -179,6 +179,16 @@ pub fn rust(language: &str, source: &str) -> Result<CandidateScan, String> {
         test.then(|| named(node, source)).flatten()
     })
 }
+fn literal_pattern(value: &str) -> String {
+    let mut pattern = String::new();
+    for scalar in value.chars() {
+        if r"\^$.*+?()[]{}|".contains(scalar) {
+            pattern.push('\\');
+        }
+        pattern.push(scalar);
+    }
+    pattern
+}
 fn test_callee(mut node: Node<'_>, source: &str) -> Option<bool> {
     let mut parameterized = false;
     for _ in 0..128 {
@@ -243,7 +253,7 @@ pub fn javascript(language: &str, source: &str) -> Result<CandidateScan, String>
         Some(Found {
             byte: node.start_byte(),
             name: display.clone(),
-            filter: (!dynamic).then_some(display),
+            filter: (!dynamic).then(|| literal_pattern(&display)),
             confidence: if dynamic {
                 Confidence::Dynamic
             } else {
@@ -407,7 +417,7 @@ mod tests {
     }
     #[test]
     fn script_candidates_preserve_dynamic_names_and_utf16_positions() {
-        let source = "// it('comment',()=>{});\nconst example=\"test('string',()=>{})\";\nit.only('works',()=>{});\ntest . each([[1]])('number %s',()=>{});\ntest('escaped\\nname',()=>{});\ntest . skipIf(false)('conditional',()=>{});\n";
+        let source = "// it('comment',()=>{});\nconst example=\"test('string',()=>{})\";\nit.only('works',()=>{});\ntest . each([[1]])('number %s',()=>{});\ntest('escaped\\nname',()=>{});\ntest . skipIf(false)('conditional',()=>{});\nit('total (tax)',()=>{});\n";
         let scan = detect("typescript", source).unwrap();
         assert_eq!(
             scan.candidates[..3]
@@ -422,10 +432,15 @@ mod tests {
                 .iter()
                 .all(|c| c.name_filter.is_none() && c.confidence == Confidence::Dynamic)
         );
-        assert_eq!(scan.candidates.len(), 4);
+        assert_eq!(scan.candidates.len(), 5);
         assert_eq!(
             scan.candidates[3].name_filter.as_deref(),
             Some("conditional")
+        );
+        assert_eq!(scan.candidates[4].name, "total (tax)");
+        assert_eq!(
+            scan.candidates[4].name_filter.as_deref(),
+            Some(r"total \(tax\)")
         );
         let unicode = detect("javascript", "\"😀\"; it(\"shown\",()=>{});").unwrap();
         assert_eq!(unicode.candidates[0].byte, 8);

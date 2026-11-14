@@ -34,6 +34,7 @@ pub static PLUGIN: Plugin = Plugin {
         Interface::TestRunner {
             plan: test_command,
             detect: Some(crate::testing::candidates::javascript),
+            scope: crate::testing::Scope::FileFilter,
         },
         Interface::Formula(FormulaBackend {
             language: "javascript",

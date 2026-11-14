@@ -174,6 +174,8 @@ export function generatedApi(request: typeof Request) { return {
   terminalScreen: (id: Parameters<ApiRoutes["terminalScreen"]>[0], offset: Parameters<ApiRoutes["terminalScreen"]>[1], revision: Parameters<ApiRoutes["terminalScreen"]>[2]) => request<Response<"terminalScreen">>("GET", "/api/terminals/" + id + "/output?view=screen&offset=" + offset + "&limit=16384&revision=" + encodeURIComponent(revision) + ""),
 /** Run one test (or a file's tests) in a terminal session named after it.
    * See crates/hickory-cli/src/serve/test_run.rs. */
+  sourceTestCandidates: (body: Parameters<ApiRoutes["sourceTestCandidates"]>[0]) => request<Response<"sourceTestCandidates">>("POST", "/api/tests/source-candidates", body),
+  runSourceTest: (body: Parameters<ApiRoutes["runSourceTest"]>[0]) => request<Response<"runSourceTest">>("POST", "/api/tests/run-source", body),
   runTest: (body: Parameters<ApiRoutes["runTest"]>[0]) => request<Response<"runTest">>("POST", "/api/tests/run", body),
   closeTerminal: (id: Parameters<ApiRoutes["closeTerminal"]>[0]) => request<Response<"closeTerminal">>("DELETE", "/api/terminals/" + id + ""),
   terminalResize: (id: Parameters<ApiRoutes["terminalResize"]>[0], rows: Parameters<ApiRoutes["terminalResize"]>[1], cols: Parameters<ApiRoutes["terminalResize"]>[2]) => request<Response<"terminalResize">>("POST", "/api/terminals/" + id + "/resize", { rows, cols }),

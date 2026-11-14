@@ -287,4 +287,7 @@ is included with that control; opening a document is not generation authority.
 <storycode:include file="dev-commit-restarts.md" />
 
 <storycode:include file="test-source-candidates.md" />
+<storycode:include file="test-source-service.md" />
+<storycode:include file="test-source-protocol.md" />
+<storycode:include file="test-source-http-witness.md" />
 </storycode:doc>

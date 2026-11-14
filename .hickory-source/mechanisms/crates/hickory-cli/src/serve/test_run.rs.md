@@ -69,22 +69,23 @@ pub struct RunBody {
     /// The file, relative to the open folder.
     pub path: String,
     /// The test's name as written — `fn name`, `it("name")`, `def test_x`.
-    /// Empty means every test in the file.
+    /// Empty means the provider's containing scope (file, crate, package or project).
     #[serde(default)]
     pub name: String,
     /// The language id the editor routed the file to.
     pub language: String,
     /// Optional current-buffer fingerprint; checked against saved bytes before admission.
     pub expected_source_hash: Option<String>,
+    /// Optional source contributors captured by the compiler-backed candidate scan.
+    #[serde(default)]
+    pub expected_sources: std::collections::BTreeMap<String, String>,
 }
-
 </storycode:copy>
 <a id="f-c99ee9641f1f-use_declaration"></a>
 ### `use_declaration`
 
 <storycode:copy id="f-c99ee9641f1f-use_declaration">
 pub use hick_plugins::testing::{TestCommand, test_command};
-
 </storycode:copy>
 <a id="f-c99ee9641f1f-run"></a>
 ### `run`
@@ -118,7 +119,7 @@ pub async fn run(
     let file = root.join(&body.path);
     if !file.is_file() {
         return Err(ApiError::not_found(format!(
-            "{} is not a file here",
+            "No saved test file at {}. Save or regenerate it before running.",
             body.path
         )));
     }
@@ -140,11 +141,13 @@ pub async fn run(
             ));
         }
         if !source_hash.eq_ignore_ascii_case(expected) {
-            return Err(ApiError::conflict(
-                "The editor differs from the saved test source. Save or reload before running this test",
-            ));
+            return Err(ApiError::conflict(format!(
+                "Saved test code {} differs from the requested source. Save source changes or regenerate constructed code, then refresh candidates and retry.",
+                body.path
+            )));
         }
     }
+    let checked_sources = super::source_tests::check_saved_sources(&root, &body.expected_sources)?;
     let command =
         test_command(&root, &file, &body.name, &body.language).map_err(ApiError::unprocessable)?;
     let cwd = command
@@ -173,9 +176,9 @@ pub async fn run(
     reply["source_hash"] = json!(source_hash);
     reply["source_checked_at_admission"] = json!(body.expected_source_hash.is_some());
     reply["source_frozen"] = json!(false);
+    reply["checked_sources"] = json!(checked_sources);
     Ok(Json(reply))
 }
-
 </storycode:copy>
 <a id="f-c99ee9641f1f-tests"></a>
 ### `tests`

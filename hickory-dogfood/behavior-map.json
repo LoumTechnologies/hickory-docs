@@ -46491,7 +46491,8 @@
         "f-e6a9a65f387a-LSP_INSTALLER",
         "f-e6a9a65f387a-DAP_INSTALLER",
         "f-e6a9a65f387a-NETCOREDBG",
-        "f-e6a9a65f387a-test_command"
+        "f-e6a9a65f387a-test_command",
+        "csharp-test-scope-witness"
       ],
       "anchor": "output-e6a9a65f387a",
       "narrative_owner": "mechanism:crates/hick-plugins"
@@ -47552,7 +47553,8 @@
         "f-9a1aec043cf8-nearest",
         "f-9a1aec043cf8-nearest_glob",
         "f-9a1aec043cf8-test_command",
-        "test-source-candidates-module"
+        "test-source-candidates-module",
+        "test-run-provider-scope"
       ],
       "anchor": "output-9a1aec043cf8",
       "narrative_owner": "mechanism:crates/hick-plugins"
@@ -68681,6 +68683,56 @@
         "test-source-script-witness",
         "test-source-heuristic-witness",
         "test-source-witness-suffix"
+      ]
+    },
+    "crates/hickory-cli/src/serve/source_tests.rs": {
+      "source": ".hickory-source/mechanisms/test-source-service.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "4a7148deeeefb334512b6b108aa2d26f015e6ec8b73efc5b10013ff2ac9c87fb",
+      "construction": "fragments",
+      "fragments": [
+        "source-test-service-types",
+        "source-test-service-paths",
+        "source-test-service-identities",
+        "source-test-service-inputs",
+        "source-test-service-analysis",
+        "source-test-service-saved-guards",
+        "source-test-service-run-admission",
+        "source-test-service-http",
+        "source-test-service-test-prefix",
+        "source-test-service-plain-witness",
+        "source-test-service-document-witness",
+        "source-test-service-project-witness",
+        "source-test-service-scope-witness",
+        "source-test-service-test-suffix"
+      ]
+    },
+    "apps/web/src/api/testSources.ts": {
+      "source": ".hickory-source/mechanisms/test-source-protocol.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "4c217c4fb1761ac8ee1e3c8fedf6394131e01b10ec0f454e0b17e85403d6abf8",
+      "construction": "fragments",
+      "fragments": [
+        "test-source-protocol-types"
+      ]
+    },
+    "scripts/test-source-candidates.py": {
+      "source": ".hickory-source/mechanisms/test-source-http-witness.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "c0be4312dbebb2492107f77c1bb71b6169bef69c9174fc396b39940d3b082de4",
+      "construction": "fragments",
+      "fragments": [
+        "source-tests-http-fixture",
+        "source-tests-http-readonly",
+        "source-tests-http-contributors",
+        "source-tests-http-dynamic",
+        "source-tests-http-execution"
       ]
     }
   },

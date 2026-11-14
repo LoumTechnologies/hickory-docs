@@ -40,6 +40,7 @@ pub static PLUGIN: Plugin = Plugin {
         Interface::TestRunner {
             plan: super::typescript::test_command,
             detect: Some(crate::testing::candidates::javascript),
+            scope: crate::testing::Scope::FileFilter,
         },
         Interface::Syntax {
             file_names: &[],

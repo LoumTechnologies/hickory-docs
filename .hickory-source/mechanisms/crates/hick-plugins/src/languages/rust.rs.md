@@ -38,6 +38,7 @@ pub static PLUGIN: Plugin = Plugin {
         Interface::TestRunner {
             plan: test_command,
             detect: Some(crate::testing::candidates::rust),
+            scope: crate::testing::Scope::Crate,
         },
         Interface::Syntax {
             file_names: &[],

@@ -7,7 +7,6 @@ pub struct TestCommand {
     pub cwd: PathBuf,
     pub argv: Vec<String>,
 }
-
 /// The nearest ancestor of `file` (itself included) holding `manifest`,
 /// stopping at `root`.
 pub(crate) fn nearest(root: &Path, file: &Path, manifest: &str) -> Option<PathBuf> {
@@ -22,7 +21,6 @@ pub(crate) fn nearest(root: &Path, file: &Path, manifest: &str) -> Option<PathBu
         dir = dir.parent()?;
     }
 }
-
 /// The nearest ancestor holding a file with `extension`.
 pub(crate) fn nearest_glob(root: &Path, file: &Path, extension: &str) -> Option<PathBuf> {
     let mut dir = file.parent()?;
@@ -42,7 +40,6 @@ pub(crate) fn nearest_glob(root: &Path, file: &Path, extension: &str) -> Option<
         dir = dir.parent()?;
     }
 }
-
 pub fn test_command(
     root: &Path,
     file: &Path,
@@ -59,3 +56,21 @@ pub fn test_command(
     }
 }
 pub mod candidates;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Scope {
+    File,
+    FileFilter,
+    Crate,
+    Package,
+    Project,
+}
+pub fn scope(language: &str) -> Result<Scope, String> {
+    let language = crate::routing::language_id(language).unwrap_or(language);
+    match crate::registry().interface(language, crate::InterfaceKind::TestRunner) {
+        Some(crate::Interface::TestRunner { scope, .. }) => Ok(*scope),
+        _ => Err(format!(
+            "No test runner scope for {language}. Choose a configured test language."
+        )),
+    }
+}

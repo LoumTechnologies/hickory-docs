@@ -1,5 +1,6 @@
 import type * as Fleet from "./fleetPairings";
 import type * as Types from "./types";
+import type { SourceTestRequest, SourceTestScan, SourceTestRunRequest, SourceTestRunResult } from "./testSources";
 import type { ChecksSnapshot } from "./checks";
 import type * as Github from "./github";
 
@@ -186,7 +187,9 @@ export interface ApiRoutes {
   terminalScreen(id: string, offset: number, revision: string): GET<"/api/terminals/{id}/output?view=screen&offset={offset}&limit=16384&revision={revision:url}", { bytes: number[]; next: number | null; revision: string }>;
 /** Run one test (or a file's tests) in a terminal session named after it.
    * See crates/hickory-cli/src/serve/test_run.rs. */
-  runTest(body: { path: string; name: string; language: string; expected_source_hash?: string }): POST<"/api/tests/run", Types.TerminalSession & { source_hash: string; source_checked_at_admission: boolean; source_frozen: false }, "body">;
+  sourceTestCandidates(body: SourceTestRequest): POST<"/api/tests/source-candidates", SourceTestScan, "body">;
+  runSourceTest(body: SourceTestRunRequest): POST<"/api/tests/run-source", SourceTestRunResult, "body">;
+  runTest(body: { path: string; name: string; language: string; expected_source_hash?: string; expected_sources?: Record<string,string> }): POST<"/api/tests/run", Types.TerminalSession & { source_hash: string; source_checked_at_admission: boolean; source_frozen: false; checked_sources?: Record<string,string> }, "body">;
   closeTerminal(id: string): DELETE<"/api/terminals/{id}", void>;
   terminalResize(id: string, rows: number, cols: number): POST<"/api/terminals/{id}/resize", void>;
   interruptTerminal(id: string): POST<"/api/terminals/{id}/interrupt", void>;

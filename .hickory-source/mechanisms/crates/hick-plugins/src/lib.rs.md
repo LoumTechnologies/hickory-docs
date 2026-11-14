@@ -262,6 +262,7 @@ pub enum Interface {
     TestRunner {
         plan: testing::Planner,
         detect: Option<testing::candidates::Detector>,
+        scope: testing::Scope,
     },
     CodeModel {
         bin: &'static str,

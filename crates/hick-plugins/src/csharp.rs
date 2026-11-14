@@ -23,6 +23,7 @@ pub static PLUGIN: Plugin = Plugin {
         Interface::TestRunner {
             plan: test_command,
             detect: Some(crate::testing::candidates::csharp),
+            scope: crate::testing::Scope::Project,
         },
         Interface::TypedClient {
             languages: &["csharp"],
@@ -94,7 +95,6 @@ pub static PLUGIN: Plugin = Plugin {
         },
     ],
 };
-
 const LSP_INSTALLER: Installer = Installer {
     language: "csharp",
     tool: "dotnet",
@@ -124,7 +124,6 @@ const LSP_INSTALLER: Installer = Installer {
     assets: &[],
     reason: "a Roslyn-based C# server that installs as a dotnet tool",
 };
-
 const DAP_INSTALLER: Installer = Installer {
     language: "csharp",
     tool: "curl",
@@ -138,7 +137,6 @@ const DAP_INSTALLER: Installer = Installer {
     // it unavailable to this product rather than merely unchosen.
     reason: "the only MIT-licensed .NET debugger, and the one hick's C# support was built against",
 };
-
 /// netcoredbg 3.2.0-1092, pinned per platform.
 ///
 /// Every archive unpacks to a `netcoredbg/` directory holding the binary and
@@ -186,7 +184,6 @@ const NETCOREDBG: &[Asset] = &[
         into: "",
     },
 ];
-
 fn test_command(
     root: &std::path::Path,
     file: &std::path::Path,
@@ -208,7 +205,23 @@ fn test_command(
 
     let dir = nearest_glob(root, file, ".csproj")
         .ok_or_else(|| format!("{rel} is not inside a project: no .csproj above it"))?;
-    let mut argv = vec![s("dotnet"), s("test")];
+    let mut projects = std::fs::read_dir(&dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file() && path.extension().is_some_and(|ext| ext == "csproj"))
+        .collect::<Vec<_>>();
+    projects.sort();
+    if projects.len() != 1 {
+        return Err(format!(
+            "{rel} has ambiguous project ownership. Keep one .csproj in its owning directory or choose an explicit launch profile."
+        ));
+    }
+    let mut argv = vec![
+        s("dotnet"),
+        s("test"),
+        projects[0].to_string_lossy().into_owned(),
+    ];
     if !name.is_empty() {
         argv.push(s("--filter"));
         argv.push(format!("FullyQualifiedName~{name}"));
@@ -218,4 +231,31 @@ fn test_command(
         cwd: dir,
         argv,
     })
+}
+#[cfg(test)]
+mod source_scope_tests {
+    #[test]
+    fn source_test_csharp_scope_is_one_explicit_project() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        std::fs::write(root.join("a.csproj"), "<Project />").unwrap();
+        std::fs::write(root.join("all.sln"), "").unwrap();
+        let source = root.join("Tests.cs");
+        std::fs::write(&source, "").unwrap();
+        let command = super::test_command(root, &source, "").unwrap();
+        assert_eq!(
+            command.argv,
+            vec![
+                "dotnet".to_string(),
+                "test".to_string(),
+                root.join("a.csproj").to_string_lossy().into_owned()
+            ]
+        );
+        std::fs::write(root.join("b.csproj"), "<Project />").unwrap();
+        assert!(
+            super::test_command(root, &source, "")
+                .unwrap_err()
+                .contains("ambiguous")
+        );
+    }
 }
