@@ -52,6 +52,13 @@ class Engine(address: String) {
             JSONObject(text)
         } finally { connection.disconnect() }
     }
+    suspend fun find(query: String, regex: Boolean, matchCase: Boolean, wholeWord: Boolean): WorkspaceSearchResult {
+        val result = request("GET", "/api/find?q=" + URLEncoder.encode(query, "UTF-8") + "&regex=$regex&case=$matchCase&whole_word=$wholeWord")
+        val hits = result.getJSONArray("files").objects().flatMap { file -> file.getJSONArray("matches").objects().flatMap { row -> row.getJSONArray("at").objects().map { at ->
+            WorkspaceSearchHit(file.getString("path"), row.getInt("line"), row.getString("text"), at.getInt("column"), file.optional("source_hash"), file.optional("generated_by"))
+        } } }
+        return WorkspaceSearchResult(hits, result.getBoolean("truncated"))
+    }
     suspend fun files(): Pair<String, List<FileNode>> {
         val response = request("GET", "/api/files")
         fun decode(array: JSONArray): List<FileNode> = array.objects().map {

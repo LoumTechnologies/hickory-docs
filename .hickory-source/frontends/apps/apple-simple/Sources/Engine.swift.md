@@ -70,6 +70,14 @@ struct Engine {
 Save requests carry the exact baseline from the original read. Agent sends select the Python backend explicitly, continue the last observed turn and never grant implicit editor write authority.
 
 <ui:copy id="simple-ff9425b170-1">
+    func find(_ query: String, regex: Bool, matchCase: Bool, wholeWord: Bool) async throws -> WorkspaceSearchResult {
+        struct Occurrence: Decodable { var column: Int; var length: Int }
+        struct Row: Decodable { var line: Int; var text: String; var at: [Occurrence] }
+        struct File: Decodable { var path: String; var source_hash: String?; var generated_by: String?; var matches: [Row] }
+        struct Result: Decodable { var files: [File]; var truncated: Bool }
+        let result: Result = try await request("GET", "/api/find", query: [URLQueryItem(name: "q", value: query), URLQueryItem(name: "regex", value: String(regex)), URLQueryItem(name: "case", value: String(matchCase)), URLQueryItem(name: "whole_word", value: String(wholeWord))])
+        return WorkspaceSearchResult(hits: result.files.flatMap { file in file.matches.flatMap { row in row.at.map { occurrence in WorkspaceSearchHit(path: file.path, line: row.line, text: row.text, column: occurrence.column, sourceHash: file.source_hash, generatedBy: file.generated_by) } } }, truncated: result.truncated)
+    }
     func files() async throws -> FileTree { try await request("GET", "/api/files") }
     func file(_ file: FileNode) async throws -> FileText {
         if let id = file.doc_id {

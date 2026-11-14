@@ -46,6 +46,7 @@ import SwiftUI
             CommandGroup(after: .textEditing) {
                 EditorNavigationSettings()
                 Button("Find and replace") { workspace.currentBuffer?.showFind = true }.keyboardShortcut("f").disabled(workspace.currentBuffer == nil)
+                Button("Find in workspace") { workspace.showWorkspaceSearch = true }
                 Button("Problems") { workspace.showProblems = true }
                 Button("Next problem") { Task { await workspace.navigateProblem(1) } }
                 Button("Previous problem") { Task { await workspace.navigateProblem(-1) } }

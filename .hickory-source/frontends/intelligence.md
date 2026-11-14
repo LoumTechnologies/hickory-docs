@@ -352,12 +352,72 @@ fun nextWorkspaceProblem(problems: List<WorkspaceProblem>, current: SemanticLoca
 }
 </ui:copy>
 
+### simple-intelligence-browser-search
+
+Search results are snapshots of saved workspace text. Keep every occurrence and its byte column, including generated-file ownership. Convert a byte column only at a Unicode scalar boundary; editors use UTF-16, so a character before the match may occupy two units. A result may reveal a precise position only after the open buffer matches the reported source hash. No search edits or saves source.
+
+<ui:copy id="simple-intelligence-browser-search">
+export function searchCharacter(line: string, byteColumn: number): number | null {
+  if (!Number.isSafeInteger(byteColumn) || byteColumn < 0) return null;
+  let bytes = 0, units = 0;
+  for (const scalar of line) {
+    if (bytes === byteColumn) return units;
+    bytes += new TextEncoder().encode(scalar).length; units += scalar.length;
+  }
+  return bytes === byteColumn ? units : null;
+}
+</ui:copy>
+
+### simple-intelligence-apple-search
+
+Search results are snapshots of saved workspace text. Keep every occurrence and its byte column, including generated-file ownership. Convert a byte column only at a Unicode scalar boundary; editors use UTF-16, so a character before the match may occupy two units. A result may reveal a precise position only after the open buffer matches the reported source hash. No search edits or saves source.
+
+<ui:copy id="simple-intelligence-apple-search">
+struct WorkspaceSearchHit: Identifiable {
+    var path: String; var line: Int; var text: String; var column: Int; var sourceHash: String?; var generatedBy: String?
+    var id: String { "\(path):\(line):\(column)" }
+    var character: Int? { searchCharacter(text, byteColumn: column) }
+}
+struct WorkspaceSearchResult { var hits: [WorkspaceSearchHit]; var truncated: Bool }
+func searchCharacter(_ line: String, byteColumn: Int) -> Int? {
+    guard byteColumn >= 0 else { return nil }
+    var bytes = 0, units = 0
+    for scalar in line.unicodeScalars {
+        if bytes == byteColumn { return units }
+        bytes += String(scalar).utf8.count; units += scalar.value > 0xffff ? 2 : 1
+    }
+    return bytes == byteColumn ? units : nil
+}
+</ui:copy>
+
+### simple-intelligence-android-search
+
+Search results are snapshots of saved workspace text. Keep every occurrence and its byte column, including generated-file ownership. Convert a byte column only at a Unicode scalar boundary; editors use UTF-16, so a character before the match may occupy two units. A result may reveal a precise position only after the open buffer matches the reported source hash. No search edits or saves source.
+
+<ui:copy id="simple-intelligence-android-search">
+data class WorkspaceSearchHit(val path: String, val line: Int, val text: String, val column: Int, val sourceHash: String?, val generatedBy: String?) {
+    val character: Int? get() = searchCharacter(text, column)
+}
+data class WorkspaceSearchResult(val hits: List<WorkspaceSearchHit>, val truncated: Boolean)
+fun searchCharacter(line: String, byteColumn: Int): Int? {
+    if (byteColumn < 0) return null
+    var bytes = 0; var units = 0
+    while (units < line.length) {
+        if (bytes == byteColumn) return units
+        val scalar = line.codePointAt(units)
+        bytes += when { scalar <= 0x7f -> 1; scalar <= 0x7ff -> 2; scalar <= 0xffff -> 3; else -> 4 }
+        units += Character.charCount(scalar)
+    }
+    return if (bytes == byteColumn) units else null
+}
+</ui:copy>
+
 ## Assemble the platform modules
 
 Each platform imports the model through its ordinary module system. The maintained fragments stay source-backed; there is no second hand-maintained payload.
 
-<ui:file path="apps/web/src/simple/Intelligence.ts"><ui:paste select="#simple-intelligence-browser-vocabulary"/><ui:paste select="#simple-intelligence-browser-locations"/><ui:paste select="#simple-intelligence-browser-query"/><ui:paste select="#simple-intelligence-browser-trail"/><ui:paste select="#simple-intelligence-browser-problems"/></ui:file>
-<ui:file path="apps/apple-simple/Sources/Intelligence.swift"><ui:paste select="#simple-apple-semantic-locations"/><ui:paste select="#simple-intelligence-apple-trail"/><ui:paste select="#simple-intelligence-apple-problems"/></ui:file>
-<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/Intelligence.kt"><ui:paste select="#simple-android-semantic-locations"/><ui:paste select="#simple-intelligence-android-trail"/><ui:paste select="#simple-intelligence-android-problems"/></ui:file>
+<ui:file path="apps/web/src/simple/Intelligence.ts"><ui:paste select="#simple-intelligence-browser-vocabulary"/><ui:paste select="#simple-intelligence-browser-locations"/><ui:paste select="#simple-intelligence-browser-query"/><ui:paste select="#simple-intelligence-browser-trail"/><ui:paste select="#simple-intelligence-browser-problems"/><ui:paste select="#simple-intelligence-browser-search"/></ui:file>
+<ui:file path="apps/apple-simple/Sources/Intelligence.swift"><ui:paste select="#simple-apple-semantic-locations"/><ui:paste select="#simple-intelligence-apple-trail"/><ui:paste select="#simple-intelligence-apple-problems"/><ui:paste select="#simple-intelligence-apple-search"/></ui:file>
+<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/Intelligence.kt"><ui:paste select="#simple-android-semantic-locations"/><ui:paste select="#simple-intelligence-android-trail"/><ui:paste select="#simple-intelligence-android-problems"/><ui:paste select="#simple-intelligence-android-search"/></ui:file>
 
 </ui:doc>

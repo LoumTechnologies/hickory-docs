@@ -59,7 +59,7 @@ class MainActivity : ComponentActivity() {
                 "Refresh" to { scope.launch { workspace.refresh() }; Unit },
                 "Close tab" to { workspace.active?.let(workspace::close); Unit }
             ))
-            CommandMenu("Edit", listOf("Problems" to { workspace.showProblems = true }, "Next problem" to { scope.launch { workspace.navigateProblem(1) }; Unit }, "Previous problem" to { scope.launch { workspace.navigateProblem(-1) }; Unit }, "Navigate back" to { scope.launch { workspace.navigateHistory(-1) }; Unit }, "Navigate forward" to { scope.launch { workspace.navigateHistory(1) }; Unit }, "Find and replace" to { workspace.currentBuffer?.showFind = true; Unit },
+            CommandMenu("Edit", listOf("Find in workspace" to { workspace.showWorkspaceSearch = true }, "Problems" to { workspace.showProblems = true }, "Next problem" to { scope.launch { workspace.navigateProblem(1) }; Unit }, "Previous problem" to { scope.launch { workspace.navigateProblem(-1) }; Unit }, "Navigate back" to { scope.launch { workspace.navigateHistory(-1) }; Unit }, "Navigate forward" to { scope.launch { workspace.navigateHistory(1) }; Unit }, "Find and replace" to { workspace.currentBuffer?.showFind = true; Unit },
                 "Column selection" to { workspace.currentBuffer?.selectRectangle(); Unit },
                 "Add cursor below" to { workspace.currentBuffer?.addCursor(1); Unit }, "Add cursor above" to { workspace.currentBuffer?.addCursor(-1); Unit }))
             CommandMenu("View", listOf(
@@ -85,6 +85,7 @@ class MainActivity : ComponentActivity() {
         Column { Text("Enter a path in the connected workspace. Save As requires an unused path; an empty directory path opens the root.", fontSize = 12.sp)
             OutlinedTextField(workspace.filePath, { workspace.filePath = it }, label = { Text("Workspace path") }, singleLine = true) }
     }, confirmButton = { TextButton(onClick = { scope.launch { workspace.performFileCommand() } }) { Text("OK") } }, dismissButton = { TextButton(onClick = { workspace.fileCommand = null; workspace.savingAll = false }) { Text("Cancel") } })
+    if (workspace.showWorkspaceSearch) androidx.compose.ui.window.Dialog(onDismissRequest = { workspace.showWorkspaceSearch = false; workspace.search.revision = java.util.UUID.randomUUID(); workspace.currentBuffer?.focusSource?.invoke() }) { Surface { WorkspaceSearchView(workspace) } }
     if (connection) AlertDialog(onDismissRequest = { connection = false }, title = { Text("Workspace server") }, text = {
         Column {
             OutlinedTextField(workspace.address, { workspace.address = it }, label = { Text("Workspace server") }, singleLine = true)

@@ -151116,6 +151116,48 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/problems.md",
       "symbol": "simple-browser-workspace-problems",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-intelligence-browser-search",
+      "output": "apps/web/src/simple/Intelligence.ts",
+      "page": ".hickory-source/frontends/intelligence.md",
+      "symbol": "simple-intelligence-browser-search",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-intelligence-apple-search",
+      "output": "apps/apple-simple/Sources/Intelligence.swift",
+      "page": ".hickory-source/frontends/intelligence.md",
+      "symbol": "simple-intelligence-apple-search",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-intelligence-android-search",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Intelligence.kt",
+      "page": ".hickory-source/frontends/intelligence.md",
+      "symbol": "simple-intelligence-android-search",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-browser-workspace-search",
+      "output": "apps/web/src/simple/WorkspaceSearch.tsx",
+      "page": ".hickory-source/frontends/workspace-search-browser.md",
+      "symbol": "simple-browser-workspace-search",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-apple-workspace-search",
+      "output": "apps/apple-simple/Sources/WorkspaceSearch.swift",
+      "page": ".hickory-source/frontends/workspace-search-apple.md",
+      "symbol": "simple-apple-workspace-search",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-android-workspace-search",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/WorkspaceSearch.kt",
+      "page": ".hickory-source/frontends/workspace-search-android.md",
+      "symbol": "simple-android-workspace-search",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

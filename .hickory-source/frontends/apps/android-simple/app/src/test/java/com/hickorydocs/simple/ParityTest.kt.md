@@ -18,6 +18,26 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @Test fun workspaceSearchUnicodeAndQueryInvalidation() {
+        // Contract: .hickory-source/frontends/contract.md
+        assertEquals(4, searchCharacter("é😀 target", 7)); assertNull(searchCharacter("é😀 target", 3))
+        assertNull(searchCharacter("x", -1)); assertNull(searchCharacter("x", 9))
+        val search = WorkspaceSearch(); val before = search.revision
+        search.result = WorkspaceSearchResult(emptyList(), true); search.updateQuery("new")
+        assertNotEquals(before, search.revision); assertNull(search.result)
+        val queryRevision = search.revision; search.updateOptions(wholeWord = true); assertNotEquals(queryRevision, search.revision)
+    }
+    @Test fun workspaceSearchRefusesDirtySourceWithoutNavigation() = kotlinx.coroutines.runBlocking {
+        // Contract: .hickory-source/frontends/contract.md
+        val workspace = Workspace(); workspace.engine = Engine("http://127.0.0.1:1")
+        val file = FileNode("search.txt", "search.txt", false, emptyList(), null, null)
+        val buffer = DocumentBuffer(file, FileText("é😀 target", "base")); buffer.state.edit { append(" changed") }; workspace.buffers[file.path] = buffer
+        val hash = java.security.MessageDigest.getInstance("SHA-256").digest("é😀 target".toByteArray()).joinToString("") { "%02x".format(it) }
+        workspace.openSearchHit(WorkspaceSearchHit(file.path, 1, "é😀 target", 7, hash, null))
+        assertTrue(workspace.search.notice.contains("Search source changed")); assertNull(workspace.active)
+        assertEquals("é😀 target changed", buffer.text); assertTrue(buffer.dirty)
+    }
+
     @org.junit.Test fun semanticProblemsRetirePositionsWhenSourceChanges() = kotlinx.coroutines.runBlocking {
         // Contract: .hickory-source/frontends/contract.md
         val file = FileNode("problem.py", "problem.py", false, emptyList(), null, null)

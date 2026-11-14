@@ -154,6 +154,26 @@ class DocumentBuffer(val file: FileNode, loaded: FileText) {
     }
 }
 class Workspace : ViewModel() {
+    var showWorkspaceSearch by mutableStateOf(false)
+    val search = WorkspaceSearch()
+    suspend fun openSearchHit(hit: WorkspaceSearchHit) {
+        val server = engine ?: return; val current = generation; val request = search.revision
+        fun find(nodes: List<FileNode>): FileNode? { nodes.forEach { if (it.path == hit.path) return it; find(it.children)?.let { child -> return child } }; return null }
+        val file = (buffers[hit.path]?.file ?: find(rootFiles))?.takeUnless { it.dir } ?: run { search.notice = "File no longer listed. Refresh files and search again."; return }
+        try {
+            val source = buffers[hit.path]?.text ?: server.file(file).content
+            if (generation != current || search.revision != request) return
+            val hash = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { java.security.MessageDigest.getInstance("SHA-256").digest(source.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) } }
+            if (generation != current || search.revision != request) return
+            val character = hit.character
+            if (hit.sourceHash == null || hash != hit.sourceHash.removePrefix("sha256:").lowercase() || character == null || hit.line < 1 || source.split("\n").getOrNull(hit.line - 1)?.trimEnd('\r') != hit.text.trimEnd('\r')) {
+                search.notice = "Search source changed or its revision is unknown. Save edits and search again."; return
+            }
+            openSemanticLocation(SemanticLocation(languageURI(hit.path), hit.line - 1, character), allowDirty = true, expectedSource = source)
+            if (generation == current && search.revision == request) showWorkspaceSearch = false
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (failure: Exception) { if (generation == current && search.revision == request) search.notice = failure.message.orEmpty() }
+    }
     var showProblems by mutableStateOf(false)
     val problems: List<WorkspaceProblem> get() = buffers.values.sortedBy { it.file.path }.flatMap { buffer ->
         val language = buffer.language ?: return@flatMap emptyList()
@@ -206,7 +226,7 @@ class Workspace : ViewModel() {
             agent.turns = emptyList(); agent.error = ""; terminal.id = null; terminal.error = ""
             debugger?.close(); debugger = NativeDebugger(next, viewModelScope)
             debugger?.onLocation = { path, line -> viewModelScope.launch { revealDebug(path, line) } }
-            buffers.values.forEach { it.language?.close() }; generation = UUID.randomUUID(); engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); buffers.clear(); opening.clear()
+            buffers.values.forEach { it.language?.close() }; generation = UUID.randomUUID(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); buffers.clear(); opening.clear()
             layout = PaneLayout(); focused = "document-group"; status = root
             return true
         } catch (cancelled: CancellationException) { throw cancelled }

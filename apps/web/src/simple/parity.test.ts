@@ -25,7 +25,9 @@ import { useFollowingDebugSession } from "../debug/plainDebugHosts";
 vi.mock("../debug/plainDebugHosts", () => ({ useFollowingDebugSession: vi.fn(() => null), PlainDebugHosts: () => null }));
 import { Agent, AgentSession, MarkdownMessage } from "./Agent";
 import { App } from "./App";
-import { NavigationTrail, reportedProblems, nextWorkspaceProblem } from "./Intelligence";
+import { WorkspaceSearch } from "./WorkspaceSearch";
+import * as reviews from "../lib/reviews";
+import { searchCharacter, NavigationTrail, reportedProblems, nextWorkspaceProblem } from "./Intelligence";
 import { openLocation, revealLine as queueReveal, claimReveal, claimRevealPosition, resetReveals } from "../lib/revealLine";
 import { useWorkspaceLsp } from "../lsp/useLsp";
 import { LspClient } from "../lsp/client";
@@ -37,7 +39,7 @@ import { activate, groups, initialLayout, move, remove, split, dock, dropEdge, i
 import { TerminalSession } from "./Terminal";
 import { Buffer, Buffers } from "./buffers";
 import { api } from "../api/client";
-vi.mock("../api/client", () => ({ api: { formulaLanguages: vi.fn().mockResolvedValue({ languages: ["python"] }), files: vi.fn(), doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), fileOp: vi.fn(), openFile: vi.fn(), createDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agentTurns: vi.fn().mockResolvedValue({ turns: [] }), agentStop: vi.fn(), agent: vi.fn() } }));
+vi.mock("../api/client", () => ({ api: { find: vi.fn(), formulaLanguages: vi.fn().mockResolvedValue({ languages: ["python"] }), files: vi.fn(), doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), fileOp: vi.fn(), openFile: vi.fn(), createDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agentTurns: vi.fn().mockResolvedValue({ turns: [] }), agentStop: vi.fn(), agent: vi.fn() } }));
 describe("shared frontend layout contract", () => {
   it("constructs patch fences and offers source-mapped patch debugging in Simple", async () => {
     // Contract: .hickory-source/frontends/contract.md
@@ -635,6 +637,45 @@ describe("tab drop placement", () => {
   });
 });
 
+describe("simple workspace search", () => {
+  it("converts UTF-8 columns at scalar boundaries into UTF-16 positions", () => {
+    // Contract: .hickory-source/frontends/contract.md
+    expect(searchCharacter("é😀 target", 7)).toBe(4);
+    expect(searchCharacter("é😀 target", 3)).toBeNull();
+    expect(searchCharacter("é😀 target", -1)).toBeNull();
+    expect(searchCharacter("é😀 target", 100)).toBeNull();
+    expect(searchCharacter("", 0)).toBe(0);
+  });
+  it("rejects superseded query responses and guards source-bound navigation without saving", async () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const file = { name: "search.txt", path: "search.txt", dir: false };
+    const source = "é😀 target", buffers = new Buffers(() => {}), buffer = new Buffer(file, source, "base", () => {});
+    buffers.values.set(file.path, buffer);
+    const hash = vi.spyOn(reviews, "sha256").mockResolvedValue("abc");
+    let resolve!: (value: Awaited<ReturnType<typeof api.find>>) => void;
+    vi.mocked(api.find).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+    const close = vi.fn(), location = vi.fn(), listener = (event: Event) => location((event as CustomEvent).detail);
+    window.addEventListener("hickory:open-location", listener);
+    const screen = render(createElement(WorkspaceSearch, { visible: true, close, buffers, files: [file] }));
+    try {
+      const input = screen.getByRole("textbox", { name: "Workspace search query" });
+      fireEvent.change(input, { target: { value: "old" } }); fireEvent.click(screen.getByRole("button", { name: "Search" }));
+      fireEvent.change(input, { target: { value: "target" } });
+      await act(async () => resolve({ files: [{ path: "obsolete.txt", matches: [{ line: 1, text: "old", at: [{ column: 0, length: 3 }] }] }], truncated: false }));
+      expect(screen.queryByText(/obsolete.txt/)).toBeNull();
+      vi.mocked(api.find).mockResolvedValue({ files: [{ path: file.path, source_hash: "sha256:abc", matches: [{ line: 1, text: source, at: [{ column: 7, length: 6 }] }] }], truncated: true });
+      fireEvent.click(screen.getByRole("checkbox", { name: "Whole word" })); fireEvent.click(screen.getByRole("button", { name: "Search" }));
+      const result = await screen.findByRole("button", { name: "search.txt:1 · é😀 target" });
+      expect(api.find).toHaveBeenLastCalledWith("target", { whole_word: true }); expect(screen.getByText(/Result cap reached/)).toBeTruthy();
+      buffer.edit(source + " changed"); hash.mockResolvedValue("different");
+      fireEvent.click(result); await screen.findByText(/Search source changed/); expect(close).not.toHaveBeenCalled();
+      expect(buffer.text).toBe(source + " changed");
+      buffer.edit(source); hash.mockResolvedValue("abc"); fireEvent.click(result);
+      await waitFor(() => expect(close).toHaveBeenCalledOnce());
+      expect(location).toHaveBeenCalledWith(expect.objectContaining({ path: file.path, line: 1, character: 4, expectedSource: source }));
+    } finally { screen.unmount(); hash.mockRestore(); window.removeEventListener("hickory:open-location", listener); }
+  });
+});
 describe("simple workspace Problems", () => {
   it("keeps stale/unversioned messages but navigates only current source locations", () => {
     // Contract: .hickory-source/frontends/contract.md

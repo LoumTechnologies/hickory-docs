@@ -112,6 +112,27 @@ class BrowserDriver:
         try: self.act("quit")
         finally: stop(self.process)
 
+def workspace_search_acceptance(driver, folder):
+    # Contract: .hickory-source/frontends/contract.md. Real exhaustive API and retained editor.
+    path = "search.txt"; original = (folder / path).read_text()
+    driver.act("open", path=path); driver.act("remember-editor", path=path)
+    size = driver.act("editor-size", path=path)
+    result = driver.act("workspace-search-query", path=path, query=r"name=\d+", regex=True, matchCase=True, wholeWord=True)
+    assert "2 occurrences" in result["text"] and result["size"] == size, result
+    driver.act("workspace-search-hit", label="search.txt:1 · 😀 name=12")
+    eventually(lambda: driver.act("caret-offset", path=path), 3)
+    assert driver.act("editor-is-retained", path=path), "Workspace search replaced the source editor"
+    driver.act("append", path=path, text="\nunsaved draft")
+    result = driver.act("workspace-search-query", path=path, query="name=12")
+    assert "1 occurrences" in result["text"] and result["size"] == size, result
+    driver.act("workspace-search-hit", label="search.txt:1 · 😀 name=12")
+    eventually(lambda: "Search source changed" in driver.act("workspace-search-notice"), True)
+    assert (folder / path).read_text() == original, "Workspace search saved a draft"
+    assert "unsaved draft" in driver.act("content", path=path)
+    driver.act("workspace-search-close"); driver.act("undo", path=path)
+    eventually(lambda: driver.act("search-source", path=path), original)
+
+
 def problems_acceptance(driver, folder):
     # Contract: .hickory-source/frontends/contract.md. Real provider messages and UI geometry.
     path = "problem.py"; original = (folder / path).read_text()
@@ -634,6 +655,9 @@ if __name__ == "__main__":
             elif "--table-only" in sys.argv:
                 table_acceptance(driver, folder)
                 print("Browser: inline table grid, real saved Markdown, source reveal and undo passed")
+            elif "--workspace-search-only" in sys.argv:
+                workspace_search_acceptance(driver, folder)
+                print("Browser: exhaustive workspace regex search, Unicode columns, stationary geometry, retained editor, stale-source refusal and unchanged disk passed")
             elif "--problems-only" in sys.argv:
                 problems_acceptance(driver, folder)
                 print("Browser: real provider Problems, status/menu access, stationary geometry, retained draft and unchanged disk passed")

@@ -73,3 +73,18 @@ fun nextWorkspaceProblem(problems: List<WorkspaceProblem>, current: SemanticLoca
     if (direction == 1) return current?.let { point -> located.firstOrNull { order.compare(it.location!!, point) > 0 } } ?: located.first()
     return current?.let { point -> located.lastOrNull { order.compare(it.location!!, point) < 0 } } ?: located.last()
 }
+data class WorkspaceSearchHit(val path: String, val line: Int, val text: String, val column: Int, val sourceHash: String?, val generatedBy: String?) {
+    val character: Int? get() = searchCharacter(text, column)
+}
+data class WorkspaceSearchResult(val hits: List<WorkspaceSearchHit>, val truncated: Boolean)
+fun searchCharacter(line: String, byteColumn: Int): Int? {
+    if (byteColumn < 0) return null
+    var bytes = 0; var units = 0
+    while (units < line.length) {
+        if (bytes == byteColumn) return units
+        val scalar = line.codePointAt(units)
+        bytes += when { scalar <= 0x7f -> 1; scalar <= 0x7ff -> 2; scalar <= 0xffff -> 3; else -> 4 }
+        units += Character.charCount(scalar)
+    }
+    return if (bytes == byteColumn) units else null
+}

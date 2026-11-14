@@ -100,3 +100,12 @@ export function nextWorkspaceProblem(problems: readonly WorkspaceProblem[], curr
   if (direction === 1) return (current ? located.find(problem => compare(problem.location!, current) > 0) : null) ?? located[0];
   return (current ? located.slice().reverse().find(problem => compare(problem.location!, current) < 0) : null) ?? located.at(-1)!;
 }
+export function searchCharacter(line: string, byteColumn: number): number | null {
+  if (!Number.isSafeInteger(byteColumn) || byteColumn < 0) return null;
+  let bytes = 0, units = 0;
+  for (const scalar of line) {
+    if (bytes === byteColumn) return units;
+    bytes += new TextEncoder().encode(scalar).length; units += scalar.length;
+  }
+  return bytes === byteColumn ? units : null;
+}

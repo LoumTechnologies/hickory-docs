@@ -66,4 +66,10 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="problems.md" />
 
+<ui:include file="workspace-search-browser.md" />
+
+<ui:include file="workspace-search-apple.md" />
+
+<ui:include file="workspace-search-android.md" />
+
 </ui:doc>

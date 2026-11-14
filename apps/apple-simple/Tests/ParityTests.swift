@@ -8,6 +8,26 @@ import WebKit
 @testable import HickorySimple
 
 final class ParityTests: XCTestCase {
+    @MainActor func testWorkspaceSearchUnicodeAndQueryInvalidation() {
+        // Contract: .hickory-source/frontends/contract.md
+        XCTAssertEqual(searchCharacter("é😀 target", byteColumn: 7), 4)
+        XCTAssertNil(searchCharacter("é😀 target", byteColumn: 3)); XCTAssertNil(searchCharacter("x", byteColumn: -1)); XCTAssertNil(searchCharacter("x", byteColumn: 9))
+        let search = WorkspaceSearch(); let before = search.revision
+        search.result = WorkspaceSearchResult(hits: [], truncated: true); search.query = "new"
+        XCTAssertNotEqual(search.revision, before); XCTAssertNil(search.result)
+        let queryRevision = search.revision; search.wholeWord = true; XCTAssertNotEqual(search.revision, queryRevision)
+    }
+    @MainActor func testWorkspaceSearchRefusesDirtySourceWithoutNavigation() async throws {
+        // Contract: .hickory-source/frontends/contract.md
+        let workspace = Workspace(); workspace.engine = try Engine(address: "http://127.0.0.1:1")
+        let file = FileNode(name: "search.txt", path: "search.txt", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: "é😀 target", hash: "base"))
+        buffer.text += " changed"; workspace.buffers[file.path] = buffer
+        await workspace.openSearchHit(WorkspaceSearchHit(path: file.path, line: 1, text: "é😀 target", column: 7, sourceHash: nativeSourceHash("é😀 target"), generatedBy: nil))
+        XCTAssertTrue(workspace.search.notice.contains("Search source changed")); XCTAssertNil(workspace.active)
+        XCTAssertEqual(buffer.text, "é😀 target changed"); XCTAssertTrue(buffer.dirty)
+    }
+
     @MainActor func testSemanticProblemsRetirePositionsWhenSourceChanges() throws {
         // Contract: .hickory-source/frontends/contract.md
         let file = FileNode(name: "problem.py", path: "problem.py", dir: false)

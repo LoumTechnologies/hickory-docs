@@ -16,6 +16,7 @@ File commands act on the connected workspace: path entry opens a file or directo
 A document component belongs to one buffer path. Switching tabs mounts the next component around its already cached editor; it does not reuse React state that still points to the previous file's editor. Without that identity boundary, a queued cross-file reveal can be consumed by the detached old editor before the destination mounts. The cache retains selection and undo when the original tab returns.
 
 <ui:copy id="simple-e8a50a27b2-0">
+import { WorkspaceSearch } from "./WorkspaceSearch";
 import { SimpleLanguages } from "./WorkspaceLanguages";
 import { WorkspaceProblems, requestProblemNavigation } from "./Problems";
 import { NavigationTrail, semanticPath, type SemanticLocation } from "./Intelligence";
@@ -64,6 +65,7 @@ export function App() {
   const [workspaceFiles, setWorkspaceFiles] = useState<FileNode[]>([]);
   const [notice, setNotice] = useState("");
   const [showProblems, setShowProblems] = useState(false);
+  const [showWorkspaceSearch, setShowWorkspaceSearch] = useState(false);
   const [trail] = useState(() => new NavigationTrail());
   const [, refreshTrail] = useState(0);
   const [status, setStatus] = useState("Choose a file");
@@ -271,6 +273,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
       <button disabled={!active} onClick={() => active && close(active)}>Close tab</button>
     </div></details><details><summary>Edit</summary><div className="menu">
       <button disabled={!buffer} onClick={() => buffer && openFind(buffer)}>Find and replace</button>
+      <button onClick={event => { setShowWorkspaceSearch(true); event.currentTarget.closest("details")?.removeAttribute("open"); }}>Find in workspace</button>
       <button onClick={() => setShowProblems(true)}>Problems</button>
       <button onClick={() => requestProblemNavigation(1)}>Next problem</button>
       <button onClick={() => requestProblemNavigation(-1)}>Previous problem</button>
@@ -292,6 +295,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
         if (next !== layout) { setLayout(next); setFocused(id); }
       }}
       resize={(id, ratio) => setLayout(current => update(current, id, node => isGroup(node) ? node : { ...node, ratio }))} /></div>
+    <WorkspaceSearch visible={showWorkspaceSearch} close={() => { setShowWorkspaceSearch(false); if (buffer) editorForBuffer(buffer)?.view.focus(); }} buffers={buffers} files={workspaceFiles} />
     <footer role="status"><WorkspaceProblems buffers={buffers} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{notice ? `${notice} · ` : ""}{buffer ? `${buffer.file.name} · ${buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
   </main></SimpleLanguages>;
 }

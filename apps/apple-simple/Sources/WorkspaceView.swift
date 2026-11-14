@@ -31,6 +31,7 @@ struct WorkspaceView: View {
                 Menu("Edit") {
                     EditorNavigationSettings()
                     Button("Find and replace") { workspace.currentBuffer?.showFind = true }.keyboardShortcut("f").disabled(workspace.currentBuffer == nil)
+                Button("Find in workspace") { workspace.showWorkspaceSearch = true }
                 Button("Problems") { workspace.showProblems = true }
                 Button("Next problem") { Task { await workspace.navigateProblem(1) } }
                 Button("Previous problem") { Task { await workspace.navigateProblem(-1) } }
@@ -74,6 +75,7 @@ struct WorkspaceView: View {
                 HStack { Button("Cancel") { workspace.fileCommand = nil; workspace.savingAll = false }; Spacer(); Button("OK") { Task { await workspace.performFileCommand() } } }
             }.padding().frame(minWidth: 320)
         }
+        .sheet(isPresented: $workspace.showWorkspaceSearch, onDismiss: { workspace.search.revision = UUID(); workspace.currentBuffer?.focusSource?() }) { WorkspaceSearchView(workspace: workspace) }
         .sheet(isPresented: $connection) {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Workspace server").font(.headline)

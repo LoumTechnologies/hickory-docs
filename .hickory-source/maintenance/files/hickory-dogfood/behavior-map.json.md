@@ -68112,7 +68112,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "simple-intelligence-browser-locations",
         "simple-intelligence-browser-query",
         "simple-intelligence-browser-trail",
-        "simple-intelligence-browser-problems"
+        "simple-intelligence-browser-problems",
+        "simple-intelligence-browser-search"
       ]
     },
     "apps/apple-simple/Sources/Intelligence.swift": {
@@ -68125,7 +68126,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "simple-apple-semantic-locations",
         "simple-intelligence-apple-trail",
-        "simple-intelligence-apple-problems"
+        "simple-intelligence-apple-problems",
+        "simple-intelligence-apple-search"
       ]
     },
     "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Intelligence.kt": {
@@ -68138,7 +68140,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "simple-android-semantic-locations",
         "simple-intelligence-android-trail",
-        "simple-intelligence-android-problems"
+        "simple-intelligence-android-problems",
+        "simple-intelligence-android-search"
       ]
     },
     "apps/web/src/simple/WorkspaceLanguages.tsx": {
@@ -68161,6 +68164,39 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "simple-browser-workspace-problems"
+      ]
+    },
+    "apps/web/src/simple/WorkspaceSearch.tsx": {
+      "source": ".hickory-source/frontends/workspace-search-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "43194b72e61751370f2060cac3f3b5896f7e3278577aac2bd11a90ea86f388b3",
+      "construction": "fragments",
+      "fragments": [
+        "simple-browser-workspace-search"
+      ]
+    },
+    "apps/apple-simple/Sources/WorkspaceSearch.swift": {
+      "source": ".hickory-source/frontends/workspace-search-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "cfdf649a4de8223b3674b3f422b66e4ce3047b8ca1c4bf65a01f8281ca167198",
+      "construction": "fragments",
+      "fragments": [
+        "simple-apple-workspace-search"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/WorkspaceSearch.kt": {
+      "source": ".hickory-source/frontends/workspace-search-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "7c01bc0a328169d959850c912ae3c90e0e774768f01eab3b5e52d19035d6ae84",
+      "construction": "fragments",
+      "fragments": [
+        "simple-android-workspace-search"
       ]
     }
   },

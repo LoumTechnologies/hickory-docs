@@ -315,4 +315,10 @@ The Python browser acceptance suite could start its isolated real engine but Chr
 
 Implementation and focused tests are constructed in the [frontend index](index.md). The [developer guide](../../docs/developers/simple-frontends.md) records commands and verification limits.
 
+## Find saved workspace text
+
+The existing Edit menu opens a floating workspace search on browser, Apple and Android. Literal, regular-expression, match-case and whole-word queries use the engine's exhaustive find API, including generated-file ownership. Results enumerate occurrences, paginate presentation and state when the server cap makes the result incomplete. Search is explicitly over saved workspace text: unsaved buffers remain intact, and precise navigation requires their text to match the result's source hash. Byte columns are converted at Unicode scalar boundaries to editor UTF-16 positions. Query changes and reconnects retire pending answers; search itself never saves or edits text.
+
+The focused workspace-search witnesses passed: two browser component/model checks, two Swift checks, two Kotlin checks, TypeScript compilation, the iOS simulator build, and a real-engine browser flow covering regex options, Unicode reveal, stable editor geometry, retained drafts and stale-source refusal. Native pointer interaction and whole-project provider analysis are not established by these checks.
+
 </ui:doc>

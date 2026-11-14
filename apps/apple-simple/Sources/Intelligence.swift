@@ -91,3 +91,18 @@ func nextWorkspaceProblem(_ problems: [WorkspaceProblem], current: SemanticLocat
     }
     return current.flatMap { point in located.last { let at = $0.location!; return (at.uri, at.line, at.character) < (point.uri, point.line, point.character) } } ?? located.last
 }
+struct WorkspaceSearchHit: Identifiable {
+    var path: String; var line: Int; var text: String; var column: Int; var sourceHash: String?; var generatedBy: String?
+    var id: String { "\(path):\(line):\(column)" }
+    var character: Int? { searchCharacter(text, byteColumn: column) }
+}
+struct WorkspaceSearchResult { var hits: [WorkspaceSearchHit]; var truncated: Bool }
+func searchCharacter(_ line: String, byteColumn: Int) -> Int? {
+    guard byteColumn >= 0 else { return nil }
+    var bytes = 0, units = 0
+    for scalar in line.unicodeScalars {
+        if bytes == byteColumn { return units }
+        bytes += String(scalar).utf8.count; units += scalar.value > 0xffff ? 2 : 1
+    }
+    return bytes == byteColumn ? units : nil
+}

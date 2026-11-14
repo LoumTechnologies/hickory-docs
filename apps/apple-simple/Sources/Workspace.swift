@@ -166,6 +166,25 @@ import Observation
 }
 @MainActor @Observable final class Workspace {
     var draggingTab: String?
+    var showWorkspaceSearch = false
+    var search = WorkspaceSearch()
+    func openSearchHit(_ hit: WorkspaceSearchHit) async {
+        guard let engine else { return }
+        let current = generation, request = search.revision
+        func find(_ nodes: [FileNode]) -> FileNode? { for node in nodes { if node.path == hit.path { return node }; if let child = find(node.children ?? []) { return child } }; return nil }
+        guard let file = buffers[hit.path]?.file ?? find(rootFiles), !file.dir else { search.notice = "File no longer listed. Refresh files and search again."; return }
+        do {
+            let source: String
+            if let buffer = buffers[hit.path] { source = buffer.text } else { source = try await engine.file(file).content }
+            let observedHash = await Task.detached { nativeSourceHash(source) }.value
+            let rows = source.components(separatedBy: "\n")
+            guard generation == current, search.revision == request else { return }
+            guard let hash = hit.sourceHash, observedHash == hash.replacingOccurrences(of: "sha256:", with: "").lowercased(), let character = hit.character,
+                  hit.line > 0, rows.indices.contains(hit.line - 1), rows[hit.line - 1].trimmingCharacters(in: .newlines) == hit.text.trimmingCharacters(in: .newlines) else { search.notice = "Search source changed or its revision is unknown. Save edits and search again."; return }
+            await openSemanticLocation(SemanticLocation(uri: languageURI(hit.path), line: hit.line - 1, character: character), allowDirty: true, expectedSource: source)
+            if generation == current, search.revision == request { showWorkspaceSearch = false }
+        } catch { if generation == current, search.revision == request { search.notice = error.localizedDescription } }
+    }
     var showProblems = false
     var problems: [WorkspaceProblem] {
         buffers.values.sorted { $0.file.path < $1.file.path }.flatMap { buffer -> [WorkspaceProblem] in
@@ -222,7 +241,7 @@ import Observation
             agent.turns = []; agent.error = ""; terminal.id = nil; terminal.error = ""
             debugger?.close()
             for buffer in buffers.values { buffer.language?.close() }
-            generation = UUID(); engine = next; debugger = NativeDebugger(engine: next)
+            generation = UUID(); search.invalidate(); showWorkspaceSearch = false; engine = next; debugger = NativeDebugger(engine: next)
             debugger?.onLocation = { [weak self] path, line in Task { await self?.revealDebug(path, line: line) } }; files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); buffers = [:]; opening = []
             layout = PaneLayout(); focused = "document-group"; status = tree.root
             return true

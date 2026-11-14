@@ -132,6 +132,20 @@ try {
           await editor(request.path).click();
           await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
           await page.keyboard.insertText(request.text); break;
+        case "workspace-search-query": {
+          await menu("Edit", "Find in workspace");
+          const panel = page.getByRole("dialog", { name: "Find in workspace", exact: true });
+          await panel.getByRole("textbox", { name: "Workspace search query" }).fill(request.query);
+          await panel.getByRole("checkbox", { name: "Regular expression", exact: true }).setChecked(!!request.regex);
+          await panel.getByRole("checkbox", { name: "Match case", exact: true }).setChecked(!!request.matchCase);
+          await panel.getByRole("checkbox", { name: "Whole word", exact: true }).setChecked(!!request.wholeWord);
+          await panel.getByRole("button", { name: "Search", exact: true }).click();
+          await panel.getByText(/\d+ occurrences/).waitFor();
+          value = { text: await panel.innerText(), size: await editor(request.path).locator("..").evaluate(node => ({ width: node.clientWidth, height: node.clientHeight })) }; break;
+        }
+        case "workspace-search-hit": await page.getByRole("dialog", { name: "Find in workspace", exact: true }).getByRole("button", { name: request.label, exact: true }).click(); break;
+        case "workspace-search-notice": value = await page.getByRole("dialog", { name: "Find in workspace", exact: true }).innerText(); break;
+        case "workspace-search-close": await page.getByRole("button", { name: "Close workspace search", exact: true }).click(); break;
         case "problem-count": {
           const control = page.getByRole("button", { name: /^Problems: \d+ reported$/ });
           value = Number((await control.getAttribute("aria-label")).match(/\d+/)[0]); break;
