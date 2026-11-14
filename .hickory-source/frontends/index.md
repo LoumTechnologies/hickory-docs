@@ -112,4 +112,18 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="workspace-analysis-android-view.md" />
 
+<ui:include file="workspace-commands.md" />
+
+<ui:include file="workspace-commands-browser.md" />
+
+<ui:include file="workspace-commands-apple.md" />
+
+<ui:include file="workspace-commands-android.md" />
+
+<ui:include file="workspace-commands-browser-tests.md" />
+
+<ui:include file="workspace-commands-apple-tests.md" />
+
+<ui:include file="workspace-commands-android-tests.md" />
+
 </ui:doc>

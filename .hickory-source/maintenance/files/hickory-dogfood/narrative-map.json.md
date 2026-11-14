@@ -151417,6 +151417,62 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/workspace-analysis-android-view.md",
       "symbol": "simple-workspace-analysis-android-view",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-workspace-command-descriptors",
+      "output": "apps/simple-contract/commands.json",
+      "page": ".hickory-source/frontends/workspace-commands.md",
+      "symbol": "simple-workspace-command-descriptors",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-workspace-command-descriptors",
+      "output": "apps/apple-simple/Sources/Resources/commands.json",
+      "page": ".hickory-source/frontends/workspace-commands.md",
+      "symbol": "simple-workspace-command-descriptors",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-workspace-commands-browser",
+      "output": "apps/web/src/simple/WorkspaceCommands.ts",
+      "page": ".hickory-source/frontends/workspace-commands-browser.md",
+      "symbol": "simple-workspace-commands-browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-workspace-commands-apple",
+      "output": "apps/apple-simple/Sources/WorkspaceCommands.swift",
+      "page": ".hickory-source/frontends/workspace-commands-apple.md",
+      "symbol": "simple-workspace-commands-apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-workspace-commands-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/WorkspaceCommands.kt",
+      "page": ".hickory-source/frontends/workspace-commands-android.md",
+      "symbol": "simple-workspace-commands-android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-workspace-commands-browser-tests",
+      "output": "apps/web/src/simple/WorkspaceCommands.test.ts",
+      "page": ".hickory-source/frontends/workspace-commands-browser-tests.md",
+      "symbol": "simple-workspace-commands-browser-tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-workspace-commands-apple-tests",
+      "output": "apps/apple-simple/Tests/WorkspaceCommandsTests.swift",
+      "page": ".hickory-source/frontends/workspace-commands-apple-tests.md",
+      "symbol": "simple-workspace-commands-apple-tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-workspace-commands-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/WorkspaceCommandsTest.kt",
+      "page": ".hickory-source/frontends/workspace-commands-android-tests.md",
+      "symbol": "simple-workspace-commands-android-tests",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

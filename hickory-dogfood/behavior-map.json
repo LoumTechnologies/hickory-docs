@@ -68427,6 +68427,94 @@
       "fragments": [
         "simple-workspace-analysis-android-view"
       ]
+    },
+    "apps/simple-contract/commands.json": {
+      "source": ".hickory-source/frontends/workspace-commands.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "c8eeaed5c8706240168ce5dc30603f4e93883ac15b5c2f5db9e3877751ebde98",
+      "construction": "fragments",
+      "fragments": [
+        "simple-workspace-command-descriptors"
+      ]
+    },
+    "apps/apple-simple/Sources/Resources/commands.json": {
+      "source": ".hickory-source/frontends/workspace-commands.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "c8eeaed5c8706240168ce5dc30603f4e93883ac15b5c2f5db9e3877751ebde98",
+      "construction": "fragments",
+      "fragments": [
+        "simple-workspace-command-descriptors"
+      ]
+    },
+    "apps/web/src/simple/WorkspaceCommands.ts": {
+      "source": ".hickory-source/frontends/workspace-commands-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "f045096dd4caa16bcb2464ec8b27ac432f689855a52548aed12b5b33909f0c11",
+      "construction": "fragments",
+      "fragments": [
+        "simple-workspace-commands-browser"
+      ]
+    },
+    "apps/apple-simple/Sources/WorkspaceCommands.swift": {
+      "source": ".hickory-source/frontends/workspace-commands-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "7219b23f21e5e3d165f978e9eac959ded7386f491c29627e1fd8d4e79c322709",
+      "construction": "fragments",
+      "fragments": [
+        "simple-workspace-commands-apple"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/WorkspaceCommands.kt": {
+      "source": ".hickory-source/frontends/workspace-commands-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "3fe696d6e462221776eb94fc4e24e3527138b2c0d917813bb5e8cf168e040c53",
+      "construction": "fragments",
+      "fragments": [
+        "simple-workspace-commands-android"
+      ]
+    },
+    "apps/web/src/simple/WorkspaceCommands.test.ts": {
+      "source": ".hickory-source/frontends/workspace-commands-browser-tests.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "e9d8963adb2101075565d1ab5c0de2701d665fca8724455781cb06562a90c1c0",
+      "construction": "fragments",
+      "fragments": [
+        "simple-workspace-commands-browser-tests"
+      ]
+    },
+    "apps/apple-simple/Tests/WorkspaceCommandsTests.swift": {
+      "source": ".hickory-source/frontends/workspace-commands-apple-tests.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "569d29ef175d644af54ab00d529ef13afbbb41225fa4aae4eb7e0d8382815e04",
+      "construction": "fragments",
+      "fragments": [
+        "simple-workspace-commands-apple-tests"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/WorkspaceCommandsTest.kt": {
+      "source": ".hickory-source/frontends/workspace-commands-android-tests.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "aeffc23c380e9f7a9c6411a493d385f653710f46aed38c96e84e207e2a2922c0",
+      "construction": "fragments",
+      "fragments": [
+        "simple-workspace-commands-android-tests"
+      ]
     }
   },
   "evidence_records": [
