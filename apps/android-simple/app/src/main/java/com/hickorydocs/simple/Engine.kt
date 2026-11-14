@@ -360,7 +360,10 @@ fun rebaseNativeTokens(tokens: List<NativeLanguageSpan>, old: String, new: Strin
         }
     }
 }
-class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuffer, private val scope: CoroutineScope) {
+class NativeLanguage(engine: Engine, private val buffer: DocumentBuffer, private val scope: CoroutineScope, sharedConnection: NativeLanguageConnection? = null) {
+    val connection = sharedConnection ?: NativeLanguageConnection(engine,scope)
+    private val ownsConnection = sharedConnection == null
+    private var subscription: UUID? = null
     var symbolQuery by mutableStateOf("")
     var locations by mutableStateOf<List<SemanticLocation>>(emptyList())
     var locationStatus by mutableStateOf("")
@@ -380,64 +383,45 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
     var inspectionSource by mutableStateOf("")
     var inspectionSelection by mutableStateOf(androidx.compose.ui.text.TextRange.Zero)
     private val uri = languageURI(buffer.file.path)
-    private var socket: WebSocket? = null
     private var epoch = 0
     private var inspection = 0
     private var completion = 0
     private var version = 1
     private var sent = ""
-    private var nextID = 1
     private var legend = emptyList<String>()
+    private val opened get() = subscription != null && connection.active
     private var diagnosticTicket = 0
-    private var opened = false
     private var refresh: kotlinx.coroutines.Job? = null
     private var watcher: kotlinx.coroutines.Job? = null
-    private val pending = mutableMapOf<Int, kotlinx.coroutines.CompletableDeferred<Any>>()
     fun start() {
-        close(); val current = epoch; sent = buffer.text; version = 1
-        socket = languageHTTP.newWebSocket(Request.Builder().url(engine.debugURL).build(), object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) { scope.launch {
-                if (epoch != current) { webSocket.close(1000, "obsolete"); return@launch }
-                opened = true
-                notify("textDocument/didOpen", JSONObject().put("textDocument", JSONObject().put("uri", uri).put("languageId", "hick").put("version", version).put("text", sent)))
-                changed()
-            } }
-            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                val raw = bytes.toByteArray(); if (raw.size < 2 || raw[0] != 2.toByte()) return
-                val message = runCatching { JSONObject(raw.copyOfRange(1, raw.size).toString(Charsets.UTF_8)) }.getOrNull() ?: return
-                scope.launch { if (epoch == current) receive(message) }
-            }
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { scope.launch {
-                if (epoch == current) { status = "Language services unavailable: ${t.message}. Retry language services."; opened = false; failPending() }
-            } }
+        close();sent=buffer.text;version=1;status="Language server connecting…"
+        subscription=connection.attach(uri,sent,version,{receive(it)},{failure ->
+            epoch++;inspection++;completion++;navigation++;diagnosticTicket++
+            status="Language services unavailable: ${failure.message}. Retry language services."
+            if(locations.isNotEmpty()) locationStatus="Provider connection changed. Run the query again."
         })
-        watcher = scope.launch { androidx.compose.runtime.snapshotFlow { buffer.text }.collect { changed() } }
+        changed()
+        watcher=scope.launch {androidx.compose.runtime.snapshotFlow {buffer.text}.collect {changed()}}
     }
     fun close() {
-        navigation++; locations = emptyList(); locationStatus = ""
-        epoch++; inspection++; completion++; refresh?.cancel(); watcher?.cancel(); socket?.close(1000, "closed"); socket = null; opened = false; failPending()
-        tokens = emptyList(); diagnostics = emptyList(); suggestions = emptyList(); hover = ""; signature = ""; inlays = emptyList()
+        navigation++;locations=emptyList();locationStatus=""
+        epoch++;inspection++;completion++;refresh?.cancel();watcher?.cancel()
+        val token=subscription;subscription=null;if(token!=null) connection.detach(token)
+        if(ownsConnection) connection.close()
+        tokens=emptyList();diagnostics=emptyList();suggestions=emptyList();hover="";signature="";inlays=emptyList()
     }
-    private fun failPending() { val waits = pending.values.toList(); pending.clear(); waits.forEach { it.cancel() } }
-    private fun send(message: JSONObject) { check(opened && socket?.send((byteArrayOf(2) + message.toString().toByteArray(Charsets.UTF_8)).toByteString()) == true) { "Language connection is closed. Retry language services." } }
-    private fun notify(method: String, params: JSONObject) { send(JSONObject().put("jsonrpc", "2.0").put("method", method).put("params", params)) }
-    private suspend fun request(method: String, params: JSONObject): Any {
-        val id = nextID++; val answer = kotlinx.coroutines.CompletableDeferred<Any>(); pending[id] = answer
-        try { send(JSONObject().put("jsonrpc", "2.0").put("id", id).put("method", method).put("params", params)); return kotlinx.coroutines.withTimeout(12000) { answer.await() } }
-        finally { pending.remove(id) }
+    private suspend fun request(method:String,params:JSONObject):Any {
+        val owner=subscription ?: error("Language source is closed. Retry language services.")
+        return connection.request(method,params,owner)
     }
     private fun doc() = JSONObject().put("uri", uri)
     private fun sync() {
         if (sent == buffer.text) return
         sent = buffer.text; version++
-        notify("textDocument/didChange", JSONObject().put("textDocument", doc().put("version", version)).put("contentChanges", JSONArray().put(JSONObject().put("text", sent))))
+        subscription?.let {connection.change(it,sent,version)}
     }
     private fun receive(message: JSONObject) {
-        if (message.has("id")) {
-            val answer = pending.remove(message.optInt("id")) ?: return
-            if (message.has("error")) answer.completeExceptionally(IllegalStateException(message.optJSONObject("error")?.optString("message")))
-            else answer.complete(message.opt("result") ?: JSONObject.NULL)
-        } else if (message.optString("method") == "hick/serverCapabilities") {
+        if (message.optString("method") == "hick/serverCapabilities") {
             val raw = message.optJSONObject("params")?.optJSONObject("capabilities")?.optJSONObject("semanticTokensProvider")?.optJSONObject("legend")?.optJSONArray("tokenTypes")
             legend = if (raw == null) emptyList() else (0 until raw.length()).map { raw.getString(it) }
             status = "LSP connected"; changed()
@@ -600,5 +584,4 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
         catch (error: Exception) { if (epoch == current) status = "Completion unavailable: ${error.message}. Retry language services." }
     }
     fun accept(item: NativeLanguageCompletion): Boolean = buffer.state.selection == item.selection && buffer.applySourceEdits(listOf(item.edit), item.source)
-    companion object { private val languageHTTP = OkHttpClient() }
 }

@@ -5,8 +5,49 @@ import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 
 class ParityTest {
+    @Test(timeout=20000) fun sharedLanguageWireRoutesRepliesDetachesOneSourceAndReplaysAfterFailure() = kotlinx.coroutines.runBlocking {
+        // Contract: .hickory-source/frontends/contract.md. Own protocol fixture, real OkHttp WebSocket.
+        val root=generateSequence(java.io.File(System.getProperty("user.dir")).absoluteFile) {it.parentFile}.first {it.resolve("scripts/simple-language-wire-fixture.py").isFile}
+        val process=ProcessBuilder("python3",root.resolve("scripts/simple-language-wire-fixture.py").path).redirectErrorStream(true).start()
+        val connection:NativeLanguageConnection
+        try {
+            val greeting=JSONObject(process.inputStream.bufferedReader().readLine());val engine=Engine(greeting.getString("origin"));connection=NativeLanguageConnection(engine,this)
+            try {
+                fun params(uri:String)=JSONObject().put("textDocument",JSONObject().put("uri",uri))
+                suspend fun metrics()=engine.request("GET","/state")
+                val a="hick:///a.py";val b="hick:///b.py";val c="hick:///c.py"
+                val reportsA=mutableListOf<String>();val reportsB=mutableListOf<String>();val reportsC=mutableListOf<String>();var failuresA=0;var failuresB=0;var failuresC=0
+                val ownerA=connection.attach(a,"first",1,{it.optJSONObject("params")?.optString("uri")?.takeIf {it.isNotEmpty()}?.let(reportsA::add)},{failuresA++})
+                val ownerB=connection.attach(b,"second",1,{it.optJSONObject("params")?.optString("uri")?.takeIf {it.isNotEmpty()}?.let(reportsB::add)},{failuresB++})
+                connection.attach(c,"third",1,{it.optJSONObject("params")?.optString("uri")?.takeIf {it.isNotEmpty()}?.let(reportsC::add)},{failuresC++})
+                val slow=async {connection.request("fixture/slow",params(a),ownerA) as JSONObject};val fast=async {connection.request("fixture/fast",params(b),ownerB) as JSONObject}
+                assertEquals(b,fast.await().getString("uri"));assertEquals("first",slow.await().getString("text"))
+                assertEquals(listOf(a),reportsA);assertEquals(listOf(b),reportsB);assertEquals(listOf(c),reportsC);assertEquals(1,metrics().getInt("connections"))
+                var rejected=false
+                val duplicate=connection.attach(a,"conflicting draft",2,{fail("Duplicate source received a notification")},{rejected=true})
+                assertTrue(rejected);connection.change(duplicate,"corrupt",3)
+                assertTrue(runCatching {connection.request("fixture/fast",params(a),duplicate)}.isFailure)
+                assertFalse((connection.request("fixture/askApply",params(b),ownerB) as JSONObject).getBoolean("applied"))
+                val preceding=metrics().getJSONArray("ids").length()
+                val blocking=async {runCatching {connection.request("fixture/block",params(a),ownerA)}}
+                connection.request("fixture/fast",params(b),ownerB)
+                withTimeout(2000) {while(metrics().getJSONArray("ids").length()<preceding+2) delay(10)}
+                connection.detach(ownerA);assertTrue(blocking.await().isFailure)
+                assertEquals("second",(connection.request("fixture/fast",params(b),ownerB) as JSONObject).getString("text"))
+                assertTrue(runCatching {connection.request("fixture/drop",params(b),ownerB)}.isFailure)
+                assertEquals(0,failuresA);assertEquals(1,failuresB);assertEquals(1,failuresC)
+                connection.change(ownerB,"new second",2);delay(1100)
+                assertEquals("new second",(connection.request("fixture/fast",params(b),ownerB) as JSONObject).getString("text"))
+                val final=metrics();assertEquals(2,final.getInt("connections"));assertFalse(final.getJSONObject("documents").has(a));assertEquals("new second",final.getJSONObject("documents").getString(b));assertEquals("third",final.getJSONObject("documents").getString(c))
+                val ids=final.getJSONArray("ids");assertEquals(ids.length(),(0 until ids.length()).map {ids.getInt(it)}.toSet().size)
+            } finally {connection.close()}
+        } finally {process.destroy();process.waitFor(5,java.util.concurrent.TimeUnit.SECONDS)}
+    }
+
     @Test fun workspaceAnalysisScopeCountsUnknownAndGeneratedSources() {
         // Contract: .hickory-source/frontends/contract.md
         val a=FileNode("a.py","src/a.py",false,emptyList(),null,null,"python")
@@ -30,6 +71,7 @@ class ParityTest {
             gate.countDown();assertSame(draft,first.await());assertSame(draft,second.await());assertEquals(1,count.get());assertEquals("retained draft",draft.text);assertTrue(draft.dirty);assertNull(workspace.active)
             val other=file.copy(name="other.py",path="other.py")
             val loaded=workspace.loadBuffer(other);assertEquals("loaded disk text",loaded.text);assertNotNull(loaded.language);assertNull(workspace.active)
+            val third=workspace.loadBuffer(other.copy(name="third.py",path="third.py"));assertSame(loaded.language!!.connection,third.language!!.connection);assertNull(workspace.active)
         } finally {gate.countDown();workspace.buffers.values.forEach {it.language?.close()};listener.stop(0)}
     }
 

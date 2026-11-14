@@ -46,6 +46,52 @@ final class ResponseProtocol: URLProtocol {
     override func stopLoading() {}
 }
 final class SaveTests: XCTestCase {
+    @MainActor func testSharedLanguageWireRoutesRepliesDetachesOneSourceAndReplaysAfterFailure() async throws {
+        // Contract: .hickory-source/frontends/contract.md. Own protocol fixture, real native WebSocket.
+        #if os(macOS)
+        let root=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let process=Process(),pipe=Pipe();process.executableURL=URL(fileURLWithPath:"/usr/bin/env");process.arguments=["python3",root.appendingPathComponent("scripts/simple-language-wire-fixture.py").path];process.standardOutput=pipe;process.standardError=pipe
+        try process.run();defer {if process.isRunning {process.terminate()};process.waitUntilExit()}
+        let greeting=try XCTUnwrap(JSONSerialization.jsonObject(with:pipe.fileHandleForReading.availableData) as? [String:Any])
+        let engine=try Engine(address:try XCTUnwrap(greeting["origin"] as? String)),connection=NativeLanguageConnection(engine:engine)
+        defer {connection.close()}
+        struct Metrics: Decodable {var connections:Int;var ids:[Int];var documents:[String:String]}
+        func metrics() async throws -> Metrics {try await engine.request("GET","/state")}
+        func params(_ uri:String)->[String:Any] {["textDocument":["uri":uri]]}
+        let a="hick:///a.py",b="hick:///b.py",c="hick:///c.py"
+        var reportsA:[String]=[],reportsB:[String]=[],reportsC:[String]=[],failuresA=0,failuresB=0,failuresC=0
+        let ownerA=connection.attach(uri:a,source:"first",version:1,receive:{if let uri=($0["params"] as? [String:Any])?["uri"] as? String {reportsA.append(uri)}},failed:{_ in failuresA += 1})
+        let ownerB=connection.attach(uri:b,source:"second",version:1,receive:{if let uri=($0["params"] as? [String:Any])?["uri"] as? String {reportsB.append(uri)}},failed:{_ in failuresB += 1})
+        _=connection.attach(uri:c,source:"third",version:1,receive:{if let uri=($0["params"] as? [String:Any])?["uri"] as? String {reportsC.append(uri)}},failed:{_ in failuresC += 1})
+        async let slow=connection.request("fixture/slow",params:params(a),owner:ownerA)
+        async let fast=connection.request("fixture/fast",params:params(b),owner:ownerB)
+        let (one,two)=try await(slow,fast)
+        XCTAssertEqual((one as? [String:Any])?["uri"] as? String,a);XCTAssertEqual((two as? [String:Any])?["text"] as? String,"second")
+        XCTAssertEqual(reportsA,[a]);XCTAssertEqual(reportsB,[b]);XCTAssertEqual(reportsC,[c]);let initial=try await metrics();XCTAssertEqual(initial.connections,1)
+        var rejected=false
+        let duplicate=connection.attach(uri:a,source:"conflicting draft",version:2,receive:{_ in XCTFail("Duplicate source received a notification")},failed:{_ in rejected=true})
+        XCTAssertTrue(rejected);connection.change(owner:duplicate,source:"corrupt",version:3)
+        do {_=try await connection.request("fixture/fast",params:params(a),owner:duplicate);XCTFail("Duplicate source borrowed request authority")} catch {}
+        let refused=try await connection.request("fixture/askApply",params:params(b),owner:ownerB);XCTAssertEqual((refused as? [String:Any])?["applied"] as? Bool,false)
+        let preceding=try await metrics().ids.count
+        let blocking=Task {try await connection.request("fixture/block",params:params(a),owner:ownerA)}
+        _=try await connection.request("fixture/fast",params:params(b),owner:ownerB)
+        let deadline=Date().addingTimeInterval(2)
+        while try await metrics().ids.count < preceding+2,Date()<deadline {try await Task.sleep(for:.milliseconds(10))}
+        connection.detach(ownerA)
+        do {_=try await blocking.value;XCTFail("Detached owner retained a pending request")} catch {}
+        let stillAlive=try await connection.request("fixture/fast",params:params(b),owner:ownerB)
+        XCTAssertEqual((stillAlive as? [String:Any])?["text"] as? String,"second")
+        do {_=try await connection.request("fixture/drop",params:params(b),owner:ownerB);XCTFail("Dropped wire returned a successful reply")} catch {}
+        XCTAssertEqual(failuresA,0);XCTAssertEqual(failuresB,1);XCTAssertEqual(failuresC,1)
+        connection.change(owner:ownerB,source:"new second",version:2)
+        try await Task.sleep(for:.milliseconds(1100))
+        let reopened=try await connection.request("fixture/fast",params:params(b),owner:ownerB)
+        XCTAssertEqual((reopened as? [String:Any])?["text"] as? String,"new second")
+        let final=try await metrics();XCTAssertEqual(final.connections,2);XCTAssertNil(final.documents[a]);XCTAssertEqual(final.documents[b],"new second");XCTAssertEqual(final.documents[c],"third");XCTAssertEqual(Set(final.ids).count,final.ids.count)
+        #endif
+    }
+
     @MainActor func testBackgroundSourceAcquisitionSharesReadWithoutActivatingPane() async throws {
         // Contract: .hickory-source/frontends/contract.md
         ResponseProtocol.status=200;ResponseProtocol.responsesByPath=[:];ResponseProtocol.beforeResponse=nil;ResponseProtocol.resetRequests()
@@ -58,6 +104,8 @@ final class SaveTests: XCTestCase {
         let (a,b)=try await(first,second)
         XCTAssertTrue(a === b);XCTAssertEqual(ResponseProtocol.requestCount("/api/file"),1)
         XCTAssertEqual(a.text,"value = 1");XCTAssertNil(workspace.active);XCTAssertNotNil(a.language)
+        let other=try await workspace.loadBuffer(FileNode(name:"other.py",path:"other.py",dir:false,language:"python"))
+        XCTAssertTrue(a.language?.connection === other.language?.connection);XCTAssertNil(workspace.active)
     }
     @MainActor func testDelayedBackgroundSourceCannotReplaceAvailableDraft() async throws {
         // Contract: .hickory-source/frontends/contract.md

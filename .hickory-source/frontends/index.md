@@ -88,4 +88,10 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="diagnostic-revisions.md" />
 
+<ui:include file="language-connection-apple.md" />
+
+<ui:include file="language-connection-android.md" />
+
+<ui:include file="language-wire-fixture.md" />
+
 </ui:doc>

@@ -151333,6 +151333,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/api/tests/tree_tests.rs.md",
       "symbol": "List routing facts without parsing file contents",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-apple-language-connection",
+      "output": "apps/apple-simple/Sources/LanguageConnection.swift",
+      "page": ".hickory-source/frontends/language-connection-apple.md",
+      "symbol": "simple-apple-language-connection",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-android-language-connection",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/LanguageConnection.kt",
+      "page": ".hickory-source/frontends/language-connection-android.md",
+      "symbol": "simple-android-language-connection",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-shared-language-wire-fixture",
+      "output": "scripts/simple-language-wire-fixture.py",
+      "page": ".hickory-source/frontends/language-wire-fixture.md",
+      "symbol": "simple-shared-language-wire-fixture",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

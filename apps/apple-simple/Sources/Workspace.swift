@@ -226,6 +226,7 @@ import Observation
     var address = ProcessInfo.processInfo.environment["HICKORY_API_ORIGIN"] ?? ""
     var connecting = false
     private var loading: [String:Task<DocumentBuffer, Error>] = [:]
+    private var languageConnection: NativeLanguageConnection?
     private var newestOpen: [String: String] = [:]
     let agent = AgentSession()
     let terminal = TerminalSession()
@@ -244,6 +245,7 @@ import Observation
             agent.turns = []; agent.error = ""; terminal.id = nil; terminal.error = ""
             debugger?.close()
             for buffer in buffers.values { buffer.language?.close() }
+            languageConnection?.close();languageConnection=nil
             generation = UUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; debugger = NativeDebugger(engine: next)
             debugger?.onLocation = { [weak self] path, line in Task { await self?.revealDebug(path, line: line) } }; files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); buffers = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
             layout = PaneLayout(); focused = "document-group"; status = tree.root
@@ -291,7 +293,8 @@ import Observation
             Task { await self?.openSemanticLocation(location) }
         }
         buffer.receiptEngine = engine
-        buffer.language = NativeLanguage(engine: engine, buffer: buffer); buffer.language?.start()
+        if languageConnection == nil {languageConnection=NativeLanguageConnection(engine:engine)}
+        buffer.language = NativeLanguage(engine:engine,buffer:buffer,connection:languageConnection); buffer.language?.start()
         return buffer
     }
     func open(_ file: FileNode, recordNavigation: Bool = true) async {

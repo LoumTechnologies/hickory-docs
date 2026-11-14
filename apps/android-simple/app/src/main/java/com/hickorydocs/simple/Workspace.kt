@@ -156,6 +156,7 @@ class DocumentBuffer(val file: FileNode, loaded: FileText) {
 }
 class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? = null) : ViewModel() {
     private val workspaceScope get() = backgroundScope ?: viewModelScope
+    private var languageConnection: NativeLanguageConnection? = null
     val changes = WorkspaceChanges()
     var showWorkspaceSearch by mutableStateOf(false)
     val search = WorkspaceSearch()
@@ -229,7 +230,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
             agent.turns = emptyList(); agent.error = ""; terminal.id = null; terminal.error = ""
             debugger?.close(); debugger = NativeDebugger(next, workspaceScope)
             debugger?.onLocation = { path, line -> workspaceScope.launch { revealDebug(path, line) } }
-            buffers.values.forEach { it.language?.close() }; generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); buffers.clear(); loading.values.forEach {it.cancel()}; loading.clear()
+            buffers.values.forEach { it.language?.close() }; languageConnection?.close();languageConnection=null; generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); buffers.clear(); loading.values.forEach {it.cancel()}; loading.clear()
             layout = PaneLayout(); focused = "document-group"; status = root
             return true
         } catch (cancelled: CancellationException) { throw cancelled }
@@ -263,7 +264,8 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         buffer.rememberNavigation = { from, to -> navigationTrail = navigationTrail.record(from, to) }
         buffer.openSemanticLocation = { location -> workspaceScope.launch { openSemanticLocation(location) } }
         buffer.receiptEngine = server
-        buffer.language = NativeLanguage(server, buffer, workspaceScope); buffer.language?.start()
+        if(languageConnection==null) languageConnection=NativeLanguageConnection(server,workspaceScope)
+        buffer.language = NativeLanguage(server,buffer,workspaceScope,languageConnection); buffer.language?.start()
         return buffer
     }
     suspend fun open(file: FileNode, recordNavigation: Boolean = true) {
@@ -314,7 +316,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         val file = find(files) ?: return
         open(file); buffers[path]?.let { buffer -> debugger?.rememberSource(buffer); buffer.debugReveal = line to ((buffer.debugReveal?.second ?: 0) + 1) }
     }
-    override fun onCleared() { buffers.values.forEach { it.language?.close() }; debugger?.close(); super.onCleared() }
+    override fun onCleared() { buffers.values.forEach { it.language?.close() }; languageConnection?.close(); debugger?.close(); super.onCleared() }
     suspend fun openTerminal() {
         val server = engine ?: run { status = "Connect to a workspace server before opening Terminal."; return }
         show("terminal"); terminal.open(server)

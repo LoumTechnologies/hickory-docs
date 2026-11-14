@@ -68295,6 +68295,39 @@
       "fragments": [
         "diagnostic-revision-browser-proof"
       ]
+    },
+    "apps/apple-simple/Sources/LanguageConnection.swift": {
+      "source": ".hickory-source/frontends/language-connection-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "9f5d0375a073076adec5d933e37107a4d2eb3a60a7b2955f58e5842a4bc70a22",
+      "construction": "fragments",
+      "fragments": [
+        "simple-apple-language-connection"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/LanguageConnection.kt": {
+      "source": ".hickory-source/frontends/language-connection-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "4455a46cbd9ef133cbca6b7ee71fdb61777e5957d8552e68543bb34f6e0c460a",
+      "construction": "fragments",
+      "fragments": [
+        "simple-android-language-connection"
+      ]
+    },
+    "scripts/simple-language-wire-fixture.py": {
+      "source": ".hickory-source/frontends/language-wire-fixture.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "533b10f3c982748430e89d4e5d8b9b0638ad7b64c33efce56d118c1f3417ee33",
+      "construction": "fragments",
+      "fragments": [
+        "simple-shared-language-wire-fixture"
+      ]
     }
   },
   "evidence_records": [

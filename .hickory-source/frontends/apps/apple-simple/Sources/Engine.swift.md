@@ -279,49 +279,36 @@ func rebaseNativeTokens(_ tokens: [NativeSemanticToken], from old: String, to ne
     private var inspectionID = UUID()
     private var completionID = UUID()
     private weak var buffer: DocumentBuffer?
-    private let engine: Engine
+    let connection: NativeLanguageConnection
+    private let ownsConnection: Bool
+    private var subscription: UUID?
     private let uri: String
-    private var socket: URLSessionWebSocketTask?
-    private var receiveTask: Task<Void, Never>?
-    private var sendTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
-    private var pending: [Int: CheckedContinuation<Any, Error>] = [:]
-    private var nextID = 1
     private var version = 1
     private var sent = ""
     private var legend: [String] = []
     private var epoch = UUID()
-    init(engine: Engine, buffer: DocumentBuffer) { self.engine = engine; self.buffer = buffer; uri = languageURI(buffer.file.path) }
+    init(engine: Engine, buffer: DocumentBuffer, connection: NativeLanguageConnection? = nil) {
+        self.connection = connection ?? NativeLanguageConnection(engine:engine); ownsConnection = connection == nil
+        self.buffer = buffer; uri = languageURI(buffer.file.path)
+    }
     func start() {
-        close(); epoch = UUID(); let current = epoch
-        var url = URLComponents(url: engine.origin, resolvingAgainstBaseURL: false)!
-        url.scheme = engine.origin.scheme == "https" ? "wss" : "ws"; url.path = "/api/ws"; url.queryItems = [URLQueryItem(name: "doc", value: "workspace")]
-        let socket = engine.session.webSocketTask(with: url.url!); self.socket = socket
-        status = "Language server connecting…"; socket.resume()
-        receiveTask = Task { [weak self] in
-            do {
-                while !Task.isCancelled {
-                    let message = try await socket.receive()
-                    guard let self, self.epoch == current else { return }
-                    if case .data(let bytes) = message, bytes.first == 2,
-                       let object = try JSONSerialization.jsonObject(with: bytes.dropFirst()) as? [String: Any] { self.receive(object) }
-                }
-            } catch { if let self, self.epoch == current, !Task.isCancelled { self.failed(error) } }
-        }
-        sent = buffer?.text ?? ""; version = 1
-        notify("textDocument/didOpen", ["textDocument": ["uri": uri, "languageId": "hick", "version": version, "text": sent]])
+        close(); epoch = UUID(); sent = buffer?.text ?? ""; version = 1; status = "Language server connecting…"
+        subscription = connection.attach(uri:uri,source:sent,version:version,
+            receive:{ [weak self] in self?.receive($0) },failed:{ [weak self] in self?.failed($0) })
         changed()
     }
     func close() {
         navigationID = UUID(); locations = []; locationStatus = ""
         diagnostics = []; diagnosticSource = ""; hover = ""; signature = ""; inlayHints = []; inspectionID = UUID()
-        epoch = UUID(); receiveTask?.cancel(); refreshTask?.cancel(); sendTask?.cancel()
-        socket?.cancel(with: .normalClosure, reason: nil); socket = nil
-        let waits = pending; pending.removeAll(); for continuation in waits.values { continuation.resume(throwing: CancellationError()) }
+        epoch = UUID(); refreshTask?.cancel()
+        if let token=subscription { subscription=nil;connection.detach(token) }
+        if ownsConnection { connection.close() }
     }
     private func failed(_ error: Error) {
+        epoch=UUID();inspectionID=UUID();completionID=UUID();navigationID=UUID();diagnosticID=UUID()
         status = "Language services unavailable: \(error.localizedDescription). Reconnect or retry."
-        let waits = pending; pending.removeAll(); for continuation in waits.values { continuation.resume(throwing: error) }
+        if !locations.isEmpty {locationStatus="Provider connection changed. Run the query again."}
     }
     private func receive(_ object: [String: Any]) {
         if object["method"] as? String == "textDocument/publishDiagnostics", let params = object["params"] as? [String: Any],
@@ -342,36 +329,15 @@ func rebaseNativeTokens(_ tokens: [NativeSemanticToken], from old: String, to ne
             }
             return
         }
-        if let id = object["id"] as? Int, let continuation = pending.removeValue(forKey: id) {
-            if let error = object["error"] as? [String: Any] { continuation.resume(throwing: EngineError(message: error["message"] as? String ?? "Language request refused")) }
-            else { continuation.resume(returning: object["result"] ?? NSNull()) }
-        } else if object["method"] as? String == "hick/serverCapabilities",
+        if object["method"] as? String == "hick/serverCapabilities",
                   let params = object["params"] as? [String: Any], let caps = params["capabilities"] as? [String: Any] {
             legend = ((caps["semanticTokensProvider"] as? [String: Any])?["legend"] as? [String: Any])?["tokenTypes"] as? [String] ?? []
             status = "LSP connected; checking semantic colors…"; changed()
         }
     }
-    private func send(_ message: [String: Any]) {
-        guard let socket, let bytes = try? JSONSerialization.data(withJSONObject: message) else { return }
-        let previous = sendTask, current = epoch
-        sendTask = Task { [weak self] in
-            await previous?.value
-            guard !Task.isCancelled else { return }
-            do { try await socket.send(.data(Data([2]) + bytes)) }
-            catch { if let self, self.epoch == current { self.failed(error) } }
-        }
-    }
-    private func notify(_ method: String, _ params: [String: Any]) { send(["jsonrpc": "2.0", "method": method, "params": params]) }
-    private func request(_ method: String, _ params: [String: Any]) async throws -> Any {
-        guard socket != nil else { throw EngineError(message: "Language connection is closed. Retry language services.") }
-        let id = nextID; nextID += 1
-        return try await withCheckedThrowingContinuation { continuation in
-            pending[id] = continuation; send(["jsonrpc": "2.0", "id": id, "method": method, "params": params])
-            Task { [weak self] in
-                try? await Task.sleep(for: .seconds(12))
-                self?.pending.removeValue(forKey: id)?.resume(throwing: EngineError(message: "Language request timed out. Check the server installation and retry."))
-            }
-        }
+    private func request(_ method: String, _ params: [String:Any]) async throws -> Any {
+        guard let owner=subscription else {throw EngineError(message:"Language source is closed. Retry language services.")}
+        return try await connection.request(method,params:params,owner:owner)
     }
 </ui:copy>
 
@@ -385,7 +351,7 @@ Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet
     private func sync() {
         guard let text = buffer?.text, text != sent else { return }
         sent = text; version += 1
-        notify("textDocument/didChange", ["textDocument": ["uri": uri, "version": version], "contentChanges": [["text": text]]])
+        if let owner=subscription {connection.change(owner:owner,source:text,version:version)}
     }
     func changed() {
         refreshTask?.cancel(); inspectionID = UUID(); completionID = UUID(); navigationID = UUID()
@@ -508,7 +474,7 @@ Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet
     }
     var proposalIdentity: UUID { epoch }
     func propose(_ kind: String, name: String) async throws -> Any {
-        guard let buffer, !buffer.readOnly, socket != nil else { throw EngineError(message: "Choose writable source with a connected language provider.") }
+        guard let buffer, !buffer.readOnly, subscription != nil else { throw EngineError(message: "Choose writable source with a connected language provider.") }
         sync(); let source = buffer.text, selection = buffer.selection, identity = epoch
         var params: [String:Any] = ["textDocument":["uri":uri]]
         let method: String
