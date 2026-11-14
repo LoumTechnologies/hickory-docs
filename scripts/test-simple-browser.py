@@ -70,10 +70,11 @@ class BrowserDriver:
         finally: stop(self.process)
 
 def workspace_changes_acceptance(driver, folder):
-    # Contract: .hickory-source/frontends/contract.md. Real provider, two retained editors, no disk writes.
+    # Contract: .hickory-source/frontends/contract.md. Real provider, initially unopened consumer, no disk writes.
     first, second = "renamea.py", "renameb.py"
     originals = {path:(folder/path).read_text() for path in [first,second]}
-    for path in [second,first]: driver.act("open",path=path)
+    driver.act("open",path=first);driver.act("remember-editor",path=first)
+    assert not any(second in name for name in driver.act("tabs")),"Consumer must start unopened"
     size=driver.act("editor-size",path=first)
     driver.act("change-open")
     result=driver.act("change-prepare",name="renamed_value")
@@ -81,6 +82,8 @@ def workspace_changes_acceptance(driver, folder):
     while ("2 source files" not in result or "Apply to source drafts" not in result) and time.monotonic()<deadline:
         time.sleep(.25); result=driver.act("change-prepare",name="renamed_value")
     assert "2 source files" in result and "Apply to source drafts" in result,result
+    assert not any(second in name for name in driver.act("tabs")),"Acquisition opened a consumer tab"
+    assert driver.act("editor-is-retained",path=first)
     assert driver.act("change-state",path=first)["size"]==size,"Change preview resized code"
     driver.act("change-file",path=second)
     assert "renamed_value" in driver.act("change-state",path=first)["text"]

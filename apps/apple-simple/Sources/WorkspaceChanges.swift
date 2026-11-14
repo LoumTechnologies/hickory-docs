@@ -2,7 +2,7 @@ import SwiftUI
 import Observation
 @MainActor @Observable final class WorkspaceChanges {
     var mode: String?
-    var name = "" { didSet { if name != oldValue { revision = UUID(); plan = nil; choices = []; notice = "" } } }
+    var name = "" { didSet { if !exactUTF8(name,oldValue) { revision = UUID(); plan = nil; choices = []; notice = "" } } }
     var notice = ""
     var plan: ChangePlan?
     var choices: [[String:Any]] = []
@@ -25,7 +25,7 @@ import Observation
             notice = "Workspace \(kind) applied to \(target.patches.count) drafts. Not saved or verified." + refresh
         } catch { notice = error.localizedDescription }
     }
-    func prepare(_ workspace: Workspace) async {
+    func prepare(_ workspace: Workspace,proposal:((String,String) async throws->Any)?=nil) async {
         guard let origin = workspace.currentBuffer, let language = origin.language, !origin.readOnly else { notice = "Choose writable source with a connected language provider."; return }
         revision = UUID(); let request = revision, source = origin.text, selection = origin.selection, identity = language.proposalIdentity
         let sources = workspace.sourceSnapshots()
@@ -33,16 +33,30 @@ import Observation
             guard let self, let origin, let language else { return false }
             return self.revision == request && exactUTF8(origin.text,source) && origin.selection == selection && origin.language === language && language.proposalIdentity == identity
         })
+        let valid=captured!.current
+        let propose: (String,String) async throws->Any = proposal ?? {kind,name in try await language.propose(kind,name:name)}
         plan = nil; choices = []; referencePaths = []; notice = "Preparing complete source changes…"
         let kind = mode ?? "actions", nextName = name
         do {
             if kind == "rename" {
-                let references = try await language.propose("references",name:"")
-                guard captured?.current() == true else { if revision == request { notice = "Source, selection or provider changed. Prepare again." }; return }
-                referencePaths = semanticLocations(references).compactMap(\.path)
+                var listed:[String:FileNode]=[:]
+                func collect(_ nodes:[FileNode]){for file in nodes{if !file.dir{listed[file.path]=file};collect(file.children ?? [])}};collect(workspace.rootFiles)
+                let acquired=try await acquireReferenceSources(sources,query:{
+                    let locations=semanticLocations(try await propose("references",""))
+                    return try locations.map {location in guard let path=location.path else{throw EngineError(message:"Reference target has no writable workspace source identity. No edits were applied.")};return path}
+                },acquire:{path in
+                    guard valid() else{throw EngineError(message:"Source, selection or provider changed. Prepare again.")}
+                    guard let file=workspace.buffers[path]?.file ?? listed[path],!file.dir else{throw EngineError(message:"Referenced source is no longer listed: \(path). Refresh files and prepare again.")}
+                    let target=try await workspace.loadBuffer(file),text=target.text
+                    guard !target.readOnly,!target.saving,let service=target.language else{throw EngineError(message:"Referenced source cannot synchronize: \(path). Retry language services.")}
+                    _ = try await service.readOutline(source:text)
+                    guard valid(),exactUTF8(target.text,text) else{throw EngineError(message:"Source changed while reading \(path). Prepare again.")}
+                    return SourceSnapshot(text:text,writable:!target.readOnly && !target.saving)
+                },current:valid)
+                guard valid() else{return};captured?.sources=acquired.sources;referencePaths=acquired.references
             }
-            let result = try await language.propose(kind,name:nextName)
-            guard captured?.current() == true else { if revision == request { notice = "Source, selection or provider changed. Prepare again." }; return }
+            let result = try await propose(kind,nextName)
+            guard valid() else { if revision == request { notice = "Source, selection or provider changed. Prepare again." }; return }
             if kind == "actions" { choices = result as? [[String:Any]] ?? []; notice = choices.isEmpty ? "No provider actions here. Support depends on the installed language server." : "Choose a provider action to preview." }
             else { try install(kind == "rename" ? "Rename to \(nextName)" : "Format source", edit:result, workspace:workspace) }
         } catch { if revision == request { notice = error.localizedDescription } }

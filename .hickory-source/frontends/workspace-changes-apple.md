@@ -5,12 +5,14 @@ For maintainers changing workspace services independently of the editor renderer
 
 The existing Edit menu requests a rename, formatting or provider action. Capture all retained source buffers and the originating selection before asking; an obsolete provider answer or edited target cannot become a preview. The preview pages every before/after line without reserving editor space. Application preflights every target, including retained editors and IME state, before synchronously committing the prepared replacements. It changes drafts only. The same exact inverse model drives bounded workspace undo/redo; later local edits refuse coordinated undo rather than being overwritten. Provider commands and resource operations remain explicit unsupported results, not partially applied edits.
 
+Rename discovery acquires previously unopened reference targets through the existing workspace buffer loader. Their language sessions synchronize before a fresh reference query; the discovering answer cannot authorize edits against later-loaded text. Acquisition never activates a tab. Captured source snapshots remain immutable inputs to the final provider proposal, and complete draft-plan validation still precedes application. Native preparation retains its own fixed request-validity closure so an older reply cannot borrow a newer request's authority.
+
 <ui:copy id="simple-apple-workspace-changes">
 import SwiftUI
 import Observation
 @MainActor @Observable final class WorkspaceChanges {
     var mode: String?
-    var name = "" { didSet { if name != oldValue { revision = UUID(); plan = nil; choices = []; notice = "" } } }
+    var name = "" { didSet { if !exactUTF8(name,oldValue) { revision = UUID(); plan = nil; choices = []; notice = "" } } }
     var notice = ""
     var plan: ChangePlan?
     var choices: [[String:Any]] = []
@@ -33,7 +35,7 @@ import Observation
             notice = "Workspace \(kind) applied to \(target.patches.count) drafts. Not saved or verified." + refresh
         } catch { notice = error.localizedDescription }
     }
-    func prepare(_ workspace: Workspace) async {
+    func prepare(_ workspace: Workspace,proposal:((String,String) async throws->Any)?=nil) async {
         guard let origin = workspace.currentBuffer, let language = origin.language, !origin.readOnly else { notice = "Choose writable source with a connected language provider."; return }
         revision = UUID(); let request = revision, source = origin.text, selection = origin.selection, identity = language.proposalIdentity
         let sources = workspace.sourceSnapshots()
@@ -41,16 +43,30 @@ import Observation
             guard let self, let origin, let language else { return false }
             return self.revision == request && exactUTF8(origin.text,source) && origin.selection == selection && origin.language === language && language.proposalIdentity == identity
         })
+        let valid=captured!.current
+        let propose: (String,String) async throws->Any = proposal ?? {kind,name in try await language.propose(kind,name:name)}
         plan = nil; choices = []; referencePaths = []; notice = "Preparing complete source changes…"
         let kind = mode ?? "actions", nextName = name
         do {
             if kind == "rename" {
-                let references = try await language.propose("references",name:"")
-                guard captured?.current() == true else { if revision == request { notice = "Source, selection or provider changed. Prepare again." }; return }
-                referencePaths = semanticLocations(references).compactMap(\.path)
+                var listed:[String:FileNode]=[:]
+                func collect(_ nodes:[FileNode]){for file in nodes{if !file.dir{listed[file.path]=file};collect(file.children ?? [])}};collect(workspace.rootFiles)
+                let acquired=try await acquireReferenceSources(sources,query:{
+                    let locations=semanticLocations(try await propose("references",""))
+                    return try locations.map {location in guard let path=location.path else{throw EngineError(message:"Reference target has no writable workspace source identity. No edits were applied.")};return path}
+                },acquire:{path in
+                    guard valid() else{throw EngineError(message:"Source, selection or provider changed. Prepare again.")}
+                    guard let file=workspace.buffers[path]?.file ?? listed[path],!file.dir else{throw EngineError(message:"Referenced source is no longer listed: \(path). Refresh files and prepare again.")}
+                    let target=try await workspace.loadBuffer(file),text=target.text
+                    guard !target.readOnly,!target.saving,let service=target.language else{throw EngineError(message:"Referenced source cannot synchronize: \(path). Retry language services.")}
+                    _ = try await service.readOutline(source:text)
+                    guard valid(),exactUTF8(target.text,text) else{throw EngineError(message:"Source changed while reading \(path). Prepare again.")}
+                    return SourceSnapshot(text:text,writable:!target.readOnly && !target.saving)
+                },current:valid)
+                guard valid() else{return};captured?.sources=acquired.sources;referencePaths=acquired.references
             }
-            let result = try await language.propose(kind,name:nextName)
-            guard captured?.current() == true else { if revision == request { notice = "Source, selection or provider changed. Prepare again." }; return }
+            let result = try await propose(kind,nextName)
+            guard valid() else { if revision == request { notice = "Source, selection or provider changed. Prepare again." }; return }
             if kind == "actions" { choices = result as? [[String:Any]] ?? []; notice = choices.isEmpty ? "No provider actions here. Support depends on the installed language server." : "Choose a provider action to preview." }
             else { try install(kind == "rename" ? "Rename to \(nextName)" : "Format source", edit:result, workspace:workspace) }
         } catch { if revision == request { notice = error.localizedDescription } }
@@ -149,4 +165,33 @@ struct WorkspaceChangesView: View {
 
 
 <ui:file path="apps/apple-simple/Sources/WorkspaceChanges.swift"><ui:paste select="#simple-apple-workspace-changes"/><ui:paste select="#simple-apple-workspace-changes-application"/><ui:paste select="#simple-apple-workspace-changes-presentation"/></ui:file>
+## Retire older proposal requests
+
+Hold two provider replies against the same unchanged source and selection. Completing the newer rename first must leave its preview intact when the older result arrives. A byte-distinct Unicode name change also retires the previous preview. Each preparation therefore retains its own validity closure; consulting a mutable current-request property would let old work borrow new authority. The injected provider boundary tests asynchronous intent safety without claiming an actual language-server run; source stays unchanged until explicit application.
+
+<ui:copy id="native-change-request-apple-witness">
+import XCTest
+@testable import HickorySimple
+@MainActor final class ChangeRequestTests:XCTestCase {
+    func testOlderRenameReplyCannotBorrowNewerRequestAuthority()async throws {
+        let workspace=Workspace(),engine=try Engine(address:"http://127.0.0.1:1"),file=FileNode(name:"a.py",path:"a.py",dir:false)
+        let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:"value\n",hash:"base"));buffer.language=NativeLanguage(engine:engine,buffer:buffer);workspace.buffers[file.path]=buffer;workspace.show(file.path)
+        XCTAssertTrue(workspace.currentBuffer === buffer)
+        let changes=workspace.changes;changes.open("rename",workspace:workspace)
+        var held:[String:CheckedContinuation<Any,Error>]=[:]
+        let proposal:(String,String) async throws->Any={kind,name in if kind=="references"{return [] as [[String:Any]]};return try await withCheckedThrowingContinuation {held[name]=$0}}
+        func settle(_ condition:@escaping ()->Bool)async{let deadline=Date().addingTimeInterval(2);while !condition()&&Date()<deadline{try? await Task.sleep(for:.milliseconds(1))}}
+        func edit(_ name:String)->Any{["changes":[languageURI(file.path):[["range":["start":["line":0,"character":0],"end":["line":0,"character":5]],"newText":name]]]]}
+        changes.name="first";let first=Task {await changes.prepare(workspace,proposal:proposal)};await settle{held["first"] != nil}
+        changes.name="second";let second=Task {await changes.prepare(workspace,proposal:proposal)};await settle{held["second"] != nil}
+        try XCTUnwrap(held["second"]).resume(returning:edit("second"));await second.value;XCTAssertEqual(changes.plan?.patches.first?.after,"second\n")
+        try XCTUnwrap(held["first"]).resume(returning:edit("first"));await first.value;XCTAssertEqual(changes.plan?.patches.first?.after,"second\n");XCTAssertEqual(buffer.text,"value\n")
+        changes.name="é";let unicode=Task {await changes.prepare(workspace,proposal:proposal)};await settle{held["é"] != nil}
+        try XCTUnwrap(held["é"]).resume(returning:edit("é"));await unicode.value;XCTAssertNotNil(changes.plan)
+        changes.name="e\u{301}";XCTAssertNil(changes.plan,"A byte-distinct rename intent must retire its previous preview")
+    }
+}
+</ui:copy>
+
+<ui:file path="apps/apple-simple/Tests/ChangeRequestTests.swift"><ui:paste select="#native-change-request-apple-witness"/></ui:file>
 </ui:doc>

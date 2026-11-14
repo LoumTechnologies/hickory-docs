@@ -69404,6 +69404,28 @@
       "fragments": [
         "reference-source-acquisition-android-witness"
       ]
+    },
+    "apps/apple-simple/Tests/ChangeRequestTests.swift": {
+      "source": ".hickory-source/frontends/workspace-changes-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "9b1c4c9198885b82a6308d234f3f954c11cb326623fadae48e9a254cb25e184d",
+      "construction": "fragments",
+      "fragments": [
+        "native-change-request-apple-witness"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/ChangeRequestTest.kt": {
+      "source": ".hickory-source/frontends/workspace-changes-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "922f9f581538f1d14e9294dafa3772d6ef53b791a6503495908b100174b18412",
+      "construction": "fragments",
+      "fragments": [
+        "native-change-request-android-witness"
+      ]
     }
   },
   "evidence_records": [

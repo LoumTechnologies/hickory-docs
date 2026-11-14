@@ -4,7 +4,9 @@ import { isolateHistory } from "@codemirror/commands";
 import { type Transaction } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { editorForBuffer } from "./Document";
-import { useWorkspaceLanguageLookup } from "./WorkspaceLanguages";
+import {acquireReferenceSources} from "./ReferenceSources";
+import type {FileNode} from "../api/types";
+import { useWorkspaceLanguageLookup,useWorkspaceOutlineReader } from "./WorkspaceLanguages";
 import { utf16ToPosition } from "../lsp/positions";
 import type { CodeAction } from "../lsp/client";
 import type { Buffer, Buffers } from "./buffers";
@@ -30,8 +32,8 @@ export function applyWorkspacePlan(buffers: Buffers, plan: ChangePlan): void {
     if (target.buffer.text !== target.after) target.buffer.edit(target.after);
   }
 }
-export function WorkspaceChanges({ buffers, current, focus }: { buffers: Buffers; current: () => Buffer | undefined; focus: () => void }) {
-  const lookup = useWorkspaceLanguageLookup();
+export function WorkspaceChanges({ buffers, current, focus,files }: { files:FileNode[];buffers: Buffers; current: () => Buffer | undefined; focus: () => void }) {
+  const lookup = useWorkspaceLanguageLookup(),readOutline=useWorkspaceOutlineReader();
   const [mode, setMode] = useState<ChangeCommand | null>(null), [name, setName] = useState(""), [notice, setNotice] = useState("");
   const [plan, setPlan] = useState<ChangePlan | null>(null), [choices, setChoices] = useState<CodeAction[]>([]);
   const [file, setFile] = useState(0), [page, setPage] = useState(0), [actionPage, setActionPage] = useState(0);
@@ -71,9 +73,21 @@ export function WorkspaceChanges({ buffers, current, focus }: { buffers: Buffers
       const method = mode === "rename" ? "textDocument/rename" : mode === "format" ? "textDocument/formatting" : "textDocument/codeAction";
       const params = { textDocument: { uri }, ...(mode === "rename" ? { position, newName: name } : mode === "format" ? { options: { tabSize: view.state.tabSize, insertSpaces: !/^\t/m.test(source) } } : { range: { start: utf16ToPosition(source, selection.main.from), end: utf16ToPosition(source, selection.main.to) }, context: { diagnostics: [] } }) };
       if (mode === "rename") {
-        const references = semanticLocations(await client.request("textDocument/references", { textDocument: { uri }, position, context: { includeDeclaration: true } }));
-        if (!valid()) { if (id === ticket.current) setNotice("Source, selection or provider changed. Prepare again."); return; }
-        captured.current!.references = references.flatMap(location => { const path = semanticPath(location.uri); return path ? [path] : []; });
+        const listed=new Map<string,FileNode>();const collect=(nodes:FileNode[])=>{for(const file of nodes){if(!file.dir)listed.set(file.path,file);collect(file.children??[]);}};collect(files);
+        const acquired=await acquireReferenceSources(sources,async()=>{
+          const references=semanticLocations(await client.request("textDocument/references",{textDocument:{uri},position,context:{includeDeclaration:true}}));
+          return references.map(location=>{const path=semanticPath(location.uri);if(!path)throw new Error("Reference target has no writable workspace source identity. No edits were applied.");return path;});
+        },async path=>{
+          if(!valid())throw new Error("Source, selection or provider changed. Prepare again.");
+          const file=buffers.values.get(path)?.file??listed.get(path);if(!file||file.dir)throw new Error(`Referenced source is no longer listed: ${path}. Refresh files and prepare again.`);
+          const target=await buffers.open(file),text=target.text;
+          if(target.readonly||target.saving||target.transient)throw new Error(`Source is generated, read-only or saving: ${path}`);
+          await readOutline(target,text);
+          if(!valid()||target.text!==text)throw new Error(`Source changed while reading ${path}. Prepare again.`);
+          return {text,writable:!target.readonly&&!target.saving&&!target.transient};
+        },valid);
+        if(!valid())return;
+        captured.current!.sources=acquired.sources;captured.current!.references=acquired.references;
       }
       const result = await client.request(method, params);
       if (!valid()) { if (id === ticket.current) setNotice("Source, selection or provider changed. Prepare the proposal again."); return; }

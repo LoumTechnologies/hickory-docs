@@ -152446,6 +152446,20 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/reference-source-acquisition.md",
       "symbol": "reference-source-acquisition-android-witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "native-change-request-apple-witness",
+      "output": "apps/apple-simple/Tests/ChangeRequestTests.swift",
+      "page": ".hickory-source/frontends/workspace-changes-apple.md",
+      "symbol": "native-change-request-apple-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-change-request-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/ChangeRequestTest.kt",
+      "page": ".hickory-source/frontends/workspace-changes-android.md",
+      "symbol": "native-change-request-android-witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

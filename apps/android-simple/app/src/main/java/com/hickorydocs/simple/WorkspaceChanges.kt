@@ -37,21 +37,33 @@ class WorkspaceChanges {
             notice="Workspace $kind applied to ${target.patches.size} drafts. Not saved or verified."
         }.onFailure { notice=it.message.orEmpty() }
     }
-    suspend fun prepare(workspace: Workspace) {
+    suspend fun prepare(workspace: Workspace,proposal:(suspend (String,String)->Any)?=null) {
         val origin = workspace.currentBuffer; val language = origin?.language
         if (origin == null || language == null || origin.readOnly) { notice="Choose writable source with a connected language provider."; return }
         val request=++revision; val source=origin.text; val selection=origin.state.selection; val identity=language.proposalIdentity
         sources=workspace.sourceSnapshots(); current={revision==request && origin.text==source && origin.state.selection==selection && origin.language===language && language.proposalIdentity==identity}
+        val valid=current
+        val propose:suspend (String,String)->Any=proposal ?: {kind,value->language.propose(kind,value)}
         plan=null; choices=emptyList(); referencePaths=emptyList(); notice="Preparing complete source changes…"
         val kind=mode ?: "actions"; val nextName=name
         try {
             if (kind == "rename") {
-                val references=language.propose("references","")
-                if (!current()) { if (revision==request) notice="Source, selection or provider changed. Prepare again."; return }
-                referencePaths=semanticLocations(references).mapNotNull { it.path }
+                val listed=mutableMapOf<String,FileNode>();fun collect(nodes:List<FileNode>){for(file in nodes){if(!file.dir)listed[file.path]=file;collect(file.children)}};collect(workspace.rootFiles)
+                val acquired=acquireReferenceSources(sources,{
+                    semanticLocations(propose("references","")).map{it.path ?: error("Reference target has no writable workspace source identity. No edits were applied.")}
+                },{path->
+                    check(valid()){"Source, selection or provider changed. Prepare again."}
+                    val file=(workspace.buffers[path]?.file ?: listed[path])?.takeUnless{it.dir} ?: error("Referenced source is no longer listed: $path. Refresh files and prepare again.")
+                    val target=workspace.loadBuffer(file);val text=target.text
+                    check(!target.readOnly&&!target.saving){"Referenced source cannot synchronize: $path. Retry language services."}
+                    val service=target.language ?: error("Referenced source cannot synchronize: $path. Retry language services.");service.readOutline(text)
+                    check(valid()&&target.text==text){"Source changed while reading $path. Prepare again."}
+                    SourceSnapshot(text,!target.readOnly&&!target.saving)
+                },valid)
+                if(!valid())return;sources=acquired.sources;referencePaths=acquired.references
             }
-            val result=language.propose(kind,nextName)
-            if (!current()) { if (revision==request) notice="Source, selection or provider changed. Prepare again."; return }
+            val result=propose(kind,nextName)
+            if (!valid()) { if (revision==request) notice="Source, selection or provider changed. Prepare again."; return }
             if (kind == "actions") {
                 val actions=result as? JSONArray ?: JSONArray(); choices=(0 until actions.length()).mapNotNull { actions.optJSONObject(it)?.let { item -> JSONObject(item.toString()) } }
                 notice=if (choices.isEmpty()) "No provider actions here. Support depends on the installed language server." else "Choose a provider action to preview."

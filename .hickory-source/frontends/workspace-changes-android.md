@@ -5,6 +5,8 @@ For maintainers changing workspace services independently of the editor renderer
 
 The existing Edit menu requests a rename, formatting or provider action. Capture all retained source buffers and the originating selection before asking; an obsolete provider answer or edited target cannot become a preview. The preview pages every before/after line without reserving editor space. Application preflights every target, including retained editors and IME state, before synchronously committing the prepared replacements. It changes drafts only. The same exact inverse model drives bounded workspace undo/redo; later local edits refuse coordinated undo rather than being overwritten. Provider commands and resource operations remain explicit unsupported results, not partially applied edits.
 
+Rename discovery acquires previously unopened reference targets through the existing workspace buffer loader. Their language sessions synchronize before a fresh reference query; the discovering answer cannot authorize edits against later-loaded text. Acquisition never activates a tab. Captured source snapshots remain immutable inputs to the final provider proposal, and complete draft-plan validation still precedes application. Native preparation retains its own fixed request-validity closure so an older reply cannot borrow a newer request's authority.
+
 <ui:copy id="simple-android-workspace-changes">
 package com.hickorydocs.simple
 import androidx.compose.runtime.*
@@ -45,21 +47,33 @@ class WorkspaceChanges {
             notice="Workspace $kind applied to ${target.patches.size} drafts. Not saved or verified."
         }.onFailure { notice=it.message.orEmpty() }
     }
-    suspend fun prepare(workspace: Workspace) {
+    suspend fun prepare(workspace: Workspace,proposal:(suspend (String,String)->Any)?=null) {
         val origin = workspace.currentBuffer; val language = origin?.language
         if (origin == null || language == null || origin.readOnly) { notice="Choose writable source with a connected language provider."; return }
         val request=++revision; val source=origin.text; val selection=origin.state.selection; val identity=language.proposalIdentity
         sources=workspace.sourceSnapshots(); current={revision==request && origin.text==source && origin.state.selection==selection && origin.language===language && language.proposalIdentity==identity}
+        val valid=current
+        val propose:suspend (String,String)->Any=proposal ?: {kind,value->language.propose(kind,value)}
         plan=null; choices=emptyList(); referencePaths=emptyList(); notice="Preparing complete source changes…"
         val kind=mode ?: "actions"; val nextName=name
         try {
             if (kind == "rename") {
-                val references=language.propose("references","")
-                if (!current()) { if (revision==request) notice="Source, selection or provider changed. Prepare again."; return }
-                referencePaths=semanticLocations(references).mapNotNull { it.path }
+                val listed=mutableMapOf<String,FileNode>();fun collect(nodes:List<FileNode>){for(file in nodes){if(!file.dir)listed[file.path]=file;collect(file.children)}};collect(workspace.rootFiles)
+                val acquired=acquireReferenceSources(sources,{
+                    semanticLocations(propose("references","")).map{it.path ?: error("Reference target has no writable workspace source identity. No edits were applied.")}
+                },{path->
+                    check(valid()){"Source, selection or provider changed. Prepare again."}
+                    val file=(workspace.buffers[path]?.file ?: listed[path])?.takeUnless{it.dir} ?: error("Referenced source is no longer listed: $path. Refresh files and prepare again.")
+                    val target=workspace.loadBuffer(file);val text=target.text
+                    check(!target.readOnly&&!target.saving){"Referenced source cannot synchronize: $path. Retry language services."}
+                    val service=target.language ?: error("Referenced source cannot synchronize: $path. Retry language services.");service.readOutline(text)
+                    check(valid()&&target.text==text){"Source changed while reading $path. Prepare again."}
+                    SourceSnapshot(text,!target.readOnly&&!target.saving)
+                },valid)
+                if(!valid())return;sources=acquired.sources;referencePaths=acquired.references
             }
-            val result=language.propose(kind,nextName)
-            if (!current()) { if (revision==request) notice="Source, selection or provider changed. Prepare again."; return }
+            val result=propose(kind,nextName)
+            if (!valid()) { if (revision==request) notice="Source, selection or provider changed. Prepare again."; return }
             if (kind == "actions") {
                 val actions=result as? JSONArray ?: JSONArray(); choices=(0 until actions.length()).mapNotNull { actions.optJSONObject(it)?.let { item -> JSONObject(item.toString()) } }
                 notice=if (choices.isEmpty()) "No provider actions here. Support depends on the installed language server." else "Choose a provider action to preview."
@@ -151,4 +165,31 @@ The existing Edit menu presents this bounded floating dialog. Every affected sou
 
 
 <ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/WorkspaceChanges.kt"><ui:paste select="#simple-android-workspace-changes"/><ui:paste select="#simple-android-workspace-changes-application"/><ui:paste select="#simple-android-workspace-changes-presentation"/></ui:file>
+## Retire older proposal requests
+
+Hold two provider replies against the same unchanged source and selection. Completing the newer rename first must leave its preview intact when the older result arrives. Each preparation therefore retains its own validity closure; consulting a mutable current-request property would let old work borrow new authority. The injected provider boundary tests asynchronous intent safety without claiming an actual language-server run; source stays unchanged until explicit application.
+
+<ui:copy id="native-change-request-android-witness">
+package com.hickorydocs.simple
+import org.junit.Test
+import org.junit.Assert.*
+import kotlinx.coroutines.*
+import org.json.JSONObject
+import org.json.JSONArray
+class ChangeRequestTest {
+ @Test fun olderRenameReplyCannotBorrowNewerRequestAuthority()=runBlocking {
+  val workspace=Workspace(this);val engine=Engine("http://127.0.0.1:1");val file=FileNode("a.py","a.py",false,emptyList(),null,null)
+  val buffer=DocumentBuffer(file,FileText("value\n","base"));buffer.language=NativeLanguage(engine,buffer,this);workspace.buffers[file.path]=buffer;workspace.show(file.path);assertSame(buffer,workspace.currentBuffer)
+  val changes=workspace.changes;changes.open("rename",workspace);val held=mutableMapOf<String,CompletableDeferred<Any>>()
+  val proposal:suspend (String,String)->Any={kind,name->if(kind=="references")JSONArray() else {val done=CompletableDeferred<Any>();held[name]=done;done.await()}}
+  fun edit(name:String)=JSONObject().put("changes",JSONObject().put(languageURI(file.path),JSONArray().put(JSONObject().put("range",JSONObject().put("start",JSONObject().put("line",0).put("character",0)).put("end",JSONObject().put("line",0).put("character",5))).put("newText",name))))
+  suspend fun settle(condition:()->Boolean){withTimeout(2000){while(!condition())yield()}}
+  changes.updateName("first");val first=async{changes.prepare(workspace,proposal)};settle{held["first"]!=null}
+  changes.updateName("second");val second=async{changes.prepare(workspace,proposal)};settle{held["second"]!=null};held.getValue("second").complete(edit("second"));second.await();assertEquals("second\n",changes.plan?.patches?.first()?.after)
+  held.getValue("first").complete(edit("first"));first.await();assertEquals("second\n",changes.plan?.patches?.first()?.after);assertEquals("value\n",buffer.text)
+ }
+}
+</ui:copy>
+
+<ui:file path="apps/android-simple/app/src/test/java/com/hickorydocs/simple/ChangeRequestTest.kt"><ui:paste select="#native-change-request-android-witness"/></ui:file>
 </ui:doc>
