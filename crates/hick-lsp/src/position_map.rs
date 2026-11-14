@@ -359,3 +359,57 @@ mod tests {
         assert_eq!(map.mappings.len(), 1);
     }
 }
+impl PositionMap {
+    pub fn source_edit_range(
+        &self,
+        range: tower_lsp::lsp_types::Range,
+    ) -> Option<(Option<String>, tower_lsp::lsp_types::Range)> {
+        use tower_lsp::lsp_types::{Position, Range};
+        if range.end < range.start {
+            return None;
+        }
+        if let Some(project) = &self.project {
+            return project
+                .source_edit_range(range)
+                .map(|(path, range)| (Some(path), range));
+        }
+        if self.is_identity() {
+            return Some((None, range));
+        }
+        let first = self
+            .mappings
+            .iter()
+            .find(|m| m.virtual_line == range.start.line)?;
+        let last = if range.end.character == 0 && range.end.line > range.start.line {
+            range.end.line - 1
+        } else {
+            range.end.line
+        };
+        let count = last.checked_sub(range.start.line)?.checked_add(1)?;
+        let mut lines: Vec<_> = self
+            .mappings
+            .iter()
+            .filter(|m| m.virtual_line >= range.start.line && m.virtual_line <= last)
+            .collect();
+        lines.sort_by_key(|m| m.virtual_line);
+        if lines.len() != count as usize
+            || lines.iter().enumerate().any(|(i, m)| {
+                m.virtual_line != range.start.line + i as u32
+                    || m.source_line != first.source_line.checked_add(i as u32).unwrap_or(u32::MAX)
+                    || m.column_offset != first.column_offset
+            })
+        {
+            return None;
+        }
+        let (sl, sc) = self.to_source(range.start.line, range.start.character)?;
+        let (el, ec) = if range.end.character == 0 && range.end.line > last {
+            (lines.last()?.source_line.checked_add(1)?, 0)
+        } else {
+            self.to_source(range.end.line, range.end.character)?
+        };
+        Some((
+            None,
+            Range::new(Position::new(sl, sc), Position::new(el, ec)),
+        ))
+    }
+}

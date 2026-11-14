@@ -28,8 +28,8 @@ it("shares actual formatter and typed rename edits while preserving read-only bo
     const run = async (label: string, args = {}) => { let result: unknown; await act(async () => { result = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: actions().find(a => a.label === label)!.handle, arguments: args, request_id: String(++id) }); }); return result; };
     expect(await run("Format editor source (file.py)")).toMatchObject({ status: "result", outcome: { status: "completed", value: { source_changed: true, saved: false, verified: false } } });
     expect(view.state.doc.toString()).toBe("a b");
-    expect(await run("Rename editor symbol (file.py)", { name: "renamed" })).toMatchObject({ status: "result", outcome: { status: "completed", value: { source_changed: true, other_documents: ["other.py"], saved: false } } });
-    expect(view.state.doc.toString()).toBe("renamed b"); expect(client.rename).toHaveBeenCalledWith("file.py", { line: 0, character: 0 }, "renamed"); expect(onRename).not.toHaveBeenCalled();
+    expect(await run("Rename editor symbol (file.py)", { name: "renamed" })).toMatchObject({ status: "result", outcome: { status: "unavailable", reason: expect.stringContaining("workspace preview") } });
+    expect(view.state.doc.toString()).toBe("a b"); expect(client.rename).toHaveBeenCalledWith("file.py", { line: 0, character: 0 }, "renamed"); expect(onRename).not.toHaveBeenCalled();
     await act(async () => view.dispatch({ effects: readonly.reconfigure(EditorState.readOnly.of(true)) }));
     expect(actions().find(a => a.label === "Format editor source (file.py)")?.enabled).toBe(false);
     expect(await formatView(view)).toBe(false); expect(client.formatting).toHaveBeenCalledTimes(1);

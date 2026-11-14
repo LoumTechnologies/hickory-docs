@@ -151150,6 +151150,34 @@
       "page": ".hickory-source/frontends/workspace-search-android.md",
       "symbol": "simple-android-workspace-search",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "source-edit-contiguous-project-range",
+      "output": "crates/hick-lsp/src/project_positions.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/project_positions.rs.md",
+      "symbol": "Require one exact source span for an edit",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-edit-contiguous-position-range",
+      "output": "crates/hick-lsp/src/position_map.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/position_map.rs.md",
+      "symbol": "Separate writable ranges from readable points",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-edit-complete-proposal-tests",
+      "output": "crates/hick-lsp/src/backend/audit_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/backend/audit_tests.rs.md",
+      "symbol": "Keep or refuse a complete edit",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-edit-project-provenance-tests",
+      "output": "crates/hick-lsp/src/backend/audit_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/backend/audit_tests.rs.md",
+      "symbol": "Project edits follow exact compiler origins",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

@@ -14,6 +14,7 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 ### `freeze`
 
 <storycode:copy id="f-67a81de633f2-freeze">
+import { sameDocumentUri } from "./documentUri";
 import type { EditorSelection, Extension, Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { editorLanguageActions } from "../editor/languageActions";
@@ -40,6 +41,8 @@ type Capture = { id: string; source: Text; selection: EditorSelection; choices: 
 <a id="f-67a81de633f2-codeActionController"></a>
 ### `codeActionController`
 
+A disabled provider action is readable information, never an edit authority. Retain its reason in the captured choices and refuse it before considering any accompanying edit or command. This also preserves a bridge refusal when one target in a multi-file action cannot be mapped.
+
 Retained provider choices; model titles or IDs cannot fabricate a workspace edit.
 
 <storycode:copy id="f-67a81de633f2-codeActionController">
@@ -58,7 +61,7 @@ export function codeActionController(opts: LspFeatureOptions, apply: (view: Edit
       if (signal?.aborted || view.state.doc !== source || !view.state.selection.eq(selection) || !writable(view)) return refuse("The source or selection changed. Request code actions again.");
       const choices = structuredClone(actions).map(action => ({ id: crypto.randomUUID(), action: freeze(action) }));
       const id = crypto.randomUUID();
-      const bytes = new TextEncoder().encode(JSON.stringify({ snapshot: id, choices: choices.map(({ id, action }) => ({ id, title: action.title, kind: action.kind, has_edit: !!action.edit, needs_command: !!action.command, command_supported: false })) }));
+      const bytes = new TextEncoder().encode(JSON.stringify({ snapshot: id, choices: choices.map(({ id, action }) => ({ id, title: action.title, kind: action.kind, disabled_reason: action.disabled?.reason, has_edit: !!action.edit, needs_command: !!action.command, command_supported: false })) }));
       captured = { id, source, selection, choices, bytes };
       return captured;
     } catch (e) { return refuse(e instanceof Error ? e.message : String(e)); }
@@ -67,10 +70,13 @@ export function codeActionController(opts: LspFeatureOptions, apply: (view: Edit
     if (captured !== capture || !matches(view, capture) || signal?.aborted) return refuse("Code action choices changed. Request them again.");
     const chosen = capture.choices.find(choice => choice.id === id)?.action;
     if (!chosen) return refuse("Choose an action from this retained provider snapshot.");
+    if (chosen.disabled) return refuse(chosen.disabled.reason);
     // The human editor also cannot execute arbitrary provider commands. Do not
     // silently apply only the edit portion of an edit+command action.
     if (chosen.command) return refuse(`"${chosen.title}" needs a language-server command this editor cannot execute yet.`);
     if (chosen.edit?.documentChanges?.some(entry => !entry.textDocument?.uri)) return refuse("This code action needs resource operations this editor cannot apply yet.");
+    const targets = [...Object.keys(chosen.edit?.changes ?? {}), ...(chosen.edit?.documentChanges ?? []).flatMap(entry => entry.textDocument?.uri ? [entry.textDocument.uri] : [])];
+    if (targets.some(target => !sameDocumentUri(target, opts.uri))) return refuse("A workspace preview is required before applying this multi-document code action. No edits were applied.");
     captured = undefined;
     const changed = chosen.edit ? apply(view, chosen.edit, opts) : false;
     const other = Object.keys(chosen.edit?.changes ?? {});

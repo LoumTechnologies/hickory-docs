@@ -81,6 +81,7 @@ export interface FoldingRange {
 
 export interface CodeAction {
   title: string;
+  disabled?: { reason: string };
   kind?: string;
   edit?: WorkspaceEdit;
   command?: { title: string; command: string; arguments?: unknown[] };

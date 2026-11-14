@@ -1236,106 +1236,154 @@ pub(crate) fn uri_key(uri: &str) -> String {
     }
 }
 
-/// Translate every `{start: {line, character}, end: …}` range in a child
-/// result (hover ranges, completion text edits) with one position map — used
-/// for results that carry ranges without URIs, all belonging to the request's
-/// own virtual file. Untranslatable ranges are removed rather than left in
-/// virtual coordinates.
-/// Rewrite a workspace edit so it names documents rather than virtual files.
-///
-/// An edit that came back pointing into the staging directory would, if
-/// applied, write to a file that exists only for the language server's
-/// benefit — the user's change would land nowhere and look like it worked.
-/// Every `uri` is remapped to the document that produced that virtual file,
-/// and its ranges to that document's coordinates.
+/// Translate a complete proposed edit, never a filtered subset of one.
+/// Opaque provider data and command arguments stay byte-for-byte unchanged.
 pub(crate) fn translate_edit_uris(
     value: serde_json::Value,
     index: &HashMap<String, (Url, PositionMap)>,
-) -> serde_json::Value {
-    use serde_json::Value;
-
-    fn walk(value: &mut Value, index: &HashMap<String, (Url, PositionMap)>) {
-        match value {
-            Value::Array(items) => {
-                for item in items {
-                    walk(item, index);
+) -> std::result::Result<serde_json::Value, String> {
+    use serde_json::{Value, json};
+    fn workspace(
+        value: Value,
+        index: &HashMap<String, (Url, PositionMap)>,
+    ) -> std::result::Result<Value, String> {
+        if value.is_null() {
+            return Ok(value);
+        }
+        let object = value
+            .as_object()
+            .ok_or("Language provider returned a malformed workspace edit")?;
+        let mut targets: Vec<(String, Vec<Value>)> = vec![];
+        if let Some(changes) = object.get("changes") {
+            let changes = changes
+                .as_object()
+                .ok_or("Malformed workspace edit changes")?;
+            for (uri, edits) in changes {
+                targets.push((
+                    uri.clone(),
+                    edits
+                        .as_array()
+                        .ok_or("Malformed source edit list")?
+                        .clone(),
+                ));
+            }
+        }
+        if let Some(changes) = object.get("documentChanges") {
+            if !targets.is_empty() {
+                return Err(
+                    "Provider returned both changes and documentChanges; no edits were applied"
+                        .into(),
+                );
+            }
+            for change in changes.as_array().ok_or("Malformed documentChanges")? {
+                if change.get("kind").is_some() {
+                    return Err("This source preview cannot yet perform resource create, rename or delete operations; no edits were applied".into());
+                }
+                let uri = change
+                    .pointer("/textDocument/uri")
+                    .and_then(Value::as_str)
+                    .ok_or("Missing source edit URI")?;
+                let edits = change
+                    .get("edits")
+                    .and_then(Value::as_array)
+                    .ok_or("Missing source edit list")?;
+                targets.push((uri.into(), edits.clone()));
+            }
+        }
+        let mut grouped = std::collections::BTreeMap::<String, Vec<Value>>::new();
+        for (virtual_uri, edits) in targets {
+            let (primary, map) = index.get(&uri_key(&virtual_uri)).ok_or_else(|| format!("Cannot map all edit targets: {virtual_uri}. Open the affected source and retry; no edits were applied"))?;
+            for mut edit in edits {
+                let raw = edit
+                    .get("range")
+                    .ok_or("Missing source edit range")?
+                    .clone();
+                let range: Range =
+                    serde_json::from_value(raw).map_err(|_| "Invalid UTF-16 source edit range")?;
+                let text = edit
+                    .get("newText")
+                    .and_then(Value::as_str)
+                    .ok_or("Missing replacement text")?
+                    .to_owned();
+                let (document, range) = map.source_edit_range(range).ok_or("An edit crosses source fragments or has no exact source origin; no edits were applied")?;
+                let mut uri = match document {
+                    Some(path) => primary
+                        .join(&path)
+                        .map_err(|_| "Invalid source edit identity")?,
+                    None => primary.clone(),
+                };
+                uri.set_query(primary.query());
+                let indent = if map.is_identity() || map.is_project() {
+                    0
+                } else {
+                    map.mappings
+                        .iter()
+                        .find(|m| m.source_line == range.start.line)
+                        .map(|m| m.column_offset.max(0) as usize)
+                        .unwrap_or(0)
+                };
+                edit["range"] = serde_json::to_value(range).map_err(|_| "Invalid mapped edit")?;
+                edit["newText"] = Value::String(reindent(&text, indent, range.end.character == 0));
+                let destination = grouped.entry(uri.to_string()).or_default();
+                // A copied fragment can appear repeatedly in the generated file.
+                // The same authored replacement is applied exactly once.
+                if !destination.contains(&edit) {
+                    destination.push(edit);
                 }
             }
-            Value::Object(obj) => {
-                // `changes` is keyed BY uri, so the keys themselves move.
-                if let Some(Value::Object(changes)) = obj.get("changes").cloned() {
-                    let mut remapped = serde_json::Map::new();
-                    for (uri, edits) in changes {
-                        match index.get(&uri_key(&uri)) {
-                            Some((hick_uri, map)) => {
-                                let mut edits = edits;
-                                edits = translate_bare_ranges(edits, map);
-                                let key = hick_uri.to_string();
-                                match remapped.get_mut(&key) {
-                                    Some(Value::Array(existing)) => {
-                                        if let Value::Array(items) = edits {
-                                            existing.extend(items);
-                                        }
-                                    }
-                                    _ => {
-                                        remapped.insert(key, edits);
-                                    }
+        }
+        let mut changes = vec![];
+        for (uri, mut edits) in grouped {
+            edits.sort_by_key(|edit| {
+                let range: Range =
+                    serde_json::from_value(edit["range"].clone()).expect("validated mapped range");
+                (range.start, range.end)
+            });
+            for pair in edits.windows(2) {
+                let a: Range = serde_json::from_value(pair[0]["range"].clone())
+                    .expect("validated mapped range");
+                let b: Range = serde_json::from_value(pair[1]["range"].clone())
+                    .expect("validated mapped range");
+                if b.start < a.end || b.start == a.start {
+                    return Err(
+                        "Proposed edits overlap after source projection; no edits were applied"
+                            .into(),
+                    );
+                }
+            }
+            // A virtual-document version is not an authored-document version.
+            changes.push(json!({"textDocument":{"uri":uri,"version":null},"edits":edits}));
+        }
+        let mut answer = json!({"documentChanges":changes});
+        if let Some(annotations) = object.get("changeAnnotations") {
+            answer["changeAnnotations"] = annotations.clone();
+        }
+        Ok(answer)
+    }
+    if let Value::Array(actions) = value {
+        return Ok(Value::Array(
+            actions
+                .into_iter()
+                .map(|mut action| {
+                    if let Some(edit) = action.get("edit").cloned() {
+                        match workspace(edit, index) {
+                            Ok(edit) => action["edit"] = edit,
+                            Err(reason) => {
+                                if let Some(object) = action.as_object_mut() {
+                                    object.remove("edit");
+                                    object.remove("command");
+                                    object.insert("disabled".into(), json!({"reason":reason}));
                                 }
                             }
-                            // An edit to a file we cannot map is dropped: a
-                            // partially applied rename is worse than one that
-                            // did not happen.
-                            None => continue,
                         }
                     }
-                    obj.insert("changes".to_string(), Value::Object(remapped));
-                }
-
-                let keys: Vec<String> = obj.keys().cloned().collect();
-                for key in keys {
-                    if key == "changes" {
-                        continue;
-                    }
-                    if key == "uri"
-                        && let Some(uri) = obj.get("uri").and_then(|v| v.as_str())
-                        && let Some((hick_uri, _)) = index.get(&uri_key(uri))
-                    {
-                        obj.insert("uri".to_string(), Value::String(hick_uri.to_string()));
-                        continue;
-                    }
-                    if let Some(child) = obj.get_mut(&key) {
-                        walk(child, index);
-                    }
-                }
-
-                // Ranges beside a rewritten uri are in that file's
-                // coordinates; map them with the same file's map.
-                if let Some(uri) = obj.get("uri").and_then(|v| v.as_str())
-                    && let Some((_, map)) = index
-                        .iter()
-                        .find(|(_, (hick_uri, _))| hick_uri.as_str() == uri)
-                        .map(|(_, v)| v)
-                {
-                    for key in ["range", "selectionRange", "originSelectionRange"] {
-                        if let Some(range) = obj.get(key).cloned() {
-                            let mut wrapper = serde_json::json!({ key: range });
-                            wrapper = translate_bare_ranges(wrapper, map);
-                            if let Some(t) = wrapper.get(key) {
-                                obj.insert(key.to_string(), t.clone());
-                            }
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
+                    action
+                })
+                .collect(),
+        ));
     }
-
-    let mut value = value;
-    walk(&mut value, index);
-    value
+    workspace(value, index)
 }
-
 pub(crate) fn translate_bare_ranges(
     value: serde_json::Value,
     map: &PositionMap,
@@ -2356,7 +2404,7 @@ impl LanguageServer for HickBackend {
             return Ok(None);
         };
         let index = self.index_snapshot().await;
-        let translated = translate_edit_uris(result, &index);
+        let translated = translate_edit_uris(result, &index).map_err(tower_lsp::jsonrpc::Error::invalid_params)?;
         Ok(serde_json::from_value(translated).ok())
     }
 
@@ -2379,7 +2427,8 @@ impl LanguageServer for HickBackend {
             return Ok(None);
         };
         let index = self.index_snapshot().await;
-        Ok(serde_json::from_value(translate_edit_uris(result, &index)).ok())
+        let translated = translate_edit_uris(result, &index).map_err(tower_lsp::jsonrpc::Error::invalid_params)?;
+        serde_json::from_value(translated).map(Some).map_err(|error| tower_lsp::jsonrpc::Error::invalid_params(format!("Malformed mapped rename: {error}")))
     }
 
     async fn prepare_rename(

@@ -604,6 +604,186 @@ async fn unchanged_plain_sync_keeps_real_clangd_quickfix_and_changed_source_inva
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-lsp/src/backend/audit_tests.rs"><storycode:paste select="#f-c123076e88e3-provider_rename_refusal_is_an_error_instead_of_no_changes"/><storycode:paste select="#f-c123076e88e3-code_actions_keep_exact_child_diagnostic_identity_and_coordinates"/><storycode:paste select="#f-c123076e88e3-seg"/><storycode:paste select="#f-c123076e88e3-index_with"/><storycode:paste select="#f-c123076e88e3-a_child_that_spells_a_uri_differently_still_maps_home"/><storycode:paste select="#f-c123076e88e3-references_result_translates_to_hick_coordinates"/><storycode:paste select="#f-c123076e88e3-references_in_unknown_vfile_pass_through"/><storycode:paste select="#f-c123076e88e3-references_on_untranslatable_lines_keep_virtual_location"/><storycode:paste select="#f-c123076e88e3-location_links_translate_target_ranges"/><storycode:paste select="#f-c123076e88e3-bare_ranges_translate_or_drop"/><storycode:paste select="#f-c123076e88e3-an_inlay_hints_bare_position_is_translated_too"/><storycode:paste select="#f-c123076e88e3-a_hint_with_no_source_is_dropped_rather_than_placed_at_line_zero"/><storycode:paste select="#f-c123076e88e3-a_position_that_is_not_a_position_is_left_alone"/><storycode:paste select="#f-c123076e88e3-a_virtual_files_extent_is_its_line_count"/><storycode:paste select="#f-c123076e88e3-a_formatting_edit_gets_the_blocks_indentation_back"/><storycode:paste select="#f-c123076e88e3-a_plain_files_formatting_edit_is_untouched"/><storycode:paste select="#f-c123076e88e3-an_edit_that_cannot_be_mapped_withholds_the_whole_answer"/><storycode:paste select="#f-c123076e88e3-a_markdown_note_with_hick_elements_uses_the_hick_pipeline"/><storycode:paste select="#f-c123076e88e3-unchanged_plain_sync_keeps_real_clangd_quickfix_and_changed_source_invalidates"/></storycode:file>
+## Keep or refuse a complete edit
+
+These focused witnesses distinguish a whole rename from independently available code actions. They require both source targets, exact range projection for each map, refusal of an unmapped target and resource operations, preservation of opaque resolve tokens, and retirement of virtual version counters. No test applies edits to disk.
+
+<storycode:copy id="source-edit-complete-proposal-tests">
+#[test]
+fn source_edit_proposals_keep_all_targets_or_refuse() {
+    use serde_json::json;
+    let one = "file:///stage/one.py";
+    let two = "file:///stage/two.py";
+    let mut index = index_with(
+        one,
+        "hick:///one.md",
+        PositionMap::build(&[seg("name\n", 4, 0)]),
+    );
+    index.extend(index_with(
+        two,
+        "hick:///two.md",
+        PositionMap::build(&[seg("name\n", 9, 0)]),
+    ));
+    let edit = json!({"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":4}},"newText":"changed"});
+    let result = translate_edit_uris(
+        json!({"changes":{one:[edit.clone()],two:[edit.clone()]}}),
+        &index,
+    )
+    .unwrap();
+    let changes = result["documentChanges"].as_array().unwrap();
+    assert_eq!(changes.len(), 2);
+    assert_eq!(changes[0]["textDocument"]["uri"], "hick:///one.md");
+    assert_eq!(changes[0]["edits"][0]["range"]["start"]["line"], 3);
+    assert_eq!(changes[1]["edits"][0]["range"]["start"]["line"], 8);
+    assert!(
+        translate_edit_uris(
+            json!({"changes":{one:[edit.clone()],"file:///unmapped.py":[edit.clone()]}}),
+            &index
+        )
+        .unwrap_err()
+        .contains("Cannot map all edit targets")
+    );
+    let versioned = translate_edit_uris(json!({"documentChanges":[{"textDocument":{"uri":one,"version":99},"edits":[edit.clone()]}]}), &index).unwrap();
+    assert!(versioned["documentChanges"][0]["textDocument"]["version"].is_null());
+    assert!(
+        translate_edit_uris(
+            json!({"documentChanges":[{"kind":"rename","oldUri":one,"newUri":two}]}),
+            &index
+        )
+        .is_err()
+    );
+    assert!(translate_edit_uris(json!({"changes":{one:[edit.clone(),{"range":{"start":{"line":0,"character":1},"end":{"line":0,"character":3}},"newText":"conflict"}]}}), &index).is_err());
+    let malformed = json!({"changes":{one:[{"range":{"start":{"line":4294967296u64,"character":0},"end":{"line":4294967296u64,"character":1}},"newText":"bad"}]}});
+    assert!(translate_edit_uris(malformed, &index).is_err());
+}
+#[test]
+fn source_edit_proposals_disable_only_incomplete_actions_and_preserve_data() {
+    use serde_json::json;
+    let uri = "file:///stage/a.py";
+    let index = index_with(uri, "hick:///a.py", PositionMap::identity(1));
+    let edit = json!({"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"newText":"x"});
+    let data = json!({"uri":uri,"changes":{uri:[edit.clone()]}});
+    let command = json!({"title":"Finish","command":"provider.finish","arguments":[data.clone()]});
+    let actions = json!([
+        {"title":"Complete","edit":{"changes":{uri:[edit.clone()]}},"data":data.clone(),"command":command.clone()},
+        {"title":"Incomplete","edit":{"changes":{uri:[edit.clone()],"file:///unknown.py":[edit]}},"command":command.clone()},
+        {"title":"Opaque command","command":command.clone()}
+    ]);
+    let answer = translate_edit_uris(actions, &index).unwrap();
+    assert_eq!(answer[0]["data"], data);
+    assert_eq!(answer[0]["command"], command);
+    assert_eq!(
+        answer[0]["edit"]["documentChanges"][0]["textDocument"]["uri"],
+        "hick:///a.py"
+    );
+    assert!(answer[1].get("edit").is_none());
+    assert!(answer[1].get("command").is_none());
+    assert!(
+        answer[1]["disabled"]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("Cannot map all edit targets")
+    );
+    assert_eq!(answer[2]["command"], command);
+}
+</storycode:copy>
+
+## Project edits follow exact compiler origins
+
+Project copies may contribute different authored documents to one generated file. Verify those identities survive edit projection, repeated copies produce one authored replacement, and a range spanning contributors is refused. A separate Unicode witness refuses a half-surrogate coordinate; a segment-map witness refuses a range that would swallow unconstructed prose.
+
+<storycode:copy id="source-edit-project-provenance-tests">
+#[test]
+fn source_edit_proposals_follow_project_origins_and_deduplicate_copies() {
+    use serde_json::json;
+    let mut entry =
+        hick_lang::ProjectEntry::file(std::sync::Arc::<[u8]>::from(&b"one\none\ntwo\n"[..]));
+    entry.origins = vec![
+        hick_lang::ByteOrigin {
+            output: (0, 4),
+            document: "a.md".into(),
+            source: (7, 11),
+        },
+        hick_lang::ByteOrigin {
+            output: (4, 8),
+            document: "a.md".into(),
+            source: (7, 11),
+        },
+        hick_lang::ByteOrigin {
+            output: (8, 12),
+            document: "b.md".into(),
+            source: (0, 4),
+        },
+    ];
+    let sources = std::sync::Arc::new(std::collections::BTreeMap::from([
+        ("a.md".into(), "Header\none\n".into()),
+        ("b.md".into(), "two\n".into()),
+    ]));
+    let map = PositionMap::for_project(&entry, sources, "a.md").unwrap();
+    let uri = "file:///stage/project.py";
+    let index = index_with(uri, "hick:///project.md", map);
+    let replacement = |line| json!({"range":{"start":{"line":line,"character":0},"end":{"line":line,"character":3}},"newText":"new"});
+    let answer = translate_edit_uris(
+        json!({"changes":{uri:[replacement(0),replacement(1),replacement(2)]}}),
+        &index,
+    )
+    .unwrap();
+    let changes = answer["documentChanges"].as_array().unwrap();
+    assert_eq!(changes.len(), 2);
+    assert_eq!(changes[0]["textDocument"]["uri"], "hick:///a.md");
+    assert_eq!(changes[0]["edits"].as_array().unwrap().len(), 1);
+    assert_eq!(changes[0]["edits"][0]["range"]["start"]["line"], 1);
+    assert_eq!(changes[1]["textDocument"]["uri"], "hick:///b.md");
+    let cross = json!({"changes":{uri:[{"range":{"start":{"line":1,"character":0},"end":{"line":2,"character":3}},"newText":"lost contributor"}]}});
+    assert!(
+        translate_edit_uris(cross, &index)
+            .unwrap_err()
+            .contains("crosses source fragments")
+    );
+}
+#[test]
+fn source_edit_ranges_require_contiguous_scalar_aligned_source() {
+    let legacy = PositionMap::build(&[seg("one\n", 2, 0), seg("two\n", 12, 0)]);
+    assert!(
+        legacy
+            .source_edit_range(Range::new(Position::new(0, 0), Position::new(1, 3)))
+            .is_none()
+    );
+    let contiguous = PositionMap::build(&[seg("one\ntwo\n", 2, 0)]);
+    assert_eq!(
+        contiguous
+            .source_edit_range(Range::new(Position::new(0, 0), Position::new(2, 0)))
+            .unwrap()
+            .1,
+        Range::new(Position::new(1, 0), Position::new(3, 0))
+    );
+    let text = "é😀 old";
+    let mut entry = hick_lang::ProjectEntry::file(std::sync::Arc::<[u8]>::from(text.as_bytes()));
+    entry.origins = vec![hick_lang::ByteOrigin {
+        output: (0, text.len()),
+        document: "code.md".into(),
+        source: (5, 5 + text.len()),
+    }];
+    let sources = std::sync::Arc::new(std::collections::BTreeMap::from([(
+        "code.md".into(),
+        format!("note\n{text}"),
+    )]));
+    let map = PositionMap::for_project(&entry, sources, "code.md").unwrap();
+    assert_eq!(
+        map.source_edit_range(Range::new(Position::new(0, 4), Position::new(0, 7)))
+            .unwrap(),
+        (
+            Some("code.md".into()),
+            Range::new(Position::new(1, 4), Position::new(1, 7))
+        )
+    );
+    assert!(
+        map.source_edit_range(Range::new(Position::new(0, 2), Position::new(0, 7)))
+            .is_none()
+    );
+}
+</storycode:copy>
+
+<storycode:file path="crates/hick-lsp/src/backend/audit_tests.rs"><storycode:paste select="#f-c123076e88e3-provider_rename_refusal_is_an_error_instead_of_no_changes"/><storycode:paste select="#f-c123076e88e3-code_actions_keep_exact_child_diagnostic_identity_and_coordinates"/><storycode:paste select="#f-c123076e88e3-seg"/><storycode:paste select="#f-c123076e88e3-index_with"/><storycode:paste select="#f-c123076e88e3-a_child_that_spells_a_uri_differently_still_maps_home"/><storycode:paste select="#f-c123076e88e3-references_result_translates_to_hick_coordinates"/><storycode:paste select="#f-c123076e88e3-references_in_unknown_vfile_pass_through"/><storycode:paste select="#f-c123076e88e3-references_on_untranslatable_lines_keep_virtual_location"/><storycode:paste select="#f-c123076e88e3-location_links_translate_target_ranges"/><storycode:paste select="#f-c123076e88e3-bare_ranges_translate_or_drop"/><storycode:paste select="#f-c123076e88e3-an_inlay_hints_bare_position_is_translated_too"/><storycode:paste select="#f-c123076e88e3-a_hint_with_no_source_is_dropped_rather_than_placed_at_line_zero"/><storycode:paste select="#f-c123076e88e3-a_position_that_is_not_a_position_is_left_alone"/><storycode:paste select="#f-c123076e88e3-a_virtual_files_extent_is_its_line_count"/><storycode:paste select="#f-c123076e88e3-a_formatting_edit_gets_the_blocks_indentation_back"/><storycode:paste select="#f-c123076e88e3-a_plain_files_formatting_edit_is_untouched"/><storycode:paste select="#f-c123076e88e3-an_edit_that_cannot_be_mapped_withholds_the_whole_answer"/><storycode:paste select="#f-c123076e88e3-a_markdown_note_with_hick_elements_uses_the_hick_pipeline"/><storycode:paste select="#f-c123076e88e3-unchanged_plain_sync_keeps_real_clangd_quickfix_and_changed_source_invalidates"/><storycode:paste select="#source-edit-complete-proposal-tests"/><storycode:paste select="#source-edit-project-provenance-tests"/></storycode:file>
 
 </storycode:doc>

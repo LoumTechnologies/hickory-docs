@@ -162,6 +162,53 @@ pub(crate) fn byte_position(text: &str, line: u32, column: u32) -> Option<usize>
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-lsp/src/project_positions.rs"><storycode:paste select="#f-6f96a89d99eb-ProjectProjection"/><storycode:paste select="#f-6f96a89d99eb-impl-ProjectProjection"/><storycode:paste select="#f-6f96a89d99eb-position"/><storycode:paste select="#f-6f96a89d99eb-byte_position"/></storycode:file>
+## Require one exact source span for an edit
+
+A readable location needs only a point; a writable edit needs every byte between its endpoints. Accept a project edit only inside one exact compiler origin, with equal generated and authored bytes. Crossing fragments or contributors is refused even when the endpoints happen to share a document. Unicode positions must resolve to scalar boundaries before any source range is returned.
+
+<storycode:copy id="source-edit-contiguous-project-range">
+impl ProjectProjection {
+    pub fn source_edit_range(
+        &self,
+        range: tower_lsp::lsp_types::Range,
+    ) -> Option<(String, tower_lsp::lsp_types::Range)> {
+        use tower_lsp::lsp_types::{Position, Range};
+        let start = byte_position(&self.output, range.start.line, range.start.character)?;
+        let end = byte_position(&self.output, range.end.line, range.end.character)?;
+        if end < start {
+            return None;
+        }
+        let mut origins: Vec<_> = self
+            .origins
+            .iter()
+            .filter(|o| o.output.0 <= start && start < o.output.1 && end <= o.output.1)
+            .collect();
+        if origins.is_empty() && start == end {
+            origins = self
+                .origins
+                .iter()
+                .filter(|o| o.output.1 == start)
+                .collect();
+        }
+        let [origin] = origins.as_slice() else {
+            return None;
+        };
+        let source = self.sources.get(&origin.document)?;
+        if source.get(origin.source.0..origin.source.1)?
+            != self.output.get(origin.output.0..origin.output.1)?
+        {
+            return None;
+        }
+        let (sl, sc) = position(source, origin.source.0 + start - origin.output.0)?;
+        let (el, ec) = position(source, origin.source.0 + end - origin.output.0)?;
+        Some((
+            origin.document.clone(),
+            Range::new(Position::new(sl, sc), Position::new(el, ec)),
+        ))
+    }
+}
+</storycode:copy>
+
+<storycode:file path="crates/hick-lsp/src/project_positions.rs"><storycode:paste select="#f-6f96a89d99eb-ProjectProjection"/><storycode:paste select="#f-6f96a89d99eb-impl-ProjectProjection"/><storycode:paste select="#f-6f96a89d99eb-position"/><storycode:paste select="#f-6f96a89d99eb-byte_position"/><storycode:paste select="#source-edit-contiguous-project-range"/></storycode:file>
 
 </storycode:doc>

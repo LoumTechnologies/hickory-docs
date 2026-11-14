@@ -321,4 +321,10 @@ The existing Edit menu opens a floating workspace search on browser, Apple and A
 
 The focused workspace-search witnesses passed: two browser component/model checks, two Swift checks, two Kotlin checks, TypeScript compilation, the iOS simulator build, and a real-engine browser flow covering regex options, Unicode reveal, stable editor geometry, retained drafts and stale-source refusal. Native pointer interaction and whole-project provider analysis are not established by these checks.
 
+## Project refactoring proposals remain whole
+
+The shared language bridge projects each writable range through exact compiler provenance. A range crossing contributors or discontinuous segments refuses the proposal. All mapped targets are retained; repeated identical copies collapse to one authored replacement, and conflicting overlaps refuse. An unmappable rename target returns a visible error. Each code action is independent, so an incomplete action is disabled with its reason while its valid siblings remain available. Provider resolve data and command arguments remain opaque. Virtual version counters do not become authored-buffer versions.
+
+The existing single-editor application path now refuses multi-document changes before touching source. The cross-platform workspace preview and coordinated application are separate required work; mapping safety alone does not establish that those interfaces exist. Four focused Rust provenance/proposal tests, four browser language-action tests, TypeScript checking, reconstruction and ownership audit passed for this boundary.
+
 </ui:doc>

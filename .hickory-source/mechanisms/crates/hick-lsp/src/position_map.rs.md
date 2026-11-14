@@ -398,6 +398,67 @@ mod tests {
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-lsp/src/position_map.rs"><storycode:paste select="#f-c77393891cd2-LineMapping"/><storycode:paste select="#f-c77393891cd2-PositionMap"/><storycode:paste select="#f-c77393891cd2-impl-PositionMap"/><storycode:paste select="#f-c77393891cd2-tests"/></storycode:file>
+## Separate writable ranges from readable points
+
+An edit may not swallow prose between two mapped lines. Project maps use exact byte provenance; older segment maps require consecutive authored lines and one indentation offset throughout the range. A whole-block end at column zero can use the last mapped line plus its newline. Identity maps keep the source coordinates, while the eventual buffer planner validates actual UTF-16 bounds.
+
+<storycode:copy id="source-edit-contiguous-position-range">
+impl PositionMap {
+    pub fn source_edit_range(
+        &self,
+        range: tower_lsp::lsp_types::Range,
+    ) -> Option<(Option<String>, tower_lsp::lsp_types::Range)> {
+        use tower_lsp::lsp_types::{Position, Range};
+        if range.end < range.start {
+            return None;
+        }
+        if let Some(project) = &self.project {
+            return project
+                .source_edit_range(range)
+                .map(|(path, range)| (Some(path), range));
+        }
+        if self.is_identity() {
+            return Some((None, range));
+        }
+        let first = self
+            .mappings
+            .iter()
+            .find(|m| m.virtual_line == range.start.line)?;
+        let last = if range.end.character == 0 && range.end.line > range.start.line {
+            range.end.line - 1
+        } else {
+            range.end.line
+        };
+        let count = last.checked_sub(range.start.line)?.checked_add(1)?;
+        let mut lines: Vec<_> = self
+            .mappings
+            .iter()
+            .filter(|m| m.virtual_line >= range.start.line && m.virtual_line <= last)
+            .collect();
+        lines.sort_by_key(|m| m.virtual_line);
+        if lines.len() != count as usize
+            || lines.iter().enumerate().any(|(i, m)| {
+                m.virtual_line != range.start.line + i as u32
+                    || m.source_line != first.source_line.checked_add(i as u32).unwrap_or(u32::MAX)
+                    || m.column_offset != first.column_offset
+            })
+        {
+            return None;
+        }
+        let (sl, sc) = self.to_source(range.start.line, range.start.character)?;
+        let (el, ec) = if range.end.character == 0 && range.end.line > last {
+            (lines.last()?.source_line.checked_add(1)?, 0)
+        } else {
+            self.to_source(range.end.line, range.end.character)?
+        };
+        Some((
+            None,
+            Range::new(Position::new(sl, sc), Position::new(el, ec)),
+        ))
+    }
+}
+</storycode:copy>
+
+<storycode:file path="crates/hick-lsp/src/position_map.rs"><storycode:paste select="#f-c77393891cd2-LineMapping"/><storycode:paste select="#f-c77393891cd2-PositionMap"/><storycode:paste select="#f-c77393891cd2-impl-PositionMap"/><storycode:paste select="#f-c77393891cd2-tests"/><storycode:paste select="#source-edit-contiguous-position-range"/></storycode:file>
 
 </storycode:doc>

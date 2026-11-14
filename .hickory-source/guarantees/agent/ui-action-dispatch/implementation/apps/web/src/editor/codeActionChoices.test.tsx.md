@@ -39,6 +39,8 @@ it("retains real source-bound code choices and refuses forged, stale or unsuppor
   const offered = [
     { title: "Fix name", edit: { changes: { "file.py": [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } }, newText: "fixed" }] } } },
     { title: "Requires server command", command: { title: "command", command: "unsupported" } },
+    { title: "Workspace change", edit: { changes: { "file.py": [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } }, newText: "partial" }], "other.py": [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } }, newText: "partial" }] } } },
+    { title: "Incomplete projection", disabled: { reason: "Cannot map all edit targets" }, edit: { changes: { "file.py": [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } }, newText: "partial" }] } } },
   ];
   const client = { serverCapabilities: null, semanticTokens: async () => null, inlayHints: async () => [], documentHighlight: async () => [], foldingRanges: async () => [], signatureHelp: async () => null, codeActions: vi.fn().mockResolvedValue(offered) } as unknown as LspClient;
   const host = document.createElement("div"); document.body.append(host);
@@ -54,7 +56,11 @@ it("retains real source-bound code choices and refuses forged, stale or unsuppor
     const snapshot = inspect.outcome.value.snapshot;
     const read = await run("Read editor code action choices (file.py)", { snapshot, offset: 0, limit: 8192 }) as { outcome: { value: { bytes: number[] } } };
     const choices = JSON.parse(new TextDecoder().decode(new Uint8Array(read.outcome.value.bytes))).choices;
-    expect(choices.map((c: { title: string }) => c.title)).toEqual(["Fix name", "Requires server command"]);
+    expect(choices.map((c: { title: string }) => c.title)).toEqual(["Fix name", "Requires server command", "Workspace change", "Incomplete projection"]);
+    expect(await run("Apply captured editor code action (file.py)", { snapshot, choice: choices[2].id })).toMatchObject({ status: "result", outcome: { status: "unavailable", reason: expect.stringContaining("workspace preview") } });
+    expect(choices[3].disabled_reason).toBe("Cannot map all edit targets");
+    expect(await run("Apply captured editor code action (file.py)", { snapshot, choice: choices[3].id })).toMatchObject({ status: "result", outcome: { status: "unavailable", reason: "Cannot map all edit targets" } });
+    expect(view.state.doc.toString()).toBe("bad");
     expect(await run("Apply captured editor code action (file.py)", { snapshot, choice: "Fix name" })).toMatchObject({ status: "result", outcome: { status: "unavailable" } });
     expect(await run("Apply captured editor code action (file.py)", { snapshot, choice: choices[1].id })).toMatchObject({ status: "result", outcome: { status: "unavailable", reason: expect.stringContaining("cannot execute") } });
     offered[0].edit!.changes["file.py"][0].newText = "MUTATED PROVIDER OBJECT";

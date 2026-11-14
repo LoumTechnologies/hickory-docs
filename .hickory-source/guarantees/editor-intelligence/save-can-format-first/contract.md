@@ -282,6 +282,7 @@ export interface FoldingRange {
 <storycode:copy id="f-6bc953112fd0-CodeAction">
 export interface CodeAction {
   title: string;
+  disabled?: { reason: string };
   kind?: string;
   edit?: WorkspaceEdit;
   command?: { title: string; command: string; arguments?: unknown[] };
@@ -1796,8 +1797,9 @@ export async function renameSymbol(view: EditorView, opts: LspFeatureOptions, as
     if (!next || next === previous) return { status: "completed", value: { source_changed: false, cancelled_or_unchanged: true } };
     const edit = await client.rename(uri, position, next);
     if (!current()) return refuse("The buffer changed. Request rename again.");
+    if (urisInEdit(edit).some(other => !sameDocumentUri(other, uri))) return refuse("A workspace preview is required before applying this multi-document rename. No edits were applied.");
     const changed = applyEdit(view, edit, opts);
-    return { status: "completed", value: { source_changed: changed, other_documents: urisInEdit(edit).filter(other => !sameDocumentUri(other, uri)), scope: "Current editor only; other document edits are reported, not applied", saved: false, verified: false } };
+    return { status: "completed", value: { source_changed: changed, other_documents: urisInEdit(edit).filter(other => !sameDocumentUri(other, uri)), scope: "Complete single-document edit; multi-document edits require a workspace preview", saved: false, verified: false } };
   } catch (e) { return refuse(e instanceof Error ? e.message : String(e)); }
 }
 
@@ -1896,11 +1898,10 @@ function applyLanguageBatch(view: EditorView, edits: { range: LspRange; newText:
 
 <storycode:copy id="f-a12307572b4c-applyEdit">
 function applyEdit(view: EditorView, edit: WorkspaceEdit | null, opts: LspFeatureOptions): boolean {
+  if (urisInEdit(edit).some(other => !sameDocumentUri(other, opts.uri))) { opts.onMessage?.("A workspace preview is required for this multi-document operation. No edits were applied."); return false; }
   const edits = editsForUri(edit, opts.uri);
   if (!edits.length) { opts.onMessage?.("The server made no changes."); return false; }
   const changed = applyLanguageBatch(view, edits, opts, "input.lsp");
-  const elsewhere = urisInEdit(edit).filter(other => !sameDocumentUri(other, opts.uri));
-  if (elsewhere.length) opts.onMessage?.(`Also changes ${elsewhere.length} other document${elsewhere.length === 1 ? "" : "s"}: ${elsewhere.join(", ")}`);
   return changed;
 }
 </storycode:copy>

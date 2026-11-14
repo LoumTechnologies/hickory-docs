@@ -45451,7 +45451,9 @@
         "f-c123076e88e3-a_plain_files_formatting_edit_is_untouched",
         "f-c123076e88e3-an_edit_that_cannot_be_mapped_withholds_the_whole_answer",
         "f-c123076e88e3-a_markdown_note_with_hick_elements_uses_the_hick_pipeline",
-        "f-c123076e88e3-unchanged_plain_sync_keeps_real_clangd_quickfix_and_changed_source_invalidates"
+        "f-c123076e88e3-unchanged_plain_sync_keeps_real_clangd_quickfix_and_changed_source_invalidates",
+        "source-edit-complete-proposal-tests",
+        "source-edit-project-provenance-tests"
       ],
       "anchor": "output-c123076e88e3",
       "narrative_owner": "mechanism:crates/hick-lsp"
@@ -45682,7 +45684,8 @@
         "f-c77393891cd2-LineMapping",
         "f-c77393891cd2-PositionMap",
         "f-c77393891cd2-impl-PositionMap",
-        "f-c77393891cd2-tests"
+        "f-c77393891cd2-tests",
+        "source-edit-contiguous-position-range"
       ],
       "anchor": "output-c77393891cd2",
       "narrative_owner": "mechanism:crates/hick-lsp"
@@ -45764,7 +45767,8 @@
         "f-6f96a89d99eb-ProjectProjection",
         "f-6f96a89d99eb-impl-ProjectProjection",
         "f-6f96a89d99eb-position",
-        "f-6f96a89d99eb-byte_position"
+        "f-6f96a89d99eb-byte_position",
+        "source-edit-contiguous-project-range"
       ],
       "anchor": "output-6f96a89d99eb",
       "narrative_owner": "mechanism:crates/hick-lsp"
