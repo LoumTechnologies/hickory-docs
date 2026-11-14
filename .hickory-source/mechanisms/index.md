@@ -296,4 +296,5 @@ is included with that control; opening a document is not generation authority.
 <storycode:include file="coverage-line-projection.md" />
 <storycode:include file="native-source-revisions.md" />
 <storycode:include file="native-coverage-surface.md" />
+<storycode:include file="source-digests.md" />
 </storycode:doc>

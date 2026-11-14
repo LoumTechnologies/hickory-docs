@@ -152333,6 +152333,48 @@
       "page": ".hickory-source/frontends/coverage-browser-witness.md",
       "symbol": "simple-coverage-browser-witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "source-digests-browser",
+      "output": "apps/web/src/simple/SourceDigests.ts",
+      "page": ".hickory-source/mechanisms/source-digests.md",
+      "symbol": "source-digests-browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-digests-browser-witness",
+      "output": "apps/web/src/simple/SourceDigests.test.ts",
+      "page": ".hickory-source/mechanisms/source-digests.md",
+      "symbol": "source-digests-browser-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-digests-apple",
+      "output": "apps/apple-simple/Sources/SourceDigests.swift",
+      "page": ".hickory-source/mechanisms/source-digests.md",
+      "symbol": "source-digests-apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-digests-apple-witness",
+      "output": "apps/apple-simple/Tests/SourceDigestsTests.swift",
+      "page": ".hickory-source/mechanisms/source-digests.md",
+      "symbol": "source-digests-apple-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-digests-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceDigests.kt",
+      "page": ".hickory-source/mechanisms/source-digests.md",
+      "symbol": "source-digests-android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-digests-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SourceDigestsTest.kt",
+      "page": ".hickory-source/mechanisms/source-digests.md",
+      "symbol": "source-digests-android-witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

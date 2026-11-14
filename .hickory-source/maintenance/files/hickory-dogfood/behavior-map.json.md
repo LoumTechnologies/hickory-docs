@@ -69247,6 +69247,72 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "simple-coverage-browser-witness"
       ]
+    },
+    "apps/web/src/simple/SourceDigests.ts": {
+      "source": ".hickory-source/mechanisms/source-digests.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "fdae13951a2f5582c4ef5541149ce1f936f7bd4a38761187f62a58251d2acfe7",
+      "construction": "fragments",
+      "fragments": [
+        "source-digests-browser"
+      ]
+    },
+    "apps/web/src/simple/SourceDigests.test.ts": {
+      "source": ".hickory-source/mechanisms/source-digests.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "54cd466d82ec5d76851de9af4096287da46a12e00a4c2fa468d2b4d70618ffa3",
+      "construction": "fragments",
+      "fragments": [
+        "source-digests-browser-witness"
+      ]
+    },
+    "apps/apple-simple/Sources/SourceDigests.swift": {
+      "source": ".hickory-source/mechanisms/source-digests.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "4190834c8530b0f5081eb4a678ad9fec3649f7e57b0986c8eccec506533902b0",
+      "construction": "fragments",
+      "fragments": [
+        "source-digests-apple"
+      ]
+    },
+    "apps/apple-simple/Tests/SourceDigestsTests.swift": {
+      "source": ".hickory-source/mechanisms/source-digests.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "02df6f55f77069582369c2bc7bbe48ab26071df62bd02cbf45aad1ebc4cc7aca",
+      "construction": "fragments",
+      "fragments": [
+        "source-digests-apple-witness"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceDigests.kt": {
+      "source": ".hickory-source/mechanisms/source-digests.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "0fe9df098fa49c425061872cc236403ac4c4b5cf4786975e9cf42eaa24e411f7",
+      "construction": "fragments",
+      "fragments": [
+        "source-digests-android"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SourceDigestsTest.kt": {
+      "source": ".hickory-source/mechanisms/source-digests.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "4dbc7ede4a83ed03d9436fbb349b81fef3df20e96c6e51f296aa4c049c0e457f",
+      "construction": "fragments",
+      "fragments": [
+        "source-digests-android-witness"
+      ]
     }
   },
   "evidence_records": [
