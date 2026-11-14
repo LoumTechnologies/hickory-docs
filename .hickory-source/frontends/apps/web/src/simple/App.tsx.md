@@ -16,6 +16,7 @@ File commands act on the connected workspace: path entry opens a file or directo
 A document component belongs to one buffer path. Switching tabs mounts the next component around its already cached editor; it does not reuse React state that still points to the previous file's editor. Without that identity boundary, a queued cross-file reveal can be consumed by the detached old editor before the destination mounts. The cache retains selection and undo when the original tab returns.
 
 <ui:copy id="simple-e8a50a27b2-0">
+import { WorkspaceChanges, requestWorkspaceChange } from "./WorkspaceChanges";
 import { WorkspaceSearch } from "./WorkspaceSearch";
 import { SimpleLanguages } from "./WorkspaceLanguages";
 import { WorkspaceProblems, requestProblemNavigation } from "./Problems";
@@ -274,6 +275,11 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
     </div></details><details><summary>Edit</summary><div className="menu">
       <button disabled={!buffer} onClick={() => buffer && openFind(buffer)}>Find and replace</button>
       <button onClick={event => { setShowWorkspaceSearch(true); event.currentTarget.closest("details")?.removeAttribute("open"); }}>Find in workspace</button>
+      <button disabled={!buffer} onClick={event => { requestWorkspaceChange("rename"); event.currentTarget.closest("details")?.removeAttribute("open"); }}>Rename symbol</button>
+      <button disabled={!buffer} onClick={event => { requestWorkspaceChange("actions"); event.currentTarget.closest("details")?.removeAttribute("open"); }}>Refactor and quick fixes</button>
+      <button disabled={!buffer} onClick={event => { requestWorkspaceChange("format"); event.currentTarget.closest("details")?.removeAttribute("open"); }}>Preview formatting</button>
+      <button onClick={() => requestWorkspaceChange("undo")}>Undo workspace change</button>
+      <button onClick={() => requestWorkspaceChange("redo")}>Redo workspace change</button>
       <button onClick={() => setShowProblems(true)}>Problems</button>
       <button onClick={() => requestProblemNavigation(1)}>Next problem</button>
       <button onClick={() => requestProblemNavigation(-1)}>Previous problem</button>
@@ -295,6 +301,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
         if (next !== layout) { setLayout(next); setFocused(id); }
       }}
       resize={(id, ratio) => setLayout(current => update(current, id, node => isGroup(node) ? node : { ...node, ratio }))} /></div>
+    <WorkspaceChanges buffers={buffers} current={() => buffer} focus={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />
     <WorkspaceSearch visible={showWorkspaceSearch} close={() => { setShowWorkspaceSearch(false); if (buffer) editorForBuffer(buffer)?.view.focus(); }} buffers={buffers} files={workspaceFiles} />
     <footer role="status"><WorkspaceProblems buffers={buffers} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{notice ? `${notice} · ` : ""}{buffer ? `${buffer.file.name} · ${buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
   </main></SimpleLanguages>;

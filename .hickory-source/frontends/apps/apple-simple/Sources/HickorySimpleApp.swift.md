@@ -46,6 +46,11 @@ import SwiftUI
             CommandGroup(after: .textEditing) {
                 EditorNavigationSettings()
                 Button("Find and replace") { workspace.currentBuffer?.showFind = true }.keyboardShortcut("f").disabled(workspace.currentBuffer == nil)
+                Button("Rename symbol") { workspace.changes.open("rename",workspace:workspace) }.disabled(workspace.currentBuffer == nil)
+                Button("Refactor and quick fixes") { workspace.changes.open("actions",workspace:workspace) }.disabled(workspace.currentBuffer == nil)
+                Button("Preview formatting") { workspace.changes.open("format",workspace:workspace) }.disabled(workspace.currentBuffer == nil)
+                Button("Undo workspace change") { workspace.changes.open("undo",workspace:workspace) }
+                Button("Redo workspace change") { workspace.changes.open("redo",workspace:workspace) }
                 Button("Find in workspace") { workspace.showWorkspaceSearch = true }
                 Button("Problems") { workspace.showProblems = true }
                 Button("Next problem") { Task { await workspace.navigateProblem(1) } }

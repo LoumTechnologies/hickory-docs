@@ -64,3 +64,7 @@ func validateChangePlan(_ plan: ChangePlan, sources: [String: SourceSnapshot]) -
     for patch in plan.patches { guard let source = sources[patch.path], source.writable, source.text == patch.before else { return "Source changed, is unavailable, read-only or saving: \(patch.path). Prepare a fresh proposal." } }
     return nil
 }
+func validateReferencedTargets(_ plan: ChangePlan, referencePaths: [String]) throws {
+    let targets = Set(plan.patches.map(\.path)), missing = Set(referencePaths).subtracting(targets).sorted()
+    guard missing.isEmpty else { throw EngineError(message:"Rename omitted reported reference source targets: \(missing.joined(separator:", ")). Refresh project analysis and prepare again. No edits were applied.") }
+}

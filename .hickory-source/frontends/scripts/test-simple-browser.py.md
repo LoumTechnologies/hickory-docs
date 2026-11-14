@@ -112,6 +112,47 @@ class BrowserDriver:
         try: self.act("quit")
         finally: stop(self.process)
 
+def workspace_changes_acceptance(driver, folder):
+    # Contract: .hickory-source/frontends/contract.md. Real provider, two retained editors, no disk writes.
+    first, second = "renamea.py", "renameb.py"
+    originals = {path:(folder/path).read_text() for path in [first,second]}
+    for path in [second,first]: driver.act("open",path=path)
+    size=driver.act("editor-size",path=first)
+    driver.act("change-open")
+    result=driver.act("change-prepare",name="renamed_value")
+    deadline=time.monotonic()+20
+    while ("2 source files" not in result or "Apply to source drafts" not in result) and time.monotonic()<deadline:
+        time.sleep(.25); result=driver.act("change-prepare",name="renamed_value")
+    assert "2 source files" in result and "Apply to source drafts" in result,result
+    assert driver.act("change-state",path=first)["size"]==size,"Change preview resized code"
+    driver.act("change-file",path=second)
+    assert "renamed_value" in driver.act("change-state",path=first)["text"]
+    for path,source in originals.items(): assert (folder/path).read_text()==source,"Preparing a rename saved source"
+    driver.act("change-apply")
+    assert "Applied 2 source drafts" in driver.act("change-state",path=first)["text"]
+    driver.act("change-close")
+    for path,source in originals.items():
+        driver.act("open",path=path); assert driver.act("search-source",path=path)==source.replace("value","renamed_value")
+        assert (folder/path).read_text()==source,"Refactoring implicitly saved source"
+    driver.act("change-open",command="Undo workspace change")
+    assert "Workspace undo applied to 2 drafts" in driver.act("change-state",path=second)["text"]
+    driver.act("change-close")
+    for path,source in originals.items():
+        driver.act("open",path=path); assert driver.act("search-source",path=path)==source
+    driver.act("change-open",command="Redo workspace change")
+    assert "Workspace redo applied to 2 drafts" in driver.act("change-state",path=second)["text"]
+    driver.act("change-close")
+    for path,source in originals.items():
+        driver.act("open",path=path); assert driver.act("search-source",path=path)==source.replace("value","renamed_value")
+    # A later local edit prevents coordinated undo from overwriting either draft.
+    driver.act("append",path=second,text="\n# later draft")
+    driver.act("change-open",command="Undo workspace change")
+    assert "Source changed" in driver.act("change-state",path=second)["text"]
+    driver.act("change-close")
+    driver.act("open",path=first); assert "renamed_value" in driver.act("search-source",path=first)
+    for path,source in originals.items(): assert (folder/path).read_text()==source
+
+
 def workspace_search_acceptance(driver, folder):
     # Contract: .hickory-source/frontends/contract.md. Real exhaustive API and retained editor.
     path = "search.txt"; original = (folder / path).read_text()
@@ -601,10 +642,12 @@ if __name__ == "__main__":
         (folder / "empty.csv").write_text("")
         (folder / "spreadsheet.csv").write_text("1,2,3\n4,5,6\n7,8,9\n")
         (folder / "caret.csv").write_text("Label,Count\nabcdefghijk,1\nx,2\nabcdefghijklm,3\n")
+        (folder / "renamea.py").write_text("value = 42\n")
+        (folder / "renameb.py").write_text("from renamea import value\nprint(value)\n")
         (folder / "problem.py").write_text('amount: int = "wrong"\n')
         (folder / "navigation.py").write_text("from semantic_target import value\nprint(value)\n\ndef calculate(amount):\n    return adjust(amount)\n\ndef adjust(amount):\n    return amount + 1\n\ncalculate(value)\n")
         (folder / "semantic_target.py").write_text("prefix = 0; value = 42\n")
-        if "--semantic-navigation-only" in sys.argv or "--problems-only" in sys.argv:
+        if "--semantic-navigation-only" in sys.argv or "--problems-only" in sys.argv or "--workspace-changes-only" in sys.argv:
             subprocess.run([str(ROOT / "target/debug/hick"), "lsp", "install", "python", "--root", str(folder)], check=True, timeout=180)
         (folder / "cache.py").write_text("counter = 1\nprint(counter)\n")
         (folder / "debug.py").write_text("value = 1\nvalue += 1\nprint(value)\n")
@@ -621,7 +664,7 @@ if __name__ == "__main__":
             with socket.socket() as reservation:
                 reservation.bind(("127.0.0.1", 0)); ui_port = reservation.getsockname()[1]
             ui_origin = f"http://127.0.0.1:{ui_port}"
-            engine = start([str(ROOT / "target/debug/examples/engine_client"), str(folder), "window", ui_origin], env=environment); processes.append(engine)
+            engine = start([os.environ.get("HICKORY_SIMPLE_TEST_ENGINE", str(ROOT / "target/debug/examples/engine_client")), str(folder), "window", ui_origin], env=environment); processes.append(engine)
             backend = origin(engine)
             vite = start(["node", "node_modules/vite/bin/vite.js", "--config", "vite.simple.config.ts", "--host", "127.0.0.1", "--port", str(ui_port), "--strictPort"], cwd=ROOT / "apps/web", env={**environment, "HICKORY_API_ORIGIN": backend}); processes.append(vite)
             driver = BrowserDriver(origin(vite) + "/simple.html")
@@ -655,6 +698,9 @@ if __name__ == "__main__":
             elif "--table-only" in sys.argv:
                 table_acceptance(driver, folder)
                 print("Browser: inline table grid, real saved Markdown, source reveal and undo passed")
+            elif "--workspace-changes-only" in sys.argv:
+                workspace_changes_acceptance(driver, folder)
+                print("Browser: real-provider two-file rename preview, stationary geometry, draft-only application, coordinated undo/redo and stale restore refusal passed")
             elif "--workspace-search-only" in sys.argv:
                 workspace_search_acceptance(driver, folder)
                 print("Browser: exhaustive workspace regex search, Unicode columns, stationary geometry, retained editor, stale-source refusal and unchanged disk passed")

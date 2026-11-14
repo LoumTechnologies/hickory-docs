@@ -5,6 +5,8 @@ For maintainers changing workspace services independently of the editor renderer
 
 A workspace change is a set of exact before/after snapshots and UTF-16 replacements. The pure planner knows no views, sockets or saving. It refuses an unknown, generated, versioned-without-proof, overlapping or malformed target before producing any patches. Inverse replacements use offsets in the resulting source, so coordinated undo can check the complete after snapshot before restoring anything. Adjacent edits are allowed; duplicate identical edits collapse, while two different insertions at the same offset are ambiguous and refuse. Scalar boundaries protect surrogate pairs.
 
+A rename also checks coherence with a fresh provider reference read: every authored source identity that the provider reports must occur in the proposed source patches. Missing identities refuse the preview. This does not prove that the provider indexed the whole project, and an empty reference answer is not proof that no usages exist.
+
 <ui:copy id="simple-browser-change-plans">
 import { semanticPath } from "./Intelligence";
 export interface SourceSnapshot { text: string; writable: boolean }
@@ -72,6 +74,11 @@ export function invertChangePlan(plan: ChangePlan): ChangePlan {
 export function validateChangePlan(plan: ChangePlan, sources: ReadonlyMap<string, SourceSnapshot>): string | null {
   for (const patch of plan.patches) { const source = sources.get(patch.path); if (!source?.writable || source.text !== patch.before) return `Source changed, is unavailable, read-only or saving: ${patch.path}. Prepare a fresh proposal.`; }
   return null;
+}
+export function validateReferencedTargets(plan: ChangePlan, referencePaths: readonly string[]): void {
+  const targets = new Set(plan.patches.map(patch => patch.path));
+  const missing = [...new Set(referencePaths)].filter(path => !targets.has(path));
+  if (missing.length) throw new Error(`Rename omitted reported reference source targets: ${missing.join(", ")}. Refresh project analysis and prepare again. No edits were applied.`);
 }
 </ui:copy>
 

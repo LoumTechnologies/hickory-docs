@@ -6,6 +6,23 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @Test fun workspaceChangeEditorBatchAdmissionAndUndo() {
+        // Contract: .hickory-source/frontends/contract.md
+        val workspace = Workspace()
+        val a = DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText("one","base"))
+        val b = DocumentBuffer(FileNode("b.py","b.py",false,emptyList(),null,null),FileText("one","base"))
+        workspace.buffers["a.py"]=a;workspace.buffers["b.py"]=b
+        fun edit() = JSONObject().put("range",JSONObject().put("start",JSONObject().put("line",0).put("character",0)).put("end",JSONObject().put("line",0).put("character",3))).put("newText","renamed")
+        val raw=JSONObject().put("changes",JSONObject().put("hick:///a.py",org.json.JSONArray().put(edit())).put("hick:///b.py",org.json.JSONArray().put(edit())))
+        val plan=planWorkspaceEdit("Rename",raw,workspace.sourceSnapshots())
+        b.saving=true;assertTrue(runCatching {workspace.applyWorkspacePlan(plan)}.isFailure);assertEquals("one",a.text);b.saving=false
+        workspace.applyWorkspacePlan(plan);assertEquals("renamed",a.text);assertEquals("renamed",b.text)
+        a.state.edit {replace(0,length,"later local edit")}
+        assertTrue(runCatching {workspace.applyWorkspacePlan(invertChangePlan(plan))}.isFailure);assertEquals("renamed",b.text)
+        a.state.edit {replace(0,length,"renamed")};workspace.applyWorkspacePlan(invertChangePlan(plan))
+        assertEquals("one",a.text);assertEquals("one",b.text);assertEquals("one",a.base);assertEquals("one",b.base)
+    }
+
     @Test fun workspaceChangePlanSharedSafetyCasesAndInverse() {
         // Contract: .hickory-source/frontends/contract.md
         val fixture = JSONObject(javaClass.classLoader!!.getResource("change-plan-cases.json")!!.readText())
@@ -15,6 +32,8 @@ class ParityTest {
         val expected = fixture.getJSONObject("after")
         assertEquals(expected.keys().asSequence().associateWith { expected.getString(it) },plan.patches.associate { it.path to it.after })
         assertNull(validateChangePlan(plan,sources))
+        validateReferencedTargets(plan,listOf("a.py","b.py","b.py"))
+        assertTrue(runCatching {validateReferencedTargets(plan,listOf("a.py","unopened.py"))}.isFailure)
         val after = sources.toMutableMap(); plan.patches.forEach { after[it.path] = SourceSnapshot(it.after,true) }
         assertNotNull(validateChangePlan(plan,after))
         val inverse = invertChangePlan(plan); assertNull(validateChangePlan(inverse,after))

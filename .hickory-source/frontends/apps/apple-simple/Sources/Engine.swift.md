@@ -487,6 +487,22 @@ Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet
         guard let buffer, buffer.text == diagnosticSource, let range = diagnostic.range else { return }
         _ = buffer.selectSourceRange?(range, diagnosticSource)
     }
+    var proposalIdentity: UUID { epoch }
+    func propose(_ kind: String, name: String) async throws -> Any {
+        guard let buffer, !buffer.readOnly, socket != nil else { throw EngineError(message: "Choose writable source with a connected language provider.") }
+        sync(); let source = buffer.text, selection = buffer.selection, identity = epoch
+        var params: [String:Any] = ["textDocument":["uri":uri]]
+        let method: String
+        switch kind {
+        case "rename": method = "textDocument/rename"; params["position"] = languagePosition(source,selection.location); params["newName"] = name
+        case "references": method = "textDocument/references"; params["position"] = languagePosition(source,selection.location); params["context"] = ["includeDeclaration":true]
+        case "format": method = "textDocument/formatting"; params["options"] = ["tabSize":4,"insertSpaces":!source.components(separatedBy:"\n").contains(where:{$0.hasPrefix("\t")})]
+        default: method = "textDocument/codeAction"; params["range"] = ["start":languagePosition(source,selection.location),"end":languagePosition(source,NSMaxRange(selection))]; params["context"] = ["diagnostics":[]]
+        }
+        let result = try await request(method,params)
+        guard epoch == identity, buffer.text == source, buffer.selection == selection else { throw EngineError(message: "Source, selection or provider changed. Prepare again.") }
+        return kind == "format" ? ["changes":[uri:result]] : result
+    }
     func complete() async {
         showingSuggestions = true
         guard let buffer, !buffer.readOnly else { return }

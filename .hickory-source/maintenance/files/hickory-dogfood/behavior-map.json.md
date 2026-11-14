@@ -68246,6 +68246,45 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "simple-shared-change-plan-cases"
       ]
+    },
+    "apps/web/src/simple/WorkspaceChanges.tsx": {
+      "source": ".hickory-source/frontends/workspace-changes-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "44225331f5321f0e887f0e4d30b0d701f2e827bdb3e59a510d021d02baffb94f",
+      "construction": "fragments",
+      "fragments": [
+        "simple-browser-workspace-changes",
+        "simple-browser-workspace-changes-controller",
+        "simple-browser-workspace-changes-presentation"
+      ]
+    },
+    "apps/apple-simple/Sources/WorkspaceChanges.swift": {
+      "source": ".hickory-source/frontends/workspace-changes-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "4ed1ae858df3eaebdba7dea74e9c13f9dfc4152c2ca86932fac335886ddd3fe6",
+      "construction": "fragments",
+      "fragments": [
+        "simple-apple-workspace-changes",
+        "simple-apple-workspace-changes-application",
+        "simple-apple-workspace-changes-presentation"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/WorkspaceChanges.kt": {
+      "source": ".hickory-source/frontends/workspace-changes-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "bcd8b8ce3ca89ca00acb78507cf2407b1f00c7b7d49feb32b6e20ebe1dd2bbbd",
+      "construction": "fragments",
+      "fragments": [
+        "simple-android-workspace-changes",
+        "simple-android-workspace-changes-application",
+        "simple-android-workspace-changes-presentation"
+      ]
     }
   },
   "evidence_records": [

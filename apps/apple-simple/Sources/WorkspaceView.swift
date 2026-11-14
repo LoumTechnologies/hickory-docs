@@ -31,6 +31,11 @@ struct WorkspaceView: View {
                 Menu("Edit") {
                     EditorNavigationSettings()
                     Button("Find and replace") { workspace.currentBuffer?.showFind = true }.keyboardShortcut("f").disabled(workspace.currentBuffer == nil)
+                Button("Rename symbol") { workspace.changes.open("rename",workspace:workspace) }.disabled(workspace.currentBuffer == nil)
+                Button("Refactor and quick fixes") { workspace.changes.open("actions",workspace:workspace) }.disabled(workspace.currentBuffer == nil)
+                Button("Preview formatting") { workspace.changes.open("format",workspace:workspace) }.disabled(workspace.currentBuffer == nil)
+                Button("Undo workspace change") { workspace.changes.open("undo",workspace:workspace) }
+                Button("Redo workspace change") { workspace.changes.open("redo",workspace:workspace) }
                 Button("Find in workspace") { workspace.showWorkspaceSearch = true }
                 Button("Problems") { workspace.showProblems = true }
                 Button("Next problem") { Task { await workspace.navigateProblem(1) } }
@@ -75,6 +80,7 @@ struct WorkspaceView: View {
                 HStack { Button("Cancel") { workspace.fileCommand = nil; workspace.savingAll = false }; Spacer(); Button("OK") { Task { await workspace.performFileCommand() } } }
             }.padding().frame(minWidth: 320)
         }
+        .sheet(isPresented: Binding(get: { workspace.changes.mode != nil }, set: { if !$0 { workspace.changes.close(workspace) } })) { WorkspaceChangesView(workspace:workspace) }
         .sheet(isPresented: $workspace.showWorkspaceSearch, onDismiss: { workspace.search.revision = UUID(); workspace.currentBuffer?.focusSource?() }) { WorkspaceSearchView(workspace: workspace) }
         .sheet(isPresented: $connection) {
             VStack(alignment: .leading, spacing: 12) {

@@ -65,3 +65,8 @@ export function validateChangePlan(plan: ChangePlan, sources: ReadonlyMap<string
   for (const patch of plan.patches) { const source = sources.get(patch.path); if (!source?.writable || source.text !== patch.before) return `Source changed, is unavailable, read-only or saving: ${patch.path}. Prepare a fresh proposal.`; }
   return null;
 }
+export function validateReferencedTargets(plan: ChangePlan, referencePaths: readonly string[]): void {
+  const targets = new Set(plan.patches.map(patch => patch.path));
+  const missing = [...new Set(referencePaths)].filter(path => !targets.has(path));
+  if (missing.length) throw new Error(`Rename omitted reported reference source targets: ${missing.join(", ")}. Refresh project analysis and prepare again. No edits were applied.`);
+}

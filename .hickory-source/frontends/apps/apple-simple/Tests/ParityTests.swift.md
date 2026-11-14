@@ -35,6 +35,37 @@ import WebKit
 @testable import HickorySimple
 
 final class ParityTests: XCTestCase {
+    @MainActor func testWorkspaceChangeEditorBatchAdmissionAndUndo() throws {
+        // Contract: .hickory-source/frontends/contract.md
+        let workspace = Workspace()
+        let a = DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"one",hash:"base"))
+        let b = DocumentBuffer(file:FileNode(name:"b.py",path:"b.py",dir:false),text:FileText(path:"b.py",content:"one",hash:"base"))
+        workspace.buffers = ["a.py":a,"b.py":b]
+        let raw:[String:Any] = ["changes":["hick:///a.py":[["range":["start":["line":0,"character":0],"end":["line":0,"character":3]],"newText":"renamed"]],"hick:///b.py":[["range":["start":["line":0,"character":0],"end":["line":0,"character":3]],"newText":"renamed"]]]]
+        let plan = try planWorkspaceEdit("Rename",raw:raw,sources:workspace.sourceSnapshots())
+        #if os(macOS)
+        let first = MacEditor(a), second = MacEditor(b)
+        let windowA = NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false)
+        let windowB = NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false)
+        windowA.contentView = first.scroll; windowB.contentView = second.scroll
+        defer { windowA.contentView = nil; windowB.contentView = nil }
+        #endif
+        b.saving = true; XCTAssertThrowsError(try workspace.applyWorkspacePlan(plan)); XCTAssertEqual(a.text,"one"); b.saving = false
+        #if os(macOS)
+        let allowed = b.canReflectWorkspaceEdits; b.canReflectWorkspaceEdits = {_,_ in false}
+        XCTAssertThrowsError(try workspace.applyWorkspacePlan(plan)); XCTAssertEqual(a.text,"one"); b.canReflectWorkspaceEdits = allowed
+        #endif
+        XCTAssertEqual(try workspace.applyWorkspacePlan(plan),""); XCTAssertEqual(a.text,"renamed"); XCTAssertEqual(b.text,"renamed")
+        #if os(macOS)
+        XCTAssertEqual(first.text.string,"renamed"); XCTAssertEqual(second.text.string,"renamed")
+        first.text.undoManager?.undo(); XCTAssertEqual(a.text,"one")
+        XCTAssertThrowsError(try workspace.applyWorkspacePlan(invertChangePlan(plan))); XCTAssertEqual(b.text,"renamed")
+        first.text.undoManager?.redo(); XCTAssertEqual(a.text,"renamed")
+        #endif
+        XCTAssertEqual(try workspace.applyWorkspacePlan(invertChangePlan(plan)),""); XCTAssertEqual(a.text,"one"); XCTAssertEqual(b.text,"one")
+        XCTAssertEqual(a.base,"one"); XCTAssertEqual(b.base,"one")
+    }
+
     func testWorkspaceChangePlanSharedSafetyCasesAndInverse() throws {
         // Contract: .hickory-source/frontends/contract.md
         let apps = URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -45,6 +76,8 @@ final class ParityTests: XCTestCase {
         let expected = fixture["after"] as! [String:String]
         XCTAssertEqual(Dictionary(uniqueKeysWithValues:plan.patches.map { ($0.path,$0.after) }),expected)
         XCTAssertNil(validateChangePlan(plan,sources:sources))
+        XCTAssertNoThrow(try validateReferencedTargets(plan,referencePaths:["a.py","b.py","b.py"]))
+        XCTAssertThrowsError(try validateReferencedTargets(plan,referencePaths:["a.py","unopened.py"]))
         let changed = sources.mapValues { $0 }; var after = changed
         for patch in plan.patches { after[patch.path] = SourceSnapshot(text:patch.after,writable:true) }
         XCTAssertNotNil(validateChangePlan(plan,sources:after))

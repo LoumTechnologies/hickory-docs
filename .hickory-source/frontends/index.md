@@ -80,4 +80,10 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="change-plan-cases.md" />
 
+<ui:include file="workspace-changes-browser.md" />
+
+<ui:include file="workspace-changes-apple.md" />
+
+<ui:include file="workspace-changes-android.md" />
+
 </ui:doc>

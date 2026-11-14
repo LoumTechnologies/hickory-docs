@@ -225,6 +225,9 @@ impl ChildLspHandle {
         let mut params = serde_json::json!({
             "processId": std::process::id(),
             "rootUri": root_uri,
+            "workspaceFolders": if root_uri.is_empty() { Value::Null } else {
+                serde_json::json!([{ "uri": root_uri, "name": "Hickory workspace" }])
+            },
             "capabilities": {
                 "workspace": { "symbol": {}, "configuration": true, "workspaceEdit": { "documentChanges": true } },
                 "textDocument": {

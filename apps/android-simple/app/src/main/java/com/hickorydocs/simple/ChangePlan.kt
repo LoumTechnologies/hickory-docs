@@ -66,3 +66,7 @@ fun validateChangePlan(plan: ChangePlan, sources: Map<String,SourceSnapshot>): S
     for (patch in plan.patches) if (sources[patch.path]?.let { it.writable && it.text == patch.before } != true) return "Source changed, is unavailable, read-only or saving: ${patch.path}. Prepare a fresh proposal."
     return null
 }
+fun validateReferencedTargets(plan: ChangePlan, referencePaths: List<String>) {
+    val missing = referencePaths.toSet()-plan.patches.map { it.path }.toSet()
+    require(missing.isEmpty()) { "Rename omitted reported reference source targets: ${missing.sorted().joinToString(", ")}. Refresh project analysis and prepare again. No edits were applied." }
+}

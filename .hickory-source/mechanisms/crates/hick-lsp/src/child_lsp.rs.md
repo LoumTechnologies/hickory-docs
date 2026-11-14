@@ -84,6 +84,8 @@ pub struct ChildLspHandle {
 <a id="f-ebc4fbd32a25-impl-ChildLspHandle"></a>
 ### `impl-ChildLspHandle`
 
+Initialize each child with an explicit workspace-folder identity as well as the legacy root URI. Basedpyright creates regular workspaces from `workspaceFolders` or `rootPath`; a root URI alone can leave cross-file rename in single-file mode. This is shared transport context for every frontend, not a presentation-specific retry or invented reference. An absent root stays null. The real-provider two-file preview witness exercises the resulting behavior rather than asserting only the shape of an initialization object. See the [provider workspace initializer](https://github.com/DetachHead/basedpyright/blob/main/packages/pyright-internal/src/workspaceFactory.ts#L135-L143) for the routing decision.
+
 <storycode:copy id="f-ebc4fbd32a25-impl-ChildLspHandle">
 impl ChildLspHandle {
     /// Spawn a new child LSP server and start the background reader.
@@ -263,6 +265,9 @@ impl ChildLspHandle {
         let mut params = serde_json::json!({
             "processId": std::process::id(),
             "rootUri": root_uri,
+            "workspaceFolders": if root_uri.is_empty() { Value::Null } else {
+                serde_json::json!([{ "uri": root_uri, "name": "Hickory workspace" }])
+            },
             "capabilities": {
                 "workspace": { "symbol": {}, "configuration": true, "workspaceEdit": { "documentChanges": true } },
                 "textDocument": {

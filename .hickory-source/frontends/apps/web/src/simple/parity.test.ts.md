@@ -41,7 +41,8 @@ import { useFollowingDebugSession } from "../debug/plainDebugHosts";
 vi.mock("../debug/plainDebugHosts", () => ({ useFollowingDebugSession: vi.fn(() => null), PlainDebugHosts: () => null }));
 import { Agent, AgentSession, MarkdownMessage } from "./Agent";
 import { App } from "./App";
-import { planWorkspaceEdit, invertChangePlan, validateChangePlan } from "./ChangePlan";
+import { applyWorkspacePlan } from "./WorkspaceChanges";
+import { validateReferencedTargets, planWorkspaceEdit, invertChangePlan, validateChangePlan } from "./ChangePlan";
 import changeCases from "../../../simple-contract/change-plan-cases.json";
 import { WorkspaceSearch } from "./WorkspaceSearch";
 import * as reviews from "../lib/reviews";
@@ -664,6 +665,29 @@ describe("tab drop placement", () => {
   });
 });
 
+describe("simple workspace editor changes", () => {
+  it("preflights all retained editors, applies both drafts, preserves local undo and guards coordinated restore", () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const buffers = new Buffers(() => {});
+    for (const [path, source] of Object.entries(changeCases.sources)) buffers.values.set(path, new Buffer({ path, name: path, dir: false }, source.text, "base", () => {}));
+    const a = buffers.values.get("a.py")!, b = buffers.values.get("b.py")!;
+    const screen = render(createElement(Fragment, null, createElement(Document, { buffer: a }), createElement(Document, { buffer: b })));
+    try {
+      const views = [...screen.container.querySelectorAll<HTMLElement>(".cm-editor")].map(element => EditorView.findFromDOM(element)!);
+      const snapshots = new Map(Object.entries(changeCases.sources)), plan = planWorkspaceEdit("Rename", changeCases.edit, snapshots);
+      b.saving = true; expect(() => applyWorkspacePlan(buffers, plan)).toThrow(/saving/); expect(a.text).toBe(changeCases.sources["a.py"].text); b.saving = false;
+      act(() => applyWorkspacePlan(buffers, plan));
+      expect(a.text).toBe(changeCases.after["a.py"]); expect(b.text).toBe(changeCases.after["b.py"]);
+      expect(views.map(view => view.state.doc.toString())).toEqual([a.text, b.text]);
+      const inverse = invertChangePlan(plan);
+      act(() => { undo(views[0]); }); expect(a.text).toBe(changeCases.sources["a.py"].text);
+      expect(() => applyWorkspacePlan(buffers, inverse)).toThrow(/Source changed/); expect(b.text).toBe(changeCases.after["b.py"]);
+      act(() => { views[0].dispatch({ changes: { from: 0, to: views[0].state.doc.length, insert: plan.patches[0].after } }); applyWorkspacePlan(buffers, inverse); });
+      expect(a.text).toBe(changeCases.sources["a.py"].text); expect(b.text).toBe(changeCases.sources["b.py"].text);
+      expect([...screen.container.querySelectorAll<HTMLElement>(".cm-editor")].map(element => EditorView.findFromDOM(element))).toEqual(views);
+    } finally { screen.unmount(); }
+  });
+});
 describe("simple workspace change plans", () => {
   it("prepares the shared two-document Unicode change and its guarded inverse without editing source", () => {
     // Contract: .hickory-source/frontends/contract.md
@@ -671,6 +695,8 @@ describe("simple workspace change plans", () => {
     const plan = planWorkspaceEdit("Rename", changeCases.edit, sources);
     expect(Object.fromEntries(plan.patches.map(patch => [patch.path, patch.after]))).toEqual(changeCases.after);
     expect(validateChangePlan(plan, sources)).toBeNull();
+    expect(() => validateReferencedTargets(plan, ["a.py", "b.py", "b.py"])).not.toThrow();
+    expect(() => validateReferencedTargets(plan, ["a.py", "unopened.py"])).toThrow(/omitted reported reference/);
     const changed = new Map([...sources].map(([path, source]) => [path, { ...source, text: changeCases.after[path as keyof typeof changeCases.after] }]));
     expect(validateChangePlan(plan, changed)).toContain("Source changed");
     const inverse = invertChangePlan(plan); expect(validateChangePlan(inverse, changed)).toBeNull();

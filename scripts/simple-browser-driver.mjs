@@ -132,6 +132,21 @@ try {
           await editor(request.path).click();
           await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
           await page.keyboard.insertText(request.text); break;
+        case "change-open": await menu("Edit", request.command || "Rename symbol"); await page.getByRole("dialog",{name:"Workspace change preview",exact:true}).waitFor(); break;
+        case "change-prepare": {
+          const panel=page.getByRole("dialog",{name:"Workspace change preview",exact:true});
+          if (request.name) await panel.getByRole("textbox",{name:"New symbol name",exact:true}).fill(request.name);
+          await panel.getByRole("button",{name:request.command || "Prepare rename",exact:true}).click();
+          await page.waitForFunction(() => { const panel=[...document.querySelectorAll('[role="dialog"]')].find(node=>node.getAttribute("aria-label")==="Workspace change preview"); return !!panel && !panel.textContent.includes("Preparing complete source changes…"); });
+          value=await panel.innerText(); break;
+        }
+        case "change-state": {
+          const panel=page.getByRole("dialog",{name:"Workspace change preview",exact:true});
+          value={text:await panel.innerText(),size:await editor(request.path).locator("..").evaluate(node=>({width:node.clientWidth,height:node.clientHeight}))}; break;
+        }
+        case "change-file": await page.getByRole("combobox",{name:"Preview source file"}).selectOption({label:request.path}); break;
+        case "change-apply": await page.getByRole("button",{name:"Apply to source drafts",exact:true}).click(); break;
+        case "change-close": await page.getByRole("button",{name:"Close change preview",exact:true}).click(); break;
         case "workspace-search-query": {
           await menu("Edit", "Find in workspace");
           const panel = page.getByRole("dialog", { name: "Find in workspace", exact: true });

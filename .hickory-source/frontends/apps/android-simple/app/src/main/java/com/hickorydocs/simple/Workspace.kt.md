@@ -166,6 +166,7 @@ class DocumentBuffer(val file: FileNode, loaded: FileText) {
     }
 }
 class Workspace : ViewModel() {
+    val changes = WorkspaceChanges()
     var showWorkspaceSearch by mutableStateOf(false)
     val search = WorkspaceSearch()
     suspend fun openSearchHit(hit: WorkspaceSearchHit) {
@@ -238,7 +239,7 @@ class Workspace : ViewModel() {
             agent.turns = emptyList(); agent.error = ""; terminal.id = null; terminal.error = ""
             debugger?.close(); debugger = NativeDebugger(next, viewModelScope)
             debugger?.onLocation = { path, line -> viewModelScope.launch { revealDebug(path, line) } }
-            buffers.values.forEach { it.language?.close() }; generation = UUID.randomUUID(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); buffers.clear(); opening.clear()
+            buffers.values.forEach { it.language?.close() }; generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); buffers.clear(); opening.clear()
             layout = PaneLayout(); focused = "document-group"; status = root
             return true
         } catch (cancelled: CancellationException) { throw cancelled }

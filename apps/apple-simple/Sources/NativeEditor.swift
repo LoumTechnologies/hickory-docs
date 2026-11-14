@@ -774,6 +774,11 @@ private struct EquationLayout: Equatable {
         buffer.toggleFold = { [weak self] line in self?.toggleFold(line) }
         buffer.focusSource = { [weak self] in guard let self else { return }; self.text.window?.makeFirstResponder(self.text) }
         buffer.applySourceEdits = { [weak self] edits, source in self?.applySourceEdits(edits, source: source) ?? false }
+        buffer.canReflectWorkspaceEdits = { [weak self] edits, source in
+            guard let self else { return false }
+            return self.canReflectWorkspaceEdits(edits, source: source)
+        }
+        buffer.reflectWorkspaceEdits = { [weak self] edits, source, after in self?.applySourceEdits(edits, source: source, expectedModelSource: after) ?? false }
         buffer.applyTableEdit = { [weak self] edit, source in self?.applyTableEdit(edit, source: source) ?? false }
         buffer.selectSourceRange = { [weak self] range, source in self?.selectSourceRange(range, source: source) ?? false }
         paint(buffer.language?.tokens ?? [], source: buffer.text)
@@ -798,8 +803,11 @@ private struct EquationLayout: Equatable {
         scroll.contentView.scroll(to: viewport); scroll.reflectScrolledClipView(scroll.contentView)
         return true
     }
-    func applySourceEdits(_ edits: [NativeSourceEdit], source: String) -> Bool {
-        guard !buffer.readOnly, text.isEditable, text.string == source, buffer.text == source, !text.hasMarkedText(),
+    func canReflectWorkspaceEdits(_ edits: [NativeSourceEdit], source: String) -> Bool {
+        !buffer.readOnly && text.isEditable && text.string == source && buffer.text == source && !text.hasMarkedText() && validSourceEdits(edits, length: (source as NSString).length)
+    }
+    func applySourceEdits(_ edits: [NativeSourceEdit], source: String, expectedModelSource: String? = nil) -> Bool {
+        guard !buffer.readOnly, text.isEditable, text.string == source, buffer.text == (expectedModelSource ?? source), !text.hasMarkedText(),
               validSourceEdits(edits, length: (source as NSString).length) else { return false }
         let wasMulti = buffer.applyingMulti; buffer.applyingMulti = true
         if !wasMulti { buffer.clearMulti() }
@@ -1281,6 +1289,11 @@ import UIKit
         buffer.toggleFold = { [weak self] line in self?.toggleFold(line) }
         buffer.focusSource = { [weak self] in self?.text.becomeFirstResponder() }
         buffer.applySourceEdits = { [weak self] edits, source in self?.applySourceEdits(edits, source: source) ?? false }
+        buffer.canReflectWorkspaceEdits = { [weak self] edits, source in
+            guard let self else { return false }
+            return self.canReflectWorkspaceEdits(edits, source: source)
+        }
+        buffer.reflectWorkspaceEdits = { [weak self] edits, source, after in self?.applySourceEdits(edits, source: source, expectedModelSource: after) ?? false }
         buffer.applyTableEdit = { [weak self] edit, source in self?.applyTableEdit(edit, source: source) ?? false }
         buffer.selectSourceRange = { [weak self] range, source in self?.selectSourceRange(range, source: source) ?? false }
         paint(buffer.language?.tokens ?? [], source: buffer.text)
@@ -1300,8 +1313,11 @@ import UIKit
         tableViewport = viewport; text.setContentOffset(viewport, animated: false)
         return true
     }
-    func applySourceEdits(_ edits: [NativeSourceEdit], source: String) -> Bool {
-        guard !buffer.readOnly, text.isEditable, text.text == source, buffer.text == source, text.markedTextRange == nil,
+    func canReflectWorkspaceEdits(_ edits: [NativeSourceEdit], source: String) -> Bool {
+        !buffer.readOnly && text.isEditable && text.text == source && buffer.text == source && text.markedTextRange == nil && validSourceEdits(edits, length: (source as NSString).length)
+    }
+    func applySourceEdits(_ edits: [NativeSourceEdit], source: String, expectedModelSource: String? = nil) -> Bool {
+        guard !buffer.readOnly, text.isEditable, text.text == source, buffer.text == (expectedModelSource ?? source), text.markedTextRange == nil,
               validSourceEdits(edits, length: (source as NSString).length) else { return false }
         let replacements: [(UITextRange, String)] = edits.sorted(by: { $0.range.location > $1.range.location }).compactMap { edit in
             guard let start = text.position(from: text.beginningOfDocument, offset: edit.range.location),

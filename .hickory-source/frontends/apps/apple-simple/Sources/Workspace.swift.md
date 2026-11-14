@@ -150,6 +150,8 @@ import Observation
     var findCase = false
     var findRegex = false
     @ObservationIgnored var selectSourceRange: ((NSRange, String) -> Bool)?
+    @ObservationIgnored var canReflectWorkspaceEdits: (([NativeSourceEdit], String) -> Bool)?
+    @ObservationIgnored var reflectWorkspaceEdits: (([NativeSourceEdit], String, String) -> Bool)?
     @ObservationIgnored var applySourceEdits: (([NativeSourceEdit], String) -> Bool)?
     var foldedLines: Set<Int> = []
     @ObservationIgnored var toggleFold: ((Int) -> Void)?
@@ -176,6 +178,7 @@ import Observation
 }
 @MainActor @Observable final class Workspace {
     var draggingTab: String?
+    let changes = WorkspaceChanges()
     var showWorkspaceSearch = false
     var search = WorkspaceSearch()
     func openSearchHit(_ hit: WorkspaceSearchHit) async {
@@ -251,7 +254,7 @@ import Observation
             agent.turns = []; agent.error = ""; terminal.id = nil; terminal.error = ""
             debugger?.close()
             for buffer in buffers.values { buffer.language?.close() }
-            generation = UUID(); search.invalidate(); showWorkspaceSearch = false; engine = next; debugger = NativeDebugger(engine: next)
+            generation = UUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; debugger = NativeDebugger(engine: next)
             debugger?.onLocation = { [weak self] path, line in Task { await self?.revealDebug(path, line: line) } }; files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); buffers = [:]; opening = []
             layout = PaneLayout(); focused = "document-group"; status = tree.root
             return true

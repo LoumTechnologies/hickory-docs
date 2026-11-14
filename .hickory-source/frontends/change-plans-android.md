@@ -5,6 +5,8 @@ For maintainers changing workspace services independently of the editor renderer
 
 A workspace change is a set of exact before/after snapshots and UTF-16 replacements. The pure planner knows no views, sockets or saving. It refuses an unknown, generated, versioned-without-proof, overlapping or malformed target before producing any patches. Inverse replacements use offsets in the resulting source, so coordinated undo can check the complete after snapshot before restoring anything. Adjacent edits are allowed; duplicate identical edits collapse, while two different insertions at the same offset are ambiguous and refuse. Scalar boundaries protect surrogate pairs.
 
+A rename also checks coherence with a fresh provider reference read: every authored source identity that the provider reports must occur in the proposed source patches. Missing identities refuse the preview. This does not prove that the provider indexed the whole project, and an empty reference answer is not proof that no usages exist.
+
 <ui:copy id="simple-android-change-plans">
 package com.hickorydocs.simple
 import org.json.JSONObject
@@ -73,6 +75,10 @@ fun invertChangePlan(plan: ChangePlan): ChangePlan = ChangePlan("Undo ${plan.tit
 fun validateChangePlan(plan: ChangePlan, sources: Map<String,SourceSnapshot>): String? {
     for (patch in plan.patches) if (sources[patch.path]?.let { it.writable && it.text == patch.before } != true) return "Source changed, is unavailable, read-only or saving: ${patch.path}. Prepare a fresh proposal."
     return null
+}
+fun validateReferencedTargets(plan: ChangePlan, referencePaths: List<String>) {
+    val missing = referencePaths.toSet()-plan.patches.map { it.path }.toSet()
+    require(missing.isEmpty()) { "Rename omitted reported reference source targets: ${missing.sorted().joinToString(", ")}. Refresh project analysis and prepare again. No edits were applied." }
 }
 </ui:copy>
 

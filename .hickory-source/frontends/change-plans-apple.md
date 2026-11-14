@@ -5,6 +5,8 @@ For maintainers changing workspace services independently of the editor renderer
 
 A workspace change is a set of exact before/after snapshots and UTF-16 replacements. The pure planner knows no views, sockets or saving. It refuses an unknown, generated, versioned-without-proof, overlapping or malformed target before producing any patches. Inverse replacements use offsets in the resulting source, so coordinated undo can check the complete after snapshot before restoring anything. Adjacent edits are allowed; duplicate identical edits collapse, while two different insertions at the same offset are ambiguous and refuse. Scalar boundaries protect surrogate pairs.
 
+A rename also checks coherence with a fresh provider reference read: every authored source identity that the provider reports must occur in the proposed source patches. Missing identities refuse the preview. This does not prove that the provider indexed the whole project, and an empty reference answer is not proof that no usages exist.
+
 <ui:copy id="simple-apple-change-plans">
 import Foundation
 struct SourceSnapshot { var text: String; var writable: Bool }
@@ -71,6 +73,10 @@ func invertChangePlan(_ plan: ChangePlan) -> ChangePlan {
 func validateChangePlan(_ plan: ChangePlan, sources: [String: SourceSnapshot]) -> String? {
     for patch in plan.patches { guard let source = sources[patch.path], source.writable, source.text == patch.before else { return "Source changed, is unavailable, read-only or saving: \(patch.path). Prepare a fresh proposal." } }
     return nil
+}
+func validateReferencedTargets(_ plan: ChangePlan, referencePaths: [String]) throws {
+    let targets = Set(plan.patches.map(\.path)), missing = Set(referencePaths).subtracting(targets).sorted()
+    guard missing.isEmpty else { throw EngineError(message:"Rename omitted reported reference source targets: \(missing.joined(separator:", ")). Refresh project analysis and prepare again. No edits were applied.") }
 }
 </ui:copy>
 

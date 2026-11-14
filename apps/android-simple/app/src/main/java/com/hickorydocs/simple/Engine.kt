@@ -548,6 +548,21 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
             }
         }
     }
+    val proposalIdentity: Int get() = epoch
+    suspend fun propose(kind: String, name: String): Any {
+        check(opened && !buffer.readOnly) { "Choose writable source with a connected language provider." }
+        sync(); val source = buffer.text; val selection = buffer.state.selection; val identity = epoch
+        val params = JSONObject().put("textDocument",doc())
+        val method = when(kind) {
+            "rename" -> { params.put("position",languagePosition(source,selection.min)).put("newName",name); "textDocument/rename" }
+            "references" -> { params.put("position",languagePosition(source,selection.min)).put("context",JSONObject().put("includeDeclaration",true)); "textDocument/references" }
+            "format" -> { params.put("options",JSONObject().put("tabSize",4).put("insertSpaces",source.lines().none { it.startsWith("\t") })); "textDocument/formatting" }
+            else -> { params.put("range",JSONObject().put("start",languagePosition(source,selection.min)).put("end",languagePosition(source,selection.max))).put("context",JSONObject().put("diagnostics",JSONArray())); "textDocument/codeAction" }
+        }
+        val result = request(method,params)
+        check(epoch == identity && buffer.text == source && buffer.state.selection == selection) { "Source, selection or provider changed. Prepare again." }
+        return if (kind == "format") JSONObject().put("changes",JSONObject().put(uri,result)) else result
+    }
     suspend fun complete() {
         if (!opened || buffer.readOnly) return
         sync(); val source = buffer.text; val selection = buffer.state.selection; val current = epoch; val id = ++completion

@@ -56,6 +56,11 @@ export function useSimpleLanguage(buffer: Buffer): LspSession {
   const shared = useSyncExternalStore(entry.subscribe, entry.read);
   return registry ? shared : standalone;
 }
+export function useWorkspaceLanguageLookup() {
+  const registry = useContext(languageContext) ?? emptyWorkspace;
+  useSyncExternalStore(registry.subscribe, registry.snapshot);
+  return (buffer: Buffer) => registry.entry(buffer).read();
+}
 export function useHasWorkspaceLanguages() { return useContext(languageContext) !== null; }
 const emptyWorkspace = new WorkspaceLanguages();
 export function useWorkspaceProblems(buffers: Buffers) {

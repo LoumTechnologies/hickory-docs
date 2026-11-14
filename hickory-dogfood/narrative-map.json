@@ -151206,6 +151206,69 @@
       "page": ".hickory-source/frontends/change-plan-cases.md",
       "symbol": "simple-shared-change-plan-cases",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-browser-workspace-changes",
+      "output": "apps/web/src/simple/WorkspaceChanges.tsx",
+      "page": ".hickory-source/frontends/workspace-changes-browser.md",
+      "symbol": "simple-browser-workspace-changes",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-apple-workspace-changes",
+      "output": "apps/apple-simple/Sources/WorkspaceChanges.swift",
+      "page": ".hickory-source/frontends/workspace-changes-apple.md",
+      "symbol": "simple-apple-workspace-changes",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-android-workspace-changes",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/WorkspaceChanges.kt",
+      "page": ".hickory-source/frontends/workspace-changes-android.md",
+      "symbol": "simple-android-workspace-changes",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-browser-workspace-changes-controller",
+      "output": "apps/web/src/simple/WorkspaceChanges.tsx",
+      "page": ".hickory-source/frontends/workspace-changes-browser.md",
+      "symbol": "Retain provider choices beside their source capture",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-browser-workspace-changes-presentation",
+      "output": "apps/web/src/simple/WorkspaceChanges.tsx",
+      "page": ".hickory-source/frontends/workspace-changes-browser.md",
+      "symbol": "Page the complete preview without docking it",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-apple-workspace-changes-application",
+      "output": "apps/apple-simple/Sources/WorkspaceChanges.swift",
+      "page": ".hickory-source/frontends/workspace-changes-apple.md",
+      "symbol": "Commit source authority before reflecting native views",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-apple-workspace-changes-presentation",
+      "output": "apps/apple-simple/Sources/WorkspaceChanges.swift",
+      "page": ".hickory-source/frontends/workspace-changes-apple.md",
+      "symbol": "Page the complete preview in the native presentation",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-android-workspace-changes-application",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/WorkspaceChanges.kt",
+      "page": ".hickory-source/frontends/workspace-changes-android.md",
+      "symbol": "Apply all source drafts in one Compose snapshot",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-android-workspace-changes-presentation",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/WorkspaceChanges.kt",
+      "page": ".hickory-source/frontends/workspace-changes-android.md",
+      "symbol": "Page the complete preview in a floating Android dialog",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {
