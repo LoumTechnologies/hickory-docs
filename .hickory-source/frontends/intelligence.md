@@ -11,7 +11,7 @@ Use a closed vocabulary for declarations, definitions, types, implementations, u
 
 <ui:copy id="simple-intelligence-browser-vocabulary">
 import type { LspLocation, LspClient } from "../lsp/client";
-export type SemanticLocation = LspLocation & { name?: string };
+export type SemanticLocation = LspLocation & { name?: string; kind?: number };
 export const semanticQueries = [
   { kind: "definition", label: "Go to definition" },
   { kind: "references", label: "Find usages" },
@@ -28,7 +28,7 @@ export type SemanticQuery = typeof semanticQueries[number]["kind"];
 
 ## Normalize provider identities once
 
-Nested document symbols inherit the queried file. Flat symbols, LocationLinks and call items carry explicit identities. Decode URI path segments once and reject traversal, external authorities and control bytes. Preserve symbol names for reading, while navigation identity is the URI and UTF-16 position. Bound nesting and result counts without claiming missing relationships.
+Nested document symbols inherit the queried file. Flat symbols, LocationLinks and call items carry explicit identities. Decode URI path segments once and reject traversal, external authorities and control bytes. Preserve symbol names and valid LSP symbol kinds for reading and type/member filtering, while navigation identity is the URI and UTF-16 position. Invalid or absent kinds remain unknown rather than being guessed from names. Bound nesting and result counts without claiming missing relationships.
 
 <ui:copy id="simple-intelligence-browser-locations">
 export function semanticPath(uri: string): string | null {
@@ -55,7 +55,7 @@ export function semanticLocations(result: unknown, defaultUri?: string): Semanti
     const position = range?.start;
     if (typeof uri === "string" && position && Number.isSafeInteger(position.line) && position.line >= 0 && Number.isSafeInteger(position.character) && position.character >= 0) {
       const key = JSON.stringify([uri, position.line, position.character]);
-      if (!seen.has(key)) { seen.add(key); locations.push({ uri, range: range!, ...(typeof item.name === "string" ? { name: item.name } : {}) }); }
+      if (!seen.has(key)) { seen.add(key); locations.push({ uri, range: range!, ...(typeof item.name === "string" ? { name: item.name } : {}), ...(Number.isInteger(item.kind) && Number(item.kind) >= 1 && Number(item.kind) <= 26 ? { kind: Number(item.kind) } : {}) }); }
       if (locations.length > 10000) throw new Error("More than 10,000 locations. Narrow the symbol query.");
     }
     if (item.children) visit(item.children, depth + 1);
@@ -117,7 +117,7 @@ enum SemanticQuery: String, CaseIterable, Identifiable {
     }
 }
 struct SemanticLocation: Identifiable, Equatable {
-    var uri: String; var line: Int; var character: Int; var name: String? = nil
+    var uri: String; var line: Int; var character: Int; var name: String? = nil; var kind: Int? = nil
     var id: String { "\(uri):\(line):\(character)" }
     var path: String? {
         guard uri.hasPrefix("hick:///"), let value = URLComponents(string: uri), value.scheme == "hick", value.host?.isEmpty != false,
@@ -142,7 +142,7 @@ func semanticLocations(_ result: Any, defaultURI: String? = nil) -> [SemanticLoc
         if let uri, let range = (target["selectionRange"] ?? target["range"] ?? target["targetSelectionRange"] ?? target["targetRange"]) as? [String: Any],
            let start = range["start"] as? [String: Any], let line = start["line"] as? Int, line >= 0,
            let character = start["character"] as? Int, character >= 0 {
-            let location = SemanticLocation(uri: uri, line: line, character: character, name: item["name"] as? String)
+            let location = SemanticLocation(uri: uri, line: line, character: character, name: item["name"] as? String, kind: (item["kind"] as? Int).flatMap {(1...26).contains($0) ? $0:nil})
             if seen.insert(location.id).inserted { locations.append(location) }
         }
         if let children = item["children"] { visit(children, depth + 1) }
@@ -173,7 +173,7 @@ enum class SemanticQuery(val method: String, val label: String) {
     Callers("textDocument/prepareCallHierarchy", "Find callers"),
     Callees("textDocument/prepareCallHierarchy", "Find callees")
 }
-data class SemanticLocation(val uri: String, val line: Int, val character: Int, val name: String? = null) {
+data class SemanticLocation(val uri: String, val line: Int, val character: Int, val name: String? = null, val kind: Int? = null) {
     val path: String? get() = runCatching {
         val value = URI(uri)
         if (!uri.startsWith("hick:///") || value.scheme != "hick" || !value.authority.isNullOrEmpty() || value.query != null || value.fragment != null) return null
@@ -197,7 +197,7 @@ fun semanticLocations(result: Any, defaultURI: String? = null): List<SemanticLoc
         val start = range?.optJSONObject("start")
         val line = start?.optInt("line", -1) ?: -1; val character = start?.optInt("character", -1) ?: -1
         if (uri.isNotEmpty() && line >= 0 && character >= 0) {
-            val location = SemanticLocation(uri, line, character, item.optString("name").takeIf { it.isNotEmpty() })
+            val location = SemanticLocation(uri, line, character, item.optString("name").takeIf { it.isNotEmpty() },item.optInt("kind",-1).takeIf {it in 1..26})
             locations.putIfAbsent("$uri:$line:$character", location)
         }
         visit(item.opt("children"), depth + 1)

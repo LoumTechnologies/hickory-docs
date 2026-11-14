@@ -1,5 +1,5 @@
 import type { LspLocation, LspClient } from "../lsp/client";
-export type SemanticLocation = LspLocation & { name?: string };
+export type SemanticLocation = LspLocation & { name?: string; kind?: number };
 export const semanticQueries = [
   { kind: "definition", label: "Go to definition" },
   { kind: "references", label: "Find usages" },
@@ -36,7 +36,7 @@ export function semanticLocations(result: unknown, defaultUri?: string): Semanti
     const position = range?.start;
     if (typeof uri === "string" && position && Number.isSafeInteger(position.line) && position.line >= 0 && Number.isSafeInteger(position.character) && position.character >= 0) {
       const key = JSON.stringify([uri, position.line, position.character]);
-      if (!seen.has(key)) { seen.add(key); locations.push({ uri, range: range!, ...(typeof item.name === "string" ? { name: item.name } : {}) }); }
+      if (!seen.has(key)) { seen.add(key); locations.push({ uri, range: range!, ...(typeof item.name === "string" ? { name: item.name } : {}), ...(Number.isInteger(item.kind) && Number(item.kind) >= 1 && Number(item.kind) <= 26 ? { kind: Number(item.kind) } : {}) }); }
       if (locations.length > 10000) throw new Error("More than 10,000 locations. Narrow the symbol query.");
     }
     if (item.children) visit(item.children, depth + 1);

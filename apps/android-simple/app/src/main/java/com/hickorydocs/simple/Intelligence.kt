@@ -15,7 +15,7 @@ enum class SemanticQuery(val method: String, val label: String) {
     Callers("textDocument/prepareCallHierarchy", "Find callers"),
     Callees("textDocument/prepareCallHierarchy", "Find callees")
 }
-data class SemanticLocation(val uri: String, val line: Int, val character: Int, val name: String? = null) {
+data class SemanticLocation(val uri: String, val line: Int, val character: Int, val name: String? = null, val kind: Int? = null) {
     val path: String? get() = runCatching {
         val value = URI(uri)
         if (!uri.startsWith("hick:///") || value.scheme != "hick" || !value.authority.isNullOrEmpty() || value.query != null || value.fragment != null) return null
@@ -39,7 +39,7 @@ fun semanticLocations(result: Any, defaultURI: String? = null): List<SemanticLoc
         val start = range?.optJSONObject("start")
         val line = start?.optInt("line", -1) ?: -1; val character = start?.optInt("character", -1) ?: -1
         if (uri.isNotEmpty() && line >= 0 && character >= 0) {
-            val location = SemanticLocation(uri, line, character, item.optString("name").takeIf { it.isNotEmpty() })
+            val location = SemanticLocation(uri, line, character, item.optString("name").takeIf { it.isNotEmpty() },item.optInt("kind",-1).takeIf {it in 1..26})
             locations.putIfAbsent("$uri:$line:$character", location)
         }
         visit(item.opt("children"), depth + 1)

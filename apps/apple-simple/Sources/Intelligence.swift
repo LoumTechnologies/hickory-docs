@@ -26,7 +26,7 @@ enum SemanticQuery: String, CaseIterable, Identifiable {
     }
 }
 struct SemanticLocation: Identifiable, Equatable {
-    var uri: String; var line: Int; var character: Int; var name: String? = nil
+    var uri: String; var line: Int; var character: Int; var name: String? = nil; var kind: Int? = nil
     var id: String { "\(uri):\(line):\(character)" }
     var path: String? {
         guard uri.hasPrefix("hick:///"), let value = URLComponents(string: uri), value.scheme == "hick", value.host?.isEmpty != false,
@@ -51,7 +51,7 @@ func semanticLocations(_ result: Any, defaultURI: String? = nil) -> [SemanticLoc
         if let uri, let range = (target["selectionRange"] ?? target["range"] ?? target["targetSelectionRange"] ?? target["targetRange"]) as? [String: Any],
            let start = range["start"] as? [String: Any], let line = start["line"] as? Int, line >= 0,
            let character = start["character"] as? Int, character >= 0 {
-            let location = SemanticLocation(uri: uri, line: line, character: character, name: item["name"] as? String)
+            let location = SemanticLocation(uri: uri, line: line, character: character, name: item["name"] as? String, kind: (item["kind"] as? Int).flatMap {(1...26).contains($0) ? $0:nil})
             if seen.insert(location.id).inserted { locations.append(location) }
         }
         if let children = item["children"] { visit(children, depth + 1) }

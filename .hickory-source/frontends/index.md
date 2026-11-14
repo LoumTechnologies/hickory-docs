@@ -126,4 +126,16 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="workspace-commands-android-tests.md" />
 
+<ui:include file="search-everywhere-browser.md" />
+
+<ui:include file="search-everywhere-apple.md" />
+
+<ui:include file="search-everywhere-android.md" />
+
+<ui:include file="search-everywhere-browser-tests.md" />
+
+<ui:include file="search-everywhere-apple-tests.md" />
+
+<ui:include file="search-everywhere-android-tests.md" />
+
 </ui:doc>

@@ -68515,6 +68515,72 @@
       "fragments": [
         "simple-workspace-commands-android-tests"
       ]
+    },
+    "apps/web/src/simple/SearchEverywhere.ts": {
+      "source": ".hickory-source/frontends/search-everywhere-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "37351d597dd36bbeab73a406c8d6e81f2f1fa9e366bc5f81c8116fb6c6f6f4dd",
+      "construction": "fragments",
+      "fragments": [
+        "simple-search-everywhere-browser"
+      ]
+    },
+    "apps/apple-simple/Sources/SearchEverywhere.swift": {
+      "source": ".hickory-source/frontends/search-everywhere-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "1eee13819cc1e7a16e1338d53f880947ec4ffc740f47d289ade0fcb14e11539b",
+      "construction": "fragments",
+      "fragments": [
+        "simple-search-everywhere-apple"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SearchEverywhere.kt": {
+      "source": ".hickory-source/frontends/search-everywhere-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "b46e55ef3b34917661d26adc7e503cae83c7ee17f3db6837ef6055491c4dad31",
+      "construction": "fragments",
+      "fragments": [
+        "simple-search-everywhere-android"
+      ]
+    },
+    "apps/web/src/simple/SearchEverywhere.test.ts": {
+      "source": ".hickory-source/frontends/search-everywhere-browser-tests.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "864133f07a2faafd20c35b0cddcab4361a9fe850d3b43c1cc6e227997755dbc3",
+      "construction": "fragments",
+      "fragments": [
+        "simple-search-everywhere-browser-tests"
+      ]
+    },
+    "apps/apple-simple/Tests/SearchEverywhereTests.swift": {
+      "source": ".hickory-source/frontends/search-everywhere-apple-tests.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "e72d835d6cacede1c629ddafc1cf074df84a2f0c173cf33b7843994521fe93b3",
+      "construction": "fragments",
+      "fragments": [
+        "simple-search-everywhere-apple-tests"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SearchEverywhereTest.kt": {
+      "source": ".hickory-source/frontends/search-everywhere-android-tests.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "972fb62423274694c4afefc822f4316e0d8461f2105feae4d89262b07333c427",
+      "construction": "fragments",
+      "fragments": [
+        "simple-search-everywhere-android-tests"
+      ]
     }
   },
   "evidence_records": [

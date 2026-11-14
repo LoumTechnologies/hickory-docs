@@ -151473,6 +151473,48 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/workspace-commands-android-tests.md",
       "symbol": "simple-workspace-commands-android-tests",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-search-everywhere-browser",
+      "output": "apps/web/src/simple/SearchEverywhere.ts",
+      "page": ".hickory-source/frontends/search-everywhere-browser.md",
+      "symbol": "simple-search-everywhere-browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-search-everywhere-apple",
+      "output": "apps/apple-simple/Sources/SearchEverywhere.swift",
+      "page": ".hickory-source/frontends/search-everywhere-apple.md",
+      "symbol": "simple-search-everywhere-apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-search-everywhere-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SearchEverywhere.kt",
+      "page": ".hickory-source/frontends/search-everywhere-android.md",
+      "symbol": "simple-search-everywhere-android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-search-everywhere-browser-tests",
+      "output": "apps/web/src/simple/SearchEverywhere.test.ts",
+      "page": ".hickory-source/frontends/search-everywhere-browser-tests.md",
+      "symbol": "simple-search-everywhere-browser-tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-search-everywhere-apple-tests",
+      "output": "apps/apple-simple/Tests/SearchEverywhereTests.swift",
+      "page": ".hickory-source/frontends/search-everywhere-apple-tests.md",
+      "symbol": "simple-search-everywhere-apple-tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-search-everywhere-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SearchEverywhereTest.kt",
+      "page": ".hickory-source/frontends/search-everywhere-android-tests.md",
+      "symbol": "simple-search-everywhere-android-tests",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {
