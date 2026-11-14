@@ -71,6 +71,7 @@ class DocumentBuffer(val file: FileNode, loaded: FileText) {
     val tableHeights = mutableStateMapOf<Int, Int>()
     var tableSourceVisible by mutableStateOf(false)
     var inlineMarkup by mutableStateOf(InlineSnapshot(""))
+    var rememberNavigation: ((SemanticLocation, SemanticLocation) -> Unit)? = null
     var openSemanticLocation: ((SemanticLocation) -> Unit)? = null
     var language: NativeLanguage? = null
     val state = TextFieldState(loaded.content)
@@ -165,8 +166,10 @@ class DocumentBuffer(val file: FileNode, loaded: FileText) {
     }
 }
 class Workspace : ViewModel() {
+    var navigationTrail by mutableStateOf(NavigationTrail())
     var layout by mutableStateOf(PaneLayout())
     var focused by mutableStateOf("document-group")
+    var rootFiles by mutableStateOf<List<FileNode>>(emptyList())
     var files by mutableStateOf<List<FileNode>>(emptyList())
     val buffers = mutableStateMapOf<String, DocumentBuffer>()
     var status by mutableStateOf("Connect to a Hickory workspace server")
@@ -191,7 +194,7 @@ class Workspace : ViewModel() {
             agent.turns = emptyList(); agent.error = ""; terminal.id = null; terminal.error = ""
             debugger?.close(); debugger = NativeDebugger(next, viewModelScope)
             debugger?.onLocation = { path, line -> viewModelScope.launch { revealDebug(path, line) } }
-            buffers.values.forEach { it.language?.close() }; generation = UUID.randomUUID(); engine = next; files = tree; buffers.clear(); opening.clear()
+            buffers.values.forEach { it.language?.close() }; generation = UUID.randomUUID(); engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); buffers.clear(); opening.clear()
             layout = PaneLayout(); focused = "document-group"; status = root
             return true
         } catch (cancelled: CancellationException) { throw cancelled }
@@ -200,7 +203,7 @@ class Workspace : ViewModel() {
     }
     suspend fun refresh() {
         val current = generation; val server = engine ?: return
-        try { val (root, tree) = server.files(); if (generation == current) { files = tree; status = root } }
+        try { val (root, tree) = server.files(); if (generation == current) { files = tree; rootFiles = tree; status = root } }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { if (generation == current) status = "${failure.message} Check the server and refresh again." }
     }
@@ -209,8 +212,9 @@ class Workspace : ViewModel() {
 Opening reads raw text once. Closing dirty tabs refuses, matching the other frontends. Pane movement changes layout membership without replacing TextFieldState.
 
 <ui:copy id="simple-f6fdc8535c-1">
-    suspend fun open(file: FileNode) {
-        if (buffers.containsKey(file.path)) { show(file.path); return }
+    suspend fun open(file: FileNode, recordNavigation: Boolean = true) {
+        val departed = currentSemanticLocation()
+        if (buffers.containsKey(file.path)) { show(file.path); if (recordNavigation) currentSemanticLocation()?.let { navigationTrail = navigationTrail.record(departed, it) }; return }
         val server = engine ?: return
         if (!opening.add(file.path)) return
         val current = generation
@@ -222,6 +226,7 @@ Opening reads raw text once. Closing dirty tabs refuses, matching the other fron
             if (generation != current) return
             val buffer = DocumentBuffer(file, text)
             buffers[file.path] = buffer
+            buffer.rememberNavigation = { from, to -> navigationTrail = navigationTrail.record(from, to) }
             buffer.openSemanticLocation = { location -> viewModelScope.launch { openSemanticLocation(location) } }
             buffer.receiptEngine = server
             buffer.language = NativeLanguage(server, buffer, viewModelScope); buffer.language?.start()
@@ -229,24 +234,35 @@ Opening reads raw text once. Closing dirty tabs refuses, matching the other fron
                 // The original pane may have closed while the request was pending.
                 val live = layout.groups().firstOrNull { it.id == target }?.id ?: layout.groups().first().id
                 layout = layout.activate(file.path, live); focused = live; status = file.path
+                if (recordNavigation) currentSemanticLocation()?.let { navigationTrail = navigationTrail.record(departed, it) }
             }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { if (generation == current) status = "${failure.message} Refresh files and try opening ${file.path} again." }
         finally { if (generation == current) opening.remove(file.path) }
     }
-    suspend fun openSemanticLocation(location: SemanticLocation) {
+    fun currentSemanticLocation(): SemanticLocation? {
+        val buffer = currentBuffer ?: return null
+        val position = languagePosition(buffer.text, buffer.state.selection.min)
+        return SemanticLocation(languageURI(buffer.file.path), position.getInt("line"), position.getInt("character"))
+    }
+    suspend fun navigateHistory(direction: Int) {
+        val (next, location) = navigationTrail.step(direction, currentSemanticLocation()); navigationTrail = next
+        if (location != null) openSemanticLocation(location, recordHistory = false, allowDirty = true)
+    }
+    suspend fun openSemanticLocation(location: SemanticLocation, recordHistory: Boolean = true, allowDirty: Boolean = false) {
+        val departed = currentSemanticLocation()
         val path = location.path ?: return
         fun find(nodes: List<FileNode>): FileNode? { nodes.forEach { if (it.path == path) return it; find(it.children)?.let { child -> return child } }; return null }
-        val file = find(files)?.takeUnless { it.dir } ?: run { status = "Location not found: $path. Refresh files and query again."; return }
+        val file = (buffers[path]?.file ?: find(rootFiles))?.takeUnless { it.dir } ?: run { status = "Location not found: $path. Refresh files and query again."; return }
         val current = generation
-        open(file)
+        open(file, recordNavigation = false)
         if (generation != current || active != path) return
         val buffer = buffers[path] ?: return
-        if (buffer.dirty) { status = "Save $path and query again before using a cross-file source position."; return }
+        if (buffer.dirty && !allowDirty && departed?.path != path) { status = "Save $path and query again before using a cross-file source position."; return }
         val source = buffer.text
         val offset = languageOffset(source, org.json.JSONObject().put("line", location.line).put("character", location.character))
             ?: run { status = "Location no longer fits $path. Query again."; return }
-        buffer.selectSourceRange(offset, offset, source); buffer.focusSource?.invoke()
+        if (buffer.selectSourceRange(offset, offset, source)) { if (recordHistory) navigationTrail = navigationTrail.record(departed, location); buffer.focusSource?.invoke() }
     }
     suspend fun revealDebug(path: String, line: Int) {
         fun find(nodes: List<FileNode>): FileNode? { nodes.forEach { if (it.path == path) return it; find(it.children)?.let { child -> return child } }; return null }

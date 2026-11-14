@@ -509,6 +509,8 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
         if (location.path == buffer.file.path) {
             val offset = languageOffset(buffer.text, JSONObject().put("line", location.line).put("character", location.character)) ?: return false
             if (!buffer.selectSourceRange(offset, offset, buffer.text)) return false
+            val position = languagePosition(locationSource, locationSelection.min)
+            buffer.rememberNavigation?.invoke(SemanticLocation(uri, position.getInt("line"), position.getInt("character")), location)
             buffer.focusSource?.invoke()
         } else buffer.openSemanticLocation?.invoke(location)
         return true

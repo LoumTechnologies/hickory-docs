@@ -16,11 +16,15 @@ File commands act on the connected workspace: path entry opens a file or directo
 A document component belongs to one buffer path. Switching tabs mounts the next component around its already cached editor; it does not reuse React state that still points to the previous file's editor. Without that identity boundary, a queued cross-file reveal can be consumed by the detached old editor before the destination mounts. The cache retains selection and undo when the original tab returns.
 
 <ui:copy id="simple-e8a50a27b2-0">
+import { NavigationTrail, semanticPath, type SemanticLocation } from "./Intelligence";
+import { documentUri } from "../lsp/documentUri";
+import { utf16ToPosition } from "../lsp/positions";
+import { editorForBuffer } from "./Document";
 import { TooltipLayer } from "../components/TooltipLayer";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { PlainDebugHosts } from "../debug/plainDebugHosts";
-import { onOpenLocation, revealLine } from "../lib/revealLine";
+import { onOpenLocation, openLocation, revealLine } from "../lib/revealLine";
 import type { FileNode } from "../api/types";
 import { Buffer, Buffers } from "./buffers";
 import { RichOwners } from "./RichInline";
@@ -55,7 +59,10 @@ export function App() {
   const [terminal] = useState(() => new TerminalSession());
   const [agent] = useState(() => new AgentSession());
   const [tree, setTree] = useState<FileNode[]>([]);
+  const [workspaceFiles, setWorkspaceFiles] = useState<FileNode[]>([]);
   const [notice, setNotice] = useState("");
+  const [trail] = useState(() => new NavigationTrail());
+  const [, refreshTrail] = useState(0);
   const [status, setStatus] = useState("Choose a file");
   const [, refresh] = useState(0);
   const [buffers] = useState(() => new Buffers(() => refresh(value => value + 1)));
@@ -65,7 +72,7 @@ export function App() {
     buffers.values.set(path, new Buffer({ name: `Untitled ${[...buffers.values.keys()].filter(key => key.startsWith("Untitled-")).length + 1}`, path, dir: false }, "", "", () => refresh(value => value + 1)));
     openTab(path);
   }
-  function findPath(path: string, nodes = tree): FileNode | undefined {
+  function findPath(path: string, nodes = workspaceFiles): FileNode | undefined {
     for (const node of nodes) { if (node.path === path) return node; const found = findPath(path, node.children ?? []); if (found) return found; }
   }
   async function openPath(directory = false) {
@@ -74,7 +81,7 @@ export function App() {
     if (directory && !path) { await loadFiles(); openTab("files"); return; }
     const node = findPath(path);
     if (!node || node.dir !== directory) { setNotice("Path not found. Refresh and choose a path in this workspace."); return; }
-    if (directory) { setTree(node.children ?? []); openTab("files"); } else await open(node);
+    if (directory) { setTree(node.children ?? []); openTab("files"); } else await openFileVisit(node);
   }
   async function saveAs(source = buffer) {
     if (!source || source.saving) return;
@@ -106,7 +113,7 @@ export function App() {
     }
   }
   async function loadFiles() {
-    try { const response = await api.files(); setTree(response.tree); setStatus(response.root); }
+    try { const response = await api.files(); setTree(response.tree); setWorkspaceFiles(response.tree); setStatus(response.root); }
     catch (error) { setNotice(`${String(error)} Start the Hickory backend, then choose Refresh files.`); }
   }
   useEffect(() => { void loadFiles(); }, []);
@@ -139,17 +146,39 @@ export function App() {
       setStatus(file.generated_by ? "Generated file · read-only" : file.path);
     } catch (error) { setNotice(`${String(error)} Refresh files and try opening ${file.path} again.`); }
   }
+  function currentLocation(): SemanticLocation | null {
+    const view = buffer && editorForBuffer(buffer)?.view; if (!buffer || !view) return null;
+    const start = utf16ToPosition(buffer.text, view.state.selection.main.head);
+    return { uri: documentUri(buffer.file.path), range: { start, end: start } };
+  }
+  function navigateHistory(direction: -1 | 1) {
+    const location = trail.step(direction, currentLocation()); refreshTrail(value => value + 1);
+    const path = location && semanticPath(location.uri);
+    if (path && location) openLocation(path, location.range.start.line + 1, location.range.start.character, false);
+  }
   useEffect(() => onOpenLocation(location => {
+    const departed = currentLocation();
     const find = (nodes: FileNode[]): FileNode | undefined => {
       for (const node of nodes) { if (node.path === location.path) return node; const child = find(node.children ?? []); if (child) return child; }
     };
-    const file = find(tree);
+    const file = buffers.values.get(location.path)?.file ?? find(workspaceFiles);
     if (file) { void open(file).then(() => {
       const target = buffers.values.get(file.path); if (!target) return;
-      if (location.character !== undefined && target.dirty) { setNotice(`Save ${file.path} and query again before using a cross-file source position.`); return; }
+      if (location.recordHistory !== false && location.character !== undefined && target.dirty && file.path !== buffer?.file.path) { setNotice(`Save ${file.path} and query again before using a cross-file source position.`); return; }
+      if (location.recordHistory !== false) {
+        const start = { line: location.line - 1, character: location.character ?? 0 };
+        trail.record(departed, { uri: documentUri(file.path), range: { start, end: start } }); refreshTrail(value => value + 1);
+      }
       revealLine(file.path, location.line, location.character);
     }); } else setNotice(`Location not found: ${location.path}. Refresh files and query again.`);
-  }), [tree, layout, focused]);
+  }), [workspaceFiles, layout, focused]);
+  async function openFileVisit(file: FileNode) {
+    const departed = currentLocation(); await open(file);
+    const target = buffers.values.get(file.path); if (!target) return;
+    const view = editorForBuffer(target)?.view;
+    const start = view ? utf16ToPosition(target.text, view.state.selection.main.head) : { line: 0, character: 0 };
+    trail.record(departed, { uri: documentUri(file.path), range: { start, end: start } }); refreshTrail(value => value + 1);
+  }
   function close(tab: string) {
     const candidate = buffers.values.get(tab);
     if (candidate?.dirty || candidate?.saving) { setNotice("Unsaved edits retained. Save this document before closing its tab."); return; }
@@ -181,7 +210,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
 <ui:copy id="simple-e8a50a27b2-1">
   const label = (tab: string) => tab === "files" ? "Files" : tab === "agent" ? "Agent" : tab === "terminal" ? "Terminal" : `${buffers.values.get(tab)?.file.name ?? tab.split("/").at(-1)}${buffers.values.get(tab)?.dirty ? " •" : ""}`;
   function content(tab: string) {
-    if (tab === "files") return <div className="file-tree" aria-label="Files"><Tree nodes={tree} open={open} /></div>;
+    if (tab === "files") return <div className="file-tree" aria-label="Files"><Tree nodes={tree} open={openFileVisit} /></div>;
     if (tab === "terminal") return <Terminal session={terminal} />;
     if (tab === "agent") return <Agent session={agent} />;
     const document = buffers.values.get(tab);
@@ -238,6 +267,8 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
       <button disabled={!active} onClick={() => active && close(active)}>Close tab</button>
     </div></details><details><summary>Edit</summary><div className="menu">
       <button disabled={!buffer} onClick={() => buffer && openFind(buffer)}>Find and replace</button>
+      <button disabled={!trail.canBack} onClick={() => navigateHistory(-1)}>Navigate back</button>
+      <button disabled={!trail.canForward} onClick={() => navigateHistory(1)}>Navigate forward</button>
       {semanticQueries.map(query => <button key={query.kind} disabled={!buffer} onClick={event => { if (buffer) { const text = query.kind === "symbols" ? window.prompt("Search workspace symbols", "") : ""; if (text !== null) openSemanticQuery(buffer, query.kind, text); } event.currentTarget.closest("details")?.removeAttribute("open"); }}>{query.label}</button>)}
       <EditorSettings />
     </div></details><details><summary>View</summary><div className="menu">

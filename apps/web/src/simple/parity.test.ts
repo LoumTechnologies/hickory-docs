@@ -25,7 +25,8 @@ import { useFollowingDebugSession } from "../debug/plainDebugHosts";
 vi.mock("../debug/plainDebugHosts", () => ({ useFollowingDebugSession: vi.fn(() => null), PlainDebugHosts: () => null }));
 import { Agent, AgentSession, MarkdownMessage } from "./Agent";
 import { App } from "./App";
-import { revealLine as queueReveal, claimReveal, claimRevealPosition, resetReveals } from "../lib/revealLine";
+import { NavigationTrail } from "./Intelligence";
+import { openLocation, revealLine as queueReveal, claimReveal, claimRevealPosition, resetReveals } from "../lib/revealLine";
 import { useWorkspaceLsp } from "../lsp/useLsp";
 import { LspClient } from "../lsp/client";
 import { createLspChannel, decodeLspFrame, encodeLspFrame } from "../lsp/channel";
@@ -635,6 +636,35 @@ describe("tab drop placement", () => {
 });
 
 describe("simple semantic navigation", () => {
+  it("resolves workspace navigation outside the folder currently shown in Files", async () => {
+    // Contract: .hickory-source/frontends/contract.md
+    vi.mocked(api.files).mockResolvedValue({ root: "workspace", tree: [{ name: "src", path: "src", dir: true, children: [{ name: "a.py", path: "src/a.py", dir: false }] }, { name: "other.py", path: "other.py", dir: false }] });
+    vi.mocked(api.file).mockResolvedValueOnce({ path: "other.py", content: "value = 1", hash: "base" });
+    const prompt = vi.spyOn(window, "prompt").mockReturnValue("src");
+    const screen = render(createElement(App));
+    try {
+      await screen.findByRole("button", { name: "other.py", exact: true });
+      fireEvent.click(screen.getByText("File", { selector: "summary" }));
+      fireEvent.click(screen.getByRole("button", { name: "Open Directory", exact: true }));
+      await waitFor(() => expect(screen.queryByRole("button", { name: "other.py", exact: true })).toBeNull());
+      act(() => openLocation("other.py", 1, 2));
+      await waitFor(() => expect(screen.container.querySelector('.cm-content[aria-label="other.py"]')).toBeTruthy());
+      expect(api.file).toHaveBeenCalledWith("other.py");
+    } finally { screen.unmount(); prompt.mockRestore(); }
+  });
+  it("retains departure carets, prunes forward branches and bounds navigation history", () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const point = (name: string, line = 0) => ({ uri: `hick:///${name}.py`, range: { start: { line, character: 0 }, end: { line, character: 0 } } });
+    const trail = new NavigationTrail();
+    trail.record(point("a"), point("b")); trail.record(point("b"), point("c"));
+    expect(trail.step(-1, point("c"))?.uri).toBe("hick:///b.py");
+    expect(trail.step(1, point("b", 7))?.uri).toBe("hick:///c.py");
+    expect(trail.step(-1, point("c"))?.range.start.line).toBe(7);
+    trail.record(point("b", 7), point("d")); expect(trail.canForward).toBe(false);
+    const count = trail.entries.length; trail.record(point("d"), point("d")); expect(trail.entries).toHaveLength(count);
+    for (let i = 0; i < 300; i++) trail.record(null, point(String(i)));
+    expect(trail.entries).toHaveLength(256); expect(trail.step(1, null)).toBeNull();
+  });
   it("normalizes symbol trees, flat symbols and incoming/outgoing call items", () => {
     // Contract: .hickory-source/frontends/contract.md
     const range = { start: { line: 2, character: 4 }, end: { line: 2, character: 8 } };

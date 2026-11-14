@@ -154,6 +154,7 @@ import Observation
     var foldedLines: Set<Int> = []
     @ObservationIgnored var toggleFold: ((Int) -> Void)?
     @ObservationIgnored var revealDebugLine: ((Int) -> Void)?
+    @ObservationIgnored var rememberNavigation: ((SemanticLocation, SemanticLocation) -> Void)?
     @ObservationIgnored var openSemanticLocation: ((SemanticLocation) -> Void)?
     var language: NativeLanguage?
     var hash: String
@@ -175,8 +176,10 @@ import Observation
 }
 @MainActor @Observable final class Workspace {
     var draggingTab: String?
+    var navigationTrail = NavigationTrail()
     var layout = PaneLayout()
     var focused = "document-group"
+    var rootFiles: [FileNode] = []
     var files: [FileNode] = []
     var buffers: [String: DocumentBuffer] = [:]
     var status = "Connect to a Hickory workspace server"
@@ -204,7 +207,7 @@ import Observation
             debugger?.close()
             for buffer in buffers.values { buffer.language?.close() }
             generation = UUID(); engine = next; debugger = NativeDebugger(engine: next)
-            debugger?.onLocation = { [weak self] path, line in Task { await self?.revealDebug(path, line: line) } }; files = tree.tree; buffers = [:]; opening = []
+            debugger?.onLocation = { [weak self] path, line in Task { await self?.revealDebug(path, line: line) } }; files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); buffers = [:]; opening = []
             layout = PaneLayout(); focused = "document-group"; status = tree.root
             return true
         } catch { status = error.localizedDescription; return false }
@@ -212,7 +215,7 @@ import Observation
     func refresh() async {
         guard let engine else { return }
         let current = generation
-        do { let tree = try await engine.files(); if current == generation { files = tree.tree; status = tree.root } }
+        do { let tree = try await engine.files(); if current == generation { files = tree.tree; rootFiles = tree.tree; status = tree.root } }
         catch { if current == generation { status = error.localizedDescription } }
     }
 </ui:copy>
@@ -220,8 +223,13 @@ import Observation
 Opening and saving retain request identity. A server switch rejects stale reads. Moving and closing tabs never silently discard dirty documents. Pane movement can be invoked from a menu as well as drag and drop.
 
 <ui:copy id="simple-230bbf9308-1">
-    func open(_ file: FileNode) async {
-        if buffers[file.path] != nil { show(file.path); return }
+    func open(_ file: FileNode, recordNavigation: Bool = true) async {
+        let departed = currentSemanticLocation()
+        if buffers[file.path] != nil {
+            show(file.path)
+            if recordNavigation, let arrived = currentSemanticLocation() { navigationTrail.record(from: departed, to: arrived) }
+            return
+        }
         guard let engine, !opening.contains(file.path) else { return }
         let current = generation
         let target = layout.groups().first(where: { $0.id == focused && !$0.tabs.contains("files") })?.id
@@ -246,6 +254,7 @@ Opening and saving retain request identity. A server switch rejects stale reads.
                     await self.open(file)
                 }
             }
+            buffer.rememberNavigation = { [weak self] from, to in self?.navigationTrail.record(from: from, to: to) }
             buffer.openSemanticLocation = { [weak self] location in
                 Task { await self?.openSemanticLocation(location) }
             }
@@ -255,24 +264,35 @@ Opening and saving retain request identity. A server switch rejects stale reads.
                 // A close or move can retire the requested pane while text loads.
                 let live = layout.groups().first(where: { $0.id == target })?.id ?? layout.groups()[0].id
                 layout.activate(file.path, in: live); focused = live; status = file.path
+                if recordNavigation, let arrived = currentSemanticLocation() { navigationTrail.record(from: departed, to: arrived) }
             }
         } catch { if current == generation { status = "\(error.localizedDescription) Refresh files and try opening \(file.path) again." } }
     }
-    func openSemanticLocation(_ location: SemanticLocation) async {
+    func currentSemanticLocation() -> SemanticLocation? {
+        guard let buffer = currentBuffer else { return nil }
+        let position = languagePosition(buffer.text, buffer.selection.location)
+        return SemanticLocation(uri: languageURI(buffer.file.path), line: position["line"]!, character: position["character"]!)
+    }
+    func navigateHistory(_ direction: Int) async {
+        guard let location = navigationTrail.step(direction, current: currentSemanticLocation()) else { return }
+        await openSemanticLocation(location, recordHistory: false, allowDirty: true)
+    }
+    func openSemanticLocation(_ location: SemanticLocation, recordHistory: Bool = true, allowDirty: Bool = false) async {
+        let departed = currentSemanticLocation()
         guard let path = location.path else { return }
         func find(_ nodes: [FileNode]) -> FileNode? {
             for node in nodes { if node.path == path { return node }; if let child = find(node.children ?? []) { return child } }; return nil
         }
-        guard let file = find(files), !file.dir else { status = "Location not found: \(path). Refresh files and query again."; return }
+        guard let file = buffers[path]?.file ?? find(rootFiles), !file.dir else { status = "Location not found: \(path). Refresh files and query again."; return }
         let current = generation
-        await open(file)
+        await open(file, recordNavigation: false)
         guard generation == current, active == path, let buffer = buffers[path] else { return }
-        if buffer.dirty { status = "Save \(path) and query again before using a cross-file source position."; return }
+        if buffer.dirty && !allowDirty && departed?.path != path { status = "Save \(path) and query again before using a cross-file source position."; return }
         let source = buffer.text
         guard let offset = languageOffset(source, ["line": location.line, "character": location.character]) else { status = "Location no longer fits \(path). Query again."; return }
         for _ in 0..<20 {
-            guard generation == current, buffer.text == source, !buffer.dirty else { return }
-            if buffer.selectSourceRange?(NSRange(location: offset, length: 0), source) == true { buffer.focusSource?(); return }
+            guard generation == current, buffer.text == source, (!buffer.dirty || allowDirty || departed?.path == path) else { return }
+            if buffer.selectSourceRange?(NSRange(location: offset, length: 0), source) == true { if recordHistory { navigationTrail.record(from: departed, to: location) }; buffer.focusSource?(); return }
             try? await Task.sleep(for: .milliseconds(25))
         }
         status = "Opened \(path); editor could not reveal the position. Query again once it is ready."

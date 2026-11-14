@@ -56,3 +56,23 @@ export async function querySemanticLocations(client: LspClient, uri: string, pos
   }
   return semanticLocations(await client.request(`textDocument/${kind}`, params));
 }
+export class NavigationTrail {
+  entries: SemanticLocation[] = [];
+  index = -1;
+  get canBack() { return this.index > 0; }
+  get canForward() { return this.index >= 0 && this.index + 1 < this.entries.length; }
+  private same(a: SemanticLocation | undefined, b: SemanticLocation) { return !!a && a.uri === b.uri && a.range.start.line === b.range.start.line && a.range.start.character === b.range.start.character; }
+  private point(value: SemanticLocation): SemanticLocation { const start = { ...value.range.start }; return { uri: value.uri, range: { start, end: { ...start } } }; }
+  record(from: SemanticLocation | null, to: SemanticLocation) {
+    this.entries = this.entries.slice(0, this.index + 1);
+    if (from && !this.same(this.entries.at(-1), from)) this.entries.push(this.point(from));
+    if (!this.same(this.entries.at(-1), to)) this.entries.push(this.point(to));
+    this.entries = this.entries.slice(-256); this.index = this.entries.length - 1;
+  }
+  step(direction: -1 | 1, current: SemanticLocation | null): SemanticLocation | null {
+    const next = this.index + direction;
+    if (next < 0 || next >= this.entries.length) return null;
+    if (current && this.entries[this.index]?.uri === current.uri) this.entries[this.index] = this.point(current);
+    this.index = next; return this.entries[next];
+  }
+}

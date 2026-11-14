@@ -1,6 +1,7 @@
 import { chromium } from "../apps/web/node_modules/@playwright/test/index.mjs";
 import { createInterface } from "node:readline";
 let browser, page, nativeTable;
+const rememberedEditors = new Map();
 const pageErrors = [];
 const lines = createInterface({ input: process.stdin });
 async function menu(name, action) {
@@ -102,6 +103,11 @@ try {
           await page.locator("nav").getByText("Edit", { exact: true }).click();
           value = { control: await page.getByRole("combobox", { name: "Ctrl + Left/Right", exact: true }).inputValue(), alt: await page.getByRole("combobox", { name: "Alt/Option + Left/Right", exact: true }).inputValue() };
           await page.locator("nav").getByText("Edit", { exact: true }).click(); break;
+        case "remember-editor": rememberedEditors.set(request.path, await editor(request.path).elementHandle()); break;
+        case "editor-is-retained": value = await editor(request.path).evaluate((node, previous) => node === previous, rememberedEditors.get(request.path)); break;
+        case "navigate-history":
+          await menu("Edit", request.direction === "back" ? "Navigate back" : "Navigate forward");
+          await editor(request.path).waitFor(); break;
         case "open":
           await page.getByRole("button", { name: request.path, exact: true }).click();
           if (/\.csv$/i.test(request.path)) await page.getByTestId("table-panel").waitFor();
@@ -145,7 +151,13 @@ try {
         case "caret-offset":
           value = await editor(request.path).evaluate(content => {
             const selection = window.getSelection(); if (!selection?.anchorNode || !content.contains(selection.anchorNode)) return null;
-            const range = document.createRange(); range.selectNodeContents(content); range.setEnd(selection.anchorNode, selection.anchorOffset); return range.toString().length;
+            // Logical editor lines are block elements: Range.toString omits
+            // their separating source newlines. Count those boundaries too.
+            const line = (selection.anchorNode.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode.parentElement)?.closest(".cm-line");
+            if (!line) return null;
+            const rows = [...content.querySelectorAll(".cm-line")], index = rows.indexOf(line);
+            const range = document.createRange(); range.selectNodeContents(line); range.setEnd(selection.anchorNode, selection.anchorOffset);
+            return rows.slice(0, index).reduce((offset, row) => offset + row.textContent.length + 1, 0) + range.toString().length;
           }); break;
         case "semantic-close": await page.getByRole("button", { name: "Close semantic locations", exact: true }).click(); break;
         case "semantic-colors": value = await editor(request.path).locator('[class*="cm-st-"]').allTextContents(); break;

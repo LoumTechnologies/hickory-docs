@@ -280,6 +280,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
   const changed = buffer.dirty || observationSourceChanged(debug.reading, buffer.text);
   const [debugNotice, setDebugNotice] = useState("");
   const session = useSimpleLanguage(buffer);
+  const workspaceLanguages = useContext(languageContext);
   const [semanticResult, setSemanticResult] = useState<{ source: string; anchor: number; head: number; ticket: number; message: string; locations: SemanticLocation[] } | null>(null);
   const semanticTicket = useRef(0);
   const semanticPanel = useRef<HTMLDivElement>(null);
@@ -436,7 +437,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
       <p role="status">{semanticCurrent ? semanticResult.message : "Source or cursor changed. Run the query again."}</p>
       {semanticResult.locations.map(location => { const path = semanticPath(location.uri); return <button type="button" key={JSON.stringify(location)} disabled={!path || !semanticCurrent} onClick={() => {
         if (!path || !view || semanticResult.ticket !== semanticTicket.current || buffer.text !== semanticResult.source || view.state.selection.main.anchor !== semanticResult.anchor || view.state.selection.main.head !== semanticResult.head) return;
-        if (sameDocumentUri(location.uri, session.uri)) {
+        if (!workspaceLanguages && sameDocumentUri(location.uri, session.uri)) {
           const anchor = positionToUtf16(buffer.text, location.range.start);
           view.dispatch({ selection: { anchor }, effects: EditorView.scrollIntoView(anchor, { y: "center" }) }); view.focus();
         } else openLocation(path, location.range.start.line + 1, location.range.start.character);

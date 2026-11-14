@@ -206,12 +206,89 @@ fun semanticLocations(result: Any, defaultURI: String? = null): List<SemanticLoc
 }
 </ui:copy>
 
+### `simple-intelligence-browser-trail`
+
+Retain a bounded trail of actual source positions. A visit records departure and arrival, deduplicates identical positions, and discards the forward branch after a new visit. Back/forward updates the departure caret without changing document bytes. The workspace resolves each position against its current buffer; the trail neither opens files nor grants write authority.
+
+<ui:copy id="simple-intelligence-browser-trail">
+export class NavigationTrail {
+  entries: SemanticLocation[] = [];
+  index = -1;
+  get canBack() { return this.index > 0; }
+  get canForward() { return this.index >= 0 && this.index + 1 < this.entries.length; }
+  private same(a: SemanticLocation | undefined, b: SemanticLocation) { return !!a && a.uri === b.uri && a.range.start.line === b.range.start.line && a.range.start.character === b.range.start.character; }
+  private point(value: SemanticLocation): SemanticLocation { const start = { ...value.range.start }; return { uri: value.uri, range: { start, end: { ...start } } }; }
+  record(from: SemanticLocation | null, to: SemanticLocation) {
+    this.entries = this.entries.slice(0, this.index + 1);
+    if (from && !this.same(this.entries.at(-1), from)) this.entries.push(this.point(from));
+    if (!this.same(this.entries.at(-1), to)) this.entries.push(this.point(to));
+    this.entries = this.entries.slice(-256); this.index = this.entries.length - 1;
+  }
+  step(direction: -1 | 1, current: SemanticLocation | null): SemanticLocation | null {
+    const next = this.index + direction;
+    if (next < 0 || next >= this.entries.length) return null;
+    if (current && this.entries[this.index]?.uri === current.uri) this.entries[this.index] = this.point(current);
+    this.index = next; return this.entries[next];
+  }
+}
+</ui:copy>
+
+### `simple-intelligence-apple-trail`
+
+Retain a bounded trail of actual source positions. A visit records departure and arrival, deduplicates identical positions, and discards the forward branch after a new visit. Back/forward updates the departure caret without changing document bytes. The workspace resolves each position against its current buffer; the trail neither opens files nor grants write authority.
+
+<ui:copy id="simple-intelligence-apple-trail">
+struct NavigationTrail {
+    private(set) var entries: [SemanticLocation] = []
+    private(set) var index = -1
+    var canBack: Bool { index > 0 }
+    var canForward: Bool { index >= 0 && index + 1 < entries.count }
+    mutating func record(from: SemanticLocation?, to: SemanticLocation) {
+        entries = Array(entries.prefix(index + 1))
+        if let from, entries.last?.id != from.id { entries.append(from) }
+        if entries.last?.id != to.id { entries.append(to) }
+        entries = Array(entries.suffix(256)); index = entries.count - 1
+    }
+    mutating func step(_ direction: Int, current: SemanticLocation?) -> SemanticLocation? {
+        let next = index + direction
+        guard (direction == -1 || direction == 1), entries.indices.contains(next) else { return nil }
+        if let current, entries.indices.contains(index), entries[index].uri == current.uri { entries[index] = current }
+        index = next; return entries[next]
+    }
+}
+</ui:copy>
+
+### `simple-intelligence-android-trail`
+
+Retain a bounded trail of actual source positions. A visit records departure and arrival, deduplicates identical positions, and discards the forward branch after a new visit. Back/forward updates the departure caret without changing document bytes. The workspace resolves each position against its current buffer; the trail neither opens files nor grants write authority.
+
+<ui:copy id="simple-intelligence-android-trail">
+data class NavigationTrail(val entries: List<SemanticLocation> = emptyList(), val index: Int = -1) {
+    val canBack get() = index > 0
+    val canForward get() = index >= 0 && index + 1 < entries.size
+    private fun same(a: SemanticLocation?, b: SemanticLocation) = a?.uri == b.uri && a.line == b.line && a.character == b.character
+    fun record(from: SemanticLocation?, to: SemanticLocation): NavigationTrail {
+        val values = entries.take(index + 1).toMutableList()
+        if (from != null && !same(values.lastOrNull(), from)) values.add(from)
+        if (!same(values.lastOrNull(), to)) values.add(to)
+        val retained = values.takeLast(256); return NavigationTrail(retained, retained.lastIndex)
+    }
+    fun step(direction: Int, current: SemanticLocation?): Pair<NavigationTrail, SemanticLocation?> {
+        val next = index + direction
+        if (direction !in listOf(-1, 1) || next !in entries.indices) return this to null
+        val values = entries.toMutableList()
+        if (current != null && index in entries.indices && entries[index].uri == current.uri) values[index] = current
+        return NavigationTrail(values, next) to values[next]
+    }
+}
+</ui:copy>
+
 ## Assemble the platform modules
 
 Each platform imports the model through its ordinary module system. The maintained fragments stay source-backed; there is no second hand-maintained payload.
 
-<ui:file path="apps/web/src/simple/Intelligence.ts"><ui:paste select="#simple-intelligence-browser-vocabulary"/><ui:paste select="#simple-intelligence-browser-locations"/><ui:paste select="#simple-intelligence-browser-query"/></ui:file>
-<ui:file path="apps/apple-simple/Sources/Intelligence.swift"><ui:paste select="#simple-apple-semantic-locations"/></ui:file>
-<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/Intelligence.kt"><ui:paste select="#simple-android-semantic-locations"/></ui:file>
+<ui:file path="apps/web/src/simple/Intelligence.ts"><ui:paste select="#simple-intelligence-browser-vocabulary"/><ui:paste select="#simple-intelligence-browser-locations"/><ui:paste select="#simple-intelligence-browser-query"/><ui:paste select="#simple-intelligence-browser-trail"/></ui:file>
+<ui:file path="apps/apple-simple/Sources/Intelligence.swift"><ui:paste select="#simple-apple-semantic-locations"/><ui:paste select="#simple-intelligence-apple-trail"/></ui:file>
+<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/Intelligence.kt"><ui:paste select="#simple-android-semantic-locations"/><ui:paste select="#simple-intelligence-android-trail"/></ui:file>
 
 </ui:doc>

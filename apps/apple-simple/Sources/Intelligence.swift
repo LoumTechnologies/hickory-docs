@@ -58,3 +58,21 @@ func semanticLocations(_ result: Any, defaultURI: String? = nil) -> [SemanticLoc
     }
     visit(result, 0); return locations
 }
+struct NavigationTrail {
+    private(set) var entries: [SemanticLocation] = []
+    private(set) var index = -1
+    var canBack: Bool { index > 0 }
+    var canForward: Bool { index >= 0 && index + 1 < entries.count }
+    mutating func record(from: SemanticLocation?, to: SemanticLocation) {
+        entries = Array(entries.prefix(index + 1))
+        if let from, entries.last?.id != from.id { entries.append(from) }
+        if entries.last?.id != to.id { entries.append(to) }
+        entries = Array(entries.suffix(256)); index = entries.count - 1
+    }
+    mutating func step(_ direction: Int, current: SemanticLocation?) -> SemanticLocation? {
+        let next = index + direction
+        guard (direction == -1 || direction == 1), entries.indices.contains(next) else { return nil }
+        if let current, entries.indices.contains(index), entries[index].uri == current.uri { entries[index] = current }
+        index = next; return entries[next]
+    }
+}

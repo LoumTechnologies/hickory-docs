@@ -68102,7 +68102,8 @@
       "fragments": [
         "simple-intelligence-browser-vocabulary",
         "simple-intelligence-browser-locations",
-        "simple-intelligence-browser-query"
+        "simple-intelligence-browser-query",
+        "simple-intelligence-browser-trail"
       ]
     },
     "apps/apple-simple/Sources/Intelligence.swift": {
@@ -68113,7 +68114,8 @@
       "sha256": "d5018a251990d1dd6c230499dbda749bfb1b92a09dc2a58ef1a00ca0d0e262e3",
       "construction": "fragments",
       "fragments": [
-        "simple-apple-semantic-locations"
+        "simple-apple-semantic-locations",
+        "simple-intelligence-apple-trail"
       ]
     },
     "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Intelligence.kt": {
@@ -68124,7 +68126,8 @@
       "sha256": "8fb124465c7c07866ae8f2a260fca912fe811441600a6bbb578c26c36c98bcc5",
       "construction": "fragments",
       "fragments": [
-        "simple-android-semantic-locations"
+        "simple-android-semantic-locations",
+        "simple-intelligence-android-trail"
       ]
     }
   },

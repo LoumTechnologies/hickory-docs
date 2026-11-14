@@ -151060,6 +151060,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/intelligence.md",
       "symbol": "simple-intelligence-browser-query",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-intelligence-browser-trail",
+      "output": "apps/web/src/simple/Intelligence.ts",
+      "page": ".hickory-source/frontends/intelligence.md",
+      "symbol": "simple-intelligence-browser-trail",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-intelligence-apple-trail",
+      "output": "apps/apple-simple/Sources/Intelligence.swift",
+      "page": ".hickory-source/frontends/intelligence.md",
+      "symbol": "simple-intelligence-apple-trail",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-intelligence-android-trail",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Intelligence.kt",
+      "page": ".hickory-source/frontends/intelligence.md",
+      "symbol": "simple-intelligence-android-trail",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

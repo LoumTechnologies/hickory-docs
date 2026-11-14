@@ -6,6 +6,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @org.junit.Test fun semanticNavigationTrailBranchesAndRetainsCarets() {
+        // Contract: .hickory-source/frontends/contract.md
+        fun point(name: String, line: Int = 0) = SemanticLocation("hick:///$name.py", line, 0)
+        var trail = NavigationTrail().record(point("a"), point("b")).record(point("b"), point("c"))
+        var step = trail.step(-1, point("c")); trail = step.first; assertEquals("b.py", step.second?.path)
+        step = trail.step(1, point("b", 7)); trail = step.first; assertEquals("c.py", step.second?.path)
+        step = trail.step(-1, point("c")); trail = step.first; assertEquals(7, step.second?.line)
+        trail = trail.record(point("b", 7), point("d")); assertFalse(trail.canForward)
+        val count = trail.entries.size; trail = trail.record(point("d"), point("d")); assertEquals(count, trail.entries.size)
+        for (index in 0 until 300) trail = trail.record(null, point(index.toString()))
+        assertEquals(256, trail.entries.size); assertNull(trail.step(1, null).second)
+    }
+
     @org.junit.Test fun semanticNavigationRetiresStaleSourceAndSelection() = kotlinx.coroutines.runBlocking {
         // Contract: .hickory-source/frontends/contract.md
         val buffer = DocumentBuffer(FileNode("main.py", "main.py", false, emptyList(), null, null), FileText("value = 1\nprint(value)", "base"))

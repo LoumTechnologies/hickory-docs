@@ -8,6 +8,19 @@ import WebKit
 @testable import HickorySimple
 
 final class ParityTests: XCTestCase {
+    func testSemanticNavigationTrailBranchesAndRetainsCarets() {
+        // Contract: .hickory-source/frontends/contract.md
+        func point(_ name: String, _ line: Int = 0) -> SemanticLocation { SemanticLocation(uri: "hick:///\(name).py", line: line, character: 0) }
+        var trail = NavigationTrail(); trail.record(from: point("a"), to: point("b")); trail.record(from: point("b"), to: point("c"))
+        XCTAssertEqual(trail.step(-1, current: point("c"))?.path, "b.py")
+        XCTAssertEqual(trail.step(1, current: point("b", 7))?.path, "c.py")
+        XCTAssertEqual(trail.step(-1, current: point("c"))?.line, 7)
+        trail.record(from: point("b", 7), to: point("d")); XCTAssertFalse(trail.canForward)
+        let count = trail.entries.count; trail.record(from: point("d"), to: point("d")); XCTAssertEqual(trail.entries.count, count)
+        for index in 0..<300 { trail.record(from: nil, to: point(String(index))) }
+        XCTAssertEqual(trail.entries.count, 256); XCTAssertNil(trail.step(1, current: nil))
+    }
+
     func testSemanticSymbolsAndCallTreesRetainNamesAndAuthoredPositions() {
         // Contract: .hickory-source/frontends/contract.md
         let range: [String: Any] = ["start": ["line": 2, "character": 4], "end": ["line": 2, "character": 8]]

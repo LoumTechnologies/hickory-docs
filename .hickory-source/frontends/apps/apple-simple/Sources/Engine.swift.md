@@ -434,6 +434,8 @@ Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet
                   buffer.selectSourceRange?(NSRange(location: offset, length: 0), buffer.text) == true else {
                 locationStatus = "Location no longer fits this source. Query again."; return
             }
+            let position = languagePosition(locationSource, locationSelection.location)
+            buffer.rememberNavigation?(SemanticLocation(uri: uri, line: position["line"]!, character: position["character"]!), location)
             buffer.focusSource?()
         } else { buffer.openSemanticLocation?(location) }
         showingSuggestions = false

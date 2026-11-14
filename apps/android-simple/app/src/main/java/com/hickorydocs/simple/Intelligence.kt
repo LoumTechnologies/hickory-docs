@@ -46,3 +46,21 @@ fun semanticLocations(result: Any, defaultURI: String? = null): List<SemanticLoc
     }
     visit(result, 0); return locations.values.toList()
 }
+data class NavigationTrail(val entries: List<SemanticLocation> = emptyList(), val index: Int = -1) {
+    val canBack get() = index > 0
+    val canForward get() = index >= 0 && index + 1 < entries.size
+    private fun same(a: SemanticLocation?, b: SemanticLocation) = a?.uri == b.uri && a.line == b.line && a.character == b.character
+    fun record(from: SemanticLocation?, to: SemanticLocation): NavigationTrail {
+        val values = entries.take(index + 1).toMutableList()
+        if (from != null && !same(values.lastOrNull(), from)) values.add(from)
+        if (!same(values.lastOrNull(), to)) values.add(to)
+        val retained = values.takeLast(256); return NavigationTrail(retained, retained.lastIndex)
+    }
+    fun step(direction: Int, current: SemanticLocation?): Pair<NavigationTrail, SemanticLocation?> {
+        val next = index + direction
+        if (direction !in listOf(-1, 1) || next !in entries.indices) return this to null
+        val values = entries.toMutableList()
+        if (current != null && index in entries.indices && entries[index].uri == current.uri) values[index] = current
+        return NavigationTrail(values, next) to values[next]
+    }
+}

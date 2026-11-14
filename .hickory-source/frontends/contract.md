@@ -25,6 +25,12 @@ These are required outcomes. Existing verification paragraphs establish only the
 
 The extracted TypeScript, Swift and Kotlin intelligence modules now normalize nested outlines, flat workspace symbols, declarations and caller/callee items into named source locations. The existing menus and floating language surfaces expose all nine queries. Position reads flush pending source before asking a provider. Six focused browser semantic witnesses and three focused model/snapshot witnesses on each native implementation pass. TypeScript and native compilation, plus the iOS simulator build, are checked separately. The real Python browser flow exercises cross-file definitions/usages, exact columns, file outlines, workspace symbols, incoming/outgoing calls, stationary geometry and unchanged disk bytes. Native pointer and live-provider acceptance remain unverified by these model checks.
 
+## Navigation history
+
+Every simple platform exposes Navigate back and Navigate forward through its existing menus. A workspace-owned, bounded trail records departure carets and destination positions, deduplicates identical visits and retires the forward branch after a new visit. History reuses buffers and cached editors, including unsaved text, rather than reopening or saving files. The full workspace file index remains separate from the directory currently shown in Files. Positions that no longer fit the current text report that a fresh navigation is needed; historical carets are navigation aids, not execution or save evidence.
+
+Focused TypeScript, Swift and Kotlin trail witnesses cover caret retention, branch pruning, duplicate visits and the 256-position bound. The real-provider browser flow checks Back/Forward between symbol locations, exact carets and retained DOM editor identity, along with unchanged source files and editor geometry. Native model checks and the iOS build do not establish native pointer acceptance.
+
 ## Existing and extended editor behavior
 
 Given a reachable existing Hickory engine, each frontend exposes the same four pane kinds: files, text document, workspace agent and terminal. Plain and literate source open as text. Generated outputs open read-only in this slice. File and pane commands remain in menus or tab strips; editor content has no permanent feature toolbar.

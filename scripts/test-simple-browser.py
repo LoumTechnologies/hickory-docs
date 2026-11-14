@@ -74,6 +74,7 @@ def semantic_navigation_acceptance(driver, folder):
     path = "navigation.py"
     original = {name: (folder / name).read_text() for name in [path, "semantic_target.py"]}
     driver.act("open", path=path)
+    driver.act("remember-editor", path=path)
     size = driver.act("editor-size", path=path)
     result = driver.act("semantic-query", path=path, query="Go to definition", offset=41)
     # A newly installed provider may still be indexing imports. Retry this read
@@ -87,6 +88,11 @@ def semantic_navigation_acceptance(driver, folder):
     assert "semantic_target.py:1:13" in result["text"], result
     driver.act("semantic-open", path="semantic_target.py", label="semantic_target.py:1:13")
     assert "value = 42" in driver.act("content", path="semantic_target.py")
+    eventually(lambda: driver.act("caret-offset", path="semantic_target.py"), 12)
+    driver.act("navigate-history", direction="back", path=path)
+    eventually(lambda: driver.act("caret-offset", path=path), 41)
+    assert driver.act("editor-is-retained", path=path), "History replaced the retained source editor"
+    driver.act("navigate-history", direction="forward", path="semantic_target.py")
     eventually(lambda: driver.act("caret-offset", path="semantic_target.py"), 12)
     result = driver.act("semantic-query", path="semantic_target.py", query="Find usages", offset=13)
     deadline = time.monotonic() + 15
@@ -567,7 +573,7 @@ if __name__ == "__main__":
                 print("Browser: inline table grid, real saved Markdown, source reveal and undo passed")
             elif "--semantic-navigation-only" in sys.argv:
                 semantic_navigation_acceptance(driver, folder)
-                print("Browser: real definitions/usages, outlines, workspace symbols, callers/callees, exact columns, stationary geometry and unchanged disk passed")
+                print("Browser: real symbols/calls, Back/Forward with retained editors, exact columns, stationary geometry and unchanged disk passed")
             elif "--language-cache-only" in sys.argv:
                 language_cache_acceptance(driver, folder)
                 print("Browser: real Python colors retained across typing and undo; disk unchanged")

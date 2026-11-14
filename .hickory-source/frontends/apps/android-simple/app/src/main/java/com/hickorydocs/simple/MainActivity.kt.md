@@ -66,7 +66,7 @@ class MainActivity : ComponentActivity() {
                 "Refresh" to { scope.launch { workspace.refresh() }; Unit },
                 "Close tab" to { workspace.active?.let(workspace::close); Unit }
             ))
-            CommandMenu("Edit", listOf("Find and replace" to { workspace.currentBuffer?.showFind = true; Unit },
+            CommandMenu("Edit", listOf("Navigate back" to { scope.launch { workspace.navigateHistory(-1) }; Unit }, "Navigate forward" to { scope.launch { workspace.navigateHistory(1) }; Unit }, "Find and replace" to { workspace.currentBuffer?.showFind = true; Unit },
                 "Column selection" to { workspace.currentBuffer?.selectRectangle(); Unit },
                 "Add cursor below" to { workspace.currentBuffer?.addCursor(1); Unit }, "Add cursor above" to { workspace.currentBuffer?.addCursor(-1); Unit }))
             CommandMenu("View", listOf(
