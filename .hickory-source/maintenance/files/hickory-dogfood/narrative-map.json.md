@@ -152306,6 +152306,41 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/native-coverage-surface.md",
       "symbol": "native-coverage-local-page",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-coverage-browser",
+      "output": "apps/web/src/simple/SimpleCoverageView.tsx",
+      "page": ".hickory-source/frontends/coverage-view-browser.md",
+      "symbol": "simple-coverage-browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-coverage-apple",
+      "output": "apps/apple-simple/Sources/CoverageView.swift",
+      "page": ".hickory-source/frontends/coverage-view-apple.md",
+      "symbol": "simple-coverage-apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-coverage-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/CoverageView.kt",
+      "page": ".hickory-source/frontends/coverage-view-android.md",
+      "symbol": "simple-coverage-android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-coverage-webkit-witness",
+      "output": "apps/apple-simple/Tests/CoverageViewTests.swift",
+      "page": ".hickory-source/frontends/coverage-view-apple.md",
+      "symbol": "simple-coverage-webkit-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-coverage-browser-witness",
+      "output": "scripts/test-coverage-browser.py",
+      "page": ".hickory-source/frontends/coverage-browser-witness.md",
+      "symbol": "simple-coverage-browser-witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

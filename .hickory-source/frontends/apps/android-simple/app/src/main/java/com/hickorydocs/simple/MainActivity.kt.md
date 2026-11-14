@@ -84,6 +84,7 @@ class MainActivity : ComponentActivity() {
         Column { Text("Enter a path in the connected workspace. Save As requires an unused path; an empty directory path opens the root.", fontSize = 12.sp)
             OutlinedTextField(workspace.filePath, { workspace.filePath = it }, label = { Text("Workspace path") }, singleLine = true) }
     }, confirmButton = { TextButton(onClick = { scope.launch { workspace.performFileCommand() } }) { Text("OK") } }, dismissButton = { TextButton(onClick = { workspace.fileCommand = null; workspace.savingAll = false }) { Text("Cancel") } })
+    if(workspace.showCoverage) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showCoverage=false;workspace.currentBuffer?.focusSource?.invoke()}) {Surface {SimpleCoverageView(workspace)}}
     if(workspace.showTests) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showTests=false;workspace.currentBuffer?.focusSource?.invoke()}) {Surface {TestSourcesView(workspace)}}
     if(workspace.showEverywhere) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showEverywhere=false;workspace.currentBuffer?.focusSource?.invoke()}) {Surface {SearchEverywhereView(workspace,commands)}}
     if (workspace.changes.mode != null) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.changes.close(workspace)}) { Surface { WorkspaceChangesView(workspace) } }

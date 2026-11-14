@@ -183,6 +183,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     var analysis by mutableStateOf(WorkspaceAnalysis()); private set
     var sourceTestIndex:SourceTestIndex?=null
     var testSources by mutableStateOf(TestSourcesModel())
+    var coverage by mutableStateOf(SimpleCoverageState());var showCoverage by mutableStateOf(false)
     var showTests by mutableStateOf(false)
     var showEverywhere by mutableStateOf(false)
     fun runCommand(action:suspend ()->Unit) {workspaceScope.launch {action()}}
@@ -249,7 +250,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
             agent.turns = emptyList(); agent.error = ""; terminal.id = null; terminal.error = ""
             debugger?.close(); debugger = NativeDebugger(next, workspaceScope)
             debugger?.onLocation = { path, line -> workspaceScope.launch { revealDebug(path, line) } }
-            buffers.values.forEach { it.language?.close() }; languageConnection?.close();languageConnection=null; analysis.stop();analysis=WorkspaceAnalysis();showAnalysis=false;showEverywhere=false;showTests=false;testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=null;generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); buffers.clear(); loading.values.forEach {it.cancel()}; loading.clear()
+            buffers.values.forEach { it.language?.close() }; languageConnection?.close();languageConnection=null; analysis.stop();analysis=WorkspaceAnalysis();showAnalysis=false;showEverywhere=false;showTests=false;showCoverage=false;coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=null;generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); buffers.clear(); loading.values.forEach {it.cancel()}; loading.clear()
             layout = PaneLayout(); focused = "document-group"; status = root
             return true
         } catch (cancelled: CancellationException) { throw cancelled }

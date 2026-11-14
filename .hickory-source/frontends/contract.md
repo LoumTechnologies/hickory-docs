@@ -425,4 +425,10 @@ Apple source identity compares exact UTF-8 rather than Swift's canonical Unicode
 
 Verification: five focused Unicode witnesses first reproduced the dirty-state, observation and change-plan failures, then passed with the mechanism. Eleven focused source-revision, source-test/index and workspace-analysis cases pass, and the iOS simulator build succeeds. Reconstruction and ownership audit pass. These checks do not establish native pointer/IME acceptance.
 
+## Structured runner results and coverage in existing menus
+
+The shared Edit menu exposes Tests and coverage on browser, macOS, iOS and Android. A floating surface presents saved-project discovery, retained runner results, failure output, collector execution, imported reports, manual collection and compatible evidence comparison using the existing coverage service. Both native hosts package the same local renderer and expose only fixed coverage operations; workspace replacement retires old replies. Unbound reports open files without precise-position claims. Reported line navigation independently matches captured source hashes against loaded text; source remains readable and the editor stays mounted.
+
+Verification: a real browser/engine witness discovers a Cargo test whose body must not execute, imports an explicitly identified LCOV fixture, navigates precisely, refuses after an unsaved edit, and retains editor geometry/identity and draft bytes with unchanged disk. A focused actual WebKit witness loads the bundled renderer and rejects obsolete-workspace messages while preserving draft selection and bytes. TypeScript checking, Android compilation, iOS simulator build and reconstruction/audit pass. The import witness does not establish an automatic collector execution, and native pointer/IME acceptance remains unverified. Coverage line-mark binding and richer test debugging remain subsequent work.
+
 </ui:doc>

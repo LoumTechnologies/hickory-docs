@@ -178,4 +178,12 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="source-test-gutters-android.md" />
 
+<ui:include file="coverage-view-browser.md" />
+
+<ui:include file="coverage-view-apple.md" />
+
+<ui:include file="coverage-view-android.md" />
+
+<ui:include file="coverage-browser-witness.md" />
+
 </ui:doc>

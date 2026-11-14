@@ -116,6 +116,18 @@ try {
           const panel=page.getByRole("dialog",{name:"Source tests",exact:true});await panel.waitFor();await panel.getByText(/^Source observation/).waitFor();
           value={text:await panel.innerText(),before,after};break;
         }
+        case "coverage-open": await menu("Edit","Tests and coverage");await page.getByRole("dialog",{name:"Tests and code coverage",exact:true}).waitFor();break;
+        case "coverage-close": await page.getByRole("button",{name:"Close coverage",exact:true}).click();break;
+        case "coverage-state": value=await page.getByRole("dialog",{name:"Tests and code coverage",exact:true}).innerText();break;
+        case "coverage-discover": {
+          const dialog=page.getByRole("dialog",{name:"Tests and code coverage",exact:true});await dialog.getByLabel("Project or source file",{exact:true}).fill(".");await dialog.getByRole("button",{name:"Discover runner cases",exact:true}).click();await dialog.getByText(/discovered · coverage_ui_case/).waitFor({timeout:45000});value=await dialog.innerText();break;
+        }
+        case "coverage-import": {
+          const dialog=page.getByRole("dialog",{name:"Tests and code coverage",exact:true});await dialog.locator("summary").filter({hasText:"Import a standard report"}).click();await dialog.getByLabel("Report contents",{exact:true}).fill(request.report);await dialog.getByLabel("Original identity JSON (optional)",{exact:true}).fill(JSON.stringify(request.identity));await dialog.getByRole("button",{name:"Import report",exact:true}).click();await dialog.getByText("1 / 1 executable lines covered",{exact:false}).waitFor();value=await dialog.innerText();break;
+        }
+        case "coverage-source": {
+          const dialog=page.getByRole("dialog",{name:"Tests and code coverage",exact:true});await dialog.getByRole("button",{name:request.path,exact:true}).click();if(request.stale)await dialog.getByRole("alert").filter({hasText:"Source changed"}).waitFor();else await dialog.waitFor({state:"detached"});break;
+        }
         case "source-tests-open": await menu("Edit","Source tests");await page.getByRole("dialog",{name:"Source tests",exact:true}).waitFor();break;
         case "source-tests-read": {
           const panel=page.getByRole("dialog",{name:"Source tests",exact:true});await panel.getByRole("button",{name:"Refresh candidates",exact:true}).click();

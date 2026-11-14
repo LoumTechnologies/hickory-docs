@@ -122,6 +122,12 @@ Menus and action search need one vocabulary and one availability decision. The s
     "requires": "always"
   },
   {
+    "id": "workspace.coverage",
+    "label": "Tests and coverage",
+    "group": "Edit",
+    "requires": "always"
+  },
+  {
     "id": "workspace.tests",
     "label": "Source tests",
     "group": "Edit",

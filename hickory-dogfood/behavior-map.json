@@ -69184,6 +69184,61 @@
       "fragments": [
         "native-coverage-local-page"
       ]
+    },
+    "apps/web/src/simple/SimpleCoverageView.tsx": {
+      "source": ".hickory-source/frontends/coverage-view-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "9190519e94f886d9428d407a7d77ca2c6beee78c5699987ecf231f9cf1408587",
+      "construction": "fragments",
+      "fragments": [
+        "simple-coverage-browser"
+      ]
+    },
+    "apps/apple-simple/Sources/CoverageView.swift": {
+      "source": ".hickory-source/frontends/coverage-view-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "7bdc72ee66c0fd99a2ece2ab3eb11940c98128becb040f485c6cc245ba1c86aa",
+      "construction": "fragments",
+      "fragments": [
+        "simple-coverage-apple"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/CoverageView.kt": {
+      "source": ".hickory-source/frontends/coverage-view-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "c3d96530472b14fc2bef8fa2323cb32882706f66280dc2b64a078344aaf0f33c",
+      "construction": "fragments",
+      "fragments": [
+        "simple-coverage-android"
+      ]
+    },
+    "apps/apple-simple/Tests/CoverageViewTests.swift": {
+      "source": ".hickory-source/frontends/coverage-view-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "13df448cab298164d1afb6e291c086636cadcbe110d6d7aab67130c325721edc",
+      "construction": "fragments",
+      "fragments": [
+        "simple-coverage-webkit-witness"
+      ]
+    },
+    "scripts/test-coverage-browser.py": {
+      "source": ".hickory-source/frontends/coverage-browser-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "bc58f3885bf4ac0672d8890bb4dc5052d54eab18bcdbbd123f43c9e77e4253c7",
+      "construction": "fragments",
+      "fragments": [
+        "simple-coverage-browser-witness"
+      ]
     }
   },
   "evidence_records": [

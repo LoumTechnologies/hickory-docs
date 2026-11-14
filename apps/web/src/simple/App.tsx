@@ -1,4 +1,6 @@
 import { SourceTestGutterProvider, SOURCE_TEST_INSPECTION, type SourceTestInspection } from "./SourceTestGutters";
+import {SimpleCoverageView} from "./SimpleCoverageView";
+import type {CoverageSourceNavigation} from "../coverage/CoverageSurface";
 import { TestSourcesView } from "./TestSourcesView";
 import type { TestSourcePoint } from "../api/testSources";
 import { workspaceCommands, type CommandContext } from "./WorkspaceCommands";
@@ -56,9 +58,11 @@ export function App() {
   const [workspaceFiles, setWorkspaceFiles] = useState<FileNode[]>([]);
   const [notice, setNotice] = useState("");
   const [analysis] = useState(() => new WorkspaceAnalysisModel());
+  const [showCoverage,setShowCoverage]=useState(false);
   const [showTests,setShowTests]=useState(false);
   const [testInspection,setTestInspection]=useState<SourceTestInspection|null>(null);
   const [workspaceRoot,setWorkspaceRoot]=useState("");
+  const workspaceIdentity=useRef(workspaceRoot);workspaceIdentity.current=workspaceRoot;
   const [showEverywhere, setShowEverywhere] = useState(false);
   const [showProblems, setShowProblems] = useState(false);
   const [showWorkspaceSearch, setShowWorkspaceSearch] = useState(false);
@@ -253,7 +257,7 @@ export function App() {
     "file.save":()=>{void saveCurrent();},"file.saveAs":()=>{void saveAs();},"file.saveAll":()=>{void saveAll();},"file.refresh":()=>{void loadFiles();},"file.close":()=>{if(active)close(active);},
     "shell.search":()=>setShowEverywhere(true),"edit.find":()=>{if(buffer)openFind(buffer);},"workspace.find":()=>setShowWorkspaceSearch(true),
     "symbol.rename":()=>requestWorkspaceChange("rename"),"symbol.actions":()=>requestWorkspaceChange("actions"),"document.format":()=>requestWorkspaceChange("format"),"workspace.undo":()=>requestWorkspaceChange("undo"),"workspace.redo":()=>requestWorkspaceChange("redo"),
-    "workspace.tests":()=>setShowTests(true),"workspace.problems":()=>setShowProblems(true),"workspace.analysis":requestWorkspaceAnalysis,"problem.next":()=>requestProblemNavigation(1),"problem.previous":()=>requestProblemNavigation(-1),"navigation.back":()=>navigateHistory(-1),"navigation.forward":()=>navigateHistory(1),
+    "workspace.coverage":()=>setShowCoverage(true),"workspace.tests":()=>setShowTests(true),"workspace.problems":()=>setShowProblems(true),"workspace.analysis":requestWorkspaceAnalysis,"problem.next":()=>requestProblemNavigation(1),"problem.previous":()=>requestProblemNavigation(-1),"navigation.back":()=>navigateHistory(-1),"navigation.forward":()=>navigateHistory(1),
     "view.files":()=>openTab("files"),"view.agent":()=>openTab("agent"),"view.terminal":()=>{void openTerminal();},"view.splitRight":()=>divide("horizontal"),"view.splitBelow":()=>divide("vertical"),"view.move":nextGroup,
   };
   for(const query of semanticQueries)handlers[`semantic.${query.kind}`]=()=>{if(buffer){const text=query.kind==="symbols"?window.prompt("Search workspace symbols",""):"";if(text!==null)openSemanticQuery(buffer,query.kind,text);}};
@@ -282,6 +286,15 @@ export function App() {
         if (next !== layout) { setLayout(next); setFocused(id); }
       }}
       resize={(id, ratio) => setLayout(current => update(current, id, node => isGroup(node) ? node : { ...node, ratio }))} /></div>
+    <SimpleCoverageView key={workspaceRoot} visible={showCoverage} workspace={workspaceRoot} path={buffer?.file.path??null} language={buffer?.file.language??"unsupported"} close={()=>{setShowCoverage(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} navigate={async(location:CoverageSourceNavigation)=>{
+      const before=workspaceIdentity.current,file=buffers.values.get(location.path)?.file??findPath(location.path);if(!file)throw new Error("Source no longer listed. Refresh the workspace.");
+      const target=await buffers.open(file),source=target.text;
+      if(before!==workspaceIdentity.current)throw new Error("Workspace changed. Reopen coverage.");
+      if(location.line===null){await openFileVisit(file);setShowCoverage(false);return;}
+      const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(source)),hash=[...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,"0")).join("");
+      if(before!==workspaceIdentity.current||target.text!==source||hash!==location.sourceHash||location.line<1||location.line>source.split("\n").length)throw new Error("Source changed or report position is unavailable. Refresh coverage before navigating.");
+      openLocation(location.path,location.line,0,true,source);setShowCoverage(false);
+    }}/>
     <TestSourcesView inspection={testInspection} buffers={buffers} visible={showTests} close={()=>{setShowTests(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} current={entry=>buffer?{workspace:workspaceRoot,request:{path:buffer.file.path,source:buffer.text,...(entry?{project_entry:entry}:{}),sources:Object.fromEntries([...buffers.values].filter(([,item])=>!item.readonly).map(([path,item])=>[path,item.text]))}}:null} navigate={async(point:TestSourcePoint)=>{
       const file=buffers.values.get(point.path)?.file??findPath(point.path);if(!file)throw new Error("Source no longer listed. Refresh files and candidates.");
       const target=await buffers.open(file),source=target.text;
