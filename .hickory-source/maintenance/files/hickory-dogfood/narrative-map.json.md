@@ -152208,6 +152208,69 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/coverage-surface.md",
       "symbol": "coverage-surface-lifecycle-witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "coverage-projection-browser",
+      "output": "apps/web/src/coverage/CoverageProjection.ts",
+      "page": ".hickory-source/mechanisms/coverage-line-projection.md",
+      "symbol": "coverage-projection-browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "coverage-projection-browser-witness",
+      "output": "apps/web/src/coverage/CoverageProjection.test.ts",
+      "page": ".hickory-source/mechanisms/coverage-line-projection.md",
+      "symbol": "coverage-projection-browser-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "coverage-projection-apple",
+      "output": "apps/apple-simple/Sources/CoverageProjection.swift",
+      "page": ".hickory-source/mechanisms/coverage-line-projection.md",
+      "symbol": "coverage-projection-apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "coverage-projection-apple-witness",
+      "output": "apps/apple-simple/Tests/CoverageProjectionTests.swift",
+      "page": ".hickory-source/mechanisms/coverage-line-projection.md",
+      "symbol": "coverage-projection-apple-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "coverage-projection-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/CoverageProjection.kt",
+      "page": ".hickory-source/mechanisms/coverage-line-projection.md",
+      "symbol": "coverage-projection-android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "coverage-projection-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/CoverageProjectionTest.kt",
+      "page": ".hickory-source/mechanisms/coverage-line-projection.md",
+      "symbol": "coverage-projection-android-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-bundled-capability-resource",
+      "output": "apps/apple-simple/Sources/SimpleResource.swift",
+      "page": ".hickory-source/mechanisms/coverage-line-projection.md",
+      "symbol": "simple-bundled-capability-resource",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "coverage-projection-shared-fixture",
+      "output": "apps/simple-contract/coverage-projections.json",
+      "page": ".hickory-source/mechanisms/coverage-line-projection.md",
+      "symbol": "coverage-projection-shared-fixture",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "coverage-projection-shared-fixture",
+      "output": "apps/apple-simple/Sources/Resources/coverage-projections.json",
+      "page": ".hickory-source/mechanisms/coverage-line-projection.md",
+      "symbol": "coverage-projection-shared-fixture",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

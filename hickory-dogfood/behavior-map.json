@@ -69030,6 +69030,105 @@
       "fragments": [
         "coverage-surface-lifecycle-witness"
       ]
+    },
+    "apps/web/src/coverage/CoverageProjection.ts": {
+      "source": ".hickory-source/mechanisms/coverage-line-projection.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "cc79674dcdb278a03020e445eb95e8a343da657ebfcb7ab1a6822d6fa1dd3b62",
+      "construction": "fragments",
+      "fragments": [
+        "coverage-projection-browser"
+      ]
+    },
+    "apps/web/src/coverage/CoverageProjection.test.ts": {
+      "source": ".hickory-source/mechanisms/coverage-line-projection.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "435a0307bb36d8bc16815d1e8af7021170120fbbb98ac6f1975711c67a5d4beb",
+      "construction": "fragments",
+      "fragments": [
+        "coverage-projection-browser-witness"
+      ]
+    },
+    "apps/apple-simple/Sources/CoverageProjection.swift": {
+      "source": ".hickory-source/mechanisms/coverage-line-projection.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "2d7adbc15390576a11e639c8afcab9f4a78f5578e753d8c8572e260e4bd4448b",
+      "construction": "fragments",
+      "fragments": [
+        "coverage-projection-apple"
+      ]
+    },
+    "apps/apple-simple/Tests/CoverageProjectionTests.swift": {
+      "source": ".hickory-source/mechanisms/coverage-line-projection.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "45d8ddee4bcce06cf65d4e06efe221475f15b497a32eb168a032682f0245f56e",
+      "construction": "fragments",
+      "fragments": [
+        "coverage-projection-apple-witness"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/CoverageProjection.kt": {
+      "source": ".hickory-source/mechanisms/coverage-line-projection.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "6a667cfd1e26c67e13e56f50cbd305f4063fa6f2bbe84b70234b1d7765d966f3",
+      "construction": "fragments",
+      "fragments": [
+        "coverage-projection-android"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/CoverageProjectionTest.kt": {
+      "source": ".hickory-source/mechanisms/coverage-line-projection.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "e433abd1c36da455bbe61fb22e1d2395ffec74d3ab23a6843af40c108d92ac49",
+      "construction": "fragments",
+      "fragments": [
+        "coverage-projection-android-witness"
+      ]
+    },
+    "apps/apple-simple/Sources/SimpleResource.swift": {
+      "source": ".hickory-source/mechanisms/coverage-line-projection.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "fd26693c9db55707e9c7e5ec0fa4142811ee81dc18552b6320f11b9c393485ee",
+      "construction": "fragments",
+      "fragments": [
+        "simple-bundled-capability-resource"
+      ]
+    },
+    "apps/simple-contract/coverage-projections.json": {
+      "source": ".hickory-source/mechanisms/coverage-line-projection.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "72203d02e2e8e5d1f4f9b5b2b81f4ee654040a840b74b5a94592d77d33cb0d6d",
+      "construction": "fragments",
+      "fragments": [
+        "coverage-projection-shared-fixture"
+      ]
+    },
+    "apps/apple-simple/Sources/Resources/coverage-projections.json": {
+      "source": ".hickory-source/mechanisms/coverage-line-projection.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "72203d02e2e8e5d1f4f9b5b2b81f4ee654040a840b74b5a94592d77d33cb0d6d",
+      "construction": "fragments",
+      "fragments": [
+        "coverage-projection-shared-fixture"
+      ]
     }
   },
   "evidence_records": [

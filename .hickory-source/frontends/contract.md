@@ -413,4 +413,10 @@ Request tickets retire superseded/closed operation replies and deduplicate pendi
 
 Verification: eight focused adapter/model/view checks and TypeScript checking pass. The view checks control this product's own adapter to prove reply ordering, closed-view refusal, history coalescing, result replacement and retained reporting after a host navigation rejection; they do not certify an external collector. Reconstruction/audit pass. Simple-host integration and native shared-surface acceptance remain separate work.
 
+## Source-owned coverage projections
+
+A shared projection contract now has TypeScript, Swift and Kotlin representations. Runtime locations remain distinct from compiler-reported authored locations; every marked owner needs its own captured SHA-256 hash. Mixed hit/miss observations stay mixed. A count is available only when every contributor supplies an exact shared-range quantity; otherwise it is null. Changed or missing execution-source observations, unbound owners and invalid mapped positions provide no editor mark. Hosts still need to bind these projections to current buffer bytes before rendering.
+
+Verification: all three implementations pass the same five fixture cases, including the fixture loaded from actual native resource bundles. TypeScript checking, native compilation and reconstruction/audit pass. These witnesses validate projection semantics; editor binding and shared native coverage-surface acceptance remain separate work.
+
 </ui:doc>
