@@ -431,4 +431,12 @@ The shared Edit menu exposes Tests and coverage on browser, macOS, iOS and Andro
 
 Verification: a real browser/engine witness discovers a Cargo test whose body must not execute, imports an explicitly identified LCOV fixture, navigates precisely, refuses after an unsaved edit, and retains editor geometry/identity and draft bytes with unchanged disk. A focused actual WebKit witness loads the bundled renderer and rejects obsolete-workspace messages while preserving draft selection and bytes. TypeScript checking, Android compilation, iOS simulator build and reconstruction/audit pass. The import witness does not establish an automatic collector execution, and native pointer/IME acceptance remains unverified. Coverage line-mark binding and richer test debugging remain subsequent work.
 
+## Source-bound coverage in existing gutter columns
+
+Selected coverage records now attach to source lines in every simple UI through the existing right gutter. Covered, uncovered and mixed measurements have distinct glyphs and accessible state descriptions; missing quantities stay unavailable. A background digest must match the captured owner hash before a mark appears. An edit removes that authority synchronously, even while hashing is pending. Multiple actions on one browser line share one anchored group, and native collision calculations include coverage rows. Opening the retained report uses the same floating surface and adds no editor column or toolbar.
+
+These are per-owner observations from a captured run, not current-project verification or proof that execution inputs were frozen. Native selection replies carry a latest-selection ticket, and workspace replacement stops old digest services. Failed hashes leave unknown evidence without hiding readable text.
+
+Verification: native service witnesses bind mixed generated consequences to an authored line, reject normalization-only edits immediately, restore marks only for matching bytes and clear them on deselection. Shared projection/digest checks pass, along with the existing browser rail checks. The real browser witness checks two adjacent marked lines, shared test/coverage actions, unchanged icon coordinates while the overflow opens, report access from the gutter, immediate draft retirement and retained editor/disk state. The existing real source-test flow also passes. Native model checks and builds do not establish device pointer/IME acceptance.
+
 </ui:doc>

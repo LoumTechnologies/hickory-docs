@@ -702,7 +702,7 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
     // so that frame uses the cache instead of briefly showing uncolored text.
     val semantic = service?.let { rebaseNativeTokens(it.tokens, it.tokenSource, source) }.orEmpty()
     val inline = buffer.inlineMarkup
-    LaunchedEffect(buffer,source) {buffer.readTestSources()}
+    LaunchedEffect(buffer,source) {buffer.readTestSources();buffer.readCoverageSource()}
     LaunchedEffect(buffer, source) {
         val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { computeInlineMarkup(source, buffer.file.path) }
         if (buffer.text == source) buffer.inlineMarkup = result
@@ -1108,6 +1108,7 @@ fun debugLineOffset(source: String, line: Int): Int? {
     val diagrams = if (!buffer.tableSourceVisible) tablePresentation(buffer.inlineMarkup, source).diagrams.filter { it.from != buffer.sourceTable } else emptyList()
     val replacements = editorReplacements(folds, tables, source, diagrams, if (buffer.inlineMarkup.source == source) buffer.inlineMarkup.equations else emptyList(), (buffer.recordedOutputPlacements() + debug?.outputPlacements(buffer).orEmpty()), fontScale = LocalDensity.current.fontScale)
     val display = editorDisplay(source, replacements)
+    val coverageLines=buffer.coverageRows().associateBy {it.line}
     val testLines=buffer.sourceTestRows().map {it.first}.toSet()
     val paused = if (debug.sourceMatches(buffer)) debug.line(buffer.file.path) else null
     Box(Modifier.width(4.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant).pointerInput(buffer) {
@@ -1128,6 +1129,7 @@ fun debugLineOffset(source: String, line: Int): Int? {
                 if (top < 0 || top > height) continue
                 val held = debug.breakpoints[buffer.file.path]?.firstOrNull { it.optInt("line", -1) == line }
                 val actions = mutableListOf<Triple<String, String, () -> Unit>>()
+                coverageLines[line]?.let {row->actions.add(Triple(if(row.state=="covered")"●" else if(row.state=="uncovered")"○" else "◐","Coverage ${row.state} · ${row.count?.let {"count $it"} ?: "count unavailable"} · ${row.origins.size} measured location(s)",{buffer.inspectCoverage?.invoke(line)}))}
                 if(line in testLines)actions.add(Triple("▷","Inspect source tests",{buffer.inspectTests?.invoke(line)}))
                 if (buffer.inlineMarkup.source == source && buffer.inlineMarkup.debug.launch[line] != null) actions.add(Triple("▷", "Debug", { scope.launch { debug.prepare(buffer, line); opened = if (debug.active) null else line } }))
                 if (buffer.inlineMarkup.source == source && buffer.inlineMarkup.equations.any { it.line == line }) actions.add(Triple("ƒ", "Edit equation", { opened = line }))
@@ -1142,7 +1144,7 @@ fun debugLineOffset(source: String, line: Int): Int? {
                 val next = (visual + 1..last).firstOrNull { nextVisual ->
                     val nextOffset = editorSourceOffset(layout.getLineStart(nextVisual), replacements)
                     val nextLine = starts?.let { inlineLineAt(nextOffset, it) } ?: source.take(nextOffset).count { it == '\n' }
-                    nextLine in testLines || buffer.inlineMarkup.debug.launch[nextLine] != null || nextLine == paused || buffer.inlineMarkup.equations.any { it.line == nextLine } || buffer.receiptsOn(nextLine).isNotEmpty()
+                    nextLine in coverageLines || nextLine in testLines || buffer.inlineMarkup.debug.launch[nextLine] != null || nextLine == paused || buffer.inlineMarkup.equations.any { it.line == nextLine } || buffer.receiptsOn(nextLine).isNotEmpty()
                 }
                 val room = if (next != null) layout.getLineTop(next) - layout.getLineTop(visual) else height - top
                 val capacity = maxOf(1, (room / with(density) { 20.dp.toPx() }).toInt()) * columns

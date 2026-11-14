@@ -69313,6 +69313,39 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "source-digests-android-witness"
       ]
+    },
+    "apps/web/src/simple/SourceCoverage.tsx": {
+      "source": ".hickory-source/frontends/source-coverage-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "2863feeee1a9b0fc19f6fcd5cc14f20cffa8bb2ef1748de8b7b8651b2d6d78b8",
+      "construction": "fragments",
+      "fragments": [
+        "simple-source-coverage-browser"
+      ]
+    },
+    "apps/apple-simple/Tests/CoverageBindingTests.swift": {
+      "source": ".hickory-source/frontends/coverage-view-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "490817fd450be37269005e5eb6a10f9d8ea45bfe88c7f02dc12677fab2ec15b7",
+      "construction": "fragments",
+      "fragments": [
+        "coverage-source-binding-apple-witness"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/CoverageBindingTest.kt": {
+      "source": ".hickory-source/frontends/coverage-view-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "2d5a49ecf30a55b2216e1a35e9d760185cd0e7737c931fc01ad9ad5a6a07ad93",
+      "construction": "fragments",
+      "fragments": [
+        "coverage-source-binding-android-witness"
+      ]
     }
   },
   "evidence_records": [

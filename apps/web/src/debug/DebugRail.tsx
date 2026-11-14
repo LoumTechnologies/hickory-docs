@@ -75,7 +75,7 @@ Optional source-line actions use the same anchored menu as a launch on that line
 // A single anchored overflow button opens the floating grid, so folding controls
 // cannot push the next line's icon down or change the editor's width.
 export function DebugLaunchRail({ view, onStart, onProfiles, plainPath, enabled = true, actions = [] }: {
-  view: EditorView | null; onStart?: (path: string, at?: number) => void; onProfiles?: (path: string, at?: number) => void; plainPath?: string; enabled?: boolean; actions?: { at: number; label: string; run: () => void }[];
+  view: EditorView | null; onStart?: (path: string, at?: number) => void; onProfiles?: (path: string, at?: number) => void; plainPath?: string; enabled?: boolean; actions?: { at: number; label: string; run: () => void;glyph?:string;tone?:string }[];
 }) {
   const targets: { path: string; at: number; end: number }[] = [];
   if (view && onStart && enabled) {
@@ -108,17 +108,18 @@ export function DebugLaunchRail({ view, onStart, onProfiles, plainPath, enabled 
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, [view, plainPath]);
+  const lineActions=new Map<number,typeof actions>();for(const action of actions){const rows=lineActions.get(action.at)??[];rows.push(action);lineActions.set(action.at,rows);}
   return <div className="cm-debug-rail" aria-label="Script debugging">
     {controls.error && <p role="alert">{controls.error}</p>}
-    {view && actions.map(action => {
-      const launch = targets.find(target => target.at === action.at);
-      return <DebugRailGroup key={`fold:${action.at}`} view={view} at={action.at}>
-        <details className="more-actions"><summary aria-label={`Line actions on line ${view.state.doc.lineAt(action.at).number}`} style={{ height: view.defaultLineHeight }}>⋯</summary>
+    {view && [...lineActions].map(([at,items]) => {
+      const launch = targets.find(target => target.at === at),single=items.length===1?items[0]:null;
+      return <DebugRailGroup key={`fold:${at}`} view={view} at={at}>
+        {single?.glyph&&!launch?<button type="button" className="debug-icon" title={single.label} aria-label={single.label} style={{color:single.tone}} onClick={single.run}>{single.glyph}</button>:<details className="more-actions"><summary aria-label={`Line actions on line ${view.state.doc.lineAt(at).number}`} style={{ height: view.defaultLineHeight }}>⋯</summary>
           <div className="more-actions__items">
-            <button type="button" onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");action.run();}}>{action.label}</button>
+            {items.map((action,index)=><button key={index} type="button" title={action.glyph?action.label:undefined} style={{color:action.tone}} onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");action.run();}}>{action.glyph} {action.label}</button>)}
             {launch && <button type="button" onClick={() => start(launch)}>Debug {launch.path}</button>}
           </div>
-        </details>
+        </details>}
       </DebugRailGroup>;
     })}
     {view && targets.filter(target => !actions.some(action => action.at === target.at)).map(target => <DebugRailGroup key={`${target.path}:${target.at}`} view={view} at={target.at}>

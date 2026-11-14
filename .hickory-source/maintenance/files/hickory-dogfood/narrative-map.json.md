@@ -152383,6 +152383,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/source-digests.md",
       "symbol": "source-digests-android-witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-source-coverage-browser",
+      "output": "apps/web/src/simple/SourceCoverage.tsx",
+      "page": ".hickory-source/frontends/source-coverage-browser.md",
+      "symbol": "simple-source-coverage-browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "coverage-source-binding-apple-witness",
+      "output": "apps/apple-simple/Tests/CoverageBindingTests.swift",
+      "page": ".hickory-source/frontends/coverage-view-apple.md",
+      "symbol": "coverage-source-binding-apple-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "coverage-source-binding-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/CoverageBindingTest.kt",
+      "page": ".hickory-source/frontends/coverage-view-android.md",
+      "symbol": "coverage-source-binding-android-witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

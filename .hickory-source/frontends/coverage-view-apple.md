@@ -5,6 +5,8 @@ For maintainers changing workspace services independently of the editor renderer
 
 The existing menu opens a floating, replaceable tool surface. The editor remains mounted and retains its own selection, scroll and undo state. A native local-only web renderer delegates only fixed coverage operations to the connected engine; workspace replacement retires its replies. Source navigation opens unbound files without positional claims, and accepts a reported line only after matching its captured hash against available text. Selecting a report retains its record identity; source-line mark binding is a separate capability.
 
+Selected records are read back by identity through the engine. A latest-selection ticket rejects obsolete replies, projection preserves mixed consequences and missing quantities, and the independent digest service binds only matching available text. Source edits retire marks synchronously at lookup; background hashing cannot rewrite the buffer. Both gutter and menu borrow this retained state.
+
 <ui:copy id="simple-coverage-apple">
 import SwiftUI
 import WebKit
@@ -12,6 +14,29 @@ import Observation
 @MainActor @Observable final class SimpleCoverageState {
     let identity=UUID().uuidString
     var selected:String?;var notice=""
+    let digests=SourceDigests()
+    private var record:CoverageProjectionRecord?
+    private var projected:[String:[CoverageProjectedLine]]=[:]
+    private var ticket=UUID()
+    func stop(){ticket=UUID();digests.stop();record=nil;projected=[:]}
+    func select(_ id:String?,workspace:Workspace){
+        ticket=UUID();let read=ticket;selected=id;record=nil;projected=[:];notice=""
+        guard let id,let engine=workspace.engine else{return}
+        Task {do {let value:CoverageProjectionRecord=try await engine.request("POST","/api/tests/coverage",body:["action":"get","id":id])
+            let rows=await Task.detached {coverageProjection(value)}.value
+            guard workspace.coverage === self,ticket==read,value.id==id else{return};record=value;projected=rows
+            for buffer in workspace.buffers.values {observe(buffer)}
+        }catch{if workspace.coverage === self,ticket==read {notice=error.localizedDescription}}}
+    }
+    func observe(_ buffer:DocumentBuffer){guard projected[buffer.file.path] != nil else{return};digests.enqueue(buffer.file.path,source:buffer.text,current:{[weak buffer] in buffer?.text})}
+    func rows(_ buffer:DocumentBuffer)->[CoverageProjectedLine]{
+        guard let expected=record?.identity.source_hashes[buffer.file.path],digests.current(buffer.file.path,source:buffer.text)==expected.lowercased() else{return []}
+        return projected[buffer.file.path] ?? []
+    }
+}
+extension DocumentBuffer {
+    func coverageRows()->[CoverageProjectedLine]{coverageSource?.rows(self) ?? []}
+    func readCoverageSource(){coverageSource?.observe(self)}
 }
 @MainActor extension Workspace {
     func navigateCoverage(_ value:[String:Any],state:SimpleCoverageState) async throws {
@@ -42,7 +67,7 @@ import Observation
         if kind=="ready" {ready=true;display();return}
         guard event["workspace"] as? String==state.identity else{return}
         if kind=="close" {workspace.showCoverage=false;workspace.currentBuffer?.focusSource?();return}
-        if kind=="select" {state.selected=event["id"] as? String;return}
+        if kind=="select" {state.select(event["id"] as? String,workspace:workspace);return}
         guard let id=event["id"] as? Int,id>0,!active.contains(id),active.count<64 else{return};active.insert(id)
         Task {[weak self] in guard let self else{return};defer{active.remove(id)}
             do {guard current else{return}
@@ -127,4 +152,33 @@ import AppKit
 </ui:copy>
 
 <ui:file path="apps/apple-simple/Tests/CoverageViewTests.swift"><ui:paste select="#simple-coverage-webkit-witness"/></ui:file>
+## Bind captured measurements to available text
+
+This native service witness reads a measured-record fixture through the real engine client, binds two mixed generated consequences to their authored owner, and checks that a normalization-only edit immediately removes the mark. A digest of the changed source cannot revive it; restoring exact bytes can. Clearing the selection also retires the observation. It validates binding and revision safety, not a collector execution or device pointer interaction.
+
+<ui:copy id="coverage-source-binding-apple-witness">
+import XCTest
+@testable import HickorySimple
+@MainActor final class CoverageBindingTests:XCTestCase {
+    func testMixedOwnerMarksRetireImmediatelyAfterExactByteEdit() async throws {
+        let source="// é\nvalue\n",path="owner.swift",hash=nativeSourceHash(source)
+        let record:[String:Any]=["id":"measured","source_changed_during_run":false,"identity":["source_hashes":[path:hash,"generated.swift":String(repeating:"a",count:64)]],"evidence":["report":["files":["generated.swift":["line_counts":false,"lines":["1":1,"2":0]]]]],"mappings":["generated.swift":["1":["path":path,"line":2],"2":["path":path,"line":2]]]]
+        let configuration=URLSessionConfiguration.ephemeral;configuration.protocolClasses=[ResponseProtocol.self]
+        ResponseProtocol.status=200;ResponseProtocol.responsesByPath=[:];ResponseProtocol.beforeResponse=nil;ResponseProtocol.response=try JSONSerialization.data(withJSONObject:record)
+        let session=URLSession(configuration:configuration);defer{session.invalidateAndCancel()}
+        let workspace=Workspace();workspace.engine=try Engine(address:"http://coverage.test",session:session)
+        let buffer=DocumentBuffer(file:FileNode(name:path,path:path,dir:false),text:FileText(path:path,content:source,hash:hash));buffer.coverageSource=workspace.coverage;workspace.buffers[path]=buffer
+        let state=workspace.coverage;defer{state.stop()};state.select("measured",workspace:workspace)
+        func wait(_ condition:()->Bool)async {let end=Date().addingTimeInterval(2);while !condition()&&Date()<end{try? await Task.sleep(for:.milliseconds(2))}}
+        await wait{!buffer.coverageRows().isEmpty};let row=try XCTUnwrap(buffer.coverageRows().first)
+        XCTAssertEqual(row.line,1);XCTAssertEqual(row.state,"mixed");XCTAssertNil(row.count);XCTAssertEqual(row.origins.count,2)
+        buffer.text="// e\u{301}\nvalue\n";XCTAssertTrue(buffer.dirty);XCTAssertTrue(buffer.coverageRows().isEmpty)
+        buffer.readCoverageSource();await wait{state.digests.current(path,source:buffer.text) != nil};XCTAssertTrue(buffer.coverageRows().isEmpty)
+        buffer.text=source;buffer.readCoverageSource();await wait{!buffer.coverageRows().isEmpty};XCTAssertEqual(buffer.coverageRows().first?.state,"mixed")
+        state.select(nil,workspace:workspace);XCTAssertTrue(buffer.coverageRows().isEmpty)
+    }
+}
+</ui:copy>
+
+<ui:file path="apps/apple-simple/Tests/CoverageBindingTests.swift"><ui:paste select="#coverage-source-binding-apple-witness"/></ui:file>
 </ui:doc>

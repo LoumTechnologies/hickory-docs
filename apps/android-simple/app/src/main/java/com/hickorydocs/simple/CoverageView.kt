@@ -6,7 +6,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.*
 import org.json.JSONObject
-class SimpleCoverageState {val identity=java.util.UUID.randomUUID().toString();var selected by mutableStateOf<String?>(null);var notice by mutableStateOf("")}
+class SimpleCoverageState {
+ val identity=java.util.UUID.randomUUID().toString();var selected by mutableStateOf<String?>(null);var notice by mutableStateOf("")
+ private var record by mutableStateOf<JSONObject?>(null);private var projected by mutableStateOf<Map<String,List<CoverageProjectedLine>>>(emptyMap());private var ticket=java.util.UUID.randomUUID()
+ var digests:SourceDigests?=null
+ fun stop(){ticket=java.util.UUID.randomUUID();digests?.stop();record=null;projected=emptyMap()}
+ fun select(id:String?,workspace:Workspace){
+  ticket=java.util.UUID.randomUUID();val read=ticket;selected=id;record=null;projected=emptyMap();notice=""
+  if(id==null)return;val engine=workspace.engine ?: return
+  workspace.runCommand {try{val reply=engine.request("POST","/api/tests/coverage",JSONObject().put("action","get").put("id",id));val value=reply
+   val rows=withContext(Dispatchers.Default){coverageProjection(value)}
+   if(workspace.coverage!==this@SimpleCoverageState||ticket!=read||value.optString("id")!=id)return@runCommand
+   record=value;projected=rows;workspace.buffers.values.forEach{observe(it)}
+  }catch(cancelled:CancellationException){throw cancelled}catch(error:Exception){if(workspace.coverage===this@SimpleCoverageState&&ticket==read)notice=error.message.orEmpty()}}
+ }
+ fun observe(buffer:DocumentBuffer){if(buffer.file.path !in projected)return;digests?.enqueue(buffer.file.path,buffer.text){buffer.text}}
+ fun rows(buffer:DocumentBuffer):List<CoverageProjectedLine>{val expected=record?.optJSONObject("identity")?.optJSONObject("source_hashes")?.optString(buffer.file.path) ?: return emptyList();return if(digests?.current(buffer.file.path,buffer.text)==expected.lowercase())projected[buffer.file.path].orEmpty() else emptyList()}
+}
+fun DocumentBuffer.coverageRows()=coverageSource?.rows(this).orEmpty()
+fun DocumentBuffer.readCoverageSource(){coverageSource?.observe(this)}
 suspend fun Workspace.navigateCoverage(value:JSONObject,state:SimpleCoverageState) {
     check(coverage===state){"Workspace changed. Reopen coverage."};val path=value.getString("path")
     fun find(files:List<FileNode>):FileNode? {for(file in files){if(file.path==path)return file;find(file.children)?.let{return it}};return null}
@@ -30,7 +48,7 @@ private class CoverageWebController(val workspace:Workspace,val scope:CoroutineS
     fun receive(event:JSONObject){if(!current)return;val kind=event.optString("kind")
         if(kind=="ready"){ready=true;display();return};if(event.optString("workspace")!=state.identity)return
         if(kind=="close"){workspace.showCoverage=false;workspace.currentBuffer?.focusSource?.invoke();return}
-        if(kind=="select"){state.selected=if(event.isNull("id")) null else event.getString("id");return}
+        if(kind=="select"){state.select(if(event.isNull("id")) null else event.getString("id"),workspace);return}
         val id=event.optInt("id");if(id<=0||active.contains(id)||active.size>=64)return;active.add(id)
         scope.launch{try{if(!current)return@launch
             if(kind=="api"){val body=event.getJSONObject("body");check(body.optString("action") in listOf("list","get","locations","inspect","discover","run","rerun-failed","manual-start","browser-checkpoint","checkpoint","stop","import","compare","annotate")){"Unsupported coverage request. Reopen the tool."}

@@ -2071,7 +2071,7 @@ struct LanguageEditor: View {
                     .accessibilityLabel("Resize right gutter").accessibilityAdjustableAction { direction in railWidth = min(220, max(24, railWidth + (direction == .increment ? 22 : -22))) }
                 NativeDebugRail(buffer: buffer, debug: debugger).frame(width: railWidth)
             }
-        }.onChange(of:buffer.sourceRevision,initial:true){_,_ in buffer.readTestSources()}
+        }.onChange(of:buffer.sourceRevision,initial:true){_,_ in buffer.readTestSources();buffer.readCoverageSource()}
         .onChange(of: debugger?.output ?? [], initial: true) { _, _ in
             buffer.runOutputSource = buffer.text
             buffer.runOutputs = debugger?.outputPlacements(buffer) ?? [:]
@@ -2193,8 +2193,9 @@ struct NativeDebugRail: View {
             + buffer.inlineMarkup.equations.filter { $0.line == line }.map(\.id)
             + inlineTables(buffer.inlineMarkup).filter { table in buffer.inlineMarkup.lineStarts.lastIndex(where: { $0 <= table.range.location }) == line }.map(\.id)
     }
-    private func actions(_ line: Int,testLines:Set<Int>) -> [String] {
+    private func actions(_ line: Int,testLines:Set<Int>,coverageLines:[Int:CoverageProjectedLine]) -> [String] {
         var result: [String] = []
+        if let row=coverageLines[line]{result.append("coverage:"+row.state)}
         if testLines.contains(line){result.append("tests")}
         result += embeddedAnchors(line).map { "source:\($0)" }
         if exactUTF8(buffer.inlineMarkup.source,buffer.text) && buffer.inlineMarkup.debug.launch[line] != nil { result.append("debug") }
@@ -2204,12 +2205,18 @@ struct NativeDebugRail: View {
         return result
     }
     private func symbol(_ action: String) -> String {
+        if action.hasPrefix("coverage:"){return action=="coverage:covered" ? "circle.fill":action=="coverage:uncovered" ? "circle":"circle.lefthalf.filled"}
         if action.hasPrefix("source:") { return "chevron.left.forwardslash.chevron.right" }
         switch action { case "tests":return "checklist";case "debug", "continue": return "play"; case "equation": return "function"; case "output": return "text.alignleft"; case "over": return "arrow.turn.down.right"; case "in": return "arrow.down"; case "out": return "arrow.up"; case "stop": return "stop.fill"; default: return "eye" }
+    }
+    private func actionLabel(_ action:String,line:Int)->String {
+        if action.hasPrefix("coverage:"),let row=buffer.coverageRows().first(where:{$0.line==line}) {return "Coverage \(row.state) · \(row.count.map {"count \($0)"} ?? "count unavailable") · \(row.origins.count) measured location(s)"}
+        return action == "tests" ? "Inspect source tests" : action.hasPrefix("source:") ? "Toggle source text" : action.capitalized
     }
     @ViewBuilder private func icon(_ action: String, line: Int) -> some View {
         Button {
             opened = nil
+            if action.hasPrefix("coverage:"){buffer.inspectCoverage?(line);return}
             if action.hasPrefix("source:"), let anchor = Int(action.dropFirst(7)) { buffer.sourceTable = buffer.sourceTable == anchor ? nil : anchor; return }
             switch action {
             case "tests":buffer.inspectTests?(line)
@@ -2219,16 +2226,18 @@ struct NativeDebugRail: View {
             default: details = line
             }
         } label: { Image(systemName: symbol(action)).frame(width: 20, height: 18) }
-        .buttonStyle(SimpleChromeButtonStyle()).disabled(action == "debug" && (debug.active || buffer.dirty || buffer.saving)).help(action == "tests" ? "Inspect source tests" : action.hasPrefix("source:") ? "Toggle source text" : action.capitalized).accessibilityLabel("\(action == "tests" ? "Inspect source tests" : action.hasPrefix("source:") ? "Toggle source text" : action.capitalized) on line \(line + 1)")
+        .foregroundStyle(action=="coverage:covered" ? Color.green:action=="coverage:uncovered" ? Color.red:action=="coverage:mixed" ? Color.orange:Color.primary)
+        .buttonStyle(SimpleChromeButtonStyle()).disabled(action == "debug" && (debug.active || buffer.dirty || buffer.saving)).help(actionLabel(action,line:line)).accessibilityLabel("\(actionLabel(action,line:line)) on line \(line + 1)")
     }
     var body: some View {
         GeometryReader { geometry in
+            let coverageLines=Dictionary(uniqueKeysWithValues:buffer.coverageRows().map {($0.line,$0)})
             let testLines=Set(buffer.sourceTestRows().map(\.line))
-            let rows = buffer.visibleDebugLines.filter { $0.y >= 0 && $0.y < geometry.size.height && !actions($0.line,testLines:testLines).isEmpty }
+            let rows = buffer.visibleDebugLines.filter { $0.y >= 0 && $0.y < geometry.size.height && !actions($0.line,testLines:testLines,coverageLines:coverageLines).isEmpty }
             let columns = 1
             ZStack(alignment: .topLeading) {
                 ForEach(Array(rows.enumerated()), id: \.element.line) { index, row in
-                    let items = actions(row.line,testLines:testLines)
+                    let items = actions(row.line,testLines:testLines,coverageLines:coverageLines)
                     let room = (index + 1 < rows.count ? rows[index + 1].y : geometry.size.height) - row.y
                     let capacity = max(1, Int(room / 20)) * columns
                     let visible = items.count <= capacity ? items.count : max(0, capacity - 1)

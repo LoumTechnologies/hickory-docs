@@ -4,6 +4,29 @@ import Observation
 @MainActor @Observable final class SimpleCoverageState {
     let identity=UUID().uuidString
     var selected:String?;var notice=""
+    let digests=SourceDigests()
+    private var record:CoverageProjectionRecord?
+    private var projected:[String:[CoverageProjectedLine]]=[:]
+    private var ticket=UUID()
+    func stop(){ticket=UUID();digests.stop();record=nil;projected=[:]}
+    func select(_ id:String?,workspace:Workspace){
+        ticket=UUID();let read=ticket;selected=id;record=nil;projected=[:];notice=""
+        guard let id,let engine=workspace.engine else{return}
+        Task {do {let value:CoverageProjectionRecord=try await engine.request("POST","/api/tests/coverage",body:["action":"get","id":id])
+            let rows=await Task.detached {coverageProjection(value)}.value
+            guard workspace.coverage === self,ticket==read,value.id==id else{return};record=value;projected=rows
+            for buffer in workspace.buffers.values {observe(buffer)}
+        }catch{if workspace.coverage === self,ticket==read {notice=error.localizedDescription}}}
+    }
+    func observe(_ buffer:DocumentBuffer){guard projected[buffer.file.path] != nil else{return};digests.enqueue(buffer.file.path,source:buffer.text,current:{[weak buffer] in buffer?.text})}
+    func rows(_ buffer:DocumentBuffer)->[CoverageProjectedLine]{
+        guard let expected=record?.identity.source_hashes[buffer.file.path],digests.current(buffer.file.path,source:buffer.text)==expected.lowercased() else{return []}
+        return projected[buffer.file.path] ?? []
+    }
+}
+extension DocumentBuffer {
+    func coverageRows()->[CoverageProjectedLine]{coverageSource?.rows(self) ?? []}
+    func readCoverageSource(){coverageSource?.observe(self)}
 }
 @MainActor extension Workspace {
     func navigateCoverage(_ value:[String:Any],state:SimpleCoverageState) async throws {
@@ -34,7 +57,7 @@ import Observation
         if kind=="ready" {ready=true;display();return}
         guard event["workspace"] as? String==state.identity else{return}
         if kind=="close" {workspace.showCoverage=false;workspace.currentBuffer?.focusSource?();return}
-        if kind=="select" {state.selected=event["id"] as? String;return}
+        if kind=="select" {state.select(event["id"] as? String,workspace:workspace);return}
         guard let id=event["id"] as? Int,id>0,!active.contains(id),active.count<64 else{return};active.insert(id)
         Task {[weak self] in guard let self else{return};defer{active.remove(id)}
             do {guard current else{return}

@@ -62,6 +62,8 @@ class DocumentBuffer(val file: FileNode, loaded: FileText) {
     var inlineMarkup by mutableStateOf(InlineSnapshot(""))
     var rememberNavigation: ((SemanticLocation, SemanticLocation) -> Unit)? = null
     var openSemanticLocation: ((SemanticLocation) -> Unit)? = null
+    var coverageSource:SimpleCoverageState?=null
+    var inspectCoverage:((Int)->Unit)?=null
     var testIndex:SourceTestIndex?=null
     var inspectTests:((Int)->Unit)?=null
     var language: NativeLanguage? = null
@@ -250,7 +252,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
             agent.turns = emptyList(); agent.error = ""; terminal.id = null; terminal.error = ""
             debugger?.close(); debugger = NativeDebugger(next, workspaceScope)
             debugger?.onLocation = { path, line -> workspaceScope.launch { revealDebug(path, line) } }
-            buffers.values.forEach { it.language?.close() }; languageConnection?.close();languageConnection=null; analysis.stop();analysis=WorkspaceAnalysis();showAnalysis=false;showEverywhere=false;showTests=false;showCoverage=false;coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=null;generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); buffers.clear(); loading.values.forEach {it.cancel()}; loading.clear()
+            buffers.values.forEach { it.language?.close() }; languageConnection?.close();languageConnection=null; analysis.stop();analysis=WorkspaceAnalysis();showAnalysis=false;showEverywhere=false;showTests=false;showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=null;generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); buffers.clear(); loading.values.forEach {it.cancel()}; loading.clear()
             layout = PaneLayout(); focused = "document-group"; status = root
             return true
         } catch (cancelled: CancellationException) { throw cancelled }
@@ -284,6 +286,9 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         buffer.rememberNavigation = { from, to -> navigationTrail = navigationTrail.record(from, to) }
         buffer.openSemanticLocation = { location -> workspaceScope.launch { openSemanticLocation(location) } }
         if(sourceTestIndex==null)sourceTestIndex=SourceTestIndex(workspaceScope){path,source->SourceTestScan.decode(server.request("POST","/api/tests/source-candidates",org.json.JSONObject().put("path",path).put("source",source)))}
+        if(coverage.digests==null)coverage.digests=SourceDigests(workspaceScope)
+        buffer.coverageSource=coverage
+        buffer.inspectCoverage={line->if(buffer.coverageRows().any{it.line==line})workspaceScope.launch {open(buffer.file);showCoverage=true}}
         buffer.testIndex=sourceTestIndex
         buffer.inspectTests={line->workspaceScope.launch {inspectTestSource(buffer,line)}}
         buffer.receiptEngine = server

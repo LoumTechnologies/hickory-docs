@@ -1,4 +1,5 @@
 import { SourceTestGutterProvider, SOURCE_TEST_INSPECTION, type SourceTestInspection } from "./SourceTestGutters";
+import {SourceCoverageProvider,SOURCE_COVERAGE_INSPECTION} from "./SourceCoverage";
 import {SimpleCoverageView} from "./SimpleCoverageView";
 import type {CoverageSourceNavigation} from "../coverage/CoverageSurface";
 import { TestSourcesView } from "./TestSourcesView";
@@ -178,6 +179,7 @@ export function App() {
       revealLine(file.path, location.line, location.character);
     }); } else setNotice(`Location not found: ${location.path}. Refresh files and query again.`);
   }), [workspaceFiles, layout, focused]);
+  useEffect(()=>{const inspect=(event:Event)=>{const path=(event as CustomEvent<{path:string}>).detail.path,file=buffers.values.get(path)?.file??findPath(path),identity=workspaceIdentity.current;if(!file)return;void open(file).then(()=>{if(workspaceIdentity.current===identity)setShowCoverage(true);});};window.addEventListener(SOURCE_COVERAGE_INSPECTION,inspect);return()=>window.removeEventListener(SOURCE_COVERAGE_INSPECTION,inspect);},[workspaceFiles,layout,focused]);
   useEffect(()=>{const inspect=(event:Event)=>{const request=(event as CustomEvent<SourceTestInspection>).detail;const file=buffers.values.get(request.path)?.file??findPath(request.path);if(!file)return;void open(file).then(()=>{setTestInspection(request);setShowTests(true);});};window.addEventListener(SOURCE_TEST_INSPECTION,inspect);return()=>window.removeEventListener(SOURCE_TEST_INSPECTION,inspect);},[workspaceFiles,layout,focused]);
   async function openFileVisit(file: FileNode) {
     const departed = currentLocation(); await open(file);
@@ -265,7 +267,7 @@ export function App() {
   const handlersRef=useRef(handlers);handlersRef.current=handlers;
   const commands=workspaceCommands(()=>contextRef.current,Object.fromEntries(Object.keys(handlers).map(id=>[id,()=>handlersRef.current[id]?.()])));
   const commandMenu=(group:string)=>commands.filter(command=>command.group===group&&command.id in handlers).map(command=><button key={command.id} disabled={command.reason!==null} title={command.reason??command.label} onClick={command.run}>{command.label}</button>);
-  return <SimpleLanguages buffers={buffers}><SourceTestGutterProvider workspace={workspaceRoot}><main>
+  return <SimpleLanguages buffers={buffers}><SourceTestGutterProvider workspace={workspaceRoot}><SourceCoverageProvider workspace={workspaceRoot}><main>
     {/* Shared gutter controls declare data-tip; mount their delegated reader here. */}
     <TooltipLayer />
     <PlainDebugHosts />
@@ -306,7 +308,7 @@ export function App() {
     <WorkspaceChanges buffers={buffers} current={() => buffer} focus={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />
     <WorkspaceSearch visible={showWorkspaceSearch} close={() => { setShowWorkspaceSearch(false); if (buffer) editorForBuffer(buffer)?.view.focus(); }} buffers={buffers} files={workspaceFiles} />
     <footer role="status"><WorkspaceAnalysisView buffers={buffers} files={workspaceFiles} model={analysis} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} /><WorkspaceProblems buffers={buffers} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{notice ? `${notice} · ` : ""}{buffer ? `${buffer.file.name} · ${buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
-  </main></SourceTestGutterProvider></SimpleLanguages>;
+  </main></SourceCoverageProvider></SourceTestGutterProvider></SimpleLanguages>;
 }
 function Tree({ nodes, open }: { nodes: FileNode[]; open: (file: FileNode) => void }) {
   return <ul>{nodes.map(node => <li key={node.path}>{node.dir

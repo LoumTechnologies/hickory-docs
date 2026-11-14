@@ -31,9 +31,10 @@ def main():
             driver.act("coverage-open");listing=driver.act("coverage-discover");assert "coverage_ui_case" in listing and "discovered" in listing,listing
             assert driver.act("editor-size",path=path)==size
             identity={"collector":"import-witness","version":"1","configuration":"fixture","scope":".","source_hashes":{path:hashlib.sha256(source.encode()).hexdigest()}}
-            result=driver.act("coverage-import",report=f"SF:{path}\nDA:2,1\nend_of_record\n",identity=identity);assert "1 / 1 executable lines covered" in result,result
+            result=driver.act("coverage-import",report=f"SF:{path}\nDA:1,1\nDA:2,1\nend_of_record\n",identity=identity);assert "2 / 2 executable lines covered" in result,result
             driver.act("coverage-source",path=path);fixture.eventually(lambda:driver.act("caret-offset",path=path),len("#[test]\n"));assert driver.act("editor-is-retained",path=path)
-            driver.act("append",path=path,text="// unsaved coverage draft\n");draft=driver.act("search-source",path=path)
+            fixture.eventually(lambda:driver.act("coverage-marks"),2);gutter=driver.act("coverage-gutter");assert gutter["before"]==gutter["after"],gutter;assert driver.act("editor-size",path=path)==size;driver.act("coverage-close")
+            driver.act("append",path=path,text="// unsaved coverage draft\n");fixture.eventually(lambda:driver.act("coverage-marks"),0);draft=driver.act("search-source",path=path)
             driver.act("coverage-open");driver.act("coverage-source",path=path,stale=True);assert "Source changed" in driver.act("coverage-state")
             driver.act("coverage-close");assert driver.act("search-source",path=path)==draft;assert driver.act("editor-is-retained",path=path);assert driver.act("editor-size",path=path)==size;assert (root/path).read_text()==source
             print("PASS: actual runner discovery, report import, exact/stale navigation and retained editor geometry/draft")
