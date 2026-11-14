@@ -69151,6 +69151,39 @@
       "fragments": [
         "native-exact-source-identity"
       ]
+    },
+    "apps/web/src/coverage/NativeCoverage.tsx": {
+      "source": ".hickory-source/mechanisms/native-coverage-surface.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "76a453ea2112d9d0976c56ef777b4824839a50022c4b4568272990e5a1092fcd",
+      "construction": "fragments",
+      "fragments": [
+        "native-coverage-bridge"
+      ]
+    },
+    "apps/web/src/coverage/NativeCoverage.test.tsx": {
+      "source": ".hickory-source/mechanisms/native-coverage-surface.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "6c32c44cab985f1e65d85b7c6d6fc15784d4d0ce6a344d53bb920441df0cf51e",
+      "construction": "fragments",
+      "fragments": [
+        "native-coverage-bridge-witness"
+      ]
+    },
+    "apps/apple-simple/Sources/Resources/coverage.html": {
+      "source": ".hickory-source/mechanisms/native-coverage-surface.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "2ba33a323619edeb980991ebe571e651c25b6bc8538648d23e8f5b053d5d2c9e",
+      "construction": "fragments",
+      "fragments": [
+        "native-coverage-local-page"
+      ]
     }
   },
   "evidence_records": [

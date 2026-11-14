@@ -152285,6 +152285,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/native-source-revisions.md",
       "symbol": "native-exact-source-identity",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "native-coverage-bridge",
+      "output": "apps/web/src/coverage/NativeCoverage.tsx",
+      "page": ".hickory-source/mechanisms/native-coverage-surface.md",
+      "symbol": "native-coverage-bridge",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-coverage-bridge-witness",
+      "output": "apps/web/src/coverage/NativeCoverage.test.tsx",
+      "page": ".hickory-source/mechanisms/native-coverage-surface.md",
+      "symbol": "native-coverage-bridge-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-coverage-local-page",
+      "output": "apps/apple-simple/Sources/Resources/coverage.html",
+      "page": ".hickory-source/mechanisms/native-coverage-surface.md",
+      "symbol": "native-coverage-local-page",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

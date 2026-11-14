@@ -1059,6 +1059,12 @@ bundle.parent.mkdir(parents=True, exist_ok=True)
 entry = "import { mountNativeTable, mountNativeOutput } from " + json.dumps(str(ROOT / "apps/web/src/components/MarkdownTable.tsx")) + ";\n" + "import " + json.dumps(str(ROOT / "apps/web/src/styles.css")) + ";\n" + "if (document.body.classList.contains('notebook-mode')) { globalThis.hickoryOutput = mountNativeOutput(document.getElementById('formula')); globalThis.hickoryOutput.update(globalThis.hickoryOutputSource || ''); } else globalThis.hickoryTable = mountNativeTable(document.getElementById('formula'), message => { const json = JSON.stringify(message); if (globalThis.webkit?.messageHandlers?.table) globalThis.webkit.messageHandlers.table.postMessage(JSON.parse(json)); else globalThis.HickoryTable?.postMessage(json); });"
 subprocess.run([str(ROOT / "apps/web/node_modules/.bin/esbuild"), "--bundle", "--format=iife", "--platform=browser", "--jsx=automatic", "--define:import.meta.env={}", "--log-level=warning", "--outfile=" + str(bundle)], input=entry, text=True, cwd=ROOT / "apps/web", check=True)
 print("Prepared shared native spreadsheet resources.")
+
+# Bundle the same optional coverage renderer for both native hosts.
+coverage = ROOT / "apps/apple-simple/Sources/Resources/node_modules/coverage.js"
+entry = "import { mountNativeCoverage } from " + json.dumps(str(ROOT / "apps/web/src/coverage/NativeCoverage.tsx")) + ";\n" + "globalThis.hickoryCoverage = mountNativeCoverage(document.getElementById('surface'), message => { const json = JSON.stringify(message); if (globalThis.webkit?.messageHandlers?.coverage) globalThis.webkit.messageHandlers.coverage.postMessage(JSON.parse(json)); else globalThis.HickoryCoverage?.postMessage(json); });"
+subprocess.run([str(ROOT / "apps/web/node_modules/.bin/esbuild"), "--bundle", "--format=iife", "--platform=browser", "--jsx=automatic", "--define:import.meta.env={}", "--log-level=warning", "--outfile=" + str(coverage)], input=entry, text=True, cwd=ROOT / "apps/web", check=True)
+print("Prepared shared native coverage resources.")
 </ui:copy>
 
 <ui:file path="scripts/prepare-simple-resources.py"><ui:paste select="#simple-inline-math-1"/></ui:file>
