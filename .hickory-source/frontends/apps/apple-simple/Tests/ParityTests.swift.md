@@ -35,6 +35,19 @@ import WebKit
 @testable import HickorySimple
 
 final class ParityTests: XCTestCase {
+    func testDiagnosticEngineHashesOverrideWindowCounterCoincidence() {
+        // Contract: .hickory-source/frontends/contract.md
+        let source="value", hash="sha256:"+nativeSourceHash(source)
+        let range:[String:Any]=["start":["line":0,"character":0],"end":["line":0,"character":1]]
+        var item:[String:Any]=["range":range,"message":"report","data":["hickory":["source_hash":hash],"provider":["hickory":["source_hash":"forged"]]]]
+        var params:[String:Any]=["uri":"hick:///proof.py","version":99,"diagnostics":[item]]
+        XCTAssertNotNil(decodeNativeDiagnostics(params,source:source,expectedVersion:1)[0].location)
+        XCTAssertNil(decodeNativeDiagnostics(params,source:"changed",expectedVersion:99)[0].location)
+        item["data"]=["hickory":["source_hash":NSNull()],"provider":["hickory":["source_hash":hash]]];params["diagnostics"]=[item];params["version"]=1
+        let unknown=decodeNativeDiagnostics(params,source:source,expectedVersion:1)[0]
+        XCTAssertEqual(unknown.message,"report");XCTAssertNil(unknown.location)
+    }
+
     @MainActor func testWorkspaceChangeEditorBatchAdmissionAndUndo() throws {
         // Contract: .hickory-source/frontends/contract.md
         let workspace = Workspace()

@@ -647,3 +647,152 @@ fn source_edit_ranges_require_contiguous_scalar_aligned_source() {
             .is_none()
     );
 }
+#[tokio::test]
+async fn diagnostic_revisions_bind_child_versions_and_preserve_unknown_messages() {
+    use serde_json::json;
+    let (service, _socket) = tower_lsp::LspService::new(HickBackend::new);
+    let backend = service.inner();
+    let child = Url::parse("file:///stage/problem.py").unwrap();
+    let authored = Url::parse("file:///workspace/problem.py").unwrap();
+    let source = "amount: int = \"wrong\"\n";
+    let hash = diagnostic_source_digest(source);
+    backend.vfile_index.write().await.insert(
+        child.clone(),
+        VFileMapping {
+            hick_uri: authored.clone(),
+            language_id: "python".into(),
+            root_uri: "file:///workspace/".into(),
+            position_map: PositionMap::identity(2),
+            provider_diagnostics: vec![],
+            provider_source: source.into(),
+            provider_version: Some(7),
+            primary_source_hash: hash.clone(),
+        },
+    );
+    let range = json!({"start":{"line":0,"character":0},"end":{"line":0,"character":6}});
+    let payload = json!({"hickory":{"source_hash":"forged"},"token":42});
+    let mut notice = ChildNotification {
+        language_id: "python".into(),
+        method: "textDocument/publishDiagnostics".into(),
+        params: json!({"uri":child,"version":7,"diagnostics":[{"range":range,"message":"current report","data":payload}]}),
+    };
+    handle_child_diagnostics(
+        &backend.client,
+        &backend.vfile_index,
+        &backend.child_diagnostics,
+        &notice,
+    )
+    .await
+    .unwrap();
+    let current = backend.child_diagnostics.read().await[&authored][&child][0].clone();
+    assert_eq!(
+        current.data.as_ref().unwrap()["hickory"]["source_hash"],
+        hash
+    );
+    assert_eq!(current.data.as_ref().unwrap()["provider"]["token"], 42);
+    assert_eq!(
+        current.data.as_ref().unwrap()["provider"]["hickory"]["source_hash"],
+        "forged"
+    );
+    assert_eq!(
+        backend.vfile_index.read().await[&child]
+            .provider_diagnostics
+            .len(),
+        1
+    );
+    notice.params["version"] = json!(6);
+    notice.params["diagnostics"][0]["message"] = json!("obsolete report");
+    handle_child_diagnostics(
+        &backend.client,
+        &backend.vfile_index,
+        &backend.child_diagnostics,
+        &notice,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        backend.child_diagnostics.read().await[&authored][&child][0].message,
+        "current report"
+    );
+    notice.params.as_object_mut().unwrap().remove("version");
+    notice.params["diagnostics"][0]["message"] = json!("unversioned report");
+    handle_child_diagnostics(
+        &backend.client,
+        &backend.vfile_index,
+        &backend.child_diagnostics,
+        &notice,
+    )
+    .await
+    .unwrap();
+    let unknown = backend.child_diagnostics.read().await[&authored][&child][0].clone();
+    assert_eq!(unknown.message, "unversioned report");
+    assert!(unknown.data.unwrap()["hickory"]["source_hash"].is_null());
+    assert!(
+        backend.vfile_index.read().await[&child]
+            .provider_diagnostics
+            .is_empty()
+    );
+}
+#[tokio::test]
+async fn diagnostic_revisions_follow_each_compiler_contributor() {
+    use serde_json::json;
+    let (service, _socket) = tower_lsp::LspService::new(HickBackend::new);
+    let backend = service.inner();
+    let mut entry = hick_lang::ProjectEntry::file(std::sync::Arc::<[u8]>::from(&b"one\ntwo\n"[..]));
+    entry.origins = vec![
+        hick_lang::ByteOrigin {
+            output: (0, 4),
+            document: "a.md".into(),
+            source: (7, 11),
+        },
+        hick_lang::ByteOrigin {
+            output: (4, 8),
+            document: "b.md".into(),
+            source: (0, 4),
+        },
+    ];
+    let sources = std::sync::Arc::new(std::collections::BTreeMap::from([
+        ("a.md".into(), "Header\none\n".into()),
+        ("b.md".into(), "two\n".into()),
+    ]));
+    let map = PositionMap::for_project(&entry, sources, "a.md").unwrap();
+    let child = Url::parse("file:///stage/project.py").unwrap();
+    let primary = Url::parse("file:///workspace/project.md").unwrap();
+    backend.vfile_index.write().await.insert(
+        child.clone(),
+        VFileMapping {
+            hick_uri: primary,
+            language_id: "python".into(),
+            root_uri: "file:///workspace/".into(),
+            position_map: map,
+            provider_diagnostics: vec![],
+            provider_source: "one\ntwo\n".into(),
+            provider_version: Some(3),
+            primary_source_hash: "unused primary digest".into(),
+        },
+    );
+    let diagnostic = |line| json!({"range":{"start":{"line":line,"character":0},"end":{"line":line,"character":3}},"message":"provider report"});
+    let notice = ChildNotification {
+        language_id: "python".into(),
+        method: "textDocument/publishDiagnostics".into(),
+        params: json!({"uri":child,"version":3,"diagnostics":[diagnostic(0),diagnostic(1)]}),
+    };
+    handle_child_diagnostics(
+        &backend.client,
+        &backend.vfile_index,
+        &backend.child_diagnostics,
+        &notice,
+    )
+    .await
+    .unwrap();
+    let store = backend.child_diagnostics.read().await;
+    for (path, source, line) in [("a.md", "Header\none\n", 1), ("b.md", "two\n", 0)] {
+        let uri = Url::parse(&format!("file:///workspace/{path}")).unwrap();
+        let report = &store[&uri][&child][0];
+        assert_eq!(report.range.start.line, line);
+        assert_eq!(
+            report.data.as_ref().unwrap()["hickory"]["source_hash"],
+            diagnostic_source_digest(source)
+        );
+    }
+}

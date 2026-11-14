@@ -232,7 +232,8 @@ impl ChildLspHandle {
                 "workspace": { "symbol": {}, "configuration": true, "workspaceEdit": { "documentChanges": true } },
                 "textDocument": {
                     "publishDiagnostics": {
-                        "relatedInformation": false
+                        "relatedInformation": false,
+                        "versionSupport": true
                     },
                     "completion": {
                         "completionItem": {
@@ -331,7 +332,6 @@ impl ChildLspHandle {
         &self.language_id
     }
 }
-
 // ------------------------------------------------------------------
 // Free-standing I/O helpers
 // ------------------------------------------------------------------

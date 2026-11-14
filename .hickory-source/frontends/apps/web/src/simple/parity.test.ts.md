@@ -764,6 +764,8 @@ describe("simple workspace Problems", () => {
       { uri: "hick:///c.py", currentSource: "value", diagnostics: [{ message: "unversioned", range }] },
       { uri: "hick:///d.py", currentSource: "value", source: "value", diagnostics: [{ message: "other", range }] },
     ]);
+    const mixed = reportedProblems([{ uri: "hick:///mixed.py", currentSource: "value", diagnostics: [{ message: "bound", sourceSnapshot: "value", range }, { message: "unknown", range }] }]);
+    expect(mixed.map(problem => problem.current)).toEqual([true, false]);
     expect(records.map(problem => problem.current)).toEqual([true, false, false, true]);
     expect(records).toHaveLength(4); expect(records[1].location).toBeNull(); expect(records[2].location).toBeNull();
     expect(nextWorkspaceProblem(records, records[0].location, 1)?.path).toBe("d.py");

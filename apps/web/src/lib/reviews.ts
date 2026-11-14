@@ -1,3 +1,4 @@
+import { sourceDigest } from "../lsp/diagnosticRevision";
 import type { EditorView } from "@codemirror/view";
 export interface ReviewTarget {
   kind: string; path: string; quote: string; source_hash: string; lines: [number, number]; relationship?: unknown;
@@ -20,8 +21,7 @@ export function registerReviewEditor(view: EditorView, path: string, recordedSou
   return () => { paths.delete(view); if (selected === view) selected = null; view.dom.removeEventListener("focusin", remember); view.dom.removeEventListener("pointerdown", remember); };
 }
 export async function sha256(source: string): Promise<string> {
-  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(source)));
-  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+  return (await sourceDigest(source)).slice("sha256:".length);
 }
 export async function targetFor(view: EditorView, kind = "claim", lines?: [number, number], relationship?: unknown): Promise<ReviewTarget> {
   const registration = paths.get(view);

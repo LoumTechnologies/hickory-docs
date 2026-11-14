@@ -784,6 +784,162 @@ fn source_edit_ranges_require_contiguous_scalar_aligned_source() {
 }
 </storycode:copy>
 
-<storycode:file path="crates/hick-lsp/src/backend/audit_tests.rs"><storycode:paste select="#f-c123076e88e3-provider_rename_refusal_is_an_error_instead_of_no_changes"/><storycode:paste select="#f-c123076e88e3-code_actions_keep_exact_child_diagnostic_identity_and_coordinates"/><storycode:paste select="#f-c123076e88e3-seg"/><storycode:paste select="#f-c123076e88e3-index_with"/><storycode:paste select="#f-c123076e88e3-a_child_that_spells_a_uri_differently_still_maps_home"/><storycode:paste select="#f-c123076e88e3-references_result_translates_to_hick_coordinates"/><storycode:paste select="#f-c123076e88e3-references_in_unknown_vfile_pass_through"/><storycode:paste select="#f-c123076e88e3-references_on_untranslatable_lines_keep_virtual_location"/><storycode:paste select="#f-c123076e88e3-location_links_translate_target_ranges"/><storycode:paste select="#f-c123076e88e3-bare_ranges_translate_or_drop"/><storycode:paste select="#f-c123076e88e3-an_inlay_hints_bare_position_is_translated_too"/><storycode:paste select="#f-c123076e88e3-a_hint_with_no_source_is_dropped_rather_than_placed_at_line_zero"/><storycode:paste select="#f-c123076e88e3-a_position_that_is_not_a_position_is_left_alone"/><storycode:paste select="#f-c123076e88e3-a_virtual_files_extent_is_its_line_count"/><storycode:paste select="#f-c123076e88e3-a_formatting_edit_gets_the_blocks_indentation_back"/><storycode:paste select="#f-c123076e88e3-a_plain_files_formatting_edit_is_untouched"/><storycode:paste select="#f-c123076e88e3-an_edit_that_cannot_be_mapped_withholds_the_whole_answer"/><storycode:paste select="#f-c123076e88e3-a_markdown_note_with_hick_elements_uses_the_hick_pipeline"/><storycode:paste select="#f-c123076e88e3-unchanged_plain_sync_keeps_real_clangd_quickfix_and_changed_source_invalidates"/><storycode:paste select="#source-edit-complete-proposal-tests"/><storycode:paste select="#source-edit-project-provenance-tests"/></storycode:file>
+## Reject obsolete reports without losing readable unknown messages
+
+These focused notification-path witnesses inspect the merged diagnostic store after real bridge translation. A current child counter earns the exact authored digest; an obsolete counter cannot replace it; an unversioned message stays readable with null evidence and is not reused as code-action context. A compiler project witness requires different contributors to carry their own hashes. Provider-supplied lookalike metadata stays nested and cannot become engine evidence.
+
+<storycode:copy id="diagnostic-engine-revision-tests">
+#[tokio::test]
+async fn diagnostic_revisions_bind_child_versions_and_preserve_unknown_messages() {
+    use serde_json::json;
+    let (service, _socket) = tower_lsp::LspService::new(HickBackend::new);
+    let backend = service.inner();
+    let child = Url::parse("file:///stage/problem.py").unwrap();
+    let authored = Url::parse("file:///workspace/problem.py").unwrap();
+    let source = "amount: int = \"wrong\"\n";
+    let hash = diagnostic_source_digest(source);
+    backend.vfile_index.write().await.insert(
+        child.clone(),
+        VFileMapping {
+            hick_uri: authored.clone(),
+            language_id: "python".into(),
+            root_uri: "file:///workspace/".into(),
+            position_map: PositionMap::identity(2),
+            provider_diagnostics: vec![],
+            provider_source: source.into(),
+            provider_version: Some(7),
+            primary_source_hash: hash.clone(),
+        },
+    );
+    let range = json!({"start":{"line":0,"character":0},"end":{"line":0,"character":6}});
+    let payload = json!({"hickory":{"source_hash":"forged"},"token":42});
+    let mut notice = ChildNotification {
+        language_id: "python".into(),
+        method: "textDocument/publishDiagnostics".into(),
+        params: json!({"uri":child,"version":7,"diagnostics":[{"range":range,"message":"current report","data":payload}]}),
+    };
+    handle_child_diagnostics(
+        &backend.client,
+        &backend.vfile_index,
+        &backend.child_diagnostics,
+        &notice,
+    )
+    .await
+    .unwrap();
+    let current = backend.child_diagnostics.read().await[&authored][&child][0].clone();
+    assert_eq!(
+        current.data.as_ref().unwrap()["hickory"]["source_hash"],
+        hash
+    );
+    assert_eq!(current.data.as_ref().unwrap()["provider"]["token"], 42);
+    assert_eq!(
+        current.data.as_ref().unwrap()["provider"]["hickory"]["source_hash"],
+        "forged"
+    );
+    assert_eq!(
+        backend.vfile_index.read().await[&child]
+            .provider_diagnostics
+            .len(),
+        1
+    );
+    notice.params["version"] = json!(6);
+    notice.params["diagnostics"][0]["message"] = json!("obsolete report");
+    handle_child_diagnostics(
+        &backend.client,
+        &backend.vfile_index,
+        &backend.child_diagnostics,
+        &notice,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        backend.child_diagnostics.read().await[&authored][&child][0].message,
+        "current report"
+    );
+    notice.params.as_object_mut().unwrap().remove("version");
+    notice.params["diagnostics"][0]["message"] = json!("unversioned report");
+    handle_child_diagnostics(
+        &backend.client,
+        &backend.vfile_index,
+        &backend.child_diagnostics,
+        &notice,
+    )
+    .await
+    .unwrap();
+    let unknown = backend.child_diagnostics.read().await[&authored][&child][0].clone();
+    assert_eq!(unknown.message, "unversioned report");
+    assert!(unknown.data.unwrap()["hickory"]["source_hash"].is_null());
+    assert!(
+        backend.vfile_index.read().await[&child]
+            .provider_diagnostics
+            .is_empty()
+    );
+}
+#[tokio::test]
+async fn diagnostic_revisions_follow_each_compiler_contributor() {
+    use serde_json::json;
+    let (service, _socket) = tower_lsp::LspService::new(HickBackend::new);
+    let backend = service.inner();
+    let mut entry = hick_lang::ProjectEntry::file(std::sync::Arc::<[u8]>::from(&b"one\ntwo\n"[..]));
+    entry.origins = vec![
+        hick_lang::ByteOrigin {
+            output: (0, 4),
+            document: "a.md".into(),
+            source: (7, 11),
+        },
+        hick_lang::ByteOrigin {
+            output: (4, 8),
+            document: "b.md".into(),
+            source: (0, 4),
+        },
+    ];
+    let sources = std::sync::Arc::new(std::collections::BTreeMap::from([
+        ("a.md".into(), "Header\none\n".into()),
+        ("b.md".into(), "two\n".into()),
+    ]));
+    let map = PositionMap::for_project(&entry, sources, "a.md").unwrap();
+    let child = Url::parse("file:///stage/project.py").unwrap();
+    let primary = Url::parse("file:///workspace/project.md").unwrap();
+    backend.vfile_index.write().await.insert(
+        child.clone(),
+        VFileMapping {
+            hick_uri: primary,
+            language_id: "python".into(),
+            root_uri: "file:///workspace/".into(),
+            position_map: map,
+            provider_diagnostics: vec![],
+            provider_source: "one\ntwo\n".into(),
+            provider_version: Some(3),
+            primary_source_hash: "unused primary digest".into(),
+        },
+    );
+    let diagnostic = |line| json!({"range":{"start":{"line":line,"character":0},"end":{"line":line,"character":3}},"message":"provider report"});
+    let notice = ChildNotification {
+        language_id: "python".into(),
+        method: "textDocument/publishDiagnostics".into(),
+        params: json!({"uri":child,"version":3,"diagnostics":[diagnostic(0),diagnostic(1)]}),
+    };
+    handle_child_diagnostics(
+        &backend.client,
+        &backend.vfile_index,
+        &backend.child_diagnostics,
+        &notice,
+    )
+    .await
+    .unwrap();
+    let store = backend.child_diagnostics.read().await;
+    for (path, source, line) in [("a.md", "Header\none\n", 1), ("b.md", "two\n", 0)] {
+        let uri = Url::parse(&format!("file:///workspace/{path}")).unwrap();
+        let report = &store[&uri][&child][0];
+        assert_eq!(report.range.start.line, line);
+        assert_eq!(
+            report.data.as_ref().unwrap()["hickory"]["source_hash"],
+            diagnostic_source_digest(source)
+        );
+    }
+}
+</storycode:copy>
+
+<storycode:file path="crates/hick-lsp/src/backend/audit_tests.rs"><storycode:paste select="#f-c123076e88e3-provider_rename_refusal_is_an_error_instead_of_no_changes"/><storycode:paste select="#f-c123076e88e3-code_actions_keep_exact_child_diagnostic_identity_and_coordinates"/><storycode:paste select="#f-c123076e88e3-seg"/><storycode:paste select="#f-c123076e88e3-index_with"/><storycode:paste select="#f-c123076e88e3-a_child_that_spells_a_uri_differently_still_maps_home"/><storycode:paste select="#f-c123076e88e3-references_result_translates_to_hick_coordinates"/><storycode:paste select="#f-c123076e88e3-references_in_unknown_vfile_pass_through"/><storycode:paste select="#f-c123076e88e3-references_on_untranslatable_lines_keep_virtual_location"/><storycode:paste select="#f-c123076e88e3-location_links_translate_target_ranges"/><storycode:paste select="#f-c123076e88e3-bare_ranges_translate_or_drop"/><storycode:paste select="#f-c123076e88e3-an_inlay_hints_bare_position_is_translated_too"/><storycode:paste select="#f-c123076e88e3-a_hint_with_no_source_is_dropped_rather_than_placed_at_line_zero"/><storycode:paste select="#f-c123076e88e3-a_position_that_is_not_a_position_is_left_alone"/><storycode:paste select="#f-c123076e88e3-a_virtual_files_extent_is_its_line_count"/><storycode:paste select="#f-c123076e88e3-a_formatting_edit_gets_the_blocks_indentation_back"/><storycode:paste select="#f-c123076e88e3-a_plain_files_formatting_edit_is_untouched"/><storycode:paste select="#f-c123076e88e3-an_edit_that_cannot_be_mapped_withholds_the_whole_answer"/><storycode:paste select="#f-c123076e88e3-a_markdown_note_with_hick_elements_uses_the_hick_pipeline"/><storycode:paste select="#f-c123076e88e3-unchanged_plain_sync_keeps_real_clangd_quickfix_and_changed_source_invalidates"/><storycode:paste select="#source-edit-complete-proposal-tests"/><storycode:paste select="#source-edit-project-provenance-tests"/><storycode:paste select="#diagnostic-engine-revision-tests"/></storycode:file>
 
 </storycode:doc>

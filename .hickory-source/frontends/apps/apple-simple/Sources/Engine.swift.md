@@ -154,8 +154,13 @@ func nativeMarkupText(_ value: Any?) -> String {
 }
 func decodeNativeDiagnostics(_ params: [String: Any], source: String, expectedVersion: Int) -> [NativeDiagnostic] {
     // Unversioned diagnostics remain readable messages, never positional authority.
-    let located = params["version"] as? Int == expectedVersion
-    return (params["diagnostics"] as? [[String: Any]] ?? []).enumerated().map { index, item in
+    let items = params["diagnostics"] as? [[String:Any]] ?? []
+    let hasEvidence = items.contains { ($0["data"] as? [String:Any])?["hickory"] != nil }
+    let digest = hasEvidence ? "sha256:" + nativeSourceHash(source) : ""
+    return items.enumerated().map { index, item in
+        let data = item["data"] as? [String:Any]
+        let envelope = data?["hickory"] as? [String:Any]
+        let located = data?["hickory"] != nil ? (envelope?["source_hash"] as? String)?.lowercased() == digest : params["version"] as? Int == expectedVersion
         var range: NSRange?; var location: SemanticLocation?
         if located, let raw = item["range"] as? [String: Any], let start = raw["start"] as? [String: Any], let end = raw["end"] as? [String: Any],
            let from = languageOffset(source, start), let to = languageOffset(source, end), from <= to {
@@ -269,6 +274,7 @@ func rebaseNativeTokens(_ tokens: [NativeSemanticToken], from old: String, to ne
     var inlayHints: [String] = []
     var inspectionSource = ""
     var inspectionSelection = NSRange(location: 0, length: 0)
+    private var diagnosticID = UUID()
     private var inspectionID = UUID()
     private var completionID = UUID()
     private weak var buffer: DocumentBuffer?
@@ -318,9 +324,21 @@ func rebaseNativeTokens(_ tokens: [NativeSemanticToken], from old: String, to ne
     }
     private func receive(_ object: [String: Any]) {
         if object["method"] as? String == "textDocument/publishDiagnostics", let params = object["params"] as? [String: Any],
-           params["uri"] as? String == uri, let buffer, buffer.text == sent {
-            if let incoming = params["version"] as? Int, incoming != version { return }
-            diagnostics = decodeNativeDiagnostics(params, source: sent, expectedVersion: version); diagnosticSource = sent
+           params["uri"] as? String == uri, let buffer {
+            let items = params["diagnostics"] as? [[String:Any]] ?? []
+            let evidence = items.contains { ($0["data"] as? [String:Any])?["hickory"] != nil }
+            if !evidence {
+                guard buffer.text == sent else { return }
+                if let incoming = params["version"] as? Int, incoming != version { return }
+            }
+            let source = buffer.text, expectedVersion = version, identity = epoch, request = UUID()
+            diagnosticID = request; diagnosticSource = ""
+            diagnostics = items.enumerated().map { index,item in NativeDiagnostic(id:index,message:item["message"] as? String ?? "Language diagnostic",severity:item["severity"] as? Int ?? 1,range:nil) }
+            Task { [weak self, weak buffer] in
+                let decoded = await Task.detached { decodeNativeDiagnostics(params,source:source,expectedVersion:expectedVersion) }.value
+                guard let self, let buffer, self.epoch == identity, self.diagnosticID == request, buffer.text == source, evidence || self.sent == source else { return }
+                self.diagnostics = decoded; self.diagnosticSource = source
+            }
             return
         }
         if let id = object["id"] as? Int, let continuation = pending.removeValue(forKey: id) {

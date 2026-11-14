@@ -18,6 +18,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @Test fun diagnosticEngineHashesOverrideWindowCounterCoincidence() {
+        // Contract: .hickory-source/frontends/contract.md
+        val source="value";val hash="sha256:"+java.security.MessageDigest.getInstance("SHA-256").digest(source.toByteArray()).joinToString(""){"%02x".format(it)}
+        val range=JSONObject().put("start",JSONObject().put("line",0).put("character",0)).put("end",JSONObject().put("line",0).put("character",1))
+        val item=JSONObject().put("range",range).put("message","report").put("data",JSONObject().put("hickory",JSONObject().put("source_hash",hash)))
+        val params=JSONObject().put("uri","hick:///proof.py").put("version",99).put("diagnostics",org.json.JSONArray().put(item))
+        assertNotNull(decodeNativeDiagnostics(params,source,1)[0].location)
+        assertNull(decodeNativeDiagnostics(params,"changed",99)[0].location)
+        item.put("data",JSONObject().put("hickory",JSONObject().put("source_hash",JSONObject.NULL)).put("provider",JSONObject().put("hickory",JSONObject().put("source_hash",hash))))
+        params.put("version",1);val unknown=decodeNativeDiagnostics(params,source,1)[0];assertEquals("report",unknown.message);assertNull(unknown.location)
+    }
+
     @Test fun workspaceChangeEditorBatchAdmissionAndUndo() {
         // Contract: .hickory-source/frontends/contract.md
         val workspace = Workspace()

@@ -78,6 +78,7 @@ import { lspFeatures } from "../lsp/cmLspFeatures";
 import { completions } from "../lsp/completion";
 import { positionToUtf16, utf16ToPosition } from "../lsp/positions";
 import { sameDocumentUri } from "../lsp/documentUri";
+import { diagnosticBoundSource } from "../lsp/diagnosticRevision";
 import { Buffer } from "./buffers";
 import { hickLangReady, loadHickLang } from "../editor/hickLang";
 import { languageFromPath } from "../editor/languages";
@@ -344,7 +345,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
   useEffect(() => {
     const cached = editors.get(buffer);
     if (!cached || !session.client || !session.ready) return;
-    cached.view.dispatch({ effects: setLspDiagnostics.of(diagnosticRanges(session.diagnosticSource === buffer.text ? session.diagnostics : [],
+    cached.view.dispatch({ effects: setLspDiagnostics.of(diagnosticRanges(session.diagnostics.filter(diagnostic => (diagnosticBoundSource(diagnostic) ?? session.diagnosticSource) === buffer.text),
       position => positionToUtf16(cached.view.state.doc.toString(), position))) });
   }, [buffer, session.client, session.ready, session.diagnostics, session.diagnosticSource, buffer.text, capabilities]);
   // Attach debugger state to the existing editor. Callbacks read the current

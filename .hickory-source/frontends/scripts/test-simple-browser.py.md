@@ -181,10 +181,13 @@ def problems_acceptance(driver, folder):
     size = driver.act("editor-size", path=path)
     eventually(lambda: driver.act("problem-count") > 0, True)
     driver.act("problems-open", via="status")
+    eventually(lambda: driver.act("problems-state", path=path)["current"] > 0, True)
     result = driver.act("problems-state", path=path)
     assert path in result["text"], result
     assert result["size"] == size, "Problems resized code"
     driver.act("problems-close")
+    driver.act("problem-next")
+    eventually(lambda: driver.act("caret-offset", path=path) > 0, True)
     driver.act("append", path=path, text="\n# retained draft")
     driver.act("problems-open", via="menu")
     result = driver.act("problems-state", path=path)
@@ -706,7 +709,7 @@ if __name__ == "__main__":
                 print("Browser: exhaustive workspace regex search, Unicode columns, stationary geometry, retained editor, stale-source refusal and unchanged disk passed")
             elif "--problems-only" in sys.argv:
                 problems_acceptance(driver, folder)
-                print("Browser: real provider Problems, status/menu access, stationary geometry, retained draft and unchanged disk passed")
+                print("Browser: source-hash-bound provider Problems, precise next-problem navigation, status/menu access, stationary geometry, retained draft and unchanged disk passed")
             elif "--semantic-navigation-only" in sys.argv:
                 semantic_navigation_acceptance(driver, folder)
                 print("Browser: real symbols/calls, Back/Forward with retained editors, exact columns, stationary geometry and unchanged disk passed")

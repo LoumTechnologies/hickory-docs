@@ -80,16 +80,17 @@ export interface WorkspaceProblem {
   id: string; path: string; message: string; severity: number;
   location: SemanticLocation | null; source: string | null; current: boolean;
 }
-export function reportedProblems(documents: readonly { uri: string; currentSource: string; source?: string; diagnostics: readonly { message: string; severity?: number; range: LspLocation["range"] }[] }[]): WorkspaceProblem[] {
+export function reportedProblems(documents: readonly { uri: string; currentSource: string; source?: string; diagnostics: readonly { sourceSnapshot?: string; message: string; severity?: number; range: LspLocation["range"] }[] }[]): WorkspaceProblem[] {
   return documents.flatMap(document => {
     if (!document.diagnostics.length) return [];
-    const current = document.source !== undefined && document.source === document.currentSource;
-    const rows = current ? document.currentSource.split("\n") : [];
+    let rows: string[] | undefined;
     return document.diagnostics.map((diagnostic, index) => {
     const path = semanticPath(document.uri) ?? document.uri, position = diagnostic.range?.start;
-    const located = current && !!position && Number.isInteger(position.line) && position.line >= 0 && position.line < rows.length && Number.isInteger(position.character) && position.character >= 0 && position.character <= rows[position.line].length && semanticPath(document.uri) !== null;
+    const source = diagnostic.sourceSnapshot ?? document.source, current = source !== undefined && source === document.currentSource;
+    if (current) rows ??= document.currentSource.split("\n");
+    const located = current && !!position && Number.isInteger(position.line) && position.line >= 0 && position.line < rows!.length && Number.isInteger(position.character) && position.character >= 0 && position.character <= rows![position.line].length && semanticPath(document.uri) !== null;
     return { id: `${document.uri}:${index}`, path, message: diagnostic.message, severity: diagnostic.severity ?? 1,
-      location: located ? { uri: document.uri, range: diagnostic.range } : null, source: document.source ?? null, current: located };
+      location: located ? { uri: document.uri, range: diagnostic.range } : null, source: source ?? null, current: located };
     });
   });
 }

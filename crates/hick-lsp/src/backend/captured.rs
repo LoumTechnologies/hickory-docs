@@ -43,6 +43,8 @@ impl HickBackend {
                 VFileMapping {
                     provider_diagnostics: Vec::new(),
                     provider_source: text.to_string(),
+                    provider_version: None,
+                    primary_source_hash: diagnostic_source_digest(text),
                     hick_uri: display,
                     language_id: crate::lang_detect::language_id(path)
                         .unwrap_or("plaintext")

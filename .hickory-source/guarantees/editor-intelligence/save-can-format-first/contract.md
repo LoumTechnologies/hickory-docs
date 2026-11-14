@@ -177,6 +177,7 @@ export interface LspLocation {
 
 <storycode:copy id="f-6bc953112fd0-LspDiagnostic">
 export interface LspDiagnostic {
+  data?: unknown;
   range: LspRange;
   severity?: number;
   source?: string;

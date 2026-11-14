@@ -459,6 +459,22 @@ impl PositionMap {
 }
 </storycode:copy>
 
-<storycode:file path="crates/hick-lsp/src/position_map.rs"><storycode:paste select="#f-c77393891cd2-LineMapping"/><storycode:paste select="#f-c77393891cd2-PositionMap"/><storycode:paste select="#f-c77393891cd2-impl-PositionMap"/><storycode:paste select="#f-c77393891cd2-tests"/><storycode:paste select="#source-edit-contiguous-position-range"/></storycode:file>
+## Bind a projected report to its authored contributor
+
+A compiler project map already retains the exact source closure. Borrow the contributor bytes from that map instead of inventing a second source registry or copying a hash map into every generated-file mapping. The notification path hashes each affected contributor once; ordinary files use their directly captured source digest.
+
+<storycode:copy id="diagnostic-authored-source-bytes">
+impl PositionMap {
+    pub fn project_source(&self, document: &str) -> Option<&str> {
+        self.project
+            .as_ref()?
+            .sources
+            .get(document)
+            .map(String::as_str)
+    }
+}
+</storycode:copy>
+
+<storycode:file path="crates/hick-lsp/src/position_map.rs"><storycode:paste select="#f-c77393891cd2-LineMapping"/><storycode:paste select="#f-c77393891cd2-PositionMap"/><storycode:paste select="#f-c77393891cd2-impl-PositionMap"/><storycode:paste select="#f-c77393891cd2-tests"/><storycode:paste select="#source-edit-contiguous-position-range"/><storycode:paste select="#diagnostic-authored-source-bytes"/></storycode:file>
 
 </storycode:doc>

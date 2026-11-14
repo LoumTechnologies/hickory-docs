@@ -2,11 +2,21 @@ import { createContext, useContext, useEffect, useState, useSyncExternalStore } 
 import { useWorkspaceLsp, type LspSession } from "../lsp/useLsp";
 import { documentUri } from "../lsp/documentUri";
 import type { Buffer, Buffers } from "./buffers";
+import { diagnosticBoundSource } from "../lsp/diagnosticRevision";
 import { reportedProblems } from "./Intelligence";
 // Buffer lifetime owns language knowledge; a pane only borrows its session.
 class LanguageEntry {
   constructor(private changed: () => void = () => {}) {}
   value: LspSession = { client: null, uri: "", ready: false, diagnostics: [] };
+  private problemCache?: { source: string; diagnostics: LspSession["diagnostics"]; diagnosticSource?: string; reports: ReturnType<typeof reportedProblems> };
+  problems(buffer: Buffer) {
+    const session = this.value, cached = this.problemCache;
+    if (cached && cached.source === buffer.text && cached.diagnostics === session.diagnostics && cached.diagnosticSource === session.diagnosticSource) return cached.reports;
+    const reports = reportedProblems([{ uri: session.uri || documentUri(buffer.file.path), currentSource: buffer.text, source: session.diagnosticSource,
+      diagnostics: session.diagnostics.map(diagnostic => ({ ...diagnostic, sourceSnapshot: diagnosticBoundSource(diagnostic) })) }]);
+    this.problemCache = { source: buffer.text, diagnostics: session.diagnostics, diagnosticSource: session.diagnosticSource, reports };
+    return reports;
+  }
   private listeners = new Set<() => void>();
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
   read = () => this.value;
@@ -58,8 +68,5 @@ const emptyWorkspace = new WorkspaceLanguages();
 export function useWorkspaceProblems(buffers: Buffers) {
   const registry = useContext(languageContext) ?? emptyWorkspace;
   useSyncExternalStore(registry.subscribe, registry.snapshot);
-  return reportedProblems([...buffers.values.values()].map(buffer => {
-    const session = registry.entry(buffer).read();
-    return { uri: session.uri || documentUri(buffer.file.path), currentSource: buffer.text, source: session.diagnosticSource, diagnostics: session.diagnostics };
-  }));
+  return [...buffers.values.values()].flatMap(buffer => registry.entry(buffer).problems(buffer));
 }

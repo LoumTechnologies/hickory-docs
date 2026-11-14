@@ -86,4 +86,6 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="workspace-changes-android.md" />
 
+<ui:include file="diagnostic-revisions.md" />
+
 </ui:doc>

@@ -14,6 +14,7 @@ hick-plugins = { path = "../hick-plugins" }
 hick-lang = { path = "../hick-lang" }
 hick-blocks = { path = "../hick-blocks" }
 hick-project-env = { path = "../hick-project-env" }
+sha2 = "0.10"
 tower-lsp = "0.20"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

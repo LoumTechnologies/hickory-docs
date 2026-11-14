@@ -45428,7 +45428,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-c936496a03c1-plain_language",
         "f-c936496a03c1-parse_error_location",
         "f-c936496a03c1-tests",
-        "static-language-capture-readiness"
+        "static-language-capture-readiness",
+        "diagnostic-source-revision-envelope"
       ],
       "anchor": "output-c936496a03c1",
       "narrative_owner": "mechanism:crates/hick-lsp"
@@ -45461,7 +45462,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-c123076e88e3-a_markdown_note_with_hick_elements_uses_the_hick_pipeline",
         "f-c123076e88e3-unchanged_plain_sync_keeps_real_clangd_quickfix_and_changed_source_invalidates",
         "source-edit-complete-proposal-tests",
-        "source-edit-project-provenance-tests"
+        "source-edit-project-provenance-tests",
+        "diagnostic-engine-revision-tests"
       ],
       "anchor": "output-c123076e88e3",
       "narrative_owner": "mechanism:crates/hick-lsp"
@@ -45693,7 +45695,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-c77393891cd2-PositionMap",
         "f-c77393891cd2-impl-PositionMap",
         "f-c77393891cd2-tests",
-        "source-edit-contiguous-position-range"
+        "source-edit-contiguous-position-range",
+        "diagnostic-authored-source-bytes"
       ],
       "anchor": "output-c77393891cd2",
       "narrative_owner": "mechanism:crates/hick-lsp"
@@ -68284,6 +68287,17 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "simple-android-workspace-changes",
         "simple-android-workspace-changes-application",
         "simple-android-workspace-changes-presentation"
+      ]
+    },
+    "apps/web/src/lsp/diagnosticRevision.ts": {
+      "source": ".hickory-source/frontends/diagnostic-revisions.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "73a69b8949d68cd3a4113394078ef30da84fe91fa0c75b57befa2c66943f09c8",
+      "construction": "fragments",
+      "fragments": [
+        "diagnostic-revision-browser-proof"
       ]
     }
   },

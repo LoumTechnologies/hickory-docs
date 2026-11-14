@@ -151269,6 +151269,34 @@
       "page": ".hickory-source/frontends/workspace-changes-android.md",
       "symbol": "Page the complete preview in a floating Android dialog",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "diagnostic-authored-source-bytes",
+      "output": "crates/hick-lsp/src/position_map.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/position_map.rs.md",
+      "symbol": "Bind a projected report to its authored contributor",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "diagnostic-source-revision-envelope",
+      "output": "crates/hick-lsp/src/backend.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/backend.rs.md",
+      "symbol": "Keep engine source evidence outside provider data",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "diagnostic-revision-browser-proof",
+      "output": "apps/web/src/lsp/diagnosticRevision.ts",
+      "page": ".hickory-source/frontends/diagnostic-revisions.md",
+      "symbol": "diagnostic-revision-browser-proof",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "diagnostic-engine-revision-tests",
+      "output": "crates/hick-lsp/src/backend/audit_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/backend/audit_tests.rs.md",
+      "symbol": "Reject obsolete reports without losing readable unknown messages",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

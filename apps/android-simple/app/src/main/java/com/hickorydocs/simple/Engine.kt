@@ -328,8 +328,12 @@ fun nativeMarkupText(value: Any?): String = when (value) {
     else -> ""
 }
 fun decodeNativeDiagnostics(params: JSONObject, source: String, expectedVersion: Int): List<NativeLanguageDiagnostic> {
-    val located = params.has("version") && params.optInt("version", -1) == expectedVersion
-    return (params.optJSONArray("diagnostics") ?: JSONArray()).objects().map { item ->
+    val items = (params.optJSONArray("diagnostics") ?: JSONArray()).objects()
+    val hasEvidence = items.any { it.optJSONObject("data")?.has("hickory") == true }
+    val digest = if (hasEvidence) "sha256:" + java.security.MessageDigest.getInstance("SHA-256").digest(source.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) } else ""
+    return items.map { item ->
+        val data = item.optJSONObject("data")
+        val located = if (data?.has("hickory") == true) data.optJSONObject("hickory")?.optString("source_hash")?.lowercase() == digest else params.has("version") && params.optInt("version", -1) == expectedVersion
         val range = item.optJSONObject("range")
         val from = if (located) range?.optJSONObject("start")?.let { languageOffset(source, it) } else null
         val to = if (located) range?.optJSONObject("end")?.let { languageOffset(source, it) } else null
@@ -384,6 +388,7 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
     private var sent = ""
     private var nextID = 1
     private var legend = emptyList<String>()
+    private var diagnosticTicket = 0
     private var opened = false
     private var refresh: kotlinx.coroutines.Job? = null
     private var watcher: kotlinx.coroutines.Job? = null
@@ -438,8 +443,15 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
             status = "LSP connected"; changed()
         } else if (message.optString("method") == "textDocument/publishDiagnostics") {
             val params = message.optJSONObject("params") ?: return
-            if (params.optString("uri") != uri || sent != buffer.text || params.has("version") && params.optInt("version", -1) != version) return
-            diagnostics = decodeNativeDiagnostics(params, sent, version); diagnosticSource = sent
+            val evidence = (params.optJSONArray("diagnostics") ?: JSONArray()).objects().any { it.optJSONObject("data")?.has("hickory") == true }
+            if (params.optString("uri") != uri || !evidence && (sent != buffer.text || params.has("version") && params.optInt("version", -1) != version)) return
+            val source = buffer.text; val expectedVersion = version; val identity = epoch; val request = ++diagnosticTicket
+            diagnosticSource = ""
+            diagnostics = (params.optJSONArray("diagnostics") ?: JSONArray()).objects().map { NativeLanguageDiagnostic(it.optString("message","Language diagnostic"),null,null,it.optInt("severity",1)) }
+            scope.launch {
+                val decoded = withContext(Dispatchers.Default) { decodeNativeDiagnostics(params,source,expectedVersion) }
+                if (epoch == identity && diagnosticTicket == request && buffer.text == source && (evidence || sent == source)) { diagnostics = decoded; diagnosticSource = source }
+            }
         }
     }
     fun changed() {

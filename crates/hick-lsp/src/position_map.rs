@@ -413,3 +413,12 @@ impl PositionMap {
         ))
     }
 }
+impl PositionMap {
+    pub fn project_source(&self, document: &str) -> Option<&str> {
+        self.project
+            .as_ref()?
+            .sources
+            .get(document)
+            .map(String::as_str)
+    }
+}

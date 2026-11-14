@@ -10,6 +10,7 @@
 // through provenance. Output-side callers convert their position to a source
 // byte offset via provenance first (see lspPositionForOutput).
 
+import { sourceDigest, hasDiagnosticRevision, diagnosticSourceDigest, bindDiagnosticSource } from "./diagnosticRevision";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getWorkspaceRealtime, resetWorkspaceRealtime, type Realtime } from "../api/realtime";
 import { LspClient, type LspDiagnostic } from "./client";
@@ -78,6 +79,8 @@ function useLspOver(client: LspClient | null, docPath: string, text: string, pro
   const [diagnosticSnapshot, setDiagnosticSnapshot] = useState<{ uri: string; diagnostics: LspDiagnostic[]; source?: string }>({ uri: "", diagnostics: [] });
   const [ready, setReady] = useState(false);
   const versionRef = useRef(1);
+  const diagnosticTicket = useRef(0);
+  const digestCache = useRef<{ source: string; digest: Promise<string> } | null>(null);
   const textRef = useRef(text);
   const lastSent = useRef<string | null>(null);
   const flushRef = useRef<(() => void) | null>(null);
@@ -99,13 +102,31 @@ function useLspOver(client: LspClient | null, docPath: string, text: string, pro
     flushRef.current = flush;
     const unregister = client.registerDocumentSync(uri, flush);
     setReady(true);
+    let active = true;
     const off = client.onDiagnostics((params) => {
       if (!sameDocumentUri(params.uri, uri)) return;
-      if (params.version !== undefined && params.version !== versionRef.current) return;
+      const engineEvidence = params.diagnostics.some(hasDiagnosticRevision);
+      if (!engineEvidence && params.version !== undefined && params.version !== versionRef.current) return;
+      const ticket = ++diagnosticTicket.current;
+      for (const diagnostic of params.diagnostics) bindDiagnosticSource(diagnostic);
+      // Publish messages immediately; source evidence may arrive independently.
       setDiagnosticSnapshot({ uri, diagnostics: params.diagnostics,
-        ...(params.version === versionRef.current && lastSent.current !== null ? { source: lastSent.current } : {}) });
+        ...(!engineEvidence && params.version === versionRef.current && lastSent.current !== null ? { source: lastSent.current } : {}) });
+      if (engineEvidence) {
+        const source = textRef.current;
+        const checking = digestCache.current?.source === source ? digestCache.current.digest : sourceDigest(source);
+        digestCache.current = { source, digest: checking };
+        void checking.then(digest => {
+          if (active && ticket === diagnosticTicket.current && textRef.current === source) {
+            for (const diagnostic of params.diagnostics) if (diagnosticSourceDigest(diagnostic) === digest) bindDiagnosticSource(diagnostic, source);
+            const allCurrent = params.diagnostics.every(diagnostic => diagnosticSourceDigest(diagnostic) === digest);
+            setDiagnosticSnapshot({ uri, diagnostics: [...params.diagnostics], ...(allCurrent ? { source } : {}) });
+          }
+        }).catch(() => { /* Keep readable messages without claiming positional authority. */ });
+      }
     });
     return () => {
+      active = false; diagnosticTicket.current++;
       off();
       unregister();
       if (flushRef.current === flush) flushRef.current = null;

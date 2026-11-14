@@ -193,8 +193,10 @@ try {
           await page.getByRole("dialog", { name: "Workspace Problems" }).waitFor(); break;
         case "problems-state": {
           const panel = page.getByRole("dialog", { name: "Workspace Problems" });
-          value = { text: await panel.innerText(), size: await editor(request.path).locator("..").evaluate(node => ({ width: node.clientWidth, height: node.clientHeight })) }; break;
+          const text = await panel.innerText();
+          value = { text, current: Number(text.match(/(\d+) current locations/)?.[1] ?? 0), size: await editor(request.path).locator("..").evaluate(node => ({ width: node.clientWidth, height: node.clientHeight })) }; break;
         }
+        case "problem-next": await menu("Edit", "Next problem"); break;
         case "problems-close": await page.getByRole("button", { name: "Close Problems", exact: true }).click(); break;
         case "semantic-query": {
           const content = editor(request.path);

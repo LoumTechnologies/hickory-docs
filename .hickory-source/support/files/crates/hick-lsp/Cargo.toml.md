@@ -8,6 +8,8 @@ Edit this entry to change the generated file. It has one constructor. References
 
 Captured SHA-256: `d58ec0b75648e7a871878f450368b8590f0eb3af37778eaf8227fc0198658082`.
 
+Diagnostics compute a canonical `sha256:` source digest with the small cryptographic dependency directly; source revision checking does not pull protocol schema validation into the language server.
+
 <book:entry path="crates/hick-lsp/Cargo.toml">
 [package]
 name = "hick-lsp"
@@ -25,6 +27,7 @@ hick-plugins = { path = "../hick-plugins" }
 hick-lang = { path = "../hick-lang" }
 hick-blocks = { path = "../hick-blocks" }
 hick-project-env = { path = "../hick-project-env" }
+sha2 = "0.10"
 tower-lsp = "0.20"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

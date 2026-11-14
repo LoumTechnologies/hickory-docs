@@ -5,16 +5,28 @@ For maintainers changing workspace services independently of the editor renderer
 
 The workspace retains language sessions when panes hide. A small per-buffer subscription publishes provider state; a workspace subscription indexes all reported messages. Text changes retire positional results immediately, independently of provider response time. Editors and Problems borrow this state instead of owning transport lifetimes. Standalone conversation/document surfaces retain their existing session behavior.
 
+Cache each buffer's problem projection by its available text and diagnostic snapshot. A report arriving for one source must not re-split all other open sources. Digest completion publishes a fresh diagnostic array, so newly verified per-report evidence invalidates exactly that projection.
+
 <ui:copy id="simple-workspace-language-owners">
 import { createContext, useContext, useEffect, useState, useSyncExternalStore } from "react";
 import { useWorkspaceLsp, type LspSession } from "../lsp/useLsp";
 import { documentUri } from "../lsp/documentUri";
 import type { Buffer, Buffers } from "./buffers";
+import { diagnosticBoundSource } from "../lsp/diagnosticRevision";
 import { reportedProblems } from "./Intelligence";
 // Buffer lifetime owns language knowledge; a pane only borrows its session.
 class LanguageEntry {
   constructor(private changed: () => void = () => {}) {}
   value: LspSession = { client: null, uri: "", ready: false, diagnostics: [] };
+  private problemCache?: { source: string; diagnostics: LspSession["diagnostics"]; diagnosticSource?: string; reports: ReturnType<typeof reportedProblems> };
+  problems(buffer: Buffer) {
+    const session = this.value, cached = this.problemCache;
+    if (cached && cached.source === buffer.text && cached.diagnostics === session.diagnostics && cached.diagnosticSource === session.diagnosticSource) return cached.reports;
+    const reports = reportedProblems([{ uri: session.uri || documentUri(buffer.file.path), currentSource: buffer.text, source: session.diagnosticSource,
+      diagnostics: session.diagnostics.map(diagnostic => ({ ...diagnostic, sourceSnapshot: diagnosticBoundSource(diagnostic) })) }]);
+    this.problemCache = { source: buffer.text, diagnostics: session.diagnostics, diagnosticSource: session.diagnosticSource, reports };
+    return reports;
+  }
   private listeners = new Set<() => void>();
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
   read = () => this.value;
@@ -66,10 +78,7 @@ const emptyWorkspace = new WorkspaceLanguages();
 export function useWorkspaceProblems(buffers: Buffers) {
   const registry = useContext(languageContext) ?? emptyWorkspace;
   useSyncExternalStore(registry.subscribe, registry.snapshot);
-  return reportedProblems([...buffers.values.values()].map(buffer => {
-    const session = registry.entry(buffer).read();
-    return { uri: session.uri || documentUri(buffer.file.path), currentSource: buffer.text, source: session.diagnosticSource, diagnostics: session.diagnostics };
-  }));
+  return [...buffers.values.values()].flatMap(buffer => registry.entry(buffer).problems(buffer));
 }
 </ui:copy>
 

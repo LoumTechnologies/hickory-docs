@@ -238,8 +238,11 @@ struct VFileMapping {
     provider_diagnostics: Vec<serde_json::Value>,
     /// Child source bytes these provider diagnostics describe.
     provider_source: String,
+    /// Child counters belong to the bridge, not to any one editor connection.
+    provider_version: Option<i32>,
+    /// The directly authored source; project contributors borrow map bytes.
+    primary_source_hash: String,
 }
-
 </storycode:copy>
 <a id="f-c936496a03c1-impl-HickBackend"></a>
 ### `impl-HickBackend`
@@ -426,11 +429,12 @@ impl HickBackend {
                                 },
                                 end: Position {
                                     line: lsp_line,
-                                    character: u32::MAX,
+                                    character: source.split('\n').nth(lsp_line as usize).map(|line| line.encode_utf16().count() as u32).unwrap_or(0),
                                 },
                             },
                             severity: Some(DiagnosticSeverity::ERROR),
                             source: Some("hick-lsp".to_string()),
+                            data: Some(serde_json::json!({"hickory":{"source_hash":diagnostic_source_digest(source)},"provider":null})),
                             message,
                             ..Default::default()
                         }],
@@ -465,6 +469,11 @@ impl HickBackend {
         {
             let mut own = crate::element_lint::element_diagnostics(source, &state.doc);
             own.extend(crate::session_lint::session_diagnostics(source, &state.doc));
+            let own_hash = diagnostic_source_digest(source);
+            let own = own
+                .into_iter()
+                .map(|diagnostic| diagnostic_source_revision(diagnostic, Some(&own_hash)))
+                .collect();
             let merged = {
                 let mut store = self.child_diagnostics.write().await;
                 let per_hick = store.entry(hick_uri.clone()).or_default();
@@ -538,6 +547,7 @@ impl HickBackend {
         // 6. For each virtual file with a known language, forward to child LSP.
         let mut new_open_vfiles = Vec::new();
 
+        let primary_source_hash = diagnostic_source_digest(source);
         for vf in &service_files {
             tracing::debug!(path = %vf.path, language_id = ?vf.language_id, "processing virtual file");
 
@@ -577,6 +587,8 @@ impl HickBackend {
                         position_map,
                         provider_diagnostics: Vec::new(),
                         provider_source: content.clone(),
+                        provider_version: Some(vfile_version),
+                        primary_source_hash: primary_source_hash.clone(),
                     },
                 );
             }
@@ -701,6 +713,8 @@ impl HickBackend {
                     position_map: PositionMap::identity(lines),
                     provider_diagnostics: diagnostics,
                     provider_source: source.to_string(),
+                    provider_version: Some(version),
+                    primary_source_hash: diagnostic_source_digest(source),
                 },
             );
         }
@@ -1305,7 +1319,6 @@ impl HickBackend {
         });
     }
 }
-
 </storycode:copy>
 <a id="f-c936496a03c1-StructuralKind"></a>
 ### `StructuralKind`
@@ -1753,6 +1766,8 @@ fn child_request_error(error: crate::child_lsp::ChildLspError) -> tower_lsp::jso
 <a id="f-c936496a03c1-handle_child_diagnostics"></a>
 ### `handle_child_diagnostics`
 
+Reject explicit obsolete child versions before replacing a contribution. A matching bridge-owned child counter allows source evidence: hash directly authored text or borrow the exact compiler contributor bytes. The outer publication deliberately has no fabricated editor version, because different windows have different counters. Unversioned messages stay readable with null source evidence and do not become code-action diagnostic authority. Each diagnostic retains its own hash when contributions merge, so a newer report cannot relabel older reports as current.
+
 Process a publishDiagnostics notification from a child LSP.
 Instead of publishing each child's diagnostics independently (which would
 cause later children to overwrite earlier ones), we accumulate diagnostics
@@ -1806,33 +1821,40 @@ async fn handle_child_diagnostics(
     if mapping.language_id != notif.language_id {
         return Ok(());
     }
-    mapping.provider_diagnostics = child_diagnostics.clone();
+    let incoming_version = notif
+        .params
+        .get("version")
+        .and_then(|value| value.as_i64())
+        .and_then(|value| i32::try_from(value).ok());
+    if incoming_version.is_some() && incoming_version != mapping.provider_version {
+        return Ok(());
+    }
+    let current_revision =
+        incoming_version.is_some() && incoming_version == mapping.provider_version;
+    mapping.provider_diagnostics = if current_revision {
+        child_diagnostics.clone()
+    } else {
+        Vec::new()
+    };
     let hick_uri = mapping.hick_uri.clone();
     let position_map = &mapping.position_map;
 
     let mut translated: HashMap<Url, Vec<Diagnostic>> = HashMap::new();
+    let mut source_hashes: HashMap<Url, String> = HashMap::new();
     for diag_val in &child_diagnostics {
         let range = match diag_val.get("range") {
             Some(r) => r,
             None => continue,
         };
 
-        let start_line = range
-            .pointer("/start/line")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32;
-        let start_char = range
-            .pointer("/start/character")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32;
-        let end_line = range
-            .pointer("/end/line")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32;
-        let end_char = range
-            .pointer("/end/character")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32;
+        let Ok(range) = serde_json::from_value::<Range>(range.clone()) else {
+            continue;
+        };
+        if range.end < range.start {
+            continue;
+        }
+        let (start_line, start_char) = (range.start.line, range.start.character);
+        let (end_line, end_char) = (range.end.line, range.end.character);
 
         let Some((document, src_start_line, src_start_char)) =
             position_map.source_document(start_line, start_char)
@@ -1847,9 +1869,29 @@ async fn handle_child_diagnostics(
         if document != end_document {
             continue;
         }
-        let target = document
-            .and_then(|d| hick_uri.join(&d).ok())
+        let mut target = document
+            .as_deref()
+            .and_then(|d| hick_uri.join(d).ok())
             .unwrap_or_else(|| hick_uri.clone());
+        target.set_query(hick_uri.query());
+        let source_hash = if current_revision {
+            if let Some(hash) = source_hashes.get(&target) {
+                Some(hash.clone())
+            } else {
+                let hash = match document.as_deref() {
+                    Some(path) => position_map
+                        .project_source(path)
+                        .map(|source| diagnostic_source_digest(source)),
+                    None => Some(mapping.primary_source_hash.clone()),
+                };
+                if let Some(hash) = &hash {
+                    source_hashes.insert(target.clone(), hash.clone());
+                }
+                hash
+            }
+        } else {
+            None
+        };
 
         let severity = diag_val
             .get("severity")
@@ -1873,7 +1915,7 @@ async fn handle_child_diagnostics(
             .and_then(|s| s.as_str())
             .map(|s| s.to_string());
 
-        translated.entry(target).or_default().push(Diagnostic {
+        let diagnostic = Diagnostic {
             range: Range {
                 start: Position {
                     line: src_start_line,
@@ -1887,8 +1929,16 @@ async fn handle_child_diagnostics(
             severity,
             source,
             message,
+            data: diag_val.get("data").cloned(),
             ..Default::default()
-        });
+        };
+        translated
+            .entry(target)
+            .or_default()
+            .push(diagnostic_source_revision(
+                diagnostic,
+                source_hash.as_deref(),
+            ));
     }
 
     drop(index);
@@ -1923,7 +1973,6 @@ async fn handle_child_diagnostics(
 
     Ok(())
 }
-
 </storycode:copy>
 <a id="f-c936496a03c1-impl-LanguageServer-for-HickBackend"></a>
 ### `impl-LanguageServer for HickBackend`
@@ -2961,6 +3010,23 @@ impl HickBackend {
 
 </storycode:copy>
 
-<storycode:file path="crates/hick-lsp/src/backend.rs"><storycode:paste select="#f-c936496a03c1-diagnostic_context"/><storycode:paste select="#f-c936496a03c1-use_declaration"/><storycode:paste select="#f-c936496a03c1-captured"/><storycode:paste select="#f-c936496a03c1-use_declaration-2"/><storycode:paste select="#f-c936496a03c1-use_declaration-3"/><storycode:paste select="#f-c936496a03c1-use_declaration-4"/><storycode:paste select="#f-c936496a03c1-use_declaration-5"/><storycode:paste select="#f-c936496a03c1-use_declaration-6"/><storycode:paste select="#f-c936496a03c1-use_declaration-7"/><storycode:paste select="#f-c936496a03c1-use_declaration-8"/><storycode:paste select="#f-c936496a03c1-use_declaration-9"/><storycode:paste select="#f-c936496a03c1-use_declaration-10"/><storycode:paste select="#f-c936496a03c1-use_declaration-11"/><storycode:paste select="#f-c936496a03c1-use_declaration-12"/><storycode:paste select="#f-c936496a03c1-use_declaration-13"/><storycode:paste select="#f-c936496a03c1-use_declaration-14"/><storycode:paste select="#f-c936496a03c1-ChildDiagnosticsStore"/><storycode:paste select="#f-c936496a03c1-PreparedHierarchyItem"/><storycode:paste select="#f-c936496a03c1-uuid_ish"/><storycode:paste select="#f-c936496a03c1-HickBackend"/><storycode:paste select="#f-c936496a03c1-DocEntry"/><storycode:paste select="#f-c936496a03c1-VFileMapping"/><storycode:paste select="#yaml-frontmatter-projection"/><storycode:paste select="#f-c936496a03c1-impl-HickBackend"/><storycode:paste select="#static-language-capture-readiness"/><storycode:paste select="#f-c936496a03c1-StructuralKind"/><storycode:paste select="#f-c936496a03c1-drive_lowercased"/><storycode:paste select="#f-c936496a03c1-uri_key"/><storycode:paste select="#f-c936496a03c1-translate_edit_uris"/><storycode:paste select="#f-c936496a03c1-translate_bare_ranges"/><storycode:paste select="#f-c936496a03c1-MANIFESTS"/><storycode:paste select="#f-c936496a03c1-copy_manifests"/><storycode:paste select="#f-c936496a03c1-child_request_error"/><storycode:paste select="#f-c936496a03c1-handle_child_diagnostics"/><storycode:paste select="#f-c936496a03c1-impl-LanguageServer-for-HickBackend"/><storycode:paste select="#f-c936496a03c1-translate_edits"/><storycode:paste select="#f-c936496a03c1-reindent"/><storycode:paste select="#f-c936496a03c1-is_hick_document"/><storycode:paste select="#f-c936496a03c1-plain_language"/><storycode:paste select="#f-c936496a03c1-parse_error_location"/><storycode:paste select="#f-c936496a03c1-tests"/></storycode:file>
+## Keep engine source evidence outside provider data
+
+Provider data is an opaque payload, not evidence that its coordinates describe current source. Wrap it under a provider key and put engine-owned source evidence in a separate namespace. An unknown revision stays null. Even a provider that supplies a lookalike key cannot manufacture the outer engine hash. The exact child version is checked before any hash is attached.
+
+<storycode:copy id="diagnostic-source-revision-envelope">
+fn diagnostic_source_digest(source: &str) -> String {
+    use sha2::{Digest, Sha256};
+    format!("sha256:{:x}", Sha256::digest(source.as_bytes()))
+}
+fn diagnostic_source_revision(mut diagnostic: Diagnostic, source_hash: Option<&str>) -> Diagnostic {
+    let provider = diagnostic.data.take();
+    diagnostic.data =
+        Some(serde_json::json!({"hickory":{"source_hash":source_hash},"provider":provider}));
+    diagnostic
+}
+</storycode:copy>
+
+<storycode:file path="crates/hick-lsp/src/backend.rs"><storycode:paste select="#f-c936496a03c1-diagnostic_context"/><storycode:paste select="#f-c936496a03c1-use_declaration"/><storycode:paste select="#f-c936496a03c1-captured"/><storycode:paste select="#f-c936496a03c1-use_declaration-2"/><storycode:paste select="#f-c936496a03c1-use_declaration-3"/><storycode:paste select="#f-c936496a03c1-use_declaration-4"/><storycode:paste select="#f-c936496a03c1-use_declaration-5"/><storycode:paste select="#f-c936496a03c1-use_declaration-6"/><storycode:paste select="#f-c936496a03c1-use_declaration-7"/><storycode:paste select="#f-c936496a03c1-use_declaration-8"/><storycode:paste select="#f-c936496a03c1-use_declaration-9"/><storycode:paste select="#f-c936496a03c1-use_declaration-10"/><storycode:paste select="#f-c936496a03c1-use_declaration-11"/><storycode:paste select="#f-c936496a03c1-use_declaration-12"/><storycode:paste select="#f-c936496a03c1-use_declaration-13"/><storycode:paste select="#f-c936496a03c1-use_declaration-14"/><storycode:paste select="#f-c936496a03c1-ChildDiagnosticsStore"/><storycode:paste select="#f-c936496a03c1-PreparedHierarchyItem"/><storycode:paste select="#f-c936496a03c1-uuid_ish"/><storycode:paste select="#f-c936496a03c1-HickBackend"/><storycode:paste select="#f-c936496a03c1-DocEntry"/><storycode:paste select="#f-c936496a03c1-VFileMapping"/><storycode:paste select="#yaml-frontmatter-projection"/><storycode:paste select="#f-c936496a03c1-impl-HickBackend"/><storycode:paste select="#static-language-capture-readiness"/><storycode:paste select="#f-c936496a03c1-StructuralKind"/><storycode:paste select="#f-c936496a03c1-drive_lowercased"/><storycode:paste select="#f-c936496a03c1-uri_key"/><storycode:paste select="#f-c936496a03c1-translate_edit_uris"/><storycode:paste select="#f-c936496a03c1-translate_bare_ranges"/><storycode:paste select="#f-c936496a03c1-MANIFESTS"/><storycode:paste select="#f-c936496a03c1-copy_manifests"/><storycode:paste select="#f-c936496a03c1-child_request_error"/><storycode:paste select="#f-c936496a03c1-handle_child_diagnostics"/><storycode:paste select="#f-c936496a03c1-impl-LanguageServer-for-HickBackend"/><storycode:paste select="#f-c936496a03c1-translate_edits"/><storycode:paste select="#f-c936496a03c1-reindent"/><storycode:paste select="#f-c936496a03c1-is_hick_document"/><storycode:paste select="#f-c936496a03c1-plain_language"/><storycode:paste select="#f-c936496a03c1-parse_error_location"/><storycode:paste select="#f-c936496a03c1-tests"/><storycode:paste select="#diagnostic-source-revision-envelope"/></storycode:file>
 
 </storycode:doc>

@@ -16,6 +16,7 @@ Related contracts: [Review threads preserve the questioned target](../../../../.
 ### `ReviewTarget`
 
 <storycode:copy id="f-5c187cb40ff5-ReviewTarget">
+import { sourceDigest } from "../lsp/diagnosticRevision";
 import type { EditorView } from "@codemirror/view";
 export interface ReviewTarget {
   kind: string; path: string; quote: string; source_hash: string; lines: [number, number]; relationship?: unknown;
@@ -78,8 +79,7 @@ export function registerReviewEditor(view: EditorView, path: string, recordedSou
 
 <storycode:copy id="f-5c187cb40ff5-sha256">
 export async function sha256(source: string): Promise<string> {
-  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(source)));
-  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+  return (await sourceDigest(source)).slice("sha256:".length);
 }
 </storycode:copy>
 <a id="f-5c187cb40ff5-targetFor"></a>

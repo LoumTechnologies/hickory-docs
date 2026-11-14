@@ -16,6 +16,7 @@ export interface LspLocation {
 }
 
 export interface LspDiagnostic {
+  data?: unknown;
   range: LspRange;
   severity?: number;
   source?: string;
