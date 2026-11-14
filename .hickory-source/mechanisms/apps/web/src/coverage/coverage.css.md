@@ -10,6 +10,8 @@ This page owns the output construction and the explained fragments below. Source
 
 Present and edit the shared engine state. Browser-side revisions, pending requests and local drafts affect which source and UI actions are still valid.
 
+Embedded native hosts use the same scrollable content without a second backdrop, fixed outer width or extra chrome. The ordinary browser modal keeps its original presentation.
+
 This literal construction preserves embedded document syntax and exact file bytes. Its internal reasoning boundaries still need editorial review.
 
 <storycode:entry path="apps/web/src/coverage/coverage.css">
@@ -31,6 +33,8 @@ This literal construction preserves embedded document syntax and exact file byte
 .coverage-link { color: var(--accent, #268); cursor: pointer; border: 0; background: transparent; text-align: left; overflow-wrap: anywhere; }
 .coverage-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: auto; font-size: 12px; }
 @media (max-width: 650px) { .coverage-columns { grid-template-columns: 1fr; } }
+.coverage-embedded { position: static; inset: auto; display: block; background: transparent; padding: 0; }
+.coverage-embedded .coverage-panel { width: 100%; max-height: 100dvh; border: 0; border-radius: 0; padding: 12px; box-shadow: none; box-sizing: border-box; }
 </storycode:entry>
 
 </storycode:doc>

@@ -292,4 +292,5 @@ is included with that control; opening a document is not generation authority.
 <storycode:include file="test-source-http-witness.md" />
 <storycode:include file="runner-discovery-observations.md" />
 <storycode:include file="runner-discovery-http-witness.md" />
+<storycode:include file="coverage-surface.md" />
 </storycode:doc>

@@ -16,9 +16,10 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:copy id="f-3a1d89696711-CoverageTools">
 import { PerformanceTools } from "../performance/PerformanceTools";
 import { createPortal } from "react-dom";
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { coverageCall } from "./client";
-import type { CoverageComparison, CoverageRun } from "./types";
+import type { CoverageComparison, CoverageDiscovery, CoverageRun } from "./types";
+import {coverageSourceNavigation,coverageLanguage,type CoverageSurfaceClient} from "./CoverageSurface";
 import { selectCoverage } from "./selection";
 import { openLocation } from "../lib/revealLine";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
@@ -34,65 +35,117 @@ export function CoverageTools({ path }: { path?: string | null }) {
 <a id="f-3a1d89696711-CoveragePanel"></a>
 ### `CoveragePanel`
 
+Inject transport, editor selection and navigation through one adapter while preserving the existing browser default. UI-only input state remains local. Closing the surface retires request authority; initial retained selection can be restored by ID.
+
 <storycode:copy id="f-3a1d89696711-CoveragePanel">
-export function CoveragePanel({ initialPath = ".", close }: { initialPath?: string; close: () => void }) {
-  const [path, setPath] = useState(initialPath), [language, setLanguage] = useState("python");
+const browserSurface:CoverageSurfaceClient={call:coverageCall,select:selectCoverage,navigate:location=>openLocation(location.path,location.line??1)};
+export function CoveragePanel({ initialPath = ".", initialLanguage="python", initialSelectedId, close, client=browserSurface, embedded=false }: { initialPath?: string;initialLanguage?:string;initialSelectedId?:string|null; close: () => void;client?:CoverageSurfaceClient;embedded?:boolean }) {
+  const coverageCall=client.call,selectCoverage=client.select;
+  const live=useRef(true),ticket=useRef(0),selectedId=useRef<string|null>(null),listPending=useRef<Promise<void>|null>(null),listTicket=useRef(0);
+  const current=useCallback((id:number)=>live.current&&ticket.current===id,[]);
+  useEffect(()=>{live.current=true;return()=>{live.current=false;ticket.current++;listTicket.current++;listPending.current=null;};},[]);
+  const closeSurface=()=>{ticket.current++;close();};
+  const [path, setPath] = useState(initialPath), [language, setLanguage] = useState(()=>coverageLanguage(initialLanguage));
   const [runs, setRuns] = useState<CoverageRun[]>([]), [selected, setSelected] = useState<CoverageRun | null>(null);
   const [group, setGroup] = useState(""), [label, setLabel] = useState(""), [filter, setFilter] = useState("");
   const [url, setUrl] = useState("http://127.0.0.1:9222"), [page, setPage] = useState("");
   const [profile, setProfile] = useState(""), [error, setError] = useState(""), [pending, setPending] = useState(false);
   const [discovered, setDiscovered] = useState<CoverageRun["tests"]>([]), [config, setConfig] = useState<CoverageRun["metadata"] | null>(null);
+  const [discovery,setDiscovery]=useState<CoverageDiscovery|null>(null);
   const [other, setOther] = useState(""), [metric, setMetric] = useState("line"), [comparison, setComparison] = useState<CoverageComparison | null>(null);
   const [format, setFormat] = useState("lcov"), [report, setReport] = useState(""), [identity, setIdentity] = useState("");
   const [verdict, setVerdict] = useState("partial"), [notes, setNotes] = useState("");
   const [limit, setLimit] = useState(100);
-  const refresh = useCallback(async () => { const value = await coverageCall<{ runs: CoverageRun[] }>({ action: "list" }); setRuns(value.runs); }, []);
-  useEffect(() => { void refresh().catch(e => setError(String(e))); }, [refresh]);
-  // Only collector runs launched by the product are refreshed here; no CI monitoring.
-  useEffect(() => {
-    if (!runs.some(r => r.status === "running")) return;
-    const timer = setInterval(() => { void refresh().catch(e => setError(String(e))); }, 2000);
-    return () => clearInterval(timer);
-  }, [runs, refresh]);
-  const act = async (action: string, extra: Record<string, unknown> = {}) => {
-    setPending(true); setError(""); setComparison(null);
+</storycode:copy>
+
+Deduplicate history reads so a slow list cannot accumulate interval requests. Superseded or closed reads cannot replace newer visible data. Polling is confined to this product's collector records.
+
+<storycode:copy id="coverage-surface-list-lifecycle">
+  const refresh = useCallback(():Promise<void>=>{
+    if(listPending.current)return listPending.current;
+    const id=++listTicket.current;
+    const request=coverageCall<{runs:CoverageRun[]}>({action:"list"}).then(value=>{if(live.current&&listTicket.current===id)setRuns(value.runs);}).catch(error=>{if(live.current&&listTicket.current===id)setError(String(error));}).finally(()=>{if(listTicket.current===id)listPending.current=null;});
+    listPending.current=request;return request;
+  },[coverageCall]);
+  useEffect(()=>{void refresh().catch(error=>{if(live.current)setError(String(error));});},[refresh]);
+  // Watch only the product's own collector records; never CI or post-commit checks.
+  useEffect(()=>{if(!runs.some(run=>run.status==="running"))return;const timer=setInterval(()=>{void refresh().catch(error=>{if(live.current)setError(String(error));});},2000);return()=>clearInterval(timer);},[runs,refresh]);
+  const inputs=useRef("");inputs.current=path+"\0"+language;
+  const install=(run:CoverageRun)=>{setSelected(run);selectedId.current=run.id;selectCoverage(run);setNotes(run.notes);setConfig(run.metadata);};
+</storycode:copy>
+
+Each explicit operation receives a ticket. A newer selection or command retires older replies, without pretending that a runner already admitted by the engine was canceled. Project settings and discovery additionally retain their requested input scope. A discovery reply clears the selected run view so it cannot accidentally show old results as newly discovered cases.
+
+<storycode:copy id="coverage-surface-operation-lifecycle">
+  const act=async(action:string,extra:Record<string,unknown>={})=>{
+    const id=++ticket.current;setPending(true);setError("");setComparison(null);
     try {
-      const value = await coverageCall<CoverageRun>({ action, path, language, ...(group ? { group } : {}), labels: label.split(",").map(s => s.trim()).filter(Boolean), ...(selected ? { id: ["stop", "checkpoint", "browser-checkpoint"].includes(action) ? selected.parent ?? selected.id : selected.id } : {}), ...extra });
-      if (value.id && value.status !== "stopping") { const run = await coverageCall<CoverageRun>({ action: "get", id: value.id }); setSelected(run); selectCoverage(run); setNotes(run.notes); }
-      await refresh();
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-    finally { setPending(false); }
+      const value=await coverageCall<CoverageRun>({action,path,language,...(group?{group}:{}),labels:label.split(",").map(value=>value.trim()).filter(Boolean),...(selected?{id:["stop","checkpoint","browser-checkpoint"].includes(action)?selected.parent??selected.id:selected.id}:{}),...extra});
+      if(value.id&&value.status!=="stopping") {const run=await coverageCall<CoverageRun>({action:"get",id:value.id});if(current(id))install(run);}
+      if(live.current)await refresh();
+    }catch(error){if(current(id))setError(String(error));}finally{if(current(id))setPending(false);}
   };
-  const choose = async (id: string) => { setPending(true); try { const run = await coverageCall<CoverageRun>({ action: "get", id }); setSelected(run); setConfig(run.metadata); setNotes(run.notes); selectCoverage(run); setComparison(null); } catch (e) { setError(String(e)); } finally { setPending(false); } };
-  const inspect = async () => { setPending(true); setError(""); try { const value = await coverageCall<{ metadata: CoverageRun["metadata"] }>({ action: "inspect", path, language }); setConfig(value.metadata); } catch (e) { setError(String(e)); } finally { setPending(false); } };
-  const discover = async () => {
-    setPending(true); setError("");
-    try { const value = await coverageCall<{ tests: CoverageRun["tests"]; metadata: CoverageRun["metadata"] }>({ action: "discover", path, language }); setDiscovered(value.tests); setConfig(value.metadata); }
-    catch (e) { setError(String(e)); } finally { setPending(false); }
+  const choose=useCallback(async(id:string)=>{
+    const request=++ticket.current;setPending(true);setError("");
+    try {const run=await coverageCall<CoverageRun>({action:"get",id});if(current(request)){setSelected(run);selectedId.current=run.id;setPath(run.project||".");setLanguage(coverageLanguage(run.language));setGroup(run.group??"");setConfig(run.metadata);setNotes(run.notes);selectCoverage(run);setComparison(null);}}
+    catch(error){if(current(request))setError(String(error));}finally{if(current(request))setPending(false);}
+  },[coverageCall,selectCoverage,current]);
+  useEffect(()=>{if(initialSelectedId&&initialSelectedId!==selectedId.current)void choose(initialSelectedId);},[initialSelectedId,choose]);
+  const inspect=async()=>{
+    const id=++ticket.current,basis=inputs.current;setPending(true);setError("");
+    try {const value=await coverageCall<{metadata:CoverageRun["metadata"]}>({action:"inspect",path,language});if(current(id)&&inputs.current===basis)setConfig(value.metadata);}
+    catch(error){if(current(id))setError(String(error));}finally{if(current(id))setPending(false);}
   };
-  const compare = async () => { setPending(true); setError(""); try { setComparison(await coverageCall<CoverageComparison>({ action: "compare", id: selected?.id, other, metric })); } catch (e) { setComparison(null); setError(String(e)); } finally { setPending(false); } };
+  const discover=async()=>{
+    const id=++ticket.current,basis=inputs.current;setPending(true);setError("");setComparison(null);
+    try {const value=await coverageCall<CoverageDiscovery>({action:"discover",path,language});if(current(id)&&inputs.current===basis){setDiscovered(value.tests);setConfig(value.metadata);setDiscovery(value.version===1?value:null);setSelected(null);selectedId.current=null;selectCoverage(null);}}
+    catch(error){if(current(id))setError(String(error));}finally{if(current(id))setPending(false);}
+  };
+  const comparisonBasis=useRef("");comparisonBasis.current=JSON.stringify([selected?.id,other,metric]);
+  const compare=async()=>{
+    const id=++ticket.current,basis=comparisonBasis.current;setPending(true);setError("");setComparison(null);
+    try {const value=await coverageCall<CoverageComparison>({action:"compare",id:selected?.id,other,metric});if(current(id)&&basis===comparisonBasis.current)setComparison(value);}
+    catch(error){if(current(id))setError(String(error));}finally{if(current(id))setPending(false);}
+  };
+</storycode:copy>
+
+Measurement rows, source ownership and reported results remain separate. Use the source-navigation model to distinguish a precise, hash-bound reveal from an unbound file open. A host rechecks current buffer text; navigation failure leaves a readable report and message.
+
+<storycode:copy id="coverage-surface-source-projection">
+  const supported=["python","csharp","typescript","rust"].includes(language);
   const active = selected && ["running", "collecting"].includes(runs.find(r => r.id === (selected.parent ?? selected.id))?.status ?? selected.status);
   const files = Object.entries(selected?.evidence?.report.files ?? {});
   const rows = files.flatMap(([file, data]) => Object.entries(data.lines).map(([n, count]) => ({ file, line: +n, count, countsAvailable: data.line_counts })));
   const filtered = rows.filter(row => !filter || `${row.file}:${row.line} ${row.count ? "covered" : "uncovered"}`.includes(filter));
   const visibleRuns = runs.filter(r => !label || label.split(",").some(l => [...r.labels, ...(r.evidence?.labels ?? [])].includes(l.trim())));
   const results = selected?.tests ?? discovered;
-  const navigate = (file: string, line: number) => {
-    const mapping = selected?.mappings[file]?.[line]; close(); openLocation(mapping?.path ?? file, mapping?.line ?? line);
+  const navigate=async(file:string,line:number|null)=>{
+    const id=++ticket.current;setPending(true);setError("");
+    try {await client.navigate(coverageSourceNavigation(selected,file,line,discovery));if(current(id))closeSurface();}catch(error){if(current(id))setError(String(error));}finally{if(current(id))setPending(false);}
   };
-  return <div className="coverage-backdrop"><section className="coverage-panel" role="dialog" aria-label="Tests and code coverage" aria-modal="true">
-    <header><h2>Tests &amp; code coverage</h2><button className="btn" onClick={close} aria-label="Close coverage">Close</button></header>
-    <p>Coverage measures executed code. Test results and manual workflow verdicts are separate. Uninstrumented or missing data is unknown.</p>
+</storycode:copy>
+
+Present project/group controls inside a floating surface. Discovery and automated runs explicitly use saved project files. Native hosts may embed the same surface without adding editor chrome.
+
+<storycode:copy id="coverage-surface-controls">
+  return <div className={`coverage-backdrop${embedded?" coverage-embedded":""}`}><section className="coverage-panel" role="dialog" aria-label="Tests and code coverage" aria-modal={!embedded}>
+    <header><h2>Tests &amp; code coverage</h2><button className="btn" onClick={closeSurface} aria-label="Close coverage">Close</button></header>
+    <p>Coverage measures executed code. Test results and manual workflow verdicts are separate. Uninstrumented or missing data is unknown. Runner discovery may build or import the saved project; it does not inspect unsaved drafts.</p>
     <div className="coverage-controls">
-      <label>Project or source file<input value={path} onChange={e => setPath(e.target.value)} /></label>
-      <label>Language<select value={language} onChange={e => setLanguage(e.target.value)}>{["python", "csharp", "typescript", "rust"].map(s => <option key={s}>{s}</option>)}</select></label>
+      <label>Project or source file<input value={path} onChange={e => {setPath(e.target.value);setConfig(null);setGroup("");setDiscovery(null);setDiscovered([]);}} /></label>
+      <label>Language<select value={language} onChange={e => {setLanguage(e.target.value);setConfig(null);setGroup("");setDiscovery(null);setDiscovered([]);}}>{!supported&&<option value={language}>{language} (collector unavailable)</option>}{["python", "csharp", "typescript", "rust"].map(s => <option key={s}>{s}</option>)}</select></label>
       <label>Group<select value={group} onChange={e => setGroup(e.target.value)}><option value="">All project tests</option>{Object.keys(config?.groups ?? {}).map(g => <option key={g}>{g}</option>)}</select></label>
       <label>Labels / history filter (comma separated)<input value={label} onChange={e => setLabel(e.target.value)} placeholder="happy-path, boundary" /></label>
       <button className="btn" disabled={pending} onClick={() => { void inspect(); }}>Read project groups and profiles</button>
-      <button className="btn" disabled={pending} onClick={() => { void discover(); }}>Discover tests</button>
-      <button className="btn" disabled={pending} onClick={() => { void act("run"); }}>Run with coverage</button>
-      <button className="btn" disabled={pending || !selected?.tests.some(t => t.status === "failed")} onClick={() => { void act("rerun-failed"); }}>Rerun failed tests</button>
+      <button className="btn" disabled={pending||!supported} onClick={() => { void discover(); }}>Discover runner cases</button>
+      <button className="btn" disabled={pending||!supported} onClick={() => { void act("run"); }}>Run saved project with coverage</button>
+      <button className="btn" disabled={pending || !selected?.tests.some(t => t.status === "failed")} onClick={() => { void act("rerun-failed"); }}>Rerun failed tests from selected run</button>
     </div>
+</storycode:copy>
+
+Manual collection, imported reports and workflow verdicts stay distinct from automated tests. A paste field makes report import available when a host has no browser file-picker delegate. Unknown identity never becomes zero coverage.
+
+<storycode:copy id="coverage-surface-manual-import">
     <details><summary>Human or AI manual testing</summary>
       <p>Start an instrumented app, exercise it yourself or with an AI, then collect checkpoints. Browser counters use the start-time baseline; reloads or counter resets require a new session.</p>
       <div className="coverage-controls">
@@ -110,19 +163,25 @@ export function CoveragePanel({ initialPath = ".", close }: { initialPath?: stri
     <details><summary>Import a standard report</summary><div className="coverage-controls">
       <label>Format<select value={format} onChange={e => setFormat(e.target.value)}>{["lcov", "coverage-py", "cobertura", "istanbul"].map(s => <option key={s}>{s}</option>)}</select></label>
       <label>Report file<input type="file" accept=".json,.xml,.info,.lcov" onChange={e => { const file = e.target.files?.[0]; if (file) void file.text().then(setReport); }} /></label>
+      <label>Report contents<textarea value={report} onChange={event=>setReport(event.target.value)} /></label>
       <label>Original identity JSON (optional)<textarea value={identity} onChange={e => setIdentity(e.target.value)} placeholder="Without original source hashes this report remains unknown." /></label>
       <button className="btn" disabled={pending || !report} onClick={() => { try { void act("import", { format, raw: report, ...(identity ? { identity: JSON.parse(identity) as unknown } : {}) }); } catch (e) { setError(String(e)); } }}>Import report</button>
     </div></details>
     {error && <p className="error" role="alert">{error}</p>}
+</storycode:copy>
+
+Retain run/checkpoint history, measurement denominators, branch-data limits, raw output and test failures. Missing provider locations offer a file open. A changed or unversioned listing cannot advertise an exact source position.
+
+<storycode:copy id="coverage-surface-evidence-view">
     <div className="coverage-columns"><nav aria-label="Coverage run history"><h3>Runs and checkpoints</h3><button className="btn" disabled={pending} onClick={() => { void refresh().catch(e => setError(String(e))); }}>Refresh runs</button>
       {visibleRuns.length === 0 && <p>No recorded evidence.</p>}{visibleRuns.map(r => <button key={r.id} className="coverage-run" aria-pressed={selected?.id === r.id} onClick={() => { void choose(r.id); }}>{new Date(r.started_ms).toLocaleString()} · {r.mode} · {r.status}<br />{r.source_state} · {r.evidence?.labels.join(", ") || r.labels.join(", ") || "unlabeled"}<br /><small>{r.id}</small></button>)}
     </nav><main>
       {selected && <><h3>{selected.mode} · {selected.status} · {selected.source_state} source</h3><p>Run <code>{selected.id}</code> · {selected.identity.collector} · scope: {selected.project || "."} · attribution: {selected.evidence?.attribution ?? "unavailable"}</p>
         {selected.error && <p role="alert" className="error">{selected.error}</p>}
-        <button className="btn" onClick={() => selectCoverage(null)}>Clear editor coverage</button>
+        <button className="btn" onClick={() => {ticket.current++;setPending(false);selectedId.current=null;selectCoverage(null);}}>Clear editor coverage</button>
         <button className="btn" disabled={pending} onClick={() => { void choose(selected.id); }}>Reload selected run</button>
         {selected.evidence ? <p><strong>{rows.filter(r => r.count > 0).length} / {rows.length} executable lines covered</strong>. {files.some(([, f]) => f.branches !== null) ? `${files.reduce((n, [, f]) => n + (f.branches?.filter(b => b.covered).length ?? 0), 0)} / ${files.reduce((n, [, f]) => n + (f.branches?.length ?? 0), 0)} identified branches covered in files with branch data.` : "Identified branch coverage unavailable; provider aggregates, if any, remain in the raw report."}</p> : <p>Coverage unavailable. This is not zero coverage.</p>}
-        <div className="coverage-controls"><label>Compare with<select value={other} onChange={e => setOther(e.target.value)}><option value="">Choose another run</option>{runs.filter(r => r.id !== selected.id).map(r => <option key={r.id} value={r.id}>{r.id.slice(0, 8)} · {r.source_state} · {r.evidence?.labels.join(", ") || r.labels.join(", ")}</option>)}</select></label><label>Metric<select value={metric} onChange={e => setMetric(e.target.value)}><option value="line">Line</option><option value="branch">Identified branch</option></select></label><button className="btn" disabled={pending || !other} onClick={() => { void compare(); }}>Compare compatible groups</button></div>
+        <div className="coverage-controls"><label>Compare with<select value={other} onChange={e => {setOther(e.target.value);setComparison(null);}}><option value="">Choose another run</option>{runs.filter(r => r.id !== selected.id).map(r => <option key={r.id} value={r.id}>{r.id.slice(0, 8)} · {r.source_state} · {r.evidence?.labels.join(", ") || r.labels.join(", ")}</option>)}</select></label><label>Metric<select value={metric} onChange={e => {setMetric(e.target.value);setComparison(null);}}><option value="line">Line</option><option value="branch">Identified branch</option></select></label><button className="btn" disabled={pending || !other} onClick={() => { void compare(); }}>Compare compatible groups</button></div>
         {comparison && <div role="status"><p>{selected.source_state !== "current" || runs.find(r => r.id === other)?.source_state !== "current" ? "Historical comparison of compatible recorded sources. " : ""}{comparison.denominator} measured {metric} locations: {comparison.shared.length} shared, {comparison.left_only.length} only selected, {comparison.right_only.length} only other, {comparison.missed.length} missed by both.</p>{(["shared", "left_only", "right_only", "missed"] as const).map(key => <details key={key}><summary>{key.replaceAll("_", " ")} ({comparison[key].length})</summary><pre>{comparison[key].join("\n")}</pre></details>)}</div>}
         <label>Filter executable locations<input value={filter} onChange={e => { setFilter(e.target.value); setLimit(100); }} placeholder="file, covered, uncovered" /></label>
         <table><thead><tr><th>Source / document</th><th>Line</th><th>Count</th><th>State</th></tr></thead><tbody>{filtered.slice(0, limit).map(row => <tr key={`${row.file}:${row.line}`}><td><button className="coverage-link" onClick={() => navigate(row.file, row.line)}>{row.file}{selected.mappings[row.file]?.[row.line] ? " → document" : ""}</button></td><td>{row.line}</td><td>{row.countsAvailable ? row.count : "unavailable"}</td><td>{row.count ? "covered" : "uncovered executable"}</td></tr>)}</tbody></table>
@@ -131,16 +190,20 @@ export function CoveragePanel({ initialPath = ".", close }: { initialPath?: stri
         <details><summary>Collector output and original report</summary><pre>{selected.output || "No runner output"}</pre><pre>{selected.evidence?.report.raw}</pre><pre>{JSON.stringify(selected.identity, null, 2)}</pre></details>
         {selected.mode === "manual" && <div className="coverage-controls"><label>Manual workflow verdict<select value={verdict} onChange={e => setVerdict(e.target.value)}>{["passed", "failed", "partial", "blocked", "untested"].map(v => <option key={v}>{v}</option>)}</select></label><label>Observation / prerequisites<textarea value={notes} onChange={e => setNotes(e.target.value)} /></label><button className="btn" disabled={pending || !!active} onClick={() => { void act("annotate", { verdict, notes }); }}>Record manual verdict</button><p>Recorded verdict: {selected.manual_verdict ?? "none"}</p></div>}
       </>}
-      <details open><summary>Test discovery and results ({results.length})</summary>{results.length === 0 && <p>No individual test results available.</p>}{results.map((test, index) => <details key={`${test.id}:${index}`}><summary>{test.status} · {test.id} · {test.labels.join(", ")}</summary>{test.path && <button className="coverage-link" onClick={() => openLocation(test.path!, test.line ?? 1)}>Open source {test.line ? `line ${test.line}` : "(line unavailable)"}</button>}<pre>{test.output || "No failure output"}</pre></details>)}</details>
+      <details open><summary>Test discovery and results ({results.length})</summary>
+        {!selected&&discovered.length>0&&<p>{discovery?`Runner listing from ${discovery.project||"."} · ${discovery.source_state} saved source. Files were not frozen.`:"Unversioned runner listing. Exact source positions unavailable."}</p>}
+        {results.length===0&&<p>No individual test results available.</p>}{results.map((test,index)=>{const location=test.path?coverageSourceNavigation(selected,test.path,test.line,discovery):null;return <details key={`${test.id}:${index}`}><summary>{test.status} · {test.id} · {test.labels.join(", ")}</summary>{test.path&&<button className="coverage-link" onClick={()=>{void navigate(test.path!,test.line);}}>{location?.line?`Open source line ${location.line}`:"Open file (position unavailable)"}</button>}<pre>{test.output||"No failure output"}</pre></details>;})}</details>
     </main></div>
   </section></div>;
 }
 </storycode:copy>
 
+
+
 ### Assemble `apps/web/src/coverage/CoverageTools.tsx`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/coverage/CoverageTools.tsx"><storycode:paste select="#f-3a1d89696711-CoverageTools"/><storycode:paste select="#f-3a1d89696711-CoveragePanel"/></storycode:file>
+<storycode:file path="apps/web/src/coverage/CoverageTools.tsx"><storycode:paste select="#f-3a1d89696711-CoverageTools"/><storycode:paste select="#f-3a1d89696711-CoveragePanel"/><storycode:paste select="#coverage-surface-list-lifecycle"/><storycode:paste select="#coverage-surface-operation-lifecycle"/><storycode:paste select="#coverage-surface-source-projection"/><storycode:paste select="#coverage-surface-controls"/><storycode:paste select="#coverage-surface-manual-import"/><storycode:paste select="#coverage-surface-evidence-view"/></storycode:file>
 
 </storycode:doc>

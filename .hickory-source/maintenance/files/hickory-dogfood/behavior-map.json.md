@@ -25894,7 +25894,13 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "f-3a1d89696711-CoverageTools",
-        "f-3a1d89696711-CoveragePanel"
+        "f-3a1d89696711-CoveragePanel",
+        "coverage-surface-list-lifecycle",
+        "coverage-surface-operation-lifecycle",
+        "coverage-surface-source-projection",
+        "coverage-surface-controls",
+        "coverage-surface-manual-import",
+        "coverage-surface-evidence-view"
       ],
       "anchor": "output-3a1d89696711",
       "narrative_owner": "mechanism:apps/web"
@@ -68998,6 +69004,39 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "runner-discovery-http-0",
         "runner-discovery-http-1"
+      ]
+    },
+    "apps/web/src/coverage/CoverageSurface.ts": {
+      "source": ".hickory-source/mechanisms/coverage-surface.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "a86260209bcab0efdb62bbca78c3e15cc58a83170eca750515695dac828aae8c",
+      "construction": "fragments",
+      "fragments": [
+        "coverage-surface-navigation"
+      ]
+    },
+    "apps/web/src/coverage/CoverageSurface.test.ts": {
+      "source": ".hickory-source/mechanisms/coverage-surface.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "8538468e8f578859fdd0488d5dcfd8db6a9d822600d594496111ce19eb875a94",
+      "construction": "fragments",
+      "fragments": [
+        "coverage-surface-navigation-witness"
+      ]
+    },
+    "apps/web/src/coverage/CoverageSurfaceView.test.tsx": {
+      "source": ".hickory-source/mechanisms/coverage-surface.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "d32151bfeb10ac5304fb781d3a359bbbc3e622200c1977064382d5f52363b669",
+      "construction": "fragments",
+      "fragments": [
+        "coverage-surface-lifecycle-witness"
       ]
     }
   },

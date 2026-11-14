@@ -405,4 +405,12 @@ The shared runner-discovery endpoint now returns a versioned observation: report
 
 Verification: two focused model/path witnesses pass. A real Cargo HTTP witness creates a fresh dependency-free crate, proves that lockfile creation retires the first observation without replacing its before hashes, obtains a current stable second listing, and checks a later source edit changes the identity. Its test body never runs. TypeScript checking and reconstruction/audit pass. Shared floating coverage/results integration remains separate work.
 
+## Reusable structured test/coverage surface
+
+The existing structured test/coverage view now accepts one replaceable adapter for service calls, editor coverage selection and source navigation. Browser defaults remain available, and native embedding has its own reversible presentation. Runner discovery explicitly uses saved project files and may build/import the project. Unsupported collector languages remain unavailable; JavaScript/TypeScript aliases use their existing collector family. A paste field supports standard-report import without requiring a browser file-picker delegate.
+
+Request tickets retire superseded/closed operation replies and deduplicate pending history reads. A newer discovery observation replaces old selected-run result rows. Navigation distinguishes unbound file opens from positive source positions with a valid captured owner hash and no observed execution-source change; each host must independently compare that hash with its current buffer before revealing a position. A rejected navigation keeps the report readable.
+
+Verification: eight focused adapter/model/view checks and TypeScript checking pass. The view checks control this product's own adapter to prove reply ordering, closed-view refusal, history coalescing, result replacement and retained reporting after a host navigation rejection; they do not certify an external collector. Reconstruction/audit pass. Simple-host integration and native shared-surface acceptance remain separate work.
+
 </ui:doc>

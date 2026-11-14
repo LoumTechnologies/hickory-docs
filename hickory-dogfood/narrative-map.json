@@ -152137,6 +152137,69 @@
       "page": ".hickory-source/mechanisms/apps/web/src/coverage/types.ts.md",
       "symbol": "Keep runner listings separate from completed test evidence",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "coverage-surface-navigation",
+      "output": "apps/web/src/coverage/CoverageSurface.ts",
+      "page": ".hickory-source/mechanisms/coverage-surface.md",
+      "symbol": "coverage-surface-navigation",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "coverage-surface-navigation-witness",
+      "output": "apps/web/src/coverage/CoverageSurface.test.ts",
+      "page": ".hickory-source/mechanisms/coverage-surface.md",
+      "symbol": "coverage-surface-navigation-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "coverage-surface-list-lifecycle",
+      "output": "apps/web/src/coverage/CoverageTools.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/coverage/CoverageTools.tsx.md",
+      "symbol": "coverage-surface-list-lifecycle",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "coverage-surface-operation-lifecycle",
+      "output": "apps/web/src/coverage/CoverageTools.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/coverage/CoverageTools.tsx.md",
+      "symbol": "coverage-surface-operation-lifecycle",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "coverage-surface-source-projection",
+      "output": "apps/web/src/coverage/CoverageTools.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/coverage/CoverageTools.tsx.md",
+      "symbol": "coverage-surface-source-projection",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "coverage-surface-controls",
+      "output": "apps/web/src/coverage/CoverageTools.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/coverage/CoverageTools.tsx.md",
+      "symbol": "coverage-surface-controls",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "coverage-surface-manual-import",
+      "output": "apps/web/src/coverage/CoverageTools.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/coverage/CoverageTools.tsx.md",
+      "symbol": "coverage-surface-manual-import",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "coverage-surface-evidence-view",
+      "output": "apps/web/src/coverage/CoverageTools.tsx",
+      "page": ".hickory-source/mechanisms/apps/web/src/coverage/CoverageTools.tsx.md",
+      "symbol": "coverage-surface-evidence-view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "coverage-surface-lifecycle-witness",
+      "output": "apps/web/src/coverage/CoverageSurfaceView.test.tsx",
+      "page": ".hickory-source/mechanisms/coverage-surface.md",
+      "symbol": "coverage-surface-lifecycle-witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {
