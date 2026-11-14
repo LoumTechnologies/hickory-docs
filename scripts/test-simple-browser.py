@@ -69,6 +69,36 @@ class BrowserDriver:
         try: self.act("quit")
         finally: stop(self.process)
 
+def semantic_navigation_acceptance(driver, folder):
+    # Contract: .hickory-source/frontends/contract.md. Real provider and visible menu/results.
+    path = "navigation.py"
+    original = {name: (folder / name).read_text() for name in [path, "semantic_target.py"]}
+    driver.act("open", path=path)
+    size = driver.act("editor-size", path=path)
+    result = driver.act("semantic-query", path=path, query="Go to definition", offset=41)
+    # A newly installed provider may still be indexing imports. Retry this read
+    # through the same menu; never manufacture a location or retry a mutation.
+    deadline = time.monotonic() + 15
+    while "semantic_target.py:1:13" not in result["text"] and time.monotonic() < deadline:
+        driver.act("semantic-close")
+        time.sleep(.25)
+        result = driver.act("semantic-query", path=path, query="Go to definition", offset=41)
+    assert result["size"] == size, "Semantic results resized the editor"
+    assert "semantic_target.py:1:13" in result["text"], result
+    driver.act("semantic-open", path="semantic_target.py", label="semantic_target.py:1:13")
+    assert "value = 42" in driver.act("content", path="semantic_target.py")
+    eventually(lambda: driver.act("caret-offset", path="semantic_target.py"), 12)
+    result = driver.act("semantic-query", path="semantic_target.py", query="Find usages", offset=13)
+    deadline = time.monotonic() + 15
+    while "navigation.py:" not in result["text"] and time.monotonic() < deadline:
+        driver.act("semantic-close"); time.sleep(.25)
+        result = driver.act("semantic-query", path="semantic_target.py", query="Find usages", offset=13)
+    assert "navigation.py:" in result["text"], result
+    assert result["size"] == size, "Usages resized the editor"
+    driver.act("semantic-close")
+    for name, source in original.items(): assert (folder / name).read_text() == source
+
+
 def language_cache_acceptance(driver, folder):
     # Requires the real Python language server; never substitutes canned tokens.
     path = "cache.py"
@@ -468,6 +498,10 @@ if __name__ == "__main__":
         (folder / "empty.csv").write_text("")
         (folder / "spreadsheet.csv").write_text("1,2,3\n4,5,6\n7,8,9\n")
         (folder / "caret.csv").write_text("Label,Count\nabcdefghijk,1\nx,2\nabcdefghijklm,3\n")
+        (folder / "navigation.py").write_text("from semantic_target import value\nprint(value)\n")
+        (folder / "semantic_target.py").write_text("prefix = 0; value = 42\n")
+        if "--semantic-navigation-only" in sys.argv:
+            subprocess.run([str(ROOT / "target/debug/hick"), "lsp", "install", "python", "--root", str(folder)], check=True, timeout=180)
         (folder / "cache.py").write_text("counter = 1\nprint(counter)\n")
         (folder / "debug.py").write_text("value = 1\nvalue += 1\nprint(value)\n")
         if "--agent-only" in sys.argv:
@@ -517,6 +551,9 @@ if __name__ == "__main__":
             elif "--table-only" in sys.argv:
                 table_acceptance(driver, folder)
                 print("Browser: inline table grid, real saved Markdown, source reveal and undo passed")
+            elif "--semantic-navigation-only" in sys.argv:
+                semantic_navigation_acceptance(driver, folder)
+                print("Browser: real cross-file semantic definition/usages, symbol column, floating result geometry and unchanged disk passed")
             elif "--language-cache-only" in sys.argv:
                 language_cache_acceptance(driver, folder)
                 print("Browser: real Python colors retained across typing and undo; disk unchanged")

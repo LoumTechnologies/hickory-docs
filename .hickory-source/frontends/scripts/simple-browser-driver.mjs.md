@@ -23,6 +23,7 @@ the user's preference on the same page, exercising live reduced-motion updates.
 import { chromium } from "../apps/web/node_modules/@playwright/test/index.mjs";
 import { createInterface } from "node:readline";
 let browser, page, nativeTable;
+const pageErrors = [];
 const lines = createInterface({ input: process.stdin });
 async function menu(name, action) {
   await page.locator("nav").getByText(name, { exact: true }).click();
@@ -37,6 +38,7 @@ try {
       switch (request.action) {
         case "launch":
           browser = await chromium.launch({ headless: true }); page = await browser.newPage({ viewport: { width: 1100, height: 750 } });
+          page.on("pageerror", error => { pageErrors.push(String(error)); if (pageErrors.length > 8) pageErrors.shift(); });
           await page.goto(request.url); break;
         case "browser-surface":
           await page.close(); page = await browser.newPage({ viewport: { width: 1100, height: 750 } }); await page.goto(request.url); break;
@@ -146,6 +148,27 @@ try {
           await editor(request.path).click();
           await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
           await page.keyboard.insertText(request.text); break;
+        case "semantic-query": {
+          const content = editor(request.path);
+          await content.focus();
+          await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowUp" : "Control+Home");
+          for (let count = 0; count < request.offset; count++) await page.keyboard.press("ArrowRight");
+          await menu("Edit", request.query);
+          const panel = page.getByRole("dialog", { name: "Semantic locations" });
+          await panel.waitFor();
+          await panel.getByRole("status").filter({ hasText: /locations|No results|unavailable|changed/i }).waitFor();
+          value = { text: await panel.innerText(), size: await content.locator("..").evaluate(node => ({ width: node.clientWidth, height: node.clientHeight })) };
+          break;
+        }
+        case "semantic-open":
+          await page.getByRole("dialog", { name: "Semantic locations" }).getByRole("button", { name: request.label, exact: true }).click();
+          await editor(request.path).waitFor(); break;
+        case "caret-offset":
+          value = await editor(request.path).evaluate(content => {
+            const selection = window.getSelection(); if (!selection?.anchorNode || !content.contains(selection.anchorNode)) return null;
+            const range = document.createRange(); range.selectNodeContents(content); range.setEnd(selection.anchorNode, selection.anchorOffset); return range.toString().length;
+          }); break;
+        case "semantic-close": await page.getByRole("button", { name: "Close semantic locations", exact: true }).click(); break;
         case "semantic-colors": value = await editor(request.path).locator('[class*="cm-st-"]').allTextContents(); break;
         case "append-with-cached-colors": {
           const content = editor(request.path);
@@ -463,7 +486,10 @@ try {
         default: throw new Error(`Unknown acceptance action: ${request.action}`);
       }
       process.stdout.write(JSON.stringify({ value }) + "\n");
-    } catch (error) { process.stdout.write(JSON.stringify({ error: String(error) }) + "\n"); }
+    } catch (error) {
+      const visible = page && !page.isClosed() ? await page.locator("body").innerText({ timeout: 1000 }).catch(() => "") : "";
+      process.stdout.write(JSON.stringify({ error: [String(error), ...pageErrors, visible.slice(0, 1200)].filter(Boolean).join("\n") }) + "\n");
+    }
   }
 } finally { await browser?.close(); }
 </ui:copy>

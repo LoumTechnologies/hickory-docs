@@ -13,11 +13,11 @@ export const REVEAL_LINE_EVENT = "hickory:reveal-line";
 
 /** Outstanding requests, by path. At most one per file: the newest wins,
  * because it is the one somebody just clicked. */
-const pending = new Map<string, number>();
+const pending = new Map<string, { line: number; character?: number }>();
 
 /** Ask for `path` to be shown with the caret on `line` (1-based). */
-export function revealLine(path: string, line: number): void {
-  pending.set(path, Math.max(1, Math.floor(line)));
+export function revealLine(path: string, line: number, character?: number): void {
+  pending.set(path, { line: Math.max(1, Math.floor(line)), ...(character === undefined ? {} : { character: Math.max(0, Math.floor(character)) }) });
   window.dispatchEvent(new CustomEvent(REVEAL_LINE_EVENT, { detail: path }));
 }
 
@@ -32,7 +32,13 @@ export function claimReveal(path: string): number | null {
   const line = pending.get(path);
   if (line === undefined) return null;
   pending.delete(path);
-  return line;
+  return line.line;
+}
+/** Consume the same one-shot request while retaining its optional UTF-16 column. */
+export function claimRevealPosition(path: string): { line: number; character?: number } | null {
+  const location = pending.get(path);
+  if (!location) return null;
+  pending.delete(path); return location;
 }
 
 /** Listen for requests. The handler is called with the path asked for; it
@@ -58,6 +64,7 @@ export const OPEN_LOCATION_EVENT = "hickory:open-location";
 export interface OpenLocation {
   path: string;
   line: number;
+  character?: number;
 }
 
 /** Ask the workspace to open `path` and put the caret on `line`. */
@@ -72,9 +79,9 @@ export function diagramFilePath(href: string, source: string): string | null {
   }
   return parts.length ? parts.join("/") : null;
 }
-export function openLocation(path: string, line: number): void {
+export function openLocation(path: string, line: number, character?: number): void {
   window.dispatchEvent(
-    new CustomEvent<OpenLocation>(OPEN_LOCATION_EVENT, { detail: { path, line } }),
+    new CustomEvent<OpenLocation>(OPEN_LOCATION_EVENT, { detail: { path, line, ...(character === undefined ? {} : { character }) } }),
   );
 }
 

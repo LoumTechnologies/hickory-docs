@@ -17,7 +17,7 @@ import { EditorSelection, EditorState } from "@codemirror/state";
 import { foldedRanges } from "@codemirror/language";
 import { undo, isolateHistory } from "@codemirror/commands";
 import { currentCompletions } from "@codemirror/autocomplete";
-import { Document, simpleWordOffset, simpleWordMove, simpleFoldRanges, openFind, simpleIndent, simpleTab } from "./Document";
+import { Document, semanticPath, semanticLocations, openSemanticQuery, simpleWordOffset, simpleWordMove, simpleFoldRanges, openFind, simpleIndent, simpleTab } from "./Document";
 vi.mock("../debug/launchProfiles", () => ({ launchWithProfiles: vi.fn(async (_query, start, options) => { if (options.isCurrent()) start({ id: "test", fingerprint: "test" }); }) }));
 import { launchWithProfiles } from "../debug/launchProfiles";
 import { IDLE_SESSION } from "../debug/useDebugger";
@@ -25,6 +25,7 @@ import { useFollowingDebugSession } from "../debug/plainDebugHosts";
 vi.mock("../debug/plainDebugHosts", () => ({ useFollowingDebugSession: vi.fn(() => null), PlainDebugHosts: () => null }));
 import { Agent, AgentSession, MarkdownMessage } from "./Agent";
 import { App } from "./App";
+import { revealLine as queueReveal, claimReveal, claimRevealPosition, resetReveals } from "../lib/revealLine";
 import { useWorkspaceLsp } from "../lsp/useLsp";
 import { LspClient } from "../lsp/client";
 import { createLspChannel, decodeLspFrame, encodeLspFrame } from "../lsp/channel";
@@ -380,7 +381,7 @@ describe("simple inline rich editing", () => {
     const html = new TextDecoder().decode(readFileSync("../apple-simple/Sources/Resources/math.html"));
     const script = /<script nonce="hickory-math">([\s\S]*?)<\/script>/.exec(html)![1];
     const host = document.createElement("div"); host.innerHTML = '<div id="formula"></div><div id="status"></div>';
-    const page = { getElementById: (id: string) => host.querySelector(`#${id}`) };
+    const page = { getElementById: (id: string) => host.querySelector(`#${id}`), fonts: { ready: Promise.resolve() }, body: host, querySelector: (selector: string) => host.querySelector(selector) };
     const renderer = new Function("katex", "document", script + ";return globalThis.renderMath;")(katex, page) as (text: string) => void;
     try {
       renderer("x^2 + 1"); expect(host.querySelector(".katex")).not.toBeNull();
@@ -633,6 +634,72 @@ describe("tab drop placement", () => {
   });
 });
 
+describe("simple semantic navigation", () => {
+  it("does not let a previous buffer consume the destination symbol reveal", async () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const first = new Buffer({ path: "first.py", name: "first.py", dir: false }, "first = 1", "hash", () => {});
+    const second = new Buffer({ path: "second.py", name: "second.py", dir: false }, "prefix = 0; value = 42", "hash", () => {});
+    const screen = render(createElement(Document, { buffer: first }));
+    const original = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+    try {
+      queueReveal("second.py", 1, 12);
+      screen.rerender(createElement(Document, { buffer: second }));
+      await waitFor(() => {
+        const target = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+        expect(target).not.toBe(original); expect(target.state.selection.main.head).toBe(12);
+      });
+      expect(original.state.selection.main.head).toBe(0); expect(second.dirty).toBe(false);
+    } finally { screen.unmount(); }
+  });
+  it("retains a symbol column until the destination editor claims it once", () => {
+    // Contract: .hickory-source/frontends/contract.md
+    resetReveals(); queueReveal("other.py", 3, 7);
+    expect(claimRevealPosition("other.py")).toEqual({ line: 3, character: 7 });
+    expect(claimRevealPosition("other.py")).toBeNull();
+    queueReveal("legacy.py", 4, 2); expect(claimReveal("legacy.py")).toBe(4);
+    expect(claimRevealPosition("legacy.py")).toBeNull();
+  });
+  it("admits authored workspace paths and rejects unsafe provider identities", () => {
+    // Contract: .hickory-source/frontends/contract.md
+    expect(semanticPath("hick:///src/my%20file.py")).toBe("src/my file.py");
+    expect(semanticPath("hick:///literal%2520.py")).toBe("literal%20.py");
+    expect(semanticPath("hick:///name%3F%23.py")).toBe("name?#.py");
+    for (const uri of ["hick:/main.py", "hick:///a?", "file:///etc/passwd", "hick-output:///main.py", "hick://host/main.py", "hick:///../secret", "hick:///%2e%2e/secret", "hick:///a%5Cb", "hick:///a%00b", "hick:///a?context=old", "hick:///a#old"]) expect(semanticPath(uri), uri).toBeNull();
+    const location = { uri: "hick:///a.py", range: { start: { line: 2, character: 4 }, end: { line: 2, character: 4 } } };
+    expect(semanticLocations([location, location, { ...location, range: { ...location.range, start: { line: -1, character: 0 } } }])).toEqual([location]);
+  });
+  it("queries the real bridge protocol and refuses obsolete locations without replacing the editor", async () => {
+    // Contract: .hickory-source/frontends/contract.md
+    let answer: (() => void) | undefined;
+    const channel = createLspChannel({ send(frame) {
+      const message = decodeLspFrame(frame);
+      if (!message || !("method" in message) || !("id" in message)) return;
+      const reply = () => channel.handleFrame(encodeLspFrame({ jsonrpc: "2.0", id: message.id, result: [{ uri: "hick:///other.py", range: { start: { line: 1, character: 0 }, end: { line: 1, character: 4 } } }] }));
+      if (message.method === "textDocument/references") { expect(message.params).toMatchObject({ textDocument: { uri: "hick:///sample.py" }, context: { includeDeclaration: true } }); answer = reply; }
+      else queueMicrotask(() => channel.handleFrame(encodeLspFrame({ jsonrpc: "2.0", id: message.id, result: null })));
+    } });
+    const client = new LspClient(channel);
+    vi.mocked(useWorkspaceLsp).mockReturnValue({ client, uri: "hick:///sample.py", ready: true, diagnostics: [] });
+    const buffer = new Buffer({ path: "sample.py", name: "sample.py", dir: false }, "value = 1", "hash", () => {});
+    const screen = render(createElement(Document, { buffer }));
+    const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+    try {
+      act(() => openSemanticQuery(buffer, "references"));
+      await waitFor(() => expect(answer).toBeDefined());
+      act(() => { answer!(); });
+      const result = await screen.findByRole("button", { name: "other.py:2:1" });
+      expect(result.hasAttribute("disabled")).toBe(false);
+      act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: "\n# unsaved" }, annotations: isolateHistory.of("full") }));
+      await waitFor(() => expect(result.hasAttribute("disabled")).toBe(true));
+      expect(EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)).toBe(view);
+      act(() => openSemanticQuery(buffer, "references"));
+      act(() => view.dispatch({ selection: { anchor: 2 } }));
+      act(() => { answer!(); });
+      await waitFor(() => expect(screen.getByRole("dialog", { name: "Semantic locations" }).textContent).toContain("Source or cursor changed"));
+      act(() => { undo(view); }); expect(buffer.text).toBe("value = 1");
+    } finally { screen.unmount(); client.dispose(); vi.mocked(useWorkspaceLsp).mockReturnValue({ client: null, uri: "hick:///sample.ts", ready: false, diagnostics: [] }); }
+  });
+});
 describe("simple editor capability attachment", () => {
   it("attaches server colors and completion after typing without replacing selection or undo", async () => {
     let colorRequests = 0; let holdColors = false;

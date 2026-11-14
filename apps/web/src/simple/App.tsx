@@ -7,7 +7,7 @@ import type { FileNode } from "../api/types";
 import { Buffer, Buffers } from "./buffers";
 import { RichOwners } from "./RichInline";
 import { enterMode, type EnterMode } from "./SmartEnter";
-import { Document, openFind, wordNavigationMode, type WordNavigationMode } from "./Document";
+import { Document, SimpleLanguages, semanticQueries, openSemanticQuery, openFind, wordNavigationMode, type WordNavigationMode } from "./Document";
 import { Terminal, TerminalSession } from "./Terminal";
 import { Agent, AgentSession } from "./Agent";
 import { activate, groups, initialLayout, isGroup, move, remove, split, update, dock, dropEdge, type Edge, type Axis, type Layout } from "./layout";
@@ -126,7 +126,11 @@ export function App() {
       for (const node of nodes) { if (node.path === location.path) return node; const child = find(node.children ?? []); if (child) return child; }
     };
     const file = find(tree);
-    if (file) { void open(file).then(() => revealLine(file.path, location.line)); }
+    if (file) { void open(file).then(() => {
+      const target = buffers.values.get(file.path); if (!target) return;
+      if (location.character !== undefined && target.dirty) { setNotice(`Save ${file.path} and query again before using a cross-file source position.`); return; }
+      revealLine(file.path, location.line, location.character);
+    }); } else setNotice(`Location not found: ${location.path}. Refresh files and query again.`);
   }), [tree, layout, focused]);
   function close(tab: string) {
     const candidate = buffers.values.get(tab);
@@ -156,7 +160,7 @@ export function App() {
     if (tab === "terminal") return <Terminal session={terminal} />;
     if (tab === "agent") return <Agent session={agent} />;
     const document = buffers.values.get(tab);
-    return document ? <Document buffer={document} /> : null;
+    return document ? <Document key={document.file.path} buffer={document} /> : null;
   }
   // Keep the scroll recipient while the pointer rests. Scrolling content under
   // a stationary cursor must not silently transfer the next wheel to a grid.
@@ -192,7 +196,7 @@ export function App() {
       document.removeEventListener("wheel", wheel, true);
     };
   }, []);
-  return <main>
+  return <SimpleLanguages buffers={buffers}><main>
     {/* Shared gutter controls declare data-tip; mount their delegated reader here. */}
     <TooltipLayer />
     <PlainDebugHosts />
@@ -209,6 +213,7 @@ export function App() {
       <button disabled={!active} onClick={() => active && close(active)}>Close tab</button>
     </div></details><details><summary>Edit</summary><div className="menu">
       <button disabled={!buffer} onClick={() => buffer && openFind(buffer)}>Find and replace</button>
+      {semanticQueries.map(query => <button key={query.kind} disabled={!buffer} onClick={event => { if (buffer) openSemanticQuery(buffer, query.kind); event.currentTarget.closest("details")?.removeAttribute("open"); }}>{query.label}</button>)}
       <EditorSettings />
     </div></details><details><summary>View</summary><div className="menu">
       <button onClick={() => openTab("files")}>Files</button><button onClick={() => openTab("agent")}>Agent</button>
@@ -225,7 +230,7 @@ export function App() {
       }}
       resize={(id, ratio) => setLayout(current => update(current, id, node => isGroup(node) ? node : { ...node, ratio }))} /></div>
     <footer role="status">{notice ? `${notice} · ` : ""}{buffer ? `${buffer.file.name} · ${buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
-  </main>;
+  </main></SimpleLanguages>;
 }
 function Tree({ nodes, open }: { nodes: FileNode[]; open: (file: FileNode) => void }) {
   return <ul>{nodes.map(node => <li key={node.path}>{node.dir

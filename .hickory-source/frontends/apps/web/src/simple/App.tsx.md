@@ -13,6 +13,8 @@ Each tab accepts a drop before itself; the surrounding strip remains the append 
 
 File commands act on the connected workspace: path entry opens a file or directory, New Tab (Ctrl+N or Cmd+N) keeps an unnamed buffer, and Save As exclusively creates a new destination before a hash-checked write. Existing destinations are never overwritten by Save As. Save All visits each named buffer; unnamed drafts ask for a path and failed saves retain their original edits. Refresh observes the tree without replacing open buffers.
 
+A document component belongs to one buffer path. Switching tabs mounts the next component around its already cached editor; it does not reuse React state that still points to the previous file's editor. Without that identity boundary, a queued cross-file reveal can be consumed by the detached old editor before the destination mounts. The cache retains selection and undo when the original tab returns.
+
 <ui:copy id="simple-e8a50a27b2-0">
 import { TooltipLayer } from "../components/TooltipLayer";
 import { useEffect, useRef, useState } from "react";
@@ -23,7 +25,7 @@ import type { FileNode } from "../api/types";
 import { Buffer, Buffers } from "./buffers";
 import { RichOwners } from "./RichInline";
 import { enterMode, type EnterMode } from "./SmartEnter";
-import { Document, openFind, wordNavigationMode, type WordNavigationMode } from "./Document";
+import { Document, SimpleLanguages, semanticQueries, openSemanticQuery, openFind, wordNavigationMode, type WordNavigationMode } from "./Document";
 import { Terminal, TerminalSession } from "./Terminal";
 import { Agent, AgentSession } from "./Agent";
 import { activate, groups, initialLayout, isGroup, move, remove, split, update, dock, dropEdge, type Edge, type Axis, type Layout } from "./layout";
@@ -142,7 +144,11 @@ export function App() {
       for (const node of nodes) { if (node.path === location.path) return node; const child = find(node.children ?? []); if (child) return child; }
     };
     const file = find(tree);
-    if (file) { void open(file).then(() => revealLine(file.path, location.line)); }
+    if (file) { void open(file).then(() => {
+      const target = buffers.values.get(file.path); if (!target) return;
+      if (location.character !== undefined && target.dirty) { setNotice(`Save ${file.path} and query again before using a cross-file source position.`); return; }
+      revealLine(file.path, location.line, location.character);
+    }); } else setNotice(`Location not found: ${location.path}. Refresh files and query again.`);
   }), [tree, layout, focused]);
   function close(tab: string) {
     const candidate = buffers.values.get(tab);
@@ -179,7 +185,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
     if (tab === "terminal") return <Terminal session={terminal} />;
     if (tab === "agent") return <Agent session={agent} />;
     const document = buffers.values.get(tab);
-    return document ? <Document buffer={document} /> : null;
+    return document ? <Document key={document.file.path} buffer={document} /> : null;
   }
   // Keep the scroll recipient while the pointer rests. Scrolling content under
   // a stationary cursor must not silently transfer the next wheel to a grid.
@@ -215,7 +221,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
       document.removeEventListener("wheel", wheel, true);
     };
   }, []);
-  return <main>
+  return <SimpleLanguages buffers={buffers}><main>
     {/* Shared gutter controls declare data-tip; mount their delegated reader here. */}
     <TooltipLayer />
     <PlainDebugHosts />
@@ -232,6 +238,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
       <button disabled={!active} onClick={() => active && close(active)}>Close tab</button>
     </div></details><details><summary>Edit</summary><div className="menu">
       <button disabled={!buffer} onClick={() => buffer && openFind(buffer)}>Find and replace</button>
+      {semanticQueries.map(query => <button key={query.kind} disabled={!buffer} onClick={event => { if (buffer) openSemanticQuery(buffer, query.kind); event.currentTarget.closest("details")?.removeAttribute("open"); }}>{query.label}</button>)}
       <EditorSettings />
     </div></details><details><summary>View</summary><div className="menu">
       <button onClick={() => openTab("files")}>Files</button><button onClick={() => openTab("agent")}>Agent</button>
@@ -248,7 +255,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
       }}
       resize={(id, ratio) => setLayout(current => update(current, id, node => isGroup(node) ? node : { ...node, ratio }))} /></div>
     <footer role="status">{notice ? `${notice} · ` : ""}{buffer ? `${buffer.file.name} · ${buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
-  </main>;
+  </main></SimpleLanguages>;
 }
 function Tree({ nodes, open }: { nodes: FileNode[]; open: (file: FileNode) => void }) {
   return <ul>{nodes.map(node => <li key={node.path}>{node.dir

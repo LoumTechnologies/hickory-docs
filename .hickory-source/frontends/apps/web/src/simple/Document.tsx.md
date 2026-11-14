@@ -43,12 +43,92 @@ mode affects open editors; the platform retains its own undo transaction.
 
 Standalone CSV uses the same isolated stylesheet as inline rich widgets. Mount its established grid in a stable shadow root so empty cells, resize handles and menus retain their real geometry without importing the full workspace theme into the simple shell. Loading this optional surface never replaces the cached source editor or its undo history.
 
+## Separate semantic questions from their controls
+
+The workspace buffer owns its language session, matching Apple and Android. Hiding a tab must not close the provider's document and erase usages or unsaved semantic knowledge. A small per-buffer subscription lets a mounted editor borrow current capabilities and diagnostics without owning their lifecycle; standalone document surfaces retain their existing local session. Provider attachment still follows readable text, and removing a buffer or unmounting the workspace closes its owner.
+
+A query identifies a language-provider operation; its answer is a list of source locations. Menus and floating results consume these values without owning the LSP session or pane layout. Admit only authored workspace URI paths for opening. Other provider identities remain visible as unsupported results. Each request captures source, selection, provider and a monotonic ticket; late answers never navigate or replace a newer query. No query edits or saves text.
+
+<ui:copy id="simple-browser-semantic-locations">
+import type { LspLocation } from "../lsp/client";
+import type { LspSession } from "../lsp/useLsp";
+import { createContext, useContext, lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+export const semanticQueries = [
+  { kind: "definition", label: "Go to definition" },
+  { kind: "references", label: "Find usages" },
+  { kind: "typeDefinition", label: "Go to type definition" },
+  { kind: "implementation", label: "Find implementations" },
+] as const;
+export type SemanticQuery = typeof semanticQueries[number]["kind"];
+export function semanticPath(uri: string): string | null {
+  try {
+    const value = new URL(uri);
+    if (!uri.startsWith("hick:///") || /[?#]/.test(uri) || value.host || value.search || value.hash) return null;
+    // URL canonicalization erases dot segments; refuse them in the original URI.
+    const path = decodeURIComponent(uri.slice("hick:///".length));
+    if (!path || /[:\\\u0000-\u001f]/.test(path) || path.split("/").some(part => !part || part === "." || part === "..")) return null;
+    return path;
+  } catch { return null; }
+}
+export function semanticLocations(locations: readonly LspLocation[]): LspLocation[] {
+  const seen = new Set<string>();
+  return locations.filter(location => {
+    const position = location?.range?.start;
+    if (typeof location?.uri !== "string" || !position || !Number.isSafeInteger(position.line) || position.line < 0 || !Number.isSafeInteger(position.character) || position.character < 0) return false;
+    const key = JSON.stringify([location.uri, position]);
+    if (seen.has(key)) return false;
+    seen.add(key); return true;
+  });
+}
+// Buffer lifetime owns language knowledge; a pane only borrows its session.
+class LanguageEntry {
+  value: LspSession = { client: null, uri: "", ready: false, diagnostics: [] };
+  private listeners = new Set<() => void>();
+  subscribe = (listener: () => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
+  read = () => this.value;
+  publish(value: LspSession) { this.value = value; for (const listener of this.listeners) listener(); }
+}
+class WorkspaceLanguages {
+  private entries = new WeakMap<Buffer, LanguageEntry>();
+  entry(buffer: Buffer) { let entry = this.entries.get(buffer); if (!entry) { entry = new LanguageEntry(); this.entries.set(buffer, entry); } return entry; }
+}
+const languageContext = createContext<WorkspaceLanguages | null>(null);
+const emptyLanguageEntry = new LanguageEntry();
+function LanguageOwner({ buffer, registry }: { buffer: Buffer; registry: WorkspaceLanguages }) {
+  useSyncExternalStore(buffer.subscribe, buffer.snapshot);
+  const session = useWorkspaceLsp(buffer.transient ? "" : buffer.file.path, buffer.text);
+  useEffect(() => {
+    registry.entry(buffer).publish(session);
+  }, [buffer, registry, session.client, session.uri, session.ready, session.diagnostics]);
+  useEffect(() => () => registry.entry(buffer).publish({ client: null, uri: "", ready: false, diagnostics: [] }), [buffer, registry]);
+  return null;
+}
+export function SimpleLanguages({ buffers, children }: { buffers: Buffers; children: React.ReactNode }) {
+  const [registry] = useState(() => new WorkspaceLanguages());
+  return <languageContext.Provider value={registry}>
+    {[...buffers.values.values()].map(buffer => <LanguageOwner key={buffer.file.path} buffer={buffer} registry={registry} />)}
+    {children}
+  </languageContext.Provider>;
+}
+function useSimpleLanguage(buffer: Buffer): LspSession {
+  const registry = useContext(languageContext);
+  // Standalone document surfaces (including conversation drafts) keep their
+  // existing session. Workspace panes borrow the retained owner instead.
+  const standalone = useWorkspaceLsp(registry || buffer.transient ? "" : buffer.file.path, buffer.text);
+  const entry = registry?.entry(buffer) ?? emptyLanguageEntry;
+  const shared = useSyncExternalStore(entry.subscribe, entry.read);
+  return registry ? shared : standalone;
+}
+const semanticCommands = new WeakMap<Buffer, (query: SemanticQuery) => void>();
+export function openSemanticQuery(buffer: Buffer, query: SemanticQuery) { semanticCommands.get(buffer)?.(query); }
+
+</ui:copy>
+
 <ui:copy id="simple-1a4a59fc95-0">
 import { createPortal } from "react-dom";
 import type { TablePanelProps } from "../components/TablePanel";
 import { smartEnter, enterMode } from "./SmartEnter";
 import { gutterIconLayout, layoutEditorGutters } from "../editor/gutterIconLayout";
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Compartment, EditorState, StateEffect, EditorSelection } from "@codemirror/state";
 import { EditorView, keymap, drawSelection, lineNumbers, rectangularSelection, crosshairCursor } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentMore, indentLess } from "@codemirror/commands";
@@ -61,7 +141,7 @@ import { lspFeatures } from "../lsp/cmLspFeatures";
 import { completions } from "../lsp/completion";
 import { positionToUtf16, utf16ToPosition } from "../lsp/positions";
 import { sameDocumentUri } from "../lsp/documentUri";
-import { Buffer } from "./buffers";
+import { Buffer, Buffers } from "./buffers";
 import { hickLangReady, loadHickLang } from "../editor/hickLang";
 import { languageFromPath } from "../editor/languages";
 import { isDebuggable } from "../debug/languages";
@@ -73,7 +153,7 @@ import { DebugStrip } from "../debug/DebugStrip";
 import { observationSourceChanged } from "../debug/observations";
 import { api } from "../api/client";
 import { launchWithProfiles } from "../debug/launchProfiles";
-import { claimReveal, onRevealLine, openLocation } from "../lib/revealLine";
+import { claimRevealPosition, onRevealLine, openLocation } from "../lib/revealLine";
 const CsvGrid = lazy(async () => {
   const [{ TablePanel }, css] = await Promise.all([import("../components/TablePanel"), import("../styles.css?inline")]);
   return { default: function CsvSurface(props: TablePanelProps) {
@@ -222,7 +302,37 @@ export function Document({ buffer }: { buffer: Buffer }) {
   const debugRef = useRef(debug); debugRef.current = debug;
   const changed = buffer.dirty || observationSourceChanged(debug.reading, buffer.text);
   const [debugNotice, setDebugNotice] = useState("");
-  const session = useWorkspaceLsp(buffer.transient ? "" : buffer.file.path, buffer.text);
+  const session = useSimpleLanguage(buffer);
+  const [semanticResult, setSemanticResult] = useState<{ source: string; anchor: number; head: number; ticket: number; message: string; locations: LspLocation[] } | null>(null);
+  const semanticTicket = useRef(0);
+  const semanticPanel = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (semanticResult) semanticPanel.current?.focus(); }, [semanticResult !== null]);
+  const [, refreshSemanticSelection] = useState(0);
+  useEffect(() => {
+    if (!view) return;
+    const query = async (kind: SemanticQuery) => {
+      const id = ++semanticTicket.current, client = session.client, source = view.state.doc.toString();
+      const { anchor, head } = view.state.selection.main;
+      const current = () => id === semanticTicket.current && view.dom.isConnected && view.state.doc.toString() === source && view.state.selection.main.anchor === anchor && view.state.selection.main.head === head;
+      const result = { source, anchor, head, ticket: id, message: "Searching…", locations: [] as LspLocation[] };
+      setSemanticResult(result);
+      if (!client || !session.ready) { setSemanticResult({ ...result, message: "Language services unavailable. Install a server for this workspace, then retry." }); return; }
+      try {
+        const locations = semanticLocations(await client[kind](session.uri, utf16ToPosition(source, head)));
+        if (current()) setSemanticResult({ ...result, locations, message: locations.length ? `${locations.length} locations` : "No results. The provider may still be indexing or may not support this query. Retry or choose another symbol." });
+      } catch (error) { if (current()) setSemanticResult({ ...result, message: `${String(error)}. Retry language services.` }); }
+    };
+    semanticCommands.set(buffer, kind => { void query(kind); });
+    return () => { semanticTicket.current++; semanticCommands.delete(buffer); };
+  }, [buffer, view, session.client, session.uri, session.ready]);
+  useEffect(() => {
+    if (!view) return;
+    const compartment = new Compartment();
+    view.dispatch({ effects: StateEffect.appendConfig.of(compartment.of(EditorView.updateListener.of(update => {
+      if (update.docChanged || update.selectionSet) { semanticTicket.current++; refreshSemanticSelection(value => value + 1); }
+    }))) });
+    return () => { view.dispatch({ effects: compartment.reconfigure([]) }); };
+  }, [view]);
   const [capabilities, refreshCapabilities] = useState(0);
   useEffect(() => session.client?.onServerCapabilities(() => refreshCapabilities(value => value + 1)), [session.client]);
   useLayoutEffect(() => {
@@ -243,7 +353,9 @@ export function Document({ buffer }: { buffer: Buffer }) {
         keymap.of([...wordNavigationKeys, { key: "Enter", run: view => simpleEnter(view, buffer.file.path) }, { key: "Tab", run: simpleTab, shift: indentLess }, { key: "Ctrl-Space", run: startCompletion }, ...searchKeymap, ...foldKeymap, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
         EditorState.readOnly.of(buffer.readonly), EditorView.editable.of(!buffer.readonly),
         EditorView.contentAttributes.of({ "aria-label": buffer.file.path }),
-        EditorView.updateListener.of(update => { if (update.docChanged) buffer.edit(update.state.doc.toString()); }),
+        EditorView.updateListener.of(update => {
+          if (update.docChanged) buffer.edit(update.state.doc.toString());
+        }),
         EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { overflow: "auto", fontFamily: "ui-monospace, monospace", fontSize: "13px" } }),
       ] }) });
       cached = { view, language, prose }; editors.set(buffer, cached); window.dispatchEvent(new Event(SIMPLE_EDITOR_ATTACHED));
@@ -267,19 +379,29 @@ export function Document({ buffer }: { buffer: Buffer }) {
     const cached = editors.get(buffer);
     if (!cached || !session.client || !session.ready) return;
     const { view, language } = cached;
+    let providerCurrent = true;
     const positionAt = (offset: number, editor: EditorView) => utf16ToPosition(editor.state.doc.toString(), offset);
     const offsetAt = (position: { line: number; character: number }, editor: EditorView) => positionToUtf16(editor.state.doc.toString(), position);
     view.dispatch({ effects: language.reconfigure([
       ...lspSupport({ client: session.client, uri: session.uri, positionAt,
-        onNavigate: target => { if (sameDocumentUri(target.uri, session.uri)) {
+        onReferences: locations => {
+          if (!providerCurrent) return;
+          const { anchor, head } = view.state.selection.main;
+          setSemanticResult({ source: view.state.doc.toString(), anchor, head, ticket: ++semanticTicket.current, message: `${locations.length} locations`, locations: semanticLocations(locations) });
+        },
+        onNavigate: target => { if (!providerCurrent) return; if (sameDocumentUri(target.uri, session.uri)) {
           const anchor = offsetAt(target.range.start, view);
           view.dispatch({ selection: { anchor }, effects: EditorView.scrollIntoView(anchor, { y: "center" }) });
+        } else {
+          const path = semanticPath(target.uri);
+          if (path) openLocation(path, target.range.start.line + 1, target.range.start.character);
+          else { const { anchor, head } = view.state.selection.main; setSemanticResult({ source: view.state.doc.toString(), anchor, head, ticket: ++semanticTicket.current, message: "Provider target is outside authored workspace files.", locations: [target] }); }
         } } }),
       ...lspFeatures({ client: session.client, uri: session.uri, positionAt, offsetAt, inlayHints: true }),
       ...(!buffer.readonly ? [completions({ lsp: { client: session.client, uri: session.uri,
         positionAt: (offset, state) => utf16ToPosition(state.doc.toString(), offset) } })] : []),
     ]) });
-    return () => { view.dispatch({ effects: language.reconfigure([]) }); };
+    return () => { providerCurrent = false; view.dispatch({ effects: language.reconfigure([]) }); };
   }, [buffer, session.client, session.uri, session.ready, capabilities]);
   useEffect(() => {
     const cached = editors.get(buffer);
@@ -312,8 +434,14 @@ export function Document({ buffer }: { buffer: Buffer }) {
     }
   }, [view, debuggable, debug, changed, literate, parserReady]);
   useEffect(() => {
-    if (!view) return;
-    const reveal = () => { const line = claimReveal(buffer.file.path); if (line !== null) revealLine(view, line - 1); };
+    if (!view || editors.get(buffer)?.view !== view || !view.dom.isConnected) return;
+    const reveal = () => {
+      const position = claimRevealPosition(buffer.file.path); if (!position) return;
+      if (position.character === undefined) { revealLine(view, position.line - 1); return; }
+      if (position.line > view.state.doc.lines || position.character > view.state.doc.line(position.line).length) { setDebugNotice("Location no longer fits this source. Query again."); return; }
+      const anchor = view.state.doc.line(position.line).from + position.character;
+      view.dispatch({ selection: { anchor }, effects: EditorView.scrollIntoView(anchor, { y: "center" }) }); view.focus();
+    };
     reveal(); return onRevealLine(path => { if (path === buffer.file.path) reveal(); });
   }, [view, buffer]);
   const start = async (program?: string) => {
@@ -324,7 +452,20 @@ export function Document({ buffer }: { buffer: Buffer }) {
       profile => debugRef.current.start(target, {}, undefined, profile),
       { preferProgram: true, isCurrent: () => !!view?.dom.isConnected && buffer.text === source && !buffer.dirty && !buffer.saving });
   };
+  const semanticCurrent = !!view && !!semanticResult && semanticResult.ticket === semanticTicket.current && semanticResult.source === buffer.text && semanticResult.anchor === view.state.selection.main.anchor && semanticResult.head === view.state.selection.main.head;
   return <div className="document-body">
+    {semanticResult && <div ref={semanticPanel} tabIndex={-1} className="simple-semantic-results" role="dialog" aria-label="Semantic locations" onKeyDown={event => { if (event.key === "Escape") { semanticTicket.current++; setSemanticResult(null); view?.focus(); } }}>
+      <button type="button" aria-label="Close semantic locations" onClick={() => { semanticTicket.current++; setSemanticResult(null); view?.focus(); }}>×</button>
+      <p role="status">{semanticCurrent ? semanticResult.message : "Source or cursor changed. Run the query again."}</p>
+      {semanticResult.locations.map(location => { const path = semanticPath(location.uri); return <button type="button" key={JSON.stringify(location)} disabled={!path || !semanticCurrent} onClick={() => {
+        if (!path || !view || semanticResult.ticket !== semanticTicket.current || buffer.text !== semanticResult.source || view.state.selection.main.anchor !== semanticResult.anchor || view.state.selection.main.head !== semanticResult.head) return;
+        if (sameDocumentUri(location.uri, session.uri)) {
+          const anchor = positionToUtf16(buffer.text, location.range.start);
+          view.dispatch({ selection: { anchor }, effects: EditorView.scrollIntoView(anchor, { y: "center" }) }); view.focus();
+        } else openLocation(path, location.range.start.line + 1, location.range.start.character);
+        setSemanticResult(null);
+      }}>{path ?? location.uri}:{location.range.start.line + 1}:{location.range.start.character + 1}{!path ? " (unsupported target)" : ""}</button>; })}
+    </div>}
     {csv && <button type="button" className="simple-source-toggle" onClick={() => setCsvSource(value => !value)}>{csvSource ? "Edit table as grid" : "Edit source text"}</button>}
     {csv && csvReady && !csvSource && view && <Suspense fallback={<span>Loading table…</span>}><CsvGrid source={buffer.text} chooseFormulaLanguage header delimiter="," sourceCurrent={() => !buffer.readonly && view.state.doc.toString() === tableSource && buffer.text === tableSource}
       onChange={buffer.readonly ? undefined : text => { if (!buffer.readonly && buffer.text === tableSource && view.state.doc.toString() === tableSource) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text }, userEvent: "input.table" }); }} /></Suspense>}
@@ -407,6 +548,6 @@ The browser simple editor now borrows the workspace debugger for supported plain
 
 Keep construction order explicit; the explanations above describe the decisions at each boundary.
 
-<ui:file path="apps/web/src/simple/Document.tsx"><ui:paste select="#simple-1a4a59fc95-0"/><ui:paste select="#simple-document-minimap"/></ui:file>
+<ui:file path="apps/web/src/simple/Document.tsx"><ui:paste select="#simple-browser-semantic-locations"/><ui:paste select="#simple-1a4a59fc95-0"/><ui:paste select="#simple-document-minimap"/></ui:file>
 
 </ui:doc>

@@ -546,7 +546,7 @@ Restart/Retry language services, then open `orders.py`:
 5. Uncomment `invalid = LineItem(CATALOG["pen"], "three")`. Inspect the type
    diagnostic and undo. Native unversioned diagnostics are messages without
    clickable source positions. Actual hints depend on server capabilities.
-6. Browser Ctrl/Cmd-click the final `demo()` call for same-file definition.
+6. Browser Ctrl/Cmd-click the final `demo()` call for definition. In the browser Edit menu or native Language tools, use Go to definition, Find usages, Go to type definition and Find implementations. Choose a returned authored file to open its tab at the symbol. Queries do not save text or resize the editor; unsupported provider targets remain read-only information. Retry an empty result if the server is still indexing.
 
 ## Debugger
 

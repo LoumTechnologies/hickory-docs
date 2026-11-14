@@ -144,6 +144,7 @@ import Observation
     var foldedLines: Set<Int> = []
     @ObservationIgnored var toggleFold: ((Int) -> Void)?
     @ObservationIgnored var revealDebugLine: ((Int) -> Void)?
+    @ObservationIgnored var openSemanticLocation: ((SemanticLocation) -> Void)?
     var language: NativeLanguage?
     var hash: String
     var saving = false
@@ -230,6 +231,9 @@ import Observation
                     await self.open(file)
                 }
             }
+            buffer.openSemanticLocation = { [weak self] location in
+                Task { await self?.openSemanticLocation(location) }
+            }
             buffer.receiptEngine = engine
             buffer.language = NativeLanguage(engine: engine, buffer: buffer); buffer.language?.start()
             if newestOpen[target] == file.path {
@@ -238,6 +242,25 @@ import Observation
                 layout.activate(file.path, in: live); focused = live; status = file.path
             }
         } catch { if current == generation { status = "\(error.localizedDescription) Refresh files and try opening \(file.path) again." } }
+    }
+    func openSemanticLocation(_ location: SemanticLocation) async {
+        guard let path = location.path else { return }
+        func find(_ nodes: [FileNode]) -> FileNode? {
+            for node in nodes { if node.path == path { return node }; if let child = find(node.children ?? []) { return child } }; return nil
+        }
+        guard let file = find(files), !file.dir else { status = "Location not found: \(path). Refresh files and query again."; return }
+        let current = generation
+        await open(file)
+        guard generation == current, active == path, let buffer = buffers[path] else { return }
+        if buffer.dirty { status = "Save \(path) and query again before using a cross-file source position."; return }
+        let source = buffer.text
+        guard let offset = languageOffset(source, ["line": location.line, "character": location.character]) else { status = "Location no longer fits \(path). Query again."; return }
+        for _ in 0..<20 {
+            guard generation == current, buffer.text == source, !buffer.dirty else { return }
+            if buffer.selectSourceRange?(NSRange(location: offset, length: 0), source) == true { buffer.focusSource?(); return }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        status = "Opened \(path); editor could not reveal the position. Query again once it is ready."
     }
     func revealDebug(_ path: String, line: Int) async {
         func find(_ nodes: [FileNode]) -> FileNode? {

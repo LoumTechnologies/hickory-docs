@@ -151010,6 +151010,27 @@
       "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentPane.kt.md",
       "symbol": "Bound long messages without changing their source",
       "basis": "authored-explanation"
+    },
+    {
+      "id": "simple-apple-semantic-locations",
+      "output": "apps/apple-simple/Sources/Engine.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Engine.swift.md",
+      "symbol": "simple-apple-semantic-locations",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-android-semantic-locations",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt.md",
+      "symbol": "simple-android-semantic-locations",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-browser-semantic-locations",
+      "output": "apps/web/src/simple/Document.tsx",
+      "page": ".hickory-source/frontends/apps/web/src/simple/Document.tsx.md",
+      "symbol": "simple-browser-semantic-locations",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

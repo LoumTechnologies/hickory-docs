@@ -8,6 +8,41 @@ import WebKit
 @testable import HickorySimple
 
 final class ParityTests: XCTestCase {
+    func testSemanticLocationSafetyAndNormalization() {
+        // Contract: .hickory-source/frontends/contract.md
+        XCTAssertEqual(SemanticLocation(uri: "hick:///src/my%20file.py", line: 2, character: 4).path, "src/my file.py")
+        XCTAssertEqual(SemanticLocation(uri: "hick:///literal%2520.py", line: 0, character: 0).path, "literal%20.py")
+        XCTAssertEqual(SemanticLocation(uri: "hick:///name%3F%23.py", line: 0, character: 0).path, "name?#.py")
+        for uri in ["hick:/main.py", "hick:///a?", "file:///etc/passwd", "hick-output:///main.py", "hick://host/main.py", "hick:///../secret", "hick:///%2e%2e/secret", "hick:///a%5Cb", "hick:///a%00b", "hick:///a?context=old", "hick:///a#old"] {
+            XCTAssertNil(SemanticLocation(uri: uri, line: 0, character: 0).path, uri)
+        }
+        let range: [String: Any] = ["start": ["line": 2, "character": 4], "end": ["line": 2, "character": 8]]
+        let direct: [String: Any] = ["uri": "hick:///a.py", "range": range]
+        let link: [String: Any] = ["targetUri": "hick:///a.py", "targetSelectionRange": range]
+        XCTAssertEqual(semanticLocations([direct, link]), [SemanticLocation(uri: "hick:///a.py", line: 2, character: 4)])
+        XCTAssertTrue(semanticLocations(["uri": "hick:///a.py"]).isEmpty)
+        XCTAssertEqual(SemanticQuery.allCases.count, 4)
+    }
+
+    @MainActor func testSemanticNavigationRetiresStaleSourceAndSelection() throws {
+        // Contract: .hickory-source/frontends/contract.md
+        let file = FileNode(name: "main.py", path: "main.py", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: "value = 1\nprint(value)", hash: "base"))
+        let language = NativeLanguage(engine: try Engine(address: "http://127.0.0.1:1"), buffer: buffer)
+        let location = SemanticLocation(uri: "hick:///other.py", line: 0, character: 0)
+        var opened = 0; buffer.openSemanticLocation = { _ in opened += 1 }
+        language.locations = [location]; language.locationSource = buffer.text; language.locationSelection = buffer.selection
+        buffer.selection = NSRange(location: 1, length: 0); language.open(location); XCTAssertEqual(opened, 0)
+        buffer.selection = language.locationSelection; buffer.text += "\n# changed"; language.open(location); XCTAssertEqual(opened, 0)
+        language.locationSource = buffer.text; language.open(location); XCTAssertEqual(opened, 1)
+        let local = SemanticLocation(uri: "hick:///main.py", line: 0, character: 2)
+        language.locations = [local]; var selected: NSRange?
+        buffer.selectSourceRange = { range, source in XCTAssertEqual(source, buffer.text); selected = range; return true }
+        language.open(local); XCTAssertEqual(selected, NSRange(location: 2, length: 0))
+        XCTAssertTrue(buffer.dirty); XCTAssertEqual(opened, 1)
+        language.close(); language.open(local); XCTAssertEqual(opened, 1)
+    }
+
     @MainActor func testAgentMessagesUseLiterateBuffersWithoutFileOwnership() {
         // Contract: .hickory-source/frontends/contract.md
         let session = AgentSession()

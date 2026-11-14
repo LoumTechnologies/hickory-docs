@@ -1115,6 +1115,7 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                 menu = true; scope.launch { service?.inspect() }; scope.launch { service?.complete() }
             }.padding(4.dp).semantics { contentDescription = "Language tools" })
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                for (query in SemanticQuery.entries) DropdownMenuItem(text = { Text(query.label) }, onClick = { scope.launch { service?.navigate(query) } })
                 Text("Editor settings", modifier = Modifier.padding(8.dp))
                 Text("Enter indentation", modifier = Modifier.padding(horizontal = 8.dp), fontSize = 12.sp)
                 for ((value, title) in listOf("smart" to "Smart (language rules)", "copy" to "Match current line", "none" to "None")) {
@@ -1141,6 +1142,10 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                     if (service != null) service.diagnostics.forEach { item ->
                         if (item.from != null && item.to != null) TextButton(enabled = service.diagnosticSource == source, onClick = { buffer.selectSourceRange(item.from, item.to, service.diagnosticSource) }) { Text(item.message) }
                         else Text(item.message + " (server message; source version unavailable)", fontSize = 12.sp)
+                    }
+                    if (!service?.locationStatus.isNullOrEmpty()) Text(service?.locationStatus.orEmpty(), fontSize = 12.sp)
+                    service?.locations?.forEach { location ->
+                        TextButton(enabled = location.path != null && source == service.locationSource && buffer.state.selection == service.locationSelection, onClick = { if (service.open(location)) menu = false }) { Text(location.label) }
                     }
                     service?.suggestions?.forEach { item ->
                         TextButton(enabled = !buffer.readOnly && item.source == source && item.selection == buffer.state.selection, onClick = { if (service.accept(item)) menu = false }) {

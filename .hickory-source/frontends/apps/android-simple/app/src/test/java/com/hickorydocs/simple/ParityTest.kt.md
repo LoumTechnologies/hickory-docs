@@ -18,6 +18,36 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @org.junit.Test fun semanticNavigationRetiresStaleSourceAndSelection() = kotlinx.coroutines.runBlocking {
+        // Contract: .hickory-source/frontends/contract.md
+        val buffer = DocumentBuffer(FileNode("main.py", "main.py", false, emptyList(), null, null), FileText("value = 1\nprint(value)", "base"))
+        val language = NativeLanguage(Engine("http://127.0.0.1:1"), buffer, this)
+        val location = SemanticLocation("hick:///other.py", 0, 0)
+        var opened = 0; buffer.openSemanticLocation = { opened++ }
+        language.locations = listOf(location); language.locationSource = buffer.text; language.locationSelection = buffer.state.selection
+        buffer.state.edit { selection = androidx.compose.ui.text.TextRange(1) }; assertTrue(!language.open(location)); assertEquals(0, opened)
+        buffer.state.edit { selection = language.locationSelection; append("\n# changed") }; assertTrue(!language.open(location)); assertEquals(0, opened)
+        language.locationSource = buffer.text; language.locationSelection = buffer.state.selection; assertTrue(language.open(location)); assertEquals(1, opened)
+        val local = SemanticLocation("hick:///main.py", 0, 2)
+        language.locations = listOf(local); assertTrue(language.open(local)); assertEquals(androidx.compose.ui.text.TextRange(2), buffer.state.selection)
+        assertTrue(buffer.dirty); assertEquals(1, opened)
+        language.close(); assertTrue(!language.open(local)); assertEquals(1, opened)
+    }
+
+    @org.junit.Test fun semanticLocationSafetyAndNormalization() {
+        // Contract: .hickory-source/frontends/contract.md
+        assertEquals("src/my file.py", SemanticLocation("hick:///src/my%20file.py", 2, 4).path)
+        assertEquals("literal%20.py", SemanticLocation("hick:///literal%2520.py", 0, 0).path)
+        assertEquals("name?#.py", SemanticLocation("hick:///name%3F%23.py", 0, 0).path)
+        for (uri in listOf("hick:/main.py", "hick:///a?", "file:///etc/passwd", "hick-output:///main.py", "hick://host/main.py", "hick:///../secret", "hick:///%2e%2e/secret", "hick:///a%5Cb", "hick:///a%00b", "hick:///a?context=old", "hick:///a#old")) assertEquals(uri, null, SemanticLocation(uri, 0, 0).path)
+        val range = JSONObject().put("start", JSONObject().put("line", 2).put("character", 4)).put("end", JSONObject().put("line", 2).put("character", 8))
+        val direct = JSONObject().put("uri", "hick:///a.py").put("range", range)
+        val link = JSONObject().put("targetUri", "hick:///a.py").put("targetSelectionRange", range)
+        assertEquals(listOf(SemanticLocation("hick:///a.py", 2, 4)), semanticLocations(org.json.JSONArray().put(direct).put(link)))
+        assertTrue(semanticLocations(JSONObject().put("uri", "hick:///a.py")).isEmpty())
+        assertEquals(4, SemanticQuery.entries.size)
+    }
+
     @Test fun agentMessagesUseLiterateBuffersWithoutFileOwnership() {
         // Contract: .hickory-source/frontends/contract.md
         val session = AgentSession()

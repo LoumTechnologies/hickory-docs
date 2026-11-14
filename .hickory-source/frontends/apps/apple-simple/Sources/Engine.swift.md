@@ -202,6 +202,53 @@ Versioned diagnostic ranges are usable only when the server version equals the n
 
 The session opens only after the buffer exists. Closing or reconnecting retires its epoch, cancels background tasks and fails pending requests; an old socket cannot publish into the replacement session. The server capability announcement supplies the semantic legend. Outgoing frames stay ordered on channel 2, while other backend channels are ignored.
 
+## Ask semantic questions without owning their presentation
+
+Definition, usages, type and implementation are the same operation: ask a provider about a captured source position and return navigable locations. Keep the vocabulary and Location/LocationLink normalization independent of SwiftUI. Preserve unsupported URI identities for display, but admit only workspace-relative authored paths for opening. A result is information, never permission to modify a file.
+
+<ui:copy id="simple-apple-semantic-locations">
+enum SemanticQuery: String, CaseIterable, Identifiable {
+    case definition, references, typeDefinition, implementation
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .definition: return "Go to definition"
+        case .references: return "Find usages"
+        case .typeDefinition: return "Go to type definition"
+        case .implementation: return "Find implementations"
+        }
+    }
+    var method: String { "textDocument/" + rawValue }
+}
+struct SemanticLocation: Identifiable, Equatable {
+    var uri: String; var line: Int; var character: Int
+    var id: String { "\(uri):\(line):\(character)" }
+    var path: String? {
+        guard uri.hasPrefix("hick:///"), let value = URLComponents(string: uri), value.scheme == "hick", value.host?.isEmpty != false,
+              value.query == nil, value.fragment == nil,
+              let decoded = value.percentEncodedPath.removingPercentEncoding, decoded.hasPrefix("/") else { return nil }
+        let path = String(decoded.dropFirst()), parts = path.split(separator: "/", omittingEmptySubsequences: false)
+        guard !path.isEmpty, !path.contains(":"), !path.contains("\\"), !path.unicodeScalars.contains(where: { $0.value < 32 }),
+              parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { return nil }
+        return path
+    }
+    var label: String { "\(path ?? uri):\(line + 1):\(character + 1)" }
+}
+func semanticLocations(_ result: Any) -> [SemanticLocation] {
+    let items = result as? [[String: Any]] ?? (result as? [String: Any]).map { [$0] } ?? []
+    var seen = Set<String>()
+    return items.compactMap { item in
+        guard let uri = (item["uri"] ?? item["targetUri"]) as? String,
+              let range = (item["range"] ?? item["targetSelectionRange"] ?? item["targetRange"]) as? [String: Any],
+              let start = range["start"] as? [String: Any], let line = start["line"] as? Int, line >= 0,
+              let character = start["character"] as? Int, character >= 0 else { return nil }
+        let location = SemanticLocation(uri: uri, line: line, character: character)
+        return seen.insert(location.id).inserted ? location : nil
+    }
+}
+
+</ui:copy>
+
 <ui:copy id="simple-apple-language-session">
 // Rebase display-only spans through the smallest UTF-16 replacement. Discard
 // crossed tokens; retain the tentative classification when typing inside one token.
@@ -226,6 +273,11 @@ func rebaseNativeTokens(_ tokens: [NativeSemanticToken], from old: String, to ne
     }
 }
 @MainActor @Observable final class NativeLanguage {
+    var locations: [SemanticLocation] = []
+    var locationStatus = ""
+    var locationSource = ""
+    var locationSelection = NSRange(location: 0, length: 0)
+    private var navigationID = UUID()
     var status = "Language server connecting…"
     var tokens: [NativeSemanticToken] = []
     var tokenSource = ""
@@ -275,6 +327,7 @@ func rebaseNativeTokens(_ tokens: [NativeSemanticToken], from old: String, to ne
         changed()
     }
     func close() {
+        navigationID = UUID(); locations = []; locationStatus = ""
         diagnostics = []; diagnosticSource = ""; hover = ""; signature = ""; inlayHints = []; inspectionID = UUID()
         epoch = UUID(); receiveTask?.cancel(); refreshTask?.cancel(); sendTask?.cancel()
         socket?.cancel(with: .normalClosure, reason: nil); socket = nil
@@ -337,7 +390,8 @@ Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet
         notify("textDocument/didChange", ["textDocument": ["uri": uri, "version": version], "contentChanges": [["text": text]]])
     }
     func changed() {
-        refreshTask?.cancel(); inspectionID = UUID(); completionID = UUID()
+        refreshTask?.cancel(); inspectionID = UUID(); completionID = UUID(); navigationID = UUID()
+        if locationStatus == "Searching…" { locationStatus = "Source or provider changed. Run the query again." }
         if let buffer {
             tokens = rebaseNativeTokens(tokens, from: tokenSource, to: buffer.text)
             tokenSource = buffer.text
@@ -370,6 +424,41 @@ Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet
                 try? await Task.sleep(for: .milliseconds(700))
             }
         }
+    }
+    func navigate(_ query: SemanticQuery) async {
+        showingSuggestions = true
+        guard let buffer else { return }
+        sync(); let source = buffer.text, selection = buffer.selection, current = epoch, id = UUID()
+        navigationID = id; locations = []; locationStatus = "Searching…"
+        locationSource = source; locationSelection = selection
+        var params: [String: Any] = ["textDocument": ["uri": uri], "position": languagePosition(source, selection.location)]
+        if query == .references { params["context"] = ["includeDeclaration": true] }
+        do {
+            let result = try await request(query.method, params)
+            guard navigationID == id, epoch == current, buffer.text == source, buffer.selection == selection else {
+                if navigationID == id, epoch == current { locationStatus = "Source or cursor changed. Run the query again." }; return
+            }
+            locations = semanticLocations(result)
+            locationStatus = locations.isEmpty ? "No results. The provider may still be indexing or may not support this query. Retry or choose another symbol." : "\(locations.count) locations"
+        } catch {
+            if navigationID == id, epoch == current, buffer.text == source, buffer.selection == selection {
+                locationStatus = "\(query.label) unavailable: \(error.localizedDescription). Retry language services."
+            }
+        }
+    }
+    func open(_ location: SemanticLocation) {
+        guard let buffer, buffer.text == locationSource, buffer.selection == locationSelection,
+              locations.contains(location), location.path != nil else {
+            locationStatus = "Location is stale or outside authored workspace files. Run the query again."; return
+        }
+        if location.path == buffer.file.path {
+            guard let offset = languageOffset(buffer.text, ["line": location.line, "character": location.character]),
+                  buffer.selectSourceRange?(NSRange(location: offset, length: 0), buffer.text) == true else {
+                locationStatus = "Location no longer fits this source. Query again."; return
+            }
+            buffer.focusSource?()
+        } else { buffer.openSemanticLocation?(location) }
+        showingSuggestions = false
     }
     func inspect() async {
         showingSuggestions = true
@@ -716,6 +805,6 @@ struct NativeRunOutput: Equatable {
 
 Keep construction order explicit; the explanations above describe the decisions at each boundary.
 
-<ui:file path="apps/apple-simple/Sources/Engine.swift"><ui:paste select="#simple-ff9425b170-0"/><ui:paste select="#simple-ff9425b170-1"/><ui:paste select="#simple-apple-language-transport"/><ui:paste select="#simple-apple-language-session"/><ui:paste select="#simple-apple-language-snapshots"/><ui:paste select="#simple-apple-debug-session"/></ui:file>
+<ui:file path="apps/apple-simple/Sources/Engine.swift"><ui:paste select="#simple-ff9425b170-0"/><ui:paste select="#simple-ff9425b170-1"/><ui:paste select="#simple-apple-language-transport"/><ui:paste select="#simple-apple-semantic-locations"/><ui:paste select="#simple-apple-language-session"/><ui:paste select="#simple-apple-language-snapshots"/><ui:paste select="#simple-apple-debug-session"/></ui:file>
 
 </ui:doc>

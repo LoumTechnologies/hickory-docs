@@ -59,6 +59,7 @@ class DocumentBuffer(val file: FileNode, loaded: FileText) {
     val tableHeights = mutableStateMapOf<Int, Int>()
     var tableSourceVisible by mutableStateOf(false)
     var inlineMarkup by mutableStateOf(InlineSnapshot(""))
+    var openSemanticLocation: ((SemanticLocation) -> Unit)? = null
     var language: NativeLanguage? = null
     val state = TextFieldState(loaded.content)
     var focusSource: (() -> Unit)? = null
@@ -175,7 +176,7 @@ class Workspace : ViewModel() {
         connecting = true
         try {
             val next = Engine(address); val (root, tree) = next.files()
-            agent.turns = emptyList(); agent.error = ""; terminal.id = null; terminal.screen = ""; terminal.error = ""
+            agent.turns = emptyList(); agent.error = ""; terminal.id = null; terminal.error = ""
             debugger?.close(); debugger = NativeDebugger(next, viewModelScope)
             debugger?.onLocation = { path, line -> viewModelScope.launch { revealDebug(path, line) } }
             buffers.values.forEach { it.language?.close() }; generation = UUID.randomUUID(); engine = next; files = tree; buffers.clear(); opening.clear()
@@ -204,6 +205,7 @@ class Workspace : ViewModel() {
             if (generation != current) return
             val buffer = DocumentBuffer(file, text)
             buffers[file.path] = buffer
+            buffer.openSemanticLocation = { location -> viewModelScope.launch { openSemanticLocation(location) } }
             buffer.receiptEngine = server
             buffer.language = NativeLanguage(server, buffer, viewModelScope); buffer.language?.start()
             if (newestOpen[target] == file.path) {
@@ -214,6 +216,20 @@ class Workspace : ViewModel() {
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { if (generation == current) status = "${failure.message} Refresh files and try opening ${file.path} again." }
         finally { if (generation == current) opening.remove(file.path) }
+    }
+    suspend fun openSemanticLocation(location: SemanticLocation) {
+        val path = location.path ?: return
+        fun find(nodes: List<FileNode>): FileNode? { nodes.forEach { if (it.path == path) return it; find(it.children)?.let { child -> return child } }; return null }
+        val file = find(files)?.takeUnless { it.dir } ?: run { status = "Location not found: $path. Refresh files and query again."; return }
+        val current = generation
+        open(file)
+        if (generation != current || active != path) return
+        val buffer = buffers[path] ?: return
+        if (buffer.dirty) { status = "Save $path and query again before using a cross-file source position."; return }
+        val source = buffer.text
+        val offset = languageOffset(source, org.json.JSONObject().put("line", location.line).put("character", location.character))
+            ?: run { status = "Location no longer fits $path. Query again."; return }
+        buffer.selectSourceRange(offset, offset, source); buffer.focusSource?.invoke()
     }
     suspend fun revealDebug(path: String, line: Int) {
         fun find(nodes: List<FileNode>): FileNode? { nodes.forEach { if (it.path == path) return it; find(it.children)?.let { child -> return child } }; return null }

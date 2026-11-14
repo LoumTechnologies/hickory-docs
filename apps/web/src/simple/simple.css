@@ -23,7 +23,10 @@ nav summary { list-style: none; cursor: pointer; padding: 3px; }
 .tab[data-active=true]::after { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: Highlight; pointer-events: none; z-index: 1; }
 .tab button { background: transparent; }
 .pane, .document-body, .editor-host { min-height: 0; height: 100%; overflow: hidden; }
-.document-body { display: flex; flex-direction: column; }
+.document-body { display: flex; flex-direction: column; position: relative; }
+.simple-semantic-results { position: absolute; z-index: 30; top: 4px; right: 46px; max-width: min(440px, calc(100% - 50px)); max-height: 65%; overflow: auto; padding: 6px; border: 1px solid GrayText; background: Canvas; box-shadow: 0 4px 12px #0003; }
+.simple-semantic-results > button { display: block; overflow-wrap: anywhere; }
+.simple-semantic-results > p { margin: 4px; }
 .editor-host { flex: 1; }
 .editor-cm-host .cm-content { padding-left: 0; padding-right: 0; }
 .editor-cm-host .cm-line { padding-left: 4px; padding-right: 4px; }

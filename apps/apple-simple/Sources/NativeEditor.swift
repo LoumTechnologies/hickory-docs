@@ -1929,6 +1929,14 @@ struct LanguageEditor: View {
                         Text("Language tools").font(.headline)
                         Text(buffer.language?.status ?? "Language services not connected").font(.caption).textSelection(.enabled)
                         if let language = buffer.language {
+                            ForEach(SemanticQuery.allCases) { query in
+                                Button(query.label) { Task { await language.navigate(query) } }
+                            }
+                            if !language.locationStatus.isEmpty { Text(language.locationStatus).font(.caption).textSelection(.enabled) }
+                            ForEach(language.locations) { location in
+                                Button(location.label) { language.open(location) }
+                                    .disabled(location.path == nil || buffer.text != language.locationSource || buffer.selection != language.locationSelection)
+                            }
                             if !language.hover.isEmpty || !language.signature.isEmpty {
                                 Text("Last received information; refresh for current position.").font(.caption).foregroundStyle(.secondary)
                                 if !language.hover.isEmpty { Text(language.hover).textSelection(.enabled) }
