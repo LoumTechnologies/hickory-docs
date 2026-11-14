@@ -414,6 +414,8 @@ export type RefactorStatus =
 
 <storycode:copy id="f-8a4c3188ff6c-FileNode">
 export interface FileNode {
+  /** Engine language routing; absent means unclassified, not analyzed. */
+  language?: string;
   name: string;
   path: string;
   dir: boolean;

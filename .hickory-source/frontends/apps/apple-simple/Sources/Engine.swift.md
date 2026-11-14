@@ -18,6 +18,7 @@ struct FileNode: Codable, Identifiable {
     var children: [FileNode]?
     var doc_id: String?
     var generated_by: String?
+    var language: String?
     var id: String { path }
 }
 struct FileTree: Decodable { var root: String; var tree: [FileNode] }

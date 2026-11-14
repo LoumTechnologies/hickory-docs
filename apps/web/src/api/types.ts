@@ -238,6 +238,8 @@ export type RefactorStatus =
   | { active: true; started_at: string; clean: boolean; diffs: RefactorDiff[] };
 
 export interface FileNode {
+  /** Engine language routing; absent means unclassified, not analyzed. */
+  language?: string;
   name: string;
   path: string;
   dir: boolean;

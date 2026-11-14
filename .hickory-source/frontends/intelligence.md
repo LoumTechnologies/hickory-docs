@@ -413,12 +413,65 @@ fun searchCharacter(line: String, byteColumn: Int): Int? {
 }
 </ui:copy>
 
+### simple-intelligence-browser-analysis-scope
+
+Background source discovery uses routing facts from the engine, not another frontend extension table. Enumerate every unique known-language authored file. Count generated outputs separately because their owners produce them; count unclassified files explicitly instead of treating them as analyzed. This is an input scope for language work, not evidence that a server has finished analysis. The visible Files subtree never narrows the retained workspace root.
+
+<ui:copy id="simple-intelligence-browser-analysis-scope">
+export function workspaceAnalysisScope(nodes: readonly import("../api/types").FileNode[]) {
+  const files: import("../api/types").FileNode[] = [], seen = new Set<string>();
+  let generated = 0, unclassified = 0;
+  const visit = (nodes: readonly import("../api/types").FileNode[]) => { for (const file of nodes) {
+    if (file.dir) { visit(file.children ?? []); continue; }
+    if (seen.has(file.path)) continue; seen.add(file.path);
+    if (file.generated_by) generated++; else if (file.language) files.push(file); else unclassified++;
+  } };
+  visit(nodes); files.sort((a,b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  return { files, generated, unclassified };
+}
+</ui:copy>
+
+### simple-intelligence-apple-analysis-scope
+
+Background source discovery uses routing facts from the engine, not another frontend extension table. Enumerate every unique known-language authored file. Count generated outputs separately because their owners produce them; count unclassified files explicitly instead of treating them as analyzed. This is an input scope for language work, not evidence that a server has finished analysis. The visible Files subtree never narrows the retained workspace root.
+
+<ui:copy id="simple-intelligence-apple-analysis-scope">
+struct WorkspaceAnalysisScope { var files: [FileNode]; var generated: Int; var unclassified: Int }
+func workspaceAnalysisScope(_ nodes: [FileNode]) -> WorkspaceAnalysisScope {
+    var files: [FileNode] = [], seen = Set<String>(), generated = 0, unclassified = 0
+    func visit(_ nodes: [FileNode]) { for file in nodes {
+        if file.dir { visit(file.children ?? []); continue }
+        guard seen.insert(file.path).inserted else { continue }
+        if file.generated_by != nil { generated += 1 } else if let language = file.language, !language.isEmpty { files.append(file) } else { unclassified += 1 }
+    } }
+    visit(nodes); files.sort { $0.path < $1.path }
+    return WorkspaceAnalysisScope(files:files,generated:generated,unclassified:unclassified)
+}
+</ui:copy>
+
+### simple-intelligence-android-analysis-scope
+
+Background source discovery uses routing facts from the engine, not another frontend extension table. Enumerate every unique known-language authored file. Count generated outputs separately because their owners produce them; count unclassified files explicitly instead of treating them as analyzed. This is an input scope for language work, not evidence that a server has finished analysis. The visible Files subtree never narrows the retained workspace root.
+
+<ui:copy id="simple-intelligence-android-analysis-scope">
+data class WorkspaceAnalysisScope(val files: List<FileNode>, val generated: Int, val unclassified: Int)
+fun workspaceAnalysisScope(nodes: List<FileNode>): WorkspaceAnalysisScope {
+    val files = mutableListOf<FileNode>(); val seen = mutableSetOf<String>(); var generated = 0; var unclassified = 0
+    fun visit(nodes: List<FileNode>) { for(file in nodes) {
+        if(file.dir) {visit(file.children);continue}
+        if(!seen.add(file.path)) continue
+        if(file.generatedBy != null) generated++ else if(!file.language.isNullOrEmpty()) files.add(file) else unclassified++
+    } }
+    visit(nodes);return WorkspaceAnalysisScope(files.sortedBy {it.path},generated,unclassified)
+}
+</ui:copy>
+
 ## Assemble the platform modules
 
 Each platform imports the model through its ordinary module system. The maintained fragments stay source-backed; there is no second hand-maintained payload.
 
-<ui:file path="apps/web/src/simple/Intelligence.ts"><ui:paste select="#simple-intelligence-browser-vocabulary"/><ui:paste select="#simple-intelligence-browser-locations"/><ui:paste select="#simple-intelligence-browser-query"/><ui:paste select="#simple-intelligence-browser-trail"/><ui:paste select="#simple-intelligence-browser-problems"/><ui:paste select="#simple-intelligence-browser-search"/></ui:file>
-<ui:file path="apps/apple-simple/Sources/Intelligence.swift"><ui:paste select="#simple-apple-semantic-locations"/><ui:paste select="#simple-intelligence-apple-trail"/><ui:paste select="#simple-intelligence-apple-problems"/><ui:paste select="#simple-intelligence-apple-search"/></ui:file>
-<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/Intelligence.kt"><ui:paste select="#simple-android-semantic-locations"/><ui:paste select="#simple-intelligence-android-trail"/><ui:paste select="#simple-intelligence-android-problems"/><ui:paste select="#simple-intelligence-android-search"/></ui:file>
+<ui:file path="apps/web/src/simple/Intelligence.ts"><ui:paste select="#simple-intelligence-browser-vocabulary"/><ui:paste select="#simple-intelligence-browser-locations"/><ui:paste select="#simple-intelligence-browser-query"/><ui:paste select="#simple-intelligence-browser-trail"/><ui:paste select="#simple-intelligence-browser-problems"/><ui:paste select="#simple-intelligence-browser-search"/><ui:paste select="#simple-intelligence-browser-analysis-scope"/></ui:file>
+<ui:file path="apps/apple-simple/Sources/Intelligence.swift"><ui:paste select="#simple-apple-semantic-locations"/><ui:paste select="#simple-intelligence-apple-trail"/><ui:paste select="#simple-intelligence-apple-problems"/><ui:paste select="#simple-intelligence-apple-search"/><ui:paste select="#simple-intelligence-apple-analysis-scope"/></ui:file>
+<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/Intelligence.kt"><ui:paste select="#simple-android-semantic-locations"/><ui:paste select="#simple-intelligence-android-trail"/><ui:paste select="#simple-intelligence-android-problems"/><ui:paste select="#simple-intelligence-android-search"/><ui:paste select="#simple-intelligence-android-analysis-scope"/></ui:file>
 
 </ui:doc>

@@ -110,3 +110,14 @@ export function searchCharacter(line: string, byteColumn: number): number | null
   }
   return bytes === byteColumn ? units : null;
 }
+export function workspaceAnalysisScope(nodes: readonly import("../api/types").FileNode[]) {
+  const files: import("../api/types").FileNode[] = [], seen = new Set<string>();
+  let generated = 0, unclassified = 0;
+  const visit = (nodes: readonly import("../api/types").FileNode[]) => { for (const file of nodes) {
+    if (file.dir) { visit(file.children ?? []); continue; }
+    if (seen.has(file.path)) continue; seen.add(file.path);
+    if (file.generated_by) generated++; else if (file.language) files.push(file); else unclassified++;
+  } };
+  visit(nodes); files.sort((a,b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  return { files, generated, unclassified };
+}

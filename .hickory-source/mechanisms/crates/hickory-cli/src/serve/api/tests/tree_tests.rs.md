@@ -188,6 +188,7 @@ fn marking_skips_documents_and_directories() {
     ]);
     let mut tree = vec![
         TreeNode {
+            language: None,
             name: "cards.md".into(),
             path: "cards.md".into(),
             dir: false,
@@ -197,6 +198,7 @@ fn marking_skips_documents_and_directories() {
             children: None,
         },
         TreeNode {
+            language: None,
             name: "other.md".into(),
             path: "other.md".into(),
             dir: false,
@@ -206,6 +208,7 @@ fn marking_skips_documents_and_directories() {
             children: None,
         },
         TreeNode {
+            language: None,
             name: "src".into(),
             path: "src".into(),
             dir: true,
@@ -213,6 +216,7 @@ fn marking_skips_documents_and_directories() {
             generated_by: None,
             diverged: None,
             children: Some(vec![TreeNode {
+                language: None,
                 name: "main.rs".into(),
                 path: "src/main.rs".into(),
                 dir: false,
@@ -236,6 +240,53 @@ fn marking_skips_documents_and_directories() {
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/src/serve/api/tests/tree_tests.rs"><storycode:paste select="#f-c98e0438f96c-a_documents_weave_target_is_one_of_its_outputs"/><storycode:paste select="#f-c98e0438f96c-every_generated_file_block_is_an_output"/><storycode:paste select="#f-c98e0438f96c-outputs_are_relative_to_the_documents_own_directory"/><storycode:paste select="#f-c98e0438f96c-a_dot_dot_in_a_path_is_resolved_rather_than_left_in_the_key"/><storycode:paste select="#f-c98e0438f96c-a_path_built_from_a_variable_is_not_claimed"/><storycode:paste select="#f-c98e0438f96c-a_volume_output_directory_claims_the_files_under_it"/><storycode:paste select="#f-c98e0438f96c-markdown_source_and_weave_none_claim_no_rendered_output"/><storycode:paste select="#f-c98e0438f96c-marking_skips_documents_and_directories"/></storycode:file>
+## List routing facts without parsing file contents
+
+A known extension remains classifiable even when its contents are unreadable or syntactically invalid. Conversely, recognizable Python text under an unknown extension is still unclassified. This focused tree witness checks the real serialized metadata and directory boundaries, so the background candidate model does not depend on parsing source before it can display or load it.
+
+<storycode:copy id="workspace-tree-routing-facts-test">
+#[test]
+fn workspace_tree_routing_facts_do_not_wait_for_source_parsing() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("src")).unwrap();
+    std::fs::write(root.path().join("src/binary.py"), [0xff, 0xfe]).unwrap();
+    std::fs::write(
+        root.path().join("src/not-python.py"),
+        "this is not valid python (".as_bytes(),
+    )
+    .unwrap();
+    std::fs::write(
+        root.path().join("unclassified.mystery"),
+        "def actual_python():\n    pass\n",
+    )
+    .unwrap();
+    let index = crate::serve::store::DocIndex::scan(root.path()).unwrap();
+    let (tree, truncated) = file_tree(root.path(), &index);
+    assert!(!truncated);
+    let serialized = serde_json::to_value(tree).unwrap();
+    let nodes = serialized.as_array().unwrap();
+    let directory = nodes.iter().find(|node| node["path"] == "src").unwrap();
+    assert!(directory.get("language").is_none());
+    for path in ["src/binary.py", "src/not-python.py"] {
+        let node = directory["children"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|node| node["path"] == path)
+            .unwrap();
+        assert_eq!(node["language"], "python");
+    }
+    assert!(
+        nodes
+            .iter()
+            .find(|node| node["path"] == "unclassified.mystery")
+            .unwrap()
+            .get("language")
+            .is_none()
+    );
+}
+</storycode:copy>
+
+<storycode:file path="crates/hickory-cli/src/serve/api/tests/tree_tests.rs"><storycode:paste select="#f-c98e0438f96c-a_documents_weave_target_is_one_of_its_outputs"/><storycode:paste select="#f-c98e0438f96c-every_generated_file_block_is_an_output"/><storycode:paste select="#f-c98e0438f96c-outputs_are_relative_to_the_documents_own_directory"/><storycode:paste select="#f-c98e0438f96c-a_dot_dot_in_a_path_is_resolved_rather_than_left_in_the_key"/><storycode:paste select="#f-c98e0438f96c-a_path_built_from_a_variable_is_not_claimed"/><storycode:paste select="#f-c98e0438f96c-a_volume_output_directory_claims_the_files_under_it"/><storycode:paste select="#f-c98e0438f96c-markdown_source_and_weave_none_claim_no_rendered_output"/><storycode:paste select="#f-c98e0438f96c-marking_skips_documents_and_directories"/><storycode:paste select="#workspace-tree-routing-facts-test"/></storycode:file>
 
 </storycode:doc>

@@ -235,7 +235,7 @@ import Observation
     var engine: Engine?
     var address = ProcessInfo.processInfo.environment["HICKORY_API_ORIGIN"] ?? ""
     var connecting = false
-    private var opening: Set<String> = []
+    private var loading: [String:Task<DocumentBuffer, Error>] = [:]
     private var newestOpen: [String: String] = [:]
     let agent = AgentSession()
     let terminal = TerminalSession()
@@ -255,7 +255,7 @@ import Observation
             debugger?.close()
             for buffer in buffers.values { buffer.language?.close() }
             generation = UUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; debugger = NativeDebugger(engine: next)
-            debugger?.onLocation = { [weak self] path, line in Task { await self?.revealDebug(path, line: line) } }; files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); buffers = [:]; opening = []
+            debugger?.onLocation = { [weak self] path, line in Task { await self?.revealDebug(path, line: line) } }; files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); buffers = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
             layout = PaneLayout(); focused = "document-group"; status = tree.root
             return true
         } catch { status = error.localizedDescription; return false }
@@ -270,51 +270,70 @@ import Observation
 
 Opening and saving retain request identity. A server switch rejects stale reads. Moving and closing tabs never silently discard dirty documents. Pane movement can be invoked from a menu as well as drag and drop.
 
+## Retain source before choosing a pane
+
+Foreground file opening and background intelligence share one acquisition path. A pending read is keyed by workspace generation and path; after it returns, prefer any already available buffer so unsaved text cannot be overwritten. Retaining text attaches capabilities without activating a pane. Only the foreground request changes layout and records navigation. Reconnecting cancels old acquisitions and prevents late results from entering the new workspace.
+
 <ui:copy id="simple-230bbf9308-1">
+    func loadBuffer(_ file: FileNode) async throws -> DocumentBuffer {
+        if let buffer = buffers[file.path] { return buffer }
+        if let pending = loading[file.path] { return try await pending.value }
+        guard !file.dir, let engine else { throw EngineError(message:"Connect to the workspace and choose a file.") }
+        let current = generation
+        let pending = Task { @MainActor [weak self] () async throws -> DocumentBuffer in
+            let text = try await engine.file(file)
+            guard let self, self.generation == current else { throw CancellationError() }
+            if let available = self.buffers[file.path] { return available }
+            return self.retainBuffer(file, text:text, engine:engine)
+        }
+        loading[file.path] = pending
+        defer { if generation == current { loading.removeValue(forKey:file.path) } }
+        return try await pending.value
+    }
+    private func retainBuffer(_ file: FileNode, text: FileText, engine: Engine) -> DocumentBuffer {
+        let buffer = DocumentBuffer(file: file, text: text)
+        buffers[file.path] = buffer
+        buffer.openDiagramFile = { [weak self, weak buffer] href in
+            guard let self, let buffer, let path = diagramFilePath(href, relativeTo: buffer.file.path) else { return }
+            Task {
+                func find(_ nodes: [FileNode]) -> FileNode? {
+                    for node in nodes { if node.path == path { return node }; if let file = find(node.children ?? []) { return file } }
+                    return nil
+                }
+                if find(self.files) == nil { await self.refresh() }
+                guard let file = find(self.files), !file.dir else { self.status = "File not found: \(path). Refresh files and check the diagram link."; return }
+                await self.open(file)
+            }
+        }
+        buffer.rememberNavigation = { [weak self] from, to in self?.navigationTrail.record(from: from, to: to) }
+        buffer.openSemanticLocation = { [weak self] location in
+            Task { await self?.openSemanticLocation(location) }
+        }
+        buffer.receiptEngine = engine
+        buffer.language = NativeLanguage(engine: engine, buffer: buffer); buffer.language?.start()
+        return buffer
+    }
     func open(_ file: FileNode, recordNavigation: Bool = true) async {
         let departed = currentSemanticLocation()
         if buffers[file.path] != nil {
             show(file.path)
-            if recordNavigation, let arrived = currentSemanticLocation() { navigationTrail.record(from: departed, to: arrived) }
+            if recordNavigation, let arrived = currentSemanticLocation() { navigationTrail.record(from:departed,to:arrived) }
             return
         }
-        guard let engine, !opening.contains(file.path) else { return }
         let current = generation
         let target = layout.groups().first(where: { $0.id == focused && !$0.tabs.contains("files") })?.id
             ?? layout.groups().first(where: { !$0.tabs.contains("files") })?.id ?? focused
         newestOpen[target] = file.path; focused = target
-        opening.insert(file.path)
-        defer { if current == generation { opening.remove(file.path) } }
         do {
-            let text = try await engine.file(file)
+            _ = try await loadBuffer(file)
             guard current == generation else { return }
-            let buffer = DocumentBuffer(file: file, text: text)
-            buffers[file.path] = buffer
-            buffer.openDiagramFile = { [weak self, weak buffer] href in
-                guard let self, let buffer, let path = diagramFilePath(href, relativeTo: buffer.file.path) else { return }
-                Task {
-                    func find(_ nodes: [FileNode]) -> FileNode? {
-                        for node in nodes { if node.path == path { return node }; if let file = find(node.children ?? []) { return file } }
-                        return nil
-                    }
-                    if find(self.files) == nil { await self.refresh() }
-                    guard let file = find(self.files), !file.dir else { self.status = "File not found: \(path). Refresh files and check the diagram link."; return }
-                    await self.open(file)
-                }
-            }
-            buffer.rememberNavigation = { [weak self] from, to in self?.navigationTrail.record(from: from, to: to) }
-            buffer.openSemanticLocation = { [weak self] location in
-                Task { await self?.openSemanticLocation(location) }
-            }
-            buffer.receiptEngine = engine
-            buffer.language = NativeLanguage(engine: engine, buffer: buffer); buffer.language?.start()
             if newestOpen[target] == file.path {
-                // A close or move can retire the requested pane while text loads.
                 let live = layout.groups().first(where: { $0.id == target })?.id ?? layout.groups()[0].id
-                layout.activate(file.path, in: live); focused = live; status = file.path
-                if recordNavigation, let arrived = currentSemanticLocation() { navigationTrail.record(from: departed, to: arrived) }
+                layout.activate(file.path,in:live); focused = live; status = file.path
+                if recordNavigation, let arrived = currentSemanticLocation() { navigationTrail.record(from:departed,to:arrived) }
             }
-        } catch { if current == generation { status = "\(error.localizedDescription) Refresh files and try opening \(file.path) again." } }
+        } catch is CancellationError { return }
+        catch { if current == generation { status = "\(error.localizedDescription) Refresh files and try opening \(file.path) again." } }
     }
     func currentSemanticLocation() -> SemanticLocation? {
         guard let buffer = currentBuffer else { return nil }

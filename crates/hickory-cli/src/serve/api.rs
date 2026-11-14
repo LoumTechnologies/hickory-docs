@@ -417,6 +417,9 @@ struct TreeNode {
     /// Root-relative, forward slashes on every platform.
     path: String,
     dir: bool,
+    /// Central language routing; absence is unknown, not proof of plain text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    language: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     doc_id: Option<String>,
     /// The document that generates this file, when one does.
@@ -436,7 +439,6 @@ struct TreeNode {
     #[serde(skip_serializing_if = "Option::is_none")]
     children: Option<Vec<TreeNode>>,
 }
-
 /// The `weave` attribute of a document's root element, and the `path` of a
 /// `hick:file` block. Both are plain literal attributes in the source, which
 /// is what makes reading them without a parse honest — see `declared_outputs`.
@@ -782,6 +784,11 @@ fn insert_tree_node(top: &mut Vec<TreeNode>, rel: &str, dir: bool, index: &super
                 name: part.to_string(),
                 path: prefix.clone(),
                 dir,
+                language: if dir {
+                    None
+                } else {
+                    hick_plugins::routing::language_id(rel)
+                },
                 doc_id,
                 generated_by: None,
                 diverged: None,
@@ -797,6 +804,7 @@ fn insert_tree_node(top: &mut Vec<TreeNode>, rel: &str, dir: bool, index: &super
                     name: part.to_string(),
                     path: prefix.clone(),
                     dir: true,
+                    language: None,
                     doc_id: None,
                     generated_by: None,
                     diverged: None,
@@ -810,7 +818,6 @@ fn insert_tree_node(top: &mut Vec<TreeNode>, rel: &str, dir: bool, index: &super
             .expect("directory nodes always carry children");
     }
 }
-
 /// Directories first, then files, both case-insensitive alphabetical — the
 /// order every file pane a user has ever seen puts them in.
 fn sort_tree(nodes: &mut [TreeNode]) {

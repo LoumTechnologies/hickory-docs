@@ -32,7 +32,7 @@ import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URLEncoder
 
-data class FileNode(val name: String, val path: String, val dir: Boolean, val children: List<FileNode>, val docID: String?, val generatedBy: String?)
+data class FileNode(val name: String, val path: String, val dir: Boolean, val children: List<FileNode>, val docID: String?, val generatedBy: String?, val language: String? = null)
 data class FileText(val content: String, val hash: String)
 data class AgentTurn(val id: String, val prompt: String, val answer: String?, val error: String?, val status: String)
 private fun JSONObject.optional(key: String) = if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
@@ -72,7 +72,7 @@ class Engine(address: String) {
     suspend fun files(): Pair<String, List<FileNode>> {
         val response = request("GET", "/api/files")
         fun decode(array: JSONArray): List<FileNode> = array.objects().map {
-            FileNode(it.getString("name"), it.getString("path"), it.getBoolean("dir"), decode(it.optJSONArray("children") ?: JSONArray()), it.optional("doc_id"), it.optional("generated_by"))
+            FileNode(it.getString("name"), it.getString("path"), it.getBoolean("dir"), decode(it.optJSONArray("children") ?: JSONArray()), it.optional("doc_id"), it.optional("generated_by"), it.optional("language"))
         }
         return response.getString("root") to decode(response.getJSONArray("tree"))
     }

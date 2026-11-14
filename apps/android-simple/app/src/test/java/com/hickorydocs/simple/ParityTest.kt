@@ -4,8 +4,35 @@ package com.hickorydocs.simple
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
+import kotlinx.coroutines.async
 
 class ParityTest {
+    @Test fun workspaceAnalysisScopeCountsUnknownAndGeneratedSources() {
+        // Contract: .hickory-source/frontends/contract.md
+        val a=FileNode("a.py","src/a.py",false,emptyList(),null,null,"python")
+        val scope=workspaceAnalysisScope(listOf(FileNode("src","src",true,listOf(a,FileNode("out.py","src/out.py",false,emptyList(),null,"owner","python")),null,null),a,FileNode("notes.md","notes.md",false,emptyList(),null,null,"markdown"),FileNode("unknown","unknown",false,emptyList(),null,null)))
+        assertEquals(listOf("notes.md","src/a.py"),scope.files.map {it.path});assertEquals(1,scope.generated);assertEquals(1,scope.unclassified)
+    }
+    @Test fun backgroundSourceAcquisitionSharesReadAndRetainsAvailableDraft() = kotlinx.coroutines.runBlocking {
+        // Contract: .hickory-source/frontends/contract.md
+        val listener=com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1",0),0)
+        val count=java.util.concurrent.atomic.AtomicInteger();val arrived=kotlinx.coroutines.CompletableDeferred<Unit>();val gate=java.util.concurrent.CountDownLatch(1)
+        listener.createContext("/api/file") {exchange ->
+            count.incrementAndGet();arrived.complete(Unit);gate.await(5,java.util.concurrent.TimeUnit.SECONDS)
+            val bytes="""{"path":"background.py","content":"loaded disk text","hash":"disk"}""".toByteArray();exchange.sendResponseHeaders(200,bytes.size.toLong());exchange.responseBody.use {it.write(bytes)}
+        };listener.start()
+        val workspace=Workspace(this);workspace.engine=Engine("http://127.0.0.1:${listener.address.port}")
+        val file=FileNode("background.py","background.py",false,emptyList(),null,null,"python")
+        try {
+            val first=async {workspace.loadBuffer(file)};val second=async {workspace.loadBuffer(file)}
+            kotlinx.coroutines.withTimeout(3000) {arrived.await()}
+            val draft=DocumentBuffer(file,FileText("base","base"));draft.state.edit {replace(0,length,"retained draft")};workspace.buffers[file.path]=draft
+            gate.countDown();assertSame(draft,first.await());assertSame(draft,second.await());assertEquals(1,count.get());assertEquals("retained draft",draft.text);assertTrue(draft.dirty);assertNull(workspace.active)
+            val other=file.copy(name="other.py",path="other.py")
+            val loaded=workspace.loadBuffer(other);assertEquals("loaded disk text",loaded.text);assertNotNull(loaded.language);assertNull(workspace.active)
+        } finally {gate.countDown();workspace.buffers.values.forEach {it.language?.close()};listener.stop(0)}
+    }
+
     @Test fun diagnosticEngineHashesOverrideWindowCounterCoincidence() {
         // Contract: .hickory-source/frontends/contract.md
         val source="value";val hash="sha256:"+java.security.MessageDigest.getInstance("SHA-256").digest(source.toByteArray()).joinToString(""){"%02x".format(it)}

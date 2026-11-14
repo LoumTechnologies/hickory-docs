@@ -12,6 +12,11 @@ import XCTest
 
 final class ResponseProtocol: URLProtocol {
     static var requestedURL: URL?
+    static var beforeResponse: ((URLRequest) -> Void)?
+    private static let requestLock = NSLock()
+    private static var requests: [URL] = []
+    static func resetRequests() { requestLock.lock(); defer { requestLock.unlock() }; requests = [] }
+    static func requestCount(_ path: String) -> Int { requestLock.lock(); defer { requestLock.unlock() }; return requests.filter { $0.path == path }.count }
     static var status = 200
     static var response = Data()
     static var responsesByPath: [String: Data] = [:]
@@ -20,6 +25,8 @@ final class ResponseProtocol: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         Self.requestedURL = request.url
+        if let url=request.url { Self.requestLock.lock(); Self.requests.append(url); Self.requestLock.unlock() }
+        Self.beforeResponse?(request)
         var body = request.httpBody ?? Data()
         if let stream = request.httpBodyStream {
             stream.open(); defer { stream.close() }
@@ -39,6 +46,36 @@ final class ResponseProtocol: URLProtocol {
     override func stopLoading() {}
 }
 final class SaveTests: XCTestCase {
+    @MainActor func testBackgroundSourceAcquisitionSharesReadWithoutActivatingPane() async throws {
+        // Contract: .hickory-source/frontends/contract.md
+        ResponseProtocol.status=200;ResponseProtocol.responsesByPath=[:];ResponseProtocol.beforeResponse=nil;ResponseProtocol.resetRequests()
+        ResponseProtocol.response=Data(#"{"path":"background.py","content":"value = 1","hash":"disk"}"#.utf8)
+        let config=URLSessionConfiguration.ephemeral;config.protocolClasses=[ResponseProtocol.self]
+        let session=URLSession(configuration:config),workspace=Workspace();workspace.engine=try Engine(address:"http://fixture.invalid",session:session)
+        let file=FileNode(name:"background.py",path:"background.py",dir:false,language:"python")
+        defer { workspace.buffers.values.forEach {$0.language?.close()};session.invalidateAndCancel() }
+        async let first=workspace.loadBuffer(file);async let second=workspace.loadBuffer(file)
+        let (a,b)=try await(first,second)
+        XCTAssertTrue(a === b);XCTAssertEqual(ResponseProtocol.requestCount("/api/file"),1)
+        XCTAssertEqual(a.text,"value = 1");XCTAssertNil(workspace.active);XCTAssertNotNil(a.language)
+    }
+    @MainActor func testDelayedBackgroundSourceCannotReplaceAvailableDraft() async throws {
+        // Contract: .hickory-source/frontends/contract.md
+        ResponseProtocol.status=200;ResponseProtocol.responsesByPath=[:];ResponseProtocol.resetRequests()
+        ResponseProtocol.response=Data(#"{"path":"background.py","content":"late disk text","hash":"disk"}"#.utf8)
+        let arrived=expectation(description:"raw file request"),gate=DispatchSemaphore(value:0)
+        ResponseProtocol.beforeResponse={request in if request.url?.path == "/api/file" {arrived.fulfill();_ = gate.wait(timeout:.now()+5)}}
+        let config=URLSessionConfiguration.ephemeral;config.protocolClasses=[ResponseProtocol.self]
+        let session=URLSession(configuration:config),workspace=Workspace();workspace.engine=try Engine(address:"http://fixture.invalid",session:session)
+        let file=FileNode(name:"background.py",path:"background.py",dir:false,language:"python")
+        defer {gate.signal();ResponseProtocol.beforeResponse=nil;session.invalidateAndCancel()}
+        let read=Task {try await workspace.loadBuffer(file)}
+        await fulfillment(of:[arrived],timeout:3)
+        let draft=DocumentBuffer(file:file,text:FileText(path:file.path,content:"base",hash:"base"));draft.text="retained draft";workspace.buffers[file.path]=draft
+        gate.signal();let loaded=try await read.value
+        XCTAssertTrue(loaded === draft);XCTAssertEqual(draft.text,"retained draft");XCTAssertTrue(draft.dirty);XCTAssertNil(workspace.active)
+    }
+
     @MainActor func testAgentRequestUsesSubscriptionAndPythonBackend() async throws {
         let (engine, _) = try fixture()
         ResponseProtocol.status = 200; ResponseProtocol.responsesByPath = [:]

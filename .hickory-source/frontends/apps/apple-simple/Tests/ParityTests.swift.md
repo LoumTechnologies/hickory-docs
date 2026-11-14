@@ -35,6 +35,13 @@ import WebKit
 @testable import HickorySimple
 
 final class ParityTests: XCTestCase {
+    func testWorkspaceAnalysisScopeCountsUnknownAndGeneratedSources() {
+        // Contract: .hickory-source/frontends/contract.md
+        let a=FileNode(name:"a.py",path:"src/a.py",dir:false,language:"python")
+        let scope=workspaceAnalysisScope([FileNode(name:"src",path:"src",dir:true,children:[a,FileNode(name:"out.py",path:"src/out.py",dir:false,generated_by:"owner",language:"python")]),a,FileNode(name:"notes.md",path:"notes.md",dir:false,language:"markdown"),FileNode(name:"unknown",path:"unknown",dir:false)])
+        XCTAssertEqual(scope.files.map(\.path),["notes.md","src/a.py"]);XCTAssertEqual(scope.generated,1);XCTAssertEqual(scope.unclassified,1)
+    }
+
     func testDiagnosticEngineHashesOverrideWindowCounterCoincidence() {
         // Contract: .hickory-source/frontends/contract.md
         let source="value", hash="sha256:"+nativeSourceHash(source)

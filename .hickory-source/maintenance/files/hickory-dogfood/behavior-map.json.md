@@ -52912,7 +52912,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-c98e0438f96c-a_path_built_from_a_variable_is_not_claimed",
         "f-c98e0438f96c-a_volume_output_directory_claims_the_files_under_it",
         "f-c98e0438f96c-markdown_source_and_weave_none_claim_no_rendered_output",
-        "f-c98e0438f96c-marking_skips_documents_and_directories"
+        "f-c98e0438f96c-marking_skips_documents_and_directories",
+        "workspace-tree-routing-facts-test"
       ],
       "anchor": "output-c98e0438f96c",
       "narrative_owner": "mechanism:crates/hickory-cli"
@@ -68120,7 +68121,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "simple-intelligence-browser-query",
         "simple-intelligence-browser-trail",
         "simple-intelligence-browser-problems",
-        "simple-intelligence-browser-search"
+        "simple-intelligence-browser-search",
+        "simple-intelligence-browser-analysis-scope"
       ]
     },
     "apps/apple-simple/Sources/Intelligence.swift": {
@@ -68134,7 +68136,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "simple-apple-semantic-locations",
         "simple-intelligence-apple-trail",
         "simple-intelligence-apple-problems",
-        "simple-intelligence-apple-search"
+        "simple-intelligence-apple-search",
+        "simple-intelligence-apple-analysis-scope"
       ]
     },
     "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Intelligence.kt": {
@@ -68148,7 +68151,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "simple-android-semantic-locations",
         "simple-intelligence-android-trail",
         "simple-intelligence-android-problems",
-        "simple-intelligence-android-search"
+        "simple-intelligence-android-search",
+        "simple-intelligence-android-analysis-scope"
       ]
     },
     "apps/web/src/simple/WorkspaceLanguages.tsx": {

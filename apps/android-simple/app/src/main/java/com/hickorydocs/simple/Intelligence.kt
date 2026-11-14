@@ -88,3 +88,13 @@ fun searchCharacter(line: String, byteColumn: Int): Int? {
     }
     return if (bytes == byteColumn) units else null
 }
+data class WorkspaceAnalysisScope(val files: List<FileNode>, val generated: Int, val unclassified: Int)
+fun workspaceAnalysisScope(nodes: List<FileNode>): WorkspaceAnalysisScope {
+    val files = mutableListOf<FileNode>(); val seen = mutableSetOf<String>(); var generated = 0; var unclassified = 0
+    fun visit(nodes: List<FileNode>) { for(file in nodes) {
+        if(file.dir) {visit(file.children);continue}
+        if(!seen.add(file.path)) continue
+        if(file.generatedBy != null) generated++ else if(!file.language.isNullOrEmpty()) files.add(file) else unclassified++
+    } }
+    visit(nodes);return WorkspaceAnalysisScope(files.sortedBy {it.path},generated,unclassified)
+}

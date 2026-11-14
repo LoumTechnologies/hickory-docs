@@ -151305,6 +151305,34 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/crates/hick-lsp/src/backend/audit_tests.rs.md",
       "symbol": "Reject obsolete reports without losing readable unknown messages",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-intelligence-browser-analysis-scope",
+      "output": "apps/web/src/simple/Intelligence.ts",
+      "page": ".hickory-source/frontends/intelligence.md",
+      "symbol": "simple-intelligence-browser-analysis-scope",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-intelligence-apple-analysis-scope",
+      "output": "apps/apple-simple/Sources/Intelligence.swift",
+      "page": ".hickory-source/frontends/intelligence.md",
+      "symbol": "simple-intelligence-apple-analysis-scope",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-intelligence-android-analysis-scope",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Intelligence.kt",
+      "page": ".hickory-source/frontends/intelligence.md",
+      "symbol": "simple-intelligence-android-analysis-scope",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-tree-routing-facts-test",
+      "output": "crates/hickory-cli/src/serve/api/tests/tree_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/api/tests/tree_tests.rs.md",
+      "symbol": "List routing facts without parsing file contents",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

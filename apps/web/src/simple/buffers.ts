@@ -47,8 +47,9 @@ export class Buffers {
       ? api.doc(file.doc_id).then(doc => ({ content: doc.source, hash: "" }))
       : api.file(file.path);
     const request = read.then(data => {
+      const available = this.values.get(file.path); if (available) return available;
       const buffer = new Buffer(file, data.content, data.hash, this.changed);
-      this.values.set(file.path, buffer); return buffer;
+      this.values.set(file.path, buffer); this.changed(); return buffer;
     }).finally(() => this.pending.delete(file.path));
     this.pending.set(file.path, request); return request;
   }

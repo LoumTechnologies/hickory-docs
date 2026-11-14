@@ -130,6 +130,7 @@ fn marking_skips_documents_and_directories() {
     ]);
     let mut tree = vec![
         TreeNode {
+            language: None,
             name: "cards.md".into(),
             path: "cards.md".into(),
             dir: false,
@@ -139,6 +140,7 @@ fn marking_skips_documents_and_directories() {
             children: None,
         },
         TreeNode {
+            language: None,
             name: "other.md".into(),
             path: "other.md".into(),
             dir: false,
@@ -148,6 +150,7 @@ fn marking_skips_documents_and_directories() {
             children: None,
         },
         TreeNode {
+            language: None,
             name: "src".into(),
             path: "src".into(),
             dir: true,
@@ -155,6 +158,7 @@ fn marking_skips_documents_and_directories() {
             generated_by: None,
             diverged: None,
             children: Some(vec![TreeNode {
+                language: None,
                 name: "main.rs".into(),
                 path: "src/main.rs".into(),
                 dir: false,
@@ -171,4 +175,44 @@ fn marking_skips_documents_and_directories() {
     assert_eq!(tree[2].generated_by, None, "a directory is not a file");
     let children = tree[2].children.as_ref().unwrap();
     assert_eq!(children[0].generated_by, None, "nothing claims src/main.rs");
+}
+#[test]
+fn workspace_tree_routing_facts_do_not_wait_for_source_parsing() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("src")).unwrap();
+    std::fs::write(root.path().join("src/binary.py"), [0xff, 0xfe]).unwrap();
+    std::fs::write(
+        root.path().join("src/not-python.py"),
+        "this is not valid python (".as_bytes(),
+    )
+    .unwrap();
+    std::fs::write(
+        root.path().join("unclassified.mystery"),
+        "def actual_python():\n    pass\n",
+    )
+    .unwrap();
+    let index = crate::serve::store::DocIndex::scan(root.path()).unwrap();
+    let (tree, truncated) = file_tree(root.path(), &index);
+    assert!(!truncated);
+    let serialized = serde_json::to_value(tree).unwrap();
+    let nodes = serialized.as_array().unwrap();
+    let directory = nodes.iter().find(|node| node["path"] == "src").unwrap();
+    assert!(directory.get("language").is_none());
+    for path in ["src/binary.py", "src/not-python.py"] {
+        let node = directory["children"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|node| node["path"] == path)
+            .unwrap();
+        assert_eq!(node["language"], "python");
+    }
+    assert!(
+        nodes
+            .iter()
+            .find(|node| node["path"] == "unclassified.mystery")
+            .unwrap()
+            .get("language")
+            .is_none()
+    );
 }

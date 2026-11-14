@@ -106,3 +106,14 @@ func searchCharacter(_ line: String, byteColumn: Int) -> Int? {
     }
     return bytes == byteColumn ? units : nil
 }
+struct WorkspaceAnalysisScope { var files: [FileNode]; var generated: Int; var unclassified: Int }
+func workspaceAnalysisScope(_ nodes: [FileNode]) -> WorkspaceAnalysisScope {
+    var files: [FileNode] = [], seen = Set<String>(), generated = 0, unclassified = 0
+    func visit(_ nodes: [FileNode]) { for file in nodes {
+        if file.dir { visit(file.children ?? []); continue }
+        guard seen.insert(file.path).inserted else { continue }
+        if file.generated_by != nil { generated += 1 } else if let language = file.language, !language.isEmpty { files.append(file) } else { unclassified += 1 }
+    } }
+    visit(nodes); files.sort { $0.path < $1.path }
+    return WorkspaceAnalysisScope(files:files,generated:generated,unclassified:unclassified)
+}

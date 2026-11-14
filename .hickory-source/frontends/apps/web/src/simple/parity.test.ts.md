@@ -46,7 +46,7 @@ import { validateReferencedTargets, planWorkspaceEdit, invertChangePlan, validat
 import changeCases from "../../../simple-contract/change-plan-cases.json";
 import { WorkspaceSearch } from "./WorkspaceSearch";
 import * as reviews from "../lib/reviews";
-import { searchCharacter, NavigationTrail, reportedProblems, nextWorkspaceProblem } from "./Intelligence";
+import { workspaceAnalysisScope, searchCharacter, NavigationTrail, reportedProblems, nextWorkspaceProblem } from "./Intelligence";
 import { openLocation, revealLine as queueReveal, claimReveal, claimRevealPosition, resetReveals } from "../lib/revealLine";
 import { useWorkspaceLsp } from "../lsp/useLsp";
 import { LspClient } from "../lsp/client";
@@ -665,6 +665,26 @@ describe("tab drop placement", () => {
   });
 });
 
+describe("simple background source loading", () => {
+  it("derives known authored candidates while counting generated and unclassified files explicitly", () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const a = {name:"a.py",path:"src/a.py",dir:false,language:"python"};
+    const scope=workspaceAnalysisScope([{name:"src",path:"src",dir:true,children:[a,{name:"out.py",path:"src/out.py",dir:false,language:"python",generated_by:"owner"}]},a,{name:"notes.md",path:"notes.md",dir:false,language:"markdown"},{name:"unknown",path:"unknown",dir:false}]);
+    expect(scope.files.map(file=>file.path)).toEqual(["notes.md","src/a.py"]);expect(scope.generated).toBe(1);expect(scope.unclassified).toBe(1);
+  });
+  it("shares a raw read and never overwrites a draft that arrives while background acquisition is pending", async () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const changed=vi.fn(), buffers=new Buffers(changed), file={name:"background.py",path:"background.py",dir:false,language:"python"};
+    let finish!: (value: Awaited<ReturnType<typeof api.file>>) => void;
+    vi.mocked(api.file).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+    const first=buffers.open(file), second=buffers.open(file);expect(first).toBe(second);
+    const draft=new Buffer(file,"base","base-hash",()=>{});draft.edit("retained draft");buffers.values.set(file.path,draft);
+    finish({path:file.path,language:"python",content:"late disk text",hash:"disk-hash"});
+    expect(await first).toBe(draft);expect(await second).toBe(draft);expect(draft.text).toBe("retained draft");expect(draft.dirty).toBe(true);
+    const other={name:"other.py",path:"other.py",dir:false,language:"python"};vi.mocked(api.file).mockResolvedValueOnce({path:other.path,language:"python",content:"new source",hash:"new-hash"});
+    const loaded=await buffers.open(other);expect(loaded.text).toBe("new source");expect(changed).toHaveBeenCalledTimes(1);
+  });
+});
 describe("simple workspace editor changes", () => {
   it("preflights all retained editors, applies both drafts, preserves local undo and guards coordinated restore", () => {
     // Contract: .hickory-source/frontends/contract.md

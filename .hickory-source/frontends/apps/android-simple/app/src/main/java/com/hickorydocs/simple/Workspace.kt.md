@@ -23,6 +23,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 import java.util.UUID
 
 class DocumentBuffer(val file: FileNode, loaded: FileText) {
@@ -165,7 +166,8 @@ class DocumentBuffer(val file: FileNode, loaded: FileText) {
         finally { saving = false }
     }
 }
-class Workspace : ViewModel() {
+class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? = null) : ViewModel() {
+    private val workspaceScope get() = backgroundScope ?: viewModelScope
     val changes = WorkspaceChanges()
     var showWorkspaceSearch by mutableStateOf(false)
     val search = WorkspaceSearch()
@@ -223,7 +225,7 @@ class Workspace : ViewModel() {
     var address by mutableStateOf("")
     var connecting by mutableStateOf(false)
     private var generation = UUID.randomUUID()
-    private val opening = mutableSetOf<String>()
+    private val loading = mutableMapOf<String,kotlinx.coroutines.Deferred<DocumentBuffer>>()
     private val newestOpen = mutableMapOf<String, String>()
     val agent = AgentSession()
     val terminal = TerminalSession()
@@ -237,9 +239,9 @@ class Workspace : ViewModel() {
         try {
             val next = Engine(address); val (root, tree) = next.files()
             agent.turns = emptyList(); agent.error = ""; terminal.id = null; terminal.error = ""
-            debugger?.close(); debugger = NativeDebugger(next, viewModelScope)
-            debugger?.onLocation = { path, line -> viewModelScope.launch { revealDebug(path, line) } }
-            buffers.values.forEach { it.language?.close() }; generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); buffers.clear(); opening.clear()
+            debugger?.close(); debugger = NativeDebugger(next, workspaceScope)
+            debugger?.onLocation = { path, line -> workspaceScope.launch { revealDebug(path, line) } }
+            buffers.values.forEach { it.language?.close() }; generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); buffers.clear(); loading.values.forEach {it.cancel()}; loading.clear()
             layout = PaneLayout(); focused = "document-group"; status = root
             return true
         } catch (cancelled: CancellationException) { throw cancelled }
@@ -256,34 +258,52 @@ class Workspace : ViewModel() {
 
 Opening reads raw text once. Closing dirty tabs refuses, matching the other frontends. Pane movement changes layout membership without replacing TextFieldState.
 
+## Retain source before choosing a pane
+
+Foreground file opening and background intelligence share one acquisition path. A pending read is keyed by workspace generation and path; after it returns, prefer any already available buffer so unsaved text cannot be overwritten. Retaining text attaches capabilities without activating a pane. Only the foreground request changes layout and records navigation. Reconnecting cancels old acquisitions and prevents late results from entering the new workspace.
+
 <ui:copy id="simple-f6fdc8535c-1">
+    suspend fun loadBuffer(file: FileNode): DocumentBuffer {
+        buffers[file.path]?.let { return it }
+        loading[file.path]?.let { return it.await() }
+        val server = engine ?: error("Connect to the workspace and choose a file.")
+        require(!file.dir) { "Choose a file, not a directory." }
+        val current = generation
+        val pending = workspaceScope.async(start=kotlinx.coroutines.CoroutineStart.LAZY) {
+            val text = server.file(file)
+            if(generation != current) throw CancellationException("Workspace changed")
+            buffers[file.path] ?: retainBuffer(file,text,server)
+        }
+        loading[file.path] = pending; pending.start()
+        try { return pending.await() }
+        finally { if(generation == current) loading.remove(file.path) }
+    }
+    private fun retainBuffer(file: FileNode, text: FileText, server: Engine): DocumentBuffer {
+        val buffer = DocumentBuffer(file, text)
+        buffers[file.path] = buffer
+        buffer.rememberNavigation = { from, to -> navigationTrail = navigationTrail.record(from, to) }
+        buffer.openSemanticLocation = { location -> workspaceScope.launch { openSemanticLocation(location) } }
+        buffer.receiptEngine = server
+        buffer.language = NativeLanguage(server, buffer, workspaceScope); buffer.language?.start()
+        return buffer
+    }
     suspend fun open(file: FileNode, recordNavigation: Boolean = true) {
         val departed = currentSemanticLocation()
-        if (buffers.containsKey(file.path)) { show(file.path); if (recordNavigation) currentSemanticLocation()?.let { navigationTrail = navigationTrail.record(departed, it) }; return }
-        val server = engine ?: return
-        if (!opening.add(file.path)) return
+        if(buffers.containsKey(file.path)) {show(file.path);if(recordNavigation) currentSemanticLocation()?.let {navigationTrail=navigationTrail.record(departed,it)};return}
         val current = generation
-        val target = layout.groups().firstOrNull { it.id == focused && "files" !in it.tabs }?.id
-            ?: layout.groups().firstOrNull { "files" !in it.tabs }?.id ?: focused
-        newestOpen[target] = file.path; focused = target
+        val target = layout.groups().firstOrNull {it.id==focused && "files" !in it.tabs}?.id
+            ?: layout.groups().firstOrNull {"files" !in it.tabs}?.id ?: focused
+        newestOpen[target]=file.path; focused=target
         try {
-            val text = server.file(file)
-            if (generation != current) return
-            val buffer = DocumentBuffer(file, text)
-            buffers[file.path] = buffer
-            buffer.rememberNavigation = { from, to -> navigationTrail = navigationTrail.record(from, to) }
-            buffer.openSemanticLocation = { location -> viewModelScope.launch { openSemanticLocation(location) } }
-            buffer.receiptEngine = server
-            buffer.language = NativeLanguage(server, buffer, viewModelScope); buffer.language?.start()
-            if (newestOpen[target] == file.path) {
-                // The original pane may have closed while the request was pending.
-                val live = layout.groups().firstOrNull { it.id == target }?.id ?: layout.groups().first().id
-                layout = layout.activate(file.path, live); focused = live; status = file.path
-                if (recordNavigation) currentSemanticLocation()?.let { navigationTrail = navigationTrail.record(departed, it) }
+            loadBuffer(file)
+            if(generation != current) return
+            if(newestOpen[target]==file.path) {
+                val live=layout.groups().firstOrNull {it.id==target}?.id ?: layout.groups().first().id
+                layout=layout.activate(file.path,live);focused=live;status=file.path
+                if(recordNavigation) currentSemanticLocation()?.let {navigationTrail=navigationTrail.record(departed,it)}
             }
-        } catch (cancelled: CancellationException) { throw cancelled }
-        catch (failure: Exception) { if (generation == current) status = "${failure.message} Refresh files and try opening ${file.path} again." }
-        finally { if (generation == current) opening.remove(file.path) }
+        } catch(cancelled:CancellationException) {throw cancelled}
+        catch(failure:Exception) {if(generation==current) status="${failure.message} Refresh files and try opening ${file.path} again."}
     }
     fun currentSemanticLocation(): SemanticLocation? {
         val buffer = currentBuffer ?: return null

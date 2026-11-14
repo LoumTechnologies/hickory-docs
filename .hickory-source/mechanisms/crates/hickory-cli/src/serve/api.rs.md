@@ -658,6 +658,8 @@ pub async fn structure(State(state): State<LocalState>) -> ApiResult<Json<Value>
 <a id="f-e71b04ae5298-TreeNode"></a>
 ### `TreeNode`
 
+A file tree can expose the engine's existing language-routing identity without reading or parsing every file. Frontends use that optional fact to choose background source candidates; they do not duplicate extension lists or infer provider availability. Directories and unknown extensions omit the field. Generated ownership remains independent.
+
 The folder tree
 One entry in the `GET /api/files` tree. Serialized shape:
 `{"name", "path", "dir", "doc_id"?, "children"?}` — `doc_id` only on
@@ -677,6 +679,9 @@ struct TreeNode {
     /// Root-relative, forward slashes on every platform.
     path: String,
     dir: bool,
+    /// Central language routing; absence is unknown, not proof of plain text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    language: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     doc_id: Option<String>,
     /// The document that generates this file, when one does.
@@ -696,7 +701,6 @@ struct TreeNode {
     #[serde(skip_serializing_if = "Option::is_none")]
     children: Option<Vec<TreeNode>>,
 }
-
 </storycode:copy>
 <a id="f-e71b04ae5298-WEAVE_ATTR"></a>
 ### `WEAVE_ATTR`
@@ -1190,6 +1194,11 @@ fn insert_tree_node(top: &mut Vec<TreeNode>, rel: &str, dir: bool, index: &super
                 name: part.to_string(),
                 path: prefix.clone(),
                 dir,
+                language: if dir {
+                    None
+                } else {
+                    hick_plugins::routing::language_id(rel)
+                },
                 doc_id,
                 generated_by: None,
                 diverged: None,
@@ -1205,6 +1214,7 @@ fn insert_tree_node(top: &mut Vec<TreeNode>, rel: &str, dir: bool, index: &super
                     name: part.to_string(),
                     path: prefix.clone(),
                     dir: true,
+                    language: None,
                     doc_id: None,
                     generated_by: None,
                     diverged: None,
@@ -1218,7 +1228,6 @@ fn insert_tree_node(top: &mut Vec<TreeNode>, rel: &str, dir: bool, index: &super
             .expect("directory nodes always carry children");
     }
 }
-
 </storycode:copy>
 <a id="f-e71b04ae5298-sort_tree"></a>
 ### `sort_tree`
