@@ -31,6 +31,15 @@ Every simple platform exposes Navigate back and Navigate forward through its exi
 
 Focused TypeScript, Swift and Kotlin trail witnesses cover caret retention, branch pruning, duplicate visits and the 256-position bound. The real-provider browser flow checks Back/Forward between symbol locations, exact carets and retained DOM editor identity, along with unchanged source files and editor geometry. Native model checks and the iOS build do not establish native pointer acceptance.
 
+## Workspace Problems
+
+The existing status bar and Edit menu open a floating, filterable Problems list on every simple platform. Retained workspace buffers contribute language-provider messages independently of mounted panes. The list is paged; revealing or paging it cannot resize code. Next/previous navigation uses the same source-location index and wraps over current locations. Unversioned and stale messages remain readable and offer a file open, while precise navigation requires a captured matching source version. Source expectations survive asynchronous destination opening and are checked again before a precise reveal. The count is reported provider information, never an execution or verification verdict.
+
+The browser language-session binding is a separate workspace module shared by the editor and Problems; replacing either renderer does not replace transport or source-snapshot rules. Native diagnostic values retain their decoded locations so status rendering does not repeatedly scan whole documents. Full-project analysis and provider analysis scope are separate from the retained-buffer report index.
+
+Verification: four focused browser component/protocol checks passed for source/version admission, stale/unversioned retention, wraparound and editor retention. Two focused diagnostic/Problems checks passed on each native implementation; TypeScript checking and the iOS simulator build passed. The real Python browser `--problems-only` flow passed for reported messages, status/menu access, stationary geometry, retained draft and unchanged disk bytes. Native pointer/popover acceptance remains unverified.
+
+
 ## Existing and extended editor behavior
 
 Given a reachable existing Hickory engine, each frontend exposes the same four pane kinds: files, text document, workspace agent and terminal. Plain and literate source open as text. Generated outputs open read-only in this slice. File and pane commands remain in menus or tab strips; editor content has no permanent feature toolbar.

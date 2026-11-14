@@ -31,6 +31,9 @@ struct WorkspaceView: View {
                 Menu("Edit") {
                     EditorNavigationSettings()
                     Button("Find and replace") { workspace.currentBuffer?.showFind = true }.keyboardShortcut("f").disabled(workspace.currentBuffer == nil)
+                Button("Problems") { workspace.showProblems = true }
+                Button("Next problem") { Task { await workspace.navigateProblem(1) } }
+                Button("Previous problem") { Task { await workspace.navigateProblem(-1) } }
                 Button("Navigate back") { Task { await workspace.navigateHistory(-1) } }.disabled(!workspace.navigationTrail.canBack)
                 Button("Navigate forward") { Task { await workspace.navigateHistory(1) } }.disabled(!workspace.navigationTrail.canForward)
                 ForEach(SemanticQuery.allCases) { query in
@@ -58,6 +61,8 @@ struct WorkspaceView: View {
                     if let language = buffer.language { Text(language.status).lineLimit(1).frame(maxWidth: 310).help(language.status) }
                     Text(buffer.readOnly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved")
                 }
+                Button("Problems \(workspace.problems.count)") { workspace.showProblems.toggle() }
+                    .popover(isPresented: $workspace.showProblems) { WorkspaceProblemsView(workspace: workspace) }
                 Button("⋯") { connection = true }.help("Workspace connection")
             }.font(.system(size: 11)).padding(.horizontal, 8).frame(height: 24)
         }
@@ -441,5 +446,35 @@ private struct SimpleChromeButtonBody<Label: View>: View {
             }
             .opacity(enabled ? 1 : 0.45)
             .onHover { hovered = $0 }
+    }
+}
+
+struct WorkspaceProblemsView: View {
+    @Bindable var workspace: Workspace
+    @State private var query = ""
+    @State private var page = 0
+    var body: some View {
+        let reports = workspace.problems.filter { query.isEmpty || ($0.path + " " + $0.message).localizedCaseInsensitiveContains(query) }
+        let last = max(0, (reports.count + 99) / 100 - 1), selected = min(page, last)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack { Text("Problems").font(.headline); Spacer(); Button("Close") { workspace.showProblems = false } }
+            Text("Language-provider reports · \(workspace.problems.filter { $0.current }.count) current locations").font(.caption)
+            TextField("Filter problems", text: $query).textFieldStyle(.roundedBorder).onChange(of: query) { _, _ in page = 0 }
+            ScrollView { LazyVStack(alignment: .leading, spacing: 8) {
+                if reports.isEmpty { Text("No reported problems match. This is provider information, not a verification result.").font(.caption) }
+                ForEach(Array(reports.dropFirst(selected * 100).prefix(100))) { problem in
+                    Button(problem.path + " · " + problem.message) { Task { await workspace.openProblem(problem) } }.disabled(!problem.current)
+                    if !problem.current {
+                        Text("Source location stale or unversioned.").font(.caption)
+                        Button("Open file") { Task { await workspace.openProblem(problem, precise: false) } }
+                    }
+                }
+            } }
+            if last > 0 { HStack {
+                Button("Previous results") { page = selected - 1 }.disabled(selected == 0)
+                Text("\(selected + 1)/\(last + 1)").font(.caption)
+                Button("Next results") { page = selected + 1 }.disabled(selected == last)
+            } }
+        }.padding().frame(width: 350, height: 420)
     }
 }

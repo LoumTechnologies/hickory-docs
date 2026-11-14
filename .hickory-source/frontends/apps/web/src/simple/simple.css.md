@@ -29,7 +29,7 @@ main { height: 100dvh; display: grid; grid-template-rows: 29px minmax(0,1fr) 23p
 nav { display: flex; align-items: center; border-bottom: 1px solid GrayText; padding: 0 8px; gap: 14px; }
 nav details { position: relative; }
 nav summary { list-style: none; cursor: pointer; padding: 3px; }
-.menu { position: absolute; z-index: 20; top: 23px; left: 0; min-width: 190px; padding: 4px; background: Canvas; border: 1px solid GrayText; box-shadow: 0 4px 12px #0003; }
+.menu { max-height: calc(100dvh - 32px); overflow: auto; position: absolute; z-index: 20; top: 23px; left: 0; min-width: 190px; padding: 4px; background: Canvas; border: 1px solid GrayText; box-shadow: 0 4px 12px #0003; }
 .menu button { display: block; width: 100%; white-space: nowrap; }
 .app-name { margin-left: auto; color: GrayText; font-size: 11px; }
 .workspace { min-height: 0; overflow: auto; }
@@ -60,6 +60,10 @@ nav summary { list-style: none; cursor: pointer; padding: 3px; }
 .file-tree > ul { padding-left: 0; }
 .file-tree button, .file-tree summary { white-space: nowrap; line-height: 22px; padding: 0 4px; }
 .empty { margin: 16px; color: GrayText; }
+.simple-problems-status { float: right; min-width: 88px; text-align: right; padding: 0; font-size: 11px; }
+.simple-workspace-problems { position: fixed; z-index: 40; right: 8px; top: 32px; width: min(420px, calc(100dvw - 16px)); max-height: calc(100dvh - 64px); overflow: auto; padding: 8px; background: Canvas; color: CanvasText; border: 1px solid GrayText; box-shadow: 0 4px 12px #0003; }
+.simple-workspace-problems > div > button { display: block; width: 100%; overflow-wrap: anywhere; }
+.simple-workspace-problems input { width: 100%; }
 footer { border-top: 1px solid GrayText; padding: 3px 9px; font-size: 11px; overflow: auto; white-space: nowrap; }
 .agent-body { height: 100%; display: flex; flex-direction: column; }
 .conversation { overflow: auto; flex: 1; padding: 0 12px; }

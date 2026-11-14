@@ -8,6 +8,23 @@ import WebKit
 @testable import HickorySimple
 
 final class ParityTests: XCTestCase {
+    @MainActor func testSemanticProblemsRetirePositionsWhenSourceChanges() throws {
+        // Contract: .hickory-source/frontends/contract.md
+        let file = FileNode(name: "problem.py", path: "problem.py", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: "value = 1", hash: "base"))
+        let service = NativeLanguage(engine: try Engine(address: "http://127.0.0.1:1"), buffer: buffer); buffer.language = service; defer { service.close() }
+        let workspace = Workspace(); workspace.buffers[file.path] = buffer
+        let range: [String: Any] = ["start": ["line": 0, "character": 1], "end": ["line": 0, "character": 5]]
+        service.diagnostics = decodeNativeDiagnostics(["uri": "hick:///problem.py", "version": 1, "diagnostics": [["message": "issue", "severity": 2, "range": range]]], source: buffer.text, expectedVersion: 1)
+        service.diagnosticSource = buffer.text
+        XCTAssertEqual(workspace.problems.count, 1); XCTAssertTrue(workspace.problems[0].current)
+        XCTAssertEqual(nextWorkspaceProblem(workspace.problems, current: nil, direction: 1)?.location?.character, 1)
+        buffer.text += " changed"; XCTAssertEqual(workspace.problems.count, 1); XCTAssertFalse(workspace.problems[0].current)
+        XCTAssertNil(nextWorkspaceProblem(workspace.problems, current: nil, direction: 1))
+        service.diagnostics = decodeNativeDiagnostics(["uri": "hick:///problem.py", "diagnostics": [["message": "unversioned", "range": range]]], source: buffer.text, expectedVersion: 1)
+        service.diagnosticSource = buffer.text; XCTAssertFalse(workspace.problems[0].current); XCTAssertNil(workspace.problems[0].location)
+    }
+
     func testSemanticNavigationTrailBranchesAndRetainsCarets() {
         // Contract: .hickory-source/frontends/contract.md
         func point(_ name: String, _ line: Int = 0) -> SemanticLocation { SemanticLocation(uri: "hick:///\(name).py", line: line, character: 0) }

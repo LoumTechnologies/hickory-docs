@@ -68111,7 +68111,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "simple-intelligence-browser-vocabulary",
         "simple-intelligence-browser-locations",
         "simple-intelligence-browser-query",
-        "simple-intelligence-browser-trail"
+        "simple-intelligence-browser-trail",
+        "simple-intelligence-browser-problems"
       ]
     },
     "apps/apple-simple/Sources/Intelligence.swift": {
@@ -68123,7 +68124,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "simple-apple-semantic-locations",
-        "simple-intelligence-apple-trail"
+        "simple-intelligence-apple-trail",
+        "simple-intelligence-apple-problems"
       ]
     },
     "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Intelligence.kt": {
@@ -68135,7 +68137,30 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "simple-android-semantic-locations",
-        "simple-intelligence-android-trail"
+        "simple-intelligence-android-trail",
+        "simple-intelligence-android-problems"
+      ]
+    },
+    "apps/web/src/simple/WorkspaceLanguages.tsx": {
+      "source": ".hickory-source/frontends/workspace-languages.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "d86a081fb22a700c96562077bdc7d9c8ec1d915a4f70d58e4af5ce9dc2c94718",
+      "construction": "fragments",
+      "fragments": [
+        "simple-workspace-language-owners"
+      ]
+    },
+    "apps/web/src/simple/Problems.tsx": {
+      "source": ".hickory-source/frontends/problems.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "f685ad552525bf41bc51e769d731db84c72a9b63fefbdaf7ec7736a2b06c3b04",
+      "construction": "fragments",
+      "fragments": [
+        "simple-browser-workspace-problems"
       ]
     }
   },

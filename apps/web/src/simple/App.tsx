@@ -1,3 +1,5 @@
+import { SimpleLanguages } from "./WorkspaceLanguages";
+import { WorkspaceProblems, requestProblemNavigation } from "./Problems";
 import { NavigationTrail, semanticPath, type SemanticLocation } from "./Intelligence";
 import { documentUri } from "../lsp/documentUri";
 import { utf16ToPosition } from "../lsp/positions";
@@ -11,7 +13,7 @@ import type { FileNode } from "../api/types";
 import { Buffer, Buffers } from "./buffers";
 import { RichOwners } from "./RichInline";
 import { enterMode, type EnterMode } from "./SmartEnter";
-import { Document, SimpleLanguages, semanticQueries, openSemanticQuery, openFind, wordNavigationMode, type WordNavigationMode } from "./Document";
+import { Document, semanticQueries, openSemanticQuery, openFind, wordNavigationMode, type WordNavigationMode } from "./Document";
 import { Terminal, TerminalSession } from "./Terminal";
 import { Agent, AgentSession } from "./Agent";
 import { activate, groups, initialLayout, isGroup, move, remove, split, update, dock, dropEdge, type Edge, type Axis, type Layout } from "./layout";
@@ -43,6 +45,7 @@ export function App() {
   const [tree, setTree] = useState<FileNode[]>([]);
   const [workspaceFiles, setWorkspaceFiles] = useState<FileNode[]>([]);
   const [notice, setNotice] = useState("");
+  const [showProblems, setShowProblems] = useState(false);
   const [trail] = useState(() => new NavigationTrail());
   const [, refreshTrail] = useState(0);
   const [status, setStatus] = useState("Choose a file");
@@ -146,7 +149,8 @@ export function App() {
     const file = buffers.values.get(location.path)?.file ?? find(workspaceFiles);
     if (file) { void open(file).then(() => {
       const target = buffers.values.get(file.path); if (!target) return;
-      if (location.recordHistory !== false && location.character !== undefined && target.dirty && file.path !== buffer?.file.path) { setNotice(`Save ${file.path} and query again before using a cross-file source position.`); return; }
+      if (location.expectedSource !== undefined && target.text !== location.expectedSource) { setNotice("Problem source changed. Refresh diagnostics before navigating."); return; }
+      if (location.expectedSource === undefined && location.recordHistory !== false && location.character !== undefined && target.dirty && file.path !== buffer?.file.path) { setNotice(`Save ${file.path} and query again before using a cross-file source position.`); return; }
       if (location.recordHistory !== false) {
         const start = { line: location.line - 1, character: location.character ?? 0 };
         trail.record(departed, { uri: documentUri(file.path), range: { start, end: start } }); refreshTrail(value => value + 1);
@@ -242,6 +246,9 @@ export function App() {
       <button disabled={!active} onClick={() => active && close(active)}>Close tab</button>
     </div></details><details><summary>Edit</summary><div className="menu">
       <button disabled={!buffer} onClick={() => buffer && openFind(buffer)}>Find and replace</button>
+      <button onClick={() => setShowProblems(true)}>Problems</button>
+      <button onClick={() => requestProblemNavigation(1)}>Next problem</button>
+      <button onClick={() => requestProblemNavigation(-1)}>Previous problem</button>
       <button disabled={!trail.canBack} onClick={() => navigateHistory(-1)}>Navigate back</button>
       <button disabled={!trail.canForward} onClick={() => navigateHistory(1)}>Navigate forward</button>
       {semanticQueries.map(query => <button key={query.kind} disabled={!buffer} onClick={event => { if (buffer) { const text = query.kind === "symbols" ? window.prompt("Search workspace symbols", "") : ""; if (text !== null) openSemanticQuery(buffer, query.kind, text); } event.currentTarget.closest("details")?.removeAttribute("open"); }}>{query.label}</button>)}
@@ -260,7 +267,7 @@ export function App() {
         if (next !== layout) { setLayout(next); setFocused(id); }
       }}
       resize={(id, ratio) => setLayout(current => update(current, id, node => isGroup(node) ? node : { ...node, ratio }))} /></div>
-    <footer role="status">{notice ? `${notice} · ` : ""}{buffer ? `${buffer.file.name} · ${buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
+    <footer role="status"><WorkspaceProblems buffers={buffers} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{notice ? `${notice} · ` : ""}{buffer ? `${buffer.file.name} · ${buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
   </main></SimpleLanguages>;
 }
 function Tree({ nodes, open }: { nodes: FileNode[]; open: (file: FileNode) => void }) {

@@ -176,6 +176,32 @@ import Observation
 }
 @MainActor @Observable final class Workspace {
     var draggingTab: String?
+    var showProblems = false
+    var problems: [WorkspaceProblem] {
+        buffers.values.sorted { $0.file.path < $1.file.path }.flatMap { buffer -> [WorkspaceProblem] in
+            guard let language = buffer.language else { return [] }
+            let matchesSource = language.diagnosticSource == buffer.text
+            return language.diagnostics.map { diagnostic in
+                let source: String? = diagnostic.location == nil ? nil : language.diagnosticSource
+                let current = source != nil && matchesSource
+                let location = current ? diagnostic.location : nil
+                return WorkspaceProblem(id: "\(buffer.file.path):\(diagnostic.id)", path: buffer.file.path, message: diagnostic.message, severity: diagnostic.severity, location: location, source: source, current: current)
+            }
+        }
+    }
+    func openProblem(_ problem: WorkspaceProblem, precise: Bool = true) async {
+        if !precise { if let buffer = buffers[problem.path] { await open(buffer.file) }; return }
+        guard problem.current, let location = problem.location, let source = problem.source, buffers[problem.path]?.text == source else {
+            status = "Problem source changed or its location is unversioned. Refresh diagnostics."; showProblems = true; return
+        }
+        await openSemanticLocation(location, allowDirty: true, expectedSource: source); showProblems = false
+    }
+    func navigateProblem(_ direction: Int) async {
+        guard let problem = nextWorkspaceProblem(problems, current: currentSemanticLocation(), direction: direction) else {
+            status = "No current source locations. Open Problems to read provider messages."; showProblems = true; return
+        }
+        await openProblem(problem)
+    }
     var navigationTrail = NavigationTrail()
     var layout = PaneLayout()
     var focused = "document-group"
@@ -277,7 +303,7 @@ Opening and saving retain request identity. A server switch rejects stale reads.
         guard let location = navigationTrail.step(direction, current: currentSemanticLocation()) else { return }
         await openSemanticLocation(location, recordHistory: false, allowDirty: true)
     }
-    func openSemanticLocation(_ location: SemanticLocation, recordHistory: Bool = true, allowDirty: Bool = false) async {
+    func openSemanticLocation(_ location: SemanticLocation, recordHistory: Bool = true, allowDirty: Bool = false, expectedSource: String? = nil) async {
         let departed = currentSemanticLocation()
         guard let path = location.path else { return }
         func find(_ nodes: [FileNode]) -> FileNode? {
@@ -289,6 +315,7 @@ Opening and saving retain request identity. A server switch rejects stale reads.
         guard generation == current, active == path, let buffer = buffers[path] else { return }
         if buffer.dirty && !allowDirty && departed?.path != path { status = "Save \(path) and query again before using a cross-file source position."; return }
         let source = buffer.text
+        if let expectedSource, source != expectedSource { status = "Problem source changed. Refresh diagnostics."; return }
         guard let offset = languageOffset(source, ["line": location.line, "character": location.character]) else { status = "Location no longer fits \(path). Query again."; return }
         for _ in 0..<20 {
             guard generation == current, buffer.text == source, (!buffer.dirty || allowDirty || departed?.path == path) else { return }

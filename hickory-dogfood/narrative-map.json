@@ -151073,6 +151073,41 @@
       "page": ".hickory-source/frontends/intelligence.md",
       "symbol": "simple-intelligence-android-trail",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-intelligence-browser-problems",
+      "output": "apps/web/src/simple/Intelligence.ts",
+      "page": ".hickory-source/frontends/intelligence.md",
+      "symbol": "simple-intelligence-browser-problems",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-intelligence-apple-problems",
+      "output": "apps/apple-simple/Sources/Intelligence.swift",
+      "page": ".hickory-source/frontends/intelligence.md",
+      "symbol": "simple-intelligence-apple-problems",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-intelligence-android-problems",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Intelligence.kt",
+      "page": ".hickory-source/frontends/intelligence.md",
+      "symbol": "simple-intelligence-android-problems",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-workspace-language-owners",
+      "output": "apps/web/src/simple/WorkspaceLanguages.tsx",
+      "page": ".hickory-source/frontends/workspace-languages.md",
+      "symbol": "simple-workspace-language-owners",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-browser-workspace-problems",
+      "output": "apps/web/src/simple/Problems.tsx",
+      "page": ".hickory-source/frontends/problems.md",
+      "symbol": "simple-browser-workspace-problems",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

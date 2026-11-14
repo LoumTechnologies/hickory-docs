@@ -76,3 +76,27 @@ export class NavigationTrail {
     this.index = next; return this.entries[next];
   }
 }
+export interface WorkspaceProblem {
+  id: string; path: string; message: string; severity: number;
+  location: SemanticLocation | null; source: string | null; current: boolean;
+}
+export function reportedProblems(documents: readonly { uri: string; currentSource: string; source?: string; diagnostics: readonly { message: string; severity?: number; range: LspLocation["range"] }[] }[]): WorkspaceProblem[] {
+  return documents.flatMap(document => {
+    if (!document.diagnostics.length) return [];
+    const current = document.source !== undefined && document.source === document.currentSource;
+    const rows = current ? document.currentSource.split("\n") : [];
+    return document.diagnostics.map((diagnostic, index) => {
+    const path = semanticPath(document.uri) ?? document.uri, position = diagnostic.range?.start;
+    const located = current && !!position && Number.isInteger(position.line) && position.line >= 0 && position.line < rows.length && Number.isInteger(position.character) && position.character >= 0 && position.character <= rows[position.line].length && semanticPath(document.uri) !== null;
+    return { id: `${document.uri}:${index}`, path, message: diagnostic.message, severity: diagnostic.severity ?? 1,
+      location: located ? { uri: document.uri, range: diagnostic.range } : null, source: document.source ?? null, current: located };
+    });
+  });
+}
+export function nextWorkspaceProblem(problems: readonly WorkspaceProblem[], current: SemanticLocation | null, direction: -1 | 1): WorkspaceProblem | null {
+  const compare = (a: SemanticLocation, b: SemanticLocation) => a.uri === b.uri ? a.range.start.line - b.range.start.line || a.range.start.character - b.range.start.character : a.uri < b.uri ? -1 : 1;
+  const located = problems.filter(problem => problem.current && problem.location).sort((a, b) => compare(a.location!, b.location!));
+  if (!located.length) return null;
+  if (direction === 1) return (current ? located.find(problem => compare(problem.location!, current) > 0) : null) ?? located[0];
+  return (current ? located.slice().reverse().find(problem => compare(problem.location!, current) < 0) : null) ?? located.at(-1)!;
+}

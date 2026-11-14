@@ -76,3 +76,18 @@ struct NavigationTrail {
         index = next; return entries[next]
     }
 }
+struct WorkspaceProblem: Identifiable {
+    var id: String; var path: String; var message: String; var severity: Int
+    var location: SemanticLocation?; var source: String?; var current: Bool
+}
+func nextWorkspaceProblem(_ problems: [WorkspaceProblem], current: SemanticLocation?, direction: Int) -> WorkspaceProblem? {
+    guard direction == -1 || direction == 1 else { return nil }
+    let located = problems.filter { $0.current && $0.location != nil }.sorted {
+        let a = $0.location!, b = $1.location!; return (a.uri, a.line, a.character) < (b.uri, b.line, b.character)
+    }
+    guard !located.isEmpty else { return nil }
+    if direction == 1 {
+        return current.flatMap { point in located.first { let at = $0.location!; return (at.uri, at.line, at.character) > (point.uri, point.line, point.character) } } ?? located.first
+    }
+    return current.flatMap { point in located.last { let at = $0.location!; return (at.uri, at.line, at.character) < (point.uri, point.line, point.character) } } ?? located.last
+}

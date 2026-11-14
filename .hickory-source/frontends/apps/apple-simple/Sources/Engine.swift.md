@@ -136,6 +136,7 @@ func nativeSourceHash(_ source: String) -> String { SHA256.hash(data: Data(sourc
 struct NativeSemanticToken { var range: NSRange; var kind: String }
 struct NativeDiagnostic: Identifiable {
     var id: Int; var message: String; var severity: Int; var range: NSRange?
+    var location: SemanticLocation? = nil
 }
 func nativeMarkupText(_ value: Any?) -> String {
     if let text = value as? String { return text }
@@ -147,10 +148,15 @@ func decodeNativeDiagnostics(_ params: [String: Any], source: String, expectedVe
     // Unversioned diagnostics remain readable messages, never positional authority.
     let located = params["version"] as? Int == expectedVersion
     return (params["diagnostics"] as? [[String: Any]] ?? []).enumerated().map { index, item in
-        var range: NSRange?
+        var range: NSRange?; var location: SemanticLocation?
         if located, let raw = item["range"] as? [String: Any], let start = raw["start"] as? [String: Any], let end = raw["end"] as? [String: Any],
-           let from = languageOffset(source, start), let to = languageOffset(source, end), from <= to { range = NSRange(location: from, length: to - from) }
-        return NativeDiagnostic(id: index, message: item["message"] as? String ?? "Language diagnostic", severity: item["severity"] as? Int ?? 1, range: range)
+           let from = languageOffset(source, start), let to = languageOffset(source, end), from <= to {
+            range = NSRange(location: from, length: to - from)
+            if let uri = params["uri"] as? String, let line = start["line"] as? Int, let character = start["character"] as? Int {
+                location = SemanticLocation(uri: uri, line: line, character: character)
+            }
+        }
+        return NativeDiagnostic(id: index, message: item["message"] as? String ?? "Language diagnostic", severity: item["severity"] as? Int ?? 1, range: range, location: location)
     }
 }
 struct NativeCompletion: Identifiable {

@@ -25,7 +25,7 @@ import { useFollowingDebugSession } from "../debug/plainDebugHosts";
 vi.mock("../debug/plainDebugHosts", () => ({ useFollowingDebugSession: vi.fn(() => null), PlainDebugHosts: () => null }));
 import { Agent, AgentSession, MarkdownMessage } from "./Agent";
 import { App } from "./App";
-import { NavigationTrail } from "./Intelligence";
+import { NavigationTrail, reportedProblems, nextWorkspaceProblem } from "./Intelligence";
 import { openLocation, revealLine as queueReveal, claimReveal, claimRevealPosition, resetReveals } from "../lib/revealLine";
 import { useWorkspaceLsp } from "../lsp/useLsp";
 import { LspClient } from "../lsp/client";
@@ -635,18 +635,60 @@ describe("tab drop placement", () => {
   });
 });
 
+describe("simple workspace Problems", () => {
+  it("keeps stale/unversioned messages but navigates only current source locations", () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const range = { start: { line: 0, character: 1 }, end: { line: 0, character: 2 } };
+    const records = reportedProblems([
+      { uri: "hick:///a.py", currentSource: "value", source: "value", diagnostics: [{ message: "current", range }] },
+      { uri: "hick:///b.py", currentSource: "changed", source: "old", diagnostics: [{ message: "stale", range }] },
+      { uri: "hick:///c.py", currentSource: "value", diagnostics: [{ message: "unversioned", range }] },
+      { uri: "hick:///d.py", currentSource: "value", source: "value", diagnostics: [{ message: "other", range }] },
+    ]);
+    expect(records.map(problem => problem.current)).toEqual([true, false, false, true]);
+    expect(records).toHaveLength(4); expect(records[1].location).toBeNull(); expect(records[2].location).toBeNull();
+    expect(nextWorkspaceProblem(records, records[0].location, 1)?.path).toBe("d.py");
+    expect(nextWorkspaceProblem(records, records[3].location, 1)?.path).toBe("a.py");
+    expect(nextWorkspaceProblem(records, records[0].location, -1)?.path).toBe("d.py");
+    expect(nextWorkspaceProblem(records.filter(problem => !problem.current), null, 1)).toBeNull();
+  });
+  it("opens the status/menu Problems overlay without replacing the editor and retires locations while typing", async () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const source = "value = 1", range = { start: { line: 0, character: 1 }, end: { line: 0, character: 5 } };
+    vi.mocked(api.files).mockResolvedValue({ root: "workspace", tree: [{ name: "problem.py", path: "problem.py", dir: false }] });
+    vi.mocked(api.file).mockResolvedValueOnce({ path: "problem.py", language: "python", content: source, hash: "base" });
+    vi.mocked(useWorkspaceLsp).mockImplementation(path => ({ client: null, uri: path ? "hick:///problem.py" : "hick:///", ready: !!path, ...(path ? { diagnosticSource: source } : {}), diagnostics: path ? [{ message: "Example issue", range }] : [] }));
+    const screen = render(createElement(App));
+    try {
+      fireEvent.click(await screen.findByRole("button", { name: "problem.py" }));
+      const content = await waitFor(() => { const node = screen.container.querySelector<HTMLElement>('.cm-content[aria-label="problem.py"]'); expect(node).toBeTruthy(); return node!; });
+      const view = EditorView.findFromDOM(content)!;
+      fireEvent.click(await screen.findByRole("button", { name: "Problems: 1 reported" }));
+      const panel = await within(document.body).findByRole("dialog", { name: "Workspace Problems" });
+      const location = within(panel).getByRole("button", { name: "problem.py:1 · Example issue" });
+      expect(location.hasAttribute("disabled")).toBe(false);
+      act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: " changed" } }));
+      await waitFor(() => expect(within(panel).getByRole("button", { name: "problem.py · Example issue" }).hasAttribute("disabled")).toBe(true));
+      expect(panel.textContent).toContain("stale or unversioned");
+      expect(EditorView.findFromDOM(content)).toBe(view); expect(api.saveFile).not.toHaveBeenCalledWith("problem.py", expect.anything(), expect.anything());
+      fireEvent.keyDown(panel, { key: "Escape" });
+      await waitFor(() => expect(within(document.body).queryByRole("dialog", { name: "Workspace Problems" })).toBeNull());
+      expect(view.hasFocus).toBe(true);
+    } finally { screen.unmount(); vi.mocked(useWorkspaceLsp).mockReturnValue({ client: null, uri: "hick:///sample.ts", ready: false, diagnostics: [] }); }
+  });
+});
 describe("simple semantic navigation", () => {
   it("resolves workspace navigation outside the folder currently shown in Files", async () => {
     // Contract: .hickory-source/frontends/contract.md
     vi.mocked(api.files).mockResolvedValue({ root: "workspace", tree: [{ name: "src", path: "src", dir: true, children: [{ name: "a.py", path: "src/a.py", dir: false }] }, { name: "other.py", path: "other.py", dir: false }] });
-    vi.mocked(api.file).mockResolvedValueOnce({ path: "other.py", content: "value = 1", hash: "base" });
+    vi.mocked(api.file).mockResolvedValueOnce({ path: "other.py", language: "python", content: "value = 1", hash: "base" });
     const prompt = vi.spyOn(window, "prompt").mockReturnValue("src");
     const screen = render(createElement(App));
     try {
-      await screen.findByRole("button", { name: "other.py", exact: true });
+      await screen.findByRole("button", { name: "other.py" });
       fireEvent.click(screen.getByText("File", { selector: "summary" }));
-      fireEvent.click(screen.getByRole("button", { name: "Open Directory", exact: true }));
-      await waitFor(() => expect(screen.queryByRole("button", { name: "other.py", exact: true })).toBeNull());
+      fireEvent.click(screen.getByRole("button", { name: "Open Directory" }));
+      await waitFor(() => expect(screen.queryByRole("button", { name: "other.py" })).toBeNull());
       act(() => openLocation("other.py", 1, 2));
       await waitFor(() => expect(screen.container.querySelector('.cm-content[aria-label="other.py"]')).toBeTruthy());
       expect(api.file).toHaveBeenCalledWith("other.py");
@@ -783,7 +825,7 @@ describe("simple editor capability attachment", () => {
     try {
       act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: "\nla" }, selection: { anchor: 12 } }));
       const selected = view.state.selection.main.head;
-      vi.mocked(useWorkspaceLsp).mockReturnValue({ client, uri: "hick:///sample.ts", ready: true, diagnostics: [{ range: { start: { line: 0, character: 4 }, end: { line: 0, character: 5 } }, severity: 1, message: "Example type error" }] });
+      vi.mocked(useWorkspaceLsp).mockReturnValue({ client, uri: "hick:///sample.ts", ready: true, diagnosticSource: buffer.text, diagnostics: [{ range: { start: { line: 0, character: 4 }, end: { line: 0, character: 5 } }, severity: 1, message: "Example type error" }] });
       screen.rerender(createElement(Document, { buffer }));
       expect(EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)).toBe(view);
       expect(view.state.selection.main.head).toBe(selected);

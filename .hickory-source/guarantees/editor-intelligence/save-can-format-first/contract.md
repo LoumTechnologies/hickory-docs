@@ -190,6 +190,7 @@ export interface LspDiagnostic {
 <storycode:copy id="f-6bc953112fd0-PublishDiagnosticsParams">
 export interface PublishDiagnosticsParams {
   uri: string;
+  version?: number;
   diagnostics: LspDiagnostic[];
 }
 

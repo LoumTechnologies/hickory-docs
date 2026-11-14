@@ -20,6 +20,8 @@ export interface LspSession {
   uri: string;
   /** Diagnostics for this document, newest publish wins. */
   diagnostics: LspDiagnostic[];
+  /** Present only when a publication names the synchronized source version. */
+  diagnosticSource?: string;
   /** True once the session has an open document to ask questions about. */
   ready: boolean;
 }
@@ -73,7 +75,7 @@ export function useWorkspaceLsp(path: string, text: string): LspSession {
 
 function useLspOver(client: LspClient | null, docPath: string, text: string, projectContext = "new"): LspSession {
   const uri = useMemo(() => documentUri(docPath, projectContext), [docPath, projectContext]);
-  const [diagnostics, setDiagnostics] = useState<LspDiagnostic[]>([]);
+  const [diagnosticSnapshot, setDiagnosticSnapshot] = useState<{ uri: string; diagnostics: LspDiagnostic[]; source?: string }>({ uri: "", diagnostics: [] });
   const [ready, setReady] = useState(false);
   const versionRef = useRef(1);
   const textRef = useRef(text);
@@ -98,7 +100,10 @@ function useLspOver(client: LspClient | null, docPath: string, text: string, pro
     const unregister = client.registerDocumentSync(uri, flush);
     setReady(true);
     const off = client.onDiagnostics((params) => {
-      if (sameDocumentUri(params.uri, uri)) setDiagnostics(params.diagnostics);
+      if (!sameDocumentUri(params.uri, uri)) return;
+      if (params.version !== undefined && params.version !== versionRef.current) return;
+      setDiagnosticSnapshot({ uri, diagnostics: params.diagnostics,
+        ...(params.version === versionRef.current && lastSent.current !== null ? { source: lastSent.current } : {}) });
     });
     return () => {
       off();
@@ -119,5 +124,6 @@ function useLspOver(client: LspClient | null, docPath: string, text: string, pro
     return () => clearTimeout(timer);
   }, [client, ready, uri, text]);
 
-  return { client, uri, diagnostics, ready };
+  const snapshot = diagnosticSnapshot.uri === uri ? diagnosticSnapshot : { diagnostics: [] };
+  return { client, uri, diagnostics: snapshot.diagnostics, ready, ...("source" in snapshot && snapshot.source !== undefined ? { diagnosticSource: snapshot.source } : {}) };
 }

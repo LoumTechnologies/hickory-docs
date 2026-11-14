@@ -154,6 +154,19 @@ try {
           await editor(request.path).click();
           await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
           await page.keyboard.insertText(request.text); break;
+        case "problem-count": {
+          const control = page.getByRole("button", { name: /^Problems: \d+ reported$/ });
+          value = Number((await control.getAttribute("aria-label")).match(/\d+/)[0]); break;
+        }
+        case "problems-open":
+          if (request.via === "menu") await menu("Edit", "Problems");
+          else await page.getByRole("button", { name: /^Problems: \d+ reported$/ }).click();
+          await page.getByRole("dialog", { name: "Workspace Problems" }).waitFor(); break;
+        case "problems-state": {
+          const panel = page.getByRole("dialog", { name: "Workspace Problems" });
+          value = { text: await panel.innerText(), size: await editor(request.path).locator("..").evaluate(node => ({ width: node.clientWidth, height: node.clientHeight })) }; break;
+        }
+        case "problems-close": await page.getByRole("button", { name: "Close Problems", exact: true }).click(); break;
         case "semantic-query": {
           const content = editor(request.path);
           await content.focus();

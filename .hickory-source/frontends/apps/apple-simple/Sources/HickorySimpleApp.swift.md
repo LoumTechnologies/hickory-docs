@@ -46,6 +46,9 @@ import SwiftUI
             CommandGroup(after: .textEditing) {
                 EditorNavigationSettings()
                 Button("Find and replace") { workspace.currentBuffer?.showFind = true }.keyboardShortcut("f").disabled(workspace.currentBuffer == nil)
+                Button("Problems") { workspace.showProblems = true }
+                Button("Next problem") { Task { await workspace.navigateProblem(1) } }
+                Button("Previous problem") { Task { await workspace.navigateProblem(-1) } }
                 Button("Navigate back") { Task { await workspace.navigateHistory(-1) } }.disabled(!workspace.navigationTrail.canBack)
                 Button("Navigate forward") { Task { await workspace.navigateHistory(1) } }.disabled(!workspace.navigationTrail.canForward)
                 ForEach(SemanticQuery.allCases) { query in

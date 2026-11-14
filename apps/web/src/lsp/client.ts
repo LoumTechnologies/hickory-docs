@@ -24,6 +24,7 @@ export interface LspDiagnostic {
 
 export interface PublishDiagnosticsParams {
   uri: string;
+  version?: number;
   diagnostics: LspDiagnostic[];
 }
 

@@ -52,50 +52,10 @@ The workspace buffer owns its language session, matching Apple and Android. Hidi
 A query identifies a language-provider operation; its answer is a list of source locations. Menus and floating results consume these values without owning the LSP session or pane layout. Admit only authored workspace URI paths for opening. Other provider identities remain visible as unsupported results. Each request captures source, selection, provider and a monotonic ticket; late answers never navigate or replace a newer query. No query edits or saves text.
 
 <ui:copy id="simple-browser-semantic-locations">
-import { createContext, useContext, lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { LspSession } from "../lsp/useLsp";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { semanticPath, semanticLocations, querySemanticLocations, type SemanticQuery, type SemanticLocation } from "./Intelligence";
 export { semanticQueries, semanticPath, semanticLocations, querySemanticLocations } from "./Intelligence";
 export type { SemanticQuery, SemanticLocation } from "./Intelligence";
-// Buffer lifetime owns language knowledge; a pane only borrows its session.
-class LanguageEntry {
-  value: LspSession = { client: null, uri: "", ready: false, diagnostics: [] };
-  private listeners = new Set<() => void>();
-  subscribe = (listener: () => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
-  read = () => this.value;
-  publish(value: LspSession) { this.value = value; for (const listener of this.listeners) listener(); }
-}
-class WorkspaceLanguages {
-  private entries = new WeakMap<Buffer, LanguageEntry>();
-  entry(buffer: Buffer) { let entry = this.entries.get(buffer); if (!entry) { entry = new LanguageEntry(); this.entries.set(buffer, entry); } return entry; }
-}
-const languageContext = createContext<WorkspaceLanguages | null>(null);
-const emptyLanguageEntry = new LanguageEntry();
-function LanguageOwner({ buffer, registry }: { buffer: Buffer; registry: WorkspaceLanguages }) {
-  useSyncExternalStore(buffer.subscribe, buffer.snapshot);
-  const session = useWorkspaceLsp(buffer.transient ? "" : buffer.file.path, buffer.text);
-  useEffect(() => {
-    registry.entry(buffer).publish(session);
-  }, [buffer, registry, session.client, session.uri, session.ready, session.diagnostics]);
-  useEffect(() => () => registry.entry(buffer).publish({ client: null, uri: "", ready: false, diagnostics: [] }), [buffer, registry]);
-  return null;
-}
-export function SimpleLanguages({ buffers, children }: { buffers: Buffers; children: React.ReactNode }) {
-  const [registry] = useState(() => new WorkspaceLanguages());
-  return <languageContext.Provider value={registry}>
-    {[...buffers.values.values()].map(buffer => <LanguageOwner key={buffer.file.path} buffer={buffer} registry={registry} />)}
-    {children}
-  </languageContext.Provider>;
-}
-function useSimpleLanguage(buffer: Buffer): LspSession {
-  const registry = useContext(languageContext);
-  // Standalone document surfaces (including conversation drafts) keep their
-  // existing session. Workspace panes borrow the retained owner instead.
-  const standalone = useWorkspaceLsp(registry || buffer.transient ? "" : buffer.file.path, buffer.text);
-  const entry = registry?.entry(buffer) ?? emptyLanguageEntry;
-  const shared = useSyncExternalStore(entry.subscribe, entry.read);
-  return registry ? shared : standalone;
-}
 const semanticCommands = new WeakMap<Buffer, (query: SemanticQuery, text?: string) => void>();
 export function openSemanticQuery(buffer: Buffer, query: SemanticQuery, text = "") { semanticCommands.get(buffer)?.(query, text); }
 
@@ -112,13 +72,13 @@ import { defaultKeymap, history, historyKeymap, indentMore, indentLess } from "@
 import { codeFolding, foldKeymap, foldService, foldGutter, indentUnit } from "@codemirror/language";
 import { search, searchKeymap, openSearchPanel, SearchQuery, setSearchQuery } from "@codemirror/search";
 import { completionKeymap, startCompletion } from "@codemirror/autocomplete";
-import { useWorkspaceLsp } from "../lsp/useLsp";
+import { useSimpleLanguage, useHasWorkspaceLanguages } from "./WorkspaceLanguages";
 import { lspSupport, setLspDiagnostics, diagnosticRanges } from "../lsp/cmLsp";
 import { lspFeatures } from "../lsp/cmLspFeatures";
 import { completions } from "../lsp/completion";
 import { positionToUtf16, utf16ToPosition } from "../lsp/positions";
 import { sameDocumentUri } from "../lsp/documentUri";
-import { Buffer, Buffers } from "./buffers";
+import { Buffer } from "./buffers";
 import { hickLangReady, loadHickLang } from "../editor/hickLang";
 import { languageFromPath } from "../editor/languages";
 import { isDebuggable } from "../debug/languages";
@@ -280,7 +240,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
   const changed = buffer.dirty || observationSourceChanged(debug.reading, buffer.text);
   const [debugNotice, setDebugNotice] = useState("");
   const session = useSimpleLanguage(buffer);
-  const workspaceLanguages = useContext(languageContext);
+  const workspaceLanguages = useHasWorkspaceLanguages();
   const [semanticResult, setSemanticResult] = useState<{ source: string; anchor: number; head: number; ticket: number; message: string; locations: SemanticLocation[] } | null>(null);
   const semanticTicket = useRef(0);
   const semanticPanel = useRef<HTMLDivElement>(null);
@@ -384,9 +344,9 @@ export function Document({ buffer }: { buffer: Buffer }) {
   useEffect(() => {
     const cached = editors.get(buffer);
     if (!cached || !session.client || !session.ready) return;
-    cached.view.dispatch({ effects: setLspDiagnostics.of(diagnosticRanges(session.diagnostics,
+    cached.view.dispatch({ effects: setLspDiagnostics.of(diagnosticRanges(session.diagnosticSource === buffer.text ? session.diagnostics : [],
       position => positionToUtf16(cached.view.state.doc.toString(), position))) });
-  }, [buffer, session.client, session.ready, session.diagnostics, capabilities]);
+  }, [buffer, session.client, session.ready, session.diagnostics, session.diagnosticSource, buffer.text, capabilities]);
   // Attach debugger state to the existing editor. Callbacks read the current
   // session so tab moves and incoming DAP events cannot retain obsolete verbs.
   useEffect(() => {

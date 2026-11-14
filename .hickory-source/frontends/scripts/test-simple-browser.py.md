@@ -112,6 +112,25 @@ class BrowserDriver:
         try: self.act("quit")
         finally: stop(self.process)
 
+def problems_acceptance(driver, folder):
+    # Contract: .hickory-source/frontends/contract.md. Real provider messages and UI geometry.
+    path = "problem.py"; original = (folder / path).read_text()
+    driver.act("open", path=path)
+    size = driver.act("editor-size", path=path)
+    eventually(lambda: driver.act("problem-count") > 0, True)
+    driver.act("problems-open", via="status")
+    result = driver.act("problems-state", path=path)
+    assert path in result["text"], result
+    assert result["size"] == size, "Problems resized code"
+    driver.act("problems-close")
+    driver.act("append", path=path, text="\n# retained draft")
+    driver.act("problems-open", via="menu")
+    result = driver.act("problems-state", path=path)
+    assert path in result["text"] and result["size"] == size, result
+    assert (folder / path).read_text() == original, "Problems saved source"
+    driver.act("problems-close"); driver.act("undo", path=path)
+
+
 def semantic_navigation_acceptance(driver, folder):
     # Contract: .hickory-source/frontends/contract.md. Real provider and visible menu/results.
     path = "navigation.py"
@@ -561,9 +580,10 @@ if __name__ == "__main__":
         (folder / "empty.csv").write_text("")
         (folder / "spreadsheet.csv").write_text("1,2,3\n4,5,6\n7,8,9\n")
         (folder / "caret.csv").write_text("Label,Count\nabcdefghijk,1\nx,2\nabcdefghijklm,3\n")
+        (folder / "problem.py").write_text('amount: int = "wrong"\n')
         (folder / "navigation.py").write_text("from semantic_target import value\nprint(value)\n\ndef calculate(amount):\n    return adjust(amount)\n\ndef adjust(amount):\n    return amount + 1\n\ncalculate(value)\n")
         (folder / "semantic_target.py").write_text("prefix = 0; value = 42\n")
-        if "--semantic-navigation-only" in sys.argv:
+        if "--semantic-navigation-only" in sys.argv or "--problems-only" in sys.argv:
             subprocess.run([str(ROOT / "target/debug/hick"), "lsp", "install", "python", "--root", str(folder)], check=True, timeout=180)
         (folder / "cache.py").write_text("counter = 1\nprint(counter)\n")
         (folder / "debug.py").write_text("value = 1\nvalue += 1\nprint(value)\n")
@@ -614,6 +634,9 @@ if __name__ == "__main__":
             elif "--table-only" in sys.argv:
                 table_acceptance(driver, folder)
                 print("Browser: inline table grid, real saved Markdown, source reveal and undo passed")
+            elif "--problems-only" in sys.argv:
+                problems_acceptance(driver, folder)
+                print("Browser: real provider Problems, status/menu access, stationary geometry, retained draft and unchanged disk passed")
             elif "--semantic-navigation-only" in sys.argv:
                 semantic_navigation_acceptance(driver, folder)
                 print("Browser: real symbols/calls, Back/Forward with retained editors, exact columns, stationary geometry and unchanged disk passed")

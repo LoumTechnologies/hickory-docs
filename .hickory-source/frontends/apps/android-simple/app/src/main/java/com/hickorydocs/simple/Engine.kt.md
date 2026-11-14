@@ -344,7 +344,7 @@ Use the same four source-position queries as the Apple and browser clients. Norm
 
 <ui:copy id="simple-android-language-service">
 data class NativeLanguageSpan(val from: Int, val to: Int, val kind: String)
-data class NativeLanguageDiagnostic(val message: String, val from: Int?, val to: Int?)
+data class NativeLanguageDiagnostic(val message: String, val from: Int?, val to: Int?, val severity: Int = 1, val location: SemanticLocation? = null)
 data class NativeLanguageCompletion(val label: String, val detail: String, val edit: NativeSourceEdit, val source: String, val selection: androidx.compose.ui.text.TextRange)
 fun languageURI(path: String): String = java.net.URI("hick", "", "/" + path.trimStart('/'), null).toASCIIString()
 fun languageOffset(source: String, position: JSONObject): Int? {
@@ -369,7 +369,10 @@ fun decodeNativeDiagnostics(params: JSONObject, source: String, expectedVersion:
         val range = item.optJSONObject("range")
         val from = if (located) range?.optJSONObject("start")?.let { languageOffset(source, it) } else null
         val to = if (located) range?.optJSONObject("end")?.let { languageOffset(source, it) } else null
-        NativeLanguageDiagnostic(item.optString("message", "Language diagnostic"), from?.takeIf { to != null && it <= to }, to?.takeIf { from != null && from <= it })
+        val position = range?.optJSONObject("start")
+        val uri = params.optString("uri")
+        val location = if (located && from != null && to != null && from <= to && position != null && uri.isNotEmpty()) SemanticLocation(uri, position.getInt("line"), position.getInt("character")) else null
+        NativeLanguageDiagnostic(item.optString("message", "Language diagnostic"), from?.takeIf { to != null && it <= to }, to?.takeIf { from != null && from <= it }, item.optInt("severity", 1), location)
     }
 }
 // UTF-16 display cache, never an authority for completion edits or navigation.

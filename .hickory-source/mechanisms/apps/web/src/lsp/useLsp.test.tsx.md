@@ -63,6 +63,21 @@ it("flushes the newest source/version before immediate rename or code actions wi
   hook.unmount();
   await expect(client.prepareRename(hook.result.current.uri, { line: 0, character: 5 })).rejects.toThrow("disposed");
 });
+
+it("binds diagnostic positions to published versions and preserves unversioned messages without positional proof", () => {
+  // Contract: .hickory-source/frontends/contract.md
+  const channel = createLspChannel({ send() {} });
+  const realtime = { lsp: () => channel } as unknown as Realtime;
+  const hook = renderHook(({ text }) => useLsp(realtime, "problem.py", text), { initialProps: { text: "value = 1" } });
+  const publish = (version: number | undefined, message: string) => act(() => channel.handleFrame(encodeLspFrame({ jsonrpc: "2.0", method: "textDocument/publishDiagnostics", params: {
+    uri: "hick:///problem.py", ...(version === undefined ? {} : { version }), diagnostics: [{ message, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } } }],
+  } })));
+  publish(1, "current"); expect(hook.result.current.diagnosticSource).toBe("value = 1");
+  hook.rerender({ text: "value = 2" }); expect(hook.result.current.diagnosticSource).not.toBe("value = 2");
+  publish(99, "wrong version"); expect(hook.result.current.diagnostics[0].message).toBe("current");
+  publish(undefined, "unknown source"); expect(hook.result.current.diagnostics[0].message).toBe("unknown source"); expect(hook.result.current.diagnosticSource).toBeUndefined();
+  hook.unmount();
+});
 </storycode:copy>
 
 ### Assemble `apps/web/src/lsp/useLsp.test.tsx`

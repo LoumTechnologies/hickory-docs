@@ -166,6 +166,30 @@ class DocumentBuffer(val file: FileNode, loaded: FileText) {
     }
 }
 class Workspace : ViewModel() {
+    var showProblems by mutableStateOf(false)
+    val problems: List<WorkspaceProblem> get() = buffers.values.sortedBy { it.file.path }.flatMap { buffer ->
+        val language = buffer.language ?: return@flatMap emptyList()
+        val matchesSource = language.diagnosticSource == buffer.text
+        language.diagnostics.mapIndexed { index, diagnostic ->
+            val source = if (diagnostic.location != null) language.diagnosticSource else null
+            val current = source != null && matchesSource
+            val location = if (current) diagnostic.location else null
+            WorkspaceProblem("${buffer.file.path}:$index", buffer.file.path, diagnostic.message, diagnostic.severity, location, source, current)
+        }
+    }
+    suspend fun openProblem(problem: WorkspaceProblem, precise: Boolean = true) {
+        if (!precise) { buffers[problem.path]?.let { open(it.file) }; return }
+        val source = problem.source
+        if (!problem.current || problem.location == null || source == null || buffers[problem.path]?.text != source) {
+            status = "Problem source changed or its location is unversioned. Refresh diagnostics."; showProblems = true; return
+        }
+        openSemanticLocation(problem.location, allowDirty = true, expectedSource = source); showProblems = false
+    }
+    suspend fun navigateProblem(direction: Int) {
+        val problem = nextWorkspaceProblem(problems, currentSemanticLocation(), direction)
+        if (problem == null) { status = "No current source locations. Open Problems to read provider messages."; showProblems = true; return }
+        openProblem(problem)
+    }
     var navigationTrail by mutableStateOf(NavigationTrail())
     var layout by mutableStateOf(PaneLayout())
     var focused by mutableStateOf("document-group")
@@ -249,7 +273,7 @@ Opening reads raw text once. Closing dirty tabs refuses, matching the other fron
         val (next, location) = navigationTrail.step(direction, currentSemanticLocation()); navigationTrail = next
         if (location != null) openSemanticLocation(location, recordHistory = false, allowDirty = true)
     }
-    suspend fun openSemanticLocation(location: SemanticLocation, recordHistory: Boolean = true, allowDirty: Boolean = false) {
+    suspend fun openSemanticLocation(location: SemanticLocation, recordHistory: Boolean = true, allowDirty: Boolean = false, expectedSource: String? = null) {
         val departed = currentSemanticLocation()
         val path = location.path ?: return
         fun find(nodes: List<FileNode>): FileNode? { nodes.forEach { if (it.path == path) return it; find(it.children)?.let { child -> return child } }; return null }
@@ -260,6 +284,7 @@ Opening reads raw text once. Closing dirty tabs refuses, matching the other fron
         val buffer = buffers[path] ?: return
         if (buffer.dirty && !allowDirty && departed?.path != path) { status = "Save $path and query again before using a cross-file source position."; return }
         val source = buffer.text
+        if (expectedSource != null && source != expectedSource) { status = "Problem source changed. Refresh diagnostics."; return }
         val offset = languageOffset(source, org.json.JSONObject().put("line", location.line).put("character", location.character))
             ?: run { status = "Location no longer fits $path. Query again."; return }
         if (buffer.selectSourceRange(offset, offset, source)) { if (recordHistory) navigationTrail = navigationTrail.record(departed, location); buffer.focusSource?.invoke() }

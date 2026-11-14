@@ -283,12 +283,81 @@ data class NavigationTrail(val entries: List<SemanticLocation> = emptyList(), va
 }
 </ui:copy>
 
+### simple-intelligence-browser-problems
+
+A reported problem is information from a language provider, not a verification verdict. Keep its message even when its source is stale or unversioned. Only a matching source snapshot and valid position contribute to next/previous navigation. Sorting and wraparound operate on source locations, independently of any popover or status bar.
+
+<ui:copy id="simple-intelligence-browser-problems">
+export interface WorkspaceProblem {
+  id: string; path: string; message: string; severity: number;
+  location: SemanticLocation | null; source: string | null; current: boolean;
+}
+export function reportedProblems(documents: readonly { uri: string; currentSource: string; source?: string; diagnostics: readonly { message: string; severity?: number; range: LspLocation["range"] }[] }[]): WorkspaceProblem[] {
+  return documents.flatMap(document => {
+    if (!document.diagnostics.length) return [];
+    const current = document.source !== undefined && document.source === document.currentSource;
+    const rows = current ? document.currentSource.split("\n") : [];
+    return document.diagnostics.map((diagnostic, index) => {
+    const path = semanticPath(document.uri) ?? document.uri, position = diagnostic.range?.start;
+    const located = current && !!position && Number.isInteger(position.line) && position.line >= 0 && position.line < rows.length && Number.isInteger(position.character) && position.character >= 0 && position.character <= rows[position.line].length && semanticPath(document.uri) !== null;
+    return { id: `${document.uri}:${index}`, path, message: diagnostic.message, severity: diagnostic.severity ?? 1,
+      location: located ? { uri: document.uri, range: diagnostic.range } : null, source: document.source ?? null, current: located };
+    });
+  });
+}
+export function nextWorkspaceProblem(problems: readonly WorkspaceProblem[], current: SemanticLocation | null, direction: -1 | 1): WorkspaceProblem | null {
+  const compare = (a: SemanticLocation, b: SemanticLocation) => a.uri === b.uri ? a.range.start.line - b.range.start.line || a.range.start.character - b.range.start.character : a.uri < b.uri ? -1 : 1;
+  const located = problems.filter(problem => problem.current && problem.location).sort((a, b) => compare(a.location!, b.location!));
+  if (!located.length) return null;
+  if (direction === 1) return (current ? located.find(problem => compare(problem.location!, current) > 0) : null) ?? located[0];
+  return (current ? located.slice().reverse().find(problem => compare(problem.location!, current) < 0) : null) ?? located.at(-1)!;
+}
+</ui:copy>
+
+### simple-intelligence-apple-problems
+
+A reported problem is information from a language provider, not a verification verdict. Keep its message even when its source is stale or unversioned. Only a matching source snapshot and valid position contribute to next/previous navigation. Sorting and wraparound operate on source locations, independently of any popover or status bar.
+
+<ui:copy id="simple-intelligence-apple-problems">
+struct WorkspaceProblem: Identifiable {
+    var id: String; var path: String; var message: String; var severity: Int
+    var location: SemanticLocation?; var source: String?; var current: Bool
+}
+func nextWorkspaceProblem(_ problems: [WorkspaceProblem], current: SemanticLocation?, direction: Int) -> WorkspaceProblem? {
+    guard direction == -1 || direction == 1 else { return nil }
+    let located = problems.filter { $0.current && $0.location != nil }.sorted {
+        let a = $0.location!, b = $1.location!; return (a.uri, a.line, a.character) < (b.uri, b.line, b.character)
+    }
+    guard !located.isEmpty else { return nil }
+    if direction == 1 {
+        return current.flatMap { point in located.first { let at = $0.location!; return (at.uri, at.line, at.character) > (point.uri, point.line, point.character) } } ?? located.first
+    }
+    return current.flatMap { point in located.last { let at = $0.location!; return (at.uri, at.line, at.character) < (point.uri, point.line, point.character) } } ?? located.last
+}
+</ui:copy>
+
+### simple-intelligence-android-problems
+
+A reported problem is information from a language provider, not a verification verdict. Keep its message even when its source is stale or unversioned. Only a matching source snapshot and valid position contribute to next/previous navigation. Sorting and wraparound operate on source locations, independently of any popover or status bar.
+
+<ui:copy id="simple-intelligence-android-problems">
+data class WorkspaceProblem(val id: String, val path: String, val message: String, val severity: Int, val location: SemanticLocation?, val source: String?, val current: Boolean)
+fun nextWorkspaceProblem(problems: List<WorkspaceProblem>, current: SemanticLocation?, direction: Int): WorkspaceProblem? {
+    if (direction !in listOf(-1, 1)) return null
+    val order = compareBy<SemanticLocation>({ it.uri }, { it.line }, { it.character })
+    val located = problems.filter { it.current && it.location != null }.sortedWith { a, b -> order.compare(a.location!!, b.location!!) }
+    if (located.isEmpty()) return null
+    if (direction == 1) return current?.let { point -> located.firstOrNull { order.compare(it.location!!, point) > 0 } } ?: located.first()
+    return current?.let { point -> located.lastOrNull { order.compare(it.location!!, point) < 0 } } ?: located.last()
+}
+</ui:copy>
+
 ## Assemble the platform modules
 
 Each platform imports the model through its ordinary module system. The maintained fragments stay source-backed; there is no second hand-maintained payload.
 
-<ui:file path="apps/web/src/simple/Intelligence.ts"><ui:paste select="#simple-intelligence-browser-vocabulary"/><ui:paste select="#simple-intelligence-browser-locations"/><ui:paste select="#simple-intelligence-browser-query"/><ui:paste select="#simple-intelligence-browser-trail"/></ui:file>
-<ui:file path="apps/apple-simple/Sources/Intelligence.swift"><ui:paste select="#simple-apple-semantic-locations"/><ui:paste select="#simple-intelligence-apple-trail"/></ui:file>
-<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/Intelligence.kt"><ui:paste select="#simple-android-semantic-locations"/><ui:paste select="#simple-intelligence-android-trail"/></ui:file>
+<ui:file path="apps/web/src/simple/Intelligence.ts"><ui:paste select="#simple-intelligence-browser-vocabulary"/><ui:paste select="#simple-intelligence-browser-locations"/><ui:paste select="#simple-intelligence-browser-query"/><ui:paste select="#simple-intelligence-browser-trail"/><ui:paste select="#simple-intelligence-browser-problems"/></ui:file>
+<ui:file path="apps/apple-simple/Sources/Intelligence.swift"><ui:paste select="#simple-apple-semantic-locations"/><ui:paste select="#simple-intelligence-apple-trail"/><ui:paste select="#simple-intelligence-apple-problems"/></ui:file>
+<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/Intelligence.kt"><ui:paste select="#simple-android-semantic-locations"/><ui:paste select="#simple-intelligence-android-trail"/><ui:paste select="#simple-intelligence-android-problems"/></ui:file>
 
 </ui:doc>

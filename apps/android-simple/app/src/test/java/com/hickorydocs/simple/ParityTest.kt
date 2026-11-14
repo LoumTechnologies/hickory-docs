@@ -6,6 +6,23 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @org.junit.Test fun semanticProblemsRetirePositionsWhenSourceChanges() = kotlinx.coroutines.runBlocking {
+        // Contract: .hickory-source/frontends/contract.md
+        val file = FileNode("problem.py", "problem.py", false, emptyList(), null, null)
+        val buffer = DocumentBuffer(file, FileText("value = 1", "base"))
+        val service = NativeLanguage(Engine("http://127.0.0.1:1"), buffer, this); buffer.language = service
+        val workspace = Workspace(); workspace.buffers[file.path] = buffer
+        val range = JSONObject().put("start", JSONObject().put("line", 0).put("character", 1)).put("end", JSONObject().put("line", 0).put("character", 5))
+        val params = JSONObject().put("uri", "hick:///problem.py").put("version", 1).put("diagnostics", org.json.JSONArray().put(JSONObject().put("message", "issue").put("severity", 2).put("range", range)))
+        service.diagnostics = decodeNativeDiagnostics(params, buffer.text, 1); service.diagnosticSource = buffer.text
+        assertEquals(1, workspace.problems.size); assertTrue(workspace.problems[0].current)
+        assertEquals(1, nextWorkspaceProblem(workspace.problems, null, 1)?.location?.character)
+        buffer.state.edit { append(" changed") }; assertEquals(1, workspace.problems.size); assertFalse(workspace.problems[0].current)
+        assertNull(nextWorkspaceProblem(workspace.problems, null, 1))
+        params.remove("version"); service.diagnostics = decodeNativeDiagnostics(params, buffer.text, 1); service.diagnosticSource = buffer.text
+        assertFalse(workspace.problems[0].current); assertNull(workspace.problems[0].location); service.close()
+    }
+
     @org.junit.Test fun semanticNavigationTrailBranchesAndRetainsCarets() {
         // Contract: .hickory-source/frontends/contract.md
         fun point(name: String, line: Int = 0) = SemanticLocation("hick:///$name.py", line, 0)

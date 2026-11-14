@@ -64,3 +64,12 @@ data class NavigationTrail(val entries: List<SemanticLocation> = emptyList(), va
         return NavigationTrail(values, next) to values[next]
     }
 }
+data class WorkspaceProblem(val id: String, val path: String, val message: String, val severity: Int, val location: SemanticLocation?, val source: String?, val current: Boolean)
+fun nextWorkspaceProblem(problems: List<WorkspaceProblem>, current: SemanticLocation?, direction: Int): WorkspaceProblem? {
+    if (direction !in listOf(-1, 1)) return null
+    val order = compareBy<SemanticLocation>({ it.uri }, { it.line }, { it.character })
+    val located = problems.filter { it.current && it.location != null }.sortedWith { a, b -> order.compare(a.location!!, b.location!!) }
+    if (located.isEmpty()) return null
+    if (direction == 1) return current?.let { point -> located.firstOrNull { order.compare(it.location!!, point) > 0 } } ?: located.first()
+    return current?.let { point -> located.lastOrNull { order.compare(it.location!!, point) < 0 } } ?: located.last()
+}

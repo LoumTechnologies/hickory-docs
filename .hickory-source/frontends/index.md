@@ -62,4 +62,8 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="intelligence.md" />
 
+<ui:include file="workspace-languages.md" />
+
+<ui:include file="problems.md" />
+
 </ui:doc>

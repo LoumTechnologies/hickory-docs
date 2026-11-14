@@ -6,6 +6,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -56,7 +59,7 @@ class MainActivity : ComponentActivity() {
                 "Refresh" to { scope.launch { workspace.refresh() }; Unit },
                 "Close tab" to { workspace.active?.let(workspace::close); Unit }
             ))
-            CommandMenu("Edit", listOf("Navigate back" to { scope.launch { workspace.navigateHistory(-1) }; Unit }, "Navigate forward" to { scope.launch { workspace.navigateHistory(1) }; Unit }, "Find and replace" to { workspace.currentBuffer?.showFind = true; Unit },
+            CommandMenu("Edit", listOf("Problems" to { workspace.showProblems = true }, "Next problem" to { scope.launch { workspace.navigateProblem(1) }; Unit }, "Previous problem" to { scope.launch { workspace.navigateProblem(-1) }; Unit }, "Navigate back" to { scope.launch { workspace.navigateHistory(-1) }; Unit }, "Navigate forward" to { scope.launch { workspace.navigateHistory(1) }; Unit }, "Find and replace" to { workspace.currentBuffer?.showFind = true; Unit },
                 "Column selection" to { workspace.currentBuffer?.selectRectangle(); Unit },
                 "Add cursor below" to { workspace.currentBuffer?.addCursor(1); Unit }, "Add cursor above" to { workspace.currentBuffer?.addCursor(-1); Unit }))
             CommandMenu("View", listOf(
@@ -71,6 +74,10 @@ class MainActivity : ComponentActivity() {
         HorizontalDivider()
         Row(Modifier.fillMaxWidth().height(24.dp).padding(horizontal = 8.dp)) {
             Text(workspace.status, fontSize = 11.sp, maxLines = 1, modifier = Modifier.weight(1f))
+            Box {
+                Text("Problems ${workspace.problems.size}", fontSize = 11.sp, maxLines = 1, modifier = Modifier.widthIn(min = 88.dp, max = 144.dp).clickable(role = androidx.compose.ui.semantics.Role.Button) { workspace.showProblems = !workspace.showProblems }.padding(horizontal = 4.dp))
+                DropdownMenu(expanded = workspace.showProblems, onDismissRequest = { workspace.showProblems = false }) { WorkspaceProblemsView(workspace) }
+            }
             workspace.currentBuffer?.let { buffer -> Text(if (buffer.readOnly) "Read-only" else if (buffer.saving) "Saving…" else if (buffer.dirty) "Modified" else "Saved", fontSize = 11.sp) }
         }
     }
@@ -93,6 +100,31 @@ class MainActivity : ComponentActivity() {
         TextButton(onClick = { expanded = true }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) { Text(label, fontSize = 13.sp) }
         DropdownMenu(expanded, { expanded = false }) {
             commands.forEach { (name, action) -> DropdownMenuItem(text = { Text(name) }, onClick = { expanded = false; action() }) }
+        }
+    }
+}
+
+@Composable private fun WorkspaceProblemsView(workspace: Workspace) {
+    val scope = rememberCoroutineScope()
+    var query by remember { mutableStateOf("") }; var page by remember { mutableStateOf(0) }
+    val reports = workspace.problems.filter { (it.path + " " + it.message).contains(query, ignoreCase = true) }
+    val last = maxOf(0, (reports.size + 99) / 100 - 1); val selected = minOf(page, last)
+    Column(Modifier.widthIn(min = 260.dp, max = 380.dp).heightIn(max = 420.dp).verticalScroll(rememberScrollState()).padding(8.dp)) {
+        Text("Problems", fontSize = 16.sp)
+        Text("Language-provider reports · ${workspace.problems.count { it.current }} current locations", fontSize = 11.sp)
+        OutlinedTextField(query, { query = it; page = 0 }, label = { Text("Filter problems") }, singleLine = true)
+        if (reports.isEmpty()) Text("No reported problems match. This is provider information, not a verification result.", fontSize = 12.sp)
+        for (problem in reports.drop(selected * 100).take(100)) {
+            TextButton(enabled = problem.current, onClick = { scope.launch { workspace.openProblem(problem) } }) { Text(problem.path + " · " + problem.message, fontSize = 12.sp) }
+            if (!problem.current) {
+                Text("Source location stale or unversioned.", fontSize = 11.sp)
+                TextButton(onClick = { scope.launch { workspace.openProblem(problem, precise = false) } }) { Text("Open file") }
+            }
+        }
+        if (last > 0) Row {
+            TextButton(enabled = selected > 0, onClick = { page = selected - 1 }) { Text("Previous results") }
+            Text("${selected + 1}/${last + 1}")
+            TextButton(enabled = selected < last, onClick = { page = selected + 1 }) { Text("Next results") }
         }
     }
 }

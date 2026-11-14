@@ -66,6 +66,7 @@ export interface OpenLocation {
   line: number;
   character?: number;
   recordHistory?: boolean;
+  expectedSource?: string;
 }
 
 /** Ask the workspace to open `path` and put the caret on `line`. */
@@ -80,9 +81,9 @@ export function diagramFilePath(href: string, source: string): string | null {
   }
   return parts.length ? parts.join("/") : null;
 }
-export function openLocation(path: string, line: number, character?: number, recordHistory = true): void {
+export function openLocation(path: string, line: number, character?: number, recordHistory = true, expectedSource?: string): void {
   window.dispatchEvent(
-    new CustomEvent<OpenLocation>(OPEN_LOCATION_EVENT, { detail: { path, line, ...(character === undefined ? {} : { character }), ...(recordHistory ? {} : { recordHistory: false }) } }),
+    new CustomEvent<OpenLocation>(OPEN_LOCATION_EVENT, { detail: { path, line, ...(character === undefined ? {} : { character }), ...(recordHistory ? {} : { recordHistory: false }), ...(expectedSource === undefined ? {} : { expectedSource }) } }),
   );
 }
 
