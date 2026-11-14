@@ -327,4 +327,8 @@ The shared language bridge projects each writable range through exact compiler p
 
 The existing single-editor application path now refuses multi-document changes before touching source. The cross-platform workspace preview and coordinated application are separate required work; mapping safety alone does not establish that those interfaces exist. Four focused Rust provenance/proposal tests, four browser language-action tests, TypeScript checking, reconstruction and ownership audit passed for this boundary.
 
+## Captured changes are independent of their presentation
+
+Browser, Apple and Android have a pure source-change planner: typed before/after patches, UTF-16 replacements, complete-target validation and exact inverse patches. Unknown targets, read-only/saving sources, unsupported filesystem operations, unproven document versions, invalid scalar boundaries and overlapping replacements refuse the whole proposal. Applying or undoing a plan requires all captured source texts to match. Shared data cases exercise two-document Unicode edits and refusal boundaries on every platform. These are model guarantees; a planner alone is not a refactoring UI or proof of coordinated editor application. The shared cases passed in 13 focused browser checks and one case-driven check each on Swift and Kotlin, alongside TypeScript checking, reconstruction and ownership audit.
+
 </ui:doc>

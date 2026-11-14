@@ -151178,6 +151178,34 @@
       "page": ".hickory-source/mechanisms/crates/hick-lsp/src/backend/audit_tests.rs.md",
       "symbol": "Project edits follow exact compiler origins",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-browser-change-plans",
+      "output": "apps/web/src/simple/ChangePlan.ts",
+      "page": ".hickory-source/frontends/change-plans-browser.md",
+      "symbol": "simple-browser-change-plans",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-apple-change-plans",
+      "output": "apps/apple-simple/Sources/ChangePlan.swift",
+      "page": ".hickory-source/frontends/change-plans-apple.md",
+      "symbol": "simple-apple-change-plans",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-android-change-plans",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/ChangePlan.kt",
+      "page": ".hickory-source/frontends/change-plans-android.md",
+      "symbol": "simple-android-change-plans",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-shared-change-plan-cases",
+      "output": "apps/simple-contract/change-plan-cases.json",
+      "page": ".hickory-source/frontends/change-plan-cases.md",
+      "symbol": "simple-shared-change-plan-cases",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

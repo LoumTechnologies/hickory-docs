@@ -72,4 +72,12 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="workspace-search-android.md" />
 
+<ui:include file="change-plans-browser.md" />
+
+<ui:include file="change-plans-apple.md" />
+
+<ui:include file="change-plans-android.md" />
+
+<ui:include file="change-plan-cases.md" />
+
 </ui:doc>

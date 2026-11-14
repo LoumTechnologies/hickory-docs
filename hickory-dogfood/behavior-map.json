@@ -68194,6 +68194,50 @@
       "fragments": [
         "simple-android-workspace-search"
       ]
+    },
+    "apps/web/src/simple/ChangePlan.ts": {
+      "source": ".hickory-source/frontends/change-plans-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "e66bb059a7ad64989e28e1f95407ceace26a5f75b743d3366b3df843f343c648",
+      "construction": "fragments",
+      "fragments": [
+        "simple-browser-change-plans"
+      ]
+    },
+    "apps/apple-simple/Sources/ChangePlan.swift": {
+      "source": ".hickory-source/frontends/change-plans-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "a4b95a15a55cc9fcedc263272711cc51037d450a33f9f32bbc3c959d81ac0073",
+      "construction": "fragments",
+      "fragments": [
+        "simple-apple-change-plans"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/ChangePlan.kt": {
+      "source": ".hickory-source/frontends/change-plans-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "7b7272e2c2ac2bee217d3d955bfea2679f2d2b7026c64fb8fa978f4f624d2086",
+      "construction": "fragments",
+      "fragments": [
+        "simple-android-change-plans"
+      ]
+    },
+    "apps/simple-contract/change-plan-cases.json": {
+      "source": ".hickory-source/frontends/change-plan-cases.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "46e5b4c4ee6edb40949b28dd650316b55eef20b8ebffbe000e1c1d8fa3083623",
+      "construction": "fragments",
+      "fragments": [
+        "simple-shared-change-plan-cases"
+      ]
     }
   },
   "evidence_records": [

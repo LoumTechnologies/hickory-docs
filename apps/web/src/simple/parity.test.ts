@@ -25,6 +25,8 @@ import { useFollowingDebugSession } from "../debug/plainDebugHosts";
 vi.mock("../debug/plainDebugHosts", () => ({ useFollowingDebugSession: vi.fn(() => null), PlainDebugHosts: () => null }));
 import { Agent, AgentSession, MarkdownMessage } from "./Agent";
 import { App } from "./App";
+import { planWorkspaceEdit, invertChangePlan, validateChangePlan } from "./ChangePlan";
+import changeCases from "../../../simple-contract/change-plan-cases.json";
 import { WorkspaceSearch } from "./WorkspaceSearch";
 import * as reviews from "../lib/reviews";
 import { searchCharacter, NavigationTrail, reportedProblems, nextWorkspaceProblem } from "./Intelligence";
@@ -637,6 +639,31 @@ describe("tab drop placement", () => {
   });
 });
 
+describe("simple workspace change plans", () => {
+  it("prepares the shared two-document Unicode change and its guarded inverse without editing source", () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const sources = new Map(Object.entries(changeCases.sources));
+    const plan = planWorkspaceEdit("Rename", changeCases.edit, sources);
+    expect(Object.fromEntries(plan.patches.map(patch => [patch.path, patch.after]))).toEqual(changeCases.after);
+    expect(validateChangePlan(plan, sources)).toBeNull();
+    const changed = new Map([...sources].map(([path, source]) => [path, { ...source, text: changeCases.after[path as keyof typeof changeCases.after] }]));
+    expect(validateChangePlan(plan, changed)).toContain("Source changed");
+    const inverse = invertChangePlan(plan); expect(validateChangePlan(inverse, changed)).toBeNull();
+    for (const patch of inverse.patches) {
+      let restored = patch.before;
+      for (const edit of patch.edits.slice().reverse()) restored = restored.slice(0, edit.from) + edit.text + restored.slice(edit.to);
+      expect(restored).toBe(changeCases.sources[patch.path as keyof typeof changeCases.sources].text);
+    }
+    expect(sources.get("a.py")?.text).toBe("é😀 one\nsecond");
+    expect(validateChangePlan(inverse, new Map(changed).set("b.py", { text: "later edit", writable: true }))).toContain("b.py");
+  });
+  for (const item of changeCases.invalid) it(`refuses the entire shared proposal: ${item.name}`, () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const sources = new Map(Object.entries(changeCases.sources).map(([path, source]) => [path, { ...source, writable: !("readonly" in item && item.readonly === path) }]));
+    expect(() => planWorkspaceEdit(item.name, item.edit, sources)).toThrow();
+    expect(sources.get("a.py")?.text).toBe("é😀 one\nsecond"); expect(sources.get("b.py")?.text).toBe("call(one)");
+  });
+});
 describe("simple workspace search", () => {
   it("converts UTF-8 columns at scalar boundaries into UTF-16 positions", () => {
     // Contract: .hickory-source/frontends/contract.md

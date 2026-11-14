@@ -35,6 +35,34 @@ import WebKit
 @testable import HickorySimple
 
 final class ParityTests: XCTestCase {
+    func testWorkspaceChangePlanSharedSafetyCasesAndInverse() throws {
+        // Contract: .hickory-source/frontends/contract.md
+        let apps = URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = try XCTUnwrap(JSONSerialization.jsonObject(with:Data(contentsOf:apps.appendingPathComponent("simple-contract/change-plan-cases.json"))) as? [String:Any])
+        let rawSources = fixture["sources"] as! [String:[String:Any]]
+        let sources = rawSources.mapValues { SourceSnapshot(text:$0["text"] as! String,writable:$0["writable"] as! Bool) }
+        let plan = try planWorkspaceEdit("Rename",raw:fixture["edit"]!,sources:sources)
+        let expected = fixture["after"] as! [String:String]
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues:plan.patches.map { ($0.path,$0.after) }),expected)
+        XCTAssertNil(validateChangePlan(plan,sources:sources))
+        let changed = sources.mapValues { $0 }; var after = changed
+        for patch in plan.patches { after[patch.path] = SourceSnapshot(text:patch.after,writable:true) }
+        XCTAssertNotNil(validateChangePlan(plan,sources:after))
+        let inverse = invertChangePlan(plan); XCTAssertNil(validateChangePlan(inverse,sources:after))
+        for patch in inverse.patches {
+            let restored = NSMutableString(string:patch.before)
+            for edit in patch.edits.reversed() { restored.replaceCharacters(in:NSRange(location:edit.from,length:edit.to-edit.from),with:edit.text) }
+            XCTAssertEqual(restored as String,sources[patch.path]?.text)
+        }
+        after["b.py"] = SourceSnapshot(text:"later edit",writable:true); XCTAssertNotNil(validateChangePlan(inverse,sources:after))
+        for item in fixture["invalid"] as! [[String:Any]] {
+            var captured = sources
+            if let path = item["readonly"] as? String { captured[path]?.writable = false }
+            XCTAssertThrowsError(try planWorkspaceEdit(item["name"] as! String,raw:item["edit"]!,sources:captured),item["name"] as! String)
+            XCTAssertEqual(captured["a.py"]?.text,"é😀 one\nsecond"); XCTAssertEqual(captured["b.py"]?.text,"call(one)")
+        }
+    }
+
     @MainActor func testWorkspaceSearchUnicodeAndQueryInvalidation() {
         // Contract: .hickory-source/frontends/contract.md
         XCTAssertEqual(searchCharacter("é😀 target", byteColumn: 7), 4)

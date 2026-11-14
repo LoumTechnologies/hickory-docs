@@ -1,0 +1,68 @@
+package com.hickorydocs.simple
+import org.json.JSONObject
+import org.json.JSONArray
+data class SourceSnapshot(val text: String, val writable: Boolean)
+data class SourceReplacement(val from: Int, val to: Int, val text: String)
+data class SourcePatch(val path: String, val before: String, val after: String, val edits: List<SourceReplacement>)
+data class ChangePlan(val title: String, val patches: List<SourcePatch>)
+private fun changeOffset(source: String, raw: Any?): Int {
+    val point = raw as? JSONObject ?: error("Invalid UTF-16 source position")
+    for (key in listOf("line","character")) { val value = point.opt(key) as? Number ?: error("Invalid UTF-16 source position"); require(value.toDouble() == value.toInt().toDouble() && value.toInt() >= 0) { "Invalid UTF-16 source position" } }
+    val offset = languageOffset(source,point) ?: error("Source edit lies outside its captured source")
+    require(offset == 0 || offset == source.length || !Character.isHighSurrogate(source[offset-1]) || !Character.isLowSurrogate(source[offset])) { "Source edit splits a Unicode scalar" }
+    return offset
+}
+fun planWorkspaceEdit(title: String, raw: Any?, sources: Map<String,SourceSnapshot>): ChangePlan {
+    val edit = raw as? JSONObject ?: error("No workspace edit to preview")
+    val groups = sortedMapOf<String,MutableList<SourceReplacement>>()
+    fun add(rawURI: Any?, rawEdits: Any?, version: Any? = null) {
+        val uri = rawURI as? String ?: error("Malformed workspace edit target")
+        val items = rawEdits as? JSONArray ?: error("Malformed source edit list")
+        require(version == null || version == JSONObject.NULL) { "Authored source version could not be established. Refresh the proposal." }
+        val path = SemanticLocation(uri,0,0).path ?: error("Unsupported source identity: $uri")
+        val source = sources[path] ?: error("Open the affected source before preparing this proposal: $uri")
+        require(source.writable) { "Source is generated, read-only or saving: $path" }
+        val replacements = groups.getOrPut(path) { mutableListOf() }
+        for (index in 0 until items.length()) {
+            val item = items.optJSONObject(index) ?: error("Malformed source replacement")
+            val range = item.optJSONObject("range") ?: error("Missing source range")
+            val text = item.opt("newText") as? String ?: error("Missing replacement text")
+            val replacement = SourceReplacement(changeOffset(source.text,range.opt("start")),changeOffset(source.text,range.opt("end")),text)
+            require(replacement.from <= replacement.to) { "Source replacement runs backwards" }
+            if (replacement !in replacements) replacements.add(replacement)
+            require(replacements.size <= 10000) { "Proposal exceeds 10,000 replacements in one source" }
+        }
+    }
+    if (edit.has("changes")) {
+        val changes = edit.optJSONObject("changes") ?: error("Malformed workspace changes")
+        for (uri in changes.keys()) add(uri,changes.opt(uri))
+    }
+    if (edit.has("documentChanges")) {
+        require(groups.isEmpty()) { "Ambiguous workspace change representation" }
+        val changes = edit.optJSONArray("documentChanges") ?: error("Malformed documentChanges")
+        for (index in 0 until changes.length()) {
+            val change = changes.optJSONObject(index) ?: error("Malformed document change")
+            require(!change.has("kind")) { "Resource create, move and delete require a filesystem proposal" }
+            val document = change.optJSONObject("textDocument") ?: error("Missing source edit URI")
+            add(document.opt("uri"),change.opt("edits"),document.opt("version"))
+        }
+    }
+    val patches = groups.mapNotNull { (path,replacements) ->
+        val edits = replacements.sortedWith(compareBy({it.from},{it.to}))
+        for ((left,right) in edits.zipWithNext()) require(right.from >= left.to && right.from != left.from) { "Overlapping source edits: $path" }
+        val before = sources.getValue(path).text; val after = StringBuilder(before)
+        for (item in edits.asReversed()) after.replace(item.from,item.to,item.text)
+        if (before == after.toString()) null else SourcePatch(path,before,after.toString(),edits)
+    }
+    require(patches.isNotEmpty()) { "The provider proposed no source changes" }
+    return ChangePlan(title,patches)
+}
+fun invertChangePlan(plan: ChangePlan): ChangePlan = ChangePlan("Undo ${plan.title}",plan.patches.map { patch ->
+    var delta = 0
+    val edits = patch.edits.map { edit -> val from = edit.from+delta; delta += edit.text.length-(edit.to-edit.from); SourceReplacement(from,from+edit.text.length,patch.before.substring(edit.from,edit.to)) }
+    SourcePatch(patch.path,patch.after,patch.before,edits)
+})
+fun validateChangePlan(plan: ChangePlan, sources: Map<String,SourceSnapshot>): String? {
+    for (patch in plan.patches) if (sources[patch.path]?.let { it.writable && it.text == patch.before } != true) return "Source changed, is unavailable, read-only or saving: ${patch.path}. Prepare a fresh proposal."
+    return null
+}

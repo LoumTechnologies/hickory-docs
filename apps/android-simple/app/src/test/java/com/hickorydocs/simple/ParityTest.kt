@@ -6,6 +6,33 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ParityTest {
+    @Test fun workspaceChangePlanSharedSafetyCasesAndInverse() {
+        // Contract: .hickory-source/frontends/contract.md
+        val fixture = JSONObject(javaClass.classLoader!!.getResource("change-plan-cases.json")!!.readText())
+        val rawSources = fixture.getJSONObject("sources")
+        val sources = rawSources.keys().asSequence().associateWith { path -> rawSources.getJSONObject(path).let { SourceSnapshot(it.getString("text"),it.getBoolean("writable")) } }
+        val plan = planWorkspaceEdit("Rename",fixture.getJSONObject("edit"),sources)
+        val expected = fixture.getJSONObject("after")
+        assertEquals(expected.keys().asSequence().associateWith { expected.getString(it) },plan.patches.associate { it.path to it.after })
+        assertNull(validateChangePlan(plan,sources))
+        val after = sources.toMutableMap(); plan.patches.forEach { after[it.path] = SourceSnapshot(it.after,true) }
+        assertNotNull(validateChangePlan(plan,after))
+        val inverse = invertChangePlan(plan); assertNull(validateChangePlan(inverse,after))
+        for (patch in inverse.patches) {
+            val restored = StringBuilder(patch.before)
+            for (edit in patch.edits.asReversed()) restored.replace(edit.from,edit.to,edit.text)
+            assertEquals(sources.getValue(patch.path).text,restored.toString())
+        }
+        after["b.py"] = SourceSnapshot("later edit",true); assertNotNull(validateChangePlan(inverse,after))
+        val invalid = fixture.getJSONArray("invalid")
+        for (index in 0 until invalid.length()) {
+            val item = invalid.getJSONObject(index); val captured = sources.toMutableMap()
+            item.optString("readonly").takeIf { it.isNotEmpty() }?.let { path -> captured[path] = captured.getValue(path).copy(writable=false) }
+            assertTrue(item.getString("name"),runCatching { planWorkspaceEdit(item.getString("name"),item.getJSONObject("edit"),captured) }.isFailure)
+            assertEquals("é😀 one\nsecond",captured.getValue("a.py").text); assertEquals("call(one)",captured.getValue("b.py").text)
+        }
+    }
+
     @Test fun workspaceSearchUnicodeAndQueryInvalidation() {
         // Contract: .hickory-source/frontends/contract.md
         assertEquals(4, searchCharacter("é😀 target", 7)); assertNull(searchCharacter("é😀 target", 3))
