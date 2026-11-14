@@ -172,4 +172,10 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="test-source-index-android.md" />
 
+<ui:include file="source-test-gutters-browser.md" />
+
+<ui:include file="source-test-gutters-apple.md" />
+
+<ui:include file="source-test-gutters-android.md" />
+
 </ui:doc>

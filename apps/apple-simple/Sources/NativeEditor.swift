@@ -1927,7 +1927,8 @@ struct LanguageEditor: View {
                     .accessibilityLabel("Resize right gutter").accessibilityAdjustableAction { direction in railWidth = min(220, max(24, railWidth + (direction == .increment ? 22 : -22))) }
                 NativeDebugRail(buffer: buffer, debug: debugger).frame(width: railWidth)
             }
-        }.onChange(of: debugger?.output ?? [], initial: true) { _, _ in
+        }.onChange(of:buffer.text,initial:true){_,_ in buffer.readTestSources()}
+        .onChange(of: debugger?.output ?? [], initial: true) { _, _ in
             buffer.runOutputSource = buffer.text
             buffer.runOutputs = debugger?.outputPlacements(buffer) ?? [:]
         }.overlay(alignment: .topTrailing) {
@@ -2037,8 +2038,9 @@ struct NativeDebugRail: View {
             + buffer.inlineMarkup.equations.filter { $0.line == line }.map(\.id)
             + inlineTables(buffer.inlineMarkup).filter { table in buffer.inlineMarkup.lineStarts.lastIndex(where: { $0 <= table.range.location }) == line }.map(\.id)
     }
-    private func actions(_ line: Int) -> [String] {
+    private func actions(_ line: Int,testLines:Set<Int>) -> [String] {
         var result: [String] = []
+        if testLines.contains(line){result.append("tests")}
         result += embeddedAnchors(line).map { "source:\($0)" }
         if buffer.inlineMarkup.source == buffer.text && buffer.inlineMarkup.debug.launch[line] != nil { result.append("debug") }
         if buffer.inlineMarkup.source == buffer.text && buffer.inlineMarkup.equations.contains(where: { $0.line == line }) { result.append("equation") }
@@ -2048,28 +2050,30 @@ struct NativeDebugRail: View {
     }
     private func symbol(_ action: String) -> String {
         if action.hasPrefix("source:") { return "chevron.left.forwardslash.chevron.right" }
-        switch action { case "debug", "continue": return "play"; case "equation": return "function"; case "output": return "text.alignleft"; case "over": return "arrow.turn.down.right"; case "in": return "arrow.down"; case "out": return "arrow.up"; case "stop": return "stop.fill"; default: return "eye" }
+        switch action { case "tests":return "checklist";case "debug", "continue": return "play"; case "equation": return "function"; case "output": return "text.alignleft"; case "over": return "arrow.turn.down.right"; case "in": return "arrow.down"; case "out": return "arrow.up"; case "stop": return "stop.fill"; default: return "eye" }
     }
     @ViewBuilder private func icon(_ action: String, line: Int) -> some View {
         Button {
             opened = nil
             if action.hasPrefix("source:"), let anchor = Int(action.dropFirst(7)) { buffer.sourceTable = buffer.sourceTable == anchor ? nil : anchor; return }
             switch action {
+            case "tests":buffer.inspectTests?(line)
             case "debug": Task { await debug.prepare(buffer, line: line); details = debug.active ? nil : line }
             case "continue", "over", "in", "out": debug.step(action)
             case "stop": debug.stop()
             default: details = line
             }
         } label: { Image(systemName: symbol(action)).frame(width: 20, height: 18) }
-        .buttonStyle(SimpleChromeButtonStyle()).disabled(action == "debug" && (debug.active || buffer.dirty || buffer.saving)).help(action.hasPrefix("source:") ? "Toggle source text" : action.capitalized).accessibilityLabel("\(action.hasPrefix("source:") ? "Toggle source text" : action.capitalized) on line \(line + 1)")
+        .buttonStyle(SimpleChromeButtonStyle()).disabled(action == "debug" && (debug.active || buffer.dirty || buffer.saving)).help(action == "tests" ? "Inspect source tests" : action.hasPrefix("source:") ? "Toggle source text" : action.capitalized).accessibilityLabel("\(action == "tests" ? "Inspect source tests" : action.hasPrefix("source:") ? "Toggle source text" : action.capitalized) on line \(line + 1)")
     }
     var body: some View {
         GeometryReader { geometry in
-            let rows = buffer.visibleDebugLines.filter { $0.y >= 0 && $0.y < geometry.size.height && !actions($0.line).isEmpty }
-            let columns = max(1, Int(geometry.size.width / 22))
+            let testLines=Set(buffer.sourceTestRows().map(\.line))
+            let rows = buffer.visibleDebugLines.filter { $0.y >= 0 && $0.y < geometry.size.height && !actions($0.line,testLines:testLines).isEmpty }
+            let columns = 1
             ZStack(alignment: .topLeading) {
                 ForEach(Array(rows.enumerated()), id: \.element.line) { index, row in
-                    let items = actions(row.line)
+                    let items = actions(row.line,testLines:testLines)
                     let room = (index + 1 < rows.count ? rows[index + 1].y : geometry.size.height) - row.y
                     let capacity = max(1, Int(room / 20)) * columns
                     let visible = items.count <= capacity ? items.count : max(0, capacity - 1)

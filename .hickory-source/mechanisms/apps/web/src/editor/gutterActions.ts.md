@@ -249,7 +249,8 @@ Write absolute positions only after measuring. Reserve the next populated row’
       const currentCells = new Set(rows.flatMap(row => row.icons.map(icon => icon.cell)));
       for (const [cell, position] of this.cells) if (!currentCells.has(cell)) { cell.style.position = position; this.cells.delete(cell); }
       for (const row of rows) {
-        const columns = row.gutter.classList.contains("cm-debug-rail") ? Math.max(1, Math.floor(row.gutter.clientWidth / this.size)) : 1;
+        // Existing right rails keep one vertical action column at every width.
+        const columns = 1;
         const { visible, overflow } = gutterSlots(row.icons.length, row.available, this.size, columns);
         row.icons.forEach((icon, index) => {
           this.icons.set(icon.node, icon);

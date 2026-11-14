@@ -68932,6 +68932,39 @@
       "fragments": [
         "source-test-index-android-witness"
       ]
+    },
+    "apps/web/src/simple/SourceTestGutters.tsx": {
+      "source": ".hickory-source/frontends/source-test-gutters-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "0fe1891a8fa57df29d36ec2d92c6efda2f08e3b8576e4bcb4cb7db50140ea06f",
+      "construction": "fragments",
+      "fragments": [
+        "source-test-gutters-browser"
+      ]
+    },
+    "apps/apple-simple/Sources/SourceTestGutters.swift": {
+      "source": ".hickory-source/frontends/source-test-gutters-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "b717ced386d94950f2c78bdc16e49c2710cbae7f2c411c61664e52ff64671292",
+      "construction": "fragments",
+      "fragments": [
+        "source-test-gutters-apple"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceTestGutters.kt": {
+      "source": ".hickory-source/frontends/source-test-gutters-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "aa7bcb219aa565f7b276c8c95ef735b15b497061c2e0a9e1eecaec4cfd6687cb",
+      "construction": "fragments",
+      "fragments": [
+        "source-test-gutters-android"
+      ]
     }
   },
   "evidence_records": [

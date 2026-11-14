@@ -148,6 +148,8 @@ import Observation
     @ObservationIgnored var revealDebugLine: ((Int) -> Void)?
     @ObservationIgnored var rememberNavigation: ((SemanticLocation, SemanticLocation) -> Void)?
     @ObservationIgnored var openSemanticLocation: ((SemanticLocation) -> Void)?
+    @ObservationIgnored var testIndex:SourceTestIndex?
+    @ObservationIgnored var inspectTests:((Int)->Void)?
     var language: NativeLanguage?
     var hash: String
     var saving = false
@@ -189,6 +191,7 @@ import Observation
         } catch { if generation == current, search.revision == request { search.notice = error.localizedDescription } }
     }
     var analysis = WorkspaceAnalysis()
+    var sourceTestIndex:SourceTestIndex?
     var testSources=TestSourcesModel()
     var showTests=false
     var showEverywhere = false
@@ -261,7 +264,7 @@ import Observation
             debugger?.close()
             for buffer in buffers.values { buffer.language?.close() }
             languageConnection?.close();languageConnection=nil
-            analysis.stop(); analysis=WorkspaceAnalysis(); showAnalysis=false; showEverywhere=false;showTests=false;testSources=TestSourcesModel()
+            analysis.stop(); analysis=WorkspaceAnalysis(); showAnalysis=false; showEverywhere=false;showTests=false;testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=nil
             generation = UUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; debugger = NativeDebugger(engine: next)
             debugger?.onLocation = { [weak self] path, line in Task { await self?.revealDebug(path, line: line) } }; files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); buffers = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
             layout = PaneLayout(); focused = "document-group"; status = tree.root
@@ -308,6 +311,9 @@ import Observation
         buffer.openSemanticLocation = { [weak self] location in
             Task { await self?.openSemanticLocation(location) }
         }
+        if sourceTestIndex==nil {sourceTestIndex=SourceTestIndex {path,source in try await engine.request("POST","/api/tests/source-candidates",body:["path":path,"source":source])}}
+        buffer.testIndex=sourceTestIndex
+        buffer.inspectTests={ [weak self,weak buffer] line in guard let self,let buffer else {return};Task {await self.inspectTestSource(buffer,line:line)}}
         buffer.receiptEngine = engine
         if languageConnection == nil {languageConnection=NativeLanguageConnection(engine:engine)}
         buffer.language = NativeLanguage(engine:engine,buffer:buffer,connection:languageConnection); buffer.language?.start()

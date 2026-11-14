@@ -62,6 +62,8 @@ class DocumentBuffer(val file: FileNode, loaded: FileText) {
     var inlineMarkup by mutableStateOf(InlineSnapshot(""))
     var rememberNavigation: ((SemanticLocation, SemanticLocation) -> Unit)? = null
     var openSemanticLocation: ((SemanticLocation) -> Unit)? = null
+    var testIndex:SourceTestIndex?=null
+    var inspectTests:((Int)->Unit)?=null
     var language: NativeLanguage? = null
     val state = TextFieldState(loaded.content)
     var focusSource: (() -> Unit)? = null
@@ -179,6 +181,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         catch (failure: Exception) { if (generation == current && search.revision == request) search.notice = failure.message.orEmpty() }
     }
     var analysis by mutableStateOf(WorkspaceAnalysis()); private set
+    var sourceTestIndex:SourceTestIndex?=null
     var testSources by mutableStateOf(TestSourcesModel())
     var showTests by mutableStateOf(false)
     var showEverywhere by mutableStateOf(false)
@@ -246,7 +249,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
             agent.turns = emptyList(); agent.error = ""; terminal.id = null; terminal.error = ""
             debugger?.close(); debugger = NativeDebugger(next, workspaceScope)
             debugger?.onLocation = { path, line -> workspaceScope.launch { revealDebug(path, line) } }
-            buffers.values.forEach { it.language?.close() }; languageConnection?.close();languageConnection=null; analysis.stop();analysis=WorkspaceAnalysis();showAnalysis=false;showEverywhere=false;showTests=false;testSources=TestSourcesModel();generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); buffers.clear(); loading.values.forEach {it.cancel()}; loading.clear()
+            buffers.values.forEach { it.language?.close() }; languageConnection?.close();languageConnection=null; analysis.stop();analysis=WorkspaceAnalysis();showAnalysis=false;showEverywhere=false;showTests=false;testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=null;generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); buffers.clear(); loading.values.forEach {it.cancel()}; loading.clear()
             layout = PaneLayout(); focused = "document-group"; status = root
             return true
         } catch (cancelled: CancellationException) { throw cancelled }
@@ -279,6 +282,9 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         buffers[file.path] = buffer
         buffer.rememberNavigation = { from, to -> navigationTrail = navigationTrail.record(from, to) }
         buffer.openSemanticLocation = { location -> workspaceScope.launch { openSemanticLocation(location) } }
+        if(sourceTestIndex==null)sourceTestIndex=SourceTestIndex(workspaceScope){path,source->SourceTestScan.decode(server.request("POST","/api/tests/source-candidates",org.json.JSONObject().put("path",path).put("source",source)))}
+        buffer.testIndex=sourceTestIndex
+        buffer.inspectTests={line->workspaceScope.launch {inspectTestSource(buffer,line)}}
         buffer.receiptEngine = server
         if(languageConnection==null) languageConnection=NativeLanguageConnection(server,workspaceScope)
         buffer.language = NativeLanguage(server,buffer,workspaceScope,languageConnection); buffer.language?.start()
@@ -332,7 +338,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         val file = find(files) ?: return
         open(file); buffers[path]?.let { buffer -> debugger?.rememberSource(buffer); buffer.debugReveal = line to ((buffer.debugReveal?.second ?: 0) + 1) }
     }
-    override fun onCleared() { buffers.values.forEach { it.language?.close() }; languageConnection?.close(); debugger?.close(); super.onCleared() }
+    override fun onCleared() { sourceTestIndex?.stop(); buffers.values.forEach { it.language?.close() }; languageConnection?.close(); debugger?.close(); super.onCleared() }
     suspend fun openTerminal() {
         val server = engine ?: run { status = "Connect to a workspace server before opening Terminal."; return }
         show("terminal"); terminal.open(server)

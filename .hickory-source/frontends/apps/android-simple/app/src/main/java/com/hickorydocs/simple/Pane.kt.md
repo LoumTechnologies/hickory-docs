@@ -816,6 +816,7 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
     // so that frame uses the cache instead of briefly showing uncolored text.
     val semantic = service?.let { rebaseNativeTokens(it.tokens, it.tokenSource, source) }.orEmpty()
     val inline = buffer.inlineMarkup
+    LaunchedEffect(buffer,source) {buffer.readTestSources()}
     LaunchedEffect(buffer, source) {
         val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { computeInlineMarkup(source, buffer.file.path) }
         if (buffer.text == source) buffer.inlineMarkup = result
@@ -1243,6 +1244,7 @@ fun debugLineOffset(source: String, line: Int): Int? {
     val diagrams = if (!buffer.tableSourceVisible) tablePresentation(buffer.inlineMarkup, source).diagrams.filter { it.from != buffer.sourceTable } else emptyList()
     val replacements = editorReplacements(folds, tables, source, diagrams, if (buffer.inlineMarkup.source == source) buffer.inlineMarkup.equations else emptyList(), (buffer.recordedOutputPlacements() + debug?.outputPlacements(buffer).orEmpty()), fontScale = LocalDensity.current.fontScale)
     val display = editorDisplay(source, replacements)
+    val testLines=buffer.sourceTestRows().map {it.first}.toSet()
     val paused = if (debug.sourceMatches(buffer)) debug.line(buffer.file.path) else null
     Box(Modifier.width(4.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant).pointerInput(buffer) {
         detectDragGestures { change, amount -> change.consume(); railWidth = (railWidth - amount.x / density.density).coerceIn(24f, 220f) }
@@ -1262,6 +1264,7 @@ fun debugLineOffset(source: String, line: Int): Int? {
                 if (top < 0 || top > height) continue
                 val held = debug.breakpoints[buffer.file.path]?.firstOrNull { it.optInt("line", -1) == line }
                 val actions = mutableListOf<Triple<String, String, () -> Unit>>()
+                if(line in testLines)actions.add(Triple("▷","Inspect source tests",{buffer.inspectTests?.invoke(line)}))
                 if (buffer.inlineMarkup.source == source && buffer.inlineMarkup.debug.launch[line] != null) actions.add(Triple("▷", "Debug", { scope.launch { debug.prepare(buffer, line); opened = if (debug.active) null else line } }))
                 if (buffer.inlineMarkup.source == source && buffer.inlineMarkup.equations.any { it.line == line }) actions.add(Triple("ƒ", "Edit equation", { opened = line }))
                 if (buffer.receiptsOn(line).isNotEmpty()) actions.add(Triple("▤", "Recorded output", { opened = line }))
@@ -1270,12 +1273,12 @@ fun debugLineOffset(source: String, line: Int): Int? {
                     actions.add(Triple("■", "Stop", { debug.stop() })); actions.add(Triple("◎", "Inspect", { opened = line }))
                 }
                 if (actions.isEmpty()) continue
-                val columns = maxOf(1, (railWidth / 22).toInt())
+                val columns = 1
                 // Only another populated action row limits wrapping; prose leaves room.
                 val next = (visual + 1..last).firstOrNull { nextVisual ->
                     val nextOffset = editorSourceOffset(layout.getLineStart(nextVisual), replacements)
                     val nextLine = starts?.let { inlineLineAt(nextOffset, it) } ?: source.take(nextOffset).count { it == '\n' }
-                    buffer.inlineMarkup.debug.launch[nextLine] != null || nextLine == paused || buffer.inlineMarkup.equations.any { it.line == nextLine } || buffer.receiptsOn(nextLine).isNotEmpty()
+                    nextLine in testLines || buffer.inlineMarkup.debug.launch[nextLine] != null || nextLine == paused || buffer.inlineMarkup.equations.any { it.line == nextLine } || buffer.receiptsOn(nextLine).isNotEmpty()
                 }
                 val room = if (next != null) layout.getLineTop(next) - layout.getLineTop(visual) else height - top
                 val capacity = maxOf(1, (room / with(density) { 20.dp.toPx() }).toInt()) * columns

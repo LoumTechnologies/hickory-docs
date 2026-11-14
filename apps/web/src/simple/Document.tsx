@@ -1,3 +1,4 @@
+import {useSourceTestLineActions} from "./SourceTestGutters";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { semanticPath, semanticLocations, querySemanticLocations, type SemanticQuery, type SemanticLocation } from "./Intelligence";
 export { semanticQueries, semanticPath, semanticLocations, querySemanticLocations } from "./Intelligence";
@@ -346,6 +347,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
       profile => debugRef.current.start(target, {}, undefined, profile),
       { preferProgram: true, isCurrent: () => !!view?.dom.isConnected && buffer.text === source && !buffer.dirty && !buffer.saving });
   };
+  const sourceTestActions=useSourceTestLineActions(buffer,view);
   const semanticCurrent = !!view && !!semanticResult && semanticResult.ticket === semanticTicket.current && semanticResult.source === buffer.text && semanticResult.anchor === view.state.selection.main.anchor && semanticResult.head === view.state.selection.main.head;
   return <div className="document-body">
     {semanticResult && <div ref={semanticPanel} tabIndex={-1} className="simple-semantic-results" role="dialog" aria-label="Semantic locations" onKeyDown={event => { if (event.key === "Escape") { semanticTicket.current++; setSemanticResult(null); view?.focus(); } }}>
@@ -368,7 +370,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
         onKeyDown={event => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setRailWidth(width => Math.max(24, Math.min(220, width + (event.key === "ArrowLeft" ? 22 : -22)))); } }}
         onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); }}
         onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) setRailWidth(width => Math.max(24, Math.min(220, width - event.movementX))); }} />
-      <DebugLaunchRail view={view} plainPath={debuggable && !literate ? buffer.file.path : undefined} enabled={["idle", "finished", "failed"].includes(debug.status)} onStart={debuggable && (!literate || parserReady) ? start : undefined} />
+      <DebugLaunchRail actions={sourceTestActions} view={view} plainPath={debuggable && !literate ? buffer.file.path : undefined} enabled={["idle", "finished", "failed"].includes(debug.status)} onStart={debuggable && (!literate || parserReady) ? start : undefined} />
     </div>
     {debuggable && view && (!literate || parserReady) && <DebugStrip editorView={view} pausedLine={changed ? null : debug.pausedLine}
       status={debug.status} program={debug.program} message={debug.message} offerInstall={debug.offerInstall}

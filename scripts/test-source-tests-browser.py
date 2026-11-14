@@ -13,7 +13,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="hickory-source-test-ui-") as temporary:
         root=Path(temporary)/"workspace";root.mkdir()
         (root/"Cargo.toml").write_text('[package]\nname="test_ui_witness"\nversion="0.1.0"\nedition="2024"\n[lib]\npath="lib.rs"\n')
-        source="#[test]\nfn ui_source_witness() { assert_eq!(2 + 2, 4); }\n"
+        source="#[test] fn ui_source_witness() { assert_eq!(2 + 2, 4); }\n#[test] fn ui_extra_witness() { assert!(true); }\n"
         path="lib.rs";(root/path).write_text(source)
         environment={**os.environ,"HICKORY_STATE_DIR":str(Path(temporary)/"state")};processes=[];driver=None
         try:
@@ -24,12 +24,17 @@ def main():
             vite=fixture.start(["node","node_modules/vite/bin/vite.js","--config","vite.simple.config.ts","--host","127.0.0.1","--port",str(port),"--strictPort"],cwd=ROOT/"apps/web",env={**environment,"HICKORY_API_ORIGIN":backend});processes.append(vite)
             driver=fixture.BrowserDriver(fixture.origin(vite)+"/simple.html")
             driver.act("open",path=path);driver.act("remember-editor",path=path);size=driver.act("editor-size",path=path)
+            gutter=driver.act("source-tests-gutter",path=path,line=1)
+            assert gutter["before"]==gutter["after"],gutter
+            assert "ui_source_witness" in gutter["text"],gutter
+            assert driver.act("editor-size",path=path)==size
+            driver.act("source-tests-close")
             driver.act("source-tests-open");result=driver.act("source-tests-read")
             assert "ui_source_witness" in result["text"] and result["runEnabled"],result
             assert driver.act("editor-size",path=path)==size
             assert driver.act("editor-is-retained",path=path)
             driver.act("source-tests-source")
-            fixture.eventually(lambda:driver.act("caret-offset",path=path),len("#[test]\nfn "))
+            fixture.eventually(lambda:driver.act("caret-offset",path=path),len("#[test] fn "))
             driver.act("source-tests-open")
             driver.act("source-tests-run")
             deadline=time.monotonic()+40

@@ -104,6 +104,18 @@ try {
           value = { control: await page.getByRole("combobox", { name: "Ctrl + Left/Right", exact: true }).inputValue(), alt: await page.getByRole("combobox", { name: "Alt/Option + Left/Right", exact: true }).inputValue() };
           await page.locator("nav").getByText("Edit", { exact: true }).click(); break;
 
+        case "source-tests-gutter": {
+          const rail=page.locator(".cm-debug-rail"),summary=rail.locator(`summary[aria-label="Line actions on line ${request.line}"]`);
+          await summary.waitFor();const groups=rail.locator(".cm-debug-rail__group");
+          await page.waitForFunction(()=>[...document.querySelectorAll(".cm-debug-rail__group")].every(node=>node.style.top));
+          await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+          const before=await groups.evaluateAll(nodes=>nodes.map(node=>({at:node.dataset.sourceOffset,top:node.getBoundingClientRect().top,left:node.getBoundingClientRect().left})));
+          await summary.click();
+          const after=await groups.evaluateAll(nodes=>nodes.map(node=>({at:node.dataset.sourceOffset,top:node.getBoundingClientRect().top,left:node.getBoundingClientRect().left})));
+          await summary.locator("..").getByRole("button",{name:/^Inspect source tests:/}).click();
+          const panel=page.getByRole("dialog",{name:"Source tests",exact:true});await panel.waitFor();await panel.getByText(/^Source observation/).waitFor();
+          value={text:await panel.innerText(),before,after};break;
+        }
         case "source-tests-open": await menu("Edit","Source tests");await page.getByRole("dialog",{name:"Source tests",exact:true}).waitFor();break;
         case "source-tests-read": {
           const panel=page.getByRole("dialog",{name:"Source tests",exact:true});await panel.getByRole("button",{name:"Refresh candidates",exact:true}).click();

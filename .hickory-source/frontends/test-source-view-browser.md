@@ -8,12 +8,13 @@ Retain the observation and test-run identities independently of visibility. Refr
 <ui:copy id="source-test-view-browser-0">
 import {useEffect,useRef,useState,useSyncExternalStore} from "react";
 import {createPortal} from "react-dom";
+import type {SourceTestInspection} from "./SourceTestGutters";
 import type { Buffers } from "./buffers";
 import {api} from "../api/client";
 import type {SourceTestScan,SourceTestCandidate,TestSourcePoint,SourceTestRunResult} from "../api/testSources";
 import {candidatePoint,sourceTestRun,testSourceCurrent,type TestSourceSnapshot} from "./TestSources";
 type Run={id:string;name:string;scope:string;state:string;exit:number|null;output:string;sourceHash:string;fingerprint:string;contributors:Record<string,string>};
-export function TestSourcesView({visible,close,current,navigate,terminal,buffers}:{buffers:Buffers;visible:boolean;close:()=>void;current:(entry:string)=>TestSourceSnapshot|null;navigate:(point:TestSourcePoint)=>Promise<void>;terminal:(id:string)=>void}) {
+export function TestSourcesView({visible,close,current,navigate,terminal,buffers,inspection}:{inspection:SourceTestInspection|null;buffers:Buffers;visible:boolean;close:()=>void;current:(entry:string)=>TestSourceSnapshot|null;navigate:(point:TestSourcePoint)=>Promise<void>;terminal:(id:string)=>void}) {
   const [entry,setEntry]=useState(""),[query,setQuery]=useState(""),[page,setPage]=useState(0);
   const [observation,setObservation]=useState<{snapshot:TestSourceSnapshot;facts:SourceTestScan}|null>(null);
   const [reading,setReading]=useState(false),[running,setRunning]=useState(false),[notice,setNotice]=useState("");
@@ -38,6 +39,8 @@ export function TestSourcesView({visible,close,current,navigate,terminal,buffers
 Execution requires the model to construct an explicit saved-source request. Prevent overlapping run clicks, retain the returned terminal identity, and refresh only a user-selected test run. Exit state and terminal output remain distinct from structured per-case results.
 
 <ui:copy id="source-test-view-browser-1">
+  const inspected=useRef<SourceTestInspection|null>(null);
+  useEffect(()=>{if(!visible||!inspection||inspection===inspected.current||now?.request.path!==inspection.path)return;inspected.current=inspection;setQuery(inspection.name);void read();},[visible,inspection,now?.request.path]);
   async function run(candidate:SourceTestCandidate,selection:"name_filter"|"containing_scope") {
     if(busy.current||!observation)return;const snapshot=latest.current(entry.trim());if(!snapshot)return;
     busy.current=true;setRunning(true);setNotice("");

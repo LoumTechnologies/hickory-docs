@@ -389,4 +389,14 @@ Closing the floating view retains observed terminal identities and output. A sel
 
 Verification: the focused browser flow uses the actual menu and engine to run a dependency-free Rust test, checks real success output, exact source-name caret navigation, admission-history disclosure, retained editor/session identity, stationary editor dimensions, unsaved-draft preservation and stale saved-source refusal. It also checks immediate stale retirement after another edit to an already-dirty buffer. Focused source-model and command checks, TypeScript checking, macOS/Android compilation and the iOS simulator build passed. These checks do not establish native pointer/IME acceptance. Source-adjacent gutter access, structured runner discovery/results, test debugging and coverage integration are subsequent testing work.
 
+## Source-adjacent test inspection
+
+Every simple editor now requests test declarations through a separate debounced workspace index. Each index admits two reads, retains only one latest pending draft per path, avoids overlapping a path, and rejects obsolete primary-source replies. Validated source rows are cached per observation. A failed detector cannot hide source text or prevent unrelated reads. The index never executes a runner.
+
+Compiler-owned primary-source locations expose inspection hints through the existing right gutter. Unmapped constructed runtime locations and foreign owners do not become local line marks. A gutter hint is not execution authority: clicking it activates the existing buffer and refreshes the full floating source-test view with current drafts and the selected construction context before offering a run. Native workspace replacement stops its old index. Browser buffer subscriptions keep indexing independent of editor remounting or dirty-state transitions.
+
+Right-gutter actions use one vertical column at every width. Existing slot reservation keeps each later populated row anchored; overflow remains a floating grid. Line-action menus close before opening another surface. No new permanent editor chrome or width reservation is introduced.
+
+Verification: focused asynchronous index witnesses pass on TypeScript, Swift and Kotlin for the two-read bound, coalescing, duplicate suppression, stale refusal, independent failure, stop, primary/foreign ownership and position bounds. The real browser flow uses adjacent one-line tests with an existing debug action, checks unchanged later-row coordinates while opening the gutter menu, and reaches the fresh source inspection. Its existing real-run, exact-caret, admission-history, retained-draft/editor and stale-save checks also pass. Focused shared rail/slot checks, TypeScript checking, macOS/Android compilation, iOS simulator build and reconstruction/audit pass. Native pointer/overflow-grid acceptance remains unverified.
+
 </ui:doc>

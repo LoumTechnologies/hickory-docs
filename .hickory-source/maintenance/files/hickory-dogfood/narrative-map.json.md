@@ -152082,6 +152082,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/test-source-index-android.md",
       "symbol": "source-test-index-android-witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-gutters-browser",
+      "output": "apps/web/src/simple/SourceTestGutters.tsx",
+      "page": ".hickory-source/frontends/source-test-gutters-browser.md",
+      "symbol": "source-test-gutters-browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-gutters-apple",
+      "output": "apps/apple-simple/Sources/SourceTestGutters.swift",
+      "page": ".hickory-source/frontends/source-test-gutters-apple.md",
+      "symbol": "source-test-gutters-apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-gutters-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceTestGutters.kt",
+      "page": ".hickory-source/frontends/source-test-gutters-android.md",
+      "symbol": "source-test-gutters-android",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

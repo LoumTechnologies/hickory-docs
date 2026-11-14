@@ -99,8 +99,12 @@ export function DebugRailGroup({ view, at, sticky = false, children }: {
 
 A single right-hand action column shared by launch icons and live controls.
 
+Optional source-line actions use the same anchored menu as a launch on that line. Close that menu before invoking an action, so opening another floating surface does not leave an old line menu over the editor. The action adapter remains responsible for current-source and execution admission.
+
 <storycode:copy id="f-3f2d1a1c0986-DebugLaunchRail">
-/** A single right-hand action column shared by launch icons and live controls. */
+/** A single right-hand action column shared by launch icons and live controls.
+
+Optional source-line actions use the same anchored menu as a launch on that line. Close that menu before invoking an action, so opening another floating surface does not leave an old line menu over the editor. The action adapter remains responsible for current-source and execution admission. */
 // Optional line actions share the launch slot instead of creating a second column.
 // A single anchored overflow button opens the floating grid, so folding controls
 // cannot push the next line's icon down or change the editor's width.
@@ -145,7 +149,7 @@ export function DebugLaunchRail({ view, onStart, onProfiles, plainPath, enabled 
       return <DebugRailGroup key={`fold:${action.at}`} view={view} at={action.at}>
         <details className="more-actions"><summary aria-label={`Line actions on line ${view.state.doc.lineAt(action.at).number}`} style={{ height: view.defaultLineHeight }}>⋯</summary>
           <div className="more-actions__items">
-            <button type="button" onClick={action.run}>{action.label}</button>
+            <button type="button" onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");action.run();}}>{action.label}</button>
             {launch && <button type="button" onClick={() => start(launch)}>Debug {launch.path}</button>}
           </div>
         </details>

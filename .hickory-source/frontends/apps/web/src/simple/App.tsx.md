@@ -16,6 +16,7 @@ File commands act on the connected workspace: path entry opens a file or directo
 A document component belongs to one buffer path. Switching tabs mounts the next component around its already cached editor; it does not reuse React state that still points to the previous file's editor. Without that identity boundary, a queued cross-file reveal can be consumed by the detached old editor before the destination mounts. The cache retains selection and undo when the original tab returns.
 
 <ui:copy id="simple-e8a50a27b2-0">
+import { SourceTestGutterProvider, SOURCE_TEST_INSPECTION, type SourceTestInspection } from "./SourceTestGutters";
 import { TestSourcesView } from "./TestSourcesView";
 import type { TestSourcePoint } from "../api/testSources";
 import { workspaceCommands, type CommandContext } from "./WorkspaceCommands";
@@ -74,6 +75,7 @@ export function App() {
   const [notice, setNotice] = useState("");
   const [analysis] = useState(() => new WorkspaceAnalysisModel());
   const [showTests,setShowTests]=useState(false);
+  const [testInspection,setTestInspection]=useState<SourceTestInspection|null>(null);
   const [workspaceRoot,setWorkspaceRoot]=useState("");
   const [showEverywhere, setShowEverywhere] = useState(false);
   const [showProblems, setShowProblems] = useState(false);
@@ -190,6 +192,7 @@ export function App() {
       revealLine(file.path, location.line, location.character);
     }); } else setNotice(`Location not found: ${location.path}. Refresh files and query again.`);
   }), [workspaceFiles, layout, focused]);
+  useEffect(()=>{const inspect=(event:Event)=>{const request=(event as CustomEvent<SourceTestInspection>).detail;const file=buffers.values.get(request.path)?.file??findPath(request.path);if(!file)return;void open(file).then(()=>{setTestInspection(request);setShowTests(true);});};window.addEventListener(SOURCE_TEST_INSPECTION,inspect);return()=>window.removeEventListener(SOURCE_TEST_INSPECTION,inspect);},[workspaceFiles,layout,focused]);
   async function openFileVisit(file: FileNode) {
     const departed = currentLocation(); await open(file);
     const target = buffers.values.get(file.path); if (!target) return;
@@ -283,7 +286,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
   const handlersRef=useRef(handlers);handlersRef.current=handlers;
   const commands=workspaceCommands(()=>contextRef.current,Object.fromEntries(Object.keys(handlers).map(id=>[id,()=>handlersRef.current[id]?.()])));
   const commandMenu=(group:string)=>commands.filter(command=>command.group===group&&command.id in handlers).map(command=><button key={command.id} disabled={command.reason!==null} title={command.reason??command.label} onClick={command.run}>{command.label}</button>);
-  return <SimpleLanguages buffers={buffers}><main>
+  return <SimpleLanguages buffers={buffers}><SourceTestGutterProvider workspace={workspaceRoot}><main>
     {/* Shared gutter controls declare data-tip; mount their delegated reader here. */}
     <TooltipLayer />
     <PlainDebugHosts />
@@ -304,7 +307,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
         if (next !== layout) { setLayout(next); setFocused(id); }
       }}
       resize={(id, ratio) => setLayout(current => update(current, id, node => isGroup(node) ? node : { ...node, ratio }))} /></div>
-    <TestSourcesView buffers={buffers} visible={showTests} close={()=>{setShowTests(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} current={entry=>buffer?{workspace:workspaceRoot,request:{path:buffer.file.path,source:buffer.text,...(entry?{project_entry:entry}:{}),sources:Object.fromEntries([...buffers.values].filter(([,item])=>!item.readonly).map(([path,item])=>[path,item.text]))}}:null} navigate={async(point:TestSourcePoint)=>{
+    <TestSourcesView inspection={testInspection} buffers={buffers} visible={showTests} close={()=>{setShowTests(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} current={entry=>buffer?{workspace:workspaceRoot,request:{path:buffer.file.path,source:buffer.text,...(entry?{project_entry:entry}:{}),sources:Object.fromEntries([...buffers.values].filter(([,item])=>!item.readonly).map(([path,item])=>[path,item.text]))}}:null} navigate={async(point:TestSourcePoint)=>{
       const file=buffers.values.get(point.path)?.file??findPath(point.path);if(!file)throw new Error("Source no longer listed. Refresh files and candidates.");
       const target=await buffers.open(file),source=target.text;
       const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(source));const hash=[...new Uint8Array(bytes)].map(byte=>byte.toString(16).padStart(2,"0")).join("");
@@ -315,7 +318,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
     <WorkspaceChanges buffers={buffers} current={() => buffer} focus={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />
     <WorkspaceSearch visible={showWorkspaceSearch} close={() => { setShowWorkspaceSearch(false); if (buffer) editorForBuffer(buffer)?.view.focus(); }} buffers={buffers} files={workspaceFiles} />
     <footer role="status"><WorkspaceAnalysisView buffers={buffers} files={workspaceFiles} model={analysis} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} /><WorkspaceProblems buffers={buffers} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{notice ? `${notice} · ` : ""}{buffer ? `${buffer.file.name} · ${buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
-  </main></SimpleLanguages>;
+  </main></SourceTestGutterProvider></SimpleLanguages>;
 }
 function Tree({ nodes, open }: { nodes: FileNode[]; open: (file: FileNode) => void }) {
   return <ul>{nodes.map(node => <li key={node.path}>{node.dir
