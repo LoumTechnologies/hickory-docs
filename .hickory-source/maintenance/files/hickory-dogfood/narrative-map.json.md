@@ -151816,6 +151816,90 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/crates/hick-plugins/src/csharp.rs.md",
       "symbol": "Prove project scope beside a solution",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "test-sources-browser-values",
+      "output": "apps/web/src/simple/TestSources.ts",
+      "page": ".hickory-source/frontends/test-sources-browser.md",
+      "symbol": "test-sources-browser-values",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-sources-browser-current",
+      "output": "apps/web/src/simple/TestSources.ts",
+      "page": ".hickory-source/frontends/test-sources-browser.md",
+      "symbol": "test-sources-browser-current",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-sources-browser-selection",
+      "output": "apps/web/src/simple/TestSources.ts",
+      "page": ".hickory-source/frontends/test-sources-browser.md",
+      "symbol": "test-sources-browser-selection",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-sources-browser-witness",
+      "output": "apps/web/src/simple/TestSources.test.ts",
+      "page": ".hickory-source/frontends/test-sources-browser.md",
+      "symbol": "test-sources-browser-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-sources-apple-values",
+      "output": "apps/apple-simple/Sources/TestSources.swift",
+      "page": ".hickory-source/frontends/test-sources-apple.md",
+      "symbol": "test-sources-apple-values",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-sources-apple-current",
+      "output": "apps/apple-simple/Sources/TestSources.swift",
+      "page": ".hickory-source/frontends/test-sources-apple.md",
+      "symbol": "test-sources-apple-current",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-sources-apple-selection",
+      "output": "apps/apple-simple/Sources/TestSources.swift",
+      "page": ".hickory-source/frontends/test-sources-apple.md",
+      "symbol": "test-sources-apple-selection",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-sources-apple-witness",
+      "output": "apps/apple-simple/Tests/TestSourcesTests.swift",
+      "page": ".hickory-source/frontends/test-sources-apple.md",
+      "symbol": "test-sources-apple-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-sources-android-values",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/TestSources.kt",
+      "page": ".hickory-source/frontends/test-sources-android.md",
+      "symbol": "test-sources-android-values",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-sources-android-current",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/TestSources.kt",
+      "page": ".hickory-source/frontends/test-sources-android.md",
+      "symbol": "test-sources-android-current",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-sources-android-selection",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/TestSources.kt",
+      "page": ".hickory-source/frontends/test-sources-android.md",
+      "symbol": "test-sources-android-selection",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-sources-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/TestSourcesTest.kt",
+      "page": ".hickory-source/frontends/test-sources-android.md",
+      "symbol": "test-sources-android-witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

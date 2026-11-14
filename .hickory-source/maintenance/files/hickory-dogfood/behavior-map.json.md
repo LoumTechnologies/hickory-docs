@@ -68742,6 +68742,78 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "source-tests-http-dynamic",
         "source-tests-http-execution"
       ]
+    },
+    "apps/web/src/simple/TestSources.ts": {
+      "source": ".hickory-source/frontends/test-sources-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "13769a50ae17f9c65c9398231bf5172d7990684d151666b2cd1a5cc84b66fade",
+      "construction": "fragments",
+      "fragments": [
+        "test-sources-browser-values",
+        "test-sources-browser-current",
+        "test-sources-browser-selection"
+      ]
+    },
+    "apps/web/src/simple/TestSources.test.ts": {
+      "source": ".hickory-source/frontends/test-sources-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "133f0c03c3fb17ca8196f18a40c05155011fea33b864d32e84c38a5ff67fd1fc",
+      "construction": "fragments",
+      "fragments": [
+        "test-sources-browser-witness"
+      ]
+    },
+    "apps/apple-simple/Sources/TestSources.swift": {
+      "source": ".hickory-source/frontends/test-sources-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "22119dbadf57301bc561853855eee760afbe10c6aebb5558ff09aa3602db70e3",
+      "construction": "fragments",
+      "fragments": [
+        "test-sources-apple-values",
+        "test-sources-apple-current",
+        "test-sources-apple-selection"
+      ]
+    },
+    "apps/apple-simple/Tests/TestSourcesTests.swift": {
+      "source": ".hickory-source/frontends/test-sources-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "7fb93e27828aee74b237d07b8e18371718e0bb3ee569f10ad46ae0875d613bf9",
+      "construction": "fragments",
+      "fragments": [
+        "test-sources-apple-witness"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/TestSources.kt": {
+      "source": ".hickory-source/frontends/test-sources-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "ea7c60ed54832eec60115f012735c035b4626eba57f06ceb2c46d72c902efbf1",
+      "construction": "fragments",
+      "fragments": [
+        "test-sources-android-values",
+        "test-sources-android-current",
+        "test-sources-android-selection"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/TestSourcesTest.kt": {
+      "source": ".hickory-source/frontends/test-sources-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "6940fb600b2fee534a14ac125ea40f59fc3f21f7594e100582620051fd9ce91f",
+      "construction": "fragments",
+      "fragments": [
+        "test-sources-android-witness"
+      ]
     }
   },
   "evidence_records": [
