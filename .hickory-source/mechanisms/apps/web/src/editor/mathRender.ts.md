@@ -5,6 +5,7 @@ For: maintainers changing this mechanism and reviewing the contracts that depend
 
 This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
 
+
 <a id="output-b432fcb15a24"></a>
 ## `apps/web/src/editor/mathRender.ts`
 
@@ -59,7 +60,7 @@ something CodeMirror can take out of the height map.
 // instead; a block replacement that does not cover whole lines is not
 // something CodeMirror can take out of the height map.
 
-import { StateField } from "@codemirror/state";
+import { StateEffect, StateField } from "@codemirror/state";
 import type { EditorState, Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
@@ -261,7 +262,7 @@ function buildMath(state: EditorState, source: MathSource): DecorationSet {
     const last = state.doc.lineAt(span.to).number;
     let touched = false;
     for (let n = first; n <= last && !touched; n++) touched = live.has(n);
-    if (touched) continue;
+    if (state.field(mathSourceModes, false)?.get(span.from) ?? touched) continue;
     const block = span.display && ownsItsLines(state, span);
     ranges.push(
       Decoration.replace({
@@ -282,6 +283,8 @@ A StateField, not a ViewPlugin: display maths changes vertical layout, and
 only field-provided decorations are folded into the same update CodeMirror
 measures its height map in.
 
+Explicit gutter source modes override caret-based reveal. Map those positions through edits so typing in source does not unexpectedly render it; a second click forces preview even while the caret remains on the equation line.
+
 <storycode:copy id="f-b432fcb15a24-renderedMath">
 /**
  * The rendered-maths extension.
@@ -290,13 +293,22 @@ measures its height map in.
  * only field-provided decorations are folded into the same update CodeMirror
  * measures its height map in.
  */
+export const setMathSource = StateEffect.define<{ at: number; source: boolean }>();
+export const mathSourceModes = StateField.define<ReadonlyMap<number, boolean>>({
+  create: () => new Map(),
+  update(value, tr) {
+    const next = new Map([...value].filter(([, source]) => source || !tr.docChanged && !tr.selection).map(([at, source]) => [tr.changes.mapPos(at, 1), source]));
+    for (const effect of tr.effects) if (effect.is(setMathSource)) next.set(effect.value.at, effect.value.source);
+    return next;
+  },
+});
 export function renderedMath(source: MathSource = proseMath): Extension {
-  return StateField.define<DecorationSet>({
+  return [mathSourceModes, StateField.define<DecorationSet>({
     create: (state) => buildMath(state, source),
     update: (value, tr) =>
-      tr.docChanged || tr.selection ? buildMath(tr.state, source) : value,
+      tr.docChanged || tr.selection || tr.effects.some(effect => effect.is(setMathSource)) ? buildMath(tr.state, source) : value,
     provide: (f) => EditorView.decorations.from(f),
-  });
+  })];
 }
 </storycode:copy>
 

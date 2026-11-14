@@ -65,6 +65,8 @@ import Observation
     @ObservationIgnored var applyTableEdit: ((NativeSourceEdit, String) -> Bool)?
     var sourceTable: Int? { didSet { renderMarkup?() } }
     var tableHeights: [Int: CGFloat] = [:]
+    var diagramSizes: [Int: CGSize] = [:]
+    @ObservationIgnored var openDiagramFile: ((String) -> Void)?
     var tableSourceVisible = false { didSet { renderMarkup?() } }
     var inlineMarkup = InlineSnapshot(source: "")
     @ObservationIgnored var renderMarkup: (() -> Void)?
@@ -231,6 +233,18 @@ Opening and saving retain request identity. A server switch rejects stale reads.
             guard current == generation else { return }
             let buffer = DocumentBuffer(file: file, text: text)
             buffers[file.path] = buffer
+            buffer.openDiagramFile = { [weak self, weak buffer] href in
+                guard let self, let buffer, let path = diagramFilePath(href, relativeTo: buffer.file.path) else { return }
+                Task {
+                    func find(_ nodes: [FileNode]) -> FileNode? {
+                        for node in nodes { if node.path == path { return node }; if let file = find(node.children ?? []) { return file } }
+                        return nil
+                    }
+                    if find(self.files) == nil { await self.refresh() }
+                    guard let file = find(self.files), !file.dir else { self.status = "File not found: \(path). Refresh files and check the diagram link."; return }
+                    await self.open(file)
+                }
+            }
             buffer.receiptEngine = engine
             buffer.language = NativeLanguage(engine: engine, buffer: buffer); buffer.language?.start()
             if newestOpen[target] == file.path {

@@ -18,6 +18,48 @@ try {
           await page.goto(request.url); break;
         case "browser-surface":
           await page.close(); page = await browser.newPage({ viewport: { width: 1100, height: 750 } }); await page.goto(request.url); break;
+        case "mermaid-link": {
+          const node = page.locator(".diagram-figure g.node");
+          await node.waitFor(); await node.dblclick(); await editor("sample.txt").waitFor();
+          value = await editor("sample.txt").innerText(); break;
+        }
+        case "embedded-wheel": {
+          const content = editor(request.path), scroller = content.locator("..");
+          const panel = page.getByTestId("table-panel-scroll");
+          await panel.waitFor();
+          // Engage without moving the mouse, then start the wheel over prose.
+          await panel.evaluate(node => node.closest(".engaged-gate").focus({ preventScroll: true }));
+          await scroller.evaluate(node => { node.scrollTop = 0; });
+          const box = await scroller.boundingBox(), x = box.x + 100, y = box.y + 150;
+          await page.mouse.move(x, y); await page.mouse.wheel(0, 60);
+          await page.waitForTimeout(120);
+          const first = await scroller.evaluate(node => node.scrollTop);
+          // Layout moving under a resting pointer must not transfer ownership.
+          await panel.evaluate((node, y) => {
+            const scroll = node.getRootNode().host.closest(".cm-scroller");
+            scroll.scrollTop += node.getBoundingClientRect().top - y + 40;
+          }, y);
+          await page.waitForTimeout(100);
+          const before = await scroller.evaluate(node => node.scrollTop);
+          await page.mouse.wheel(0, 60); await page.waitForTimeout(120);
+          const after = await scroller.evaluate(node => node.scrollTop);
+          const nested = await panel.evaluate(node => node.scrollTop);
+          await page.mouse.move(x + 2, y + 2); await page.mouse.wheel(0, 60); await page.waitForTimeout(120);
+          value = { first, before, after, nested, moved: await panel.evaluate(node => node.scrollTop) }; break;
+        }
+        case "embedded-controls": {
+          const content = editor(request.path);
+          const diagram = page.locator(".rendered-diagram");
+          await diagram.locator(".react-flow__node").first().waitFor();
+          const height = await diagram.locator(".react-flow").evaluate(node => node.getBoundingClientRect().height);
+          await page.getByRole("button", { name: "Edit source text", exact: true }).click();
+          await diagram.waitFor({ state: "detached" });
+          await page.getByRole("button", { name: "Render embedded content", exact: true }).click();
+          await diagram.locator(".react-flow__node").first().waitFor();
+          await diagram.locator('[data-testid="graph-node-a"]').dblclick();
+          await editor("sample.txt").waitFor();
+          value = { height, opened: await editor("sample.txt").innerText() }; break;
+        }
         case "inline-feature-state": {
           if (request.kind === "diagram") {
             const graph = page.locator(".rendered-diagram");
@@ -214,11 +256,12 @@ try {
         case "table-caret":
           value = await page.locator(".table-panel__input").evaluate(input => ({ start: input.selectionStart, end: input.selectionEnd })); break;
         case "table-grid":
-          await page.getByRole("button", { name: /Edit tables? as grids?/ }).click();
+          await page.getByRole("button", { name: /Render embedded content|Edit tables? as grids?/ }).click();
           await page.getByTestId("table-panel").waitFor(); break;
         case "resize-gutter": {
           const grip = page.getByRole("separator", { name: "Resize right gutter" });
-          await grip.focus(); await page.keyboard.press("ArrowLeft"); await page.keyboard.press("ArrowLeft");
+          await grip.click(); await grip.press("ArrowLeft"); await grip.press("ArrowLeft");
+          await page.waitForFunction(() => document.querySelector(".cm-debug-rail")?.clientWidth >= 64);
           value = await page.locator(".cm-debug-rail").evaluate(node => node.clientWidth); break;
         }
         case "table-source":

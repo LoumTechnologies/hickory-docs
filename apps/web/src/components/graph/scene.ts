@@ -17,6 +17,8 @@
 
 export interface SceneNode {
   id: string;
+  /** File path relative to the containing document; opened on double-click. */
+  href?: string;
   label?: string;
   /** rect (default), round, pill, circle, diamond, hexagon, cylinder. */
   shape?: string;
@@ -137,6 +139,7 @@ function nodeLine(node: SceneNode): string {
   const fields = [
     jsonField("id", node.id),
     jsonField("label", node.label),
+    jsonField("href", node.href),
     jsonField("shape", node.shape),
     jsonField("fill", node.fill),
     jsonField("stroke", node.stroke),

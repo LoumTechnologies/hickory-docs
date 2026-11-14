@@ -5,6 +5,7 @@ For: maintainers changing this mechanism and reviewing the contracts that depend
 
 This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
 
+
 <a id="output-04adf2e0e8b7"></a>
 ## `apps/web/src/components/MarkdownTable.tsx`
 
@@ -18,6 +19,8 @@ Related contracts: [Cell formatting keeps numbers numeric](../../../../../guaran
 The native bundle mounts this same Markdown/CSV adapter, rather than maintaining another spreadsheet implementation. Each edit names an exact host revision and waits for a new authoritative snapshot before another write. Layout remains local. Formula RPC is limited to language discovery, evaluation and tracing; its bounded requests never grant the local page general network access. Host source changes update the existing React grid so selection and size survive accepted edits. A native rejection refreshes the snapshot and never reports a save.
 
 Initially fill the native editor’s already reserved rectangle instead of shrinking the document when the richer capability arrives. Once the user explicitly changes viewport height, let that chosen scroller height determine the native anchor. Row insertion and column sizing do not silently contract the original viewport.
+
+The native table measures its intrinsic grid and toolbar height. Never stretch the measurement root to the WebView height: that would measure the last assigned slot rather than content and keep small tables permanently tall.
 
 <storycode:copy id="f-04adf2e0e8b7-MarkdownTable">
 import { NotebookOutputs } from "./NotebookOutputs";
@@ -46,7 +49,7 @@ export interface NativeTableSnapshot {
 type NativeTableMessage = { kind: string; revision?: string; [key: string]: unknown };
 /** The native page has no network capability. Only formula RPC and guarded edits leave it. */
 export function mountNativeTable(host: HTMLElement, post: (message: NativeTableMessage) => void) {
-  host.classList.add("native-table-fill");
+  host.classList.remove("native-table-fill");
   let current: NativeTableSnapshot | null = null, writing = false, serial = 0;
   const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   const rpc = <T,>(operation: string, language?: string, rows?: string[][]): Promise<T> => new Promise((resolve, reject) => {
@@ -80,7 +83,7 @@ export function mountNativeTable(host: HTMLElement, post: (message: NativeTableM
   const root = createRoot(host);
   let lastHeight = 0;
   const observer = new ResizeObserver(() => {
-    const height = Math.max(180, Math.min(1200, Math.ceil(host.getBoundingClientRect().height) + 28));
+    const height = Math.max(30, Math.min(1200, Math.ceil(host.getBoundingClientRect().height)));
     if (current && height !== lastHeight) { lastHeight = height; post({ kind: "height", revision: current.revision, height }); }
   });
   observer.observe(host);

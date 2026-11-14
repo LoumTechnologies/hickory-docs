@@ -44,6 +44,24 @@ the iOS simulator, and Android `:app:compileDebugKotlin` passed offline. These a
 compilation receipts for native targets, not visual, IME or accessibility
 acceptance and not an iOS app or Android APK packaging receipt.
 
+Embedded diagrams, tables and equations use their content size; small content
+must not reserve a large empty preview rectangle. Oversized content may fit the
+available width or offer nested scrolling. Scrolling keeps its recipient across
+gestures while the pointer rests: content moving under the cursor cannot capture
+the next gesture. Actual pointer movement allows a new recipient.
+
+Each embedded block offers a right-gutter source icon that toggles source and
+preview in both directions without changing saved text or the retained editor.
+Graph nodes may declare an `href`, and Mermaid flowchart nodes may use
+`click node "relative/path.md"`. Double-click opens a local file relative to the
+containing document; file extensions do not restrict it. External schemes,
+absolute paths and paths escaping the workspace are rejected. Rendering remains
+strict and never enables authored script callbacks.
+
+Verification scope: focused browser controls and native layout/path witnesses
+exercise this behavior; native pointer routing and iOS visual interaction still
+need device acceptance. This change does not claim Android preview parity.
+
 Opening text does not wait for rendering, provenance, debugging or language services. Pane splitting, resizing and moving retain document buffer identities and unsent agent messages. Drag a tab to the outer twenty percent of pane content to split left, right, above or below; the shaded half previews its destination. The middle appends the dragged tab to that existing group and activates it without adding a split. Corners select left/right. Center drops preview the whole target pane. A successful drop moves the existing tab into a fresh equal split and focuses it; any empty group closes automatically and its surviving sibling fills the freed rectangle. Closing the last tab in a group does the same, except that closing the final document retains its empty pane and tab strip beside Files. Reopening a file uses that document pane, including files whose cached buffers survived closing. If all tabs are closed, one empty root remains available. An explicit Split command may create a temporary empty destination until the next close or move. Stale or unknown payloads do not create splits. Drag a tab onto another tab to insert before it, or onto unused strip space to append, within a group or across panes. Drag indicators overlay tab edges without resizing the strip. Self-drops and obsolete source/destination identities leave membership unchanged. Both drag and menu movement are available. Dirty document tabs refuse to close.
 
 A plain save includes its original content hash. A literate save includes its original source as both room and disk expectation. Failed saves retain edits. A successful reply marks only the submitted snapshot saved; typing during that request remains dirty. Save and agent mutations are never automatically replayed by these frontends after transport failure.

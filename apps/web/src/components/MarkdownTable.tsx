@@ -24,7 +24,7 @@ export interface NativeTableSnapshot {
 type NativeTableMessage = { kind: string; revision?: string; [key: string]: unknown };
 /** The native page has no network capability. Only formula RPC and guarded edits leave it. */
 export function mountNativeTable(host: HTMLElement, post: (message: NativeTableMessage) => void) {
-  host.classList.add("native-table-fill");
+  host.classList.remove("native-table-fill");
   let current: NativeTableSnapshot | null = null, writing = false, serial = 0;
   const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   const rpc = <T,>(operation: string, language?: string, rows?: string[][]): Promise<T> => new Promise((resolve, reject) => {
@@ -58,7 +58,7 @@ export function mountNativeTable(host: HTMLElement, post: (message: NativeTableM
   const root = createRoot(host);
   let lastHeight = 0;
   const observer = new ResizeObserver(() => {
-    const height = Math.max(180, Math.min(1200, Math.ceil(host.getBoundingClientRect().height) + 28));
+    const height = Math.max(30, Math.min(1200, Math.ceil(host.getBoundingClientRect().height)));
     if (current && height !== lastHeight) { lastHeight = height; post({ kind: "height", revision: current.revision, height }); }
   });
   observer.observe(host);

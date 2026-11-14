@@ -179,14 +179,12 @@ struct NativeTableGrid: View {
         ZStack {
             legacyBody.opacity(showShared ? 0 : 1).allowsHitTesting(!showShared).accessibilityHidden(showShared)
             VStack(spacing: 0) {
-                HStack { Text("Table").font(.caption); Spacer(); Button("Edit source text") { buffer.sourceTable = table.id }.buttonStyle(.bordered) }.frame(height: 28).padding(.horizontal, 6)
                 NativeSpreadsheet(table: table, source: source, buffer: buffer, onReady: { sharedReady = true }, onUnavailable: { sharedReady = false })
             }.opacity(showShared ? 1 : 0).allowsHitTesting(showShared).accessibilityHidden(!showShared)
         }
     }
     private var legacyBody: some View {
         VStack(spacing: 0) {
-            HStack { Text("Table").font(.caption); Spacer(); Button("Edit source text") { buffer.sourceTable = table.id }.buttonStyle(.bordered) }.frame(height: 28).padding(.horizontal, 6)
             ScrollView([.horizontal, .vertical]) {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 0) {
@@ -493,7 +491,7 @@ struct GridCellField: UIViewRepresentable {
         }
         guard event["revision"] as? String == revision, buffer.text == source else { display(); return }
         if kind == "height", let height = event["height"] as? Double, height.isFinite {
-            buffer.tableHeights[table.id] = min(1200, max(180, height)); buffer.renderMarkup?(); return
+            buffer.tableHeights[table.id] = min(1200, max(30, height)); buffer.renderMarkup?(); return
         }
         if kind == "change", writable, let value = event["source"] as? String, value.utf16.count <= 1_000_000 {
             let edit = NativeSourceEdit(range: table.range, text: value)
@@ -937,7 +935,7 @@ private struct EquationLayout: Equatable {
             let hit = self.scroll.hitTest(self.scroll.convert(event.locationInWindow, from: nil))
             let target = (hit as? NSScrollView) ?? hit?.enclosingScrollView ?? self.scroll
             if self.wheelOwner == nil { self.wheelOwner = target }
-            if let owner = self.wheelOwner, owner !== target {
+            if let owner = self.wheelOwner, owner === self.scroll || owner !== target {
                 owner.scrollWheel(with: event); return nil
             }
             return event
@@ -1246,8 +1244,11 @@ private struct EquationLayout: Equatable {
         }
         text.tableRanges = folding.tables.map(\.range) + diagrams.map(\.range)
         for diagram in diagrams {
-            let style = NSMutableParagraphStyle(); style.minimumLineHeight = 260; style.maximumLineHeight = 260
-            if (storage.attribute(.paragraphStyle, at: diagram.range.location, effectiveRange: nil) as? NSParagraphStyle)?.minimumLineHeight != 260 {
+            let natural = buffer.diagramSizes[diagram.id] ?? CGSize(width: 200, height: 80)
+            let width = max(100, text.bounds.width - 16)
+            let height: CGFloat = diagram.renderer == "terminal" ? 180 : max(24, ceil(natural.height * min(1, width / max(1, natural.width))))
+            let style = NSMutableParagraphStyle(); style.minimumLineHeight = height; style.maximumLineHeight = height
+            if (storage.attribute(.paragraphStyle, at: diagram.range.location, effectiveRange: nil) as? NSParagraphStyle)?.minimumLineHeight != height {
                 storage.addAttribute(.paragraphStyle, value: style, range: NSRange(location: diagram.range.location, length: 1))
             }
             if storage.attribute(.foregroundColor, at: diagram.range.location, effectiveRange: nil) as? NSColor != .clear {
@@ -1257,7 +1258,7 @@ private struct EquationLayout: Equatable {
             let manager = text.layoutManager!, container = text.textContainer!
             let glyph = manager.glyphRange(forCharacterRange: NSRange(location: diagram.range.location, length: 1), actualCharacterRange: nil)
             let rect = manager.boundingRect(forGlyphRange: glyph, in: container)
-            diagramViews[diagram.id]?.frame = NSRect(x: text.textContainerOrigin.x, y: rect.minY + text.textContainerOrigin.y, width: max(100, text.bounds.width - 16), height: 260)
+            diagramViews[diagram.id]?.frame = NSRect(x: text.textContainerOrigin.x, y: rect.minY + text.textContainerOrigin.y, width: max(100, text.bounds.width - 16), height: height)
         }
     }
     private func preserveViewport() -> () -> Void {
@@ -1743,8 +1744,11 @@ import UIKit
         }
         text.tableRanges = folding.tables.map(\.range) + diagrams.map(\.range)
         for diagram in diagrams {
-            let style = NSMutableParagraphStyle(); style.minimumLineHeight = 260; style.maximumLineHeight = 260
-            if (storage.attribute(.paragraphStyle, at: diagram.range.location, effectiveRange: nil) as? NSParagraphStyle)?.minimumLineHeight != 260 {
+            let natural = buffer.diagramSizes[diagram.id] ?? CGSize(width: 200, height: 80)
+            let width = max(100, text.bounds.width - 16)
+            let height: CGFloat = diagram.renderer == "terminal" ? 180 : max(24, ceil(natural.height * min(1, width / max(1, natural.width))))
+            let style = NSMutableParagraphStyle(); style.minimumLineHeight = height; style.maximumLineHeight = height
+            if (storage.attribute(.paragraphStyle, at: diagram.range.location, effectiveRange: nil) as? NSParagraphStyle)?.minimumLineHeight != height {
                 storage.addAttribute(.paragraphStyle, value: style, range: NSRange(location: diagram.range.location, length: 1))
             }
             if storage.attribute(.foregroundColor, at: diagram.range.location, effectiveRange: nil) as? UIColor != .clear {
@@ -1754,7 +1758,7 @@ import UIKit
             let manager = text.layoutManager, container = text.textContainer
             let glyph = manager.glyphRange(forCharacterRange: NSRange(location: diagram.range.location, length: 1), actualCharacterRange: nil)
             let rect = manager.boundingRect(forGlyphRange: glyph, in: container)
-            diagramViews[diagram.id]?.view.frame = CGRect(x: text.textContainerInset.left, y: rect.minY + text.textContainerInset.top, width: max(100, text.bounds.width - text.textContainerInset.left - text.textContainerInset.right), height: 260)
+            diagramViews[diagram.id]?.view.frame = CGRect(x: text.textContainerInset.left, y: rect.minY + text.textContainerInset.top, width: max(100, text.bounds.width - text.textContainerInset.left - text.textContainerInset.right), height: height)
         }
     }
     private func preserveViewport() -> () -> Void {
@@ -2004,17 +2008,7 @@ struct LanguageEditor: View {
                     }
                 }.accessibilityLabel("Line numbers; click code to toggle breakpoint")
             }.frame(width: CGFloat(max(3, String(buffer.text.filter { $0 == "\n" }.count + 1).count)) * 8 + 12)
-            NativeEditor(buffer: buffer).overlay(alignment: .topLeading) {
-                if let anchor = buffer.sourceTable, buffer.inlineMarkup.diagrams.contains(where: { $0.id == anchor }) {
-                    Button(buffer.inlineMarkup.diagrams.first(where: { $0.id == anchor })?.renderer == "terminal" ? "Render terminal" : "Render diagram") { buffer.sourceTable = nil }.buttonStyle(.bordered).padding(4)
-                }
-                if let anchor = buffer.sourceTable, buffer.inlineMarkup.equations.contains(where: { $0.id == anchor }) {
-                    Button("Render equation") { buffer.sourceTable = nil }.buttonStyle(.bordered).padding(4)
-                }
-                if (buffer.tableSourceVisible || buffer.sourceTable != nil) && !inlineTables(buffer.inlineMarkup).isEmpty {
-                    Button("Edit tables as grids") { buffer.sourceTable = nil; buffer.tableSourceVisible = false }.buttonStyle(.bordered).padding(4)
-                }
-            }.overlay {
+            NativeEditor(buffer: buffer).overlay {
                 // Paint stopped execution independently of selection and text styling.
                 // The source guard retires positional facts as soon as displayed bytes change.
                 Canvas { context, size in
@@ -2136,6 +2130,8 @@ The fixed right rail measures actual visible logical lines, including wrapped te
 
 A successful gutter launch leaves the detail popover closed: the clicked line already supplied the target. Open details only when preparation needs a choice or reports a refusal; inspection controls remain explicitly available beside the line.
 
+Source controls belong to the source line, so derive one toggle per embedded anchor even when its preview is absent. Reuse the rail’s existing collision slots and overflow popover; revealing source must not add a toolbar above the text. Multiple equations on one line retain separate anchors.
+
 <ui:copy id="simple-apple-debug-rail">
 struct InlineCellControl: View {
     var cell: InlineCell
@@ -2163,8 +2159,15 @@ struct NativeDebugRail: View {
     @State private var expression = ""
     @State private var condition = ""
     private var paused: Int? { debug.sourceMatches(buffer) ? debug.line(in: buffer.file.path) : nil }
+    private func embeddedAnchors(_ line: Int) -> [Int] {
+        guard buffer.inlineMarkup.source == buffer.text else { return [] }
+        return buffer.inlineMarkup.diagrams.filter { $0.line == line }.map(\.id)
+            + buffer.inlineMarkup.equations.filter { $0.line == line }.map(\.id)
+            + inlineTables(buffer.inlineMarkup).filter { table in buffer.inlineMarkup.lineStarts.lastIndex(where: { $0 <= table.range.location }) == line }.map(\.id)
+    }
     private func actions(_ line: Int) -> [String] {
         var result: [String] = []
+        result += embeddedAnchors(line).map { "source:\($0)" }
         if buffer.inlineMarkup.source == buffer.text && buffer.inlineMarkup.debug.launch[line] != nil { result.append("debug") }
         if buffer.inlineMarkup.source == buffer.text && buffer.inlineMarkup.equations.contains(where: { $0.line == line }) { result.append("equation") }
         if !buffer.receipts(on: line).isEmpty { result.append("output") }
@@ -2172,11 +2175,13 @@ struct NativeDebugRail: View {
         return result
     }
     private func symbol(_ action: String) -> String {
+        if action.hasPrefix("source:") { return "chevron.left.forwardslash.chevron.right" }
         switch action { case "debug", "continue": return "play"; case "equation": return "function"; case "output": return "text.alignleft"; case "over": return "arrow.turn.down.right"; case "in": return "arrow.down"; case "out": return "arrow.up"; case "stop": return "stop.fill"; default: return "eye" }
     }
     @ViewBuilder private func icon(_ action: String, line: Int) -> some View {
         Button {
             opened = nil
+            if action.hasPrefix("source:"), let anchor = Int(action.dropFirst(7)) { buffer.sourceTable = buffer.sourceTable == anchor ? nil : anchor; return }
             switch action {
             case "debug": Task { await debug.prepare(buffer, line: line); details = debug.active ? nil : line }
             case "continue", "over", "in", "out": debug.step(action)
@@ -2184,7 +2189,7 @@ struct NativeDebugRail: View {
             default: details = line
             }
         } label: { Image(systemName: symbol(action)).frame(width: 20, height: 18) }
-        .buttonStyle(SimpleChromeButtonStyle()).disabled(action == "debug" && (debug.active || buffer.dirty || buffer.saving)).help(action.capitalized).accessibilityLabel("\(action.capitalized) on line \(line + 1)")
+        .buttonStyle(SimpleChromeButtonStyle()).disabled(action == "debug" && (debug.active || buffer.dirty || buffer.saving)).help(action.hasPrefix("source:") ? "Toggle source text" : action.capitalized).accessibilityLabel("\(action.hasPrefix("source:") ? "Toggle source text" : action.capitalized) on line \(line + 1)")
     }
     var body: some View {
         GeometryReader { geometry in

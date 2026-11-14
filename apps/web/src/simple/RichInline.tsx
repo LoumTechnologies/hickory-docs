@@ -2,7 +2,8 @@ import { Component, useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { Buffer, Buffers } from "./buffers";
 import { editorForBuffer, SIMPLE_EDITOR_ATTACHED } from "./Document";
-import type { EditorView } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
+import { DebugRailGroup, debugRailElement } from "../debug/DebugRail";
 import type { RenderedSlot } from "../editor/rendered";
 import type { Block, ExecBlock, DiagramBlock } from "../api/types";
 import { request } from "../api/client";
@@ -50,6 +51,7 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
       const scroll = view.scrollSnapshot();
       view.dispatch({ effects: cached.prose.reconfigure([
         libs.prose.wysiwyg(new libs.prose.EnvRegistry()), libs.rendered.renderedBlocks(registry),
+        EditorView.updateListener.of(update => { if (update.transactions.length) queueMicrotask(() => { if (!disposed) setSlots(registry.list()); }); }),
         libs.math.renderedMath(state => libs.spans.mathSpans(state.doc.toString(), libs.hick.verbatimRanges(libs.prose.structureOf(state).blocks))),
       ]) });
       const initial = libs.elements.renderableBlocks(libs.prose.structureOf(view.state), view.state.doc.toString()).filter(block => !libs.elements.slotKindOf(block)?.startsWith("session-") && !(buffer.dirty && view.state.selection.ranges.some(range => range.from >= block.from && range.to <= block.to)));
@@ -89,21 +91,26 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
       catch { /* Invalid UTF-8 boundaries cannot identify a source widget. */ }
     }
   }
-  const tables = modules.elements.renderableBlocks(modules.prose.structureOf(view.state), view.state.doc.toString()).filter(block => modules.elements.slotKindOf(block) === "table");
-  const sourceTables = tables.filter(block => !slots.some(slot => slot.at === block.from));
-  return <>{sourceTables.length > 0 && view.dom.parentElement && createPortal(<button type="button" className="simple-render-tables" onClick={() => {
-    view.dispatch({ effects: modules.rendered.setRenderedBlocks.of([...new Set([...slots.map(slot => slot.at), ...tables.map(block => block.from)])]) });
-  }}>Edit tables as grids</button>, view.dom.parentElement)}{slots.map(slot => {
-    const captured = view.state.doc;
+  const controls = modules.elements.renderableBlocks(modules.prose.structureOf(view.state), view.state.doc.toString()).filter(block => !modules.elements.slotKindOf(block)?.startsWith("session-"));
+  const math = modules.spans.mathSpans(view.state.doc.toString(), modules.hick.verbatimRanges(modules.prose.structureOf(view.state).blocks));
+  const rail = debugRailElement(view);
+  return <>{rail && math.map(span => createPortal(<DebugRailGroup key={`math:${span.from}`} view={view} at={span.from}>
+    <button type="button" className="debug-icon" aria-label="Toggle equation source text" onClick={() => {
+      const mode = view.state.field(modules.math.mathSourceModes).get(span.from);
+      const touched = view.state.selection.ranges.some(range => view.state.doc.lineAt(range.from).number <= view.state.doc.lineAt(span.to).number && view.state.doc.lineAt(range.to).number >= view.state.doc.lineAt(span.from).number);
+      view.dispatch({ effects: modules.math.setMathSource.of({ at: span.from, source: !(mode ?? touched) }) });
+    }}>‹/›</button>
+  </DebugRailGroup>, rail))}{rail && controls.map(block => createPortal(<DebugRailGroup key={block.from} view={view} at={block.from}>
+    <button type="button" className="debug-icon" aria-label={modules.rendered.isRendered(view.state, block.from) ? "Edit source text" : "Render embedded content"} aria-pressed={!modules.rendered.isRendered(view.state, block.from)} onClick={() => {
+      const effects = modules.rendered.isRendered(view.state, block.from) ? modules.rendered.showBlockSource.of(block.from) : modules.rendered.renderBlock.of(block.from);
+      view.dispatch({ effects });
+    }}>‹/›</button>
+  </DebugRailGroup>, rail))}{slots.map(slot => {
     const context = { simpleTables: true, view, path: buffer.file.path, docId: buffer.file.doc_id, execBlocks: saved.filter((block): block is ExecBlock => block.kind === "exec"),
       diagramBlocks: saved.filter((block): block is DiagramBlock => block.kind === "diagram"), runningCells: new Set<string>(), replaying: [],
       replaceBlockContent: (target: RenderedSlot, text: string, origin?: string) => modules.edit.replaceCapturedBlock(view, target, text, origin ?? "input.table"),
     };
     return <SlotPortal key={slot.key} slot={slot} css={modules.css.default + modules.katexCss.default + modules.graphCss.default + modules.terminalCss.default}>
-      {!slot.outputOnly && <button type="button" style={{ border: "1px solid currentColor", borderRadius: 4, padding: "3px 8px", cursor: "pointer" }} onClick={() => {
-        if (view.state.doc !== captured) return;
-        view.dispatch({ effects: modules.rendered.showBlockSource.of(slot.at), selection: { anchor: Math.min(slot.at, view.state.doc.length) }, scrollIntoView: true }); view.focus();
-      }}>Edit source text</button>}
       {slot.kind === "exec" && buffer.file.doc_id && <button type="button" disabled={buffer.dirty} onClick={() => refreshReceipts(value => value + 1)}>Refresh recorded output</button>}
       {modules.elements.elementViews[slot.kind].render(slot, context)}
     </SlotPortal>;

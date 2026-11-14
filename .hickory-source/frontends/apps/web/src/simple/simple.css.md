@@ -14,6 +14,8 @@ Markdown styling stays scoped to decorated prose and conversation elements; term
 
 Reserve a small blank slot at the end of the strip even when tabs overflow, so append remains reachable by horizontal scrolling. It is always present and does not resize during a drag.
 
+The document rail owns its width even after shared rendering styles load lazily. Scope its width rule to the editor row so a late generic debugger stylesheet cannot shrink the gutter or invalidate overflow placement.
+
 <ui:copy id="simple-35d92a1eac-0">
 * { box-sizing: border-box; }
 :root { color-scheme: light dark; font: 13px system-ui, sans-serif; background: Canvas; color: CanvasText; }
@@ -116,7 +118,7 @@ footer { border-top: 1px solid GrayText; padding: 3px 9px; font-size: 11px; over
 .cm-st-number, .cm-st-enumMember { color: light-dark(#116329, #7ee787); }
 .cm-st-comment { color: GrayText; font-style: italic; }
 /* A fixed right column keeps debugger controls out of the text layout. */
-.cm-debug-rail { position: relative; flex: 0 0 var(--simple-rail-width, 24px); width: var(--simple-rail-width, 24px); z-index: 8; border-left: 1px solid GrayText; background: Canvas; }
+.editor-row > .cm-debug-rail { position: relative; flex: 0 0 var(--simple-rail-width, 24px); width: var(--simple-rail-width, 24px); z-index: 8; border-left: 1px solid GrayText; background: Canvas; }
 .simple-source-toggle { border: 1px solid GrayText; border-radius: 4px; margin: 3px; align-self: flex-start; background: color-mix(in srgb, CanvasText 5%, Canvas); }
 .simple-rail-resize { flex: 0 0 4px; cursor: col-resize; touch-action: none; background: color-mix(in srgb, CanvasText 15%, Canvas); }
 .editor-cm-host { position: relative; }

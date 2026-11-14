@@ -5,6 +5,7 @@ For: maintainers changing this mechanism and reviewing the contracts that depend
 
 This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
 
+
 <a id="output-3f46decc2b79"></a>
 ## `apps/web/src/components/graph/scene.ts`
 
@@ -49,6 +50,8 @@ see docs/specs/freeform/a-diagram-you-can-drag.md).
 
 export interface SceneNode {
   id: string;
+  /** File path relative to the containing document; opened on double-click. */
+  href?: string;
   label?: string;
   /** rect (default), round, pill, circle, diamond, hexagon, cylinder. */
   shape?: string;
@@ -225,11 +228,14 @@ function jsonField(key: string, value: string | undefined): string | null {
 <a id="f-3f46decc2b79-nodeLine"></a>
 ### `nodeLine`
 
+Keep each node’s optional file href in canonical serialization so dragging or renaming a node cannot silently discard its destination.
+
 <storycode:copy id="f-3f46decc2b79-nodeLine">
 function nodeLine(node: SceneNode): string {
   const fields = [
     jsonField("id", node.id),
     jsonField("label", node.label),
+    jsonField("href", node.href),
     jsonField("shape", node.shape),
     jsonField("fill", node.fill),
     jsonField("stroke", node.stroke),

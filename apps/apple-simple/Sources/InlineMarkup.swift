@@ -1,4 +1,16 @@
 import Foundation
+// Diagram links are paths relative to the document, bounded by the workspace root.
+func diagramFilePath(_ href: String, relativeTo source: String) -> String? {
+    guard !href.isEmpty, !href.contains(":"), !href.hasPrefix("/"), !href.contains("\\"), !href.contains("\n") else { return nil }
+    let path = href.removingPercentEncoding ?? href
+    guard !path.contains(":"), !path.hasPrefix("/"), !path.contains("\\") else { return nil }
+    var parts = source.split(separator: "/").dropLast().map(String.init)
+    for part in path.split(separator: "/") {
+        if part == ".." { guard !parts.isEmpty else { return nil }; parts.removeLast() }
+        else if part != "." { parts.append(String(part)) }
+    }
+    return parts.isEmpty ? nil : parts.joined(separator: "/")
+}
 struct InlineMark: Sendable { var kind: String; var range: NSRange; var level: Int = 0 }
 struct InlineCell: Identifiable, Sendable { var line: Int; var column: Int; var range: NSRange; var value: String; var format = "markdown"; var delimiter = ","; var id: Int { range.location } }
 struct InlineEquation: Identifiable, Sendable {
@@ -16,7 +28,7 @@ struct InlineTable: Identifiable, Sendable {
     var range: NSRange; var rows: [[InlineCell]]
     var id: Int { range.location }
     var preferredHeight: CGFloat? = nil
-    var height: CGFloat { preferredHeight ?? max(280, min(420, CGFloat(rows.count + 5) * 30)) }
+    var height: CGFloat { preferredHeight ?? min(420, CGFloat(rows.count + 1) * 30 + 2) }
 }
 func tablePresentation(_ snapshot: InlineSnapshot, source: String) -> InlineSnapshot {
     if snapshot.source == source { return snapshot }

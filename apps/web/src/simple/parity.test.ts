@@ -91,27 +91,41 @@ describe("shared frontend layout contract", () => {
       expect(buffer.dirty).toBe(false);
     } finally { screen.unmount(); }
   }, 20000);
+  it("resolves diagram file links without allowing external navigation or escaping the workspace", async () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const { diagramFilePath } = await import("../lib/revealLine");
+    expect(diagramFilePath("../src/main.rs", "docs/design.md")).toBe("src/main.rs");
+    expect(diagramFilePath("space%20name.md", "docs/design.md")).toBe("docs/space name.md");
+    for (const path of ["../../outside", "https://example.com", "javascript:alert(1)", "/tmp/file", "%2fetc/passwd", "..\\file"])
+      expect(diagramFilePath(path, "docs/design.md")).toBeNull();
+  });
   it("renders native graph previews safely and rejects obsolete Mermaid results", async () => {
     // Contract: .hickory-source/frontends/contract.md
     const html = new TextDecoder().decode(readFileSync("../apple-simple/Sources/Resources/math.html"));
     const document = new DOMParser().parseFromString(html, "text/html");
-    const scope: any = {};
+    Object.defineProperty(document, "fonts", { value: { ready: Promise.resolve() } });
+    const linked = vi.fn();
+    const scope: any = { webkit: { messageHandlers: { diagramLink: { postMessage: linked } } } };
     const pending: ((value: { svg: string }) => void)[] = [];
     const mermaid = { initialize: vi.fn(), render: vi.fn(() => new Promise(resolve => pending.push(resolve as any))) };
     scope.mermaid = mermaid;
     const script = html.match(/<script nonce="hickory-math">([\s\S]*?)<\/script>/)![1];
     new Function("document", "globalThis", "mermaid", script)(document, scope, mermaid);
-    await scope.renderDiagram(JSON.stringify({ topology: { nodes: [{ id: "a", label: "<img src=x onerror=alert(1)>" }, { id: "b" }], edges: [{ from: "a", to: "b" }] } }), "graph");
+    await scope.renderDiagram(JSON.stringify({ topology: { nodes: [{ id: "a", href: "src/main.rs", label: "<img src=x onerror=alert(1)>" }, { id: "b" }], edges: [{ from: "a", to: "b" }] } }), "graph");
     expect(document.querySelectorAll("svg rect")).toHaveLength(2);
+    document.querySelector("svg g")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    expect(linked).toHaveBeenCalledWith({ href: "src/main.rs", revision: 0 });
     expect(document.querySelector("img")).toBeNull();
     expect(document.querySelector("svg text")?.textContent).toContain("<img");
     await scope.renderDiagram("broken", "graph");
     expect(document.getElementById("status")?.textContent).not.toBe("");
     const old = scope.renderDiagram("graph TD; A-->B", "mermaid");
-    const fresh = scope.renderDiagram("graph TD; X-->Y", "mermaid");
-    pending[1]({ svg: "<svg><text>fresh</text></svg>" }); await fresh;
+    const fresh = scope.renderDiagram('graph TD; X-->Y;\nclick X "notes.md"', "mermaid");
+    pending[1]({ svg: '<svg><g class="node" id="diagram-2-flowchart-X-7"><text>fresh</text></g></svg>' }); await fresh;
     pending[0]({ svg: "<svg><text>old</text></svg>" }); await old;
     expect(document.getElementById("formula")?.textContent).toBe("fresh");
+    document.querySelector("g.node")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    expect(linked).toHaveBeenLastCalledWith({ href: "notes.md", revision: 0 });
     expect(mermaid.initialize).toHaveBeenCalledWith(expect.objectContaining({ securityLevel: "strict" }));
   });
   it("folds Markdown headings through peers and excludes literal bodies", () => {
@@ -312,9 +326,9 @@ describe("simple inline rich editing", () => {
       await waitFor(() => expect(buffer.text).toBe(source.replace("120", "121")));
       const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
       act(() => { undo(view); }); await waitFor(() => expect(buffer.text).toBe(source));
-      fireEvent.click(table.getByRole("button", { name: "Edit source text" }));
+      fireEvent.click(screen.container.querySelector<HTMLButtonElement>('[aria-label="Edit source text"]')!);
       await waitFor(() => expect(root()).toBeUndefined()); expect(view.state.doc.toString()).toBe(source);
-      fireEvent.click(screen.getByRole("button", { name: "Edit tables as grids" }));
+      fireEvent.click(screen.container.querySelector<HTMLButtonElement>('[aria-label="Render embedded content"]')!);
       await waitFor(() => expect(root()).toBeTruthy());
       expect(EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)).toBe(view);
       expect(view.state.doc.toString()).toBe(source);
@@ -341,6 +355,25 @@ describe("simple inline rich editing", () => {
       await waitFor(() => expect([...screen.container.querySelectorAll(".xterm-rows > div")].map(row => row.textContent).join("\n")).toContain("Order: $18.80"));
       expect(screen.container.querySelector(".inline-output-terminal")).toBeTruthy();
       expect(screen.container.textContent).not.toContain("[stdout]");
+    } finally { screen.unmount(); }
+  });
+  it("toggles equation source from the gutter even with the caret on its line", async () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const buffers = new Buffers(() => {}), source = "Before\n\n$$x^2$$\n\nAfter";
+    const buffer = new Buffer({ path: "math.md", name: "math.md", dir: false }, source, "hash", () => {});
+    buffers.values.set(buffer.file.path, buffer);
+    const screen = render(createElement(Fragment, null, createElement(Document, { buffer }), createElement(RichOwners, { buffers })));
+    try {
+      const toggle = await screen.findByRole("button", { name: "Toggle equation source text", hidden: true });
+      const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+      act(() => view.dispatch({ selection: { anchor: source.indexOf("x^2") } }));
+      await waitFor(() => expect(screen.container.querySelector(".cm-math")).toBeNull());
+      fireEvent.click(toggle);
+      await waitFor(() => expect(screen.container.querySelector(".cm-math")).toBeTruthy());
+      fireEvent.click(toggle);
+      await waitFor(() => expect(screen.container.querySelector(".cm-math")).toBeNull());
+      expect(buffer.text).toBe(source); expect(buffer.dirty).toBe(false);
+      expect(EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)).toBe(view);
     } finally { screen.unmount(); }
   });
   it("typesets local math without trusting HTML or URL macros", () => {

@@ -1,3 +1,4 @@
+import { diagramFilePath, openLocation } from "../../lib/revealLine";
 import { Suspense, lazy } from "react";
 
 import { DiagramPanel } from "../../components/DiagramPanel";
@@ -34,7 +35,17 @@ export const diagramView: ElementView = {
         return !!block && view.state.doc.sliceString(block.contentFrom, block.contentTo) === capturedSource;
       };
       return (
-        <div className="rendered-diagram">
+        <div className="rendered-diagram" onDoubleClickCapture={event => {
+          if (!sourceCurrent()) return;
+          const node = (event.target as Element).closest('[data-testid^="graph-node-"]');
+          if (!node) return;
+          try {
+            const graph = JSON.parse(resolved ?? slot.text), nodes = graph.topology?.nodes ?? graph.nodes ?? [];
+            const href = nodes.find((item: { id: string }) => `graph-node-${item.id}` === node.getAttribute("data-testid"))?.href;
+            const path = typeof href === "string" ? diagramFilePath(href, cx.path ?? "") : null;
+            if (path) { event.stopPropagation(); openLocation(path, 1); }
+          } catch { /* Invalid scenes retain their renderer's source/error fallback. */ }
+        }}>
           <Suspense fallback={<div className="graph-editor graph-editor--loading" />}>
             <GraphEditorPanel
               source={slot.text}
@@ -53,6 +64,7 @@ export const diagramView: ElementView = {
     return (
       <div className="rendered-diagram">
         <DiagramPanel
+          path={cx.path ?? undefined}
           renderer={slot.renderer}
           source={resolved ?? slot.text}
           domId={`hick-diagram-${slot.index}`}

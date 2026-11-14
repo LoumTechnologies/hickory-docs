@@ -21,7 +21,7 @@
 // instead; a block replacement that does not cover whole lines is not
 // something CodeMirror can take out of the height map.
 
-import { StateField } from "@codemirror/state";
+import { StateEffect, StateField } from "@codemirror/state";
 import type { EditorState, Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
@@ -161,7 +161,7 @@ function buildMath(state: EditorState, source: MathSource): DecorationSet {
     const last = state.doc.lineAt(span.to).number;
     let touched = false;
     for (let n = first; n <= last && !touched; n++) touched = live.has(n);
-    if (touched) continue;
+    if (state.field(mathSourceModes, false)?.get(span.from) ?? touched) continue;
     const block = span.display && ownsItsLines(state, span);
     ranges.push(
       Decoration.replace({
@@ -180,11 +180,20 @@ function buildMath(state: EditorState, source: MathSource): DecorationSet {
  * only field-provided decorations are folded into the same update CodeMirror
  * measures its height map in.
  */
+export const setMathSource = StateEffect.define<{ at: number; source: boolean }>();
+export const mathSourceModes = StateField.define<ReadonlyMap<number, boolean>>({
+  create: () => new Map(),
+  update(value, tr) {
+    const next = new Map([...value].filter(([, source]) => source || !tr.docChanged && !tr.selection).map(([at, source]) => [tr.changes.mapPos(at, 1), source]));
+    for (const effect of tr.effects) if (effect.is(setMathSource)) next.set(effect.value.at, effect.value.source);
+    return next;
+  },
+});
 export function renderedMath(source: MathSource = proseMath): Extension {
-  return StateField.define<DecorationSet>({
+  return [mathSourceModes, StateField.define<DecorationSet>({
     create: (state) => buildMath(state, source),
     update: (value, tr) =>
-      tr.docChanged || tr.selection ? buildMath(tr.state, source) : value,
+      tr.docChanged || tr.selection || tr.effects.some(effect => effect.is(setMathSource)) ? buildMath(tr.state, source) : value,
     provide: (f) => EditorView.decorations.from(f),
-  });
+  })];
 }

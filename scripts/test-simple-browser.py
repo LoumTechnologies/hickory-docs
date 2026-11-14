@@ -372,6 +372,21 @@ def terminal_acceptance(driver):
     assert "default-src 'none'" in protocol["network"], protocol
 
 
+def embedded_acceptance(driver, folder):
+    # Contract: .hickory-source/frontends/contract.md. Real controls, links and disk.
+    driver.act("open", path="diagram.md")
+    state = driver.act("embedded-controls", path="diagram.md")
+    assert state["height"] < 280, state
+    assert state["opened"].rstrip("\n") == (folder / "sample.txt").read_text().rstrip("\n"), state
+    assert '"href":"sample.txt"' in (folder / "diagram.md").read_text()
+    driver.act("open", path="mermaid.md")
+    assert driver.act("mermaid-link").rstrip("\n") == (folder / "sample.txt").read_text().rstrip("\n")
+    driver.act("open", path="scroll.md")
+    state = driver.act("embedded-wheel", path="scroll.md")
+    assert state["first"] > 0 and state["after"] > state["before"], state
+    assert state["nested"] == 0 and state["moved"] > 0, state
+
+
 def inline_features_acceptance(driver, folder):
     # These observations go through real DOM controls and exact workspace bytes.
     for path, kind in [("diagram.md", "diagram"), ("fenced.md", "syntax"), ("patch.md", "patch")]:
@@ -433,7 +448,10 @@ if __name__ == "__main__":
         folder = Path(temporary) / "workspace"; folder.mkdir()
         for name, unit in [("four.py", "    "), ("two.py", "  "), ("tabs.py", "\t")]:
             (folder / name).write_text("def orders():\n" + unit + "pass\n# end")
-        (folder / "diagram.md").write_text('<hick:diagram renderer="graph">{"topology":{"nodes":[{"id":"a"},{"id":"b"},{"id":"c"}],"edges":[{"from":"a","to":"b"}]}}</hick:diagram>')
+        (folder / "scroll.md").write_text("Before paragraph.\n\n" * 8 + "| A | B |\n| --- | --- |\n" + "| value | 1 |\n" * 50 + "\nAfter paragraph.\n\n" * 80)
+        (folder / "mermaid.md").write_text('<hick:diagram renderer="mermaid">\nflowchart TD\n A[Source]\n click A "sample.txt"\n</hick:diagram>')
+        (folder / "sample.txt").write_text("Linked source file\n")
+        (folder / "diagram.md").write_text('<hick:diagram renderer="graph">{"topology":{"nodes":[{"id":"a","href":"sample.txt"},{"id":"b"},{"id":"c"}],"edges":[{"from":"a","to":"b"}]},"layout":{"a":{"x":0,"y":0},"b":{"x":180,"y":0},"c":{"x":360,"y":0}}}</hick:diagram>')
         (folder / "fenced.md").write_text('# Fenced section\n\n```python\ndef coupon():\n    return "café 😀"\n```\n')
         (folder / "patch.md").write_text('<hick:project/>\n<hick:file id="base" path="x.py">\nprint(1)\n</hick:file>\n```patch id="change" after="base"\n--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-print(1)\n+print(2)\n```\n')
         table_source = (ROOT / "examples/simple-ui/tables.md").read_text()
@@ -481,6 +499,9 @@ if __name__ == "__main__":
             elif "--spreadsheet-only" in sys.argv:
                 spreadsheet_acceptance(driver, folder, backend)
                 print("Browser and native bundle: range selection, structure, formula range picking, real Python evaluation and height controls passed")
+            elif "--embedded-only" in sys.argv:
+                embedded_acceptance(driver, folder)
+                print("Browser: compact diagram, gutter source round trip, graph/Mermaid file links and stationary-pointer scrolling passed")
             elif "--inline-features-only" in sys.argv:
                 inline_features_acceptance(driver, folder)
                 print("Browser: real inline diagram, fenced syntax colors, heading fold and editable project patch passed")

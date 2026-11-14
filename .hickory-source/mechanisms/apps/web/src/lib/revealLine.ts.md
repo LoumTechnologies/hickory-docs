@@ -5,6 +5,7 @@ For: maintainers changing this mechanism and reviewing the contracts that depend
 
 This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
 
+
 <a id="output-bca672428db0"></a>
 ## `apps/web/src/lib/revealLine.ts`
 
@@ -142,8 +143,21 @@ export interface OpenLocation {
 
 Ask the workspace to open `path` and put the caret on `line`.
 
+Diagram paths resolve relative to their containing document. Decode before checking schemes and absolute paths, and reject parent traversal beyond the workspace before asking the existing file opener to show a tab.
+
 <storycode:copy id="f-bca672428db0-openLocation">
 /** Ask the workspace to open `path` and put the caret on `line`. */
+export function diagramFilePath(href: string, source: string): string | null {
+  let path: string;
+  try { path = decodeURIComponent(href); } catch { return null; }
+  if (!path || /[:\\\r\n]/.test(path) || path.startsWith("/")) return null;
+  const parts = source.split("/").slice(0, -1);
+  for (const part of path.split("/")) {
+    if (part === "..") { if (!parts.length) return null; parts.pop(); }
+    else if (part && part !== ".") parts.push(part);
+  }
+  return parts.length ? parts.join("/") : null;
+}
 export function openLocation(path: string, line: number): void {
   window.dispatchEvent(
     new CustomEvent<OpenLocation>(OPEN_LOCATION_EVENT, { detail: { path, line } }),

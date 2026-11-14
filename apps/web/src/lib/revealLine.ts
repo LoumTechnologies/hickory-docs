@@ -61,6 +61,17 @@ export interface OpenLocation {
 }
 
 /** Ask the workspace to open `path` and put the caret on `line`. */
+export function diagramFilePath(href: string, source: string): string | null {
+  let path: string;
+  try { path = decodeURIComponent(href); } catch { return null; }
+  if (!path || /[:\\\r\n]/.test(path) || path.startsWith("/")) return null;
+  const parts = source.split("/").slice(0, -1);
+  for (const part of path.split("/")) {
+    if (part === "..") { if (!parts.length) return null; parts.pop(); }
+    else if (part && part !== ".") parts.push(part);
+  }
+  return parts.length ? parts.join("/") : null;
+}
 export function openLocation(path: string, line: number): void {
   window.dispatchEvent(
     new CustomEvent<OpenLocation>(OPEN_LOCATION_EVENT, { detail: { path, line } }),

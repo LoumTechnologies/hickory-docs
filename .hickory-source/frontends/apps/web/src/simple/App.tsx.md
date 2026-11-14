@@ -191,15 +191,16 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
       pointer = { x: event.clientX, y: event.clientY };
     };
     const wheel = (event: WheelEvent) => {
-      if (event.ctrlKey || event.defaultPrevented) return;
+      if (event.ctrlKey) return;
       moved(event);
       const path = event.composedPath();
       const target = path.find(node => node instanceof HTMLElement &&
-        /(auto|scroll)/.test(getComputedStyle(node).overflow + getComputedStyle(node).overflowY + getComputedStyle(node).overflowX) &&
-        (node.scrollHeight > node.clientHeight || node.scrollWidth > node.clientWidth)) as HTMLElement | undefined;
+        (node.dataset.wheelOwner === "true" || /(auto|scroll)/.test(getComputedStyle(node).overflow + getComputedStyle(node).overflowY + getComputedStyle(node).overflowX) &&
+        (node.scrollHeight > node.clientHeight || node.scrollWidth > node.clientWidth))) as HTMLElement | undefined;
       if (!owner?.isConnected) owner = target ?? null;
       if (owner && target && owner !== target && path.includes(owner)) {
         event.preventDefault();
+        event.stopImmediatePropagation();
         const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? owner.clientHeight : 1;
         owner.scrollBy(event.deltaX * scale, event.deltaY * scale);
       }

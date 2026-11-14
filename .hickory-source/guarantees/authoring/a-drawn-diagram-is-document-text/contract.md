@@ -349,10 +349,10 @@ export function moveEdgeEnd(
 <storycode:copy id="f-b1b82d77ca55-canvasHeight">
 function canvasHeight(scene: Scene): number {
   const entries = Object.values(scene.layout);
-  if (entries.length === 0) return 280;
+  if (entries.length === 0) return 80;
   const bottom = Math.max(...entries.map((at) => at.y + (at.h ?? DEFAULT_H)));
   const top = Math.min(...entries.map((at) => at.y));
-  return Math.min(640, Math.max(280, bottom - top + 140));
+  return Math.min(640, Math.max(80, bottom - top + 48));
 }
 
 </storycode:copy>
@@ -835,6 +835,7 @@ function GraphEditor({ source, resolved, assertions, onCommit, sourceCurrent: ho
     <div
       className="graph-editor"
       data-testid="graph-editor"
+      data-wheel-owner={active ? "true" : undefined}
       // The panel takes the focus when clicked. It lives portalled inside
       // the text editor's DOM, and clicking the canvas PANE moves focus
       // nowhere on its own — so the buffer kept it, and Delete pressed

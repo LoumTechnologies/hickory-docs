@@ -24,8 +24,7 @@ is passed as JSON rather than executable script. A monotonically increasing
 render ticket rejects obsolete Mermaid results. Native WebViews skip identical
 source/renderer updates so typing elsewhere cannot restart an unchanged diagram. Invalid and unsupported diagrams
 show their source and a status message. Network navigation remains disabled.
-Browser slots include the graph canvas stylesheet inside their shadow root; a stylesheet on the outer document cannot style that canvas. Native editors reserve a fixed preview rectangle and offer explicit source mode;
-rendering never resizes the editor or mutates the diagram. Fenced examples and
+Browser slots include the graph canvas stylesheet inside their shadow root; a stylesheet on the outer document cannot style that canvas. Native editors reserve the measured natural content height, shrinking wide diagrams to the available width. Measurement changes preserve the visible source anchor and never mutate diagram bytes. Source mode is reversible through the same right-gutter icon. Fenced examples and
 other Hickory literal bodies do not create live diagrams.
 
 Ordinary diff fences remain review text. Explicit patch fences are project constructions: offer launch beside each supported destination header and pending breakpoints on added code rows. Hunk counts distinguish destination headers from added strings beginning with plus signs. Deleted and context rows do not acquire new-source ownership; the project mapper remains authoritative about whether added bytes survive later patches. Local syntax colors the added code without its diff prefix. Path-bearing ordinary code fences use the same file context as file tags.
@@ -49,6 +48,18 @@ Whole-table structural edits retain a temporary presentation anchor until the ba
 
 <ui:copy id="simple-inline-model-0">
 import Foundation
+// Diagram links are paths relative to the document, bounded by the workspace root.
+func diagramFilePath(_ href: String, relativeTo source: String) -> String? {
+    guard !href.isEmpty, !href.contains(":"), !href.hasPrefix("/"), !href.contains("\\"), !href.contains("\n") else { return nil }
+    let path = href.removingPercentEncoding ?? href
+    guard !path.contains(":"), !path.hasPrefix("/"), !path.contains("\\") else { return nil }
+    var parts = source.split(separator: "/").dropLast().map(String.init)
+    for part in path.split(separator: "/") {
+        if part == ".." { guard !parts.isEmpty else { return nil }; parts.removeLast() }
+        else if part != "." { parts.append(String(part)) }
+    }
+    return parts.isEmpty ? nil : parts.joined(separator: "/")
+}
 struct InlineMark: Sendable { var kind: String; var range: NSRange; var level: Int = 0 }
 struct InlineCell: Identifiable, Sendable { var line: Int; var column: Int; var range: NSRange; var value: String; var format = "markdown"; var delimiter = ","; var id: Int { range.location } }
 struct InlineEquation: Identifiable, Sendable {
@@ -66,7 +77,7 @@ struct InlineTable: Identifiable, Sendable {
     var range: NSRange; var rows: [[InlineCell]]
     var id: Int { range.location }
     var preferredHeight: CGFloat? = nil
-    var height: CGFloat { preferredHeight ?? max(280, min(420, CGFloat(rows.count + 5) * 30)) }
+    var height: CGFloat { preferredHeight ?? min(420, CGFloat(rows.count + 1) * 30 + 2) }
 }
 func tablePresentation(_ snapshot: InlineSnapshot, source: String) -> InlineSnapshot {
     if snapshot.source == source { return snapshot }
@@ -816,6 +827,13 @@ The local math page loads only bundled KaTeX and fonts. Formula strings enter th
 
 The interactive terminal binding below explicitly enables stdin and the cursor. It sends only input and measured size messages to a native host; transport and session identity stay outside this local page. PTY output arrives as base64 bytes so UTF-8 and ANSI sequences split across messages remain intact in xterm’s parser. The existing recorded-output binding keeps stdin disabled.
 
+Measure the natural diagram bounds through the revision-checked math channel.
+SVG size reports must describe content before its fitting transform, otherwise a
+host resize can feed back into an ever-shrinking preview. Keep Mermaid strict;
+bind quoted node file links after rendering and send only paths to the host.
+The host resolves them against the containing document and rejects external
+schemes and paths escaping the workspace. Double-click is the opening gesture.
+
 <ui:copy id="simple-inline-math-0">
 <!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -834,7 +852,7 @@ function fitPreview() {
   if (document.body.classList.contains('notebook-mode') || document.body.classList.contains('terminal-mode') || document.body.classList.contains('table-mode')) return;
   const node = document.getElementById('formula');
   const width = node.offsetWidth, height = node.offsetHeight;
-  if (globalThis.mathRevision !== undefined && document.querySelector('.katex')) {
+  if (globalThis.mathRevision !== undefined && (document.querySelector('.katex') || document.body.classList.contains('diagram-mode'))) {
     globalThis.webkit?.messageHandlers?.mathSize?.postMessage({ revision: globalThis.mathRevision, width, height });
   }
   const availableHeight = Math.max(1, innerHeight - document.getElementById('status').offsetHeight);
@@ -922,7 +940,9 @@ globalThis.renderTerminal = function (source) {
     node.textContent = source; status.textContent = 'Terminal unavailable: ' + (error.message || 'prepare resources and rebuild');
   }
 };
-globalThis.renderDiagram = async function (source, renderer) {
+globalThis.renderDiagram = async function (source, renderer, sizeRevision = 0) {
+  globalThis.mathRevision = sizeRevision;
+  document.body.className = 'diagram-mode';
   const node = document.getElementById('formula'), status = document.getElementById('status');
   const revision = globalThis.diagramRevision = (globalThis.diagramRevision || 0) + 1;
   node.replaceChildren(); status.textContent = '';
@@ -935,12 +955,21 @@ globalThis.renderDiagram = async function (source, renderer) {
       const ns = 'http://www.w3.org/2000/svg';
       const element = (name, attrs = {}, text) => { const el = document.createElementNS(ns, name); for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, String(value)); if (text !== undefined) el.textContent = text; return el; };
       const boxes = new Map(nodes.map((n, i) => { const box = layout[n.id] || {}; return [n.id, { x: Number.isFinite(box.x) ? box.x : i % 4 * 170 + 10, y: Number.isFinite(box.y) ? box.y : Math.floor(i / 4) * 90 + 10, w: Number.isFinite(box.w) ? Math.max(30, box.w) : 140, h: Number.isFinite(box.h) ? Math.max(30, box.h) : 50 }]; }));
-      const values = [...boxes.values()], minX = Math.min(0, ...values.map(b => b.x)) - 10, minY = Math.min(0, ...values.map(b => b.y)) - 10;
-      const svg = element('svg', { viewBox: `${minX} ${minY} ${Math.max(200, ...values.map(b => b.x + b.w)) - minX + 10} ${Math.max(80, ...values.map(b => b.y + b.h)) - minY + 10}`, role: 'img', 'aria-label': 'Diagram preview', width: Math.max(200, ...values.map(b => b.x + b.w)) - minX + 10, height: Math.max(80, ...values.map(b => b.y + b.h)) - minY + 10 });
+      const values = [...boxes.values()];
+      const minX = values.length ? Math.min(...values.map(b => b.x)) - 10 : 0, minY = values.length ? Math.min(...values.map(b => b.y)) - 10 : 0;
+      const width = values.length ? Math.max(...values.map(b => b.x + b.w)) - minX + 10 : 24;
+      const height = values.length ? Math.max(...values.map(b => b.y + b.h)) - minY + 10 : 24;
+      const svg = element('svg', { viewBox: `${minX} ${minY} ${width} ${height}`, role: 'img', 'aria-label': 'Diagram preview', width, height });
       const defs = element('defs'), marker = element('marker', { id: 'arrow', markerWidth: 8, markerHeight: 8, refX: 7, refY: 4, orient: 'auto' });
       marker.append(element('path', { d: 'M0,0 L8,4 L0,8 Z', fill: 'currentColor' })); defs.append(marker); svg.append(defs);
       for (const edge of edges) { const a = boxes.get(edge.from), b = boxes.get(edge.to); if (a && b) svg.append(element('line', { x1: a.x + a.w, y1: a.y + a.h / 2, x2: b.x, y2: b.y + b.h / 2, stroke: 'currentColor', 'marker-end': 'url(#arrow)' })); }
-      for (const item of nodes) { const b = boxes.get(item.id); svg.append(element('rect', { ...b, width: b.w, height: b.h, rx: 6, fill: 'Canvas', stroke: 'currentColor' })); svg.append(element('text', { x: b.x + b.w / 2, y: b.y + b.h / 2, 'text-anchor': 'middle', 'dominant-baseline': 'middle', fill: 'currentColor' }, item.label || item.id)); }
+      for (const item of nodes) {
+        const b = boxes.get(item.id), group = element('g');
+        group.append(element('rect', { ...b, width: b.w, height: b.h, rx: 6, fill: 'Canvas', stroke: 'currentColor' }));
+        group.append(element('text', { x: b.x + b.w / 2, y: b.y + b.h / 2, 'text-anchor': 'middle', 'dominant-baseline': 'middle', fill: 'currentColor' }, item.label || item.id));
+        if (typeof item.href === 'string') { group.style.cursor = 'pointer'; group.addEventListener('dblclick', () => globalThis.webkit?.messageHandlers?.diagramLink?.postMessage({ href: item.href, revision: sizeRevision })); }
+        svg.append(group);
+      }
       node.append(svg);
     } else if (renderer === 'mermaid') {
       if (!globalThis.mermaid) throw Error('Diagram engine unavailable. Prepare native resources and rebuild.');
@@ -948,7 +977,13 @@ globalThis.renderDiagram = async function (source, renderer) {
       const result = await mermaid.render('diagram-' + revision, source);
       if (revision === globalThis.diagramRevision) {
         node.innerHTML = result.svg;
-        const svg = node.querySelector('svg'), box = svg?.viewBox.baseVal;
+        // Strict Mermaid disables authored handlers. Bind only quoted file links,
+        // after rendering, without enabling arbitrary callback execution.
+        for (const match of source.matchAll(/(?:^|[;\n])\s*click\s+([\w-]+)\s+(?:href\s+)?"([^"]+)"/g)) {
+          const group = [...node.querySelectorAll('g.node')].find(el => el.id.match(/(?:^|-)flowchart-(.+)-\d+$/)?.[1] === match[1]);
+          if (group) { group.style.cursor = 'pointer'; group.addEventListener('click', event => event.preventDefault()); group.addEventListener('dblclick', () => globalThis.webkit?.messageHandlers?.diagramLink?.postMessage({ href: match[2], revision: sizeRevision })); }
+        }
+        const svg = node.querySelector('svg'), box = svg?.viewBox?.baseVal;
         if (box?.width && box?.height) { svg.style.maxWidth = 'none'; svg.setAttribute('width', box.width); svg.setAttribute('height', box.height); }
       }
     } else throw Error('No preview for renderer ' + renderer + '. Edit its source.');
@@ -1042,6 +1077,7 @@ import WebKit
     var diagramRenderer: String?
     var inline = false
     var onSize: ((CGSize) -> Void)?
+    var onLink: ((String) -> Void)?
     private var revision = 0
     private var displayed: String?
     var ready = false
@@ -1053,11 +1089,16 @@ import WebKit
         if diagramRenderer == "notebook" { view.evaluateJavaScript("globalThis.renderNotebookOutput(" + json + ")", completionHandler: nil) }
         else if diagramRenderer == "terminal" { view.evaluateJavaScript("globalThis.renderTerminal(" + json + ")", completionHandler: nil) }
         else if let renderer = diagramRenderer, let data = try? JSONSerialization.data(withJSONObject: renderer, options: .fragmentsAllowed), let engine = String(data: data, encoding: .utf8) {
-            view.evaluateJavaScript("globalThis.renderDiagram(" + json + "," + engine + ")", completionHandler: nil)
+            view.evaluateJavaScript("globalThis.renderDiagram(" + json + "," + engine + "," + String(revision) + ")", completionHandler: nil)
         } else { view.evaluateJavaScript("globalThis.renderMath(" + json + "," + String(inline) + "," + String(revision) + ")", completionHandler: nil) }
     }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.frameInfo.isMainFrame, diagramRenderer == nil,
+        guard message.frameInfo.isMainFrame else { return }
+        if message.name == "diagramLink" {
+            guard let link = message.body as? [String: Any], link["revision"] as? Int == revision, let href = link["href"] as? String else { return }
+            onLink?(href); return
+        }
+        guard
               let value = message.body as? [String: Any], value["revision"] as? Int == revision,
               let width = value["width"] as? Double, let height = value["height"] as? Double,
               width.isFinite, height.isFinite, width > 0, height > 0 else { return }
@@ -1087,6 +1128,7 @@ func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main, Bundle(for: Ma
 @MainActor func makeMathView(_ coordinator: MathCoordinator) -> WKWebView {
     let configuration = WKWebViewConfiguration(); configuration.websiteDataStore = .nonPersistent(); configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
     configuration.userContentController.add(coordinator, name: "mathSize")
+    configuration.userContentController.add(coordinator, name: "diagramLink")
     let view = WKWebView(frame: .zero, configuration: configuration); view.navigationDelegate = coordinator
     let owner = Bundle(for: MathCoordinator.self)
     let roots = [Bundle.main.resourceURL, Bundle.main.bundleURL, owner.resourceURL, owner.bundleURL,
@@ -1102,9 +1144,10 @@ struct NativeMathView: NSViewRepresentable {
     var diagramRenderer: String? = nil
     var inline = false
     var onSize: ((CGSize) -> Void)? = nil
+    var onLink: ((String) -> Void)? = nil
     func makeCoordinator() -> MathCoordinator { MathCoordinator() }
-    func makeNSView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; return makeMathView(context.coordinator) }
-    func updateNSView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.display(view) }
+    func makeNSView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; return makeMathView(context.coordinator) }
+    func updateNSView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; context.coordinator.display(view) }
 }
 #else
 struct NativeMathView: UIViewRepresentable {
@@ -1112,9 +1155,10 @@ struct NativeMathView: UIViewRepresentable {
     var diagramRenderer: String? = nil
     var inline = false
     var onSize: ((CGSize) -> Void)? = nil
+    var onLink: ((String) -> Void)? = nil
     func makeCoordinator() -> MathCoordinator { MathCoordinator() }
-    func makeUIView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; return makeMathView(context.coordinator) }
-    func updateUIView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.display(view) }
+    func makeUIView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; return makeMathView(context.coordinator) }
+    func updateUIView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; context.coordinator.display(view) }
 }
 #endif
 // One read-only terminal surface for captured bytes and expect bodies.
@@ -1135,10 +1179,10 @@ struct NativeDiagramPreview: View {
     var buffer: DocumentBuffer
     var body: some View {
         if diagram.renderer == "terminal" { NativeInlineTerminal(text: diagram.body, editSource: { buffer.sourceTable = diagram.id }) }
-        else { VStack(spacing: 0) {
-            HStack { Text("Diagram").font(.caption); Spacer(); Button("Edit source text") { buffer.sourceTable = diagram.id }.buttonStyle(.bordered) }.padding(4)
-            NativeMathView(source: diagram.body, diagramRenderer: diagram.renderer)
-        }.background(.background) }
+        else { NativeMathView(source: diagram.body, diagramRenderer: diagram.renderer, onSize: { size in
+            guard buffer.text == buffer.inlineMarkup.source, buffer.inlineMarkup.diagrams.contains(where: { $0.id == diagram.id && $0.body == diagram.body }), buffer.diagramSizes[diagram.id] != size else { return }
+            buffer.diagramSizes[diagram.id] = size; buffer.renderMarkup?()
+        }, onLink: { buffer.openDiagramFile?($0) }).background(.background) }
     }
 }
 struct InlineEquationControl: View {
@@ -1206,12 +1250,20 @@ import org.json.JSONObject
 
 The browser retains the established rendered-block registry and table/math/exec views. Their React owners live above pane layout, preserving widget-local edits when the cached editor moves. Widgets use a shadow root to reuse the established stylesheet without changing simple-UI chrome. Mutations still use the existing captured-block transaction guard; saved receipts disappear as soon as the buffer is dirty. The optional rendering modules load after readable text mounts.
 
+The right rail belongs to source positions, independently of mounted preview
+widgets. Derive its controls from current renderable blocks so revealing source
+does not destroy the only control capable of restoring the preview. Both
+operations change decorations, preserving the editor, undo and unsaved text.
+Equation modes can explicitly override caret-driven source reveal in either
+direction. The existing rail placement/overflow mechanism owns icon geometry.
+
 <ui:copy id="simple-inline-browser-owners">
 import { Component, useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { Buffer, Buffers } from "./buffers";
 import { editorForBuffer, SIMPLE_EDITOR_ATTACHED } from "./Document";
-import type { EditorView } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
+import { DebugRailGroup, debugRailElement } from "../debug/DebugRail";
 import type { RenderedSlot } from "../editor/rendered";
 import type { Block, ExecBlock, DiagramBlock } from "../api/types";
 import { request } from "../api/client";
@@ -1259,6 +1311,7 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
       const scroll = view.scrollSnapshot();
       view.dispatch({ effects: cached.prose.reconfigure([
         libs.prose.wysiwyg(new libs.prose.EnvRegistry()), libs.rendered.renderedBlocks(registry),
+        EditorView.updateListener.of(update => { if (update.transactions.length) queueMicrotask(() => { if (!disposed) setSlots(registry.list()); }); }),
         libs.math.renderedMath(state => libs.spans.mathSpans(state.doc.toString(), libs.hick.verbatimRanges(libs.prose.structureOf(state).blocks))),
       ]) });
       const initial = libs.elements.renderableBlocks(libs.prose.structureOf(view.state), view.state.doc.toString()).filter(block => !libs.elements.slotKindOf(block)?.startsWith("session-") && !(buffer.dirty && view.state.selection.ranges.some(range => range.from >= block.from && range.to <= block.to)));
@@ -1298,21 +1351,26 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
       catch { /* Invalid UTF-8 boundaries cannot identify a source widget. */ }
     }
   }
-  const tables = modules.elements.renderableBlocks(modules.prose.structureOf(view.state), view.state.doc.toString()).filter(block => modules.elements.slotKindOf(block) === "table");
-  const sourceTables = tables.filter(block => !slots.some(slot => slot.at === block.from));
-  return <>{sourceTables.length > 0 && view.dom.parentElement && createPortal(<button type="button" className="simple-render-tables" onClick={() => {
-    view.dispatch({ effects: modules.rendered.setRenderedBlocks.of([...new Set([...slots.map(slot => slot.at), ...tables.map(block => block.from)])]) });
-  }}>Edit tables as grids</button>, view.dom.parentElement)}{slots.map(slot => {
-    const captured = view.state.doc;
+  const controls = modules.elements.renderableBlocks(modules.prose.structureOf(view.state), view.state.doc.toString()).filter(block => !modules.elements.slotKindOf(block)?.startsWith("session-"));
+  const math = modules.spans.mathSpans(view.state.doc.toString(), modules.hick.verbatimRanges(modules.prose.structureOf(view.state).blocks));
+  const rail = debugRailElement(view);
+  return <>{rail && math.map(span => createPortal(<DebugRailGroup key={`math:${span.from}`} view={view} at={span.from}>
+    <button type="button" className="debug-icon" aria-label="Toggle equation source text" onClick={() => {
+      const mode = view.state.field(modules.math.mathSourceModes).get(span.from);
+      const touched = view.state.selection.ranges.some(range => view.state.doc.lineAt(range.from).number <= view.state.doc.lineAt(span.to).number && view.state.doc.lineAt(range.to).number >= view.state.doc.lineAt(span.from).number);
+      view.dispatch({ effects: modules.math.setMathSource.of({ at: span.from, source: !(mode ?? touched) }) });
+    }}>‹/›</button>
+  </DebugRailGroup>, rail))}{rail && controls.map(block => createPortal(<DebugRailGroup key={block.from} view={view} at={block.from}>
+    <button type="button" className="debug-icon" aria-label={modules.rendered.isRendered(view.state, block.from) ? "Edit source text" : "Render embedded content"} aria-pressed={!modules.rendered.isRendered(view.state, block.from)} onClick={() => {
+      const effects = modules.rendered.isRendered(view.state, block.from) ? modules.rendered.showBlockSource.of(block.from) : modules.rendered.renderBlock.of(block.from);
+      view.dispatch({ effects });
+    }}>‹/›</button>
+  </DebugRailGroup>, rail))}{slots.map(slot => {
     const context = { simpleTables: true, view, path: buffer.file.path, docId: buffer.file.doc_id, execBlocks: saved.filter((block): block is ExecBlock => block.kind === "exec"),
       diagramBlocks: saved.filter((block): block is DiagramBlock => block.kind === "diagram"), runningCells: new Set<string>(), replaying: [],
       replaceBlockContent: (target: RenderedSlot, text: string, origin?: string) => modules.edit.replaceCapturedBlock(view, target, text, origin ?? "input.table"),
     };
     return <SlotPortal key={slot.key} slot={slot} css={modules.css.default + modules.katexCss.default + modules.graphCss.default + modules.terminalCss.default}>
-      {!slot.outputOnly && <button type="button" style={{ border: "1px solid currentColor", borderRadius: 4, padding: "3px 8px", cursor: "pointer" }} onClick={() => {
-        if (view.state.doc !== captured) return;
-        view.dispatch({ effects: modules.rendered.showBlockSource.of(slot.at), selection: { anchor: Math.min(slot.at, view.state.doc.length) }, scrollIntoView: true }); view.focus();
-      }}>Edit source text</button>}
       {slot.kind === "exec" && buffer.file.doc_id && <button type="button" disabled={buffer.dirty} onClick={() => refreshReceipts(value => value + 1)}>Refresh recorded output</button>}
       {modules.elements.elementViews[slot.kind].render(slot, context)}
     </SlotPortal>;

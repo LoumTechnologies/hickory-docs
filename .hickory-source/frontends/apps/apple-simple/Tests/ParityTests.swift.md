@@ -186,6 +186,14 @@ final class ParityTests: XCTestCase {
         XCTAssertTrue(simpleFoldRanges("# comment\nbody").isEmpty)
         XCTAssertTrue(simpleFoldRanges("```python\n# comment\nbody", markdown: true).isEmpty)
     }
+    func testDiagramLinksStayInsideWorkspace() {
+        // Contract: .hickory-source/frontends/contract.md
+        XCTAssertEqual(diagramFilePath("../src/main.swift", relativeTo: "docs/design.md"), "src/main.swift")
+        XCTAssertEqual(diagramFilePath("space%20name.md", relativeTo: "docs/design.md"), "docs/space name.md")
+        for href in ["../../outside", "https://example.com", "javascript:alert(1)", "/tmp/file", "%2fetc/passwd", "..\\file"] {
+            XCTAssertNil(diagramFilePath(href, relativeTo: "docs/design.md"))
+        }
+    }
     func testDiagramDiscoveryKeepsLiteralExamplesAndUnicodeSafe() throws {
         // Contract: .hickory-source/frontends/contract.md
         let source = "😀\n```xml\n<h:diagram>ignored</h:diagram>\n```\n<h:file path=\"x.xml\">\n<h:diagram>also ignored</h:diagram>\n</h:file>\n<h:diagram renderer=\"graph\">{\"topology\":{\"nodes\":[]}}</h:diagram>\n<h:diagram>graph TD; A-->B</h:diagram>"
@@ -209,7 +217,9 @@ final class ParityTests: XCTestCase {
         buffer.inlineMarkup = computeInlineMarkup(source, path: file.path); buffer.renderMarkup?()
         let diagram = try XCTUnwrap(buffer.inlineMarkup.diagrams.first)
         let host = try XCTUnwrap(editor.text.subviews.first { $0 is NSHostingView<NativeDiagramPreview> })
-        XCTAssertEqual(host.frame.height, 260)
+        XCTAssertEqual(host.frame.height, 80)
+        buffer.diagramSizes[diagram.id] = CGSize(width: 200, height: 48); buffer.renderMarkup?()
+        XCTAssertEqual(host.frame.height, 48, "Small diagrams reserve only measured content")
         let manager = try XCTUnwrap(editor.text.layoutManager), container = try XCTUnwrap(editor.text.textContainer)
         let after = (source as NSString).range(of: "After")
         let rect = manager.boundingRect(forGlyphRange: manager.glyphRange(forCharacterRange: after, actualCharacterRange: nil), in: container)
@@ -819,6 +829,24 @@ final class ParityTests: XCTestCase {
         XCTAssertFalse(screen.contains("[stdout]")); XCTAssertFalse(screen.contains("\u{1b}"))
         let images = try await view.evaluateJavaScript("document.querySelectorAll('img').length") as? Int
         XCTAssertEqual(images, 0)
+    }
+    @MainActor func testNativeDiagramMeasuresContentAndOpensLinkedNode() async throws {
+        // Contract: .hickory-source/frontends/contract.md
+        guard ProcessInfo.processInfo.environment["HICKORY_NATIVE_WEBVIEW_TEST"] == "1" else { throw XCTSkip("Enable the focused native WebKit witness explicitly") }
+        let coordinator = MathCoordinator()
+        coordinator.source = #"{"topology":{"nodes":[{"id":"a","label":"Source","href":"src/main.swift"}],"edges":[]}}"#
+        coordinator.diagramRenderer = "graph"
+        var measured: CGSize?, opened: String?
+        coordinator.onSize = { measured = $0 }; coordinator.onLink = { opened = $0 }
+        let view = makeMathView(coordinator)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 260), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = view; window.orderFront(nil); defer { window.orderOut(nil) }
+        for _ in 0..<200 { if measured != nil { break }; try await Task.sleep(for: .milliseconds(25)) }
+        let size = try XCTUnwrap(measured)
+        XCTAssertLessThan(size.height, 150); XCTAssertGreaterThan(size.width, 100)
+        _ = try await view.evaluateJavaScript("document.querySelector('svg g').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))")
+        for _ in 0..<40 { if opened != nil { break }; try await Task.sleep(for: .milliseconds(25)) }
+        XCTAssertEqual(opened, "src/main.swift")
     }
     @MainActor func testNativeMathFlowsWithinProseAndCompactsBlocks() async throws {
         // Contract: .hickory-source/frontends/contract.md

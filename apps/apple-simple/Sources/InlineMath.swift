@@ -5,6 +5,7 @@ import WebKit
     var diagramRenderer: String?
     var inline = false
     var onSize: ((CGSize) -> Void)?
+    var onLink: ((String) -> Void)?
     private var revision = 0
     private var displayed: String?
     var ready = false
@@ -16,11 +17,16 @@ import WebKit
         if diagramRenderer == "notebook" { view.evaluateJavaScript("globalThis.renderNotebookOutput(" + json + ")", completionHandler: nil) }
         else if diagramRenderer == "terminal" { view.evaluateJavaScript("globalThis.renderTerminal(" + json + ")", completionHandler: nil) }
         else if let renderer = diagramRenderer, let data = try? JSONSerialization.data(withJSONObject: renderer, options: .fragmentsAllowed), let engine = String(data: data, encoding: .utf8) {
-            view.evaluateJavaScript("globalThis.renderDiagram(" + json + "," + engine + ")", completionHandler: nil)
+            view.evaluateJavaScript("globalThis.renderDiagram(" + json + "," + engine + "," + String(revision) + ")", completionHandler: nil)
         } else { view.evaluateJavaScript("globalThis.renderMath(" + json + "," + String(inline) + "," + String(revision) + ")", completionHandler: nil) }
     }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.frameInfo.isMainFrame, diagramRenderer == nil,
+        guard message.frameInfo.isMainFrame else { return }
+        if message.name == "diagramLink" {
+            guard let link = message.body as? [String: Any], link["revision"] as? Int == revision, let href = link["href"] as? String else { return }
+            onLink?(href); return
+        }
+        guard
               let value = message.body as? [String: Any], value["revision"] as? Int == revision,
               let width = value["width"] as? Double, let height = value["height"] as? Double,
               width.isFinite, height.isFinite, width > 0, height > 0 else { return }
@@ -50,6 +56,7 @@ func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main, Bundle(for: Ma
 @MainActor func makeMathView(_ coordinator: MathCoordinator) -> WKWebView {
     let configuration = WKWebViewConfiguration(); configuration.websiteDataStore = .nonPersistent(); configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
     configuration.userContentController.add(coordinator, name: "mathSize")
+    configuration.userContentController.add(coordinator, name: "diagramLink")
     let view = WKWebView(frame: .zero, configuration: configuration); view.navigationDelegate = coordinator
     let owner = Bundle(for: MathCoordinator.self)
     let roots = [Bundle.main.resourceURL, Bundle.main.bundleURL, owner.resourceURL, owner.bundleURL,
@@ -65,9 +72,10 @@ struct NativeMathView: NSViewRepresentable {
     var diagramRenderer: String? = nil
     var inline = false
     var onSize: ((CGSize) -> Void)? = nil
+    var onLink: ((String) -> Void)? = nil
     func makeCoordinator() -> MathCoordinator { MathCoordinator() }
-    func makeNSView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; return makeMathView(context.coordinator) }
-    func updateNSView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.display(view) }
+    func makeNSView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; return makeMathView(context.coordinator) }
+    func updateNSView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; context.coordinator.display(view) }
 }
 #else
 struct NativeMathView: UIViewRepresentable {
@@ -75,9 +83,10 @@ struct NativeMathView: UIViewRepresentable {
     var diagramRenderer: String? = nil
     var inline = false
     var onSize: ((CGSize) -> Void)? = nil
+    var onLink: ((String) -> Void)? = nil
     func makeCoordinator() -> MathCoordinator { MathCoordinator() }
-    func makeUIView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; return makeMathView(context.coordinator) }
-    func updateUIView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.display(view) }
+    func makeUIView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; return makeMathView(context.coordinator) }
+    func updateUIView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; context.coordinator.display(view) }
 }
 #endif
 // One read-only terminal surface for captured bytes and expect bodies.
@@ -98,10 +107,10 @@ struct NativeDiagramPreview: View {
     var buffer: DocumentBuffer
     var body: some View {
         if diagram.renderer == "terminal" { NativeInlineTerminal(text: diagram.body, editSource: { buffer.sourceTable = diagram.id }) }
-        else { VStack(spacing: 0) {
-            HStack { Text("Diagram").font(.caption); Spacer(); Button("Edit source text") { buffer.sourceTable = diagram.id }.buttonStyle(.bordered) }.padding(4)
-            NativeMathView(source: diagram.body, diagramRenderer: diagram.renderer)
-        }.background(.background) }
+        else { NativeMathView(source: diagram.body, diagramRenderer: diagram.renderer, onSize: { size in
+            guard buffer.text == buffer.inlineMarkup.source, buffer.inlineMarkup.diagrams.contains(where: { $0.id == diagram.id && $0.body == diagram.body }), buffer.diagramSizes[diagram.id] != size else { return }
+            buffer.diagramSizes[diagram.id] = size; buffer.renderMarkup?()
+        }, onLink: { buffer.openDiagramFile?($0) }).background(.background) }
     }
 }
 struct InlineEquationControl: View {

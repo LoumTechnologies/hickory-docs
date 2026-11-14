@@ -16,12 +16,14 @@
 // source tree — a static import would put a diagramming engine into the
 // bundle of a page that shows no diagrams.
 
+import { diagramFilePath, openLocation } from "../lib/revealLine";
 import { useUiReading } from "../lib/uiReading";
 import { useEffect, useRef, useState } from "react";
 
 export interface DiagramPanelProps {
   /** Renderer named by the tag; anything unknown stays source-only. */
   renderer: string;
+  path?: string;
   /** The diagram source, exactly as written between the tags. */
   source: string;
   /** Stable id for the render target — mermaid needs a unique DOM id. */
@@ -43,6 +45,7 @@ export function DiagramPanel({
   source,
   domId,
   assertions = [],
+  path,
 }: DiagramPanelProps) {
   const [render, setRender] = useState<Render>({ status: "idle" });
   // Guards against an out-of-order render: mermaid is async and someone
@@ -112,6 +115,15 @@ export function DiagramPanel({
         // rendered with securityLevel "strict" (no scripts, no click handlers).
         <div
           className="diagram-figure"
+          onClick={event => { if ((event.target as Element).closest("a")) event.preventDefault(); }}
+          onDoubleClick={event => {
+            const node = (event.target as Element).closest("g.node");
+            if (!node || !path || stale) return;
+            for (const match of source.matchAll(/(?:^|[;\n])\s*click\s+([\w-]+)\s+(?:href\s+)?"([^"]+)"/g)) {
+              if (node.id.match(/(?:^|-)flowchart-(.+)-\d+$/)?.[1] !== match[1]) continue;
+              const target = diagramFilePath(match[2], path); if (target) openLocation(target, 1);
+            }
+          }}
           dangerouslySetInnerHTML={{ __html: render.svg }}
         />
       )}

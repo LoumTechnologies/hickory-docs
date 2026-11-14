@@ -59,6 +59,9 @@ pub struct Topology {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SceneNode {
     pub id: String,
+    /// File link retained across native and browser scene round trips.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub href: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     /// rect (default), round, pill, circle, diamond, hexagon, cylinder.
@@ -623,6 +626,18 @@ pub fn to_svg(scene: &Scene) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn node_file_link_survives_scene_roundtrip() {
+        // Contract: .hickory-source/frontends/contract.md
+        let original = r#"{"nodes":[{"id":"a","href":"../src/main.rs"}]}"#;
+        let parsed = parse_scene(original).unwrap();
+        let serialized = serde_json::to_string(&parsed).unwrap();
+        assert_eq!(
+            parse_scene(&serialized).unwrap().nodes[0].href.as_deref(),
+            Some("../src/main.rs")
+        );
+    }
 
     fn scene(json: &str) -> Scene {
         parse_scene(json).expect("scene parses")
