@@ -68860,6 +68860,78 @@
         "source-tests-browser-run",
         "source-tests-browser-retention"
       ]
+    },
+    "apps/web/src/simple/SourceTestIndex.ts": {
+      "source": ".hickory-source/frontends/test-source-index-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "e5365550cc3658ccac61abb1858a822bd2e2150bdfe032db7c3a3fe68e7f890a",
+      "construction": "fragments",
+      "fragments": [
+        "source-test-index-browser-observations",
+        "source-test-index-browser-workers",
+        "source-test-index-browser-locations"
+      ]
+    },
+    "apps/web/src/simple/SourceTestIndex.test.ts": {
+      "source": ".hickory-source/frontends/test-source-index-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "d96f3b02b8cb9a014342567f211f1037007b7391ef377ef1b64a37975b7a3b03",
+      "construction": "fragments",
+      "fragments": [
+        "source-test-index-browser-witness"
+      ]
+    },
+    "apps/apple-simple/Sources/SourceTestIndex.swift": {
+      "source": ".hickory-source/frontends/test-source-index-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "6bf64f86868bcb41268fea1cac32a267f2ee607db81a956dc105bcd7b2129c7b",
+      "construction": "fragments",
+      "fragments": [
+        "source-test-index-apple-observations",
+        "source-test-index-apple-workers",
+        "source-test-index-apple-locations"
+      ]
+    },
+    "apps/apple-simple/Tests/SourceTestIndexTests.swift": {
+      "source": ".hickory-source/frontends/test-source-index-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "df5c6a099eea93518254b9598fb81255447b1138503205a02d0ed9d88775ffe1",
+      "construction": "fragments",
+      "fragments": [
+        "source-test-index-apple-witness"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceTestIndex.kt": {
+      "source": ".hickory-source/frontends/test-source-index-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "3f64955edd49962ff5ff945aa93dde81d6a2afd726ab86b5c77b0b345d253c5b",
+      "construction": "fragments",
+      "fragments": [
+        "source-test-index-android-observations",
+        "source-test-index-android-workers",
+        "source-test-index-android-locations"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SourceTestIndexTest.kt": {
+      "source": ".hickory-source/frontends/test-source-index-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "7dcce1baed14a1760c46fb4fff3fa9677046ff14b354ff8f484f013ddf4eaca0",
+      "construction": "fragments",
+      "fragments": [
+        "source-test-index-android-witness"
+      ]
     }
   },
   "evidence_records": [

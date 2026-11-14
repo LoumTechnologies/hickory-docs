@@ -151990,6 +151990,90 @@
       "page": ".hickory-source/frontends/test-source-browser-witness.md",
       "symbol": "source-tests-browser-retention",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-index-browser-observations",
+      "output": "apps/web/src/simple/SourceTestIndex.ts",
+      "page": ".hickory-source/frontends/test-source-index-browser.md",
+      "symbol": "source-test-index-browser-observations",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-index-browser-workers",
+      "output": "apps/web/src/simple/SourceTestIndex.ts",
+      "page": ".hickory-source/frontends/test-source-index-browser.md",
+      "symbol": "source-test-index-browser-workers",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-index-browser-locations",
+      "output": "apps/web/src/simple/SourceTestIndex.ts",
+      "page": ".hickory-source/frontends/test-source-index-browser.md",
+      "symbol": "source-test-index-browser-locations",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-index-browser-witness",
+      "output": "apps/web/src/simple/SourceTestIndex.test.ts",
+      "page": ".hickory-source/frontends/test-source-index-browser.md",
+      "symbol": "source-test-index-browser-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-index-apple-observations",
+      "output": "apps/apple-simple/Sources/SourceTestIndex.swift",
+      "page": ".hickory-source/frontends/test-source-index-apple.md",
+      "symbol": "source-test-index-apple-observations",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-index-apple-workers",
+      "output": "apps/apple-simple/Sources/SourceTestIndex.swift",
+      "page": ".hickory-source/frontends/test-source-index-apple.md",
+      "symbol": "source-test-index-apple-workers",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-index-apple-locations",
+      "output": "apps/apple-simple/Sources/SourceTestIndex.swift",
+      "page": ".hickory-source/frontends/test-source-index-apple.md",
+      "symbol": "source-test-index-apple-locations",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-index-apple-witness",
+      "output": "apps/apple-simple/Tests/SourceTestIndexTests.swift",
+      "page": ".hickory-source/frontends/test-source-index-apple.md",
+      "symbol": "source-test-index-apple-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-index-android-observations",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceTestIndex.kt",
+      "page": ".hickory-source/frontends/test-source-index-android.md",
+      "symbol": "source-test-index-android-observations",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-index-android-workers",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceTestIndex.kt",
+      "page": ".hickory-source/frontends/test-source-index-android.md",
+      "symbol": "source-test-index-android-workers",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-index-android-locations",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceTestIndex.kt",
+      "page": ".hickory-source/frontends/test-source-index-android.md",
+      "symbol": "source-test-index-android-locations",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-index-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SourceTestIndexTest.kt",
+      "page": ".hickory-source/frontends/test-source-index-android.md",
+      "symbol": "source-test-index-android-witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {
