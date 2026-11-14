@@ -399,4 +399,10 @@ Right-gutter actions use one vertical column at every width. Existing slot reser
 
 Verification: focused asynchronous index witnesses pass on TypeScript, Swift and Kotlin for the two-read bound, coalescing, duplicate suppression, stale refusal, independent failure, stop, primary/foreign ownership and position bounds. The real browser flow uses adjacent one-line tests with an existing debug action, checks unchanged later-row coordinates while opening the gutter menu, and reaches the fresh source inspection. Its existing real-run, exact-caret, admission-history, retained-draft/editor and stale-save checks also pass. Focused shared rail/slot checks, TypeScript checking, macOS/Android compilation, iOS simulator build and reconstruction/audit pass. Native pointer/overflow-grid acceptance remains unverified.
 
+## Saved-revision runner discovery
+
+The shared runner-discovery endpoint now returns a versioned observation: reported test names, normalized workspace-relative source paths when available, the saved hashes captured before the runner starts, a fingerprint and whether those files changed during discovery. A changed snapshot is historical; an empty snapshot is unknown. Files are not frozen, and these bounded workspace snapshots do not claim to include every runtime dependency. Discovery may build/import a project and stays distinct from read-only source inspection and completed test results.
+
+Verification: two focused model/path witnesses pass. A real Cargo HTTP witness creates a fresh dependency-free crate, proves that lockfile creation retires the first observation without replacing its before hashes, obtains a current stable second listing, and checks a later source edit changes the identity. Its test body never runs. TypeScript checking and reconstruction/audit pass. Shared floating coverage/results integration remains separate work.
+
 </ui:doc>

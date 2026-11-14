@@ -49,6 +49,17 @@ export interface CoverageComparison { shared: string[]; left_only: string[]; rig
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/coverage/types.ts"><storycode:paste select="#f-f19aeadf1793-CoverageFile"/><storycode:paste select="#f-f19aeadf1793-CoverageIdentity"/><storycode:paste select="#f-f19aeadf1793-CoverageRun"/><storycode:paste select="#f-f19aeadf1793-CoverageComparison"/></storycode:file>
+## Keep runner listings separate from completed test evidence
+
+A versioned listing retains the saved hashes captured before runner discovery, and reports whether those files changed while it ran. Positive provider locations still require an exact current-buffer check before precise navigation. Older unversioned listings may remain readable but cannot claim this source binding.
+
+<storycode:copy id="runner-discovery-protocol">
+export interface CoverageDiscovery {
+  version:1;tests:CoverageRun["tests"];output:string;metadata:CoverageRun["metadata"];project:string;language:string;discovery:"runner";
+  source_hashes:Record<string,string>;source_state:"current"|"historical"|"unknown";source_changed_during_discovery:boolean;source_frozen:false;workspace_id:string;fingerprint:string;
+}
+</storycode:copy>
+
+<storycode:file path="apps/web/src/coverage/types.ts"><storycode:paste select="#f-f19aeadf1793-CoverageFile"/><storycode:paste select="#f-f19aeadf1793-CoverageIdentity"/><storycode:paste select="#f-f19aeadf1793-CoverageRun"/><storycode:paste select="#f-f19aeadf1793-CoverageComparison"/><storycode:paste select="#runner-discovery-protocol"/></storycode:file>
 
 </storycode:doc>

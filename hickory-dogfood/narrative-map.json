@@ -152095,6 +152095,48 @@
       "page": ".hickory-source/frontends/source-test-gutters-android.md",
       "symbol": "source-test-gutters-android",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "runner-discovery-observation-0",
+      "output": "crates/hickory-cli/src/coverage/discovery.rs",
+      "page": ".hickory-source/mechanisms/runner-discovery-observations.md",
+      "symbol": "runner-discovery-observation-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "runner-discovery-observation-1",
+      "output": "crates/hickory-cli/src/coverage/discovery.rs",
+      "page": ".hickory-source/mechanisms/runner-discovery-observations.md",
+      "symbol": "runner-discovery-observation-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "runner-discovery-observation-2",
+      "output": "crates/hickory-cli/src/coverage/discovery.rs",
+      "page": ".hickory-source/mechanisms/runner-discovery-observations.md",
+      "symbol": "runner-discovery-observation-2",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "runner-discovery-http-0",
+      "output": "scripts/test-runner-discovery.py",
+      "page": ".hickory-source/mechanisms/runner-discovery-http-witness.md",
+      "symbol": "runner-discovery-http-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "runner-discovery-http-1",
+      "output": "scripts/test-runner-discovery.py",
+      "page": ".hickory-source/mechanisms/runner-discovery-http-witness.md",
+      "symbol": "runner-discovery-http-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "runner-discovery-protocol",
+      "output": "apps/web/src/coverage/types.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/coverage/types.ts.md",
+      "symbol": "Keep runner listings separate from completed test evidence",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

@@ -26005,7 +26005,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-f19aeadf1793-CoverageFile",
         "f-f19aeadf1793-CoverageIdentity",
         "f-f19aeadf1793-CoverageRun",
-        "f-f19aeadf1793-CoverageComparison"
+        "f-f19aeadf1793-CoverageComparison",
+        "runner-discovery-protocol"
       ],
       "anchor": "output-f19aeadf1793",
       "narrative_owner": "mechanism:apps/web"
@@ -68972,6 +68973,31 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "source-test-gutters-android"
+      ]
+    },
+    "crates/hickory-cli/src/coverage/discovery.rs": {
+      "source": ".hickory-source/mechanisms/runner-discovery-observations.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "96c26e5a9a1436c0391d364057ae2ec0c3fd7532c952887bf2e9bd8ebfb24cfd",
+      "construction": "fragments",
+      "fragments": [
+        "runner-discovery-observation-0",
+        "runner-discovery-observation-1",
+        "runner-discovery-observation-2"
+      ]
+    },
+    "scripts/test-runner-discovery.py": {
+      "source": ".hickory-source/mechanisms/runner-discovery-http-witness.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "782640e5d42ee977fbe745be50d38d627af0d35581415208f67f65a0edc5a4f9",
+      "construction": "fragments",
+      "fragments": [
+        "runner-discovery-http-0",
+        "runner-discovery-http-1"
       ]
     }
   },

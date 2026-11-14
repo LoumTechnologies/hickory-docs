@@ -12,3 +12,7 @@ export interface CoverageRun {
   mappings: Record<string, Record<string, { path: string; line: number }>>;
 }
 export interface CoverageComparison { shared: string[]; left_only: string[]; right_only: string[]; missed: string[]; denominator: number }
+export interface CoverageDiscovery {
+  version:1;tests:CoverageRun["tests"];output:string;metadata:CoverageRun["metadata"];project:string;language:string;discovery:"runner";
+  source_hashes:Record<string,string>;source_state:"current"|"historical"|"unknown";source_changed_during_discovery:boolean;source_frozen:false;workspace_id:string;fingerprint:string;
+}

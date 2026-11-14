@@ -1,5 +1,6 @@
 //! Project testing and instrumented manual sessions. UI and MCP use this service.
 mod commands;
+mod discovery;
 pub(crate) use runner::execute;
 mod mapping;
 #[cfg(test)]
@@ -157,14 +158,7 @@ pub async fn dispatch(root: &Path, request: Request) -> Result<Value> {
         }
         "discover" => {
             let project = project(&root, &request)?;
-            let metadata = config(&project)?;
-            let command = commands::discovery(&project, &request.language)?;
-            let output = runner::execute(&command, &project, None).await?;
-            ensure!(output.code == Some(0), "Discovery failed: {}", output.text);
-            let tests = results::discover(&request.language, &output.text, &metadata);
-            Ok(
-                json!({"tests":tests,"output":output.text,"metadata":metadata,"project":store::relative(&root,&project),"discovery":"runner","source_hashes":snapshot(&root)?}),
-            )
+            discovery::inspect(&root,&project,&request.language).await
         }
         "run" | "manual-start" => {
             let project = project(&root, &request)?;
