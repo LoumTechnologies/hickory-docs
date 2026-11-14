@@ -73,6 +73,7 @@ use crate::child_lsp::{ChildLspError, ChildLspHandle, ChildNotification};
 pub struct Dispatcher {
     /// Map from (language_id, root_uri) to child LSP handle.
     children: HashMap<(String, String), ChildLspHandle>,
+    capabilities: HashMap<(String, String), serde_json::Value>,
     /// Shared sender for all child notifications.
     notification_tx: mpsc::UnboundedSender<ChildNotification>,
     /// Each child's semantic-token legend, captured from its initialize
@@ -107,6 +108,7 @@ impl Dispatcher {
     pub fn new(notification_tx: mpsc::UnboundedSender<ChildNotification>) -> Self {
         Self {
             children: HashMap::new(),
+            capabilities: HashMap::new(),
             notification_tx,
             legends: HashMap::new(),
         }
@@ -127,6 +129,13 @@ impl Dispatcher {
             let handle =
                 ChildLspHandle::spawn(language_id, root_uri, self.notification_tx.clone()).await?;
             let result = handle.initialize(root_uri).await?;
+            self.capabilities.insert(
+                k.clone(),
+                result
+                    .get("capabilities")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null),
+            );
             if let Some(legend) = semantic_legend(&result) {
                 self.legends.insert(k.clone(), legend);
             }
@@ -172,6 +181,8 @@ impl Dispatcher {
 
     /// Shut down all child LSP servers.
     pub async fn shutdown_all(&mut self) {
+        self.capabilities.clear();
+        self.legends.clear();
         for ((language_id, root_uri), handle) in self.children.drain() {
             if let Err(e) = handle.shutdown().await {
                 tracing::warn!(
@@ -272,7 +283,20 @@ mod tests {
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-lsp/src/dispatcher.rs"><storycode:paste select="#f-cd294aeb3b8e-Dispatcher"/><storycode:paste select="#f-cd294aeb3b8e-key"/><storycode:paste select="#f-cd294aeb3b8e-impl-Dispatcher"/><storycode:paste select="#f-cd294aeb3b8e-semantic_legend"/><storycode:paste select="#f-cd294aeb3b8e-tests"/></storycode:file>
+## Retain the actual child capability declaration
+
+Retain each child initialization declaration under its language and root. Optional resolution is offered only through a child that declared it; one provider cannot donate its capability or opaque state to another. Clear these declarations when those child processes shut down.
+
+<storycode:copy id="provider-child-capability-read">
+
+impl Dispatcher {
+    pub fn server_capabilities(&self, language: &str, root: &str) -> Option<&serde_json::Value> {
+        self.capabilities.get(&key(language, root))
+    }
+}
+</storycode:copy>
+
+<storycode:file path="crates/hick-lsp/src/dispatcher.rs"><storycode:paste select="#f-cd294aeb3b8e-Dispatcher"/><storycode:paste select="#f-cd294aeb3b8e-key"/><storycode:paste select="#f-cd294aeb3b8e-impl-Dispatcher"/><storycode:paste select="#f-cd294aeb3b8e-semantic_legend"/><storycode:paste select="#f-cd294aeb3b8e-tests"/><storycode:paste select="#provider-child-capability-read"/></storycode:file>
 
 <a id="output-3d1198a4d2c1"></a>
 ## `crates/hick-lsp/src/semantic.rs`

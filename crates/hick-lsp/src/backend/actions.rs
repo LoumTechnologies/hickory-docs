@@ -1,0 +1,186 @@
+use super::*;
+use crate::child_lsp::ChildLspHandle;
+use crate::provider_artifacts::ProviderArtifacts;
+use serde_json::{Value, json};
+use std::time::{Duration, Instant};
+#[derive(Clone)]
+struct PreparedAction {
+    original: Value,
+    handle: ChildLspHandle,
+    resolve: bool,
+}
+pub(super) struct PreparedActions {
+    values: ProviderArtifacts<PreparedAction>,
+}
+impl Default for PreparedActions {
+    fn default() -> Self {
+        Self {
+            values: ProviderArtifacts::new(1024, Duration::from_secs(120)),
+        }
+    }
+}
+impl HickBackend {
+    async fn action_source_revision(&self) -> String {
+        let index = self.vfile_index.read().await;
+        crate::source_identity::source_graph_fingerprint(
+            index
+                .iter()
+                .map(|(uri, mapping)| (uri.as_str(), mapping.source_revision)),
+        )
+    }
+    async fn require_action_revision(&self, expected: &str) -> Result<()> {
+        if self.action_source_revision().await == expected {
+            Ok(())
+        } else {
+            Err(tower_lsp::jsonrpc::Error::invalid_params(
+                "Source or ownership changed. Request provider actions again.",
+            ))
+        }
+    }
+    pub(super) async fn provider_code_actions(
+        &self,
+        params: CodeActionParams,
+    ) -> Result<Option<CodeActionResponse>> {
+        let revision = self.action_source_revision().await;
+        let uri = params.text_document.uri;
+        let Some((vf_uri, language, start)) = self.virtual_target(&uri, params.range.start).await
+        else {
+            return Ok(None);
+        };
+        let (end, diagnostics) = {
+            let index = self.vfile_index.read().await;
+            let end = index
+                .get(&vf_uri)
+                .and_then(|mapping| {
+                    mapping
+                        .position_map
+                        .to_virtual(params.range.end.line, params.range.end.character)
+                })
+                .unwrap_or((start.line, start.character));
+            let requested = Range::new(start, Position::new(end.0, end.1));
+            (
+                end,
+                index
+                    .get(&vf_uri)
+                    .map(|mapping| {
+                        provider_action_diagnostics(&mapping.provider_diagnostics, requested)
+                    })
+                    .unwrap_or_default(),
+            )
+        };
+        let Some(root) = self.root_of(&vf_uri).await else {
+            return Ok(None);
+        };
+        let (handle, resolve) = {
+            let dispatcher = self.dispatcher.lock().await;
+            let Ok(handle) = dispatcher.get_child(&language, &root) else {
+                return Ok(None);
+            };
+            let resolve = dispatcher
+                .server_capabilities(&language, &root)
+                .and_then(|value| value.pointer("/codeActionProvider/resolveProvider"))
+                .and_then(Value::as_bool)
+                == Some(true);
+            (handle.clone(), resolve)
+        };
+        self.require_action_revision(&revision).await?;
+        let result=handle.request("textDocument/codeAction",json!({"textDocument":{"uri":vf_uri},"range":{"start":start,"end":{"line":end.0,"character":end.1}},"context":{"diagnostics":diagnostics}})).await.map_err(child_request_error)?;
+        self.require_action_revision(&revision).await?;
+        if result.is_null() {
+            return Ok(None);
+        }
+        let originals = result.as_array().ok_or_else(|| {
+            tower_lsp::jsonrpc::Error::invalid_params("Malformed provider action list")
+        })?;
+        let index = self.index_snapshot().await;
+        self.require_action_revision(&revision).await?;
+        let mut translated = translate_edit_uris(result.clone(), &index)
+            .map_err(tower_lsp::jsonrpc::Error::invalid_params)?;
+        let entries = translated.as_array_mut().expect("translated action list");
+        let mut held = self.prepared_actions.lock().await;
+        for (original, action) in originals.iter().zip(entries.iter_mut()) {
+            // Raw Command alternatives are retained for an explicit client refusal.
+            if original.get("command").is_some_and(Value::is_string) {
+                continue;
+            }
+            let token = held.values.insert(
+                Instant::now(),
+                revision.clone(),
+                PreparedAction {
+                    original: original.clone(),
+                    handle: handle.clone(),
+                    resolve,
+                },
+            );
+            let object = action.as_object_mut().ok_or_else(|| {
+                tower_lsp::jsonrpc::Error::invalid_params("Malformed provider action")
+            })?;
+            object.insert("data".into(), json!({"hickory_action":token}));
+        }
+        serde_json::from_value(translated)
+            .map(Some)
+            .map_err(|error| {
+                tower_lsp::jsonrpc::Error::invalid_params(format!(
+                    "Malformed mapped action list: {error}"
+                ))
+            })
+    }
+    pub(super) async fn resolve_provider_action(&self, item: CodeAction) -> Result<CodeAction> {
+        let token = item
+            .data
+            .as_ref()
+            .and_then(|value| value.get("hickory_action"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                tower_lsp::jsonrpc::Error::invalid_params(
+                    "Unknown provider action. Request actions again.",
+                )
+            })?;
+        let revision = self.action_source_revision().await;
+        let prepared = self
+            .prepared_actions
+            .lock()
+            .await
+            .values
+            .get(Instant::now(), token, &revision)
+            .ok_or_else(|| {
+                tower_lsp::jsonrpc::Error::invalid_params(
+                    "Provider action expired or its source changed. Request actions again.",
+                )
+            })?;
+        let mut original = prepared.original;
+        if prepared.resolve {
+            self.require_action_revision(&revision).await?;
+            let result = prepared
+                .handle
+                .request("codeAction/resolve", original.clone())
+                .await
+                .map_err(child_request_error)?;
+            self.require_action_revision(&revision).await?;
+            let resolved = result.as_object().ok_or_else(|| {
+                tower_lsp::jsonrpc::Error::invalid_params("Provider did not resolve this action")
+            })?;
+            let object = original.as_object_mut().expect("held literal action");
+            for (key, value) in resolved {
+                object.insert(key.clone(), value.clone());
+            }
+        }
+        let index = self.index_snapshot().await;
+        self.require_action_revision(&revision).await?;
+        let mapped = translate_edit_uris(json!([original]), &index)
+            .map_err(tower_lsp::jsonrpc::Error::invalid_params)?;
+        let mut action = mapped
+            .as_array()
+            .and_then(|entries| entries.first())
+            .cloned()
+            .ok_or_else(|| {
+                tower_lsp::jsonrpc::Error::invalid_params("Malformed resolved provider action")
+            })?;
+        action["data"] = json!({"hickory_action":token});
+        serde_json::from_value(action).map_err(|error| {
+            tower_lsp::jsonrpc::Error::invalid_params(format!(
+                "Malformed resolved provider action: {error}"
+            ))
+        })
+    }
+}

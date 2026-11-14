@@ -461,6 +461,8 @@ fn initialize_request(root_uri: &str) -> Value {
                     "foldingRange": { "lineFoldingOnly": false },
                     "selectionRange": {},
                     "codeAction": {
+                        "dataSupport":true,
+                        "resolveSupport":{"properties":["edit","command"]},
                         "codeActionLiteralSupport": {
                             "codeActionKind": {
                                 "valueSet": ["quickfix", "refactor", "source"],

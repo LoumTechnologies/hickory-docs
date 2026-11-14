@@ -298,4 +298,6 @@ is included with that control; opening a document is not generation authority.
 <storycode:include file="native-coverage-surface.md" />
 <storycode:include file="source-digests.md" />
 <storycode:include file="reference-source-acquisition.md" />
+<storycode:include file="provider-action-artifacts.md" />
+<storycode:include file="provider-action-protocol-witness.md" />
 </storycode:doc>

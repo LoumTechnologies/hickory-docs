@@ -152460,6 +152460,97 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/workspace-changes-android.md",
       "symbol": "native-change-request-android-witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-source-graph-identity-model",
+      "output": "crates/hick-lsp/src/source_identity.rs",
+      "page": ".hickory-source/mechanisms/provider-action-artifacts.md",
+      "symbol": "provider-source-graph-identity-model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-source-graph-identity-witness",
+      "output": "crates/hick-lsp/src/source_identity.rs",
+      "page": ".hickory-source/mechanisms/provider-action-artifacts.md",
+      "symbol": "provider-source-graph-identity-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-artifact-retention-model",
+      "output": "crates/hick-lsp/src/provider_artifacts.rs",
+      "page": ".hickory-source/mechanisms/provider-action-artifacts.md",
+      "symbol": "provider-artifact-retention-model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-artifact-retention-witness",
+      "output": "crates/hick-lsp/src/provider_artifacts.rs",
+      "page": ".hickory-source/mechanisms/provider-action-artifacts.md",
+      "symbol": "provider-artifact-retention-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-action-source-context",
+      "output": "crates/hick-lsp/src/backend/actions.rs",
+      "page": ".hickory-source/mechanisms/provider-action-artifacts.md",
+      "symbol": "provider-action-source-context",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-action-query",
+      "output": "crates/hick-lsp/src/backend/actions.rs",
+      "page": ".hickory-source/mechanisms/provider-action-artifacts.md",
+      "symbol": "provider-action-query",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-action-resolve",
+      "output": "crates/hick-lsp/src/backend/actions.rs",
+      "page": ".hickory-source/mechanisms/provider-action-artifacts.md",
+      "symbol": "provider-action-resolve",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-artifact-mechanism-modules",
+      "output": "crates/hick-lsp/src/lib.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/lib.rs.md",
+      "symbol": "Keep provider artifacts separate from transport",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-action-module",
+      "output": "crates/hick-lsp/src/backend.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/backend.rs.md",
+      "symbol": "Route action resolution through held provider state",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-child-capability-read",
+      "output": "crates/hick-lsp/src/dispatcher.rs",
+      "page": ".hickory-source/guarantees/editor-intelligence/the-meta-lsp-forwards-what-the-child-supports/contract.md",
+      "symbol": "Retain the actual child capability declaration",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "controlled-action-provider",
+      "output": "scripts/controlled-action-provider.py",
+      "page": ".hickory-source/mechanisms/provider-action-protocol-witness.md",
+      "symbol": "controlled-action-provider",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-action-protocol-driver",
+      "output": "scripts/provider-actions-driver.mjs",
+      "page": ".hickory-source/mechanisms/provider-action-protocol-witness.md",
+      "symbol": "provider-action-protocol-driver",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-action-isolated-engine-witness",
+      "output": "scripts/test-provider-actions.py",
+      "page": ".hickory-source/mechanisms/provider-action-protocol-witness.md",
+      "symbol": "provider-action-isolated-engine-witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

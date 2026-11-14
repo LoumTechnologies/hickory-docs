@@ -523,7 +523,10 @@ fn a_markdown_note_with_hick_elements_uses_the_hick_pipeline() {
         &uri,
         "<book:doc xmlns:book=\"http://www.hickorydocs.com/1.0\"><book:file path=\"a.ts\">const count = 1;</book:file></book:doc>"
     ));
-    assert!(is_hick_document(&uri, "---\nprefix: code\n---\n<code:file path=\"a.py\">pass</code:file>"));
+    assert!(is_hick_document(
+        &uri,
+        "---\nprefix: code\n---\n<code:file path=\"a.py\">pass</code:file>"
+    ));
 }
 
 </storycode:copy>
@@ -801,6 +804,7 @@ async fn diagnostic_revisions_bind_child_versions_and_preserve_unknown_messages(
     backend.vfile_index.write().await.insert(
         child.clone(),
         VFileMapping {
+            source_revision: crate::source_identity::SourceRevision::fresh(),
             hick_uri: authored.clone(),
             language_id: "python".into(),
             root_uri: "file:///workspace/".into(),
@@ -903,6 +907,7 @@ async fn diagnostic_revisions_follow_each_compiler_contributor() {
     backend.vfile_index.write().await.insert(
         child.clone(),
         VFileMapping {
+            source_revision: crate::source_identity::SourceRevision::fresh(),
             hick_uri: primary,
             language_id: "python".into(),
             root_uri: "file:///workspace/".into(),

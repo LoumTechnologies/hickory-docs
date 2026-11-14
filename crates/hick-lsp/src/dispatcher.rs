@@ -22,6 +22,7 @@ use crate::child_lsp::{ChildLspError, ChildLspHandle, ChildNotification};
 pub struct Dispatcher {
     /// Map from (language_id, root_uri) to child LSP handle.
     children: HashMap<(String, String), ChildLspHandle>,
+    capabilities: HashMap<(String, String), serde_json::Value>,
     /// Shared sender for all child notifications.
     notification_tx: mpsc::UnboundedSender<ChildNotification>,
     /// Each child's semantic-token legend, captured from its initialize
@@ -46,6 +47,7 @@ impl Dispatcher {
     pub fn new(notification_tx: mpsc::UnboundedSender<ChildNotification>) -> Self {
         Self {
             children: HashMap::new(),
+            capabilities: HashMap::new(),
             notification_tx,
             legends: HashMap::new(),
         }
@@ -66,6 +68,13 @@ impl Dispatcher {
             let handle =
                 ChildLspHandle::spawn(language_id, root_uri, self.notification_tx.clone()).await?;
             let result = handle.initialize(root_uri).await?;
+            self.capabilities.insert(
+                k.clone(),
+                result
+                    .get("capabilities")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null),
+            );
             if let Some(legend) = semantic_legend(&result) {
                 self.legends.insert(k.clone(), legend);
             }
@@ -111,6 +120,8 @@ impl Dispatcher {
 
     /// Shut down all child LSP servers.
     pub async fn shutdown_all(&mut self) {
+        self.capabilities.clear();
+        self.legends.clear();
         for ((language_id, root_uri), handle) in self.children.drain() {
             if let Err(e) = handle.shutdown().await {
                 tracing::warn!(
@@ -190,5 +201,11 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel();
         let d = Dispatcher::new(tx);
         assert!(d.children.is_empty());
+    }
+}
+
+impl Dispatcher {
+    pub fn server_capabilities(&self, language: &str, root: &str) -> Option<&serde_json::Value> {
+        self.capabilities.get(&key(language, root))
     }
 }

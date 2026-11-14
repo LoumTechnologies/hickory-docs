@@ -36,3 +36,6 @@ pub use project::{
     MaterializedProject, ProjectEndpoint, debug_selection, endpoint, latest_file, materialize,
     to_endpoint, to_source, utf16_position, write_tree,
 };
+
+mod provider_artifacts;
+mod source_identity;

@@ -45436,7 +45436,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-c936496a03c1-parse_error_location",
         "f-c936496a03c1-tests",
         "static-language-capture-readiness",
-        "diagnostic-source-revision-envelope"
+        "diagnostic-source-revision-envelope",
+        "provider-action-module"
       ],
       "anchor": "output-c936496a03c1",
       "narrative_owner": "mechanism:crates/hick-lsp"
@@ -45555,7 +45556,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-cd294aeb3b8e-key",
         "f-cd294aeb3b8e-impl-Dispatcher",
         "f-cd294aeb3b8e-semantic_legend",
-        "f-cd294aeb3b8e-tests"
+        "f-cd294aeb3b8e-tests",
+        "provider-child-capability-read"
       ],
       "anchor": "output-cd294aeb3b8e",
       "narrative_owner": "editor-intelligence/the-meta-lsp-forwards-what-the-child-supports.md"
@@ -45653,7 +45655,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-e8bff405197e-virtual_file",
         "f-e8bff405197e-use_declaration-2",
         "f-e8bff405197e-use_declaration-3",
-        "f-e8bff405197e-use_declaration-4"
+        "f-e8bff405197e-use_declaration-4",
+        "provider-artifact-mechanism-modules"
       ],
       "anchor": "output-e8bff405197e",
       "narrative_owner": "mechanism:crates/hick-lsp"
@@ -69433,6 +69436,76 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "native-change-request-android-witness"
+      ]
+    },
+    "crates/hick-lsp/src/source_identity.rs": {
+      "source": ".hickory-source/mechanisms/provider-action-artifacts.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "41ec7aef9fa602198860ab8ad7860d0ca48bcb2be84c8427155191054cf50bb1",
+      "construction": "fragments",
+      "fragments": [
+        "provider-source-graph-identity-model",
+        "provider-source-graph-identity-witness"
+      ]
+    },
+    "crates/hick-lsp/src/provider_artifacts.rs": {
+      "source": ".hickory-source/mechanisms/provider-action-artifacts.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "daadf4faf6d5823a7b22fd026f4b66812ea0efa520f156ef2254d7ad993a39cc",
+      "construction": "fragments",
+      "fragments": [
+        "provider-artifact-retention-model",
+        "provider-artifact-retention-witness"
+      ]
+    },
+    "crates/hick-lsp/src/backend/actions.rs": {
+      "source": ".hickory-source/mechanisms/provider-action-artifacts.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "da0b8c6963736804bf2ec0f2ba0e7189a1f33725e7ca74a91915d8341325f959",
+      "construction": "fragments",
+      "fragments": [
+        "provider-action-source-context",
+        "provider-action-query",
+        "provider-action-resolve"
+      ]
+    },
+    "scripts/controlled-action-provider.py": {
+      "source": ".hickory-source/mechanisms/provider-action-protocol-witness.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "87d837f784ef921cf0e966e0f639e004893e7e92e8a4fd041cd01853a02effe9",
+      "construction": "fragments",
+      "fragments": [
+        "controlled-action-provider"
+      ]
+    },
+    "scripts/provider-actions-driver.mjs": {
+      "source": ".hickory-source/mechanisms/provider-action-protocol-witness.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "74399536bacf3087b8f1ff2619bd245ead2156275ab70027f45be7f20b349c13",
+      "construction": "fragments",
+      "fragments": [
+        "provider-action-protocol-driver"
+      ]
+    },
+    "scripts/test-provider-actions.py": {
+      "source": ".hickory-source/mechanisms/provider-action-protocol-witness.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "383b6abcc7952bb0f114a1975109776225017d738d536af1c68d490dec73b636",
+      "construction": "fragments",
+      "fragments": [
+        "provider-action-isolated-engine-witness"
       ]
     }
   },

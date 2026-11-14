@@ -57,6 +57,7 @@ impl HickBackend {
             index.insert(
                 physical,
                 VFileMapping {
+                    source_revision: crate::source_identity::SourceRevision::fresh(),
                     provider_diagnostics: Vec::new(),
                     provider_source: text.to_string(),
                     provider_version: None,

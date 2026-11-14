@@ -191,6 +191,7 @@ pub struct HickBackend {
     /// Call and type hierarchy are three-step protocols: `prepare…` answers
     /// with items, and the client hands one back to ask for its callers or
     prepared_hierarchy: Arc<RwLock<HashMap<String, PreparedHierarchyItem>>>,
+    prepared_actions: Arc<Mutex<actions::PreparedActions>>,
     workspace_root: Arc<RwLock<Option<Url>>>,
     staging: StagingArea,
     projects: Arc<crate::ProjectContexts>,
@@ -225,6 +226,8 @@ Maps a virtual file URI back to the source .md document.
 <storycode:copy id="f-c936496a03c1-VFileMapping">
 /// Maps a virtual file URI back to the source .md document.
 struct VFileMapping {
+    /// Identity of this installed source/ownership construction.
+    source_revision: crate::source_identity::SourceRevision,
     /// The .md document URI.
     hick_uri: Url,
     /// The language ID of this virtual file (for routing to child LSPs).
@@ -332,6 +335,7 @@ impl HickBackend {
             child_diagnostics: Arc::new(RwLock::new(HashMap::new())),
             last_completion_language: Arc::new(RwLock::new(None)),
             prepared_hierarchy: Arc::new(RwLock::new(HashMap::new())),
+            prepared_actions: Arc::new(Mutex::new(actions::PreparedActions::default())),
             staging: StagingArea::new(),
             projects: Arc::new(crate::ProjectContexts::default()),
             staging_failure_shown: Arc::new(RwLock::new(false)),
@@ -581,6 +585,7 @@ impl HickBackend {
                 index.insert(
                     vf_uri.clone(),
                     VFileMapping {
+                        source_revision: crate::source_identity::SourceRevision::fresh(),
                         hick_uri: hick_uri.clone(),
                         language_id: lang_id.to_string(),
                         root_uri: root_uri.clone(),
@@ -707,6 +712,7 @@ impl HickBackend {
             index.insert(
                 child_uri.clone(),
                 VFileMapping {
+                    source_revision: crate::source_identity::SourceRevision::fresh(),
                     hick_uri: uri.clone(),
                     language_id: language_id.to_string(),
                     root_uri: root_uri.clone(),
@@ -2036,7 +2042,12 @@ impl LanguageServer for HickBackend {
                 call_hierarchy_provider: Some(CallHierarchyServerCapability::Simple(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
-                code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                code_action_provider: Some(CodeActionProviderCapability::Options(
+                    CodeActionOptions {
+                        resolve_provider: Some(true),
+                        ..Default::default()
+                    },
+                )),
                 code_lens_provider: Some(CodeLensOptions {
                     resolve_provider: Some(false),
                 }),
@@ -2653,45 +2664,10 @@ impl LanguageServer for HickBackend {
     }
 
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
-        // Actions come back carrying workspace edits whose URIs name virtual
-        // files; those are rewritten to the document by `translate_edit_uris`
-        // so applying one edits the document, never a file on no disk.
-        let uri = params.text_document.uri.clone();
-        let Some((vf_uri, lang, vpos)) = self.virtual_target(&uri, params.range.start).await else {
-            return Ok(None);
-        };
-        let ((vend_line, vend_char), diagnostics) = {
-            let index = self.vfile_index.read().await;
-            let end = index
-                .get(&vf_uri)
-                .and_then(|m| {
-                    m.position_map
-                        .to_virtual(params.range.end.line, params.range.end.character)
-                })
-                .unwrap_or((vpos.line, vpos.character));
-            let range = Range::new(vpos, Position::new(end.0, end.1));
-            let diagnostics = index
-                .get(&vf_uri)
-                .map(|mapping| provider_action_diagnostics(&mapping.provider_diagnostics, range))
-                .unwrap_or_default();
-            (end, diagnostics)
-        };
-        let extra = serde_json::json!({
-            "range": {
-                "start": { "line": vpos.line, "character": vpos.character },
-                "end": { "line": vend_line, "character": vend_char },
-            },
-            "context": { "diagnostics": diagnostics },
-        });
-        let Some(result) = self
-            .child_request_result("textDocument/codeAction", &vf_uri, &lang, vpos, Some(extra))
-            .await?
-        else {
-            return Ok(None);
-        };
-        let index = self.index_snapshot().await;
-        let translated = translate_edit_uris(result, &index).map_err(tower_lsp::jsonrpc::Error::invalid_params)?;
-        Ok(serde_json::from_value(translated).ok())
+        self.provider_code_actions(params).await
+    }
+    async fn code_action_resolve(&self, item: CodeAction) -> Result<CodeAction> {
+        self.resolve_provider_action(item).await
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
@@ -2713,8 +2689,15 @@ impl LanguageServer for HickBackend {
             return Ok(None);
         };
         let index = self.index_snapshot().await;
-        let translated = translate_edit_uris(result, &index).map_err(tower_lsp::jsonrpc::Error::invalid_params)?;
-        serde_json::from_value(translated).map(Some).map_err(|error| tower_lsp::jsonrpc::Error::invalid_params(format!("Malformed mapped rename: {error}")))
+        let translated = translate_edit_uris(result, &index)
+            .map_err(tower_lsp::jsonrpc::Error::invalid_params)?;
+        serde_json::from_value(translated)
+            .map(Some)
+            .map_err(|error| {
+                tower_lsp::jsonrpc::Error::invalid_params(format!(
+                    "Malformed mapped rename: {error}"
+                ))
+            })
     }
 
     async fn prepare_rename(
@@ -3003,7 +2986,9 @@ impl HickBackend {
         let parsed = documents
             .get(&uri)
             .is_some_and(|entry| entry.state.is_some());
-        let open_files = documents.get(&uri).map_or(0, |entry| entry.open_vfiles.len());
+        let open_files = documents
+            .get(&uri)
+            .map_or(0, |entry| entry.open_vfiles.len());
         Ok(serde_json::json!({"processed": true, "parsed": parsed, "open_files": open_files}))
     }
 }
@@ -3027,6 +3012,15 @@ fn diagnostic_source_revision(mut diagnostic: Diagnostic, source_hash: Option<&s
 }
 </storycode:copy>
 
-<storycode:file path="crates/hick-lsp/src/backend.rs"><storycode:paste select="#f-c936496a03c1-diagnostic_context"/><storycode:paste select="#f-c936496a03c1-use_declaration"/><storycode:paste select="#f-c936496a03c1-captured"/><storycode:paste select="#f-c936496a03c1-use_declaration-2"/><storycode:paste select="#f-c936496a03c1-use_declaration-3"/><storycode:paste select="#f-c936496a03c1-use_declaration-4"/><storycode:paste select="#f-c936496a03c1-use_declaration-5"/><storycode:paste select="#f-c936496a03c1-use_declaration-6"/><storycode:paste select="#f-c936496a03c1-use_declaration-7"/><storycode:paste select="#f-c936496a03c1-use_declaration-8"/><storycode:paste select="#f-c936496a03c1-use_declaration-9"/><storycode:paste select="#f-c936496a03c1-use_declaration-10"/><storycode:paste select="#f-c936496a03c1-use_declaration-11"/><storycode:paste select="#f-c936496a03c1-use_declaration-12"/><storycode:paste select="#f-c936496a03c1-use_declaration-13"/><storycode:paste select="#f-c936496a03c1-use_declaration-14"/><storycode:paste select="#f-c936496a03c1-ChildDiagnosticsStore"/><storycode:paste select="#f-c936496a03c1-PreparedHierarchyItem"/><storycode:paste select="#f-c936496a03c1-uuid_ish"/><storycode:paste select="#f-c936496a03c1-HickBackend"/><storycode:paste select="#f-c936496a03c1-DocEntry"/><storycode:paste select="#f-c936496a03c1-VFileMapping"/><storycode:paste select="#yaml-frontmatter-projection"/><storycode:paste select="#f-c936496a03c1-impl-HickBackend"/><storycode:paste select="#static-language-capture-readiness"/><storycode:paste select="#f-c936496a03c1-StructuralKind"/><storycode:paste select="#f-c936496a03c1-drive_lowercased"/><storycode:paste select="#f-c936496a03c1-uri_key"/><storycode:paste select="#f-c936496a03c1-translate_edit_uris"/><storycode:paste select="#f-c936496a03c1-translate_bare_ranges"/><storycode:paste select="#f-c936496a03c1-MANIFESTS"/><storycode:paste select="#f-c936496a03c1-copy_manifests"/><storycode:paste select="#f-c936496a03c1-child_request_error"/><storycode:paste select="#f-c936496a03c1-handle_child_diagnostics"/><storycode:paste select="#f-c936496a03c1-impl-LanguageServer-for-HickBackend"/><storycode:paste select="#f-c936496a03c1-translate_edits"/><storycode:paste select="#f-c936496a03c1-reindent"/><storycode:paste select="#f-c936496a03c1-is_hick_document"/><storycode:paste select="#f-c936496a03c1-plain_language"/><storycode:paste select="#f-c936496a03c1-parse_error_location"/><storycode:paste select="#f-c936496a03c1-tests"/><storycode:paste select="#diagnostic-source-revision-envelope"/></storycode:file>
+## Route action resolution through held provider state
+
+The action module borrows the installed source graph and the exact child connection. A token cannot redirect an action through another language or substitute editor-authored provider data.
+
+<storycode:copy id="provider-action-module">
+
+mod actions;
+</storycode:copy>
+
+<storycode:file path="crates/hick-lsp/src/backend.rs"><storycode:paste select="#f-c936496a03c1-diagnostic_context"/><storycode:paste select="#f-c936496a03c1-use_declaration"/><storycode:paste select="#f-c936496a03c1-captured"/><storycode:paste select="#f-c936496a03c1-use_declaration-2"/><storycode:paste select="#f-c936496a03c1-use_declaration-3"/><storycode:paste select="#f-c936496a03c1-use_declaration-4"/><storycode:paste select="#f-c936496a03c1-use_declaration-5"/><storycode:paste select="#f-c936496a03c1-use_declaration-6"/><storycode:paste select="#f-c936496a03c1-use_declaration-7"/><storycode:paste select="#f-c936496a03c1-use_declaration-8"/><storycode:paste select="#f-c936496a03c1-use_declaration-9"/><storycode:paste select="#f-c936496a03c1-use_declaration-10"/><storycode:paste select="#f-c936496a03c1-use_declaration-11"/><storycode:paste select="#f-c936496a03c1-use_declaration-12"/><storycode:paste select="#f-c936496a03c1-use_declaration-13"/><storycode:paste select="#f-c936496a03c1-use_declaration-14"/><storycode:paste select="#f-c936496a03c1-ChildDiagnosticsStore"/><storycode:paste select="#f-c936496a03c1-PreparedHierarchyItem"/><storycode:paste select="#f-c936496a03c1-uuid_ish"/><storycode:paste select="#f-c936496a03c1-HickBackend"/><storycode:paste select="#f-c936496a03c1-DocEntry"/><storycode:paste select="#f-c936496a03c1-VFileMapping"/><storycode:paste select="#yaml-frontmatter-projection"/><storycode:paste select="#f-c936496a03c1-impl-HickBackend"/><storycode:paste select="#static-language-capture-readiness"/><storycode:paste select="#f-c936496a03c1-StructuralKind"/><storycode:paste select="#f-c936496a03c1-drive_lowercased"/><storycode:paste select="#f-c936496a03c1-uri_key"/><storycode:paste select="#f-c936496a03c1-translate_edit_uris"/><storycode:paste select="#f-c936496a03c1-translate_bare_ranges"/><storycode:paste select="#f-c936496a03c1-MANIFESTS"/><storycode:paste select="#f-c936496a03c1-copy_manifests"/><storycode:paste select="#f-c936496a03c1-child_request_error"/><storycode:paste select="#f-c936496a03c1-handle_child_diagnostics"/><storycode:paste select="#f-c936496a03c1-impl-LanguageServer-for-HickBackend"/><storycode:paste select="#f-c936496a03c1-translate_edits"/><storycode:paste select="#f-c936496a03c1-reindent"/><storycode:paste select="#f-c936496a03c1-is_hick_document"/><storycode:paste select="#f-c936496a03c1-plain_language"/><storycode:paste select="#f-c936496a03c1-parse_error_location"/><storycode:paste select="#f-c936496a03c1-tests"/><storycode:paste select="#diagnostic-source-revision-envelope"/><storycode:paste select="#provider-action-module"/></storycode:file>
 
 </storycode:doc>

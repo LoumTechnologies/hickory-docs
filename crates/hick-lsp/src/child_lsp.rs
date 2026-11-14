@@ -256,6 +256,8 @@ impl ChildLspHandle {
                     "documentSymbol": { "hierarchicalDocumentSymbolSupport": true },
                     "signatureHelp": { "signatureInformation": { "documentationFormat": ["markdown", "plaintext"] } },
                     "codeAction": {
+                        "dataSupport":true,
+                        "resolveSupport":{"properties":["edit","command"]},
                         "codeActionLiteralSupport": {
                             "codeActionKind": { "valueSet": ["quickfix", "refactor", "source"] }
                         }
