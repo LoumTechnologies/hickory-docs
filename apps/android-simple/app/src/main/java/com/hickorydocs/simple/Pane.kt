@@ -1001,6 +1001,7 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
                 menu = true; scope.launch { service?.inspect() }; scope.launch { service?.complete() }
             }.padding(4.dp).semantics { contentDescription = "Language tools" })
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                if (service != null) OutlinedTextField(service.symbolQuery, { service.symbolQuery = it }, label = { Text("Symbol search") }, singleLine = true)
                 for (query in SemanticQuery.entries) DropdownMenuItem(text = { Text(query.label) }, onClick = { scope.launch { service?.navigate(query) } })
                 Text("Editor settings", modifier = Modifier.padding(8.dp))
                 Text("Enter indentation", modifier = Modifier.padding(horizontal = 8.dp), fontSize = 12.sp)

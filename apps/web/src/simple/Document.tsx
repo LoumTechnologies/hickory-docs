@@ -1,33 +1,8 @@
-import type { LspLocation } from "../lsp/client";
-import type { LspSession } from "../lsp/useLsp";
 import { createContext, useContext, lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-export const semanticQueries = [
-  { kind: "definition", label: "Go to definition" },
-  { kind: "references", label: "Find usages" },
-  { kind: "typeDefinition", label: "Go to type definition" },
-  { kind: "implementation", label: "Find implementations" },
-] as const;
-export type SemanticQuery = typeof semanticQueries[number]["kind"];
-export function semanticPath(uri: string): string | null {
-  try {
-    const value = new URL(uri);
-    if (!uri.startsWith("hick:///") || /[?#]/.test(uri) || value.host || value.search || value.hash) return null;
-    // URL canonicalization erases dot segments; refuse them in the original URI.
-    const path = decodeURIComponent(uri.slice("hick:///".length));
-    if (!path || /[:\\\u0000-\u001f]/.test(path) || path.split("/").some(part => !part || part === "." || part === "..")) return null;
-    return path;
-  } catch { return null; }
-}
-export function semanticLocations(locations: readonly LspLocation[]): LspLocation[] {
-  const seen = new Set<string>();
-  return locations.filter(location => {
-    const position = location?.range?.start;
-    if (typeof location?.uri !== "string" || !position || !Number.isSafeInteger(position.line) || position.line < 0 || !Number.isSafeInteger(position.character) || position.character < 0) return false;
-    const key = JSON.stringify([location.uri, position]);
-    if (seen.has(key)) return false;
-    seen.add(key); return true;
-  });
-}
+import type { LspSession } from "../lsp/useLsp";
+import { semanticPath, semanticLocations, querySemanticLocations, type SemanticQuery, type SemanticLocation } from "./Intelligence";
+export { semanticQueries, semanticPath, semanticLocations, querySemanticLocations } from "./Intelligence";
+export type { SemanticQuery, SemanticLocation } from "./Intelligence";
 // Buffer lifetime owns language knowledge; a pane only borrows its session.
 class LanguageEntry {
   value: LspSession = { client: null, uri: "", ready: false, diagnostics: [] };
@@ -67,8 +42,8 @@ function useSimpleLanguage(buffer: Buffer): LspSession {
   const shared = useSyncExternalStore(entry.subscribe, entry.read);
   return registry ? shared : standalone;
 }
-const semanticCommands = new WeakMap<Buffer, (query: SemanticQuery) => void>();
-export function openSemanticQuery(buffer: Buffer, query: SemanticQuery) { semanticCommands.get(buffer)?.(query); }
+const semanticCommands = new WeakMap<Buffer, (query: SemanticQuery, text?: string) => void>();
+export function openSemanticQuery(buffer: Buffer, query: SemanticQuery, text = "") { semanticCommands.get(buffer)?.(query, text); }
 
 import { createPortal } from "react-dom";
 import type { TablePanelProps } from "../components/TablePanel";
@@ -248,26 +223,26 @@ export function Document({ buffer }: { buffer: Buffer }) {
   const changed = buffer.dirty || observationSourceChanged(debug.reading, buffer.text);
   const [debugNotice, setDebugNotice] = useState("");
   const session = useSimpleLanguage(buffer);
-  const [semanticResult, setSemanticResult] = useState<{ source: string; anchor: number; head: number; ticket: number; message: string; locations: LspLocation[] } | null>(null);
+  const [semanticResult, setSemanticResult] = useState<{ source: string; anchor: number; head: number; ticket: number; message: string; locations: SemanticLocation[] } | null>(null);
   const semanticTicket = useRef(0);
   const semanticPanel = useRef<HTMLDivElement>(null);
   useEffect(() => { if (semanticResult) semanticPanel.current?.focus(); }, [semanticResult !== null]);
   const [, refreshSemanticSelection] = useState(0);
   useEffect(() => {
     if (!view) return;
-    const query = async (kind: SemanticQuery) => {
+    const query = async (kind: SemanticQuery, text = "") => {
       const id = ++semanticTicket.current, client = session.client, source = view.state.doc.toString();
       const { anchor, head } = view.state.selection.main;
       const current = () => id === semanticTicket.current && view.dom.isConnected && view.state.doc.toString() === source && view.state.selection.main.anchor === anchor && view.state.selection.main.head === head;
-      const result = { source, anchor, head, ticket: id, message: "Searching…", locations: [] as LspLocation[] };
+      const result = { source, anchor, head, ticket: id, message: "Searching…", locations: [] as SemanticLocation[] };
       setSemanticResult(result);
       if (!client || !session.ready) { setSemanticResult({ ...result, message: "Language services unavailable. Install a server for this workspace, then retry." }); return; }
       try {
-        const locations = semanticLocations(await client[kind](session.uri, utf16ToPosition(source, head)));
+        const locations = await querySemanticLocations(client, session.uri, utf16ToPosition(source, head), kind, text);
         if (current()) setSemanticResult({ ...result, locations, message: locations.length ? `${locations.length} locations` : "No results. The provider may still be indexing or may not support this query. Retry or choose another symbol." });
       } catch (error) { if (current()) setSemanticResult({ ...result, message: `${String(error)}. Retry language services.` }); }
     };
-    semanticCommands.set(buffer, kind => { void query(kind); });
+    semanticCommands.set(buffer, (kind, text) => { void query(kind, text); });
     return () => { semanticTicket.current++; semanticCommands.delete(buffer); };
   }, [buffer, view, session.client, session.uri, session.ready]);
   useEffect(() => {
@@ -409,7 +384,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
           view.dispatch({ selection: { anchor }, effects: EditorView.scrollIntoView(anchor, { y: "center" }) }); view.focus();
         } else openLocation(path, location.range.start.line + 1, location.range.start.character);
         setSemanticResult(null);
-      }}>{path ?? location.uri}:{location.range.start.line + 1}:{location.range.start.character + 1}{!path ? " (unsupported target)" : ""}</button>; })}
+      }}>{location.name ? `${location.name} · ` : ""}{path ?? location.uri}:{location.range.start.line + 1}:{location.range.start.character + 1}{!path ? " (unsupported target)" : ""}</button>; })}
     </div>}
     {csv && <button type="button" className="simple-source-toggle" onClick={() => setCsvSource(value => !value)}>{csvSource ? "Edit table as grid" : "Edit source text"}</button>}
     {csv && csvReady && !csvSource && view && <Suspense fallback={<span>Loading table…</span>}><CsvGrid source={buffer.text} chooseFormulaLanguage header delimiter="," sourceCurrent={() => !buffer.readonly && view.state.doc.toString() === tableSource && buffer.text === tableSource}

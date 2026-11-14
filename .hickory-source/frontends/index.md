@@ -60,4 +60,6 @@ Each client reads text before requesting optional capabilities. A save uses the 
 <ui:include file="simple-showcase.md" />
 <ui:include file="scripts/test-simple-mobile-reload.py.md" />
 
+<ui:include file="intelligence.md" />
+
 </ui:doc>

@@ -300,34 +300,6 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         catch (failure: Exception) { if (epoch == current) message = "${failure.message} Check adapter installation and retry." }
     }
 }
-enum class SemanticQuery(val method: String, val label: String) {
-    Definition("textDocument/definition", "Go to definition"),
-    References("textDocument/references", "Find usages"),
-    TypeDefinition("textDocument/typeDefinition", "Go to type definition"),
-    Implementation("textDocument/implementation", "Find implementations")
-}
-data class SemanticLocation(val uri: String, val line: Int, val character: Int) {
-    val path: String? get() = runCatching {
-        val value = URI(uri)
-        if (!uri.startsWith("hick:///") || value.scheme != "hick" || !value.authority.isNullOrEmpty() || value.query != null || value.fragment != null) return null
-        val decoded = value.path ?: return null
-        if (!decoded.startsWith("/")) return null
-        val path = decoded.drop(1)
-        if (path.isEmpty() || path.any { it == ':' || it == '\\' || it.code < 32 } || path.split('/').any { it.isEmpty() || it == "." || it == ".." }) null else path
-    }.getOrNull()
-    val label: String get() = "${path ?: uri}:${line + 1}:${character + 1}"
-}
-fun semanticLocations(result: Any): List<SemanticLocation> {
-    val items = when (result) { is JSONArray -> (0 until result.length()).mapNotNull { result.optJSONObject(it) }; is JSONObject -> listOf(result); else -> emptyList() }
-    return items.mapNotNull { item ->
-        val uri = item.optString("uri").ifEmpty { item.optString("targetUri") }
-        val range = item.optJSONObject("range") ?: item.optJSONObject("targetSelectionRange") ?: item.optJSONObject("targetRange")
-        val start = range?.optJSONObject("start") ?: return@mapNotNull null
-        val line = start.optInt("line", -1); val character = start.optInt("character", -1)
-        if (uri.isEmpty() || line < 0 || character < 0) null else SemanticLocation(uri, line, character)
-    }.distinct()
-}
-
 data class NativeLanguageSpan(val from: Int, val to: Int, val kind: String)
 data class NativeLanguageDiagnostic(val message: String, val from: Int?, val to: Int?)
 data class NativeLanguageCompletion(val label: String, val detail: String, val edit: NativeSourceEdit, val source: String, val selection: androidx.compose.ui.text.TextRange)
@@ -375,8 +347,10 @@ fun rebaseNativeTokens(tokens: List<NativeLanguageSpan>, old: String, new: Strin
     }
 }
 class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuffer, private val scope: CoroutineScope) {
+    var symbolQuery by mutableStateOf("")
     var locations by mutableStateOf<List<SemanticLocation>>(emptyList())
     var locationStatus by mutableStateOf("")
+    private var locationSymbolQuery: String? = null
     var locationSource by mutableStateOf("")
     var locationSelection by mutableStateOf(androidx.compose.ui.text.TextRange.Zero)
     private var navigation = 0
@@ -498,17 +472,30 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
     suspend fun navigate(query: SemanticQuery) {
         val source = buffer.text; val selection = buffer.state.selection; val current = epoch; val id = ++navigation
         locationSource = source; locationSelection = selection; locations = emptyList(); locationStatus = "Searching…"
+        locationSymbolQuery = if (query == SemanticQuery.Symbols) symbolQuery else null
         try {
             sync()
-            val params = JSONObject().put("textDocument", doc()).put("position", languagePosition(source, selection.min))
+            var params = JSONObject().put("textDocument", doc()).put("position", languagePosition(source, selection.min))
             if (query == SemanticQuery.References) params.put("context", JSONObject().put("includeDeclaration", true))
-            val result = request(query.method, params)
+            if (query == SemanticQuery.Symbols) params = JSONObject().put("query", locationSymbolQuery)
+            if (query == SemanticQuery.Outline) params = JSONObject().put("textDocument", doc())
+            var result = request(query.method, params)
+            if (query == SemanticQuery.Callers || query == SemanticQuery.Callees) {
+                val items = result as? JSONArray ?: JSONArray()
+                check(items.length() <= 32) { "Too many call targets. Choose a more specific symbol." }
+                val answers = JSONArray()
+                for (index in 0 until items.length()) {
+                    if (navigation != id || epoch != current || buffer.text != source || buffer.state.selection != selection) return
+                    answers.put(request(if (query == SemanticQuery.Callers) "callHierarchy/incomingCalls" else "callHierarchy/outgoingCalls", JSONObject().put("item", items.get(index))))
+                }
+                result = answers
+            }
             if (navigation != id || epoch != current || buffer.text != source || buffer.state.selection != selection) {
                 if (navigation == id && epoch == current) locationStatus = "Source or cursor changed. Run the query again."
                 return
             }
-            locations = semanticLocations(result)
-            locationStatus = if (locations.isEmpty()) "No results. The provider may still be indexing or may not support this query. Retry or choose another symbol." else "${locations.size} locations"
+            locations = semanticLocations(result, if (query == SemanticQuery.Outline) uri else null)
+            locationStatus = if (locations.isEmpty()) "No results. The provider may still be indexing or may not support this query. Retry or choose another symbol." else "${locations.size} locations" + if (locations.size >= 10000) "; narrow the query for more" else ""
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
         catch (failure: Exception) {
             if (navigation == id && epoch == current && buffer.text == source && buffer.state.selection == selection)
@@ -516,7 +503,7 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
         }
     }
     fun open(location: SemanticLocation): Boolean {
-        if (buffer.text != locationSource || buffer.state.selection != locationSelection || location !in locations || location.path == null) {
+        if (buffer.text != locationSource || buffer.state.selection != locationSelection || location !in locations || location.path == null || locationSymbolQuery != null && locationSymbolQuery != symbolQuery) {
             locationStatus = "Location is stale or outside authored workspace files. Run the query again."; return false
         }
         if (location.path == buffer.file.path) {

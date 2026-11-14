@@ -3,6 +3,30 @@
 
 For maintainers extending the new frontends without silently changing the comparison.
 
+## IDE parity required by the maintainer
+
+The requested parity is the set discussed in the IDE comparison, across browser, macOS, iOS and Android. Keep operations discoverable through existing menus, left/right gutters, minimap and status bar. Floating controls must not resize code. Typed workspace state and replaceable capability adapters own behavior independently of the renderer; no plugin marketplace or permanent feature toolbar is required.
+
+The complete outcome includes:
+
+- Whole-program navigation: files, types, members, usages, declarations, implementations, callers/callees, file outlines, text search, action search and back/forward history.
+- Safe changes: previewed multi-file rename, provider refactorings (including extract/move when supported), code actions, quick fixes, formatting/cleanup, code generation/templates, completion snippets/import edits and a coordinated undo path. Authored/generated ownership and source revisions remain authoritative.
+- Diagnosis: workspace Problems with next/previous navigation and source-bound contextual/bulk fixes.
+- Testing: discovery, source-adjacent run/debug, retained results and sessions, failure-to-source navigation, coverage and truthful source-revision evidence.
+- Review: source/generated diffs, staging, history, blame and conflict resolution, plus local history, crash recovery and session/layout restoration.
+- Debugging: verified supported-language adapters, profiles/attach, breakpoints/conditions, frames/threads, watches/evaluation and authored-source navigation.
+- Hickory behavior readings: contracts, explanations, implementation fragments, generated consequences, related tests and execution evidence are connected through declared or observed relationships whose status remains explicit.
+- Change impact: affected constructions/mechanisms and relevant checks explain their relationship, with unknowns retained. Evidence beside a claim distinguishes current, stale, manual and missing verification.
+- Agent review: coherent proposals expose explanation, implementation, generated consequences and checks before guarded application; inference is distinguished from observed evidence.
+
+These are required outcomes. Existing verification paragraphs establish only the explicitly tested slices; unsupported providers, missing relationships and unexecuted native acceptance must remain visible. JetBrains-specific language engines are supplied through existing language/provider interfaces; the UI must never claim an unavailable refactoring or an unmeasured test result.
+
+## Semantic intelligence extension, 2026-11-14
+
+The extracted TypeScript, Swift and Kotlin intelligence modules now normalize nested outlines, flat workspace symbols, declarations and caller/callee items into named source locations. The existing menus and floating language surfaces expose all nine queries. Position reads flush pending source before asking a provider. Six focused browser semantic witnesses and three focused model/snapshot witnesses on each native implementation pass. TypeScript and native compilation, plus the iOS simulator build, are checked separately. The real Python browser flow exercises cross-file definitions/usages, exact columns, file outlines, workspace symbols, incoming/outgoing calls, stationary geometry and unchanged disk bytes. Native pointer and live-provider acceptance remain unverified by these model checks.
+
+## Existing and extended editor behavior
+
 Given a reachable existing Hickory engine, each frontend exposes the same four pane kinds: files, text document, workspace agent and terminal. Plain and literate source open as text. Generated outputs open read-only in this slice. File and pane commands remain in menus or tab strips; editor content has no permanent feature toolbar.
 
 The workspace agent presents previous prompts and replies as read-only literate

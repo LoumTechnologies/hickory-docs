@@ -334,38 +334,13 @@ Typing must not tear down language features. Keep a display cache per buffer and
 
 ## Keep semantic results independent of Compose
 
+The pure query vocabulary and location decoder are constructed in the shared intelligence model included by the frontend reading. This adapter owns connection and buffer snapshots, independently of Compose.
+
+A provider can answer with locations, nested document symbols, flat workspace symbols or call-hierarchy items. Normalize those shapes to named source locations once. Outlines inherit the queried document identity; workspace symbols and calls must carry their own identity. Caller/callee reads prepare provider items before asking for incoming/outgoing calls. Bound ambiguous preparation and nesting, retain explicit limits, and do not infer absent call relationships.
+
 Use the same four source-position queries as the Apple and browser clients. Normalize Location and LocationLink into one location value and deduplicate provider results. URI identities remain displayable even when they cannot safely open an authored workspace file. The coroutine session owns request generations; Compose only renders its result and delegates opening to the workspace.
 
-<ui:copy id="simple-android-semantic-locations">
-enum class SemanticQuery(val method: String, val label: String) {
-    Definition("textDocument/definition", "Go to definition"),
-    References("textDocument/references", "Find usages"),
-    TypeDefinition("textDocument/typeDefinition", "Go to type definition"),
-    Implementation("textDocument/implementation", "Find implementations")
-}
-data class SemanticLocation(val uri: String, val line: Int, val character: Int) {
-    val path: String? get() = runCatching {
-        val value = URI(uri)
-        if (!uri.startsWith("hick:///") || value.scheme != "hick" || !value.authority.isNullOrEmpty() || value.query != null || value.fragment != null) return null
-        val decoded = value.path ?: return null
-        if (!decoded.startsWith("/")) return null
-        val path = decoded.drop(1)
-        if (path.isEmpty() || path.any { it == ':' || it == '\\' || it.code < 32 } || path.split('/').any { it.isEmpty() || it == "." || it == ".." }) null else path
-    }.getOrNull()
-    val label: String get() = "${path ?: uri}:${line + 1}:${character + 1}"
-}
-fun semanticLocations(result: Any): List<SemanticLocation> {
-    val items = when (result) { is JSONArray -> (0 until result.length()).mapNotNull { result.optJSONObject(it) }; is JSONObject -> listOf(result); else -> emptyList() }
-    return items.mapNotNull { item ->
-        val uri = item.optString("uri").ifEmpty { item.optString("targetUri") }
-        val range = item.optJSONObject("range") ?: item.optJSONObject("targetSelectionRange") ?: item.optJSONObject("targetRange")
-        val start = range?.optJSONObject("start") ?: return@mapNotNull null
-        val line = start.optInt("line", -1); val character = start.optInt("character", -1)
-        if (uri.isEmpty() || line < 0 || character < 0) null else SemanticLocation(uri, line, character)
-    }.distinct()
-}
 
-</ui:copy>
 
 <ui:copy id="simple-android-language-service">
 data class NativeLanguageSpan(val from: Int, val to: Int, val kind: String)
@@ -415,8 +390,10 @@ fun rebaseNativeTokens(tokens: List<NativeLanguageSpan>, old: String, new: Strin
     }
 }
 class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuffer, private val scope: CoroutineScope) {
+    var symbolQuery by mutableStateOf("")
     var locations by mutableStateOf<List<SemanticLocation>>(emptyList())
     var locationStatus by mutableStateOf("")
+    private var locationSymbolQuery: String? = null
     var locationSource by mutableStateOf("")
     var locationSelection by mutableStateOf(androidx.compose.ui.text.TextRange.Zero)
     private var navigation = 0
@@ -538,17 +515,30 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
     suspend fun navigate(query: SemanticQuery) {
         val source = buffer.text; val selection = buffer.state.selection; val current = epoch; val id = ++navigation
         locationSource = source; locationSelection = selection; locations = emptyList(); locationStatus = "Searching…"
+        locationSymbolQuery = if (query == SemanticQuery.Symbols) symbolQuery else null
         try {
             sync()
-            val params = JSONObject().put("textDocument", doc()).put("position", languagePosition(source, selection.min))
+            var params = JSONObject().put("textDocument", doc()).put("position", languagePosition(source, selection.min))
             if (query == SemanticQuery.References) params.put("context", JSONObject().put("includeDeclaration", true))
-            val result = request(query.method, params)
+            if (query == SemanticQuery.Symbols) params = JSONObject().put("query", locationSymbolQuery)
+            if (query == SemanticQuery.Outline) params = JSONObject().put("textDocument", doc())
+            var result = request(query.method, params)
+            if (query == SemanticQuery.Callers || query == SemanticQuery.Callees) {
+                val items = result as? JSONArray ?: JSONArray()
+                check(items.length() <= 32) { "Too many call targets. Choose a more specific symbol." }
+                val answers = JSONArray()
+                for (index in 0 until items.length()) {
+                    if (navigation != id || epoch != current || buffer.text != source || buffer.state.selection != selection) return
+                    answers.put(request(if (query == SemanticQuery.Callers) "callHierarchy/incomingCalls" else "callHierarchy/outgoingCalls", JSONObject().put("item", items.get(index))))
+                }
+                result = answers
+            }
             if (navigation != id || epoch != current || buffer.text != source || buffer.state.selection != selection) {
                 if (navigation == id && epoch == current) locationStatus = "Source or cursor changed. Run the query again."
                 return
             }
-            locations = semanticLocations(result)
-            locationStatus = if (locations.isEmpty()) "No results. The provider may still be indexing or may not support this query. Retry or choose another symbol." else "${locations.size} locations"
+            locations = semanticLocations(result, if (query == SemanticQuery.Outline) uri else null)
+            locationStatus = if (locations.isEmpty()) "No results. The provider may still be indexing or may not support this query. Retry or choose another symbol." else "${locations.size} locations" + if (locations.size >= 10000) "; narrow the query for more" else ""
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
         catch (failure: Exception) {
             if (navigation == id && epoch == current && buffer.text == source && buffer.state.selection == selection)
@@ -556,7 +546,7 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
         }
     }
     fun open(location: SemanticLocation): Boolean {
-        if (buffer.text != locationSource || buffer.state.selection != locationSelection || location !in locations || location.path == null) {
+        if (buffer.text != locationSource || buffer.state.selection != locationSelection || location !in locations || location.path == null || locationSymbolQuery != null && locationSymbolQuery != symbolQuery) {
             locationStatus = "Location is stale or outside authored workspace files. Run the query again."; return false
         }
         if (location.path == buffer.file.path) {
@@ -622,6 +612,6 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
 
 Keep construction order explicit; the explanations above describe the decisions at each boundary.
 
-<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt"><ui:paste select="#simple-38d4bd61a8-0"/><ui:paste select="#simple-38d4bd61a8-1"/><ui:paste select="#simple-android-debug-session"/><ui:paste select="#simple-android-semantic-locations"/><ui:paste select="#simple-android-language-service"/></ui:file>
+<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt"><ui:paste select="#simple-38d4bd61a8-0"/><ui:paste select="#simple-38d4bd61a8-1"/><ui:paste select="#simple-android-debug-session"/><ui:paste select="#simple-android-language-service"/></ui:file>
 
 </ui:doc>

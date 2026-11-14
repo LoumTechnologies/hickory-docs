@@ -153,6 +153,7 @@ try {
           await content.focus();
           await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowUp" : "Control+Home");
           for (let count = 0; count < request.offset; count++) await page.keyboard.press("ArrowRight");
+          if (request.query === "Search workspace symbols") page.once("dialog", dialog => dialog.accept(request.term ?? ""));
           await menu("Edit", request.query);
           const panel = page.getByRole("dialog", { name: "Semantic locations" });
           await panel.waitFor();

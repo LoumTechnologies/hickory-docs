@@ -151021,15 +151021,15 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "simple-apple-semantic-locations",
-      "output": "apps/apple-simple/Sources/Engine.swift",
-      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Engine.swift.md",
+      "output": "apps/apple-simple/Sources/Intelligence.swift",
+      "page": ".hickory-source/frontends/intelligence.md",
       "symbol": "simple-apple-semantic-locations",
       "basis": "explained-behavior"
     },
     {
       "id": "simple-android-semantic-locations",
-      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt",
-      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt.md",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Intelligence.kt",
+      "page": ".hickory-source/frontends/intelligence.md",
       "symbol": "simple-android-semantic-locations",
       "basis": "explained-behavior"
     },
@@ -151038,6 +151038,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "output": "apps/web/src/simple/Document.tsx",
       "page": ".hickory-source/frontends/apps/web/src/simple/Document.tsx.md",
       "symbol": "simple-browser-semantic-locations",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-intelligence-browser-vocabulary",
+      "output": "apps/web/src/simple/Intelligence.ts",
+      "page": ".hickory-source/frontends/intelligence.md",
+      "symbol": "simple-intelligence-browser-vocabulary",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-intelligence-browser-locations",
+      "output": "apps/web/src/simple/Intelligence.ts",
+      "page": ".hickory-source/frontends/intelligence.md",
+      "symbol": "simple-intelligence-browser-locations",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-intelligence-browser-query",
+      "output": "apps/web/src/simple/Intelligence.ts",
+      "page": ".hickory-source/frontends/intelligence.md",
+      "symbol": "simple-intelligence-browser-query",
       "basis": "explained-behavior"
     }
   ],

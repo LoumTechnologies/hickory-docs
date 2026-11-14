@@ -199,10 +199,10 @@ export class LspClient {
   /** Send a raw request; resolves with the JSON-RPC result. */
   request(method: string, params?: unknown): Promise<unknown> {
     if (this.disposed) return Promise.reject(new Error("LspClient disposed"));
-    if (["textDocument/prepareRename", "textDocument/rename", "textDocument/codeAction", "textDocument/formatting"].includes(method)) {
-      const uri = (params as { textDocument?: { uri?: string } } | undefined)?.textDocument?.uri;
-      if (uri) this.documentSync.get(uri)?.();
-    }
+    // A navigation read immediately after typing needs the same source as an
+    // edit preview. Synchronize only this document; notifications never recurse.
+    const uri = (params as { textDocument?: { uri?: string } } | undefined)?.textDocument?.uri;
+    if (uri) this.documentSync.get(uri)?.();
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {

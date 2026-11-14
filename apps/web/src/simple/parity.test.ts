@@ -17,7 +17,7 @@ import { EditorSelection, EditorState } from "@codemirror/state";
 import { foldedRanges } from "@codemirror/language";
 import { undo, isolateHistory } from "@codemirror/commands";
 import { currentCompletions } from "@codemirror/autocomplete";
-import { Document, semanticPath, semanticLocations, openSemanticQuery, simpleWordOffset, simpleWordMove, simpleFoldRanges, openFind, simpleIndent, simpleTab } from "./Document";
+import { Document, semanticPath, semanticLocations, querySemanticLocations, openSemanticQuery, simpleWordOffset, simpleWordMove, simpleFoldRanges, openFind, simpleIndent, simpleTab } from "./Document";
 vi.mock("../debug/launchProfiles", () => ({ launchWithProfiles: vi.fn(async (_query, start, options) => { if (options.isCurrent()) start({ id: "test", fingerprint: "test" }); }) }));
 import { launchWithProfiles } from "../debug/launchProfiles";
 import { IDLE_SESSION } from "../debug/useDebugger";
@@ -635,6 +635,38 @@ describe("tab drop placement", () => {
 });
 
 describe("simple semantic navigation", () => {
+  it("normalizes symbol trees, flat symbols and incoming/outgoing call items", () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const range = { start: { line: 2, character: 4 }, end: { line: 2, character: 8 } };
+    const values = semanticLocations([{ name: "Outer", range, selectionRange: range, children: [{ name: "Inner", range: { ...range, start: { line: 3, character: 6 } } }] }, { name: "Other", location: { uri: "hick:///other.py", range } }, { from: { name: "Caller", uri: "hick:///call.py", selectionRange: range } }, { to: { name: "Callee", uri: "hick:///callee.py", selectionRange: range } }], "hick:///source.py");
+    expect(values.map(value => [value.name, value.uri, value.range.start.line])).toEqual([["Outer", "hick:///source.py", 2], ["Inner", "hick:///source.py", 3], ["Other", "hick:///other.py", 2], ["Caller", "hick:///call.py", 2], ["Callee", "hick:///callee.py", 2]]);
+  });
+  it("uses provider outline/symbol/call protocols and flushes the current source before position reads", async () => {
+    // Contract: .hickory-source/frontends/contract.md
+    const methods: string[] = [];
+    let syncs = 0;
+    const range = { start: { line: 1, character: 2 }, end: { line: 1, character: 5 } };
+    const item = { uri: "hick:///call.py", name: "caller", range, selectionRange: range };
+    const channel = createLspChannel({ send(frame) {
+      const message = decodeLspFrame(frame);
+      if (!message || !("method" in message) || !("id" in message)) return;
+      methods.push(message.method);
+      const result = message.method === "textDocument/prepareCallHierarchy" ? [item]
+        : message.method === "callHierarchy/incomingCalls" ? [{ from: item }]
+        : message.method === "callHierarchy/outgoingCalls" ? [{ to: item }]
+        : message.method === "textDocument/documentSymbol" ? [{ name: "Outline", range, selectionRange: range }]
+        : [{ name: "Workspace", location: { uri: item.uri, range } }];
+      queueMicrotask(() => channel.handleFrame(encodeLspFrame({ jsonrpc: "2.0", id: message.id, result })));
+    } });
+    const client = new LspClient(channel); const unregister = client.registerDocumentSync("hick:///source.py", () => { syncs++; });
+    try {
+      expect((await querySemanticLocations(client, "hick:///source.py", range.start, "outline"))[0].name).toBe("Outline");
+      expect((await querySemanticLocations(client, "hick:///source.py", range.start, "symbols", "Work"))[0].name).toBe("Workspace");
+      expect((await querySemanticLocations(client, "hick:///source.py", range.start, "callers"))[0].name).toBe("caller");
+      expect((await querySemanticLocations(client, "hick:///source.py", range.start, "callees"))[0].name).toBe("caller");
+      expect(syncs).toBe(3); expect(methods).toContain("workspace/symbol"); expect(methods).toContain("callHierarchy/incomingCalls"); expect(methods).toContain("callHierarchy/outgoingCalls");
+    } finally { unregister(); client.dispose(); }
+  });
   it("does not let a previous buffer consume the destination symbol reveal", async () => {
     // Contract: .hickory-source/frontends/contract.md
     const first = new Buffer({ path: "first.py", name: "first.py", dir: false }, "first = 1", "hash", () => {});

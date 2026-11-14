@@ -22,6 +22,18 @@ class ParityTest {
         language.close(); assertTrue(!language.open(local)); assertEquals(1, opened)
     }
 
+    @org.junit.Test fun semanticSymbolsAndCallTreesRetainNamesAndPositions() {
+        // Contract: .hickory-source/frontends/contract.md
+        val range = JSONObject().put("start", JSONObject().put("line", 2).put("character", 4)).put("end", JSONObject().put("line", 2).put("character", 8))
+        val inner = JSONObject().put("name", "Inner").put("range", JSONObject().put("start", JSONObject().put("line", 3).put("character", 6)))
+        val outer = JSONObject().put("name", "Outer").put("selectionRange", range).put("children", org.json.JSONArray().put(inner))
+        val other = JSONObject().put("name", "Other").put("location", JSONObject().put("uri", "hick:///other.py").put("range", range))
+        val call = JSONObject().put("from", JSONObject().put("name", "Caller").put("uri", "hick:///call.py").put("selectionRange", range))
+        val locations = semanticLocations(org.json.JSONArray().put(outer).put(other).put(call), "hick:///source.py")
+        assertEquals(listOf("Outer", "Inner", "Other", "Caller"), locations.map { it.name })
+        assertEquals(listOf(2, 3, 2, 2), locations.map { it.line }); assertEquals("other.py", locations[2].path)
+        assertEquals("textDocument/documentSymbol", SemanticQuery.Outline.method); assertEquals("workspace/symbol", SemanticQuery.Symbols.method)
+    }
     @org.junit.Test fun semanticLocationSafetyAndNormalization() {
         // Contract: .hickory-source/frontends/contract.md
         assertEquals("src/my file.py", SemanticLocation("hick:///src/my%20file.py", 2, 4).path)
@@ -33,7 +45,7 @@ class ParityTest {
         val link = JSONObject().put("targetUri", "hick:///a.py").put("targetSelectionRange", range)
         assertEquals(listOf(SemanticLocation("hick:///a.py", 2, 4)), semanticLocations(org.json.JSONArray().put(direct).put(link)))
         assertTrue(semanticLocations(JSONObject().put("uri", "hick:///a.py")).isEmpty())
-        assertEquals(4, SemanticQuery.entries.size)
+        assertEquals(9, SemanticQuery.entries.size)
     }
 
     @Test fun agentMessagesUseLiterateBuffersWithoutFileOwnership() {

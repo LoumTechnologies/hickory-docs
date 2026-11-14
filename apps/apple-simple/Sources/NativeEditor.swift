@@ -1929,6 +1929,7 @@ struct LanguageEditor: View {
                         Text("Language tools").font(.headline)
                         Text(buffer.language?.status ?? "Language services not connected").font(.caption).textSelection(.enabled)
                         if let language = buffer.language {
+                            TextField("Symbol search", text: Binding(get: { language.symbolQuery }, set: { language.symbolQuery = $0 })).textFieldStyle(.roundedBorder)
                             ForEach(SemanticQuery.allCases) { query in
                                 Button(query.label) { Task { await language.navigate(query) } }
                             }

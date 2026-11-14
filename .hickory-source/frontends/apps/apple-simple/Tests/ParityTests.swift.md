@@ -35,6 +35,16 @@ import WebKit
 @testable import HickorySimple
 
 final class ParityTests: XCTestCase {
+    func testSemanticSymbolsAndCallTreesRetainNamesAndAuthoredPositions() {
+        // Contract: .hickory-source/frontends/contract.md
+        let range: [String: Any] = ["start": ["line": 2, "character": 4], "end": ["line": 2, "character": 8]]
+        let values: [[String: Any]] = [["name": "Outer", "selectionRange": range, "children": [["name": "Inner", "range": ["start": ["line": 3, "character": 6]]]]], ["name": "Other", "location": ["uri": "hick:///other.py", "range": range]], ["from": ["name": "Caller", "uri": "hick:///call.py", "selectionRange": range]]]
+        let locations = semanticLocations(values, defaultURI: "hick:///source.py")
+        XCTAssertEqual(locations.map(\.name), ["Outer", "Inner", "Other", "Caller"])
+        XCTAssertEqual(locations.map(\.line), [2, 3, 2, 2]); XCTAssertEqual(locations[2].path, "other.py")
+        XCTAssertEqual(SemanticQuery.outline.method, "textDocument/documentSymbol")
+        XCTAssertEqual(SemanticQuery.symbols.method, "workspace/symbol")
+    }
     func testSemanticLocationSafetyAndNormalization() {
         // Contract: .hickory-source/frontends/contract.md
         XCTAssertEqual(SemanticLocation(uri: "hick:///src/my%20file.py", line: 2, character: 4).path, "src/my file.py")
@@ -48,7 +58,7 @@ final class ParityTests: XCTestCase {
         let link: [String: Any] = ["targetUri": "hick:///a.py", "targetSelectionRange": range]
         XCTAssertEqual(semanticLocations([direct, link]), [SemanticLocation(uri: "hick:///a.py", line: 2, character: 4)])
         XCTAssertTrue(semanticLocations(["uri": "hick:///a.py"]).isEmpty)
-        XCTAssertEqual(SemanticQuery.allCases.count, 4)
+        XCTAssertEqual(SemanticQuery.allCases.count, 9)
     }
 
     @MainActor func testSemanticNavigationRetiresStaleSourceAndSelection() throws {

@@ -96,6 +96,20 @@ def semantic_navigation_acceptance(driver, folder):
     assert "navigation.py:" in result["text"], result
     assert result["size"] == size, "Usages resized the editor"
     driver.act("semantic-close")
+    outline = driver.act("semantic-query", path="semantic_target.py", query="File outline", offset=13)
+    assert "value · semantic_target.py:1:13" in outline["text"], outline
+    assert outline["size"] == size
+    driver.act("semantic-close")
+    symbols = driver.act("semantic-query", path="semantic_target.py", query="Search workspace symbols", offset=13, term="calculate")
+    assert "calculate" in symbols["text"] and "navigation.py:" in symbols["text"], symbols
+    driver.act("semantic-close")
+    driver.act("open", path="navigation.py")
+    offset = original[path].index("calculate") + 2
+    for query in ["Find callers", "Find callees"]:
+        calls = driver.act("semantic-query", path="navigation.py", query=query, offset=offset)
+        assert "navigation.py:" in calls["text"], calls
+        assert calls["size"] == size
+        driver.act("semantic-close")
     for name, source in original.items(): assert (folder / name).read_text() == source
 
 
@@ -498,7 +512,7 @@ if __name__ == "__main__":
         (folder / "empty.csv").write_text("")
         (folder / "spreadsheet.csv").write_text("1,2,3\n4,5,6\n7,8,9\n")
         (folder / "caret.csv").write_text("Label,Count\nabcdefghijk,1\nx,2\nabcdefghijklm,3\n")
-        (folder / "navigation.py").write_text("from semantic_target import value\nprint(value)\n")
+        (folder / "navigation.py").write_text("from semantic_target import value\nprint(value)\n\ndef calculate(amount):\n    return adjust(amount)\n\ndef adjust(amount):\n    return amount + 1\n\ncalculate(value)\n")
         (folder / "semantic_target.py").write_text("prefix = 0; value = 42\n")
         if "--semantic-navigation-only" in sys.argv:
             subprocess.run([str(ROOT / "target/debug/hick"), "lsp", "install", "python", "--root", str(folder)], check=True, timeout=180)
@@ -553,7 +567,7 @@ if __name__ == "__main__":
                 print("Browser: inline table grid, real saved Markdown, source reveal and undo passed")
             elif "--semantic-navigation-only" in sys.argv:
                 semantic_navigation_acceptance(driver, folder)
-                print("Browser: real cross-file semantic definition/usages, symbol column, floating result geometry and unchanged disk passed")
+                print("Browser: real definitions/usages, outlines, workspace symbols, callers/callees, exact columns, stationary geometry and unchanged disk passed")
             elif "--language-cache-only" in sys.argv:
                 language_cache_acceptance(driver, folder)
                 print("Browser: real Python colors retained across typing and undo; disk unchanged")

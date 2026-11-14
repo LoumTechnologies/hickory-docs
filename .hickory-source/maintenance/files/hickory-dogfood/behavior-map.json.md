@@ -67213,6 +67213,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "1a0344e939250d851312f095c1298047876a943ddca0e80c53cd47d0417a62c6",
       "construction": "fragments",
       "fragments": [
+        "simple-browser-semantic-locations",
         "simple-1a4a59fc95-0",
         "simple-document-minimap"
       ]
@@ -67310,7 +67311,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "simple-ff9425b170-1",
         "simple-apple-language-transport",
         "simple-apple-language-session",
-        "simple-apple-language-snapshots"
+        "simple-apple-language-snapshots",
+        "simple-apple-debug-session"
       ]
     },
     "apps/apple-simple/Sources/Workspace.swift": {
@@ -67503,6 +67505,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "simple-38d4bd61a8-0",
         "simple-38d4bd61a8-1",
+        "simple-android-debug-session",
         "simple-android-language-service"
       ]
     },
@@ -68096,6 +68099,41 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "247982753922ef8511e47f14d92894c570acca9770e3617950183a52b5c2f192",
       "construction": "entry",
       "fragments": []
+    },
+    "apps/web/src/simple/Intelligence.ts": {
+      "source": ".hickory-source/frontends/intelligence.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "5ccda018643cf939c749317d4be2d10d741a5b2fb059d632454d9fa1ea8b872a",
+      "construction": "fragments",
+      "fragments": [
+        "simple-intelligence-browser-vocabulary",
+        "simple-intelligence-browser-locations",
+        "simple-intelligence-browser-query"
+      ]
+    },
+    "apps/apple-simple/Sources/Intelligence.swift": {
+      "source": ".hickory-source/frontends/intelligence.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "d5018a251990d1dd6c230499dbda749bfb1b92a09dc2a58ef1a00ca0d0e262e3",
+      "construction": "fragments",
+      "fragments": [
+        "simple-apple-semantic-locations"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Intelligence.kt": {
+      "source": ".hickory-source/frontends/intelligence.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "8fb124465c7c07866ae8f2a260fca912fe811441600a6bbb578c26c36c98bcc5",
+      "construction": "fragments",
+      "fragments": [
+        "simple-android-semantic-locations"
+      ]
     }
   },
   "evidence_records": [

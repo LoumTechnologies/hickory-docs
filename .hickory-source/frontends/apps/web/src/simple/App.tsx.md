@@ -238,7 +238,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
       <button disabled={!active} onClick={() => active && close(active)}>Close tab</button>
     </div></details><details><summary>Edit</summary><div className="menu">
       <button disabled={!buffer} onClick={() => buffer && openFind(buffer)}>Find and replace</button>
-      {semanticQueries.map(query => <button key={query.kind} disabled={!buffer} onClick={event => { if (buffer) openSemanticQuery(buffer, query.kind); event.currentTarget.closest("details")?.removeAttribute("open"); }}>{query.label}</button>)}
+      {semanticQueries.map(query => <button key={query.kind} disabled={!buffer} onClick={event => { if (buffer) { const text = query.kind === "symbols" ? window.prompt("Search workspace symbols", "") : ""; if (text !== null) openSemanticQuery(buffer, query.kind, text); } event.currentTarget.closest("details")?.removeAttribute("open"); }}>{query.label}</button>)}
       <EditorSettings />
     </div></details><details><summary>View</summary><div className="menu">
       <button onClick={() => openTab("files")}>Files</button><button onClick={() => openTab("agent")}>Agent</button>
