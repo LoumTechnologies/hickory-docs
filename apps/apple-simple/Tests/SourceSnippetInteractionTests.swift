@@ -45,6 +45,21 @@ import AppKit
         XCTAssertFalse(refused);XCTAssertEqual(buffer.text,source);XCTAssertTrue(service.completionNotice.contains("overlaps template"))
         #endif
     }
+    func testNestedCompletionRestoresScopeThroughNativeHistory()async throws {
+        #if os(macOS)
+        let source="a + a",buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:source,hash:"base")),service:NativeLanguage
+        service=NativeLanguage(engine:try Engine(address:"http://fixture.invalid"),buffer:buffer);buffer.language=service
+        let editor=MacEditor(buffer),window=NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false);window.contentView=editor.scroll;defer{window.contentView=nil}
+        editor.text.setSelectedRange(NSRange(location:0,length:1));buffer.selection=editor.text.selectedRange();buffer.snippets.restore(beginSnippet(source,fields:fields()))
+        let syntax="${1:x}:$1$0",inner:[[String:Any]]=[["id":0,"parent":NSNull(),"index":1,"from":0,"to":1,"choices":[]],["id":1,"parent":NSNull(),"index":1,"from":2,"to":3,"choices":[]],["id":2,"parent":NSNull(),"index":0,"from":3,"to":3,"choices":[]]]
+        let raw:[String:Any]=["label":"nested","insertTextFormat":2,"textEdit":["range":["start":["line":0,"character":0],"end":["line":0,"character":1]],"newText":syntax],"data":["hickory_snippet":["version":1,"syntax":syntax,"text":"x:x","fields":inner]]]
+        let item=NativeCompletion(id:2,label:"nested",detail:"",range:NSRange(location:0,length:1),insert:syntax,source:source,selection:buffer.selection,original:raw)
+        let accepted=await service.accept(item,resolution:{_ in raw});XCTAssertTrue(accepted);XCTAssertEqual(buffer.text,"x:x + x:x");XCTAssertEqual(buffer.snippets.active?.scopes.count,1)
+        XCTAssertEqual(buffer.snippets.input(source:buffer.text,range:NSRange(location:0,length:1),text:"long"),true);XCTAssertEqual(buffer.text,"long:long + long:long")
+        editor.text.undoManager?.undo();XCTAssertEqual(buffer.snippets.active?.scopes.count,1);editor.text.undoManager?.redo();XCTAssertEqual(buffer.snippets.active?.scopes.count,1);XCTAssertEqual(editor.text.selectedRange().location,4)
+        XCTAssertTrue(buffer.snippets.move(1));XCTAssertEqual(editor.text.selectedRange().location,9);XCTAssertEqual(buffer.snippets.active?.active,1);XCTAssertTrue(buffer.snippets.move(1));XCTAssertEqual(editor.text.selectedRange().location,21);XCTAssertNil(buffer.snippets.active)
+        #endif
+    }
     func testEqualPositionNavigationRetiresHeldCompletion()async throws {
         #if os(macOS)
         let source="a",buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"a",hash:"base")),service:NativeLanguage

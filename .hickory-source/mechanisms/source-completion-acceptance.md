@@ -329,7 +329,7 @@ def main():
     spec=importlib.util.spec_from_file_location("simple_fixture",ROOT/"scripts/test-simple-browser.py")
     fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
     with tempfile.TemporaryDirectory(prefix="hickory-source-completion-") as temporary:
-        folder=Path(temporary);root=folder/"workspace";root.mkdir();snippet="--snippet" in sys.argv;path="snippet.py" if snippet else "a.py";source="value = 1\n";(root/path).write_text(source);events=folder/"events.jsonl";gate=folder/"release"
+        folder=Path(temporary);root=folder/"workspace";root.mkdir();nested="--nested" in sys.argv;snippet="--snippet" in sys.argv or nested;path="nested.py" if nested else "snippet.py" if snippet else "a.py";source="value = 1\n";(root/path).write_text(source);events=folder/"events.jsonl";gate=folder/"release"
         (root/".hick-lsp.json").write_text(json.dumps({"servers":{"python":{"command":[sys.executable,str(ROOT/"scripts/controlled-action-provider.py"),"python",str(events),str(gate)]}}}))
         environment={**os.environ,"HICKORY_STATE_DIR":str(folder/"state")};processes=[];driver=None
         try:
@@ -344,20 +344,29 @@ def main():
                 assert time.monotonic()<deadline,options;time.sleep(.1)
             assert driver.act("editor-size",path=path)==size;assert driver.act("search-source",path=path)==source
             notice=driver.act("completion-choose",title="python completion");assert "Completion applied" in notice,notice
-            after=("😀 value + 😀 value = 1\n# imported\n" if snippet else "python_completed = 1\n# imported\n");caret=0 if snippet else 16;assert driver.act("search-source",path=path)==after,{"expected":after,"actual":driver.act("search-source",path=path)};assert driver.act("caret-offset",path=path)==caret,{"caret":driver.act("caret-offset",path=path)}
-            if snippet:assert driver.act("selected-source-text",path=path)=="😀 value"
+            after=("value + value = 1\n# imported\n" if nested else "😀 value + 😀 value = 1\n# imported\n" if snippet else "python_completed = 1\n# imported\n");caret=0 if snippet else 16;assert driver.act("search-source",path=path)==after,{"expected":after,"actual":driver.act("search-source",path=path)};assert driver.act("caret-offset",path=path)==caret,{"caret":driver.act("caret-offset",path=path)}
+            if snippet:assert driver.act("selected-source-text",path=path)==("value" if nested else "😀 value")
             assert driver.act("editor-is-retained",path=path);assert driver.act("editor-size",path=path)==size;assert (root/path).read_text()==source
             driver.act("undo",path=path);assert driver.act("search-source",path=path)==source
             driver.act("redo",path=path);assert driver.act("search-source",path=path)==after,{"redo_source":driver.act("search-source",path=path)};assert driver.act("caret-offset",path=path)==caret,{"redo_caret":driver.act("caret-offset",path=path),"selected":driver.act("selected-source-text",path=path)};assert (root/path).read_text()==source
+            initial_after=after
+            if nested:
+                options=driver.act("completion-open",path=path,offset=3);assert any("python completion" in value for value in options),options
+                notice=driver.act("completion-choose",title="python completion");assert "Completion applied" in notice,notice
+                after="value + value + value + value = 1\n# imported\n# imported\n";assert driver.act("search-source",path=path)==after;assert driver.act("selected-source-text",path=path)=="value"
+                driver.act("undo",path=path);assert driver.act("search-source",path=path)==initial_after
+                driver.act("redo",path=path);assert driver.act("search-source",path=path)==after;assert driver.act("selected-source-text",path=path)=="value"
             if snippet:
-                assert driver.act("selected-source-text",path=path)=="😀 value"
+                assert driver.act("selected-source-text",path=path)==("value" if nested else "😀 value")
                 driver.act("type-source-selection",path=path,text="renamed")
-                typed="renamed + renamed = 1\n# imported\n";assert driver.act("search-source",path=path)==typed;assert driver.act("caret-offset",path=path)==7
+                typed="renamed + renamed + renamed + renamed = 1\n# imported\n# imported\n" if nested else "renamed + renamed = 1\n# imported\n";assert driver.act("search-source",path=path)==typed;assert driver.act("caret-offset",path=path)==7
                 driver.act("undo",path=path);assert driver.act("search-source",path=path)==after
                 driver.act("redo",path=path);assert driver.act("search-source",path=path)==typed;assert driver.act("caret-offset",path=path)==7
                 driver.act("template-next",path=path);assert driver.act("caret-offset",path=path)==17
+                if nested:driver.act("template-next",path=path);assert driver.act("caret-offset",path=path)==37
                 assert driver.act("editor-is-retained",path=path);assert driver.act("editor-size",path=path)==size;assert (root/path).read_text()==source
                 driver.act("undo",path=path);assert driver.act("search-source",path=path)==after
+            if nested:driver.act("undo",path=path);assert driver.act("search-source",path=path)==initial_after
             driver.act("undo",path=path);assert driver.act("search-source",path=path)==source
             options=driver.act("completion-open",path=path,offset=2);assert any("python completion" in value for value in options),options
             driver.act("completion-pick",title="python completion");deadline=time.monotonic()+3
@@ -371,8 +380,8 @@ def main():
                 if any("completion_released" in item for item in observed):break
                 assert time.monotonic()<deadline,observed;time.sleep(.01)
             driver.act("completion-drain");assert driver.act("search-source",path=path)==source;assert driver.act("editor-is-retained",path=path);assert driver.act("editor-size",path=path)==size;assert (root/path).read_text()==source
-            observed=[json.loads(line) for line in events.read_text().splitlines()];assert [item["completion_resolved"] for item in observed if "completion_resolved" in item]==["python","python"],observed
-            print("PASS: native completion popup, actual lazy resolution, primary and import edits, "+("expanded snippet, linked typing, menu traversal and retained field history, " if snippet else "precise caret, ")+"one undo/redo, Escape refusal of a held late reply, retained editor geometry and unchanged disk")
+            observed=[json.loads(line) for line in events.read_text().splitlines()];assert [item["completion_resolved"] for item in observed if "completion_resolved" in item]==(["python"]*3 if nested else ["python","python"]),observed
+            print("PASS: native completion popup, actual lazy resolution, primary and import edits, "+("nested snippet mirrors, outer-scope return, imports and retained field history, " if nested else "expanded snippet, linked typing, menu traversal and retained field history, " if snippet else "precise caret, ")+"one undo/redo, Escape refusal of a held late reply, retained editor geometry and unchanged disk")
         finally:
             if driver:driver.close()
             for process in reversed(processes):fixture.stop(process)
@@ -383,7 +392,7 @@ if __name__=="__main__":main()
 
 ## Replay a native source draft and its selection as one operation
 
-Cocoa's default undo records each replacement's caret independently. An import applied after the primary completion therefore placed redo's caret at the import. This platform bridge derives forward/inverse edits from the shared change plan, suppresses nested native registrations and records one source-and-selection step. A typed context hook retains optional feature state with each direction; the history mechanism has no dependency on template rendering or field types. Sparse edit records use exact UTF-8 SHA-256 revision identities rather than retaining a complete file per keystroke. Optional context is held under bounded tokens, so an evicted field context cannot prevent source undo. The native editor still checks source and write permissions before application. Replay checks exact source and current editor permissions before applying; a mismatch retires incompatible native history while retaining the current draft. Other editing paths keep their existing history behavior. Source snapshots are retained by native undo entries rather than discarded on parser or provider attachment.
+Cocoa's default undo records each replacement's caret independently. An import applied after the primary completion therefore placed redo's caret at the import. This platform bridge derives forward/inverse edits from the shared change plan, suppresses nested native registrations and records one source-and-selection step. Consecutive explicit actions close the previous implicit event group and replace that event frame before registering the next step. Keeping the replacement frame open preserves Cocoa’s pending end-of-event grouping; nested caller groups and undo/redo replay retain their existing ownership. A typed context hook retains optional feature state with each direction; the history mechanism has no dependency on template rendering or field types. Sparse edit records use exact UTF-8 SHA-256 revision identities rather than retaining a complete file per keystroke. Optional context is held under bounded tokens, so an evicted field context cannot prevent source undo. The native editor still checks source and write permissions before application. Replay checks exact source and current editor permissions before applying; a mismatch retires incompatible native history while retaining the current draft. Other editing paths keep their existing history behavior. Source snapshots are retained by native undo entries rather than discarded on parser or provider attachment.
 
 <ui:copy id="native-source-draft-history">
 import Foundation
@@ -439,6 +448,9 @@ import CryptoKit
     }
     private func register(_ step:Step,manager:UndoManager,read:@escaping ()->String,apply:@escaping Apply,notice:@escaping (String)->Void,discardContext:@escaping ()->Void) {
         let group = !manager.isUndoing && !manager.isRedoing
+        // Separate consecutive explicit source actions even in one host event.
+        // Leave caller-owned nested groups and undo/redo replay intact.
+        if group,manager.groupsByEvent,manager.groupingLevel==1{manager.endUndoGrouping();manager.beginUndoGrouping()}
         if group{manager.beginUndoGrouping()}
         manager.registerUndo(withTarget:self){[weak manager] history in
             guard let manager else{return}

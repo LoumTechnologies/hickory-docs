@@ -11,9 +11,9 @@ final class SnippetSessionTests:XCTestCase {
             for step in value["steps"] as! [[String:Any]] {
                 let current=try XCTUnwrap(session),input=step["currentSource"] as? String ?? source,from=step["from"] as! Int,to=step["to"] as! Int,action=step["action"] as! String
                 let selected:CompletionSelection?,next:SnippetSession?
-                if action=="edit" || action=="complete" {
+                if action=="edit" || action=="complete" || action=="nest" {
                     let additional=(step["additional"] as? [[String:Any]] ?? []).map{SourceReplacement(from:$0["from"] as! Int,to:$0["to"] as! Int,text:$0["text"] as! String)}
-                    let result=action=="complete" ? completeSnippet(current,source:input,primary:SourceReplacement(from:from,to:to,text:step["text"] as? String ?? ""),additional:additional):editSnippet(current,source:input,from:from,to:to,text:String(repeating:step["text"] as? String ?? "",count:step["repeat"] as? Int ?? 1))
+                    let result=action=="nest" ? nestSnippet(current,source:input,primary:SourceReplacement(from:from,to:to,text:step["text"] as? String ?? ""),additional:additional,inner:fields(step["inner"] as? [[String:Any]] ?? [])):action=="complete" ? completeSnippet(current,source:input,primary:SourceReplacement(from:from,to:to,text:step["text"] as? String ?? ""),additional:additional):editSnippet(current,source:input,from:from,to:to,text:String(repeating:step["text"] as? String ?? "",count:step["repeat"] as? Int ?? 1))
                     if step["refuse"] as? Bool==true{XCTAssertNil(result,name);continue}
                     let applied=try XCTUnwrap(result);XCTAssertTrue(exactUTF8(applied.session.source,step["after"] as! String),name);source=applied.session.source;selected=applied.selection;next=applied.session
                 }else{

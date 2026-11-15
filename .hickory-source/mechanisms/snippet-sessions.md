@@ -5,7 +5,7 @@ For maintainers attaching template interaction to existing editors. Hosts retain
 
 ## Compose completion imports once around a linked replacement
 
-The completion planner retains separate primary and additional edits. Mirror the primary through the current session, then combine imports in original source coordinates. Imports before the entire field forest shift its fields and intended selection; imports after it leave those positions unchanged. Prefix imports at the primary start precede its text. The source planner has already deduplicated provider additions. Refuse additions inside the forest, overlapping replacements, invalid scalar boundaries and excessive import text before any host mutation. This deliberately conservative boundary keeps an import from becoming a mirrored field edit.
+The completion planner retains separate primary and additional edits. Mirror the primary through the current session, then combine imports in original source coordinates. Imports before the entire field forest shift its fields and intended selection; imports after it leave those positions unchanged. Prefix imports at the primary start precede its text. The source planner has already deduplicated provider additions. Refuse additions inside the forest, overlapping replacements, invalid scalar boundaries and excessive import text before any host mutation. This deliberately conservative boundary keeps an import from becoming a mirrored field edit. Nested insertion clones the inner occurrence forest under each outer mirror with distinct occurrence identities and fresh group indices. A bounded stack owns local traversal order and terminal occurrences. Editing a nested field retains and maps its terminal positions; leaving the inner scope restores the captured outer active occurrence at the inner exit, without saving or changing editor layout. Every edit retains the scope stack for native history context.
 
 
 ## Keep browser field editing independent of the view
@@ -14,7 +14,8 @@ A source-bound session owns ordered occurrences and active intent. Only an edit 
 
 <ui:copy id="snippet-session-browser">
 import type {SnippetField} from './SnippetExpansion';
-export interface SnippetSession {source:string;fields:SnippetField[];active:number;current:number}
+export interface SnippetScope {order:number[];exitIndex:number;exitId:number;outerActive:number;outerCurrent:number}
+export interface SnippetSession {source:string;fields:SnippetField[];active:number;current:number;scopes?:SnippetScope[]}
 export interface SnippetEdit {from:number;to:number;text:string}
 export interface SnippetInput {session:SnippetSession;edits:SnippetEdit[];selection:{from:number;to:number}}
 const scalar=(text:string,at:number)=>Number.isSafeInteger(at)&&at>=0&&at<=text.length&&!(at>0&&at<text.length&&((text.charCodeAt(at-1)>=0xd800&&text.charCodeAt(at-1)<=0xdbff&&text.charCodeAt(at)>=0xdc00&&text.charCodeAt(at)<=0xdfff)||(text[at-1]==='\r'&&text[at]==='\n')));
@@ -27,9 +28,11 @@ export function beginSnippet(source:string,fields:readonly SnippetField[]):Snipp
 }
 export function advanceSnippet(session:SnippetSession,source:string,from:number,to:number,direction:1|-1):{session:SnippetSession|null;selection:{from:number;to:number}}|null {
  if(source!==session.source||from>to||!session.fields.some(field=>field.index===session.active&&field.from<=from&&field.to>=to))return null;
- const order=[...new Set(session.fields.map(field=>field.index).filter(index=>index>0))].sort((a,b)=>a-b);order.push(0);
+ const scope=session.scopes?.at(-1),order=scope?[...scope.order,scope.exitIndex]:[...new Set(session.fields.map(field=>field.index).filter(index=>index>0))].sort((a,b)=>a-b).concat(0);
  const at=order.indexOf(session.active),next=at+direction;if(at<0||next<0||next>=order.length)return null;
- const active=order[next],field=session.fields.find(field=>field.index===active)!;
+ const active=order[next];
+ if(scope&&active===scope.exitIndex){const field=session.fields.find(field=>field.id===scope.exitId);if(!field)return null;return {session:{...session,fields:session.fields.filter(field=>!scope.order.includes(field.index)&&field.index!==scope.exitIndex),active:scope.outerActive,current:scope.outerCurrent,scopes:session.scopes!.slice(0,-1)},selection:{from:field.from,to:field.to}};}
+ const field=session.fields.find(field=>field.index===active)!;
  return {session:active===0?null:{...session,active,current:field.id!},selection:{from:field.from,to:field.to}};
 }
 
@@ -42,6 +45,7 @@ Capture and numeric traversal above retain a source-bound intent, without editor
 <ui:copy id="snippet-session-browser-input">
 export function editSnippet(session:SnippetSession,source:string,from:number,to:number,text:string):SnippetInput|null {
  if(source!==session.source||from>to||!scalar(source,from)||!scalar(source,to)||session.active===0)return null;
+ const terminal=(field:SnippetField)=>field.index===0||!!session.scopes?.some(scope=>scope.exitIndex===field.index);
  const fields=session.fields,ids=new Map(fields.map(field=>[field.id!,field]));
  const ancestors=(parent:number,child:number)=>{let current=ids.get(child);for(let steps=0;current&&steps<=fields.length;steps++){if(current.id===parent)return true;current=current.parent===null?undefined:ids.get(current.parent!);}return false;};
  const occurrences=fields.filter(field=>field.index===session.active),matches=occurrences.filter(field=>field.from<=from&&field.to>=to),origin=matches.find(field=>field.id===session.current)??matches[0];
@@ -59,22 +63,22 @@ export function editSnippet(session:SnippetSession,source:string,from:number,to:
    if(edit.from===edit.to){
     const owners=[...edit.owners],related=owners.map((id,index)=>({id,index})).filter(({id})=>ancestors(field.id!,id));
     if(related.length)return edit.from+delta+text.length*(end?related.at(-1)!.index+1:related[0].index);
-    const enclosing=owners.map((id,index)=>({id,index})).filter(({id})=>field.index===0&&ancestors(id,field.id!));
+    const enclosing=owners.map((id,index)=>({id,index})).filter(({id})=>terminal(field)&&ancestors(id,field.id!));
     if(enclosing.length)return edit.from+delta+text.length*(enclosing.at(-1)!.index+1);
     return edit.from+delta+text.length*owners.filter(id=>ordinals.get(id)!<ordinals.get(field.id!)!).length;
    }
    const owns=edit.owners.has(field.id!)||[...edit.owners].some(id=>ancestors(field.id!,id));
-   const exit=field.index===0&&[...edit.owners].some(id=>ancestors(id,field.id!));
+   const exit=terminal(field)&&[...edit.owners].some(id=>ancestors(id,field.id!));
    const right=owns?end:exit?true:position===edit.to;
    return edit.from+delta+(right?edit.text.length:0);
   }return position+delta;};
- const retained=fields.filter(field=>after===source||field.index===0||field.index===session.active || !occurrences.some(parent=>ancestors(parent.id!,field.id!)));
+ const retained=fields.filter(field=>after===source||terminal(field)||field.index===session.active || !occurrences.some(parent=>ancestors(parent.id!,field.id!)));
  const retainedIds=new Set(retained.map(field=>field.id!));
  const updated=retained.map(field=>{let parent=field.parent;while(parent!==null&&parent!==undefined&&!retainedIds.has(parent))parent=ids.get(parent)?.parent;return {...field,parent:parent??null,from:map(field,field.from,false),to:map(field,field.to,true)};});
  if(updated.some(field=>field.from>field.to||!scalar(after,field.from)||!scalar(after,field.to)))return null;
  const groups=new Map<number,string>();for(const field of updated){const value=after.slice(field.from,field.to),previous=groups.get(field.index);if(previous!==undefined&&previous!==value)return null;groups.set(field.index,value);}
  const caret=map(origin,from,false)+text.length;
- return {session:{source:after,fields:updated,active:session.active,current:origin.id!},edits:replacements.map(({from,to,text})=>({from,to,text})),selection:{from:caret,to:caret}};
+ return {session:{source:after,fields:updated,active:session.active,current:origin.id!,scopes:session.scopes},edits:replacements.map(({from,to,text})=>({from,to,text})),selection:{from:caret,to:caret}};
 }
 </ui:copy>
 
@@ -102,6 +106,24 @@ export function completeSnippet(session:SnippetSession,source:string,primary:Sni
  if(!beginSnippet(after,fields))return null;
  return {session:{...input.session,source:after,fields},edits,selection:{from:input.selection.from+shift,to:input.selection.to+shift}};
 }
+export function nestSnippet(session:SnippetSession,source:string,primary:SnippetEdit,additional:readonly SnippetEdit[],inner:readonly SnippetField[]):SnippetInput|null {
+ if((session.scopes?.length??0)>=32||!inner.length)return null;
+ const parsed=beginSnippet(primary.text,inner),exit=inner.find(field=>field.index===0);if(!exit||(!parsed&&(inner.length!==1||exit.id===undefined||exit.parent!=null||exit.from!==exit.to||!scalar(primary.text,exit.from))))return null;
+ const origin=session.fields.find(field=>field.id===session.current&&field.from<=primary.from&&field.to>=primary.to);if(!origin)return null;
+ const input=completeSnippet(session,source,primary,additional);if(!input)return null;
+ const parents=input.session.fields.filter(field=>field.index===session.active),current=parents.find(field=>field.id===input.session.current);if(!current)return null;
+ const relative=primary.from-origin.from,order=[...new Set(inner.filter(field=>field.index>0).map(field=>field.index))].sort((a,b)=>a-b);
+ if(!order.length){const caret=current.from+relative+exit.from;return {...input,selection:{from:caret,to:caret}};}
+ if(input.session.fields.length+parents.length*inner.length>4096)return null;
+ let nextIndex=Math.max(...input.session.fields.map(field=>field.index))+1;const indices=new Map([...order,0].map(index=>[index,nextIndex++]));if(nextIndex>1004097)return null;
+ const used=new Set(input.session.fields.map(field=>field.id!)),fields=[...input.session.fields];let nextId=0,exitId=-1,currentId=-1;
+ for(const parent of parents){const ids=new Map<number,number>();for(const field of inner){while(used.has(nextId))nextId++;if(nextId>=4096)return null;ids.set(field.id!,nextId);used.add(nextId++);}
+  for(const field of inner){const id=ids.get(field.id!)!;fields.push({...field,id,index:indices.get(field.index)!,parent:field.parent==null?parent.id!:ids.get(field.parent)!,from:parent.from+relative+field.from,to:parent.from+relative+field.to});if(parent.id===current.id){if(field.index===0)exitId=id;else if(field.id===parsed!.current)currentId=id;}}
+ }
+ if(fields.reduce((sum,field)=>sum+64+field.choices.reduce((n,text)=>n+new TextEncoder().encode(text).length,0),0)>1048576||!beginSnippet(input.session.source,fields))return null;
+ const scope:SnippetScope={order:order.map(index=>indices.get(index)!),exitIndex:indices.get(0)!,exitId,outerActive:session.active,outerCurrent:input.session.current},active=scope.order[0],selected=fields.find(field=>field.id===currentId);if(!selected)return null;
+ return {...input,session:{...input.session,fields,active,current:currentId,scopes:[...(input.session.scopes??[]),scope]},selection:{from:selected.from,to:selected.to}};
+}
 </ui:copy>
 
 <ui:file path="apps/web/src/simple/SnippetSession.ts"><ui:paste select="#snippet-session-browser"/><ui:paste select="#snippet-session-browser-input"/><ui:paste select="#snippet-session-browser-completion"/></ui:file>
@@ -112,7 +134,8 @@ Use the same occurrence and revision model as the browser, with exact UTF-8 comp
 
 <ui:copy id="snippet-session-apple">
 import Foundation
-struct SnippetSession {var source:String;var fields:[SnippetField];var active:Int;var current:Int}
+struct SnippetScope {var order:[Int];var exitIndex:Int;var exitId:Int;var outerActive:Int;var outerCurrent:Int}
+struct SnippetSession {var source:String;var fields:[SnippetField];var active:Int;var current:Int;var scopes:[SnippetScope]=[]}
 struct SnippetInput {var session:SnippetSession;var edits:[NativeSourceEdit];var selection:CompletionSelection}
 struct SnippetAdvance {var session:SnippetSession?;var selection:CompletionSelection}
 private func snippetScalar(_ text:NSString,_ at:Int)->Bool {
@@ -134,8 +157,9 @@ func beginSnippet(_ source:String,fields:[SnippetField])->SnippetSession? {
 }
 func advanceSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,direction:Int)->SnippetAdvance? {
     guard exactUTF8(source,session.source),from<=to,(direction==1||direction == -1),session.fields.contains(where:{$0.index==session.active&&$0.from<=from&&$0.to>=to}) else{return nil}
-    let order=Array(Set(session.fields.map{$0.index}.filter{$0>0})).sorted()+[0]
+    let scope=session.scopes.last,order=scope.map{$0.order+[$0.exitIndex]} ?? (Array(Set(session.fields.map{$0.index}.filter{$0>0})).sorted()+[0])
     guard let at=order.firstIndex(of:session.active),order.indices.contains(at+direction),let field=session.fields.first(where:{$0.index==order[at+direction]}) else{return nil}
+    if let scope,field.index==scope.exitIndex{guard let exit=session.fields.first(where:{$0.id==scope.exitId}) else{return nil};var resumed=session;resumed.fields.removeAll{scope.order.contains($0.index)||$0.index==scope.exitIndex};resumed.active=scope.outerActive;resumed.current=scope.outerCurrent;resumed.scopes.removeLast();return SnippetAdvance(session:resumed,selection:CompletionSelection(from:exit.from,to:exit.to))}
     var next=session;next.active=field.index;next.current=field.id!
     return SnippetAdvance(session:field.index==0 ? nil:next,selection:CompletionSelection(from:field.from,to:field.to))
 }
@@ -151,6 +175,7 @@ private struct SnippetReplacement {var from:Int;var to:Int;var text:String;var o
 func editSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:String)->SnippetInput? {
     let original=source as NSString
     guard exactUTF8(source,session.source),from<=to,snippetScalar(original,from),snippetScalar(original,to),session.active != 0 else{return nil}
+    func terminal(_ field:SnippetField)->Bool{field.index==0 || session.scopes.contains(where:{$0.exitIndex==field.index})}
     let fields=session.fields,ids=Dictionary(uniqueKeysWithValues:fields.map{($0.id!,$0)})
     func ancestor(_ parent:Int,_ child:Int)->Bool{var current=ids[child];for _ in 0...fields.count{guard let value=current else{return false};if value.id==parent{return true};current=value.parent.flatMap{ids[$0]}};return false}
     let occurrences=fields.filter{$0.index==session.active},matches=occurrences.filter{$0.from<=from&&$0.to>=to}
@@ -174,22 +199,22 @@ func editSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:Str
             if edit.from==edit.to{
                 let related=edit.owners.indices.filter{ancestor(field.id!,edit.owners[$0])}
                 if let first=related.first,let last=related.last{return edit.from+delta+text.utf16.count*(end ? last+1:first)}
-                let enclosing=edit.owners.indices.filter{field.index==0&&ancestor(edit.owners[$0],field.id!)}
+                let enclosing=edit.owners.indices.filter{terminal(field)&&ancestor(edit.owners[$0],field.id!)}
                 if let last=enclosing.last{return edit.from+delta+text.utf16.count*(last+1)}
                 return edit.from+delta+text.utf16.count*edit.owners.filter{ordinals[$0]!<ordinals[field.id!]!}.count
             }
-            let owns=edit.owners.contains(field.id!)||edit.owners.contains(where:{ancestor(field.id!,$0)}),exit=field.index==0&&edit.owners.contains(where:{ancestor($0,field.id!)})
+            let owns=edit.owners.contains(field.id!)||edit.owners.contains(where:{ancestor(field.id!,$0)}),exit=terminal(field)&&edit.owners.contains(where:{ancestor($0,field.id!)})
             let right=owns ? end:exit ? true:position==edit.to
             return edit.from+delta+(right ? edit.text.utf16.count:0)
         }
         return position+delta
     }
-    let retained=fields.filter{field in field.index==0||field.index==session.active || !occurrences.contains(where:{ancestor($0.id!,field.id!)})},retainedIds=Set(retained.map{$0.id!})
+    let retained=fields.filter{field in terminal(field)||field.index==session.active || !occurrences.contains(where:{ancestor($0.id!,field.id!)})},retainedIds=Set(retained.map{$0.id!})
     let updated=retained.map{field in var value=field;var parent=field.parent;while let identity=parent,!retainedIds.contains(identity){parent=ids[identity]?.parent};value.parent=parent;value.from=map(field,field.from,false);value.to=map(field,field.to,true);return value}
     let output=after as NSString;var groups:[Int:String]=[:]
     for field in updated{guard field.from<=field.to,snippetScalar(output,field.from),snippetScalar(output,field.to) else{return nil};let value=output.substring(with:NSRange(location:field.from,length:field.to-field.from));if let previous=groups[field.index],!exactUTF8(previous,value){return nil};groups[field.index]=value}
     let caret=map(origin,from,false)+text.utf16.count
-    return SnippetInput(session:SnippetSession(source:after,fields:updated,active:session.active,current:origin.id!),edits:native,selection:CompletionSelection(from:caret,to:caret))
+    return SnippetInput(session:SnippetSession(source:after,fields:updated,active:session.active,current:origin.id!,scopes:session.scopes),edits:native,selection:CompletionSelection(from:caret,to:caret))
 }
 </ui:copy>
 
@@ -217,6 +242,27 @@ func completeSnippet(_ session:SnippetSession,source:String,primary:SourceReplac
     var next=input.session;next.source=after;next.fields=fields
     return SnippetInput(session:next,edits:edits.map{NativeSourceEdit(range:NSRange(location:$0.from,length:$0.to-$0.from),text:$0.text)},selection:CompletionSelection(from:input.selection.from+shift,to:input.selection.to+shift))
 }
+func nestSnippet(_ session:SnippetSession,source:String,primary:SourceReplacement,additional:[SourceReplacement],inner:[SnippetField])->SnippetInput? {
+    guard session.scopes.count<32,!inner.isEmpty,let exit=inner.first(where:{$0.index==0}) else{return nil}
+    let parsed=beginSnippet(primary.text,fields:inner);guard parsed != nil || (inner.count==1 && exit.id != nil && exit.parent==nil && exit.from==exit.to && snippetScalar(primary.text as NSString,exit.from)) else{return nil}
+    guard let origin=session.fields.first(where:{$0.id==session.current&&$0.from<=primary.from&&$0.to>=primary.to}),let input=completeSnippet(session,source:source,primary:primary,additional:additional) else{return nil}
+    let parents=input.session.fields.filter{$0.index==session.active};guard let current=parents.first(where:{$0.id==input.session.current}) else{return nil}
+    let relative=primary.from-origin.from,order=Array(Set(inner.filter{$0.index>0}.map{$0.index})).sorted()
+    if order.isEmpty{var result=input;let caret=current.from+relative+exit.from;result.selection=CompletionSelection(from:caret,to:caret);return result}
+    guard input.session.fields.count+parents.count*inner.count<=4096 else{return nil}
+    var nextIndex=input.session.fields.map{$0.index}.max()!+1,indices:[Int:Int]=[:]
+    for index in order+[0]{indices[index]=nextIndex;nextIndex+=1};guard nextIndex<=1004097 else{return nil}
+    var used=Set(input.session.fields.map{$0.id!}),fields=input.session.fields,nextId=0,exitId = -1,currentId = -1
+    for parent in parents {
+        var ids:[Int:Int]=[:];for field in inner{while used.contains(nextId){nextId+=1};guard nextId<4096 else{return nil};ids[field.id!]=nextId;used.insert(nextId);nextId+=1}
+        for field in inner{var value=field;let id=ids[field.id!]!;value.id=id;value.index=indices[field.index]!;value.parent=field.parent.map{ids[$0]!} ?? parent.id;value.from=parent.from+relative+field.from;value.to=parent.from+relative+field.to;fields.append(value)
+            if parent.id==current.id{if field.index==0{exitId=id}else if field.id==parsed!.current{currentId=id}}
+        }
+    }
+    guard fields.reduce(0,{sum,field in sum+64+field.choices.reduce(0){$0+$1.utf8.count}})<=1048576,beginSnippet(input.session.source,fields:fields) != nil,let selected=fields.first(where:{$0.id==currentId}) else{return nil}
+    let scope=SnippetScope(order:order.map{indices[$0]!},exitIndex:indices[0]!,exitId:exitId,outerActive:session.active,outerCurrent:input.session.current)
+    var result=input;result.session.fields=fields;result.session.active=scope.order[0];result.session.current=currentId;result.session.scopes.append(scope);result.selection=CompletionSelection(from:selected.from,to:selected.to);return result
+}
 </ui:copy>
 
 <ui:file path="apps/apple-simple/Sources/SnippetSession.swift"><ui:paste select="#snippet-session-apple"/><ui:paste select="#snippet-session-apple-input"/><ui:paste select="#snippet-session-apple-completion"/></ui:file>
@@ -227,7 +273,8 @@ Keep source, active intent and field relationships in one immutable plan. Linked
 
 <ui:copy id="snippet-session-android">
 package com.hickorydocs.simple
-data class SnippetSession(val source:String,val fields:List<SnippetField>,val active:Int,val current:Int)
+data class SnippetScope(val order:List<Int>,val exitIndex:Int,val exitId:Int,val outerActive:Int,val outerCurrent:Int)
+data class SnippetSession(val source:String,val fields:List<SnippetField>,val active:Int,val current:Int,val scopes:List<SnippetScope> = emptyList())
 data class SnippetInput(val session:SnippetSession,val edits:List<NativeSourceEdit>,val selection:CompletionSelection)
 data class SnippetAdvance(val session:SnippetSession?,val selection:CompletionSelection)
 private fun snippetScalar(text:String,at:Int):Boolean=at in 0..text.length&&!(at>0&&at<text.length&&(Character.isHighSurrogate(text[at-1])&&Character.isLowSurrogate(text[at])||text[at-1]=='\r'&&text[at]=='\n'))
@@ -241,7 +288,8 @@ fun beginSnippet(source:String,fields:List<SnippetField>):SnippetSession? {
 }
 fun advanceSnippet(session:SnippetSession,source:String,from:Int,to:Int,direction:Int):SnippetAdvance? {
  if(source!=session.source||from>to||direction!=1&&direction != -1||session.fields.none{it.index==session.active&&it.from<=from&&it.to>=to})return null
- val order=session.fields.map{it.index}.filter{it>0}.distinct().sorted()+0;val at=order.indexOf(session.active);val next=at+direction;if(at<0||next !in order.indices)return null
+ val scope=session.scopes.lastOrNull();val order=scope?.let{it.order+it.exitIndex} ?: (session.fields.map{it.index}.filter{it>0}.distinct().sorted()+0);val at=order.indexOf(session.active);val next=at+direction;if(at<0||next !in order.indices)return null
+ if(scope!=null&&order[next]==scope.exitIndex){val field=session.fields.firstOrNull{it.id==scope.exitId} ?: return null;return SnippetAdvance(session.copy(fields=session.fields.filter{it.index !in scope.order&&it.index!=scope.exitIndex},active=scope.outerActive,current=scope.outerCurrent,scopes=session.scopes.dropLast(1)),CompletionSelection(field.from,field.to))}
  val field=session.fields.first{it.index==order[next]};return SnippetAdvance(if(field.index==0)null else session.copy(active=field.index,current=field.id!!),CompletionSelection(field.from,field.to))
 }
 
@@ -255,6 +303,7 @@ Capture and numeric traversal above retain a source-bound intent, without editor
 private data class SnippetReplacement(val from:Int,val to:Int,var text:String,val owners:MutableList<Int>)
 fun editSnippet(session:SnippetSession,source:String,from:Int,to:Int,text:String):SnippetInput? {
  if(source!=session.source||from>to||!snippetScalar(source,from)||!snippetScalar(source,to)||session.active==0)return null
+ fun terminal(field:SnippetField)=field.index==0||session.scopes.any{it.exitIndex==field.index}
  val fields=session.fields;val ids=fields.associateBy{it.id!!}
  fun ancestor(parent:Int,child:Int):Boolean{var current=ids[child];repeat(fields.size+1){val value=current ?: return false;if(value.id==parent)return true;current=value.parent?.let{ids[it]}};return false}
  val occurrences=fields.filter{it.index==session.active};val matches=occurrences.filter{it.from<=from&&it.to>=to};val origin=matches.firstOrNull{it.id==session.current} ?: matches.firstOrNull() ?: return null
@@ -273,17 +322,17 @@ fun editSnippet(session:SnippetSession,source:String,from:Int,to:Int,text:String
  fun map(field:SnippetField,position:Int,end:Boolean):Int {
   var delta=0;for(edit in edits){if(position<edit.from)break;if(position>edit.to){delta+=edit.text.length-(edit.to-edit.from);continue}
    if(edit.from==edit.to){val related=edit.owners.indices.filter{ancestor(field.id!!,edit.owners[it])};if(related.isNotEmpty())return edit.from+delta+text.length*(if(end)related.last()+1 else related.first())
-    val enclosing=edit.owners.indices.filter{field.index==0&&ancestor(edit.owners[it],field.id!!)};if(enclosing.isNotEmpty())return edit.from+delta+text.length*(enclosing.last()+1)
+    val enclosing=edit.owners.indices.filter{terminal(field)&&ancestor(edit.owners[it],field.id!!)};if(enclosing.isNotEmpty())return edit.from+delta+text.length*(enclosing.last()+1)
     return edit.from+delta+text.length*edit.owners.count{ordinals.getValue(it)<ordinals.getValue(field.id!!)}
    }
-   val owns=edit.owners.contains(field.id!!)||edit.owners.any{ancestor(field.id!!,it)};val exit=field.index==0&&edit.owners.any{ancestor(it,field.id!!)};val right=if(owns)end else if(exit)true else position==edit.to
+   val owns=edit.owners.contains(field.id!!)||edit.owners.any{ancestor(field.id!!,it)};val exit=terminal(field)&&edit.owners.any{ancestor(it,field.id!!)};val right=if(owns)end else if(exit)true else position==edit.to
    return edit.from+delta+if(right)edit.text.length else 0
   };return position+delta
  }
- val retained=fields.filter{field->field.index==0||field.index==session.active||occurrences.none{ancestor(it.id!!,field.id!!)}};val retainedIds=retained.map{it.id!!}.toSet()
+ val retained=fields.filter{field->terminal(field)||field.index==session.active||occurrences.none{ancestor(it.id!!,field.id!!)}};val retainedIds=retained.map{it.id!!}.toSet()
  val updated=retained.map{field->var parent=field.parent;while(parent!=null&&!retainedIds.contains(parent))parent=ids[parent]?.parent;field.copy(parent=parent,from=map(field,field.from,false),to=map(field,field.to,true))}
  val groups=mutableMapOf<Int,String>();for(field in updated){if(field.from>field.to||!snippetScalar(after,field.from)||!snippetScalar(after,field.to))return null;val value=after.substring(field.from,field.to);val previous=groups[field.index];if(previous!=null&&previous!=value)return null;groups[field.index]=value}
- val caret=map(origin,from,false)+text.length;return SnippetInput(SnippetSession(after,updated,session.active,origin.id!!),native,CompletionSelection(caret,caret))
+ val caret=map(origin,from,false)+text.length;return SnippetInput(SnippetSession(after,updated,session.active,origin.id!!,session.scopes),native,CompletionSelection(caret,caret))
 }
 </ui:copy>
 
@@ -308,6 +357,23 @@ fun completeSnippet(session:SnippetSession,source:String,primary:SourceReplaceme
  var after=source;for(edit in edits.asReversed())after=after.replaceRange(edit.from,edit.to,edit.text)
  val fields=input.session.fields.map{it.copy(from=it.from+shift,to=it.to+shift)};if(beginSnippet(after,fields)==null)return null
  return SnippetInput(input.session.copy(source=after,fields=fields),edits.map{NativeSourceEdit(it.from,it.to,it.text)},CompletionSelection(input.selection.from+shift,input.selection.to+shift))
+}
+fun nestSnippet(session:SnippetSession,source:String,primary:SourceReplacement,additional:List<SourceReplacement>,inner:List<SnippetField>):SnippetInput? {
+ if(session.scopes.size>=32||inner.isEmpty())return null
+ val exit=inner.firstOrNull{it.index==0} ?: return null;val parsed=beginSnippet(primary.text,inner);if(parsed==null&&(inner.size!=1||exit.id==null||exit.parent!=null||exit.from!=exit.to||!snippetScalar(primary.text,exit.from)))return null
+ val origin=session.fields.firstOrNull{it.id==session.current&&it.from<=primary.from&&it.to>=primary.to} ?: return null
+ val input=completeSnippet(session,source,primary,additional) ?: return null;val parents=input.session.fields.filter{it.index==session.active};val current=parents.firstOrNull{it.id==input.session.current} ?: return null
+ val relative=primary.from-origin.from;val order=inner.filter{it.index>0}.map{it.index}.distinct().sorted()
+ if(order.isEmpty()){val caret=current.from+relative+exit.from;return input.copy(selection=CompletionSelection(caret,caret))}
+ if(input.session.fields.size.toLong()+parents.size.toLong()*inner.size>4096)return null
+ var nextIndex=input.session.fields.maxOf{it.index}+1;val indices=(order+0).associateWith{nextIndex++};if(nextIndex>1004097)return null
+ val used=input.session.fields.map{it.id!!}.toMutableSet();val fields=input.session.fields.toMutableList();var nextId=0;var exitId = -1;var currentId = -1
+ for(parent in parents){val ids=mutableMapOf<Int,Int>();for(field in inner){while(nextId in used)nextId++;if(nextId>=4096)return null;ids[field.id!!]=nextId;used.add(nextId++)}
+  for(field in inner){val id=ids.getValue(field.id!!);fields.add(field.copy(id=id,index=indices.getValue(field.index),parent=field.parent?.let{ids.getValue(it)} ?: parent.id,from=parent.from+relative+field.from,to=parent.from+relative+field.to));if(parent.id==current.id){if(field.index==0)exitId=id else if(field.id==parsed!!.current)currentId=id}}
+ }
+ if(fields.sumOf{field->64L+field.choices.sumOf{it.toByteArray(Charsets.UTF_8).size.toLong()}}>1048576||beginSnippet(input.session.source,fields)==null)return null
+ val selected=fields.firstOrNull{it.id==currentId} ?: return null;val scope=SnippetScope(order.map{indices.getValue(it)},indices.getValue(0),exitId,session.active,input.session.current)
+ return input.copy(session=input.session.copy(fields=fields,active=scope.order[0],current=currentId,scopes=input.session.scopes+scope),selection=CompletionSelection(selected.from,selected.to))
 }
 </ui:copy>
 
@@ -2320,6 +2386,644 @@ These independently written cases state source text, every retained field occurr
           "currentSource": "b + b"
         }
       ]
+    },
+    {
+      "name": "nested fields mirror through outer occurrences then return to outer scope",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "nest",
+          "from": 0,
+          "to": 1,
+          "text": "x:x",
+          "inner": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 1,
+              "from": 2,
+              "to": 3,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 0,
+              "from": 3,
+              "to": 3,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "after": "x:x + x:x",
+          "selection": {
+            "from": 0,
+            "to": 1
+          },
+          "active": 2
+        },
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 1,
+          "text": "long",
+          "after": "long:long + long:long",
+          "selection": {
+            "from": 4,
+            "to": 4
+          },
+          "active": 2
+        },
+        {
+          "action": "next",
+          "from": 4,
+          "to": 4,
+          "selection": {
+            "from": 9,
+            "to": 9
+          },
+          "active": 1,
+          "fields": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 9,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 1,
+              "from": 12,
+              "to": 21,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 0,
+              "from": 21,
+              "to": 21,
+              "choices": [],
+              "parent": null
+            }
+          ]
+        },
+        {
+          "action": "next",
+          "from": 9,
+          "to": 9,
+          "selection": {
+            "from": 21,
+            "to": 21
+          },
+          "active": null
+        }
+      ]
+    },
+    {
+      "name": "nested scope stack returns through two levels",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "nest",
+          "from": 0,
+          "to": 1,
+          "text": "x:x",
+          "inner": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 1,
+              "from": 2,
+              "to": 3,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 0,
+              "from": 3,
+              "to": 3,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "after": "x:x + x:x",
+          "selection": {
+            "from": 0,
+            "to": 1
+          },
+          "active": 2
+        },
+        {
+          "action": "nest",
+          "from": 0,
+          "to": 1,
+          "text": "z",
+          "inner": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 0,
+              "from": 1,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "after": "z:z + z:z",
+          "selection": {
+            "from": 0,
+            "to": 1
+          },
+          "active": 4
+        },
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 1,
+          "text": "Q",
+          "after": "Q:Q + Q:Q",
+          "selection": {
+            "from": 1,
+            "to": 1
+          },
+          "active": 4
+        },
+        {
+          "action": "next",
+          "from": 1,
+          "to": 1,
+          "selection": {
+            "from": 1,
+            "to": 1
+          },
+          "active": 2
+        },
+        {
+          "action": "next",
+          "from": 1,
+          "to": 1,
+          "selection": {
+            "from": 3,
+            "to": 3
+          },
+          "active": 1
+        }
+      ]
+    },
+    {
+      "name": "exit-only nested template retains outer scope at its explicit exit",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "nest",
+          "from": 0,
+          "to": 1,
+          "text": "xy",
+          "inner": [
+            {
+              "id": 0,
+              "index": 0,
+              "from": 1,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "after": "xy + xy",
+          "selection": {
+            "from": 1,
+            "to": 1
+          },
+          "active": 1
+        }
+      ]
+    },
+    {
+      "name": "malformed nested field forest refuses insertion",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "nest",
+          "from": 0,
+          "to": 1,
+          "text": "xy",
+          "inner": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 1,
+              "choices": [],
+              "parent": 42
+            },
+            {
+              "id": 1,
+              "index": 0,
+              "from": 2,
+              "to": 2,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "refuse": true
+        }
+      ]
+    },
+    {
+      "name": "empty nested fields retain local exits while typing",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "nest",
+          "from": 0,
+          "to": 1,
+          "text": "",
+          "inner": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 0,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 0,
+              "from": 0,
+              "to": 0,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "after": " + ",
+          "selection": {
+            "from": 0,
+            "to": 0
+          },
+          "active": 2
+        },
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 0,
+          "text": "x",
+          "after": "x + x",
+          "selection": {
+            "from": 1,
+            "to": 1
+          },
+          "active": 2
+        },
+        {
+          "action": "next",
+          "from": 1,
+          "to": 1,
+          "selection": {
+            "from": 1,
+            "to": 1
+          },
+          "active": 1
+        }
+      ]
+    },
+    {
+      "name": "Unicode nested fields use scalar-safe UTF16 ranges",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "nest",
+          "from": 0,
+          "to": 1,
+          "text": "😀",
+          "inner": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 2,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 0,
+              "from": 2,
+              "to": 2,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "after": "😀 + 😀",
+          "selection": {
+            "from": 0,
+            "to": 2
+          },
+          "active": 2
+        },
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 1,
+          "text": "x",
+          "refuse": true
+        },
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 2,
+          "text": "é",
+          "after": "é + é",
+          "selection": {
+            "from": 1,
+            "to": 1
+          },
+          "active": 2
+        },
+        {
+          "action": "next",
+          "from": 1,
+          "to": 1,
+          "selection": {
+            "from": 1,
+            "to": 1
+          },
+          "active": 1
+        }
+      ]
+    },
+    {
+      "name": "nested insertion retains the selected outer mirror identity",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "edit",
+          "from": 4,
+          "to": 5,
+          "text": "a",
+          "after": "a + a",
+          "selection": {
+            "from": 5,
+            "to": 5
+          },
+          "active": 1
+        },
+        {
+          "action": "nest",
+          "from": 4,
+          "to": 5,
+          "text": "x:x",
+          "inner": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 1,
+              "from": 2,
+              "to": 3,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 0,
+              "from": 3,
+              "to": 3,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "after": "x:x + x:x",
+          "selection": {
+            "from": 6,
+            "to": 7
+          },
+          "active": 2
+        },
+        {
+          "action": "next",
+          "from": 6,
+          "to": 7,
+          "selection": {
+            "from": 9,
+            "to": 9
+          },
+          "active": 1
+        }
+      ]
     }
   ]
 }
@@ -2335,18 +3039,18 @@ Run the same independently specified source, scope and selection outcomes as the
 import {expect,it} from 'vitest';
 import vectors from '../../../simple-contract/snippet-session-cases.json';
 import type {SnippetField} from './SnippetExpansion';
-import {beginSnippet,editSnippet,advanceSnippet,completeSnippet,type SnippetSession} from './SnippetSession';
-interface Step {additional?:{from:number;to:number;text:string}[];action:string;from:number;to:number;text?:string;repeat?:number;currentSource?:string;refuse?:boolean;after?:string;fields?:SnippetField[];selection?:{from:number;to:number};active?:number|null}
+import {beginSnippet,editSnippet,advanceSnippet,completeSnippet,nestSnippet,type SnippetSession} from './SnippetSession';
+interface Step {inner?:SnippetField[];additional?:{from:number;to:number;text:string}[];action:string;from:number;to:number;text?:string;repeat?:number;currentSource?:string;refuse?:boolean;after?:string;fields?:SnippetField[];selection?:{from:number;to:number};active?:number|null}
 interface Case {name:string;source:string;fields:SnippetField[];invalidBegin?:boolean;steps?:Step[]}
 it('derives complete linked source edits, field scope and traversal from shared vectors',()=>{
  for(const value of vectors.cases as unknown as Case[]){
   let session:SnippetSession|null=beginSnippet(value.source,value.fields),source=value.source;
   if(value.invalidBegin){expect(session,value.name).toBeNull();continue;}expect(session,value.name).not.toBeNull();
   for(const step of value.steps!){const before=JSON.stringify(session),current=session!,input=step.currentSource??source;
-   const result=step.action==='complete'?completeSnippet(current,input,{from:step.from,to:step.to,text:step.text??''},step.additional??[]):step.action==='edit'?editSnippet(current,input,step.from,step.to,(step.text??'').repeat(step.repeat??1)):advanceSnippet(current,input,step.from,step.to,step.action==='next'?1:-1);
+   const result=step.action==='nest'?nestSnippet(current,input,{from:step.from,to:step.to,text:step.text??''},step.additional??[],step.inner??[]):step.action==='complete'?completeSnippet(current,input,{from:step.from,to:step.to,text:step.text??''},step.additional??[]):step.action==='edit'?editSnippet(current,input,step.from,step.to,(step.text??'').repeat(step.repeat??1)):advanceSnippet(current,input,step.from,step.to,step.action==='next'?1:-1);
    expect(JSON.stringify(session),value.name).toBe(before);if(step.refuse){expect(result,value.name).toBeNull();continue;}expect(result,value.name).not.toBeNull();
    expect(result!.selection,value.name).toEqual(step.selection);
-   if(step.action==='edit'||step.action==='complete'){const edited=result as NonNullable<ReturnType<typeof editSnippet>>;expect(edited.session.source,value.name).toBe(step.after);source=edited.session.source;}
+   if(step.action==='edit'||step.action==='complete'||step.action==='nest'){const edited=result as NonNullable<ReturnType<typeof editSnippet>>;expect(edited.session.source,value.name).toBe(step.after);source=edited.session.source;}
    session=result!.session;
    if(step.fields)expect(session?.fields,value.name).toEqual(step.fields);
    if('active' in step)expect(session?.active??null,value.name).toBe(step.active);
@@ -2375,9 +3079,9 @@ final class SnippetSessionTests:XCTestCase {
             for step in value["steps"] as! [[String:Any]] {
                 let current=try XCTUnwrap(session),input=step["currentSource"] as? String ?? source,from=step["from"] as! Int,to=step["to"] as! Int,action=step["action"] as! String
                 let selected:CompletionSelection?,next:SnippetSession?
-                if action=="edit" || action=="complete" {
+                if action=="edit" || action=="complete" || action=="nest" {
                     let additional=(step["additional"] as? [[String:Any]] ?? []).map{SourceReplacement(from:$0["from"] as! Int,to:$0["to"] as! Int,text:$0["text"] as! String)}
-                    let result=action=="complete" ? completeSnippet(current,source:input,primary:SourceReplacement(from:from,to:to,text:step["text"] as? String ?? ""),additional:additional):editSnippet(current,source:input,from:from,to:to,text:String(repeating:step["text"] as? String ?? "",count:step["repeat"] as? Int ?? 1))
+                    let result=action=="nest" ? nestSnippet(current,source:input,primary:SourceReplacement(from:from,to:to,text:step["text"] as? String ?? ""),additional:additional,inner:fields(step["inner"] as? [[String:Any]] ?? [])):action=="complete" ? completeSnippet(current,source:input,primary:SourceReplacement(from:from,to:to,text:step["text"] as? String ?? ""),additional:additional):editSnippet(current,source:input,from:from,to:to,text:String(repeating:step["text"] as? String ?? "",count:step["repeat"] as? Int ?? 1))
                     if step["refuse"] as? Bool==true{XCTAssertNil(result,name);continue}
                     let applied=try XCTUnwrap(result);XCTAssertTrue(exactUTF8(applied.session.source,step["after"] as! String),name);source=applied.session.source;selected=applied.selection;next=applied.session
                 }else{
@@ -2415,9 +3119,9 @@ class SnippetSessionTest {
    val steps=value.getJSONArray("steps");for(offset in 0 until steps.length()){
     val step=steps.getJSONObject(offset);val current=session!!;val input=step.optString("currentSource",source);val from=step.getInt("from");val to=step.getInt("to");val action=step.getString("action")
     val selected:CompletionSelection;val next:SnippetSession?
-    if(action=="edit"||action=="complete"){
+    if(action=="edit"||action=="complete"||action=="nest"){
      val additions=step.optJSONArray("additional") ?: JSONArray();val additional=(0 until additions.length()).map{val edit=additions.getJSONObject(it);SourceReplacement(edit.getInt("from"),edit.getInt("to"),edit.getString("text"))}
-     val result=if(action=="complete")completeSnippet(current,input,SourceReplacement(from,to,step.optString("text","")),additional)else editSnippet(current,input,from,to,step.optString("text","").repeat(step.optInt("repeat",1)))
+     val result=if(action=="nest")nestSnippet(current,input,SourceReplacement(from,to,step.optString("text","")),additional,fields(step.optJSONArray("inner") ?: JSONArray()))else if(action=="complete")completeSnippet(current,input,SourceReplacement(from,to,step.optString("text","")),additional)else editSnippet(current,input,from,to,step.optString("text","").repeat(step.optInt("repeat",1)))
      if(step.optBoolean("refuse")){assertNull(name,result);continue};assertNotNull(name,result);assertEquals(name,step.getString("after"),result!!.session.source);source=result.session.source;selected=result.selection;next=result.session
     }else{
      val result=advanceSnippet(current,input,from,to,if(action=="next")1 else -1)

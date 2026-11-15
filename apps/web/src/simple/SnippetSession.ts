@@ -1,5 +1,6 @@
 import type {SnippetField} from './SnippetExpansion';
-export interface SnippetSession {source:string;fields:SnippetField[];active:number;current:number}
+export interface SnippetScope {order:number[];exitIndex:number;exitId:number;outerActive:number;outerCurrent:number}
+export interface SnippetSession {source:string;fields:SnippetField[];active:number;current:number;scopes?:SnippetScope[]}
 export interface SnippetEdit {from:number;to:number;text:string}
 export interface SnippetInput {session:SnippetSession;edits:SnippetEdit[];selection:{from:number;to:number}}
 const scalar=(text:string,at:number)=>Number.isSafeInteger(at)&&at>=0&&at<=text.length&&!(at>0&&at<text.length&&((text.charCodeAt(at-1)>=0xd800&&text.charCodeAt(at-1)<=0xdbff&&text.charCodeAt(at)>=0xdc00&&text.charCodeAt(at)<=0xdfff)||(text[at-1]==='\r'&&text[at]==='\n')));
@@ -12,14 +13,17 @@ export function beginSnippet(source:string,fields:readonly SnippetField[]):Snipp
 }
 export function advanceSnippet(session:SnippetSession,source:string,from:number,to:number,direction:1|-1):{session:SnippetSession|null;selection:{from:number;to:number}}|null {
  if(source!==session.source||from>to||!session.fields.some(field=>field.index===session.active&&field.from<=from&&field.to>=to))return null;
- const order=[...new Set(session.fields.map(field=>field.index).filter(index=>index>0))].sort((a,b)=>a-b);order.push(0);
+ const scope=session.scopes?.at(-1),order=scope?[...scope.order,scope.exitIndex]:[...new Set(session.fields.map(field=>field.index).filter(index=>index>0))].sort((a,b)=>a-b).concat(0);
  const at=order.indexOf(session.active),next=at+direction;if(at<0||next<0||next>=order.length)return null;
- const active=order[next],field=session.fields.find(field=>field.index===active)!;
+ const active=order[next];
+ if(scope&&active===scope.exitIndex){const field=session.fields.find(field=>field.id===scope.exitId);if(!field)return null;return {session:{...session,fields:session.fields.filter(field=>!scope.order.includes(field.index)&&field.index!==scope.exitIndex),active:scope.outerActive,current:scope.outerCurrent,scopes:session.scopes!.slice(0,-1)},selection:{from:field.from,to:field.to}};}
+ const field=session.fields.find(field=>field.index===active)!;
  return {session:active===0?null:{...session,active,current:field.id!},selection:{from:field.from,to:field.to}};
 }
 
 export function editSnippet(session:SnippetSession,source:string,from:number,to:number,text:string):SnippetInput|null {
  if(source!==session.source||from>to||!scalar(source,from)||!scalar(source,to)||session.active===0)return null;
+ const terminal=(field:SnippetField)=>field.index===0||!!session.scopes?.some(scope=>scope.exitIndex===field.index);
  const fields=session.fields,ids=new Map(fields.map(field=>[field.id!,field]));
  const ancestors=(parent:number,child:number)=>{let current=ids.get(child);for(let steps=0;current&&steps<=fields.length;steps++){if(current.id===parent)return true;current=current.parent===null?undefined:ids.get(current.parent!);}return false;};
  const occurrences=fields.filter(field=>field.index===session.active),matches=occurrences.filter(field=>field.from<=from&&field.to>=to),origin=matches.find(field=>field.id===session.current)??matches[0];
@@ -37,22 +41,22 @@ export function editSnippet(session:SnippetSession,source:string,from:number,to:
    if(edit.from===edit.to){
     const owners=[...edit.owners],related=owners.map((id,index)=>({id,index})).filter(({id})=>ancestors(field.id!,id));
     if(related.length)return edit.from+delta+text.length*(end?related.at(-1)!.index+1:related[0].index);
-    const enclosing=owners.map((id,index)=>({id,index})).filter(({id})=>field.index===0&&ancestors(id,field.id!));
+    const enclosing=owners.map((id,index)=>({id,index})).filter(({id})=>terminal(field)&&ancestors(id,field.id!));
     if(enclosing.length)return edit.from+delta+text.length*(enclosing.at(-1)!.index+1);
     return edit.from+delta+text.length*owners.filter(id=>ordinals.get(id)!<ordinals.get(field.id!)!).length;
    }
    const owns=edit.owners.has(field.id!)||[...edit.owners].some(id=>ancestors(field.id!,id));
-   const exit=field.index===0&&[...edit.owners].some(id=>ancestors(id,field.id!));
+   const exit=terminal(field)&&[...edit.owners].some(id=>ancestors(id,field.id!));
    const right=owns?end:exit?true:position===edit.to;
    return edit.from+delta+(right?edit.text.length:0);
   }return position+delta;};
- const retained=fields.filter(field=>after===source||field.index===0||field.index===session.active || !occurrences.some(parent=>ancestors(parent.id!,field.id!)));
+ const retained=fields.filter(field=>after===source||terminal(field)||field.index===session.active || !occurrences.some(parent=>ancestors(parent.id!,field.id!)));
  const retainedIds=new Set(retained.map(field=>field.id!));
  const updated=retained.map(field=>{let parent=field.parent;while(parent!==null&&parent!==undefined&&!retainedIds.has(parent))parent=ids.get(parent)?.parent;return {...field,parent:parent??null,from:map(field,field.from,false),to:map(field,field.to,true)};});
  if(updated.some(field=>field.from>field.to||!scalar(after,field.from)||!scalar(after,field.to)))return null;
  const groups=new Map<number,string>();for(const field of updated){const value=after.slice(field.from,field.to),previous=groups.get(field.index);if(previous!==undefined&&previous!==value)return null;groups.set(field.index,value);}
  const caret=map(origin,from,false)+text.length;
- return {session:{source:after,fields:updated,active:session.active,current:origin.id!},edits:replacements.map(({from,to,text})=>({from,to,text})),selection:{from:caret,to:caret}};
+ return {session:{source:after,fields:updated,active:session.active,current:origin.id!,scopes:session.scopes},edits:replacements.map(({from,to,text})=>({from,to,text})),selection:{from:caret,to:caret}};
 }
 export function completeSnippet(session:SnippetSession,source:string,primary:SnippetEdit,additional:readonly SnippetEdit[]):SnippetInput|null {
  const input=editSnippet(session,source,primary.from,primary.to,primary.text);if(!input)return null;
@@ -72,4 +76,22 @@ export function completeSnippet(session:SnippetSession,source:string,primary:Sni
  const fields=input.session.fields.map(field=>({...field,from:field.from+shift,to:field.to+shift}));
  if(!beginSnippet(after,fields))return null;
  return {session:{...input.session,source:after,fields},edits,selection:{from:input.selection.from+shift,to:input.selection.to+shift}};
+}
+export function nestSnippet(session:SnippetSession,source:string,primary:SnippetEdit,additional:readonly SnippetEdit[],inner:readonly SnippetField[]):SnippetInput|null {
+ if((session.scopes?.length??0)>=32||!inner.length)return null;
+ const parsed=beginSnippet(primary.text,inner),exit=inner.find(field=>field.index===0);if(!exit||(!parsed&&(inner.length!==1||exit.id===undefined||exit.parent!=null||exit.from!==exit.to||!scalar(primary.text,exit.from))))return null;
+ const origin=session.fields.find(field=>field.id===session.current&&field.from<=primary.from&&field.to>=primary.to);if(!origin)return null;
+ const input=completeSnippet(session,source,primary,additional);if(!input)return null;
+ const parents=input.session.fields.filter(field=>field.index===session.active),current=parents.find(field=>field.id===input.session.current);if(!current)return null;
+ const relative=primary.from-origin.from,order=[...new Set(inner.filter(field=>field.index>0).map(field=>field.index))].sort((a,b)=>a-b);
+ if(!order.length){const caret=current.from+relative+exit.from;return {...input,selection:{from:caret,to:caret}};}
+ if(input.session.fields.length+parents.length*inner.length>4096)return null;
+ let nextIndex=Math.max(...input.session.fields.map(field=>field.index))+1;const indices=new Map([...order,0].map(index=>[index,nextIndex++]));if(nextIndex>1004097)return null;
+ const used=new Set(input.session.fields.map(field=>field.id!)),fields=[...input.session.fields];let nextId=0,exitId=-1,currentId=-1;
+ for(const parent of parents){const ids=new Map<number,number>();for(const field of inner){while(used.has(nextId))nextId++;if(nextId>=4096)return null;ids.set(field.id!,nextId);used.add(nextId++);}
+  for(const field of inner){const id=ids.get(field.id!)!;fields.push({...field,id,index:indices.get(field.index)!,parent:field.parent==null?parent.id!:ids.get(field.parent)!,from:parent.from+relative+field.from,to:parent.from+relative+field.to});if(parent.id===current.id){if(field.index===0)exitId=id;else if(field.id===parsed!.current)currentId=id;}}
+ }
+ if(fields.reduce((sum,field)=>sum+64+field.choices.reduce((n,text)=>n+new TextEncoder().encode(text).length,0),0)>1048576||!beginSnippet(input.session.source,fields))return null;
+ const scope:SnippetScope={order:order.map(index=>indices.get(index)!),exitIndex:indices.get(0)!,exitId,outerActive:session.active,outerCurrent:input.session.current},active=scope.order[0],selected=fields.find(field=>field.id===currentId);if(!selected)return null;
+ return {...input,session:{...input.session,fields,active,current:currentId,scopes:[...(input.session.scopes??[]),scope]},selection:{from:selected.from,to:selected.to}};
 }

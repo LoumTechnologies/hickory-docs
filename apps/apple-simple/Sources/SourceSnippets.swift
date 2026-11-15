@@ -1,6 +1,6 @@
 import Foundation
 import Observation
-struct SourceSnippetHistoryContext {var fields:[SnippetField];var active:Int;var current:Int}
+struct SourceSnippetHistoryContext {var fields:[SnippetField];var active:Int;var current:Int;var scopes:[SnippetScope]=[]}
 func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {value?.fields.reduce(0){sum,field in sum+64+field.choices.reduce(0){$0+$1.utf16.count*2}} ?? 0}
 @MainActor @Observable final class SourceSnippetController {
     private weak var buffer:DocumentBuffer?
@@ -11,10 +11,10 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {value?.field
     init(buffer:DocumentBuffer){self.buffer=buffer}
     var active:SnippetSession? {guard let buffer,let session,exactUTF8(buffer.text,session.source) else{return nil};return session}
     var choices:[String] {guard let active else{return []};return active.fields.first(where:{$0.id==active.current})?.choices ?? []}
-    var historyContext:SourceSnippetHistoryContext? {active.map{SourceSnippetHistoryContext(fields:$0.fields,active:$0.active,current:$0.current)}}
+    var historyContext:SourceSnippetHistoryContext? {active.map{SourceSnippetHistoryContext(fields:$0.fields,active:$0.active,current:$0.current,scopes:$0.scopes)}}
     func restoreHistory(_ context:SourceSnippetHistoryContext?){
         guard let context,let buffer,beginSnippet(buffer.text,fields:context.fields) != nil else{restore(nil);return}
-        restore(SnippetSession(source:buffer.text,fields:context.fields,active:context.active,current:context.current))
+        restore(SnippetSession(source:buffer.text,fields:context.fields,active:context.active,current:context.current,scopes:context.scopes))
     }
     func restore(_ value:SnippetSession?) {session=value;intent+=1;report()}
     func sourceChanged(_ source:String) {if let session,!exactUTF8(source,session.source){finish()}}
@@ -23,7 +23,7 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {value?.field
     @discardableResult func finish()->Bool {guard session != nil else{return false};session=nil;intent+=1;report();return true}
     @discardableResult func move(_ direction:Int)->Bool {
         guard let buffer,let current=active else{_ = finish();return false}
-        guard let next=advanceSnippet(current,source:buffer.text,from:buffer.selection.location,to:NSMaxRange(buffer.selection),direction:direction) else{if direction == -1,current.active==current.fields.map({$0.index}).filter({$0>0}).min(){return true};_ = finish();return false}
+        guard let next=advanceSnippet(current,source:buffer.text,from:buffer.selection.location,to:NSMaxRange(buffer.selection),direction:direction) else{if direction == -1,current.active==(current.scopes.last?.order.first ?? current.fields.map({$0.index}).filter({$0>0}).min()){return true};_ = finish();return false}
         let old=session;session=next.session
         guard buffer.selectSourceRange?(NSRange(location:next.selection.from,length:next.selection.to-next.selection.from),current.source)==true else{session=old;return false}
         intent+=1;buffer.focusSource?();report();return true
@@ -39,9 +39,10 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {value?.field
     }
     func prepareCompletion(_ draft:CompletionDraft)throws->CompletionDraft {
         guard let current=active else{return draft}
-        guard draft.fields.isEmpty else{throw EngineError(message:"Finish the current template before inserting another snippet. No edits were applied.")}
         var result=draft
-        guard let edit=draft.primary,let input=completeSnippet(current,source:draft.before,primary:edit,additional:draft.additional) else{throw EngineError(message:"Completion overlaps template fields or is unavailable. Finish the template and retry.")}
+        guard let edit=draft.primary else{throw EngineError(message:"Completion primary edit is unavailable.")}
+        let inner=draft.fields.map{field in var value=field;value.from-=draft.insertionFrom;value.to-=draft.insertionFrom;return value}
+        guard let input=inner.isEmpty ? completeSnippet(current,source:draft.before,primary:edit,additional:draft.additional):nestSnippet(current,source:draft.before,primary:edit,additional:draft.additional,inner:inner) else{throw EngineError(message:"Completion overlaps template fields or is unavailable. Finish the template and retry.")}
         result.plan=ChangePlan(title:draft.plan.title,patches:exactUTF8(input.session.source,draft.before) ? []:[SourcePatch(path:draft.path,before:draft.before,after:input.session.source,edits:input.edits.map{SourceReplacement(from:$0.range.location,to:NSMaxRange($0.range),text:$0.text)})]);result.selection=input.selection;result.insertionFrom=input.selection.from-edit.text.utf16.count;result.continuing=input.session;return result
     }
     @discardableResult func choose(_ value:String)->Bool {

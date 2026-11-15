@@ -2000,6 +2000,644 @@
           "currentSource": "b + b"
         }
       ]
+    },
+    {
+      "name": "nested fields mirror through outer occurrences then return to outer scope",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "nest",
+          "from": 0,
+          "to": 1,
+          "text": "x:x",
+          "inner": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 1,
+              "from": 2,
+              "to": 3,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 0,
+              "from": 3,
+              "to": 3,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "after": "x:x + x:x",
+          "selection": {
+            "from": 0,
+            "to": 1
+          },
+          "active": 2
+        },
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 1,
+          "text": "long",
+          "after": "long:long + long:long",
+          "selection": {
+            "from": 4,
+            "to": 4
+          },
+          "active": 2
+        },
+        {
+          "action": "next",
+          "from": 4,
+          "to": 4,
+          "selection": {
+            "from": 9,
+            "to": 9
+          },
+          "active": 1,
+          "fields": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 9,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 1,
+              "from": 12,
+              "to": 21,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 0,
+              "from": 21,
+              "to": 21,
+              "choices": [],
+              "parent": null
+            }
+          ]
+        },
+        {
+          "action": "next",
+          "from": 9,
+          "to": 9,
+          "selection": {
+            "from": 21,
+            "to": 21
+          },
+          "active": null
+        }
+      ]
+    },
+    {
+      "name": "nested scope stack returns through two levels",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "nest",
+          "from": 0,
+          "to": 1,
+          "text": "x:x",
+          "inner": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 1,
+              "from": 2,
+              "to": 3,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 0,
+              "from": 3,
+              "to": 3,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "after": "x:x + x:x",
+          "selection": {
+            "from": 0,
+            "to": 1
+          },
+          "active": 2
+        },
+        {
+          "action": "nest",
+          "from": 0,
+          "to": 1,
+          "text": "z",
+          "inner": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 0,
+              "from": 1,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "after": "z:z + z:z",
+          "selection": {
+            "from": 0,
+            "to": 1
+          },
+          "active": 4
+        },
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 1,
+          "text": "Q",
+          "after": "Q:Q + Q:Q",
+          "selection": {
+            "from": 1,
+            "to": 1
+          },
+          "active": 4
+        },
+        {
+          "action": "next",
+          "from": 1,
+          "to": 1,
+          "selection": {
+            "from": 1,
+            "to": 1
+          },
+          "active": 2
+        },
+        {
+          "action": "next",
+          "from": 1,
+          "to": 1,
+          "selection": {
+            "from": 3,
+            "to": 3
+          },
+          "active": 1
+        }
+      ]
+    },
+    {
+      "name": "exit-only nested template retains outer scope at its explicit exit",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "nest",
+          "from": 0,
+          "to": 1,
+          "text": "xy",
+          "inner": [
+            {
+              "id": 0,
+              "index": 0,
+              "from": 1,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "after": "xy + xy",
+          "selection": {
+            "from": 1,
+            "to": 1
+          },
+          "active": 1
+        }
+      ]
+    },
+    {
+      "name": "malformed nested field forest refuses insertion",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "nest",
+          "from": 0,
+          "to": 1,
+          "text": "xy",
+          "inner": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 1,
+              "choices": [],
+              "parent": 42
+            },
+            {
+              "id": 1,
+              "index": 0,
+              "from": 2,
+              "to": 2,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "refuse": true
+        }
+      ]
+    },
+    {
+      "name": "empty nested fields retain local exits while typing",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "nest",
+          "from": 0,
+          "to": 1,
+          "text": "",
+          "inner": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 0,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 0,
+              "from": 0,
+              "to": 0,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "after": " + ",
+          "selection": {
+            "from": 0,
+            "to": 0
+          },
+          "active": 2
+        },
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 0,
+          "text": "x",
+          "after": "x + x",
+          "selection": {
+            "from": 1,
+            "to": 1
+          },
+          "active": 2
+        },
+        {
+          "action": "next",
+          "from": 1,
+          "to": 1,
+          "selection": {
+            "from": 1,
+            "to": 1
+          },
+          "active": 1
+        }
+      ]
+    },
+    {
+      "name": "Unicode nested fields use scalar-safe UTF16 ranges",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "nest",
+          "from": 0,
+          "to": 1,
+          "text": "😀",
+          "inner": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 2,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 0,
+              "from": 2,
+              "to": 2,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "after": "😀 + 😀",
+          "selection": {
+            "from": 0,
+            "to": 2
+          },
+          "active": 2
+        },
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 1,
+          "text": "x",
+          "refuse": true
+        },
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 2,
+          "text": "é",
+          "after": "é + é",
+          "selection": {
+            "from": 1,
+            "to": 1
+          },
+          "active": 2
+        },
+        {
+          "action": "next",
+          "from": 1,
+          "to": 1,
+          "selection": {
+            "from": 1,
+            "to": 1
+          },
+          "active": 1
+        }
+      ]
+    },
+    {
+      "name": "nested insertion retains the selected outer mirror identity",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "edit",
+          "from": 4,
+          "to": 5,
+          "text": "a",
+          "after": "a + a",
+          "selection": {
+            "from": 5,
+            "to": 5
+          },
+          "active": 1
+        },
+        {
+          "action": "nest",
+          "from": 4,
+          "to": 5,
+          "text": "x:x",
+          "inner": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 1,
+              "from": 2,
+              "to": 3,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 0,
+              "from": 3,
+              "to": 3,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "after": "x:x + x:x",
+          "selection": {
+            "from": 6,
+            "to": 7
+          },
+          "active": 2
+        },
+        {
+          "action": "next",
+          "from": 6,
+          "to": 7,
+          "selection": {
+            "from": 9,
+            "to": 9
+          },
+          "active": 1
+        }
+      ]
     }
   ]
 }

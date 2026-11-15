@@ -541,4 +541,10 @@ Completion drafts retain their primary replacement separately from their import 
 
 The 30 shared session scenarios include prefix/suffix imports, ordered coincident imports and whole-action refusal. Browser acceptance and real native text-state/editor witnesses check imports, mirrored replacement, field ranges and exact undo/redo selection together. This extends the earlier conservative refusal of all imports inside active templates; it does not establish nested scope, native IME or full provider-command support.
 
+## Nest template scopes without changing the editor layout
+
+All simple completion hosts can now insert a snippet inside an active field. The shared session model clones its inner field forest beneath every outer mirror, allocates distinct occurrence identities and linked group indices, and retains local traversal in a bounded scope stack. Inner edits update their mirrors and enclosing fields together. Finishing the inner scope returns to the originating outer occurrence at its explicit exit; finishing the outer scope reaches its original exit. Imports outside the field forest remain single source edits. Expansion limits include cloned fields and choices.
+
+The same 37 scenarios cover nested and twice-nested scopes, empty fields, Unicode boundaries, the second outer mirror, explicit exits and malformed ancestry alongside the prior edit/import cases. Browser and Android editor witnesses pass nested completion, mirrored typing, undo/redo and outer-scope return. The real-engine browser flow passes nested provider resolution with imports, four linked occurrences, nested/outer menu traversal, unchanged editor dimensions and unchanged disk. The Apple editor and completion-history witnesses pass after retaining the scope stack in both history directions and separating consecutive explicit actions while preserving Cocoa’s event frame. These results supersede the earlier refusal of nested insertion; full transforms/variable contexts, multi-caret templates, native mirrored IME and the live-template catalog remain required work.
+
 </ui:doc>

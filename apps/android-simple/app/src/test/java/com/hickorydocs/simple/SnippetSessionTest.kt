@@ -13,9 +13,9 @@ class SnippetSessionTest {
    val steps=value.getJSONArray("steps");for(offset in 0 until steps.length()){
     val step=steps.getJSONObject(offset);val current=session!!;val input=step.optString("currentSource",source);val from=step.getInt("from");val to=step.getInt("to");val action=step.getString("action")
     val selected:CompletionSelection;val next:SnippetSession?
-    if(action=="edit"||action=="complete"){
+    if(action=="edit"||action=="complete"||action=="nest"){
      val additions=step.optJSONArray("additional") ?: JSONArray();val additional=(0 until additions.length()).map{val edit=additions.getJSONObject(it);SourceReplacement(edit.getInt("from"),edit.getInt("to"),edit.getString("text"))}
-     val result=if(action=="complete")completeSnippet(current,input,SourceReplacement(from,to,step.optString("text","")),additional)else editSnippet(current,input,from,to,step.optString("text","").repeat(step.optInt("repeat",1)))
+     val result=if(action=="nest")nestSnippet(current,input,SourceReplacement(from,to,step.optString("text","")),additional,fields(step.optJSONArray("inner") ?: JSONArray()))else if(action=="complete")completeSnippet(current,input,SourceReplacement(from,to,step.optString("text","")),additional)else editSnippet(current,input,from,to,step.optString("text","").repeat(step.optInt("repeat",1)))
      if(step.optBoolean("refuse")){assertNull(name,result);continue};assertNotNull(name,result);assertEquals(name,step.getString("after"),result!!.session.source);source=result.session.source;selected=result.selection;next=result.session
     }else{
      val result=advanceSnippet(current,input,from,to,if(action=="next")1 else -1)

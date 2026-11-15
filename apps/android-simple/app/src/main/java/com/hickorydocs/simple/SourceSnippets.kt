@@ -51,7 +51,7 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
  fun sourceChanged(source:String){if(value?.source?.let{it!=source}==true)finish()}
  fun move(direction:Int):Boolean {
   val current=active ?: return false;if(buffer.state.composition!=null)return false;val selection=buffer.state.selection
-  val next=advanceSnippet(current,buffer.text,selection.min,selection.max,direction) ?: return if(direction == -1&&current.active==current.fields.map{it.index}.filter{it>0}.minOrNull())true else finish().let{false}
+  val next=advanceSnippet(current,buffer.text,selection.min,selection.max,direction) ?: return if(direction == -1&&current.active==(current.scopes.lastOrNull()?.order?.firstOrNull() ?: current.fields.map{it.index}.filter{it>0}.minOrNull()))true else finish().let{false}
   val previous=value;stage(next.session)
   if(!buffer.selectSourceRange(next.selection.from,next.selection.to,current.source)){stage(previous);return false};publish(next.session);return true
  }
@@ -62,9 +62,9 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
  }
  fun prepareCompletion(draft:CompletionDraft):CompletionDraft {
   val current=active ?: return draft
-  check(draft.fields.isEmpty()){"Finish the current template before inserting another snippet. No edits were applied."}
   val edit=draft.primary ?: error("Completion primary edit is unavailable. No edits were applied.")
-  val input=completeSnippet(current,draft.before,edit,draft.additional) ?: error("Completion overlaps template fields or is unavailable. Finish the template and retry.")
+  val inner=draft.fields.map{it.copy(from=it.from-draft.insertionFrom,to=it.to-draft.insertionFrom)}
+  val input=(if(inner.isEmpty())completeSnippet(current,draft.before,edit,draft.additional)else nestSnippet(current,draft.before,edit,draft.additional,inner)) ?: error("Completion overlaps template fields or is unavailable. Finish the template and retry.")
   return draft.copy(plan=ChangePlan(draft.plan.title,if(input.session.source==draft.before)emptyList() else listOf(SourcePatch(draft.path,draft.before,input.session.source,input.edits.map{SourceReplacement(it.from,it.to,it.text)}))),selection=input.selection,insertionFrom=input.selection.from-edit.text.length,continuing=input.session)
  }
  fun applyInput(source:String,from:Int,to:Int,text:String):Boolean {

@@ -15,7 +15,7 @@ import {acceptCompletion,closeCompletion,completionStatus,pickedCompletion,start
 import {exclusiveCompletionSources,withCompletionOrigin} from '../lsp/completion';
 import {cancelCompletionAcceptance,readCompletionAcceptance} from '../lsp/completionAcceptance';
 import {prepareEditorChanges} from '../editor/textInput';
-import {beginSnippet,advanceSnippet,editSnippet,completeSnippet,type SnippetSession} from './SnippetSession';
+import {beginSnippet,advanceSnippet,editSnippet,completeSnippet,nestSnippet,type SnippetSession} from './SnippetSession';
 import type {CompletionDraft} from './CompletionPlan';
 export const setSourceSnippet=StateEffect.define<SnippetSession|null>();
 interface SnippetSnapshot {source:string;session:SnippetSession|null;selection:EditorSelection}
@@ -60,9 +60,8 @@ const snippetState=StateField.define<SnippetSession|null>({
 export function sourceSnippetEffect(draft:CompletionDraft,after:string){return setSourceSnippet.of(draft.continuing??beginSnippet(after,draft.fields));}
 export function continueSourceSnippetCompletion(view:EditorView,draft:CompletionDraft):CompletionDraft {
  const current=readSourceSnippet(view);if(!current)return draft;
- if(draft.fields.length)throw new Error('Finish the current template before inserting another snippet. No edits were applied.');
  const edit=draft.primary;if(!edit)throw new Error('Completion primary edit is unavailable. No edits were applied.');
- const input=completeSnippet(current,draft.before,edit,draft.additional??[]);if(!input)throw new Error('Completion overlaps template fields or is unavailable. Finish the template and retry.');
+ const input=draft.fields.length?nestSnippet(current,draft.before,edit,draft.additional??[],draft.fields.map(field=>({...field,from:field.from-draft.insertionFrom,to:field.to-draft.insertionFrom}))):completeSnippet(current,draft.before,edit,draft.additional??[]);if(!input)throw new Error('Completion overlaps template fields or is unavailable. Finish the template and retry.');
  return {...draft,plan:{title:draft.plan.title,patches:input.session.source===draft.before?[]:[{path:draft.path,before:draft.before,after:input.session.source,edits:input.edits}]},selection:input.selection,insertionFrom:input.selection.from-edit.text.length,continuing:input.session};
 }
 export function readSourceSnippet(view:EditorView):SnippetSession|null{return view.state.field(snippetState,false)??null;}
@@ -70,7 +69,7 @@ export function finishSourceSnippet(view:EditorView):boolean {if(!readSourceSnip
 export function moveSourceSnippet(view:EditorView,direction:1|-1):boolean {
  const session=readSourceSnippet(view);if(!session||view.composing)return false;
  const selected=view.state.selection.main,result=advanceSnippet(session,view.state.doc.toString(),selected.from,selected.to,direction);
- if(!result){if(direction===-1&&session.active===Math.min(...session.fields.filter(field=>field.index>0).map(field=>field.index)))return true;finishSourceSnippet(view);return false;}
+ if(!result){if(direction===-1&&session.active===(session.scopes?.at(-1)?.order[0]??Math.min(...session.fields.filter(field=>field.index>0).map(field=>field.index))))return true;finishSourceSnippet(view);return false;}
  closeCompletion(view);view.dispatch({selection:{anchor:result.selection.from,head:result.selection.to},effects:setSourceSnippet.of(result.session),scrollIntoView:true,userEvent:'select.snippet'});return true;
 }
 export function sourceSnippets(adapter:{writable:()=>boolean;notice:(message:string)=>void}):Extension {
@@ -125,7 +124,7 @@ A source-bound controller exposes navigation and choices through existing select
 <ui:copy id="source-snippets-apple">
 import Foundation
 import Observation
-struct SourceSnippetHistoryContext {var fields:[SnippetField];var active:Int;var current:Int}
+struct SourceSnippetHistoryContext {var fields:[SnippetField];var active:Int;var current:Int;var scopes:[SnippetScope]=[]}
 func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {value?.fields.reduce(0){sum,field in sum+64+field.choices.reduce(0){$0+$1.utf16.count*2}} ?? 0}
 @MainActor @Observable final class SourceSnippetController {
     private weak var buffer:DocumentBuffer?
@@ -136,10 +135,10 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {value?.field
     init(buffer:DocumentBuffer){self.buffer=buffer}
     var active:SnippetSession? {guard let buffer,let session,exactUTF8(buffer.text,session.source) else{return nil};return session}
     var choices:[String] {guard let active else{return []};return active.fields.first(where:{$0.id==active.current})?.choices ?? []}
-    var historyContext:SourceSnippetHistoryContext? {active.map{SourceSnippetHistoryContext(fields:$0.fields,active:$0.active,current:$0.current)}}
+    var historyContext:SourceSnippetHistoryContext? {active.map{SourceSnippetHistoryContext(fields:$0.fields,active:$0.active,current:$0.current,scopes:$0.scopes)}}
     func restoreHistory(_ context:SourceSnippetHistoryContext?){
         guard let context,let buffer,beginSnippet(buffer.text,fields:context.fields) != nil else{restore(nil);return}
-        restore(SnippetSession(source:buffer.text,fields:context.fields,active:context.active,current:context.current))
+        restore(SnippetSession(source:buffer.text,fields:context.fields,active:context.active,current:context.current,scopes:context.scopes))
     }
     func restore(_ value:SnippetSession?) {session=value;intent+=1;report()}
     func sourceChanged(_ source:String) {if let session,!exactUTF8(source,session.source){finish()}}
@@ -148,7 +147,7 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {value?.field
     @discardableResult func finish()->Bool {guard session != nil else{return false};session=nil;intent+=1;report();return true}
     @discardableResult func move(_ direction:Int)->Bool {
         guard let buffer,let current=active else{_ = finish();return false}
-        guard let next=advanceSnippet(current,source:buffer.text,from:buffer.selection.location,to:NSMaxRange(buffer.selection),direction:direction) else{if direction == -1,current.active==current.fields.map({$0.index}).filter({$0>0}).min(){return true};_ = finish();return false}
+        guard let next=advanceSnippet(current,source:buffer.text,from:buffer.selection.location,to:NSMaxRange(buffer.selection),direction:direction) else{if direction == -1,current.active==(current.scopes.last?.order.first ?? current.fields.map({$0.index}).filter({$0>0}).min()){return true};_ = finish();return false}
         let old=session;session=next.session
         guard buffer.selectSourceRange?(NSRange(location:next.selection.from,length:next.selection.to-next.selection.from),current.source)==true else{session=old;return false}
         intent+=1;buffer.focusSource?();report();return true
@@ -164,9 +163,10 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {value?.field
     }
     func prepareCompletion(_ draft:CompletionDraft)throws->CompletionDraft {
         guard let current=active else{return draft}
-        guard draft.fields.isEmpty else{throw EngineError(message:"Finish the current template before inserting another snippet. No edits were applied.")}
         var result=draft
-        guard let edit=draft.primary,let input=completeSnippet(current,source:draft.before,primary:edit,additional:draft.additional) else{throw EngineError(message:"Completion overlaps template fields or is unavailable. Finish the template and retry.")}
+        guard let edit=draft.primary else{throw EngineError(message:"Completion primary edit is unavailable.")}
+        let inner=draft.fields.map{field in var value=field;value.from-=draft.insertionFrom;value.to-=draft.insertionFrom;return value}
+        guard let input=inner.isEmpty ? completeSnippet(current,source:draft.before,primary:edit,additional:draft.additional):nestSnippet(current,source:draft.before,primary:edit,additional:draft.additional,inner:inner) else{throw EngineError(message:"Completion overlaps template fields or is unavailable. Finish the template and retry.")}
         result.plan=ChangePlan(title:draft.plan.title,patches:exactUTF8(input.session.source,draft.before) ? []:[SourcePatch(path:draft.path,before:draft.before,after:input.session.source,edits:input.edits.map{SourceReplacement(from:$0.range.location,to:NSMaxRange($0.range),text:$0.text)})]);result.selection=input.selection;result.insertionFrom=input.selection.from-edit.text.utf16.count;result.continuing=input.session;return result
     }
     @discardableResult func choose(_ value:String)->Bool {
@@ -243,7 +243,7 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
  fun sourceChanged(source:String){if(value?.source?.let{it!=source}==true)finish()}
  fun move(direction:Int):Boolean {
   val current=active ?: return false;if(buffer.state.composition!=null)return false;val selection=buffer.state.selection
-  val next=advanceSnippet(current,buffer.text,selection.min,selection.max,direction) ?: return if(direction == -1&&current.active==current.fields.map{it.index}.filter{it>0}.minOrNull())true else finish().let{false}
+  val next=advanceSnippet(current,buffer.text,selection.min,selection.max,direction) ?: return if(direction == -1&&current.active==(current.scopes.lastOrNull()?.order?.firstOrNull() ?: current.fields.map{it.index}.filter{it>0}.minOrNull()))true else finish().let{false}
   val previous=value;stage(next.session)
   if(!buffer.selectSourceRange(next.selection.from,next.selection.to,current.source)){stage(previous);return false};publish(next.session);return true
  }
@@ -254,9 +254,9 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
  }
  fun prepareCompletion(draft:CompletionDraft):CompletionDraft {
   val current=active ?: return draft
-  check(draft.fields.isEmpty()){"Finish the current template before inserting another snippet. No edits were applied."}
   val edit=draft.primary ?: error("Completion primary edit is unavailable. No edits were applied.")
-  val input=completeSnippet(current,draft.before,edit,draft.additional) ?: error("Completion overlaps template fields or is unavailable. Finish the template and retry.")
+  val inner=draft.fields.map{it.copy(from=it.from-draft.insertionFrom,to=it.to-draft.insertionFrom)}
+  val input=(if(inner.isEmpty())completeSnippet(current,draft.before,edit,draft.additional)else nestSnippet(current,draft.before,edit,draft.additional,inner)) ?: error("Completion overlaps template fields or is unavailable. Finish the template and retry.")
   return draft.copy(plan=ChangePlan(draft.plan.title,if(input.session.source==draft.before)emptyList() else listOf(SourcePatch(draft.path,draft.before,input.session.source,input.edits.map{SourceReplacement(it.from,it.to,it.text)}))),selection=input.selection,insertionFrom=input.selection.from-edit.text.length,continuing=input.session)
  }
  fun applyInput(source:String,from:Int,to:Int,text:String):Boolean {
@@ -332,6 +332,16 @@ it('plain provider completion preserves all current mirrors and their history',a
  const {view,close}=fixture();try{const item:CompletionItem={label:'long',textEdit:{range:{start:{line:0,character:0},end:{line:0,character:1}},newText:'long'}};
   await acceptSourceCompletion(view,item,'a + a',view.state.selection,0,1,{uri:'hick:///a.py',resolve:async()=>item,current:()=>true,writable:()=>true,notice:()=>{}});
   expect(view.state.doc.toString()).toBe('long + long');expect(readSourceSnippet(view)?.source).toBe('long + long');expect(undo(view)).toBe(true);expect(view.state.doc.toString()).toBe('a + a');expect(readSourceSnippet(view)?.source).toBe('a + a');
+ }finally{close();}
+});
+it('nested completion fields mirror across outer occurrences and restore outer scope after undo',async()=>{
+ const {view,close}=fixture();try{const syntax='${1:x}:$1$0',inner=[field(0,1,0,1),field(1,1,2,3),field(2,0,3,3)];
+  const item:CompletionItem={label:'nested',insertTextFormat:2,textEdit:{range:{start:{line:0,character:0},end:{line:0,character:1}},newText:syntax},data:{hickory_snippet:{version:1,syntax,text:'x:x',fields:inner}},additionalTextEdits:[{range:{start:{line:0,character:0},end:{line:0,character:0}},newText:'# import\n'}]};
+  await acceptSourceCompletion(view,item,'a + a',view.state.selection,0,1,{uri:'hick:///a.py',resolve:async()=>item,current:()=>true,writable:()=>true,notice:()=>{}});
+  expect(view.state.doc.toString()).toBe('# import\nx:x + x:x');expect(readSourceSnippet(view)?.scopes?.length).toBe(1);expect(view.state.selection.main.from).toBe(9);
+  view.dispatch({changes:{from:9,to:10,insert:'long'},selection:{anchor:13},userEvent:'input.type'});expect(view.state.doc.toString()).toBe('# import\nlong:long + long:long');
+  expect(undo(view)).toBe(true);expect(readSourceSnippet(view)?.scopes?.length).toBe(1);expect(redo(view)).toBe(true);expect(readSourceSnippet(view)?.scopes?.length).toBe(1);expect(view.state.selection.main.head).toBe(13);
+  expect(moveSourceSnippet(view,1)).toBe(true);expect(view.state.selection.main.head).toBe(18);expect(readSourceSnippet(view)?.active).toBe(1);expect(moveSourceSnippet(view,1)).toBe(true);expect(view.state.selection.main.head).toBe(30);expect(readSourceSnippet(view)).toBeNull();
  }finally{close();}
 });
 it('source-equal completion retains template scope without a text history step',async()=>{
@@ -436,6 +446,21 @@ import AppKit
         XCTAssertFalse(refused);XCTAssertEqual(buffer.text,source);XCTAssertTrue(service.completionNotice.contains("overlaps template"))
         #endif
     }
+    func testNestedCompletionRestoresScopeThroughNativeHistory()async throws {
+        #if os(macOS)
+        let source="a + a",buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:source,hash:"base")),service:NativeLanguage
+        service=NativeLanguage(engine:try Engine(address:"http://fixture.invalid"),buffer:buffer);buffer.language=service
+        let editor=MacEditor(buffer),window=NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false);window.contentView=editor.scroll;defer{window.contentView=nil}
+        editor.text.setSelectedRange(NSRange(location:0,length:1));buffer.selection=editor.text.selectedRange();buffer.snippets.restore(beginSnippet(source,fields:fields()))
+        let syntax="${1:x}:$1$0",inner:[[String:Any]]=[["id":0,"parent":NSNull(),"index":1,"from":0,"to":1,"choices":[]],["id":1,"parent":NSNull(),"index":1,"from":2,"to":3,"choices":[]],["id":2,"parent":NSNull(),"index":0,"from":3,"to":3,"choices":[]]]
+        let raw:[String:Any]=["label":"nested","insertTextFormat":2,"textEdit":["range":["start":["line":0,"character":0],"end":["line":0,"character":1]],"newText":syntax],"data":["hickory_snippet":["version":1,"syntax":syntax,"text":"x:x","fields":inner]]]
+        let item=NativeCompletion(id:2,label:"nested",detail:"",range:NSRange(location:0,length:1),insert:syntax,source:source,selection:buffer.selection,original:raw)
+        let accepted=await service.accept(item,resolution:{_ in raw});XCTAssertTrue(accepted);XCTAssertEqual(buffer.text,"x:x + x:x");XCTAssertEqual(buffer.snippets.active?.scopes.count,1)
+        XCTAssertEqual(buffer.snippets.input(source:buffer.text,range:NSRange(location:0,length:1),text:"long"),true);XCTAssertEqual(buffer.text,"long:long + long:long")
+        editor.text.undoManager?.undo();XCTAssertEqual(buffer.snippets.active?.scopes.count,1);editor.text.undoManager?.redo();XCTAssertEqual(buffer.snippets.active?.scopes.count,1);XCTAssertEqual(editor.text.selectedRange().location,4)
+        XCTAssertTrue(buffer.snippets.move(1));XCTAssertEqual(editor.text.selectedRange().location,9);XCTAssertEqual(buffer.snippets.active?.active,1);XCTAssertTrue(buffer.snippets.move(1));XCTAssertEqual(editor.text.selectedRange().location,21);XCTAssertNil(buffer.snippets.active)
+        #endif
+    }
     func testEqualPositionNavigationRetiresHeldCompletion()async throws {
         #if os(macOS)
         let source="a",buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"a",hash:"base")),service:NativeLanguage
@@ -522,6 +547,18 @@ class SourceSnippetInteractionTest {
    buffer.snippets.undoSource();assertEquals("a + a",buffer.text);assertEquals(buffer.text,buffer.snippets.active?.source);buffer.snippets.redoSource();assertEquals(TextRange(13),buffer.state.selection);buffer.snippets.undoSource()
    val refusal=org.json.JSONObject(result.toString()).put("additionalTextEdits",org.json.JSONArray("[{\"range\":{\"start\":{\"line\":0,\"character\":2},\"end\":{\"line\":0,\"character\":2}},\"newText\":\"\\nimport other\"}]"))
    assertFalse(service.accept(item){refusal});assertEquals("a + a",buffer.text);assertTrue(service.completionNotice.contains("overlaps template"))
+  }finally{service.close()}
+ }
+ @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+ @Test fun nestedCompletionRestoresScopeThroughNativeHistory()=kotlinx.coroutines.runBlocking {
+  val buffer=buffer();val service=NativeLanguage(Engine("http://127.0.0.1:1"),buffer,this);buffer.language=service
+  val syntax="\${1:x}:\$1\$0";val raw=org.json.JSONObject("""{"label":"nested","insertTextFormat":2,"textEdit":{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"newText":"placeholder"},"data":{"hickory_snippet":{"version":1,"syntax":"placeholder","text":"x:x","fields":[{"id":0,"parent":null,"index":1,"from":0,"to":1,"choices":[]},{"id":1,"parent":null,"index":1,"from":2,"to":3,"choices":[]},{"id":2,"parent":null,"index":0,"from":3,"to":3,"choices":[]}]}}}""")
+  raw.getJSONObject("textEdit").put("newText",syntax);raw.getJSONObject("data").getJSONObject("hickory_snippet").put("syntax",syntax)
+  val item=NativeLanguageCompletion("nested","",NativeSourceEdit(0,1,syntax),"a + a",buffer.state.selection,raw)
+  try{assertTrue(service.accept(item){raw});assertEquals("x:x + x:x",buffer.text);assertEquals(1,buffer.snippets.active?.scopes?.size)
+   assertTrue(buffer.snippets.applyInput(buffer.text,0,1,"long"));assertEquals("long:long + long:long",buffer.text)
+   buffer.snippets.undoSource();assertEquals(1,buffer.snippets.active?.scopes?.size);buffer.snippets.redoSource();assertEquals(1,buffer.snippets.active?.scopes?.size);assertEquals(TextRange(4),buffer.state.selection)
+   assertTrue(buffer.snippets.move(1));assertEquals(TextRange(9),buffer.state.selection);assertEquals(1,buffer.snippets.active?.active);assertTrue(buffer.snippets.move(1));assertEquals(TextRange(21),buffer.state.selection);assertNull(buffer.snippets.active)
   }finally{service.close()}
  }
  @Test fun equalPositionNavigationRetiresHeldCompletion()=kotlinx.coroutines.runBlocking {

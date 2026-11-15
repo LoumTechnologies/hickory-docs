@@ -51,6 +51,9 @@ import CryptoKit
     }
     private func register(_ step:Step,manager:UndoManager,read:@escaping ()->String,apply:@escaping Apply,notice:@escaping (String)->Void,discardContext:@escaping ()->Void) {
         let group = !manager.isUndoing && !manager.isRedoing
+        // Separate consecutive explicit source actions even in one host event.
+        // Leave caller-owned nested groups and undo/redo replay intact.
+        if group,manager.groupsByEvent,manager.groupingLevel==1{manager.endUndoGrouping();manager.beginUndoGrouping()}
         if group{manager.beginUndoGrouping()}
         manager.registerUndo(withTarget:self){[weak manager] history in
             guard let manager else{return}

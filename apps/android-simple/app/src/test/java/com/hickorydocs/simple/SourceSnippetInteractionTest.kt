@@ -35,6 +35,18 @@ class SourceSnippetInteractionTest {
    assertFalse(service.accept(item){refusal});assertEquals("a + a",buffer.text);assertTrue(service.completionNotice.contains("overlaps template"))
   }finally{service.close()}
  }
+ @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+ @Test fun nestedCompletionRestoresScopeThroughNativeHistory()=kotlinx.coroutines.runBlocking {
+  val buffer=buffer();val service=NativeLanguage(Engine("http://127.0.0.1:1"),buffer,this);buffer.language=service
+  val syntax="\${1:x}:\$1\$0";val raw=org.json.JSONObject("""{"label":"nested","insertTextFormat":2,"textEdit":{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"newText":"placeholder"},"data":{"hickory_snippet":{"version":1,"syntax":"placeholder","text":"x:x","fields":[{"id":0,"parent":null,"index":1,"from":0,"to":1,"choices":[]},{"id":1,"parent":null,"index":1,"from":2,"to":3,"choices":[]},{"id":2,"parent":null,"index":0,"from":3,"to":3,"choices":[]}]}}}""")
+  raw.getJSONObject("textEdit").put("newText",syntax);raw.getJSONObject("data").getJSONObject("hickory_snippet").put("syntax",syntax)
+  val item=NativeLanguageCompletion("nested","",NativeSourceEdit(0,1,syntax),"a + a",buffer.state.selection,raw)
+  try{assertTrue(service.accept(item){raw});assertEquals("x:x + x:x",buffer.text);assertEquals(1,buffer.snippets.active?.scopes?.size)
+   assertTrue(buffer.snippets.applyInput(buffer.text,0,1,"long"));assertEquals("long:long + long:long",buffer.text)
+   buffer.snippets.undoSource();assertEquals(1,buffer.snippets.active?.scopes?.size);buffer.snippets.redoSource();assertEquals(1,buffer.snippets.active?.scopes?.size);assertEquals(TextRange(4),buffer.state.selection)
+   assertTrue(buffer.snippets.move(1));assertEquals(TextRange(9),buffer.state.selection);assertEquals(1,buffer.snippets.active?.active);assertTrue(buffer.snippets.move(1));assertEquals(TextRange(21),buffer.state.selection);assertNull(buffer.snippets.active)
+  }finally{service.close()}
+ }
  @Test fun equalPositionNavigationRetiresHeldCompletion()=kotlinx.coroutines.runBlocking {
   val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText("a","base"));val service=NativeLanguage(Engine("http://127.0.0.1:1"),buffer,this);buffer.language=service;buffer.state.edit{selection=TextRange(0,1)}
   buffer.snippets.restore(beginSnippet("a",listOf(SnippetField(2,0,1,emptyList(),1,0),SnippetField(1,0,1,emptyList(),0),SnippetField(0,1,1,emptyList(),2))))

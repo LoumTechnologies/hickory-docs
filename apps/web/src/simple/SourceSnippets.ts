@@ -5,7 +5,7 @@ import {acceptCompletion,closeCompletion,completionStatus,pickedCompletion,start
 import {exclusiveCompletionSources,withCompletionOrigin} from '../lsp/completion';
 import {cancelCompletionAcceptance,readCompletionAcceptance} from '../lsp/completionAcceptance';
 import {prepareEditorChanges} from '../editor/textInput';
-import {beginSnippet,advanceSnippet,editSnippet,completeSnippet,type SnippetSession} from './SnippetSession';
+import {beginSnippet,advanceSnippet,editSnippet,completeSnippet,nestSnippet,type SnippetSession} from './SnippetSession';
 import type {CompletionDraft} from './CompletionPlan';
 export const setSourceSnippet=StateEffect.define<SnippetSession|null>();
 interface SnippetSnapshot {source:string;session:SnippetSession|null;selection:EditorSelection}
@@ -50,9 +50,8 @@ const snippetState=StateField.define<SnippetSession|null>({
 export function sourceSnippetEffect(draft:CompletionDraft,after:string){return setSourceSnippet.of(draft.continuing??beginSnippet(after,draft.fields));}
 export function continueSourceSnippetCompletion(view:EditorView,draft:CompletionDraft):CompletionDraft {
  const current=readSourceSnippet(view);if(!current)return draft;
- if(draft.fields.length)throw new Error('Finish the current template before inserting another snippet. No edits were applied.');
  const edit=draft.primary;if(!edit)throw new Error('Completion primary edit is unavailable. No edits were applied.');
- const input=completeSnippet(current,draft.before,edit,draft.additional??[]);if(!input)throw new Error('Completion overlaps template fields or is unavailable. Finish the template and retry.');
+ const input=draft.fields.length?nestSnippet(current,draft.before,edit,draft.additional??[],draft.fields.map(field=>({...field,from:field.from-draft.insertionFrom,to:field.to-draft.insertionFrom}))):completeSnippet(current,draft.before,edit,draft.additional??[]);if(!input)throw new Error('Completion overlaps template fields or is unavailable. Finish the template and retry.');
  return {...draft,plan:{title:draft.plan.title,patches:input.session.source===draft.before?[]:[{path:draft.path,before:draft.before,after:input.session.source,edits:input.edits}]},selection:input.selection,insertionFrom:input.selection.from-edit.text.length,continuing:input.session};
 }
 export function readSourceSnippet(view:EditorView):SnippetSession|null{return view.state.field(snippetState,false)??null;}
@@ -60,7 +59,7 @@ export function finishSourceSnippet(view:EditorView):boolean {if(!readSourceSnip
 export function moveSourceSnippet(view:EditorView,direction:1|-1):boolean {
  const session=readSourceSnippet(view);if(!session||view.composing)return false;
  const selected=view.state.selection.main,result=advanceSnippet(session,view.state.doc.toString(),selected.from,selected.to,direction);
- if(!result){if(direction===-1&&session.active===Math.min(...session.fields.filter(field=>field.index>0).map(field=>field.index)))return true;finishSourceSnippet(view);return false;}
+ if(!result){if(direction===-1&&session.active===(session.scopes?.at(-1)?.order[0]??Math.min(...session.fields.filter(field=>field.index>0).map(field=>field.index))))return true;finishSourceSnippet(view);return false;}
  closeCompletion(view);view.dispatch({selection:{anchor:result.selection.from,head:result.selection.to},effects:setSourceSnippet.of(result.session),scrollIntoView:true,userEvent:'select.snippet'});return true;
 }
 export function sourceSnippets(adapter:{writable:()=>boolean;notice:(message:string)=>void}):Extension {
