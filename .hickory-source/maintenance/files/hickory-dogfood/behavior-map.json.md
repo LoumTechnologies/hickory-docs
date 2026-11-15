@@ -70661,6 +70661,20 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "resource-save-save",
         "resource-save-status"
       ]
+    },
+    "crates/hickory-cli/src/serve/resource_restoration.rs": {
+      "source": ".hickory-source/mechanisms/resource-restoration.md",
+      "owner": "resource-source-restoration",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "15fe3cc771fdec74ada455df3dda76a0b83ebe3b13fd59315d7938223aa02d4a",
+      "construction": "fragments",
+      "fragments": [
+        "resource-restoration-states",
+        "resource-restoration-preparation",
+        "resource-restoration-consequences",
+        "resource-restoration-tests"
+      ]
     }
   },
   "evidence_records": [

@@ -800,4 +800,18 @@ both source and the recovery record inventory unchanged, while ordinary dirty
 source and authored-document moves continue to pass. Explicit workspace-entry
 changes remain outstanding.
 
+## Prepare a resource restoration from current authority
+
+The pure restoration model compares current saved states against the retained
+result, normalizes historical identity labels and validates the complete inverse
+against a fresh current capture. Its plan retains current preparation stamps
+rather than borrowing historical counters as authority. Saved before/after states
+remain separate from dirty draft states and flow through the shared candidate
+construction analysis. Internal normalized inputs are not serialized as authority.
+
+Both focused model cases pass: separate saved/draft restoration and construction
+analysis leave source/recovery records unchanged; independent draft text, saved
+metadata, permissions, versions and root scopes refuse. Restoration-aware durable
+publication, recovery endpoints and UI namespace/undo adoption are still required.
+
 </ui:doc>

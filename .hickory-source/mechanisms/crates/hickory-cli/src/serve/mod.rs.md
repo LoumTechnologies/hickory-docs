@@ -529,6 +529,7 @@ pub mod resource_inputs;
 pub mod resource_journal;
 pub mod resource_publish;
 pub mod resource_saves;
+pub mod resource_restoration;
 pub mod resource_candidates;
 </storycode:copy>
 <a id="f-09ea558208cd-watch"></a>

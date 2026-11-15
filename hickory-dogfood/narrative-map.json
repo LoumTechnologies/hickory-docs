@@ -153971,6 +153971,34 @@
       "page": ".hickory-source/mechanisms/resource-journal.md",
       "symbol": "Check reading, incomplete evidence and unsafe cache paths",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-restoration-states",
+      "output": "crates/hickory-cli/src/serve/resource_restoration.rs",
+      "page": ".hickory-source/mechanisms/resource-restoration.md",
+      "symbol": "Keep saved and draft transitions independent",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-restoration-preparation",
+      "output": "crates/hickory-cli/src/serve/resource_restoration.rs",
+      "page": ".hickory-source/mechanisms/resource-restoration.md",
+      "symbol": "Require the current result before proposing its inverse",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-restoration-tests",
+      "output": "crates/hickory-cli/src/serve/resource_restoration.rs",
+      "page": ".hickory-source/mechanisms/resource-restoration.md",
+      "symbol": "Restore the draft without saving it",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-restoration-consequences",
+      "output": "crates/hickory-cli/src/serve/resource_restoration.rs",
+      "page": ".hickory-source/mechanisms/resource-restoration.md",
+      "symbol": "Analyze separate restored construction layers",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {
