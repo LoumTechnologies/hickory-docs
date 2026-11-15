@@ -153965,6 +153965,20 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/resource-inputs.md",
       "symbol": "Analyze restored saved source independently of its dirty draft",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-recovery-reading",
+      "output": "crates/hickory-cli/src/serve/resource_journal.rs",
+      "page": ".hickory-source/mechanisms/resource-journal.md",
+      "symbol": "Read retained recovery evidence without replay",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-recovery-reading-tests",
+      "output": "crates/hickory-cli/src/serve/resource_journal.rs",
+      "page": ".hickory-source/mechanisms/resource-journal.md",
+      "symbol": "Check reading, incomplete evidence and unsafe cache paths",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

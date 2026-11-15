@@ -70616,7 +70616,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "resource-save-recovery-record",
         "resource-journal-review-integrity-test",
-        "resource-journal-from-review"
+        "resource-journal-from-review",
+        "resource-recovery-reading",
+        "resource-recovery-reading-tests"
       ]
     },
     "crates/hickory-cli/src/serve/resource_candidates.rs": {

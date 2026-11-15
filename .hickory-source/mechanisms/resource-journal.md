@@ -114,54 +114,58 @@ fn same_saved_draft(saved: &SavedSource, draft: &SourceState) -> bool {
         _ => false,
     }
 }
+fn manifest_bytes(manifest: &Manifest) -> Result<Vec<u8>, String> {
+    if manifest.version != 2
+        || manifest.workspace.is_empty()
+        || manifest.context.is_empty()
+        || manifest.before.is_empty()
+        || manifest.before.len() > 10_000
+        || manifest.reviewed_plan.context != manifest.context
+        || manifest.reviewed_plan.title != manifest.title
+        || manifest.before.keys().ne(manifest.after.keys())
+    {
+        return Err(
+            "Resource recovery requires one complete versioned before/after namespace.".into(),
+        );
+    }
+    for path in manifest.before.keys() {
+        super::resource_changes::validate_path(path)?;
+    }
+    // The plan retains the pre-save drafts independently of saved bytes.
+    // Reconstruct it to reject duplicate paths or a truncated review record.
+    let drafts: BTreeMap<_, _> = manifest
+        .reviewed_plan
+        .patches
+        .iter()
+        .map(|patch| (patch.path.clone(), patch.before.clone()))
+        .collect();
+    if drafts.keys().ne(manifest.before.keys()) {
+        return Err("Resource recovery must retain every reviewed source path.".into());
+    }
+    let after = manifest.reviewed_plan.apply(&manifest.context, &drafts)?;
+    for (path, saved) in &manifest.before {
+        validate_saved(saved)?;
+        validate_saved(&manifest.after[path])?;
+        if !same_kind(saved, &drafts[path])
+            || !same_saved_draft(&manifest.after[path], &after[path])
+        {
+            return Err(format!(
+                "Resource recovery differs from the reviewed namespace: {path}. Prepare again."
+            ));
+        }
+    }
+    let bytes = serde_json::to_vec(manifest).map_err(|error| error.to_string())?;
+    if bytes.len() > 40 * 1024 * 1024 {
+        return Err(
+            "Resource recovery record exceeds 40 MiB. Narrow the change before saving.".into(),
+        );
+    }
+    Ok(bytes)
+}
 impl Batch {
     /// The caller must check its held workspace identity before and after creating this record.
     pub fn begin(root: &Path, manifest: &Manifest) -> Result<Self, String> {
-        if manifest.version != 2
-            || manifest.workspace.is_empty()
-            || manifest.context.is_empty()
-            || manifest.before.is_empty()
-            || manifest.before.len() > 10_000
-            || manifest.reviewed_plan.context != manifest.context
-            || manifest.reviewed_plan.title != manifest.title
-            || manifest.before.keys().ne(manifest.after.keys())
-        {
-            return Err(
-                "Resource recovery requires one complete versioned before/after namespace.".into(),
-            );
-        }
-        for path in manifest.before.keys() {
-            super::resource_changes::validate_path(path)?;
-        }
-        // The plan retains the pre-save drafts independently of saved bytes.
-        // Reconstruct it to reject duplicate paths or a truncated review record.
-        let drafts: BTreeMap<_, _> = manifest
-            .reviewed_plan
-            .patches
-            .iter()
-            .map(|patch| (patch.path.clone(), patch.before.clone()))
-            .collect();
-        if drafts.keys().ne(manifest.before.keys()) {
-            return Err("Resource recovery must retain every reviewed source path.".into());
-        }
-        let after = manifest.reviewed_plan.apply(&manifest.context, &drafts)?;
-        for (path, saved) in &manifest.before {
-            validate_saved(saved)?;
-            validate_saved(&manifest.after[path])?;
-            if !same_kind(saved, &drafts[path])
-                || !same_saved_draft(&manifest.after[path], &after[path])
-            {
-                return Err(format!(
-                    "Resource recovery differs from the reviewed namespace: {path}. Prepare again."
-                ));
-            }
-        }
-        let bytes = serde_json::to_vec(manifest).map_err(|error| error.to_string())?;
-        if bytes.len() > 40 * 1024 * 1024 {
-            return Err(
-                "Resource recovery record exceeds 40 MiB. Narrow the change before saving.".into(),
-            );
-        }
+        let bytes = manifest_bytes(manifest)?;
         let mut directory = root.to_path_buf();
         for part in [".hick-cache", "resource-changes"] {
             directory.push(part);
@@ -556,5 +560,293 @@ fn reviewed_resource_record_follows_identity_permissions_and_keeps_dirty_baselin
 }
 </ui:copy>
 
-<ui:file path="crates/hickory-cli/src/serve/resource_journal.rs"><ui:paste select="#resource-save-recovery-record"/><ui:paste select="#resource-journal-review-integrity-test"/><ui:paste select="#resource-journal-from-review"/></ui:file>
+Focused evidence (2026-11-15): all nine recovery-store cases pass after sharing
+the pure manifest validator with the reader. The three reader cases cover fresh,
+partial and fully receipted records, independent current source remaining intact,
+unknown files, changed evidence fingerprints, invalid paths/receipts, oversized
+receipts and Unix symlink refusal. This is internal read-only evidence access;
+no recovery route, UI restore command or saved/draft undo is established.
+
+## Read retained recovery evidence without replay
+
+A recovery inspection reads one exact batch identity, validates the same complete manifest used by publication, and retains the separate saved and draft states. Receipt sequences, paths and outcomes are checked; unknown files are reported without being read as receipts. Listing, file and cumulative receipt sizes are bounded. Manifest and overall evidence fingerprints distinguish a changed observation. Hold and recheck directory identities around the read; Unix final-file opens also reject symlinks. Reading missing records never creates cache directories. All-paths-recorded-applied describes receipts only, not current saved files or authority to replay. Callers must still check their held workspace identity around this internal reader. No recovery HTTP route or restore command is introduced here.
+
+<ui:copy id="resource-recovery-reading">
+#[derive(Debug, Serialize)]
+pub struct Recovery {
+    pub id: String,
+    pub manifest_sha256: String,
+    pub fingerprint: String,
+    pub manifest: Manifest,
+    pub receipts: Vec<Receipt>,
+    pub unrecognized_files: Vec<String>,
+    /// Literal recorded outcomes, not current filesystem state or replay authority.
+    pub all_paths_recorded_applied: bool,
+}
+fn read_regular(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|error| format!("Recovery record is unavailable: {error}"))?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > limit as u64 {
+        return Err("Recovery record is not a bounded ordinary file. Inspect the retained files before restoring.".into());
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = options
+        .open(path)
+        .map_err(|error| format!("Cannot open recovery record: {error}"))?;
+    if !file
+        .metadata()
+        .map_err(|error| error.to_string())?
+        .is_file()
+    {
+        return Err("Recovery record changed file kind.".into());
+    }
+    let held = same_file::Handle::from_file(file.try_clone().map_err(|error| error.to_string())?)
+        .map_err(|error| error.to_string())?;
+    let mut bytes = Vec::new();
+    file.take(limit as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    let current = std::fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    if bytes.len() > limit
+        || !current.is_file()
+        || current.file_type().is_symlink()
+        || same_file::Handle::from_path(path).map_err(|error| error.to_string())? != held
+    {
+        return Err(
+            "Recovery record changed while reading. Inspect it again before restoring.".into(),
+        );
+    }
+    Ok(bytes)
+}
+/// Read evidence only. The caller must check its held workspace identity around this read.
+pub fn read_recovery(root: &Path, id: &str) -> Result<Recovery, String> {
+    if id.len() != 32
+        || !id
+            .bytes()
+            .all(|byte| matches!(byte,b'0'..=b'9'|b'a'..=b'f'))
+    {
+        return Err("Use the exact resource recovery identity from the saved outcome.".into());
+    }
+    let cache = root.join(".hick-cache");
+    let changes = cache.join("resource-changes");
+    let directory = changes.join(id);
+    let mut held = Vec::new();
+    for path in [&cache, &changes, &directory] {
+        let metadata = std::fs::symlink_metadata(path)
+            .map_err(|error| format!("Recovery directory is unavailable: {error}"))?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err("Recovery path is not an ordinary directory.".into());
+        }
+        held.push(same_file::Handle::from_path(path).map_err(|error| error.to_string())?);
+    }
+    let bytes = read_regular(&directory.join("manifest.json"), 40 * 1024 * 1024)?;
+    let manifest_sha256 = super::workspace_fs::view::hash(&bytes);
+    let manifest: Manifest = serde_json::from_slice(&bytes).map_err(|error| {
+        format!(
+            "Recovery manifest is incomplete, invalid or lacks its reviewed draft snapshot: {error}"
+        )
+    })?;
+    drop(bytes);
+    // Reuse publication's complete versioned record validation without any IO.
+    let _ = manifest_bytes(&manifest)?;
+    let mut names = Vec::new();
+    let mut name_bytes = 0usize;
+    for entry in std::fs::read_dir(&directory).map_err(|error| error.to_string())? {
+        let name = entry
+            .map_err(|error| error.to_string())?
+            .file_name()
+            .into_string()
+            .map_err(|_| "Recovery directory contains an unrepresentable filename.")?;
+        name_bytes = name_bytes.saturating_add(name.len());
+        if names.len() >= 20_000 || name_bytes > 1024 * 1024 {
+            return Err("Recovery directory exceeds its interactive listing budget.".into());
+        }
+        names.push(name);
+    }
+    names.sort();
+    let mut receipts = Vec::new();
+    let mut unrecognized_files = Vec::new();
+    let mut total = 0usize;
+    let mut paths = std::collections::BTreeSet::new();
+    for name in names {
+        if name == "manifest.json" {
+            continue;
+        }
+        if name.len() != 10
+            || !name.ends_with(".json")
+            || !name.as_bytes()[..5].iter().all(u8::is_ascii_digit)
+        {
+            unrecognized_files.push(name);
+            continue;
+        }
+        let bytes = read_regular(&directory.join(&name), 64 * 1024)?;
+        total = total.saturating_add(bytes.len());
+        if total > 16 * 1024 * 1024 {
+            return Err("Recovery receipts exceed their interactive byte budget. Inspect retained records directly.".into());
+        }
+        let receipt: Receipt = serde_json::from_slice(&bytes)
+            .map_err(|error| format!("Recovery receipt is invalid: {error}"))?;
+        if receipt.sequence
+            != name[..5]
+                .parse::<usize>()
+                .map_err(|error| error.to_string())?
+            || receipt.sequence >= manifest.before.len()
+            || !manifest.before.contains_key(&receipt.path)
+            || !paths.insert(receipt.path.clone())
+            || !matches!(receipt.state.as_str(), "applied" | "refused" | "uncertain")
+        {
+            return Err(
+                "Recovery receipts do not describe one complete captured source namespace.".into(),
+            );
+        }
+        receipts.push(receipt);
+    }
+    for (path, original) in [&cache, &changes, &directory].into_iter().zip(held) {
+        let metadata = std::fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+        if !metadata.is_dir()
+            || metadata.file_type().is_symlink()
+            || same_file::Handle::from_path(path).map_err(|error| error.to_string())? != original
+        {
+            return Err(
+                "Recovery directory changed during reading. Inspect it again before restoring."
+                    .into(),
+            );
+        }
+    }
+    let all_paths_recorded_applied = paths.len() == manifest.before.len()
+        && receipts
+            .iter()
+            .enumerate()
+            .all(|(sequence, receipt)| receipt.sequence == sequence && receipt.state == "applied");
+    let fingerprint = super::workspace_fs::view::hash(
+        &serde_json::to_vec(&(&manifest_sha256, &receipts, &unrecognized_files))
+            .map_err(|error| error.to_string())?,
+    );
+    Ok(Recovery {
+        id: id.into(),
+        manifest_sha256,
+        fingerprint,
+        manifest,
+        receipts,
+        unrecognized_files,
+        all_paths_recorded_applied,
+    })
+}
+</ui:copy>
+
+## Check reading, incomplete evidence and unsafe cache paths
+
+Inspect a fresh, partially receipted and fully receipted record while leaving independent source bytes unchanged. Compare fingerprints as evidence changes and preserve the original draft transition. Missing caches must remain absent; uncaptured paths, oversized receipts, manifest symlinks and symlinked batch folders refuse without creating source files.
+
+<ui:copy id="resource-recovery-reading-tests">
+#[cfg(test)]
+mod recovery_read_tests {
+    use super::*;
+    #[test]
+    fn read_retains_drafts_and_literal_receipts_without_replaying_source() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("a.py"), "independent current source\n").unwrap();
+        let batch = Batch::begin(root.path(), &tests::manifest()).unwrap();
+        let initial = read_recovery(root.path(), &batch.id).unwrap();
+        assert!(!initial.all_paths_recorded_applied && initial.receipts.is_empty());
+        batch
+            .receipt(&Receipt {
+                sequence: 0,
+                path: "b.py".into(),
+                state: "applied".into(),
+                error: None,
+            })
+            .unwrap();
+        let partial = read_recovery(root.path(), &batch.id).unwrap();
+        assert!(!partial.all_paths_recorded_applied);
+        assert_ne!(initial.fingerprint, partial.fingerprint);
+        assert_eq!(initial.manifest_sha256, partial.manifest_sha256);
+        batch
+            .receipt(&Receipt {
+                sequence: 1,
+                path: "a.py".into(),
+                state: "applied".into(),
+                error: None,
+            })
+            .unwrap();
+        std::fs::write(batch.directory.join("inspection-note.txt"), "a note").unwrap();
+        let recorded = read_recovery(root.path(), &batch.id).unwrap();
+        assert!(recorded.all_paths_recorded_applied);
+        assert_eq!(recorded.unrecognized_files, ["inspection-note.txt"]);
+        assert_eq!(
+            serde_json::to_value(&recorded.manifest.reviewed_plan).unwrap(),
+            serde_json::to_value(&initial.manifest.reviewed_plan).unwrap()
+        );
+        // Recorded outcomes are not a claim about independently changed disk.
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("a.py")).unwrap(),
+            "independent current source\n"
+        );
+        assert!(!root.path().join("b.py").exists());
+    }
+    #[test]
+    fn read_refuses_unknown_paths_and_inconsistent_or_oversized_receipts_without_creating_folders()
+    {
+        let root = tempfile::tempdir().unwrap();
+        assert!(read_recovery(root.path(), "../outside").is_err());
+        assert!(read_recovery(root.path(), &"a".repeat(32)).is_err());
+        assert!(!root.path().join(".hick-cache").exists());
+        let batch = Batch::begin(root.path(), &tests::manifest()).unwrap();
+        std::fs::write(
+            batch.directory.join("00000.json"),
+            serde_json::to_vec(&Receipt {
+                sequence: 0,
+                path: "uncaptured.py".into(),
+                state: "applied".into(),
+                error: None,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(read_recovery(root.path(), &batch.id).is_err());
+        std::fs::write(
+            batch.directory.join("00000.json"),
+            vec![b' '; 64 * 1024 + 1],
+        )
+        .unwrap();
+        assert!(read_recovery(root.path(), &batch.id).is_err());
+        assert!(!root.path().join("a.py").exists() && !root.path().join("b.py").exists());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn read_never_accepts_a_manifest_symlink_or_symlinked_batch_directory() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let batch = Batch::begin(root.path(), &tests::manifest()).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::rename(
+            batch.directory.join("manifest.json"),
+            outside.path().join("manifest.json"),
+        )
+        .unwrap();
+        symlink(
+            outside.path().join("manifest.json"),
+            batch.directory.join("manifest.json"),
+        )
+        .unwrap();
+        assert!(read_recovery(root.path(), &batch.id).is_err());
+        let other_id = "e".repeat(32);
+        symlink(
+            outside.path(),
+            batch.directory.parent().unwrap().join(&other_id),
+        )
+        .unwrap();
+        assert!(read_recovery(root.path(), &other_id).is_err());
+    }
+}
+</ui:copy>
+
+<ui:file path="crates/hickory-cli/src/serve/resource_journal.rs"><ui:paste select="#resource-save-recovery-record"/><ui:paste select="#resource-journal-review-integrity-test"/><ui:paste select="#resource-journal-from-review"/><ui:paste select="#resource-recovery-reading"/><ui:paste select="#resource-recovery-reading-tests"/></ui:file>
 </ui:doc>

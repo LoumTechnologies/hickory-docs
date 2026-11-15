@@ -775,4 +775,18 @@ older saved text was consumed. Seven existing candidate cases pass. Historical
 invalid draft restoration, recovery admission, UI namespace adoption and
 coordinated saved/draft undo remain outstanding.
 
+## Inspect retained resource recovery without replay
+
+The internal recovery reader validates a complete manifest and bounded receipts
+without creating missing cache directories or changing source. Exact batch IDs,
+ordinary-file checks, held directory identities and Unix no-follow file opens
+protect evidence access. It reports unrecognized files and fingerprints the
+manifest and observed receipts. Recorded applied outcomes are historical evidence;
+they do not claim current disk equality or authorize replay.
+
+Nine focused recovery-store cases pass, including three reader cases for partial
+and complete receipt sets, retained dirty drafts, independent current source,
+unknown/oversized records, changed fingerprints and Unix symlink refusal. A
+recovery endpoint, review UI and coordinated saved/draft restore remain required.
+
 </ui:doc>
