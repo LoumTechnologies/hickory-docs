@@ -70256,6 +70256,75 @@
       "fragments": [
         "simple-git-history-android-tests"
       ]
+    },
+    "apps/web/src/simple/GitAttribution.tsx": {
+      "source": ".hickory-source/frontends/git-attribution-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "692a8b0dfbab75525e2a97650cbde81d6ab941800ed00d51f6085fd8e6dadb88",
+      "construction": "fragments",
+      "fragments": [
+        "simple-git-attribution-browser",
+        "simple-git-attribution-browser-view"
+      ]
+    },
+    "apps/apple-simple/Sources/GitAttribution.swift": {
+      "source": ".hickory-source/frontends/git-attribution-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "a008c8f6c67c988f72b65c82e1cb8fba9ffab8f0fd9251f97fa02da75a2f9944",
+      "construction": "fragments",
+      "fragments": [
+        "simple-git-attribution-apple",
+        "simple-git-attribution-apple-view"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/GitAttribution.kt": {
+      "source": ".hickory-source/frontends/git-attribution-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "9658b92c75bf868587b028d9390eece8713cca920581f010498822796cdf3306",
+      "construction": "fragments",
+      "fragments": [
+        "simple-git-attribution-android",
+        "simple-git-attribution-android-view"
+      ]
+    },
+    "apps/web/src/simple/GitAttribution.test.ts": {
+      "source": ".hickory-source/frontends/git-attribution-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "simple-git-attribution-browser-tests"
+      ]
+    },
+    "apps/apple-simple/Tests/GitAttributionTests.swift": {
+      "source": ".hickory-source/frontends/git-attribution-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "simple-git-attribution-apple-tests"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/GitAttributionTest.kt": {
+      "source": ".hickory-source/frontends/git-attribution-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "simple-git-attribution-android-tests"
+      ]
     }
   },
   "evidence_records": [

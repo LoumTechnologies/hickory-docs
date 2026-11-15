@@ -654,7 +654,16 @@ mod tests {
         let root = dir.path();
         git_ok(root, &["init", "-q"]).unwrap();
         std::fs::create_dir(root.join("sub")).unwrap();
-        let names = ["quoted \"é\n -> file.md", ":(glob)*.md", "other.md"];
+        let names = if cfg!(windows) {
+            ["quoted é file.md", "[literal].md", "other.md"]
+        } else {
+            ["quoted \"é\n -> file.md", ":(glob)*.md", "other.md"]
+        };
+        let renamed = if cfg!(windows) {
+            "new é.md"
+        } else {
+            "new\nname.md"
+        };
         for name in names {
             std::fs::write(root.join("sub").join(name), "before\n").unwrap();
         }
@@ -674,7 +683,7 @@ mod tests {
         .unwrap();
         std::fs::rename(
             root.join("sub").join(names[0]),
-            root.join("sub/new\nname.md"),
+            root.join("sub").join(renamed),
         )
         .unwrap();
         git_ok(root, &["add", "--", "sub"]).unwrap();
@@ -698,14 +707,14 @@ mod tests {
         assert!(
             files
                 .iter()
-                .any(|file| file["path"] == "new\nname.md" && file["from"] == names[0])
+                .any(|file| file["path"] == renamed && file["from"] == names[0])
         );
         let literal = git_ok(
             &folder,
             &["diff", "--no-ext-diff", "--no-textconv", "--", names[1]],
         )
         .unwrap();
-        assert!(literal.contains(":(glob)*.md"));
+        assert!(literal.contains(names[1]));
         assert!(!literal.contains("other.md"));
     }
 }

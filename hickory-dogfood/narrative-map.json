@@ -153292,6 +153292,69 @@
       "page": ".hickory-source/frontends/git-history-android.md",
       "symbol": "Present immutable file sides without replacing live source",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-attribution-browser",
+      "output": "apps/web/src/simple/GitAttribution.tsx",
+      "page": ".hickory-source/frontends/git-attribution-browser.md",
+      "symbol": "simple-git-attribution-browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-attribution-apple",
+      "output": "apps/apple-simple/Sources/GitAttribution.swift",
+      "page": ".hickory-source/frontends/git-attribution-apple.md",
+      "symbol": "simple-git-attribution-apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-attribution-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/GitAttribution.kt",
+      "page": ".hickory-source/frontends/git-attribution-android.md",
+      "symbol": "simple-git-attribution-android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-attribution-browser-tests",
+      "output": "apps/web/src/simple/GitAttribution.test.ts",
+      "page": ".hickory-source/frontends/git-attribution-browser.md",
+      "symbol": "Reject stale attribution and ambiguous references",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-attribution-apple-tests",
+      "output": "apps/apple-simple/Tests/GitAttributionTests.swift",
+      "page": ".hickory-source/frontends/git-attribution-apple.md",
+      "symbol": "Reject stale attribution and ambiguous references",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-attribution-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/GitAttributionTest.kt",
+      "page": ".hickory-source/frontends/git-attribution-android.md",
+      "symbol": "Reject stale attribution and ambiguous references",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-attribution-browser-view",
+      "output": "apps/web/src/simple/GitAttribution.tsx",
+      "page": ".hickory-source/frontends/git-attribution-browser.md",
+      "symbol": "Present saved facts and reuse immutable commit reading",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-attribution-apple-view",
+      "output": "apps/apple-simple/Sources/GitAttribution.swift",
+      "page": ".hickory-source/frontends/git-attribution-apple.md",
+      "symbol": "Present saved facts and reuse immutable commit reading",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-attribution-android-view",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/GitAttribution.kt",
+      "page": ".hickory-source/frontends/git-attribution-android.md",
+      "symbol": "Present saved facts and reuse immutable commit reading",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

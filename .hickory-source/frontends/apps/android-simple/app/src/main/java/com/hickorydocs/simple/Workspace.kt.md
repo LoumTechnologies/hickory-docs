@@ -208,7 +208,8 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     var showReview by mutableStateOf(false)
     var gitReview by mutableStateOf(GitReviewModel())
     var showHistory by mutableStateOf(false)
-    var historyPath by mutableStateOf<String?>(null)
+    var showAttribution by mutableStateOf(false)
+    var gitAttribution by mutableStateOf(GitAttributionModel(""))
     var gitHistory by mutableStateOf(GitHistoryModel())
     var showEverywhere by mutableStateOf(false)
     fun runCommand(action:suspend ()->Unit) {workspaceScope.launch {action()}}
@@ -275,7 +276,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
             agent.turns = emptyList(); agent.error = ""; terminal.id = null; terminal.error = ""
             debugger?.close(); debugger = NativeDebugger(next, workspaceScope)
             debugger?.onLocation = { path, line -> workspaceScope.launch { revealDebug(path, line) } }
-            buffers.values.forEach { it.language?.close() }; languageConnection?.close();languageConnection=null; analysis.stop();analysis=WorkspaceAnalysis();showAnalysis=false;showEverywhere=false;showTests=false;showReview=false;showHistory=false;historyPath=null;gitHistory.close();gitHistory=GitHistoryModel();gitReview.close();gitReview=GitReviewModel();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=null;generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); buffers.clear(); loading.values.forEach {it.cancel()}; loading.clear()
+            buffers.values.forEach { it.language?.close() }; languageConnection?.close();languageConnection=null; analysis.stop();analysis=WorkspaceAnalysis();showAnalysis=false;showEverywhere=false;showTests=false;showReview=false;showHistory=false;showAttribution=false;gitAttribution.close();gitAttribution=GitAttributionModel("");gitHistory.close();gitHistory=GitHistoryModel();gitReview.close();gitReview=GitReviewModel();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=null;generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); buffers.clear(); loading.values.forEach {it.cancel()}; loading.clear()
             layout = PaneLayout(); focused = "document-group"; status = root
             return true
         } catch (cancelled: CancellationException) { throw cancelled }

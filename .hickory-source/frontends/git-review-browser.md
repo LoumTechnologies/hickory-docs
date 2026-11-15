@@ -123,9 +123,9 @@ def main():
  with tempfile.TemporaryDirectory(prefix="simple-git-review-") as temporary:
   folder=Path(temporary);root=folder/"workspace";root.mkdir()
   def git(*args):return subprocess.run(["git","-C",str(root),"--literal-pathspecs",*args],check=True,capture_output=True)
-  source="value = 1\n";(root/"main.py").write_text(source);old='quoted "é -> .py';new=':(glob)*.py';(root/old).write_text("renamed = True\n")
+  source="value = 1\n# stable\n";(root/"main.py").write_bytes(source.encode("utf-8"));old='quoted é file.py' if os.name=='nt' else 'quoted "é -> .py';new='[literal].py' if os.name=='nt' else ':(glob)*.py';(root/old).write_bytes(b"renamed = True\n")
   git("init","-q");git("add","--",".");git("-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","-qm","base")
-  (root/"removed.py").write_text("temporary\n");git("mv","--",old,new);saved="value = 2\n";(root/"main.py").write_text(saved)
+  (root/"removed.py").write_bytes(b"temporary\n");git("mv","--",old,new);saved="value = 2\n# stable\n";(root/"main.py").write_bytes(saved.encode("utf-8"))
   environment={**os.environ,"HICKORY_STATE_DIR":str(folder/"state")};processes=[];driver=None
   try:
    with socket.socket() as reservation:reservation.bind(("127.0.0.1",0));port=reservation.getsockname()[1]
@@ -138,22 +138,25 @@ def main():
    (root/"removed.py").unlink();assert driver.act("review-select",path="removed.py",staged=False)=="";assert "Git diff refused" in driver.act("review-status")
    diff=driver.act("review-select",path="main.py",staged=False);assert "+value = 2" in diff and "unsaved draft" not in diff,diff
    driver.act("review-stage");staged=git("diff","--cached","--","main.py").stdout.decode();assert "+value = 2" in staged and "unsaved draft" not in staged,staged
-   driver.act("review-select",path="main.py",staged=True);driver.act("review-unstage");assert git("diff","--cached","--","main.py").stdout==b"";assert (root/"main.py").read_text()==saved
+   driver.act("review-select",path="main.py",staged=True);driver.act("review-unstage");assert git("diff","--cached","--","main.py").stdout==b"";assert (root/"main.py").read_bytes()==saved.encode("utf-8")
    diff=driver.act("review-select",path=new,staged=True);assert "+renamed = True" in diff,diff
-   driver.act("review-unstage");assert git("diff","--cached","--name-only").stdout==b"";assert (root/new).read_text()=="renamed = True\n";assert not (root/old).exists()
+   driver.act("review-unstage");assert git("diff","--cached","--name-only").stdout==b"";assert (root/new).read_bytes()==b"renamed = True\n";assert not (root/old).exists()
    diff=driver.act("review-select",path="main.py",staged=True);assert diff=="",diff
-   driver.act("review-close");sha=git("rev-parse","HEAD").stdout.decode().strip()
+   driver.act("review-close");driver.act("focus-source",path="main.py");assert driver.act("caret-offset",path="main.py")==caret,{"phase":"review close","caret":driver.act("caret-offset",path="main.py")};sha=git("rev-parse","HEAD").stdout.decode().strip()
    for filtered in [False,True]:
     text=driver.act("history-open",file=filtered);assert "base" in text,text
     text=driver.act("history-read",sha=sha);assert "Immutable commit reading" in text,text;driver.act("history-file",path="main.py")
-    assert driver.act("history-side",side="after")==source;assert driver.act("history-side",side="before")=="";driver.act("history-close")
+    assert driver.act("history-side",side="after")==source;assert driver.act("history-side",side="before")=="";driver.act("history-close");driver.act("focus-source",path="main.py");assert driver.act("caret-offset",path="main.py")==caret,{"phase":"history close","filtered":filtered,"caret":driver.act("caret-offset",path="main.py")}
+   text=driver.act("attribution-open");assert "# stable" in text and "unsaved draft" not in text and "Uncommitted" in text,text
+   driver.act("attribution-commit",line=2);text=driver.act("history-state");assert "Commit from saved attribution · main.py:2" in text and sha in text,text
+   driver.act("history-file",path="main.py");assert driver.act("history-side",side="after")==source;driver.act("history-close");driver.act("focus-source",path="main.py");assert driver.act("caret-offset",path="main.py")==caret,{"phase":"attribution history close","caret":driver.act("caret-offset",path="main.py")}
    driver.act("open",path=new);text=driver.act("history-open",file=True);assert "0 reported commits" in text,text;driver.act("history-close");driver.act("open",path="main.py")
    driver.act("focus-source",path="main.py");actual_caret=driver.act("caret-offset",path="main.py");assert actual_caret==caret,{"before_caret":caret,"after_caret":actual_caret}
    driver.act("undo",path="main.py");assert driver.act("search-source",path="main.py")==saved,{"undo":driver.act("search-source",path="main.py")}
    driver.act("redo",path="main.py");assert driver.act("search-source",path="main.py")==draft,{"redo":driver.act("search-source",path="main.py")}
-   assert driver.act("editor-is-retained",path="main.py");assert driver.act("editor-size",path="main.py")==size;assert driver.act("search-source",path="main.py")==draft;assert (root/"main.py").read_text()==saved;assert git("rev-parse","HEAD").stdout.decode().strip()==sha;assert git("diff","--cached","--name-only").stdout==b""
+   assert driver.act("editor-is-retained",path="main.py");assert driver.act("editor-size",path="main.py")==size;assert driver.act("search-source",path="main.py")==draft;assert (root/"main.py").read_bytes()==saved.encode("utf-8");assert git("rev-parse","HEAD").stdout.decode().strip()==sha;assert git("diff","--cached","--name-only").stdout==b""
 
-   print("PASS: existing View menu, literal renamed paths, working-tree/index diffs, saved-file stage/unstage and complete rename unstaging, immutable repository/file history and literal path filtering, unsaved draft retained, stable code dimensions and unchanged disk")
+   print("PASS: existing View menu, literal renamed paths, working-tree/index diffs, saved-file stage/unstage and complete rename unstaging, immutable repository/file history, literal path filtering and full-identity saved attribution, unsaved draft retained, stable code dimensions and unchanged disk")
   finally:
    if driver:driver.close()
    for process in reversed(processes):fixture.stop(process)

@@ -342,6 +342,12 @@ Menus and action search need one vocabulary and one availability decision. The s
     "label": "Saved file history",
     "group": "View",
     "requires": "editor"
+  },
+  {
+    "id": "document.attribution",
+    "label": "Saved file attribution",
+    "group": "View",
+    "requires": "editor"
   }
 ]
 </ui:copy>

@@ -334,5 +334,11 @@
     "label": "Saved file history",
     "group": "View",
     "requires": "editor"
+  },
+  {
+    "id": "document.attribution",
+    "label": "Saved file attribution",
+    "group": "View",
+    "requires": "editor"
   }
 ]

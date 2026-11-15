@@ -227,6 +227,8 @@ fn configured_identity(dir: &Path) -> String {
 <a id="f-7b65c6db8d7c-LineBlame"></a>
 ### `LineBlame`
 
+Keep the abbreviated display label separate from the full immutable commit identity. A later reader must not resolve an eight-character label after repository growth and assume it still names the same commit. Uncommitted and synthetic attribution has no immutable reference.
+
 One line's authorship, for the editor's blame column.
 
 <storycode:copy id="f-7b65c6db8d7c-LineBlame">
@@ -237,6 +239,9 @@ pub struct LineBlame {
     pub line: usize,
     /// Abbreviated commit id; empty when the line is not committed.
     pub commit: String,
+    /// Full immutable identity for readers; the short display label is not a reference.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_commit: Option<String>,
     /// The author's name alone — a blame column has no room for an address,
     /// and the address is in the hover.
     pub author: String,
@@ -329,6 +334,7 @@ pub fn blame_file(repo_dir: &Path, file: &Path) -> Vec<LineBlame> {
                 } else {
                     sha.chars().take(8).collect()
                 },
+                full_commit: (!uncommitted).then(|| sha.clone()),
                 author: if uncommitted {
                     "Uncommitted".to_string()
                 } else {
@@ -562,6 +568,8 @@ pub fn describe(
 <a id="f-7b65c6db8d7c-tests"></a>
 ### `tests`
 
+The focused all-line fixture commits one line, appends a dirty line, and checks both reference states. The committed row must retain exactly the full `HEAD` identity while keeping its compact display label; the dirty row must expose no immutable reference. The remaining captured tests retain their existing review status.
+
 <storycode:copy id="f-7b65c6db8d7c-tests">
 #[cfg(test)]
 mod tests {
@@ -709,6 +717,35 @@ mod tests {
         // A path that does not exist at all cannot be attributed.
         let a = blame(dir.path(), Path::new("nope.md"), 1);
         assert!(matches!(a, Authorship::Unknown { .. }), "{a:?}");
+    }
+    #[test]
+    fn line_attribution_retains_full_commit_identity_and_no_reference_for_dirty_lines() {
+        let dir = temp_repo();
+        std::fs::write(dir.path().join("tracked.txt"), "committed\n").unwrap();
+        assert!(
+            git(dir.path(), &["add", "--", "tracked.txt"])
+                .unwrap()
+                .status
+                .success()
+        );
+        assert!(
+            git(dir.path(), &["commit", "-q", "-m", "base"])
+                .unwrap()
+                .status
+                .success()
+        );
+        let full =
+            String::from_utf8(git(dir.path(), &["rev-parse", "HEAD"]).unwrap().stdout).unwrap();
+        std::fs::write(dir.path().join("tracked.txt"), "committed\ndirty\n").unwrap();
+        let lines = blame_file(dir.path(), Path::new("tracked.txt"));
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].full_commit.as_deref(), Some(full.trim()));
+        assert_eq!(
+            lines[0].commit,
+            full.trim().chars().take(8).collect::<String>()
+        );
+        assert_eq!(lines[1].full_commit, None);
+        assert!(lines[1].uncommitted);
     }
 }
 </storycode:copy>

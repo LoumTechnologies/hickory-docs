@@ -85,6 +85,7 @@ class MainActivity : ComponentActivity() {
             OutlinedTextField(workspace.filePath, { workspace.filePath = it }, label = { Text("Workspace path") }, singleLine = true) }
     }, confirmButton = { TextButton(onClick = { scope.launch { workspace.performFileCommand() } }) { Text("OK") } }, dismissButton = { TextButton(onClick = { workspace.fileCommand = null; workspace.savingAll = false }) { Text("Cancel") } })
     if(workspace.showCoverage) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showCoverage=false;workspace.currentBuffer?.focusSource?.invoke()}) {Surface {SimpleCoverageView(workspace)}}
+    if(workspace.showAttribution) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showAttribution=false;workspace.currentBuffer?.focusSource?.invoke()}) {Surface {GitAttributionView(workspace,workspace.gitAttribution)}}
     if(workspace.showHistory) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showHistory=false;workspace.currentBuffer?.focusSource?.invoke()}) {Surface {GitHistoryView(workspace)}}
     if(workspace.showReview) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showReview=false;workspace.currentBuffer?.focusSource?.invoke()}) {Surface {GitReviewView(workspace)}}
     if(workspace.showTests) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showTests=false;workspace.currentBuffer?.focusSource?.invoke()}) {Surface {TestSourcesView(workspace)}}

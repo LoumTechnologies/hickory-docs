@@ -1158,9 +1158,13 @@ export interface ReplaceResponse {
 <a id="f-8a4c3188ff6c-BlameLine"></a>
 ### `BlameLine`
 
+Saved-file attribution keeps display labels, provider facts and immutable references distinct. The optional full commit identity enables exact historical reading; an abbreviated label must not silently become a reference. Missing full identity leaves the attribution readable without admitting commit navigation.
+
 <storycode:copy id="f-8a4c3188ff6c-BlameLine">
 /** One line's authorship, from `GET /api/blame`. */
 export interface BlameLine {
+  /** Immutable reference, when reported; commit remains the compact display label. */
+  full_commit?: string;
   text?: string;
   origin?: "human" | "agent" | "imported" | "unknown";
   provider?: string;

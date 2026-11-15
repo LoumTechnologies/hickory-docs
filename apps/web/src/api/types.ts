@@ -671,6 +671,8 @@ export interface ReplaceResponse {
 
 /** One line's authorship, from `GET /api/blame`. */
 export interface BlameLine {
+  /** Immutable reference, when reported; commit remains the compact display label. */
+  full_commit?: string;
   text?: string;
   origin?: "human" | "agent" | "imported" | "unknown";
   provider?: string;
