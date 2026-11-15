@@ -153083,6 +153083,69 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/snippet-sessions.md",
       "symbol": "Prepare one complete linked input proposal",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "source-snippets-browser",
+      "output": "apps/web/src/simple/SourceSnippets.ts",
+      "page": ".hickory-source/mechanisms/source-snippet-interaction.md",
+      "symbol": "Attach source-bound field interaction to the existing editor",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-snippets-apple",
+      "output": "apps/apple-simple/Sources/SourceSnippets.swift",
+      "page": ".hickory-source/mechanisms/source-snippet-interaction.md",
+      "symbol": "Keep Apple snippet intent outside AppKit and UIKit",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-snippets-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceSnippets.kt",
+      "page": ".hickory-source/mechanisms/source-snippet-interaction.md",
+      "symbol": "Advance Android input intent before publishing UI state",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-snippets-browser-tests",
+      "output": "apps/web/src/simple/SourceSnippets.test.ts",
+      "page": ".hickory-source/mechanisms/source-snippet-interaction.md",
+      "symbol": "Drive actual browser field transactions",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-snippets-apple-tests",
+      "output": "apps/apple-simple/Tests/SourceSnippetInteractionTests.swift",
+      "page": ".hickory-source/mechanisms/source-snippet-interaction.md",
+      "symbol": "Drive actual AppKit field input and history",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-snippets-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SourceSnippetInteractionTest.kt",
+      "page": ".hickory-source/mechanisms/source-snippet-interaction.md",
+      "symbol": "Drive the production Android input transformation",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-snippets-android-input",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceSnippets.kt",
+      "page": ".hickory-source/mechanisms/source-snippet-interaction.md",
+      "symbol": "Apply one linked proposal inside the existing text transaction",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-undo-context-journal-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceUndoContexts.kt",
+      "page": ".hickory-source/mechanisms/source-snippet-interaction.md",
+      "symbol": "Restore optional context after authoritative native undo",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-undo-context-journal-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SourceUndoContextsTest.kt",
+      "page": ".hickory-source/mechanisms/source-snippet-interaction.md",
+      "symbol": "Check context restoration without owning native text history",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

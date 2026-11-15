@@ -1,9 +1,10 @@
 import {planWorkspaceEdit,sourceChangeOffset,type ChangePlan,type SourceReplacement,type SourceSnapshot} from './ChangePlan';
 import {semanticPath} from './Intelligence';
 import type {SnippetField} from './SnippetExpansion';
+import type {SnippetSession} from './SnippetSession';
 import {utf16ToPosition} from '../lsp/positions';
 export interface CompletionExpansion {text:string;selection?:{from:number;to:number};fields?:SnippetField[]}
-export interface CompletionDraft {path:string;before:string;plan:ChangePlan;insertionFrom:number;selection:{from:number;to:number};fields:SnippetField[]}
+export interface CompletionDraft {path:string;before:string;plan:ChangePlan;insertionFrom:number;selection:{from:number;to:number};fields:SnippetField[];continuing?:SnippetSession}
 export function completionInsertion(item:unknown):string {
  const value=item as Record<string,unknown>|null;if(!value||typeof value!=='object'||typeof value.label!=='string')throw new Error('Malformed completion');
  const edit=value.textEdit as Record<string,unknown>|undefined;

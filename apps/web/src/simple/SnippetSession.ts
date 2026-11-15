@@ -22,7 +22,7 @@ export function editSnippet(session:SnippetSession,source:string,from:number,to:
  const fields=session.fields,ids=new Map(fields.map(field=>[field.id!,field]));
  const ancestors=(parent:number,child:number)=>{let current=ids.get(child);for(let steps=0;current&&steps<=fields.length;steps++){if(current.id===parent)return true;current=current.parent===null?undefined:ids.get(current.parent!);}return false;};
  const occurrences=fields.filter(field=>field.index===session.active),matches=occurrences.filter(field=>field.from<=from&&field.to>=to),origin=matches.find(field=>field.id===session.current)??matches[0];
- if(!origin||text.length>1048576/Math.max(occurrences.length,1))return null;
+ if(!origin||new TextEncoder().encode(text).length>1048576/Math.max(occurrences.length,1))return null;
  const before=source.slice(origin.from,origin.to),relativeFrom=from-origin.from,relativeTo=to-origin.from;
  if(occurrences.some(field=>source.slice(field.from,field.to)!==before))return null;
  const replacements:{from:number;to:number;text:string;owners:Set<number>}[]=[];

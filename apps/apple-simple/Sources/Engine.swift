@@ -514,16 +514,19 @@ func rebaseNativeTokens(_ tokens: [NativeSemanticToken], from old: String, to ne
         guard let buffer,!buffer.readOnly,!buffer.saving,exactUTF8(buffer.text,completion.source),buffer.selection==completion.selection else{completionNotice="Suggestion is out of date. Request completions again.";return false}
         if exactUTF8(buffer.multiSource,buffer.text),buffer.multiRanges.count>1{completionNotice="Choose one caret before accepting this source completion.";return false}
         guard let original=completion.original else {
-            guard buffer.applyLanguageCompletion?(completion.range,completion.insert,completion.source,completion.selection)==true else{completionNotice="Editor refused the completion. Finish composition or request again.";return false}
+            cancelCompletion()
+            let accepted=buffer.snippets.active != nil ? buffer.snippets.input(source:completion.source,range:completion.range,text:completion.insert)==true:buffer.applyLanguageCompletion?(completion.range,completion.insert,completion.source,completion.selection)==true
+            guard accepted else{completionNotice="Editor refused the completion. Finish composition or request again.";return false}
             completionNotice="Completion selected";showingSuggestions=false;return true
         }
-        let request=UUID(),identity=epoch;acceptingCompletion=request;completionPending=true;completionNotice="Resolving completion…"
+        let request=UUID(),identity=epoch,snippetIntent=buffer.snippets.intent;acceptingCompletion=request;completionPending=true;completionNotice="Resolving completion…"
         defer{if acceptingCompletion==request{completionPending=false}}
         do {
             let resolved=try await (resolution ?? {try await self.resolveCompletion($0)})(original)
             guard acceptingCompletion==request else{return false}
-            guard epoch==identity,buffer.language===self,!buffer.readOnly,!buffer.saving,exactUTF8(buffer.text,completion.source),buffer.selection==completion.selection,!(exactUTF8(buffer.multiSource,buffer.text)&&buffer.multiRanges.count>1) else{throw EngineError(message:"Source, cursor or provider changed. Request completions again.")}
-            let draft=try planCompletion(uri,item:resolved,snapshot:SourceSnapshot(text:completion.source,writable:!buffer.readOnly && !buffer.saving),from:completion.range.location,to:NSMaxRange(completion.range),expansion:try completionExpansion(resolved))
+            guard epoch==identity,buffer.snippets.intent==snippetIntent,buffer.language===self,!buffer.readOnly,!buffer.saving,exactUTF8(buffer.text,completion.source),buffer.selection==completion.selection,!(exactUTF8(buffer.multiSource,buffer.text)&&buffer.multiRanges.count>1) else{throw EngineError(message:"Source, cursor or provider changed. Request completions again.")}
+            let initialDraft=try planCompletion(uri,item:resolved,snapshot:SourceSnapshot(text:completion.source,writable:!buffer.readOnly && !buffer.saving),from:completion.range.location,to:NSMaxRange(completion.range),expansion:try completionExpansion(resolved))
+            let draft=try buffer.snippets.prepareCompletion(initialDraft,item:resolved)
             guard exactUTF8(draft.path,buffer.file.path),buffer.applyCompletionDraft?(draft,completion.selection)==true else{throw EngineError(message:"Editor refused the complete completion. Finish composition or request again.")}
             completionPending=false;completionNotice=draft.plan.patches.isEmpty ? "Completion selected":"Completion applied · draft";showingSuggestions=false;return true
         }catch{if acceptingCompletion==request{completionNotice=error.localizedDescription};return false}

@@ -11,3 +11,10 @@ class WorkspaceCommandsTest {
         assertNotNull(commandReason("unknown",context));assertNotNull(commandReason("back",context));assertNotNull(commandReason("multi",context))
     }
 }
+class TemplateCommandTest {
+ @Test fun menusRecheckCurrentFieldsChoicesAndWriteAvailability(){
+  var context=CommandContext(true,true,true,false,false,false,true,1);var called=0
+  assertNotNull(commandReason("template",context));context=context.copy(snippet=true);assertNull(commandReason("template",context));assertNotNull(commandReason("templateChoice",context));context=context.copy(snippetChoices=true);assertNull(commandReason("templateChoice",context));context=context.copy(saving=true);assertNotNull(commandReason("templateChoice",context));assertNull(commandReason("template",context));context=context.copy(saving=false)
+  val descriptors=commandDescriptors(javaClass.classLoader!!.getResourceAsStream("commands.json")!!.bufferedReader().use{it.readText()});val command=workspaceCommands({context},mapOf("editor.snippetNext" to {called++;Unit}),descriptors).first{it.id=="editor.snippetNext"};assertNull(command.reason);context=context.copy(snippet=false);command.run();assertEquals(0,called)
+ }
+}

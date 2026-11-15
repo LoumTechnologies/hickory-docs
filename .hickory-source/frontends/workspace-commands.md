@@ -230,10 +230,46 @@ Menus and action search need one vocabulary and one availability decision. The s
     "requires": "editor"
   },
   {
+    "id": "editor.undo",
+    "label": "Undo text edit",
+    "group": "Edit",
+    "requires": "sourceUndo"
+  },
+  {
+    "id": "editor.redo",
+    "label": "Redo text edit",
+    "group": "Edit",
+    "requires": "sourceRedo"
+  },
+  {
     "id": "editor.tools",
     "label": "Language tools",
     "group": "Edit",
     "requires": "editor"
+  },
+  {
+    "id": "editor.snippetNext",
+    "label": "Next template field",
+    "group": "Edit",
+    "requires": "template"
+  },
+  {
+    "id": "editor.snippetPrevious",
+    "label": "Previous template field",
+    "group": "Edit",
+    "requires": "template"
+  },
+  {
+    "id": "editor.snippetChoices",
+    "label": "Choose template value",
+    "group": "Edit",
+    "requires": "templateChoice"
+  },
+  {
+    "id": "editor.snippetFinish",
+    "label": "Finish template editing",
+    "group": "Edit",
+    "requires": "template"
   },
   {
     "id": "editor.rectangle",

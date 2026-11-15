@@ -669,11 +669,18 @@ final class SimpleMacTextView: NSTextView {
 #else
 import UIKit
 private final class SimpleTextView: UITextView {
+    var snippetActive:(()->Bool)?
+    var snippetCommand:((Int)->Bool)?
     // UIKit retains native input and composition; hardware arrows only change selection.
     private var wordSelection = SimpleWordSelection()
     override var keyCommands: [UIKeyCommand]? {
         guard markedTextRange == nil else { return super.keyCommands }
         var commands = super.keyCommands ?? []
+        if snippetActive?()==true {
+            for (input,flags) in [("\t",UIKeyModifierFlags()),("\t",.shift),(UIKeyCommand.inputEscape,UIKeyModifierFlags())] {
+                let command=UIKeyCommand(input:input,modifierFlags:flags,action:#selector(navigateTemplate(_:)));command.wantsPriorityOverSystemBehavior=true;commands.append(command)
+            }
+        }
         for (key, modifier) in [("editor.controlArrow", UIKeyModifierFlags.control), ("editor.altArrow", .alternate)] {
             guard ["word", "pieces"].contains(UserDefaults.standard.string(forKey: key) ?? "native") else { continue }
             for input in [UIKeyCommand.inputLeftArrow, UIKeyCommand.inputRightArrow] {
@@ -685,6 +692,7 @@ private final class SimpleTextView: UITextView {
         }
         return commands
     }
+    @objc private func navigateTemplate(_ command:UIKeyCommand){guard markedTextRange==nil else{return};_ = snippetCommand?(command.input==UIKeyCommand.inputEscape ? 0:command.modifierFlags.contains(.shift) ? -1:1)}
     @objc private func moveIdentifier(_ command: UIKeyCommand) {
         guard markedTextRange == nil else { return }
         let key = command.modifierFlags.contains(.control) ? "editor.controlArrow" : "editor.altArrow"
@@ -923,7 +931,7 @@ private struct EquationLayout: Equatable {
         text.textContainerInset = NSSize(width: 8, height: 8)
         text.string = buffer.text; text.isEditable = !buffer.readOnly; text.allowsUndo = true
         text.setAccessibilityLabel(buffer.file.path); text.delegate = self
-        text.willCompose = { [weak self] in self?.buffer.clearMulti(); self?.unfoldAll() }
+        text.willCompose = { [weak self] in self?.buffer.clearMulti(); _ = self?.buffer.snippets.finish(); self?.unfoldAll() }
         scroll.hasVerticalScroller = true; scroll.documentView = text
         // Retain the wheel recipient across gestures until the pointer moves.
         // Tables and WebKit previews can move under a stationary mouse.
@@ -967,8 +975,17 @@ private struct EquationLayout: Equatable {
         buffer.focusSource = { [weak self] in guard let self else { return }; self.text.window?.makeFirstResponder(self.text) }
         buffer.applyCompletionDraft = { [weak self] draft,initial in
             guard let self,self.text.selectedRange()==initial,self.text.selectedRanges.count==1,exactUTF8(draft.path,self.buffer.file.path) else{return false}
-            return self.sourceDraftHistory.commit(draft.plan,path:draft.path,before:draft.before,selectionBefore:initial,selectionAfter:NSRange(location:draft.selection.from,length:draft.selection.to-draft.selection.from),manager:self.text.undoManager,
-                read:{[weak self] in self?.buffer.text ?? ""},apply:{[weak self] edits,source,selected in self?.applySourceEdits(edits,source:source,resultSelection:selected,manageUndo:false) ?? false},notice:{[weak self] text in self?.buffer.language?.completionNotice=text})
+            return self.sourceDraftHistory.commit(draft.plan,path:draft.path,before:draft.before,selectionBefore:initial,selectionAfter:NSRange(location:draft.selection.from,length:draft.selection.to-draft.selection.from),contextBefore:self.buffer.snippets.historyContext,contextAfter:(draft.continuing ?? beginSnippet(draft.plan.patches.first?.after ?? draft.before,fields:draft.fields)).map{SourceSnippetHistoryContext(fields:$0.fields,active:$0.active,current:$0.current)},manager:self.text.undoManager,
+                read:{[weak self] in self?.buffer.text ?? ""},apply:{[weak self] edits,source,selected in self?.applySourceEdits(edits,source:source,resultSelection:selected,manageUndo:false) ?? false},notice:{[weak self] text in self?.buffer.snippets.reportFailure(text)},restoreContext:{[weak self] value in self?.buffer.snippets.restoreHistory(value)},contextCost:snippetHistoryCost,discardContext:{[weak self] in _ = self?.buffer.snippets.finish()})
+        }
+        buffer.canUndoSource={ [weak self] in guard let self else{return false};return !self.buffer.readOnly && !self.text.hasMarkedText()&&self.text.undoManager?.canUndo==true }
+        buffer.undoSource={ [weak self] in guard let self,!self.buffer.readOnly,!self.text.hasMarkedText(),let manager=self.text.undoManager,manager.canUndo else{return false};manager.undo();return true }
+        buffer.canRedoSource={ [weak self] in guard let self else{return false};return !self.buffer.readOnly && !self.text.hasMarkedText()&&self.text.undoManager?.canRedo==true }
+        buffer.redoSource={ [weak self] in guard let self,!self.buffer.readOnly,!self.text.hasMarkedText(),let manager=self.text.undoManager,manager.canRedo else{return false};manager.redo();return true }
+        buffer.snippets.commit = { [weak self] input,before in
+            guard let self,let plan=snippetChangePlan(path:self.buffer.file.path,before:before.source,input:input) else{return false}
+            return self.sourceDraftHistory.commit(plan,path:self.buffer.file.path,before:before.source,selectionBefore:self.text.selectedRange(),selectionAfter:NSRange(location:input.selection.from,length:input.selection.to-input.selection.from),contextBefore:SourceSnippetHistoryContext(fields:before.fields,active:before.active,current:before.current),contextAfter:SourceSnippetHistoryContext(fields:input.session.fields,active:input.session.active,current:input.session.current),manager:self.text.undoManager,
+                read:{[weak self] in self?.buffer.text ?? ""},apply:{[weak self] edits,source,selected in self?.applySourceEdits(edits,source:source,resultSelection:selected,manageUndo:false) ?? false},notice:{[weak self] text in self?.buffer.snippets.reportFailure(text)},restoreContext:{[weak self] value in self?.buffer.snippets.restoreHistory(value)},contextCost:snippetHistoryCost,discardContext:{[weak self] in _ = self?.buffer.snippets.finish()})
         }
         buffer.applySourceEdits = { [weak self] edits, source in self?.applySourceEdits(edits, source: source) ?? false }
         buffer.canReflectWorkspaceEdits = { [weak self] edits, source in
@@ -1005,7 +1022,7 @@ private struct EquationLayout: Equatable {
     }
     func applySourceEdits(_ edits: [NativeSourceEdit], source: String, expectedModelSource: String? = nil,resultSelection:NSRange?=nil,manageUndo:Bool=true) -> Bool {
         guard !buffer.readOnly, (!buffer.saving || text.undoManager?.isUndoing==true || text.undoManager?.isRedoing==true), text.isEditable, exactUTF8(text.string,source), exactUTF8(buffer.text,expectedModelSource ?? source), !text.hasMarkedText(),
-              validSourceEdits(edits, length: (source as NSString).length) else { return false }
+              (edits.isEmpty && resultSelection != nil || validSourceEdits(edits, length: (source as NSString).length)) else { return false }
         let resultLength=source.utf16.count+edits.reduce(0){$0+$1.text.utf16.count-$1.range.length}
         if let selected=resultSelection,!validSourceEdits([NativeSourceEdit(range:selected,text:"")],length:resultLength){return false}
         let wasMulti = buffer.applyingMulti; buffer.applyingMulti = true
@@ -1051,6 +1068,7 @@ private struct EquationLayout: Equatable {
         }
         if tableSourceEditHitsGrid(affectedCharRange, selection: text.selectedRange(), tables: text.tableRanges) { return false }
         let hidden = folding.ranges.contains { NSIntersectionRange($0, affectedCharRange).length > 0 || NSLocationInRange(affectedCharRange.location, $0) }
+        if !hidden,!text.hasMarkedText(),text.selectedRanges.count==1,let replacementString,buffer.snippets.active != nil,buffer.snippets.input(source:text.string,range:affectedCharRange,text:replacementString)==true{return false}
         unfoldAll(); return !hidden
     }
     func textDidChange(_ notification: Notification) { if !buffer.applyingMulti { buffer.clearMulti() }; unfoldAll(); buffer.selection = text.selectedRange(); buffer.text = text.string; measureDebugLines() }
@@ -1064,6 +1082,12 @@ private struct EquationLayout: Equatable {
         buffer.selection = text.selectedRange()
     }
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        let snippetCommand=NSStringFromSelector(commandSelector)
+        if !text.hasMarkedText(),buffer.snippets.active != nil {
+            if snippetCommand=="insertTab:",buffer.snippets.move(1){return true}
+            if snippetCommand=="insertBacktab:",buffer.snippets.move(-1){return true}
+            if snippetCommand=="cancelOperation:",buffer.snippets.finish(){return true}
+        }
         if ["insertTab:", "insertBacktab:", "insertNewline:", "deleteBackward:"].contains(NSStringFromSelector(commandSelector)) {
             let selection = text.selectedRange()
             if tableSourceEditHitsGrid(selection, selection: selection, tables: text.tableRanges) { return true }
@@ -1075,6 +1099,7 @@ private struct EquationLayout: Equatable {
             }
             let plan = smartEnter(text.string, range: text.selectedRange(), path: buffer.file.path, unit: simpleIndent(text.string), mode: UserDefaults.standard.string(forKey: "editor.enterIndent") ?? "smart")
             guard !tableSourceEditHitsGrid(plan.range, selection: text.selectedRange(), tables: text.tableRanges) else { return true }
+            if buffer.snippets.active != nil,buffer.snippets.input(source:text.string,range:plan.range,text:plan.text,caret:plan.caret)==true{return true}
             if applySourceEdits([NativeSourceEdit(range: plan.range, text: plan.text)], source: text.string) {
                 text.setSelectedRange(NSRange(location: plan.caret, length: 0)); text.scrollRangeToVisible(text.selectedRange())
             }
@@ -1469,7 +1494,10 @@ import UIKit
         text.smartQuotesType = .no; text.smartDashesType = .no; text.smartInsertDeleteType = .no
         text.text = buffer.text; text.isEditable = !buffer.readOnly; text.alwaysBounceVertical = true
         text.accessibilityLabel = buffer.file.path; text.delegate = self
-        text.willCompose = { [weak self] in self?.buffer.clearMulti(); self?.unfoldAll() }
+        text.willCompose = { [weak self] in self?.buffer.clearMulti(); _ = self?.buffer.snippets.finish(); self?.unfoldAll() }
+        text.snippetActive={ [weak self] in self?.buffer.snippets.active != nil }
+        text.snippetCommand={ [weak self] direction in guard let self else{return false};return direction==0 ? self.buffer.snippets.finish():self.buffer.snippets.move(direction) }
+
         buffer.navigate = { [weak self] fraction in
             guard let self else { return }
             self.unfoldAll()
@@ -1492,8 +1520,17 @@ import UIKit
         buffer.focusSource = { [weak self] in self?.text.becomeFirstResponder() }
         buffer.applyCompletionDraft = { [weak self] draft,initial in
             guard let self,self.text.selectedRange==initial,exactUTF8(draft.path,self.buffer.file.path) else{return false}
-            return self.sourceDraftHistory.commit(draft.plan,path:draft.path,before:draft.before,selectionBefore:initial,selectionAfter:NSRange(location:draft.selection.from,length:draft.selection.to-draft.selection.from),manager:self.text.undoManager,
-                read:{[weak self] in self?.buffer.text ?? ""},apply:{[weak self] edits,source,selected in self?.applySourceEdits(edits,source:source,resultSelection:selected,manageUndo:false) ?? false},notice:{[weak self] text in self?.buffer.language?.completionNotice=text})
+            return self.sourceDraftHistory.commit(draft.plan,path:draft.path,before:draft.before,selectionBefore:initial,selectionAfter:NSRange(location:draft.selection.from,length:draft.selection.to-draft.selection.from),contextBefore:self.buffer.snippets.historyContext,contextAfter:(draft.continuing ?? beginSnippet(draft.plan.patches.first?.after ?? draft.before,fields:draft.fields)).map{SourceSnippetHistoryContext(fields:$0.fields,active:$0.active,current:$0.current)},manager:self.text.undoManager,
+                read:{[weak self] in self?.buffer.text ?? ""},apply:{[weak self] edits,source,selected in self?.applySourceEdits(edits,source:source,resultSelection:selected,manageUndo:false) ?? false},notice:{[weak self] text in self?.buffer.snippets.reportFailure(text)},restoreContext:{[weak self] value in self?.buffer.snippets.restoreHistory(value)},contextCost:snippetHistoryCost,discardContext:{[weak self] in _ = self?.buffer.snippets.finish()})
+        }
+        buffer.canUndoSource={ [weak self] in guard let self else{return false};return !self.buffer.readOnly&&self.text.markedTextRange==nil&&self.text.undoManager?.canUndo==true }
+        buffer.undoSource={ [weak self] in guard let self,!self.buffer.readOnly,self.text.markedTextRange==nil,let manager=self.text.undoManager,manager.canUndo else{return false};manager.undo();return true }
+        buffer.canRedoSource={ [weak self] in guard let self else{return false};return !self.buffer.readOnly&&self.text.markedTextRange==nil&&self.text.undoManager?.canRedo==true }
+        buffer.redoSource={ [weak self] in guard let self,!self.buffer.readOnly,self.text.markedTextRange==nil,let manager=self.text.undoManager,manager.canRedo else{return false};manager.redo();return true }
+        buffer.snippets.commit = { [weak self] input,before in
+            guard let self,let plan=snippetChangePlan(path:self.buffer.file.path,before:before.source,input:input) else{return false}
+            return self.sourceDraftHistory.commit(plan,path:self.buffer.file.path,before:before.source,selectionBefore:self.text.selectedRange,selectionAfter:NSRange(location:input.selection.from,length:input.selection.to-input.selection.from),contextBefore:SourceSnippetHistoryContext(fields:before.fields,active:before.active,current:before.current),contextAfter:SourceSnippetHistoryContext(fields:input.session.fields,active:input.session.active,current:input.session.current),manager:self.text.undoManager,
+                read:{[weak self] in self?.buffer.text ?? ""},apply:{[weak self] edits,source,selected in self?.applySourceEdits(edits,source:source,resultSelection:selected,manageUndo:false) ?? false},notice:{[weak self] text in self?.buffer.snippets.reportFailure(text)},restoreContext:{[weak self] value in self?.buffer.snippets.restoreHistory(value)},contextCost:snippetHistoryCost,discardContext:{[weak self] in _ = self?.buffer.snippets.finish()})
         }
         buffer.applySourceEdits = { [weak self] edits, source in self?.applySourceEdits(edits, source: source) ?? false }
         buffer.canReflectWorkspaceEdits = { [weak self] edits, source in
@@ -1525,7 +1562,7 @@ import UIKit
     }
     func applySourceEdits(_ edits: [NativeSourceEdit], source: String, expectedModelSource: String? = nil,resultSelection:NSRange?=nil,manageUndo:Bool=true) -> Bool {
         guard !buffer.readOnly, (!buffer.saving || text.undoManager?.isUndoing==true || text.undoManager?.isRedoing==true), text.isEditable, exactUTF8(text.text,source), exactUTF8(buffer.text,expectedModelSource ?? source), text.markedTextRange == nil,
-              validSourceEdits(edits, length: (source as NSString).length) else { return false }
+              (edits.isEmpty && resultSelection != nil || validSourceEdits(edits, length: (source as NSString).length)) else { return false }
         let resultLength=source.utf16.count+edits.reduce(0){$0+$1.text.utf16.count-$1.range.length}
         if let selected=resultSelection,!validSourceEdits([NativeSourceEdit(range:selected,text:"")],length:resultLength){return false}
         let replacements: [(UITextRange, String)] = edits.sorted(by: { $0.range.location > $1.range.location }).compactMap { edit in
@@ -1577,9 +1614,12 @@ import UIKit
             if tableSourceEditHitsGrid(range, selection: textView.selectedRange, tables: self.text.tableRanges) { return false }
             if folding.ranges.contains(where: { NSIntersectionRange($0, range).length > 0 || NSLocationInRange(range.location, $0) }) { unfoldAll(); return false }
         }
+        if text=="\t",textView.markedTextRange==nil,buffer.snippets.move(1){return false}
+        if text != "\n",text != "\t",textView.markedTextRange==nil,buffer.snippets.active != nil,!tableSourceEditHitsGrid(range,selection:textView.selectedRange,tables:self.text.tableRanges),!folding.ranges.contains(where:{NSIntersectionRange($0,range).length>0||NSLocationInRange(range.location,$0)}),buffer.snippets.input(source:textView.text,range:range,text:text)==true{return false}
         if text == "\n", textView.markedTextRange == nil, !buffer.readOnly, buffer.multiRanges.count < 2 {
             let plan = smartEnter(textView.text, range: range, path: buffer.file.path, unit: simpleIndent(textView.text), mode: UserDefaults.standard.string(forKey: "editor.enterIndent") ?? "smart")
             guard !tableSourceEditHitsGrid(plan.range, selection: textView.selectedRange, tables: self.text.tableRanges) else { return false }
+            if buffer.snippets.active != nil,buffer.snippets.input(source:textView.text,range:plan.range,text:plan.text,caret:plan.caret)==true{return false}
             if applySourceEdits([NativeSourceEdit(range: plan.range, text: plan.text)], source: textView.text) {
                 textView.selectedRange = NSRange(location: plan.caret, length: 0); buffer.selection = textView.selectedRange
             }
@@ -2105,10 +2145,16 @@ struct LanguageEditor: View {
             }.accessibilityLabel("Language tools")
                 .help(buffer.language?.status ?? "Language services not connected")
                 .padding(4).background(.regularMaterial).padding(.trailing, 42)
-                .popover(isPresented: Binding(get: { buffer.language?.showingSuggestions ?? false }, set: { buffer.language?.showingSuggestions = $0;if !$0{buffer.language?.cancelCompletion()} })) {
+                .popover(isPresented: Binding(get: { buffer.showSnippetTools || (buffer.language?.showingSuggestions ?? false) }, set: { buffer.showSnippetTools=$0;buffer.language?.showingSuggestions = $0;if !$0{buffer.language?.cancelCompletion()} })) {
                     ScrollView { VStack(alignment: .leading, spacing: 8) {
                         Text("Language tools").font(.headline)
-                        Text(buffer.language?.completionNotice.isEmpty==false ? buffer.language!.completionNotice : buffer.language?.status ?? "Language services not connected").font(.caption).textSelection(.enabled)
+                        if buffer.snippets.active != nil {
+                            Button("Next template field"){_ = buffer.snippets.move(1)}
+                            Button("Previous template field"){_ = buffer.snippets.move(-1)}
+                            ForEach(Array(buffer.snippets.choices.enumerated()),id:\.offset){_,choice in Button(choice.isEmpty ? "Empty value":choice){_ = buffer.snippets.choose(choice)}}
+                            Button("Finish template editing"){_ = buffer.snippets.finish()}
+                        }
+                        Text(buffer.snippets.active != nil ? buffer.snippets.notice : buffer.language?.completionNotice.isEmpty==false ? buffer.language!.completionNotice : buffer.language?.status ?? "Language services not connected").font(.caption).textSelection(.enabled)
                         if let language = buffer.language {
                             TextField("Symbol search", text: Binding(get: { language.symbolQuery }, set: { language.symbolQuery = $0 })).textFieldStyle(.roundedBorder)
                             ForEach(SemanticQuery.allCases) { query in
@@ -2142,7 +2188,7 @@ struct LanguageEditor: View {
                                 }.frame(maxWidth: .infinity, alignment: .leading)
                             }.frame(height: 180)
                             Button("Retry language services") { language.start() }
-                            Text("For Python, run hick lsp install python from the workspace folder, then choose Retry language services. This installs basedpyright for colors and IntelliSense. Snippets and multi-file completion edits are not applied here.").font(.caption)
+                            Text("For Python, run hick lsp install python from the workspace folder, then choose Retry language services. This installs basedpyright for colors and IntelliSense. Completions can update the current draft and required imports; unsupported changes show a retry message.").font(.caption)
                         }
                     }.padding() }.frame(width: 350, height: 420)
                 }

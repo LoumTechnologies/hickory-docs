@@ -3,9 +3,11 @@ import Observation
 
 @MainActor @Observable final class DocumentBuffer: Identifiable {
     let id = UUID()
+    var showSnippetTools=false
+    @ObservationIgnored lazy var snippets=SourceSnippetController(buffer:self)
     let file: FileNode
     private var sourceValue:ExactSourceText {
-        didSet {let changed = !exactUTF8(text,base);if dirty != changed {dirty=changed};if sourceValue != oldValue {language?.changed();refreshInline()}}
+        didSet {let changed = !exactUTF8(text,base);if dirty != changed {dirty=changed};if sourceValue != oldValue {snippets.sourceChanged(text);language?.changed();refreshInline()}}
     }
     var text:String {get {sourceValue.text} set {sourceValue=ExactSourceText(newValue)}}
     var sourceRevision:ExactSourceText {sourceValue}
@@ -14,6 +16,10 @@ import Observation
     }
     @ObservationIgnored var navigate: ((Double) -> Void)?
     @ObservationIgnored var renderLanguage: (([NativeSemanticToken], String) -> Void)?
+    @ObservationIgnored var canUndoSource:(()->Bool)?
+    @ObservationIgnored var canRedoSource:(()->Bool)?
+    @ObservationIgnored var undoSource:(()->Bool)?
+    @ObservationIgnored var redoSource:(()->Bool)?
     @ObservationIgnored var applyCompletionDraft: ((CompletionDraft,NSRange)->Bool)?
     @ObservationIgnored var applyLanguageCompletion: ((NSRange, String, String, NSRange) -> Bool)?
     @ObservationIgnored var selection = NSRange(location: 0, length: 0)

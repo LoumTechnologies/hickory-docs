@@ -26,6 +26,9 @@ it('restores snippet field selection with complete imports on redo',async()=>{
   expect(view.state.doc.toString()).toBe('#\n😀 + 😀\n');expect(view.state.selection.main.anchor).toBe(2);expect(view.state.selection.main.head).toBe(4);
  }finally{close();}
 });
+it('accepts a source-equal completion without a fake source edit',async()=>{
+ const {view,close}=fixture();try{await acceptSourceCompletion(view,raw,'va\n',view.state.selection,0,2,{uri:'hick:///a.py',resolve:async()=>({...resolved('va'),additionalTextEdits:[]}),current:()=>true,writable:()=>true,notice:()=>{}});expect(view.state.doc.toString()).toBe('va\n');expect(readCompletionAcceptance(view)).toMatchObject({phase:'applied',applied:true,source_changed:false});}finally{close();}
+});
 it('a newer choice owns the result and late older replies cannot overwrite it',async()=>{
  const {view,close}=fixture(),first=held(),second=held(),notices:string[]=[];let calls=0;
  const adapter:SourceCompletionAdapter={uri:'hick:///a.py',resolve:()=>++calls===1?first.promise:second.promise,current:()=>true,writable:()=>true,notice:value=>notices.push(value)};

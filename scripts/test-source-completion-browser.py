@@ -32,7 +32,15 @@ def main():
             assert driver.act("editor-is-retained",path=path);assert driver.act("editor-size",path=path)==size;assert (root/path).read_text()==source
             driver.act("undo",path=path);assert driver.act("search-source",path=path)==source
             driver.act("redo",path=path);assert driver.act("search-source",path=path)==after,{"redo_source":driver.act("search-source",path=path)};assert driver.act("caret-offset",path=path)==caret,{"redo_caret":driver.act("caret-offset",path=path),"selected":driver.act("selected-source-text",path=path)};assert (root/path).read_text()==source
-            if snippet:assert driver.act("selected-source-text",path=path)=="😀 value"
+            if snippet:
+                assert driver.act("selected-source-text",path=path)=="😀 value"
+                driver.act("type-source-selection",path=path,text="renamed")
+                typed="renamed + renamed = 1\n# imported\n";assert driver.act("search-source",path=path)==typed;assert driver.act("caret-offset",path=path)==7
+                driver.act("undo",path=path);assert driver.act("search-source",path=path)==after
+                driver.act("redo",path=path);assert driver.act("search-source",path=path)==typed;assert driver.act("caret-offset",path=path)==7
+                driver.act("template-next",path=path);assert driver.act("caret-offset",path=path)==17
+                assert driver.act("editor-is-retained",path=path);assert driver.act("editor-size",path=path)==size;assert (root/path).read_text()==source
+                driver.act("undo",path=path);assert driver.act("search-source",path=path)==after
             driver.act("undo",path=path);assert driver.act("search-source",path=path)==source
             options=driver.act("completion-open",path=path,offset=2);assert any("python completion" in value for value in options),options
             driver.act("completion-pick",title="python completion");deadline=time.monotonic()+3
@@ -47,7 +55,7 @@ def main():
                 assert time.monotonic()<deadline,observed;time.sleep(.01)
             driver.act("completion-drain");assert driver.act("search-source",path=path)==source;assert driver.act("editor-is-retained",path=path);assert driver.act("editor-size",path=path)==size;assert (root/path).read_text()==source
             observed=[json.loads(line) for line in events.read_text().splitlines()];assert [item["completion_resolved"] for item in observed if "completion_resolved" in item]==["python","python"],observed
-            print("PASS: native completion popup, actual lazy resolution, primary and import edits, "+("expanded snippet and retained first-field selection, " if snippet else "precise caret, ")+"one undo/redo, Escape refusal of a held late reply, retained editor geometry and unchanged disk")
+            print("PASS: native completion popup, actual lazy resolution, primary and import edits, "+("expanded snippet, linked typing, menu traversal and retained field history, " if snippet else "precise caret, ")+"one undo/redo, Escape refusal of a held late reply, retained editor geometry and unchanged disk")
         finally:
             if driver:driver.close()
             for process in reversed(processes):fixture.stop(process)

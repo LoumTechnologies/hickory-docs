@@ -25,7 +25,7 @@ import type { TestSourcePoint } from "../api/testSources";
 import { workspaceCommands, type CommandContext } from "./WorkspaceCommands";
 import { SearchEverywhereView } from "./SearchEverywhereView";
 import { WorkspaceAnalysis as WorkspaceAnalysisModel } from "./WorkspaceAnalysis";
-import { runEditorCommand } from "./Document";
+import { runEditorCommand,sourceSnippetContext } from "./Document";
 import { WorkspaceChanges, requestWorkspaceChange } from "./WorkspaceChanges";
 import { WorkspaceAnalysisView, requestWorkspaceAnalysis } from "./WorkspaceAnalysisView";
 import { WorkspaceSearch } from "./WorkspaceSearch";
@@ -277,7 +277,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
       document.removeEventListener("wheel", wheel, true);
     };
   }, []);
-  const context:CommandContext={editor:!!buffer,writable:!!buffer&&!buffer.readonly,dirty:buffer?.dirty??false,saving:buffer?.saving??false,back:trail.canBack,forward:trail.canForward,tab:!!active,groups:groups(layout).length};
+  const context:CommandContext={...sourceSnippetContext(buffer),editor:!!buffer,writable:!!buffer&&!buffer.readonly,dirty:buffer?.dirty??false,saving:buffer?.saving??false,back:trail.canBack,forward:trail.canForward,tab:!!active,groups:groups(layout).length};
   const contextRef=useRef(context);contextRef.current=context;
   const handlers:Record<string,()=>void>={
     "file.open":()=>{void openPath();},"file.directory":()=>{void openPath(true);},"file.new":newTab,"file.window":()=>{window.open(window.location.href,"_blank","noopener");},
@@ -288,7 +288,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
     "view.files":()=>openTab("files"),"view.agent":()=>openTab("agent"),"view.terminal":()=>{void openTerminal();},"view.splitRight":()=>divide("horizontal"),"view.splitBelow":()=>divide("vertical"),"view.move":nextGroup,
   };
   for(const query of semanticQueries)handlers[`semantic.${query.kind}`]=()=>{if(buffer){const text=query.kind==="symbols"?window.prompt("Search workspace symbols",""):"";if(text!==null)openSemanticQuery(buffer,query.kind,text);}};
-  for(const command of ["tools","rectangle","cursorBelow","cursorAbove"] as const)handlers[`editor.${command}`]=()=>{if(buffer&&!runEditorCommand(buffer,command))setNotice("Editor command unavailable. Wait for the editor or language service, then retry.");};
+  for(const command of ["tools","undo","redo","rectangle","cursorBelow","cursorAbove","snippetNext","snippetPrevious","snippetChoices","snippetFinish"] as const)handlers[`editor.${command}`]=()=>{if(buffer&&!runEditorCommand(buffer,command))setNotice("Editor command unavailable. Wait for the editor or language service, then retry.");};
   const handlersRef=useRef(handlers);handlersRef.current=handlers;
   const commands=workspaceCommands(()=>contextRef.current,Object.fromEntries(Object.keys(handlers).map(id=>[id,()=>handlersRef.current[id]?.()])));
   const commandMenu=(group:string)=>commands.filter(command=>command.group===group&&command.id in handlers).map(command=><button key={command.id} disabled={command.reason!==null} title={command.reason??command.label} onClick={command.run}>{command.label}</button>);

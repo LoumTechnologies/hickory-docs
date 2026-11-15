@@ -52,6 +52,7 @@ The workspace buffer owns its language session, matching Apple and Android. Hidi
 A query identifies a language-provider operation; its answer is a list of source locations. Menus and floating results consume these values without owning the LSP session or pane layout. Admit only authored workspace URI paths for opening. Other provider identities remain visible as unsupported results. Each request captures source, selection, provider and a monotonic ticket; late answers never navigate or replace a newer query. No query edits or saves text.
 
 <ui:copy id="simple-browser-semantic-locations">
+import {sourceSnippets,moveSourceSnippet,finishSourceSnippet,openSourceSnippetChoices,readSourceSnippet,dispatchSourceSnippetTransactions} from './SourceSnippets';
 import {useCoverageLineActions} from "./SourceCoverage";
 import {useSourceTestLineActions} from "./SourceTestGutters";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -70,7 +71,7 @@ import { smartEnter, enterMode } from "./SmartEnter";
 import { gutterIconLayout, layoutEditorGutters } from "../editor/gutterIconLayout";
 import { Compartment, EditorState, StateEffect, EditorSelection } from "@codemirror/state";
 import { EditorView, keymap, drawSelection, lineNumbers, rectangularSelection, crosshairCursor } from "@codemirror/view";
-import { addCursorAbove, addCursorBelow, defaultKeymap, history, historyKeymap, indentMore, indentLess } from "@codemirror/commands";
+import { addCursorAbove, addCursorBelow, defaultKeymap, history, historyKeymap, undo,redo,undoDepth,redoDepth,indentMore, indentLess } from "@codemirror/commands";
 import { codeFolding, foldKeymap, foldService, foldGutter, indentUnit } from "@codemirror/language";
 import { search, searchKeymap, openSearchPanel, SearchQuery, setSearchQuery } from "@codemirror/search";
 import { completionKeymap, startCompletion } from "@codemirror/autocomplete";
@@ -213,13 +214,20 @@ function localFold(state: EditorState, from: number, markdown: boolean) {
   if (!ranges) { ranges = new Map(simpleFoldRanges(state.doc.toString(), markdown).map(range => [range.from, range])); foldCache.set(state.doc, ranges); }
   return ranges.get(state.doc.lineAt(from).to) ?? null;
 }
-const editors = new WeakMap<Buffer, { view: EditorView; language: Compartment; prose: Compartment; richAttached?: boolean; toggleBreakpoint?: (line: number) => void }>();
+const editors = new WeakMap<Buffer, { view: EditorView; language: Compartment; prose: Compartment; completion:Compartment; richAttached?: boolean; toggleBreakpoint?: (line: number) => void }>();
 export const SIMPLE_EDITOR_ATTACHED = "hickory:simple-editor-attached";
 export function editorForBuffer(buffer: Buffer) { return editors.get(buffer); }
 export function openFind(buffer: Buffer) { const view = editors.get(buffer)?.view; if (view) openSearchPanel(view); }
-export function runEditorCommand(buffer: Buffer,command: "tools"|"rectangle"|"cursorBelow"|"cursorAbove") {
+export function sourceSnippetContext(buffer:Buffer|undefined){const view=buffer?editors.get(buffer)?.view:undefined,session=view?readSourceSnippet(view):null;return {sourceUndo:!!view&&!view.composing&&undoDepth(view.state)>0,sourceRedo:!!view&&!view.composing&&redoDepth(view.state)>0,snippet:!!session,snippetChoices:!!session?.fields.some(field=>field.index===session.active&&field.choices.length)}}
+export function runEditorCommand(buffer: Buffer,command: "tools"|"rectangle"|"cursorBelow"|"cursorAbove"|"snippetNext"|"snippetPrevious"|"snippetChoices"|"snippetFinish"|"undo"|"redo") {
   const view=editors.get(buffer)?.view;if(!view)return false;view.focus();
+  if(command==="undo")return !buffer.readonly&&undo(view);
+  if(command==="redo")return !buffer.readonly&&redo(view);
   if(command==="tools")return startCompletion(view);
+  if(command==="snippetNext")return moveSourceSnippet(view,1);
+  if(command==="snippetPrevious")return moveSourceSnippet(view,-1);
+  if(command==="snippetChoices")return openSourceSnippetChoices(view);
+  if(command==="snippetFinish")return finishSourceSnippet(view);
   if(command==="cursorBelow")return addCursorBelow(view);
   if(command==="cursorAbove")return addCursorAbove(view);
   const range=view.state.selection.main,doc=view.state.doc,anchor=doc.lineAt(range.anchor),head=doc.lineAt(range.head);
@@ -292,9 +300,9 @@ export function Document({ buffer }: { buffer: Buffer }) {
   useLayoutEffect(() => {
     let cached = editors.get(buffer);
     if (!cached) {
-      const language = new Compartment(), prose = new Compartment();
-      const view = new EditorView({ state: EditorState.create({ doc: buffer.text, extensions: [
-        history(), layoutEditorGutters.of(false), gutterIconLayout, indentUnit.of(simpleIndent(buffer.text)), EditorState.tabSize.of(4), drawSelection(), EditorState.allowMultipleSelections.of(true), rectangularSelection(), crosshairCursor(), lineNumbers({ domEventHandlers: { mousedown: (editor, block, event) => {
+      const language = new Compartment(), prose = new Compartment(), completion=new Compartment();
+      const view = new EditorView({ dispatchTransactions:dispatchSourceSnippetTransactions,state: EditorState.create({ doc: buffer.text, extensions: [
+        history(), sourceSnippets({writable:()=>!buffer.readonly&&!buffer.saving,notice:value=>buffer.setCompletionNotice(value)}), layoutEditorGutters.of(false), gutterIconLayout, indentUnit.of(simpleIndent(buffer.text)), EditorState.tabSize.of(4), drawSelection(), EditorState.allowMultipleSelections.of(true), rectangularSelection(), crosshairCursor(), lineNumbers({ domEventHandlers: { mousedown: (editor, block, event) => {
           const line = breakpointLine(editor.state, editor.state.doc.lineAt(block.from).number - 1);
           if (line === null) return false;
           event.preventDefault(); editors.get(buffer)?.toggleBreakpoint?.(line); return true;
@@ -303,7 +311,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
           const query = tr.effects.find(effect => effect.is(setSearchQuery))?.value as SearchQuery | undefined;
           return query && !query.literal ? { effects: setSearchQuery.of(new SearchQuery({ ...query, literal: true })) } : null;
         }),
-        foldService.of((state, from) => localFold(state, from, /\.(md|markdown)$/i.test(buffer.file.path))), EditorView.lineWrapping, language.of([]), prose.of([]),
+        foldService.of((state, from) => localFold(state, from, /\.(md|markdown)$/i.test(buffer.file.path))), EditorView.lineWrapping, language.of([]), prose.of([]), completion.of(completions({})),
         keymap.of([...wordNavigationKeys, { key: "Enter", run: view => simpleEnter(view, buffer.file.path) }, { key: "Tab", run: simpleTab, shift: indentLess }, { key: "Ctrl-Space", run: startCompletion }, ...searchKeymap, ...foldKeymap, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
         EditorState.readOnly.of(buffer.readonly), EditorView.editable.of(!buffer.readonly),
         EditorView.contentAttributes.of({ "aria-label": buffer.file.path }),
@@ -312,7 +320,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
         }),
         EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { overflow: "auto", fontFamily: "ui-monospace, monospace", fontSize: "13px" } }),
       ] }) });
-      cached = { view, language, prose }; editors.set(buffer, cached); window.dispatchEvent(new Event(SIMPLE_EDITOR_ATTACHED));
+      cached = { view, language, prose, completion }; editors.set(buffer, cached); window.dispatchEvent(new Event(SIMPLE_EDITOR_ATTACHED));
     }
     cached.toggleBreakpoint = line => { if (!buffer.transient) debugRef.current.toggleBreakpoint(line); };
     host.current?.append(cached.view.dom);
@@ -332,11 +340,11 @@ export function Document({ buffer }: { buffer: Buffer }) {
   useEffect(() => {
     const cached = editors.get(buffer);
     if (!cached || !session.client || !session.ready) return;
-    const { view, language } = cached;
+    const { view, language,completion } = cached;
     let providerCurrent = true;
     const positionAt = (offset: number, editor: EditorView) => utf16ToPosition(editor.state.doc.toString(), offset);
     const offsetAt = (position: { line: number; character: number }, editor: EditorView) => positionToUtf16(editor.state.doc.toString(), position);
-    view.dispatch({ effects: language.reconfigure([
+    view.dispatch({ effects: [language.reconfigure([
       ...lspSupport({ client: session.client, uri: session.uri, positionAt,
         onReferences: locations => {
           if (!providerCurrent) return;
@@ -352,13 +360,12 @@ export function Document({ buffer }: { buffer: Buffer }) {
           else { const { anchor, head } = view.state.selection.main; setSemanticResult({ source: view.state.doc.toString(), anchor, head, ticket: ++semanticTicket.current, message: "Provider target is outside authored workspace files.", locations: [target] }); }
         } } }),
       ...lspFeatures({ client: session.client, uri: session.uri, positionAt, offsetAt, inlayHints: true }),
-      ...(!buffer.readonly ? [completions({ lsp: { client: session.client, uri: session.uri,
+    ]),completion.reconfigure(!buffer.readonly ? completions({ lsp: { client: session.client, uri: session.uri,
         positionAt: (offset, state) => utf16ToPosition(state.doc.toString(), offset) },
         lspItem:(item,context)=>sourceCompletion(item,context,{uri:session.uri,current:()=>providerCurrent,writable:()=>!buffer.readonly&&!buffer.saving&&!buffer.transient,
           resolve:async original=>await session.client!.request("completionItem/resolve",{...original,textDocument:{uri:session.uri}}) as import("../lsp/client").CompletionItem,
-          notice:text=>buffer.setCompletionNotice(text)}) })] : []),
-    ]) });
-    return () => { providerCurrent = false; view.dispatch({ effects: language.reconfigure([]) }); };
+          notice:text=>buffer.setCompletionNotice(text)}) }) : completions({}))] });
+    return () => { providerCurrent = false; view.dispatch({ effects: [language.reconfigure([]),completion.reconfigure(completions({}))] }); };
   }, [buffer, session.client, session.uri, session.ready, capabilities]);
   useEffect(() => {
     const cached = editors.get(buffer);

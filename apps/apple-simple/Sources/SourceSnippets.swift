@@ -1,0 +1,61 @@
+import Foundation
+import Observation
+struct SourceSnippetHistoryContext {var fields:[SnippetField];var active:Int;var current:Int}
+func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {value?.fields.reduce(0){sum,field in sum+64+field.choices.reduce(0){$0+$1.utf16.count*2}} ?? 0}
+@MainActor @Observable final class SourceSnippetController {
+    private weak var buffer:DocumentBuffer?
+    private(set) var intent=0
+    private(set) var session:SnippetSession?
+    private(set) var notice=""
+    @ObservationIgnored var commit:((SnippetInput,SnippetSession)->Bool)?
+    init(buffer:DocumentBuffer){self.buffer=buffer}
+    var active:SnippetSession? {guard let buffer,let session,exactUTF8(buffer.text,session.source) else{return nil};return session}
+    var choices:[String] {guard let active else{return []};return active.fields.first(where:{$0.id==active.current})?.choices ?? []}
+    var historyContext:SourceSnippetHistoryContext? {active.map{SourceSnippetHistoryContext(fields:$0.fields,active:$0.active,current:$0.current)}}
+    func restoreHistory(_ context:SourceSnippetHistoryContext?){
+        guard let context,let buffer,beginSnippet(buffer.text,fields:context.fields) != nil else{restore(nil);return}
+        restore(SnippetSession(source:buffer.text,fields:context.fields,active:context.active,current:context.current))
+    }
+    func restore(_ value:SnippetSession?) {session=value;intent+=1;report()}
+    func sourceChanged(_ source:String) {if let session,!exactUTF8(source,session.source){finish()}}
+    func reportFailure(_ message:String){notice=message;buffer?.language?.completionNotice=message}
+    private func report(){notice=session.map{"Template field \($0.active) · Tab next · Shift-Tab previous · Esc finish"} ?? "Template editing finished · draft";buffer?.language?.completionNotice=notice}
+    @discardableResult func finish()->Bool {guard session != nil else{return false};session=nil;intent+=1;report();return true}
+    @discardableResult func move(_ direction:Int)->Bool {
+        guard let buffer,let current=active else{_ = finish();return false}
+        guard let next=advanceSnippet(current,source:buffer.text,from:buffer.selection.location,to:NSMaxRange(buffer.selection),direction:direction) else{if direction == -1,current.active==current.fields.map({$0.index}).filter({$0>0}).min(){return true};_ = finish();return false}
+        let old=session;session=next.session
+        guard buffer.selectSourceRange?(NSRange(location:next.selection.from,length:next.selection.to-next.selection.from),current.source)==true else{session=old;return false}
+        intent+=1;buffer.focusSource?();report();return true
+    }
+    // nil leaves ordinary native input in charge; true means one linked batch committed.
+    func input(source:String,range:NSRange,text:String,caret:Int?=nil)->Bool? {
+        guard let buffer,let current=active,!buffer.readOnly,!buffer.saving,exactUTF8(source,buffer.text),buffer.multiRanges.count<2,var input=editSnippet(current,source:source,from:range.location,to:NSMaxRange(range),text:text),let commit else{_ = finish();return nil}
+        if let caret {
+            guard caret>=range.location,caret<=range.location+text.utf16.count else{_ = finish();return nil}
+            let selected=input.selection.from+caret-(range.location+text.utf16.count);input.selection=CompletionSelection(from:selected,to:selected)
+        }
+        guard commit(input,current) else{_ = finish();return nil};return true
+    }
+    func prepareCompletion(_ draft:CompletionDraft,item:[String:Any])throws->CompletionDraft {
+        guard let current=active else{return draft}
+        guard draft.fields.isEmpty,(item["additionalTextEdits"] as? [Any])?.isEmpty != false else{throw EngineError(message:"Finish the current template before accepting completion imports or another snippet. No edits were applied.")}
+        var result=draft
+        if draft.plan.patches.isEmpty{result.continuing=current;return result}
+        guard draft.plan.patches.count==1,let patch=draft.plan.patches.first,patch.edits.count==1 else{throw EngineError(message:"Completion cannot be combined with the current template. Finish it and retry.")}
+        let edit=patch.edits[0]
+        guard let input=editSnippet(current,source:draft.before,from:edit.from,to:edit.to,text:edit.text) else{throw EngineError(message:"Completion leaves the active template field. Finish it and retry.")}
+        result.plan=ChangePlan(title:draft.plan.title,patches:[SourcePatch(path:draft.path,before:draft.before,after:input.session.source,edits:input.edits.map{SourceReplacement(from:$0.range.location,to:NSMaxRange($0.range),text:$0.text)})]);result.selection=input.selection;result.insertionFrom=input.selection.from-edit.text.utf16.count;result.continuing=input.session;return result
+    }
+    @discardableResult func choose(_ value:String)->Bool {
+        guard let buffer,let current=active,!buffer.readOnly,!buffer.saving,let field=current.fields.first(where:{$0.id==current.current}),field.choices.contains(where:{exactUTF8($0,value)}) else{return false}
+        return input(source:buffer.text,range:NSRange(location:field.from,length:field.to-field.from),text:value)==true
+    }
+}
+@MainActor func snippetChangePlan(path:String,before:String,input:SnippetInput)->ChangePlan? {
+    guard validSourceEdits(input.edits,length:before.utf16.count) else{return nil}
+    let value=NSMutableString(string:before)
+    for edit in input.edits.sorted(by:{$0.range.location>$1.range.location}){value.replaceCharacters(in:edit.range,with:edit.text)}
+    guard exactUTF8(value as String,input.session.source) else{return nil}
+    return ChangePlan(title:"Edit template field",patches:[SourcePatch(path:path,before:before,after:input.session.source,edits:input.edits.map{SourceReplacement(from:$0.range.location,to:NSMaxRange($0.range),text:$0.text)})])
+}

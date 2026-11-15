@@ -11,3 +11,10 @@ import XCTest
         XCTAssertNotNil(commandReason("unknown",context));XCTAssertNotNil(commandReason("back",context));XCTAssertNotNil(commandReason("multi",context))
     }
 }
+@MainActor final class TemplateCommandTests:XCTestCase {
+    func testMenusRecheckCurrentFieldsChoicesAndWriteAvailability()throws {
+        var context=CommandContext(editor:true,writable:true,dirty:true,saving:false,back:false,forward:false,tab:true,groups:1),called=0
+        XCTAssertNotNil(commandReason("template",context));context.snippet=true;XCTAssertNil(commandReason("template",context));XCTAssertNotNil(commandReason("templateChoice",context));context.snippetChoices=true;XCTAssertNil(commandReason("templateChoice",context));context.saving=true;XCTAssertNotNil(commandReason("templateChoice",context));XCTAssertNil(commandReason("template",context));context.saving=false
+        let command=try XCTUnwrap(workspaceCommands({context},handlers:["editor.snippetNext":{called+=1}]).first{$0.id=="editor.snippetNext"});XCTAssertNil(command.reason);context.snippet=false;command.run();XCTAssertEqual(called,0)
+    }
+}

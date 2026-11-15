@@ -29,12 +29,15 @@ import { Facet, type Extension } from "@codemirror/state";
 
 /** File projections add sources to the editor’s single completion configuration. */
 export const completionSources = Facet.define<CompletionSource>();
+export const exclusiveCompletionSources = Facet.define<CompletionSource>();
 
 import type { LspClient,CompletionItem } from "./client";
 import type { LspPosition } from "./positions";
 
 /** Where a suggestion came from. */
-export type CompletionOrigin = "lsp" | "project";
+export type CompletionOrigin = "lsp" | "project" | "template";
+const completionOrigins=new WeakMap<Completion,CompletionOrigin>();
+export function withCompletionOrigin<T extends Completion>(completion:T,origin:CompletionOrigin):T {completionOrigins.set(completion,origin);return completion;}
 
 /** One suggestion from the project's own text. */
 export interface ProjectSuggestion {
@@ -49,12 +52,13 @@ export interface ProjectSuggestion {
 /** The mark shown beside a suggestion. Text, not an icon font: this app ships
  * no icon set, and these read at any size and in any theme. */
 export function originMark(origin: CompletionOrigin): string {
-  return origin === "lsp" ? "⌁" : "◇";
+  return origin === "lsp" ? "⌁" : origin==="template" ? "↹":"◇";
 }
 
 /** What the mark means, spelled out for the hover and for screen readers. */
 export function originLabel(origin: CompletionOrigin, semantic = false): string {
   if (origin === "lsp") return "from the language server — in scope here";
+  if(origin==="template")return "from the current template field";
   return semantic
     ? "from this project's own text, ranked by what you are writing"
     : "from this project's own text, ranked by how often it is used";
@@ -199,6 +203,7 @@ export function completions(options: {
 }): Extension {
   return [completionActions(), autocompletion({
     override: [async context => {
+      for(const source of context.state.facet(exclusiveCompletionSources)){const result=await source(context);if(result)return result;}
       const results = (await Promise.all([completionSource(options)(context), ...context.state.facet(completionSources).map(source => source(context))])).filter((r): r is CompletionResult => r !== null);
       if (!results.length) return null;
       const first=results[0];
@@ -215,7 +220,7 @@ export function completions(options: {
       {
         render: (completion) => {
           const origin: CompletionOrigin =
-            completion.section === "This project" ? "project" : "lsp";
+            completionOrigins.get(completion) ?? (completion.section === "This project" ? "project" : "lsp");
           const mark = document.createElement("span");
           mark.className = `cm-completion-origin cm-completion-origin--${origin}`;
           mark.textContent = originMark(origin);

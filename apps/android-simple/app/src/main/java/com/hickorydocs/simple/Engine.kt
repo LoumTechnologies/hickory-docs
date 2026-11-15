@@ -617,15 +617,19 @@ class NativeLanguage(engine: Engine, private val buffer: DocumentBuffer, private
     suspend fun accept(item:NativeLanguageCompletion,resolution:(suspend (JSONObject)->JSONObject)?=null):Boolean {
         if(buffer.readOnly||buffer.saving||buffer.text!=item.source||buffer.state.selection!=item.selection){completionNotice="Suggestion is out of date. Request completions again.";return false}
         if(buffer.multiSource==buffer.text&&buffer.multiRanges.size>1){completionNotice="Choose one caret before accepting this source completion.";return false}
-        val original=item.original ?: return buffer.applySourceEdits(listOf(item.edit),item.source)
-        val request=++acceptingCompletion;val identity=epoch;completionPending=true;completionNotice="Resolving completion…"
+        val original=item.original
+        if(original==null){cancelCompletion();val applied=if(buffer.snippets.active!=null)buffer.snippets.applyInput(item.source,item.edit.from,item.edit.to,item.edit.text) else buffer.applySourceEdits(listOf(item.edit),item.source);completionNotice=if(applied)"Completion selected" else "Editor refused the completion. Finish composition or request again.";return applied}
+        val request=++acceptingCompletion;val identity=epoch;val snippetIntent=buffer.snippets.intent;completionPending=true;completionNotice="Resolving completion…"
         try {
             val resolved=(resolution ?: {resolveCompletion(it)})(original)
             if(acceptingCompletion!=request)return false
-            check(epoch==identity&&buffer.language===this&&!buffer.readOnly&&!buffer.saving&&buffer.text==item.source&&buffer.state.selection==item.selection&&!(buffer.multiSource==buffer.text&&buffer.multiRanges.size>1)){"Source, cursor or provider changed. Request completions again."}
-            val draft=planCompletion(uri,resolved,SourceSnapshot(item.source,!buffer.readOnly&&!buffer.saving),item.edit.from,item.edit.to,completionExpansion(resolved))
+            check(epoch==identity&&buffer.snippets.intent==snippetIntent&&buffer.language===this&&!buffer.readOnly&&!buffer.saving&&buffer.text==item.source&&buffer.state.selection==item.selection&&!(buffer.multiSource==buffer.text&&buffer.multiRanges.size>1)){"Source, cursor or provider changed. Request completions again."}
+            val initialDraft=planCompletion(uri,resolved,SourceSnapshot(item.source,!buffer.readOnly&&!buffer.saving),item.edit.from,item.edit.to,completionExpansion(resolved))
+            val draft=buffer.snippets.prepareCompletion(initialDraft,resolved)
             val edits=draft.plan.patches.firstOrNull()?.edits.orEmpty().map{NativeSourceEdit(it.from,it.to,it.text)}
+            val snippetBefore=buffer.snippets.captureBefore(draft.before,buffer.state.selection,true)!!;val snippetRecord=buffer.snippets.recordSerial
             check(buffer.applySourceEdits(edits,draft.before,androidx.compose.ui.text.TextRange(draft.selection.from,draft.selection.to))){"Editor refused the complete completion. Finish composition or request again."}
+            buffer.snippets.attachCompletionContext(snippetBefore,draft.continuing ?: beginSnippet(buffer.text,draft.fields),snippetRecord)
             completionPending=false;completionNotice=if(draft.plan.patches.isEmpty())"Completion selected" else "Completion applied · draft";return true
         }catch(cancelled:kotlinx.coroutines.CancellationException){if(acceptingCompletion==request)completionNotice="Completion cancelled.";throw cancelled}
         catch(error:Exception){if(acceptingCompletion==request)completionNotice=error.message.orEmpty();return false}

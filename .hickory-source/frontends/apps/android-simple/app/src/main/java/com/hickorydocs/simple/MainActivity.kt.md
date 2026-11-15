@@ -68,7 +68,7 @@ class MainActivity : ComponentActivity() {
         Box(Modifier.weight(1f)) { Pane(workspace, workspace.layout.rootID) }
         HorizontalDivider()
         Row(Modifier.fillMaxWidth().height(24.dp).padding(horizontal = 8.dp)) {
-            Text(workspace.currentBuffer?.language?.completionNotice?.takeIf{it.isNotEmpty()} ?: workspace.status, fontSize = 11.sp, maxLines = 1, modifier = Modifier.weight(1f))
+            Text(workspace.currentBuffer?.language?.completionNotice?.takeIf{it.isNotEmpty()} ?: workspace.currentBuffer?.snippets?.notice?.takeIf{it.isNotEmpty()} ?: workspace.status, fontSize = 11.sp, maxLines = 1, modifier = Modifier.weight(1f))
             Box {
                 Text(if(workspace.analysis.running) "Reading ${workspace.analysis.completed}/${workspace.analysis.scope.files.size}" else "Analysis",fontSize=11.sp,maxLines=1,modifier=Modifier.width(112.dp).clickable(role=androidx.compose.ui.semantics.Role.Button) {workspace.showAnalysis=!workspace.showAnalysis}.padding(horizontal=4.dp))
                 DropdownMenu(expanded=workspace.showAnalysis,onDismissRequest={workspace.showAnalysis=false}) {WorkspaceAnalysisView(workspace)}

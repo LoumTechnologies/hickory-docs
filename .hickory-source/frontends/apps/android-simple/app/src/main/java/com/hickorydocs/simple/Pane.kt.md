@@ -809,6 +809,7 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
     val scroll = rememberScrollState()
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
+    LaunchedEffect(buffer.showSnippetTools){if(buffer.showSnippetTools){menu=true;buffer.showSnippetTools=false}}
     val color = MaterialTheme.colorScheme.primary
     val source = buffer.text
     val service = buffer.language
@@ -946,12 +947,18 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
             BasicTextField(state = buffer.state, readOnly = buffer.readOnly,
                 scrollState = scroll,
                 inputTransformation = InputTransformation {
+                    val snippetBefore=buffer.snippets.captureBefore(originalText,originalSelection)
                     val hiddenEdit = (0 until changes.changeCount).any { index ->
                         val changed = changes.getOriginalRange(index)
                         hiddenRanges.any { range -> changed.min < range.to && changed.max > range.from || changed.collapsed && changed.min in range.from until range.to }
                     }
                     if (hiddenEdit) { revertAllChanges(); scope.launch { buffer.tableSourceVisible = true } }
                     else if (changes.changeCount == 1 && buffer.state.composition == null && !buffer.readOnly && buffer.multiRanges.size < 2) {
+                        val linked=applySourceSnippetInput(buffer,prepare={text,from,to,inserted->
+                            if(inserted=="\n"&&TextRange(from,to)==originalSelection){val plan=smartEnter(text,from,to,buffer.file.path,simpleIndent(text),enterIndent,enterRules);SnippetPrimaryEdit(NativeSourceEdit(plan.from,plan.to,plan.text),plan.caret)}
+                            else SnippetPrimaryEdit(NativeSourceEdit(from,to,inserted))
+                        },canReflect={edit->hiddenRanges.none{edit.from<it.to&&edit.to>it.from||edit.from==edit.to&&edit.from in it.from until it.to}},publish={expected->scope.launch{kotlinx.coroutines.yield();buffer.snippets.publish(expected)}})
+                        if(!linked){
                         val original = changes.getOriginalRange(0)
                         val changed = changes.getRange(0)
                         val inserted = asCharSequence().subSequence(changed.min, changed.max).toString()
@@ -968,8 +975,10 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                             }
                         }
                     }
+                    }
+                    buffer.snippets.finishTextChange(snippetBefore,asCharSequence(),selection)
                     // Retire display state after the input transaction, outside its receiver.
-                    scope.launch { buffer.clearFolds(); if (!buffer.applyingMulti) buffer.clearMulti() }
+                    scope.launch { kotlinx.coroutines.yield();buffer.snippets.sourceChanged(buffer.text);buffer.clearFolds(); if (!buffer.applyingMulti) buffer.clearMulti() }
                 },
                 onTextLayout = { getResult -> textLayout = getResult() },
                 outputTransformation = OutputTransformation {
@@ -1022,6 +1031,10 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                         true
                     } else if (event.type == KeyEventType.KeyDown && (event.key == Key.Tab || event.key == Key.Enter) && hiddenTyping) {
                         buffer.tableSourceVisible = true; buffer.clearFolds(); true
+                    } else if(event.type==KeyEventType.KeyDown&&(event.isCtrlPressed||event.isMetaPressed)&&!event.isAltPressed&&buffer.state.composition==null&&(event.key==Key.Z||event.key==Key.Y)){
+                        if(event.key==Key.Y||event.isShiftPressed)buffer.snippets.redoSource() else buffer.snippets.undoSource();true
+                    } else if(event.type==KeyEventType.KeyDown&&event.key==Key.Escape&&buffer.state.composition==null&&buffer.snippets.active!=null){buffer.snippets.finish();true
+                    } else if(event.type==KeyEventType.KeyDown&&event.key==Key.Tab&&!event.isCtrlPressed&&!event.isMetaPressed&&!event.isAltPressed&&buffer.state.composition==null&&buffer.snippets.active!=null&&buffer.snippets.move(if(event.isShiftPressed)-1 else 1)){true
                     } else if (event.type == KeyEventType.KeyDown && event.key == Key.Tab && !event.isCtrlPressed && !event.isMetaPressed && !event.isAltPressed && !buffer.readOnly && buffer.state.composition == null) {
                         val selection = buffer.state.selection
                         buffer.applySourceEdits(simpleTabEdits(source, selection.min, selection.max, event.isShiftPressed), source); true
@@ -1134,7 +1147,13 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                 HorizontalDivider()
                 Column(Modifier.width(320.dp).heightIn(max = 460.dp).verticalScroll(rememberScrollState()).padding(8.dp)) {
                     Text("Language tools", fontSize = 14.sp)
-                    Text(service?.completionNotice?.takeIf{it.isNotEmpty()} ?: service?.status ?: "Language services not connected. Reconnect the workspace.", fontSize = 11.sp)
+                    if(buffer.snippets.active!=null){
+                        TextButton(onClick={buffer.snippets.move(1)}){Text("Next template field")}
+                        TextButton(onClick={buffer.snippets.move(-1)}){Text("Previous template field")}
+                        buffer.snippets.choices.forEach{choice->TextButton(onClick={buffer.snippets.choose(choice)}){Text(choice.ifEmpty{"Empty value"})}}
+                        TextButton(onClick={buffer.snippets.finish()}){Text("Finish template editing")}
+                    }
+                    Text(service?.completionNotice?.takeIf{it.isNotEmpty()} ?: buffer.snippets.notice.takeIf{it.isNotEmpty()} ?: service?.status ?: "Language services not connected. Reconnect the workspace.", fontSize = 11.sp)
                     if (service != null) {
                         Text("Last received information; refresh for current position.", fontSize = 11.sp)
                         if (service.hover.isNotEmpty()) Text(service.hover, fontSize = 12.sp)

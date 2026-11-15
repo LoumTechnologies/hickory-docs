@@ -8,6 +8,7 @@ import {beginCompletionAcceptance} from '../lsp/completionAcceptance';
 import {prepareEditorChanges} from '../editor/textInput';
 import {planCompletion} from './CompletionPlan';
 import {completionExpansion} from './SnippetExpansion';
+import {sourceSnippetEffect,continueSourceSnippetCompletion,readSourceSnippet} from './SourceSnippets';
 export interface SourceCompletionAdapter {
  uri:string;resolve:(item:CompletionItem)=>Promise<CompletionItem>;current:()=>boolean;writable:()=>boolean;notice:(text:string)=>void;
 }
@@ -20,9 +21,9 @@ export function sourceCompletion(item:CompletionItem,context:CompletionContext,a
  return {...lspCompletion(item),label,...(label!==item.label?{displayLabel:item.label}:{}),apply:(view,completion,from,to)=>{closeCompletion(view);void acceptSourceCompletion(view,original,source,selection,from,to,adapter,completion);}};
 }
 export async function acceptSourceCompletion(view:EditorView,item:CompletionItem,source:string,selection:EditorState['selection'],from:number,to:number,adapter:SourceCompletionAdapter,completion?:Completion):Promise<void> {
- const request=beginCompletionAcceptance(view,adapter.notice);
+ const request=beginCompletionAcceptance(view,adapter.notice),snippetContext=readSourceSnippet(view);
  let expectedAfter:string|undefined;
- const valid=()=>!request.cancelled()&&request.current()&&adapter.current()&&view.dom.isConnected&&view.state.doc.toString()===source&&view.state.selection.eq(selection)&&adapter.writable()&&!view.composing&&!view.state.readOnly&&view.state.facet(EditorView.editable);
+ const valid=()=>!request.cancelled()&&request.current()&&readSourceSnippet(view)===snippetContext&&adapter.current()&&view.dom.isConnected&&view.state.doc.toString()===source&&view.state.selection.eq(selection)&&adapter.writable()&&!view.composing&&!view.state.readOnly&&view.state.facet(EditorView.editable);
  const report=(text:string)=>{if(request.current())adapter.notice(text);};
  try {
   if(request.cancelled())return;
@@ -33,11 +34,11 @@ export async function acceptSourceCompletion(view:EditorView,item:CompletionItem
   if(!request.current()||request.cancelled())return;
   if(view.composing)throw new Error('Finish composition, then request completions again.');
   if(!valid())throw new Error('Source, cursor or provider changed. Request completions again.');
-  const draft=planCompletion(adapter.uri,resolved,{text:source,writable:adapter.writable()},from,to,completionExpansion(resolved));
+  const draft=continueSourceSnippetCompletion(view,planCompletion(adapter.uri,resolved,{text:source,writable:adapter.writable()},from,to,completionExpansion(resolved)),resolved);
   const patch=draft.plan.patches[0],after=patch?.after??source,changes=(patch?.edits??[]).map(edit=>({from:edit.from,to:edit.to,insert:edit.text}));
   const input=prepareEditorChanges(source,changes);if('reason' in input)throw new Error(input.reason);
   if(!valid())throw new Error('Source, cursor or provider changed. Request completions again.');
-  const transaction=view.state.update({changes,selection:{anchor:draft.selection.from,head:draft.selection.to},annotations:[isolateHistory.of('full'),...(completion?[pickedCompletion.of(completion)]:[])],userEvent:'input.complete',filter:false});
+  const transaction=view.state.update({changes,selection:{anchor:draft.selection.from,head:draft.selection.to},effects:sourceSnippetEffect(draft,after),annotations:[isolateHistory.of('full'),...(completion?[pickedCompletion.of(completion)]:[])],userEvent:'input.complete',filter:false});
   if(transaction.newDoc.toString()!==after)throw new Error('Editor could not prepare the complete completion. Request again.');
   // CodeMirror records the redo selection from a following selection event;
   // otherwise it maps the old caret through the replacement and loses fields.

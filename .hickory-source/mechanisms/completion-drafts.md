@@ -13,9 +13,10 @@ Prepare the complete source change before touching a view. A completion explicit
 import {planWorkspaceEdit,sourceChangeOffset,type ChangePlan,type SourceReplacement,type SourceSnapshot} from './ChangePlan';
 import {semanticPath} from './Intelligence';
 import type {SnippetField} from './SnippetExpansion';
+import type {SnippetSession} from './SnippetSession';
 import {utf16ToPosition} from '../lsp/positions';
 export interface CompletionExpansion {text:string;selection?:{from:number;to:number};fields?:SnippetField[]}
-export interface CompletionDraft {path:string;before:string;plan:ChangePlan;insertionFrom:number;selection:{from:number;to:number};fields:SnippetField[]}
+export interface CompletionDraft {path:string;before:string;plan:ChangePlan;insertionFrom:number;selection:{from:number;to:number};fields:SnippetField[];continuing?:SnippetSession}
 export function completionInsertion(item:unknown):string {
  const value=item as Record<string,unknown>|null;if(!value||typeof value!=='object'||typeof value.label!=='string')throw new Error('Malformed completion');
  const edit=value.textEdit as Record<string,unknown>|undefined;
@@ -62,7 +63,7 @@ Prepare the complete source change before touching a view. A completion explicit
 import Foundation
 struct CompletionSelection {var from:Int;var to:Int}
 struct CompletionExpansion {var text:String;var selection:CompletionSelection?=nil;var fields:[SnippetField]=[]}
-struct CompletionDraft {var path:String;var before:String;var plan:ChangePlan;var insertionFrom:Int;var selection:CompletionSelection;var fields:[SnippetField]=[]}
+struct CompletionDraft {var path:String;var before:String;var plan:ChangePlan;var insertionFrom:Int;var selection:CompletionSelection;var fields:[SnippetField]=[];var continuing:SnippetSession?=nil}
 func completionInsertion(_ item:[String:Any])throws->String {
     guard let label=item["label"] as? String else{throw EngineError(message:"Malformed completion")}
     if let edit=item["textEdit"] {guard let object=edit as? [String:Any],let text=object["newText"] as? String else{throw EngineError(message:"Missing completion insertion text")};return text}
@@ -131,7 +132,7 @@ import org.json.JSONObject
 import org.json.JSONArray
 data class CompletionSelection(val from:Int,val to:Int)
 data class CompletionExpansion(val text:String,val selection:CompletionSelection?=null,val fields:List<SnippetField> = emptyList())
-data class CompletionDraft(val path:String,val before:String,val plan:ChangePlan,val insertionFrom:Int,val selection:CompletionSelection,val fields:List<SnippetField> = emptyList())
+data class CompletionDraft(val path:String,val before:String,val plan:ChangePlan,val insertionFrom:Int,val selection:CompletionSelection,val fields:List<SnippetField> = emptyList(),val continuing:SnippetSession?=null)
 fun completionInsertion(item:JSONObject):String {
  val label=item.opt("label") as? String ?: error("Malformed completion")
  if(item.has("textEdit"))return item.optJSONObject("textEdit")?.opt("newText") as? String ?: error("Missing completion insertion text")

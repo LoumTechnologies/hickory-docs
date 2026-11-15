@@ -33,7 +33,7 @@ func editSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:Str
     let fields=session.fields,ids=Dictionary(uniqueKeysWithValues:fields.map{($0.id!,$0)})
     func ancestor(_ parent:Int,_ child:Int)->Bool{var current=ids[child];for _ in 0...fields.count{guard let value=current else{return false};if value.id==parent{return true};current=value.parent.flatMap{ids[$0]}};return false}
     let occurrences=fields.filter{$0.index==session.active},matches=occurrences.filter{$0.from<=from&&$0.to>=to}
-    guard let origin=matches.first(where:{$0.id==session.current}) ?? matches.first,text.utf16.count<=1048576/max(occurrences.count,1) else{return nil}
+    guard let origin=matches.first(where:{$0.id==session.current}) ?? matches.first,text.utf8.count<=1048576/max(occurrences.count,1) else{return nil}
     let before=original.substring(with:NSRange(location:origin.from,length:origin.to-origin.from)),relativeFrom=from-origin.from,relativeTo=to-origin.from
     guard occurrences.allSatisfy({exactUTF8(original.substring(with:NSRange(location:$0.from,length:$0.to-$0.from)),before)}) else{return nil}
     var edits:[SnippetReplacement]=[]

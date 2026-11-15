@@ -314,6 +314,11 @@ try {
           await page.waitForFunction(()=>{const text=document.querySelector("footer")?.textContent??"";return text.includes("Completion")&&!text.includes("Resolving completion");});value=await page.locator("footer").innerText();break;
         }
         case "redo":await editor(request.path).press(process.platform==="darwin"?"Meta+Shift+z":"Control+y");break;
+        case "type-source-selection":await editor(request.path).focus();await page.keyboard.insertText(request.text);break;
+        case "template-next":await menu("Edit","Next template field");break;
+        case "template-previous":await menu("Edit","Previous template field");break;
+        case "template-choices":await menu("Edit","Choose template value");break;
+        case "template-finish":await menu("Edit","Finish template editing");break;
         case "selected-source-text": value=await editor(request.path).evaluate(content=>{const selected=window.getSelection();return selected?.anchorNode&&content.contains(selected.anchorNode)?selected.toString():null;});break;
         case "caret-offset":
           value = await editor(request.path).evaluate(content => {

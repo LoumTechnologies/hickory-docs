@@ -15,12 +15,14 @@ fun Workspace.commands(descriptors:List<CommandDescriptor>,ui:Map<String,()->Uni
         "symbol.rename" to {changes.open("rename",this)},"symbol.actions" to {changes.open("actions",this)},"document.format" to {changes.open("format",this)},
         "workspace.undo" to {changes.open("undo",this)},"workspace.redo" to {changes.open("redo",this)},"workspace.coverage" to {showCoverage=true},"workspace.tests" to {showTests=true},"workspace.problems" to {showProblems=true},"workspace.analysis" to {showAnalysis=true},
         "problem.next" to {runCommand {navigateProblem(1)}},"problem.previous" to {runCommand {navigateProblem(-1)}},"navigation.back" to {runCommand {navigateHistory(-1)}},"navigation.forward" to {runCommand {navigateHistory(1)}},
+        "editor.undo" to {currentBuffer?.snippets?.undoSource();Unit},"editor.redo" to {currentBuffer?.snippets?.redoSource();Unit},
+        "editor.snippetNext" to {currentBuffer?.snippets?.move(1);Unit},"editor.snippetPrevious" to {currentBuffer?.snippets?.move(-1);Unit},"editor.snippetFinish" to {currentBuffer?.snippets?.finish();Unit},"editor.snippetChoices" to {currentBuffer?.showSnippetTools=true;Unit},
         "editor.tools" to {runCommand {currentBuffer?.language?.inspect()};runCommand {currentBuffer?.language?.complete()}},"editor.rectangle" to {currentBuffer?.selectRectangle();Unit},"editor.cursorBelow" to {currentBuffer?.addCursor(1);Unit},"editor.cursorAbove" to {currentBuffer?.addCursor(-1);Unit},
         "view.files" to {show("files")},"view.agent" to {show("agent")},"view.terminal" to {runCommand {openTerminal()}},"view.splitRight" to {split("horizontal")},"view.splitBelow" to {split("vertical")},"view.move" to {moveNext()}
     )
     for(query in SemanticQuery.entries)handlers["semantic."+query.name.replaceFirstChar {it.lowercase()}]={runCommand {currentBuffer?.language?.navigate(query)}}
     handlers.putAll(ui)
-    return workspaceCommands({CommandContext(currentBuffer!=null,currentBuffer?.readOnly==false,currentBuffer?.dirty ?: false,currentBuffer?.saving ?: false,navigationTrail.canBack,navigationTrail.canForward,active!=null,layout.groups().size)},handlers,descriptors)
+    return workspaceCommands({CommandContext(currentBuffer!=null,currentBuffer?.readOnly==false,currentBuffer?.dirty ?: false,currentBuffer?.saving ?: false,navigationTrail.canBack,navigationTrail.canForward,active!=null,layout.groups().size,currentBuffer?.snippets?.active!=null,currentBuffer?.snippets?.choices?.isNotEmpty()==true,currentBuffer?.snippets?.canUndo==true,currentBuffer?.snippets?.canRedo==true)},handlers,descriptors)
 }
 suspend fun Workspace.openEverywhere(target:SearchTarget,commands:List<WorkspaceCommand>) {
     target.commandID?.let {id->val command=commands.firstOrNull {it.id==id};if(command==null||command.reason!=null){status=target.reason ?: "Command unavailable. Refresh Search Everywhere.";return};showEverywhere=false;command.run();return}

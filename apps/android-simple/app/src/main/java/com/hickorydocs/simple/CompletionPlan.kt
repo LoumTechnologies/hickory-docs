@@ -3,7 +3,7 @@ import org.json.JSONObject
 import org.json.JSONArray
 data class CompletionSelection(val from:Int,val to:Int)
 data class CompletionExpansion(val text:String,val selection:CompletionSelection?=null,val fields:List<SnippetField> = emptyList())
-data class CompletionDraft(val path:String,val before:String,val plan:ChangePlan,val insertionFrom:Int,val selection:CompletionSelection,val fields:List<SnippetField> = emptyList())
+data class CompletionDraft(val path:String,val before:String,val plan:ChangePlan,val insertionFrom:Int,val selection:CompletionSelection,val fields:List<SnippetField> = emptyList(),val continuing:SnippetSession?=null)
 fun completionInsertion(item:JSONObject):String {
  val label=item.opt("label") as? String ?: error("Malformed completion")
  if(item.has("textEdit"))return item.optJSONObject("textEdit")?.opt("newText") as? String ?: error("Missing completion insertion text")

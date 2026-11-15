@@ -22,7 +22,7 @@ fun editSnippet(session:SnippetSession,source:String,from:Int,to:Int,text:String
  val fields=session.fields;val ids=fields.associateBy{it.id!!}
  fun ancestor(parent:Int,child:Int):Boolean{var current=ids[child];repeat(fields.size+1){val value=current ?: return false;if(value.id==parent)return true;current=value.parent?.let{ids[it]}};return false}
  val occurrences=fields.filter{it.index==session.active};val matches=occurrences.filter{it.from<=from&&it.to>=to};val origin=matches.firstOrNull{it.id==session.current} ?: matches.firstOrNull() ?: return null
- if(text.length>1048576/maxOf(occurrences.size,1))return null
+ if(text.toByteArray(Charsets.UTF_8).size>1048576/maxOf(occurrences.size,1))return null
  val before=source.substring(origin.from,origin.to);val relativeFrom=from-origin.from;val relativeTo=to-origin.from
  if(occurrences.any{source.substring(it.from,it.to)!=before})return null
  val edits=mutableListOf<SnippetReplacement>()

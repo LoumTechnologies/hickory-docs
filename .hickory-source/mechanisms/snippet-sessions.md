@@ -31,7 +31,7 @@ export function advanceSnippet(session:SnippetSession,source:string,from:number,
 
 ### Prepare one complete linked input proposal
 
-Capture and numeric traversal above retain a source-bound intent, without editor or disk effects. For input, require the entire replacement to lie inside one current active occurrence, match the exact source and validate scalar boundaries. Compute all mirrors before returning anything. Explicit parents decide which descendants retire and which enclosing fields grow; a no-op keeps nested fields. Ordered coincident empty mirrors produce separate text and positions rather than collapsing to one insertion. Map source, fields and the originating caret together, and bound total mirror fanout before constructing output. A refused proposal leaves ordinary host input authoritative.
+Capture and numeric traversal above retain a source-bound intent, without editor or disk effects. For input, require the entire replacement to lie inside one current active occurrence, match the exact source and validate scalar boundaries. Compute all mirrors before returning anything. Explicit parents decide which descendants retire and which enclosing fields grow; a no-op keeps nested fields. Ordered coincident empty mirrors produce separate text and positions rather than collapsing to one insertion. Map source, fields and the originating caret together, and bound total UTF-8 mirror fanout before constructing output. A refused proposal leaves ordinary host input authoritative.
 
 <ui:copy id="snippet-session-browser-input">
 export function editSnippet(session:SnippetSession,source:string,from:number,to:number,text:string):SnippetInput|null {
@@ -39,7 +39,7 @@ export function editSnippet(session:SnippetSession,source:string,from:number,to:
  const fields=session.fields,ids=new Map(fields.map(field=>[field.id!,field]));
  const ancestors=(parent:number,child:number)=>{let current=ids.get(child);for(let steps=0;current&&steps<=fields.length;steps++){if(current.id===parent)return true;current=current.parent===null?undefined:ids.get(current.parent!);}return false;};
  const occurrences=fields.filter(field=>field.index===session.active),matches=occurrences.filter(field=>field.from<=from&&field.to>=to),origin=matches.find(field=>field.id===session.current)??matches[0];
- if(!origin||text.length>1048576/Math.max(occurrences.length,1))return null;
+ if(!origin||new TextEncoder().encode(text).length>1048576/Math.max(occurrences.length,1))return null;
  const before=source.slice(origin.from,origin.to),relativeFrom=from-origin.from,relativeTo=to-origin.from;
  if(occurrences.some(field=>source.slice(field.from,field.to)!==before))return null;
  const replacements:{from:number;to:number;text:string;owners:Set<number>}[]=[];
@@ -111,7 +111,7 @@ func advanceSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,direc
 
 ### Prepare one complete linked input proposal
 
-Capture and numeric traversal above retain a source-bound intent, without editor or disk effects. For input, require the entire replacement to lie inside one current active occurrence, match the exact source and validate scalar boundaries. Compute all mirrors before returning anything. Explicit parents decide which descendants retire and which enclosing fields grow; a no-op keeps nested fields. Ordered coincident empty mirrors produce separate text and positions rather than collapsing to one insertion. Map source, fields and the originating caret together, and bound total mirror fanout before constructing output. A refused proposal leaves ordinary host input authoritative.
+Capture and numeric traversal above retain a source-bound intent, without editor or disk effects. For input, require the entire replacement to lie inside one current active occurrence, match the exact source and validate scalar boundaries. Compute all mirrors before returning anything. Explicit parents decide which descendants retire and which enclosing fields grow; a no-op keeps nested fields. Ordered coincident empty mirrors produce separate text and positions rather than collapsing to one insertion. Map source, fields and the originating caret together, and bound total UTF-8 mirror fanout before constructing output. A refused proposal leaves ordinary host input authoritative.
 
 <ui:copy id="snippet-session-apple-input">
 private struct SnippetReplacement {var from:Int;var to:Int;var text:String;var owners:[Int]}
@@ -121,7 +121,7 @@ func editSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:Str
     let fields=session.fields,ids=Dictionary(uniqueKeysWithValues:fields.map{($0.id!,$0)})
     func ancestor(_ parent:Int,_ child:Int)->Bool{var current=ids[child];for _ in 0...fields.count{guard let value=current else{return false};if value.id==parent{return true};current=value.parent.flatMap{ids[$0]}};return false}
     let occurrences=fields.filter{$0.index==session.active},matches=occurrences.filter{$0.from<=from&&$0.to>=to}
-    guard let origin=matches.first(where:{$0.id==session.current}) ?? matches.first,text.utf16.count<=1048576/max(occurrences.count,1) else{return nil}
+    guard let origin=matches.first(where:{$0.id==session.current}) ?? matches.first,text.utf8.count<=1048576/max(occurrences.count,1) else{return nil}
     let before=original.substring(with:NSRange(location:origin.from,length:origin.to-origin.from)),relativeFrom=from-origin.from,relativeTo=to-origin.from
     guard occurrences.allSatisfy({exactUTF8(original.substring(with:NSRange(location:$0.from,length:$0.to-$0.from)),before)}) else{return nil}
     var edits:[SnippetReplacement]=[]
@@ -189,7 +189,7 @@ fun advanceSnippet(session:SnippetSession,source:String,from:Int,to:Int,directio
 
 ### Prepare one complete linked input proposal
 
-Capture and numeric traversal above retain a source-bound intent, without editor or disk effects. For input, require the entire replacement to lie inside one current active occurrence, match the exact source and validate scalar boundaries. Compute all mirrors before returning anything. Explicit parents decide which descendants retire and which enclosing fields grow; a no-op keeps nested fields. Ordered coincident empty mirrors produce separate text and positions rather than collapsing to one insertion. Map source, fields and the originating caret together, and bound total mirror fanout before constructing output. A refused proposal leaves ordinary host input authoritative.
+Capture and numeric traversal above retain a source-bound intent, without editor or disk effects. For input, require the entire replacement to lie inside one current active occurrence, match the exact source and validate scalar boundaries. Compute all mirrors before returning anything. Explicit parents decide which descendants retire and which enclosing fields grow; a no-op keeps nested fields. Ordered coincident empty mirrors produce separate text and positions rather than collapsing to one insertion. Map source, fields and the originating caret together, and bound total UTF-8 mirror fanout before constructing output. A refused proposal leaves ordinary host input authoritative.
 
 <ui:copy id="snippet-session-android-input">
 private data class SnippetReplacement(val from:Int,val to:Int,var text:String,val owners:MutableList<Int>)
@@ -198,7 +198,7 @@ fun editSnippet(session:SnippetSession,source:String,from:Int,to:Int,text:String
  val fields=session.fields;val ids=fields.associateBy{it.id!!}
  fun ancestor(parent:Int,child:Int):Boolean{var current=ids[child];repeat(fields.size+1){val value=current ?: return false;if(value.id==parent)return true;current=value.parent?.let{ids[it]}};return false}
  val occurrences=fields.filter{it.index==session.active};val matches=occurrences.filter{it.from<=from&&it.to>=to};val origin=matches.firstOrNull{it.id==session.current} ?: matches.firstOrNull() ?: return null
- if(text.length>1048576/maxOf(occurrences.size,1))return null
+ if(text.toByteArray(Charsets.UTF_8).size>1048576/maxOf(occurrences.size,1))return null
  val before=source.substring(origin.from,origin.to);val relativeFrom=from-origin.from;val relativeTo=to-origin.from
  if(occurrences.any{source.substring(it.from,it.to)!=before})return null
  val edits=mutableListOf<SnippetReplacement>()
@@ -1893,6 +1893,46 @@ These independently written cases state source text, every retained field occurr
         }
       ],
       "invalidBegin": true
+    },
+    {
+      "name": "UTF8 mirror budget is identical on every host",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 1,
+          "text": "😀",
+          "repeat": 150000,
+          "refuse": true
+        }
+      ]
     }
   ]
 }

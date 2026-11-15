@@ -31,6 +31,7 @@ export function completionActions(): Extension {
   return [
     keymap.of([{key:"Escape",run:cancelCompletionAcceptance}]),
     EditorView.updateListener.of(update => {
+      if((update.docChanged||update.selectionSet)&&readCompletionAcceptance(update.view)?.phase==='resolving')cancelCompletionAcceptance(update.view);
       const next = completionStatus(update.state);
       if (next !== null && previousStatus === null) job = crypto.randomUUID();
       previousStatus = next;

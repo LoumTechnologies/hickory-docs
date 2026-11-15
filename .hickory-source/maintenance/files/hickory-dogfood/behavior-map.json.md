@@ -70023,6 +70023,95 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "snippet-session-android-tests"
       ]
+    },
+    "apps/web/src/simple/SourceSnippets.ts": {
+      "source": ".hickory-source/mechanisms/source-snippet-interaction.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "bf303d80ceb477121432005bd015652915068a0ec1c0425e71acdf334d05be40",
+      "construction": "fragments",
+      "fragments": [
+        "source-snippets-browser"
+      ]
+    },
+    "apps/apple-simple/Sources/SourceSnippets.swift": {
+      "source": ".hickory-source/mechanisms/source-snippet-interaction.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "138a0be7e6999825b17363c372a7f77af7d5b0b4520a15b6d45093a9772978a5",
+      "construction": "fragments",
+      "fragments": [
+        "source-snippets-apple"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceSnippets.kt": {
+      "source": ".hickory-source/mechanisms/source-snippet-interaction.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "1796934352e8db1c0c94d40985f9a798ba204c0f06e4a3277c09f961e7896dfd",
+      "construction": "fragments",
+      "fragments": [
+        "source-snippets-android",
+        "source-snippets-android-input"
+      ]
+    },
+    "apps/web/src/simple/SourceSnippets.test.ts": {
+      "source": ".hickory-source/mechanisms/source-snippet-interaction.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "95e1a614bffe2b60226d0b8b151d2d7c71db2c273f6ef9930dd847bad663b2ec",
+      "construction": "fragments",
+      "fragments": [
+        "source-snippets-browser-tests"
+      ]
+    },
+    "apps/apple-simple/Tests/SourceSnippetInteractionTests.swift": {
+      "source": ".hickory-source/mechanisms/source-snippet-interaction.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "d94cec3a6b818b74c8d2aaac6ec482d11cc0ba1114a51c43291746b3846a24c3",
+      "construction": "fragments",
+      "fragments": [
+        "source-snippets-apple-tests"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SourceSnippetInteractionTest.kt": {
+      "source": ".hickory-source/mechanisms/source-snippet-interaction.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "f39615c32adc5cf5750286d582443d7c7a22590f4b47d9b5bf26c1ab0a1a6f69",
+      "construction": "fragments",
+      "fragments": [
+        "source-snippets-android-tests"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceUndoContexts.kt": {
+      "source": ".hickory-source/mechanisms/source-snippet-interaction.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "313b8df3dd1317d47443554f7b2623dffd1820fb4fa33453fcee76925ae44609",
+      "construction": "fragments",
+      "fragments": [
+        "source-undo-context-journal-android"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SourceUndoContextsTest.kt": {
+      "source": ".hickory-source/mechanisms/source-snippet-interaction.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "19221f0c962ffdcabb12ec74b3741b6ba3ae61bf5ed0e39808863397a881ee9c",
+      "construction": "fragments",
+      "fragments": [
+        "source-undo-context-journal-tests"
+      ]
     }
   },
   "evidence_records": [

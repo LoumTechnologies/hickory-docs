@@ -18,12 +18,14 @@ extension Workspace {
             "workspace.coverage":{self.showCoverage=true},"workspace.tests":{self.showTests=true},"workspace.problems":{self.showProblems=true},"workspace.analysis":{self.showAnalysis=true},"problem.next":{Task {await self.navigateProblem(1)}},"problem.previous":{Task {await self.navigateProblem(-1)}},
             "navigation.back":{Task {await self.navigateHistory(-1)}},"navigation.forward":{Task {await self.navigateHistory(1)}},
             "editor.tools":{Task {await self.currentBuffer?.language?.inspect()};Task {await self.currentBuffer?.language?.complete()}},
+            "editor.undo":{_ = self.currentBuffer?.undoSource?()},"editor.redo":{_ = self.currentBuffer?.redoSource?()},
+            "editor.snippetNext":{_ = self.currentBuffer?.snippets.move(1)},"editor.snippetPrevious":{_ = self.currentBuffer?.snippets.move(-1)},"editor.snippetFinish":{_ = self.currentBuffer?.snippets.finish()},"editor.snippetChoices":{self.currentBuffer?.showSnippetTools=true},
             "editor.rectangle":{self.currentBuffer?.selectRectangle()},"editor.cursorBelow":{self.currentBuffer?.addCursor(1)},"editor.cursorAbove":{self.currentBuffer?.addCursor(-1)},
             "view.files":{self.show("files")},"view.agent":{self.show("agent")},"view.terminal":{Task {await self.openTerminal()}},"view.splitRight":{self.split("horizontal")},"view.splitBelow":{self.split("vertical")},"view.move":{self.moveToNext()}
         ]
         for query in SemanticQuery.allCases {handlers["semantic."+query.rawValue]={Task {await self.currentBuffer?.language?.navigate(query)}}}
         handlers.merge(ui){_,new in new}
-        return workspaceCommands({CommandContext(editor:self.currentBuffer != nil,writable:self.currentBuffer?.readOnly==false,dirty:self.currentBuffer?.dirty ?? false,saving:self.currentBuffer?.saving ?? false,back:self.navigationTrail.canBack,forward:self.navigationTrail.canForward,tab:self.active != nil,groups:self.layout.groups().count)},handlers:handlers)
+        return workspaceCommands({CommandContext(editor:self.currentBuffer != nil,writable:self.currentBuffer?.readOnly==false,dirty:self.currentBuffer?.dirty ?? false,saving:self.currentBuffer?.saving ?? false,back:self.navigationTrail.canBack,forward:self.navigationTrail.canForward,tab:self.active != nil,groups:self.layout.groups().count,snippet:self.currentBuffer?.snippets.active != nil,snippetChoices:self.currentBuffer?.snippets.choices.isEmpty==false,sourceUndo:self.currentBuffer?.canUndoSource?()==true,sourceRedo:self.currentBuffer?.canRedoSource?()==true)},handlers:handlers)
     }
     func openEverywhere(_ target:SearchTarget,commands:[WorkspaceCommand]) async {
         if let id=target.commandID {

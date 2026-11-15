@@ -45,6 +45,7 @@ import {beginCompletionAcceptance} from '../lsp/completionAcceptance';
 import {prepareEditorChanges} from '../editor/textInput';
 import {planCompletion} from './CompletionPlan';
 import {completionExpansion} from './SnippetExpansion';
+import {sourceSnippetEffect,continueSourceSnippetCompletion,readSourceSnippet} from './SourceSnippets';
 export interface SourceCompletionAdapter {
  uri:string;resolve:(item:CompletionItem)=>Promise<CompletionItem>;current:()=>boolean;writable:()=>boolean;notice:(text:string)=>void;
 }
@@ -57,9 +58,9 @@ export function sourceCompletion(item:CompletionItem,context:CompletionContext,a
  return {...lspCompletion(item),label,...(label!==item.label?{displayLabel:item.label}:{}),apply:(view,completion,from,to)=>{closeCompletion(view);void acceptSourceCompletion(view,original,source,selection,from,to,adapter,completion);}};
 }
 export async function acceptSourceCompletion(view:EditorView,item:CompletionItem,source:string,selection:EditorState['selection'],from:number,to:number,adapter:SourceCompletionAdapter,completion?:Completion):Promise<void> {
- const request=beginCompletionAcceptance(view,adapter.notice);
+ const request=beginCompletionAcceptance(view,adapter.notice),snippetContext=readSourceSnippet(view);
  let expectedAfter:string|undefined;
- const valid=()=>!request.cancelled()&&request.current()&&adapter.current()&&view.dom.isConnected&&view.state.doc.toString()===source&&view.state.selection.eq(selection)&&adapter.writable()&&!view.composing&&!view.state.readOnly&&view.state.facet(EditorView.editable);
+ const valid=()=>!request.cancelled()&&request.current()&&readSourceSnippet(view)===snippetContext&&adapter.current()&&view.dom.isConnected&&view.state.doc.toString()===source&&view.state.selection.eq(selection)&&adapter.writable()&&!view.composing&&!view.state.readOnly&&view.state.facet(EditorView.editable);
  const report=(text:string)=>{if(request.current())adapter.notice(text);};
  try {
   if(request.cancelled())return;
@@ -70,11 +71,11 @@ export async function acceptSourceCompletion(view:EditorView,item:CompletionItem
   if(!request.current()||request.cancelled())return;
   if(view.composing)throw new Error('Finish composition, then request completions again.');
   if(!valid())throw new Error('Source, cursor or provider changed. Request completions again.');
-  const draft=planCompletion(adapter.uri,resolved,{text:source,writable:adapter.writable()},from,to,completionExpansion(resolved));
+  const draft=continueSourceSnippetCompletion(view,planCompletion(adapter.uri,resolved,{text:source,writable:adapter.writable()},from,to,completionExpansion(resolved)),resolved);
   const patch=draft.plan.patches[0],after=patch?.after??source,changes=(patch?.edits??[]).map(edit=>({from:edit.from,to:edit.to,insert:edit.text}));
   const input=prepareEditorChanges(source,changes);if('reason' in input)throw new Error(input.reason);
   if(!valid())throw new Error('Source, cursor or provider changed. Request completions again.');
-  const transaction=view.state.update({changes,selection:{anchor:draft.selection.from,head:draft.selection.to},annotations:[isolateHistory.of('full'),...(completion?[pickedCompletion.of(completion)]:[])],userEvent:'input.complete',filter:false});
+  const transaction=view.state.update({changes,selection:{anchor:draft.selection.from,head:draft.selection.to},effects:sourceSnippetEffect(draft,after),annotations:[isolateHistory.of('full'),...(completion?[pickedCompletion.of(completion)]:[])],userEvent:'input.complete',filter:false});
   if(transaction.newDoc.toString()!==after)throw new Error('Editor could not prepare the complete completion. Request again.');
   // CodeMirror records the redo selection from a following selection event;
   // otherwise it maps the old caret through the replacement and loses fields.
@@ -121,6 +122,9 @@ it('restores snippet field selection with complete imports on redo',async()=>{
   expect(undo(view)).toBe(true);expect(view.state.doc.toString()).toBe('va\n');expect(redo(view)).toBe(true);
   expect(view.state.doc.toString()).toBe('#\n😀 + 😀\n');expect(view.state.selection.main.anchor).toBe(2);expect(view.state.selection.main.head).toBe(4);
  }finally{close();}
+});
+it('accepts a source-equal completion without a fake source edit',async()=>{
+ const {view,close}=fixture();try{await acceptSourceCompletion(view,raw,'va\n',view.state.selection,0,2,{uri:'hick:///a.py',resolve:async()=>({...resolved('va'),additionalTextEdits:[]}),current:()=>true,writable:()=>true,notice:()=>{}});expect(view.state.doc.toString()).toBe('va\n');expect(readCompletionAcceptance(view)).toMatchObject({phase:'applied',applied:true,source_changed:false});}finally{close();}
 });
 it('a newer choice owns the result and late older replies cannot overwrite it',async()=>{
  const {view,close}=fixture(),first=held(),second=held(),notices:string[]=[];let calls=0;
@@ -345,7 +349,15 @@ def main():
             assert driver.act("editor-is-retained",path=path);assert driver.act("editor-size",path=path)==size;assert (root/path).read_text()==source
             driver.act("undo",path=path);assert driver.act("search-source",path=path)==source
             driver.act("redo",path=path);assert driver.act("search-source",path=path)==after,{"redo_source":driver.act("search-source",path=path)};assert driver.act("caret-offset",path=path)==caret,{"redo_caret":driver.act("caret-offset",path=path),"selected":driver.act("selected-source-text",path=path)};assert (root/path).read_text()==source
-            if snippet:assert driver.act("selected-source-text",path=path)=="😀 value"
+            if snippet:
+                assert driver.act("selected-source-text",path=path)=="😀 value"
+                driver.act("type-source-selection",path=path,text="renamed")
+                typed="renamed + renamed = 1\n# imported\n";assert driver.act("search-source",path=path)==typed;assert driver.act("caret-offset",path=path)==7
+                driver.act("undo",path=path);assert driver.act("search-source",path=path)==after
+                driver.act("redo",path=path);assert driver.act("search-source",path=path)==typed;assert driver.act("caret-offset",path=path)==7
+                driver.act("template-next",path=path);assert driver.act("caret-offset",path=path)==17
+                assert driver.act("editor-is-retained",path=path);assert driver.act("editor-size",path=path)==size;assert (root/path).read_text()==source
+                driver.act("undo",path=path);assert driver.act("search-source",path=path)==after
             driver.act("undo",path=path);assert driver.act("search-source",path=path)==source
             options=driver.act("completion-open",path=path,offset=2);assert any("python completion" in value for value in options),options
             driver.act("completion-pick",title="python completion");deadline=time.monotonic()+3
@@ -360,7 +372,7 @@ def main():
                 assert time.monotonic()<deadline,observed;time.sleep(.01)
             driver.act("completion-drain");assert driver.act("search-source",path=path)==source;assert driver.act("editor-is-retained",path=path);assert driver.act("editor-size",path=path)==size;assert (root/path).read_text()==source
             observed=[json.loads(line) for line in events.read_text().splitlines()];assert [item["completion_resolved"] for item in observed if "completion_resolved" in item]==["python","python"],observed
-            print("PASS: native completion popup, actual lazy resolution, primary and import edits, "+("expanded snippet and retained first-field selection, " if snippet else "precise caret, ")+"one undo/redo, Escape refusal of a held late reply, retained editor geometry and unchanged disk")
+            print("PASS: native completion popup, actual lazy resolution, primary and import edits, "+("expanded snippet, linked typing, menu traversal and retained field history, " if snippet else "precise caret, ")+"one undo/redo, Escape refusal of a held late reply, retained editor geometry and unchanged disk")
         finally:
             if driver:driver.close()
             for process in reversed(processes):fixture.stop(process)
@@ -371,16 +383,27 @@ if __name__=="__main__":main()
 
 ## Replay a native source draft and its selection as one operation
 
-Cocoa's default undo records each replacement's caret independently. An import applied after the primary completion therefore placed redo's caret at the import. This platform bridge derives forward/inverse edits from the shared change plan, suppresses nested native registrations and records one source-and-selection step. Replay checks exact source and current editor permissions before applying; a mismatch retires incompatible native history while retaining the current draft. Other editing paths keep their existing history behavior. Source snapshots are retained by native undo entries rather than discarded on parser or provider attachment.
+Cocoa's default undo records each replacement's caret independently. An import applied after the primary completion therefore placed redo's caret at the import. This platform bridge derives forward/inverse edits from the shared change plan, suppresses nested native registrations and records one source-and-selection step. A typed context hook retains optional feature state with each direction; the history mechanism has no dependency on template rendering or field types. Sparse edit records use exact UTF-8 SHA-256 revision identities rather than retaining a complete file per keystroke. Optional context is held under bounded tokens, so an evicted field context cannot prevent source undo. The native editor still checks source and write permissions before application. Replay checks exact source and current editor permissions before applying; a mismatch retires incompatible native history while retaining the current draft. Other editing paths keep their existing history behavior. Source snapshots are retained by native undo entries rather than discarded on parser or provider attachment.
 
 <ui:copy id="native-source-draft-history">
 import Foundation
+import CryptoKit
 @MainActor final class SourceDraftHistory {
+    private struct ContextEntry {var cost:Int;var restore:()->Void}
+    private static var contexts:[UUID:ContextEntry]=[:]
+    private static var contextOrder:[UUID]=[]
+    private static var contextBytes=0
+    private static func hold<Context>(_ value:Context,cost:Int,restore:@escaping (Context)->Void)->UUID {
+        let id=UUID(),weight=max(0,min(cost,32*1024*1024+1));contexts[id]=ContextEntry(cost:weight,restore:{restore(value)});contextOrder.append(id);contextBytes+=weight
+        while contextBytes>32*1024*1024 || contextOrder.count>4096 {
+            let old=contextOrder.removeFirst();if let value=contexts.removeValue(forKey:old){contextBytes-=value.cost}
+        }
+        return id
+    }
     private var retirementObservers:[ObjectIdentifier:NSObjectProtocol]=[:]
     private func retire(_ manager:UndoManager) {
         guard manager.isUndoing || manager.isRedoing else{manager.removeAllActions();return}
-        let key=ObjectIdentifier(manager)
-        guard retirementObservers[key]==nil else{return}
+        let key=ObjectIdentifier(manager);guard retirementObservers[key]==nil else{return}
         let event=manager.isUndoing ? NSNotification.Name.NSUndoManagerDidUndoChange : NSNotification.Name.NSUndoManagerDidRedoChange
         retirementObservers[key]=NotificationCenter.default.addObserver(forName:event,object:manager,queue:nil){[weak self,weak manager] _ in
             MainActor.assumeIsolated {
@@ -391,34 +414,38 @@ import Foundation
         }
     }
     private struct Step {
-        var before:String;var after:String;var edits:[NativeSourceEdit];var inverse:[NativeSourceEdit]
-        var selectionBefore:NSRange;var selectionAfter:NSRange;var title:String
-        var reversed:Step {Step(before:after,after:before,edits:inverse,inverse:edits,selectionBefore:selectionAfter,selectionAfter:selectionBefore,title:title)}
+        var before:SHA256.Digest;var after:SHA256.Digest;var edits:[NativeSourceEdit];var inverse:[NativeSourceEdit]
+        var selectionBefore:NSRange;var selectionAfter:NSRange;var title:String;var contextBefore:UUID;var contextAfter:UUID
+        var reversed:Step {Step(before:after,after:before,edits:inverse,inverse:edits,selectionBefore:selectionAfter,selectionAfter:selectionBefore,title:title,contextBefore:contextAfter,contextAfter:contextBefore)}
     }
     typealias Apply=([NativeSourceEdit],String,NSRange)->Bool
-    func commit(_ plan:ChangePlan,path:String,before:String,selectionBefore:NSRange,selectionAfter:NSRange,manager:UndoManager?,read:@escaping ()->String,apply:@escaping Apply,notice:@escaping (String)->Void)->Bool {
+    private func identity(_ source:String)->SHA256.Digest{SHA256.hash(data:Data(source.utf8))}
+    func commit<Context>(_ plan:ChangePlan,path:String,before:String,selectionBefore:NSRange,selectionAfter:NSRange,contextBefore:Context,contextAfter:Context,manager:UndoManager?,read:@escaping ()->String,apply:@escaping Apply,notice:@escaping (String)->Void,restoreContext:@escaping (Context)->Void,contextCost:(Context)->Int,discardContext:@escaping ()->Void)->Bool {
         guard plan.patches.count<=1,exactUTF8(read(),before) else{return false}
         let patch=plan.patches.first
         if let patch{guard exactUTF8(patch.path,path),exactUTF8(patch.before,before) else{return false}}
-        let step=Step(before:before,after:patch?.after ?? before,edits:(patch?.edits ?? []).map{NativeSourceEdit(range:NSRange(location:$0.from,length:$0.to-$0.from),text:$0.text)},inverse:(invertChangePlan(plan).patches.first?.edits ?? []).map{NativeSourceEdit(range:NSRange(location:$0.from,length:$0.to-$0.from),text:$0.text)},selectionBefore:selectionBefore,selectionAfter:selectionAfter,title:plan.title)
-        guard perform(step,manager:manager,read:read,apply:apply) else{return false}
-        if !exactUTF8(step.before,step.after),let manager{register(step.reversed,manager:manager,read:read,apply:apply,notice:notice)}
+        let first=Self.hold(contextBefore,cost:contextCost(contextBefore),restore:restoreContext),last=Self.hold(contextAfter,cost:contextCost(contextAfter),restore:restoreContext)
+        let step=Step(before:identity(before),after:identity(patch?.after ?? before),edits:(patch?.edits ?? []).map{NativeSourceEdit(range:NSRange(location:$0.from,length:$0.to-$0.from),text:$0.text)},inverse:(invertChangePlan(plan).patches.first?.edits ?? []).map{NativeSourceEdit(range:NSRange(location:$0.from,length:$0.to-$0.from),text:$0.text)},selectionBefore:selectionBefore,selectionAfter:selectionAfter,title:plan.title,contextBefore:first,contextAfter:last)
+        guard perform(step,manager:manager,read:read,apply:apply,discardContext:discardContext,forwardContext:{restoreContext(contextAfter)}) else{return false}
+        if step.before != step.after,let manager{register(step.reversed,manager:manager,read:read,apply:apply,notice:notice,discardContext:discardContext)}
         return true
     }
-    private func perform(_ step:Step,manager:UndoManager?,read:()->String,apply:Apply)->Bool {
-        guard exactUTF8(read(),step.before) else{return false}
+    private func perform(_ step:Step,manager:UndoManager?,read:()->String,apply:Apply,discardContext:()->Void,forwardContext:(()->Void)?=nil)->Bool {
+        let source=read();guard identity(source)==step.before else{return false}
         manager?.disableUndoRegistration();defer{manager?.enableUndoRegistration()}
-        return apply(step.edits,step.before,step.selectionAfter) && exactUTF8(read(),step.after)
+        guard apply(step.edits,source,step.selectionAfter),identity(read())==step.after else{return false}
+        if let forwardContext{forwardContext()}else if let context=Self.contexts[step.contextAfter]{context.restore()}else{discardContext()}
+        return true
     }
-    private func register(_ step:Step,manager:UndoManager,read:@escaping ()->String,apply:@escaping Apply,notice:@escaping (String)->Void) {
+    private func register(_ step:Step,manager:UndoManager,read:@escaping ()->String,apply:@escaping Apply,notice:@escaping (String)->Void,discardContext:@escaping ()->Void) {
         let group = !manager.isUndoing && !manager.isRedoing
         if group{manager.beginUndoGrouping()}
         manager.registerUndo(withTarget:self){[weak manager] history in
             guard let manager else{return}
-            guard history.perform(step,manager:manager,read:read,apply:apply) else{
+            guard history.perform(step,manager:manager,read:read,apply:apply,discardContext:discardContext) else{
                 history.retire(manager);notice("Undo history retired because source or permissions changed. Current draft is retained.");return
             }
-            history.register(step.reversed,manager:manager,read:read,apply:apply,notice:notice)
+            history.register(step.reversed,manager:manager,read:read,apply:apply,notice:notice,discardContext:discardContext)
         }
         manager.setActionName(step.title)
         if group{manager.endUndoGrouping()}

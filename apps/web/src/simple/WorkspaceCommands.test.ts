@@ -8,3 +8,8 @@ it("command results recheck the current context before invoking an adapter",()=>
   context.editor=true;save.run();expect(called).toBe(1);expect(commands.find(item=>item.id==="file.open")!.reason).toContain("Unavailable");
   expect(commandReason("unknown",context)).not.toBe(null);expect(commandReason("back",context)).not.toBe(null);expect(commandReason("multi",context)).not.toBe(null);
 });
+it("template menus recheck current fields, choices and write availability",()=>{
+ const context:CommandContext={editor:true,writable:true,dirty:true,saving:false,back:false,forward:false,tab:true,groups:1};let called=0;
+ expect(commandReason('template',context)).not.toBeNull();context.snippet=true;expect(commandReason('template',context)).toBeNull();expect(commandReason('templateChoice',context)).not.toBeNull();context.snippetChoices=true;expect(commandReason('templateChoice',context)).toBeNull();context.saving=true;expect(commandReason('templateChoice',context)).not.toBeNull();expect(commandReason('template',context)).toBeNull();context.saving=false;
+ const command=workspaceCommands(()=>context,{'editor.snippetNext':()=>called++}).find(item=>item.id==='editor.snippetNext')!;expect(command.reason).toBeNull();context.snippet=false;command.run();expect(called).toBe(0);
+});

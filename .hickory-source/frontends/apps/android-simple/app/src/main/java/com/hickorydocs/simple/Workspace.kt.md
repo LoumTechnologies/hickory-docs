@@ -80,6 +80,8 @@ class DocumentBuffer(val file: FileNode, loaded: FileText) {
     var inspectTests:((Int)->Unit)?=null
     var language: NativeLanguage? = null
     val state = TextFieldState(loaded.content)
+    val snippets=SourceSnippetController(this)
+    var showSnippetTools by mutableStateOf(false)
     var focusSource: (() -> Unit)? = null
     fun closeFind() { showFind = false; focusSource?.invoke() }
     var multiSource by mutableStateOf("")
@@ -137,12 +139,14 @@ class DocumentBuffer(val file: FileNode, loaded: FileText) {
         return true
     }
     fun applySourceEdits(edits: List<NativeSourceEdit>, source: String,resultSelection:TextRange?=null): Boolean {
-        if (readOnly || saving || text != source || state.composition != null || !validSourceEdits(edits, source.length)) return false
+        if (readOnly || saving || text != source || state.composition != null || !(edits.isEmpty()&&resultSelection!=null||validSourceEdits(edits, source.length))) return false
+        val snippetBefore=snippets.captureBefore(source,state.selection)
         val resultLength=source.length+edits.sumOf {it.text.length-(it.to-it.from)}
         if(resultSelection!=null&&(resultSelection.min<0||resultSelection.max>resultLength))return false
         if (!applyingMulti) clearMulti()
         clearFolds()
         state.edit { edits.sortedByDescending { it.from }.forEach { replace(it.from, it.to, it.text) };if(resultSelection!=null)selection=resultSelection }
+        snippets.finishTextChange(snippetBefore,text,state.selection);if(snippetBefore!=null)snippets.publish()
         return true
     }
     var foldSource by mutableStateOf<String?>(null)

@@ -1657,6 +1657,46 @@
         }
       ],
       "invalidBegin": true
+    },
+    {
+      "name": "UTF8 mirror budget is identical on every host",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 1,
+          "text": "😀",
+          "repeat": 150000,
+          "refuse": true
+        }
+      ]
     }
   ]
 }
