@@ -586,3 +586,25 @@ Git attribution now retains the full commit identity in the shared engine. A val
 A focused real-Git engine case checks full identity on a committed line and absence on a dirty line. Five focused browser cases and five cases on each native host pass across attribution and history for old/closed/foreign replies, byte-distinct paths, duplicate lines, full-identity admission and direct observed commit requests. The real-engine browser flow reports saved attribution while excluding the unsaved draft, opens the stable line’s exact commit, and retains source, caret, undo/redo, staged content, saved file bytes and code dimensions. The caret witness waits for rendered frames after editor reattachment rather than reading transient DOM selection. TypeScript checking and the iOS simulator build pass. Git path fixtures use host-legal literal names; the targeted fixture passes on this host, not a claim of Windows runtime acceptance. Conflict resolution, durable recovery and the other parity requirements remain outstanding; native physical input/accessibility acceptance remains unverified.
 
 </ui:doc>
+
+## Explicit cleanup through the existing change model
+
+The Edit menu offers Trim Trailing Whitespace on every simple UI platform. It
+prepares removal of trailing ASCII spaces and tabs through the shared engine,
+without requiring a language provider. Before/after source, guarded draft apply
+and coordinated workspace undo/redo use the existing change preview. Nothing runs
+automatically on save. Indentation, line endings, other Unicode whitespace and
+the presence or absence of a final newline remain intact. A no-op creates no
+change. Cleanup can alter significant whitespace, so its explicit preview remains
+the review boundary.
+
+Focused evidence (2026-11-15): two shared Rust cleanup cases pass for Unicode
+positions, CRLF, bounds, invalid scope and no-op. Two cleanup cases on each native
+host pass for provider-independent preview/apply/undo/redo, saved-base retention,
+held response ordering and close retirement. The browser real-engine witness
+passes the existing menu, Unicode draft preview/apply/workspace undo/redo, no-op,
+retained editor instance/dimensions and unchanged saved bytes. TypeScript checking
+and the iOS simulator build pass. This establishes this explicit cleanup profile;
+semantic cleanup profiles, the template/code-generation catalog and the rest of
+the parity requirements remain required. Physical native input/accessibility
+acceptance is not established by these model tests and build.

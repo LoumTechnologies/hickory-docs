@@ -23,6 +23,7 @@ pub(crate) fn observation(method: &axum::http::Method, path: &str) -> bool {
                     | "/api/changes/plan-resources"
                     | "/api/changes/resource-targets"
                     | "/api/changes/resource-inputs"
+                    | "/api/changes/cleanup"
             ))
 }
 /// Observation uses its own capability locks; it must not hold up unrelated saves.
@@ -52,6 +53,7 @@ mod observation_tests {
             "/api/changes/plan-resources",
             "/api/changes/resource-targets",
             "/api/changes/resource-inputs",
+            "/api/changes/cleanup",
         ] {
             assert!(observation(&Method::POST, path));
             assert_eq!(

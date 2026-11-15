@@ -193,7 +193,7 @@ try {
           const panel=page.getByRole("dialog",{name:"Workspace change preview",exact:true});
           if (request.name) await panel.getByRole("textbox",{name:"New symbol name",exact:true}).fill(request.name);
           await panel.getByRole("button",{name:request.command || "Prepare rename",exact:true}).click();
-          await page.waitForFunction(() => { const panel=[...document.querySelectorAll('[role="dialog"]')].find(node=>node.getAttribute("aria-label")==="Workspace change preview"); return !!panel && !panel.textContent.includes("Preparing complete source changes…"); });
+          await page.waitForFunction(() => { const panel=[...document.querySelectorAll('[role="dialog"]')].find(node=>node.getAttribute("aria-label")==="Workspace change preview"); return !!panel && !panel.textContent.includes("Preparing complete source changes…") && !panel.textContent.includes("Preparing trailing-whitespace cleanup…"); });
           value=await panel.innerText(); break;
         }
         case "change-state": {

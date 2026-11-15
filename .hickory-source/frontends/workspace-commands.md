@@ -104,6 +104,12 @@ Menus and action search need one vocabulary and one availability decision. The s
     "requires": "writable"
   },
   {
+    "id": "document.cleanup",
+    "label": "Trim Trailing Whitespace…",
+    "group": "Edit",
+    "requires": "writable"
+  },
+  {
     "id": "workspace.undo",
     "label": "Undo workspace change",
     "group": "Edit",

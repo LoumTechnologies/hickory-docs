@@ -153657,6 +153657,41 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/guarantees/authoring/the-editor-does-not-wait-for-workspace-preparation/contract.md",
       "symbol": "Read source without granting capability authority",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "source-cleanup-proposal",
+      "output": "crates/hickory-cli/src/serve/source_cleanup.rs",
+      "page": ".hickory-source/mechanisms/source-cleanup.md",
+      "symbol": "Explicit cleanup proposal",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "cleanup-apple-witness",
+      "output": "apps/apple-simple/Tests/ChangeRequestTests.swift",
+      "page": ".hickory-source/frontends/workspace-changes-apple.md",
+      "symbol": "Exercise provider-independent cleanup and its authority",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "cleanup-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/ChangeRequestTest.kt",
+      "page": ".hickory-source/frontends/workspace-changes-android.md",
+      "symbol": "Exercise provider-independent cleanup and its authority",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-cleanup-browser-witness",
+      "output": "scripts/test-simple-cleanup-browser.py",
+      "page": ".hickory-source/frontends/source-cleanup-acceptance.md",
+      "symbol": "source-cleanup-browser-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "cleanup-apple-wire",
+      "output": "apps/apple-simple/Sources/WorkspaceChanges.swift",
+      "page": ".hickory-source/frontends/workspace-changes-apple.md",
+      "symbol": "Decode cleanup into the existing workspace edit model",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

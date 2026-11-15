@@ -31,6 +31,7 @@ import Observation
         } catch { notice = error.localizedDescription }
     }
     func prepare(_ workspace: Workspace,proposal:((String,String) async throws->Any)?=nil,resolution:(([String:Any]) async throws->[String:Any])?=nil,acquisition:((String) async throws->SourceSnapshot)?=nil) async {
+        if mode == "cleanup" { await prepareCleanup(workspace,proposal:proposal); return }
         guard let origin = workspace.currentBuffer, let language = origin.language, !origin.readOnly else { notice = "Choose writable source with a connected language provider."; return }
         revision = UUID(); let request = revision, source = origin.text, selection = origin.selection, identity = language.proposalIdentity
         let sources = workspace.sourceSnapshots()
@@ -70,11 +71,34 @@ import Observation
             else { try install(kind == "rename" ? "Rename to \(nextName)" : "Format source", edit:result, workspace:workspace) }
         } catch { if revision == request { notice = error.localizedDescription } }
     }
+    private func prepareCleanup(_ workspace:Workspace,proposal:((String,String) async throws->Any)?) async {
+        guard let origin=workspace.currentBuffer,!origin.readOnly,!origin.saving else {notice="Choose writable source before preparing cleanup.";return}
+        revision=UUID();let request=revision,source=origin.text,selection=origin.selection,path=origin.file.path
+        captured=(workspace.sourceSnapshots(),{[weak self,weak workspace,weak origin] in
+            guard let self,let workspace,let origin else{return false}
+            return self.revision==request && workspace.buffers[path] === origin && exactUTF8(origin.text,source) && origin.selection==selection
+        })
+        let valid=captured!.current
+        plan=nil;choices=[];referencePaths=[];notice="Preparing trailing-whitespace cleanup…"
+        do {
+            let edit:Any
+            if let proposal {edit=try await proposal("cleanup","")}
+            else {
+                guard let engine=workspace.engine else{throw EngineError(message:"Connect to a workspace server first.")}
+                let address=languageURI(path)
+                let response:CleanupResponse=try await engine.request("POST","/api/changes/cleanup",body:["uri":address,"source":source,"profile":"trim_trailing_horizontal"])
+                edit=response.workspaceEdit
+            }
+            guard valid() else{if revision==request{notice="Source or selection changed. Prepare cleanup again."};return}
+            try install("Trim trailing whitespace",edit:edit,workspace:workspace)
+        }catch{if revision==request{notice=error.localizedDescription}}
+    }
     private func install(_ title: String, edit: Any, workspace: Workspace) throws {
         guard let captured, captured.current() else { throw EngineError(message:"Source, selection or provider changed. Prepare again.") }
-        let next = try planWorkspaceEdit(title,raw:edit,sources:captured.sources)
+        let next = try planWorkspaceEdit(title,raw:edit,sources:captured.sources,allowNoop:mode == "cleanup")
         if let refusal = validateChangePlan(next,sources:workspace.sourceSnapshots()) { throw EngineError(message:refusal) }
         try validateReferencedTargets(next,referencePaths:referencePaths)
+        if next.patches.isEmpty {plan=nil;notice="No trailing ASCII spaces or tabs to remove.";return}
         plan = next; choices = []; file = 0; page = 0; notice = ""
     }
     func choose(_ index:Int,workspace:Workspace,expectedSnapshot:UUID?=nil) async {
@@ -141,7 +165,7 @@ struct WorkspaceChangesView: View {
             HStack { Text("Workspace change preview").font(.headline); Spacer(); Button("Close") { changes.close(workspace) } }
             Text("Source drafts · not saved or verified").font(.caption)
             if changes.mode == "rename" { TextField("New symbol name",text:$changes.name).textFieldStyle(.roundedBorder) }
-            if changes.mode != "undo", changes.mode != "redo" { Button(changes.mode == "actions" ? "Prepare provider actions" : changes.mode == "format" ? "Prepare formatting" : "Prepare rename") { Task { await changes.prepare(workspace) } }.disabled(changes.mode == "rename" && changes.name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty) }
+            if changes.mode != "undo", changes.mode != "redo" { Button(changes.mode == "actions" ? "Prepare provider actions" : changes.mode == "format" ? "Prepare formatting" : changes.mode == "cleanup" ? "Prepare cleanup" : "Prepare rename") { Task { await changes.prepare(workspace) } }.disabled(changes.mode == "rename" && changes.name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty) }
             if !changes.notice.isEmpty { Text(changes.notice).font(.caption) }
             ScrollView { VStack(alignment:.leading,spacing:6) {
                 ForEach(Array(changes.choices.indices.dropFirst(changes.actionPage*100).prefix(100)),id:\.self) { index in
@@ -164,4 +188,11 @@ struct WorkspaceChangesView: View {
             if changes.choices.count > 100 { HStack { Button("Previous actions") { changes.actionPage -= 1 }.disabled(changes.actionPage == 0); Button("Next actions") { changes.actionPage += 1 }.disabled((changes.actionPage+1)*100 >= changes.choices.count) } }
         }.padding(8).frame(minWidth:260,idealWidth:380,maxWidth:480,minHeight:320,idealHeight:480,maxHeight:600)
     }
+}
+private struct CleanupResponse:Decodable {
+    struct Point:Decodable {let line:Int;let character:Int;var wire:[String:Int]{["line":line,"character":character]}}
+    struct Span:Decodable {let start:Point;let end:Point}
+    struct Replacement:Decodable {let range:Span;let newText:String}
+    let changes:[String:[Replacement]]
+    var workspaceEdit:[String:Any]{["changes":changes.mapValues{edits in edits.map{["range":["start":$0.range.start.wire,"end":$0.range.end.wire],"newText":$0.newText] as [String:Any]}}]}
 }

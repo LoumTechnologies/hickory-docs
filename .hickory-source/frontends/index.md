@@ -214,4 +214,6 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="construction-reading-android.md" />
 
+<ui:include file="source-cleanup-acceptance.md" />
+
 </ui:doc>

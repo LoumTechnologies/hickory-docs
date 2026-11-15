@@ -43,6 +43,7 @@ class WorkspaceChanges {
         }.onFailure { notice=it.message.orEmpty() }
     }
     suspend fun prepare(workspace: Workspace,proposal:(suspend (String,String)->Any)?=null,resolution:(suspend (JSONObject)->JSONObject)?=null,acquisition:(suspend (String)->SourceSnapshot)?=null) {
+        if(mode=="cleanup"){prepareCleanup(workspace,proposal);return}
         val origin = workspace.currentBuffer; val language = origin?.language
         if (origin == null || language == null || origin.readOnly) { notice="Choose writable source with a connected language provider."; return }
         val request=++revision; val source=origin.text; val selection=origin.state.selection; val identity=language.proposalIdentity
@@ -79,11 +80,29 @@ class WorkspaceChanges {
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { if (revision==request) notice=failure.message.orEmpty() }
     }
+    private suspend fun prepareCleanup(workspace:Workspace,proposal:(suspend (String,String)->Any)?) {
+        val origin=workspace.currentBuffer
+        if(origin==null||origin.readOnly||origin.saving){notice="Choose writable source before preparing cleanup.";return}
+        val request=++revision;val source=origin.text;val selection=origin.state.selection;val path=origin.file.path
+        sources=workspace.sourceSnapshots();current={revision==request&&workspace.buffers[path]===origin&&origin.text==source&&origin.state.selection==selection}
+        val valid=current
+        plan=null;choices=emptyList();referencePaths=emptyList();notice="Preparing trailing-whitespace cleanup…"
+        try{
+            val edit=if(proposal!=null)proposal("cleanup","") else {
+                val engine=workspace.engine ?: error("Connect to a workspace server first.")
+                val uri=languageURI(path)
+                engine.request("POST","/api/changes/cleanup",JSONObject().put("uri",uri).put("source",source).put("profile","trim_trailing_horizontal"))
+            }
+            if(!valid()){if(revision==request)notice="Source or selection changed. Prepare cleanup again.";return}
+            install("Trim trailing whitespace",edit,workspace)
+        }catch(cancelled:CancellationException){throw cancelled}catch(error:Exception){if(revision==request)notice=error.message.orEmpty()}
+    }
     private fun install(title: String, edit: Any?, workspace: Workspace) {
         check(current()) { "Source, selection or provider changed. Prepare again." }
-        val next=planWorkspaceEdit(title,edit,sources)
+        val next=planWorkspaceEdit(title,edit,sources,allowNoop=mode=="cleanup")
         validateChangePlan(next,workspace.sourceSnapshots())?.let { error(it) }
         validateReferencedTargets(next,referencePaths)
+        if(next.patches.isEmpty()){plan=null;notice="No trailing ASCII spaces or tabs to remove.";return}
         plan=next; choices=emptyList(); file=0; page=0; notice=""
     }
     suspend fun choose(index:Int,workspace:Workspace,expectedSnapshot:Int?=null) {
@@ -137,7 +156,7 @@ fun Workspace.applyWorkspacePlan(plan: ChangePlan) {
         Text("Workspace change preview",fontSize=16.sp); Text("Source drafts · not saved or verified",fontSize=11.sp)
         TextButton(onClick={changes.close(workspace)}) { Text("Close") }
         if (changes.mode=="rename") OutlinedTextField(changes.name,{changes.updateName(it)},label={Text("New symbol name")},singleLine=true)
-        if (changes.mode!="undo" && changes.mode!="redo") TextButton(enabled=changes.mode!="rename" || changes.name.isNotBlank(),onClick={scope.launch {changes.prepare(workspace)}}) { Text(if(changes.mode=="actions") "Prepare provider actions" else if(changes.mode=="format") "Prepare formatting" else "Prepare rename") }
+        if (changes.mode!="undo" && changes.mode!="redo") TextButton(enabled=changes.mode!="rename" || changes.name.isNotBlank(),onClick={scope.launch {changes.prepare(workspace)}}) { Text(if(changes.mode=="actions") "Prepare provider actions" else if(changes.mode=="format") "Prepare formatting" else if(changes.mode=="cleanup") "Prepare cleanup" else "Prepare rename") }
         if (changes.notice.isNotEmpty()) Text(changes.notice,fontSize=12.sp)
         for(index in changes.choices.indices.drop(changes.actionPage*100).take(100)) {
             val action=changes.choices[index]

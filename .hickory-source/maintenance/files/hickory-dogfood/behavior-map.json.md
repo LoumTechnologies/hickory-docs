@@ -68303,7 +68303,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "simple-apple-workspace-changes",
         "simple-apple-workspace-changes-application",
-        "simple-apple-workspace-changes-presentation"
+        "simple-apple-workspace-changes-presentation",
+        "cleanup-apple-wire"
       ]
     },
     "apps/android-simple/app/src/main/java/com/hickorydocs/simple/WorkspaceChanges.kt": {
@@ -69441,7 +69442,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "9b1c4c9198885b82a6308d234f3f954c11cb326623fadae48e9a254cb25e184d",
       "construction": "fragments",
       "fragments": [
-        "native-change-request-apple-witness"
+        "native-change-request-apple-witness",
+        "cleanup-apple-witness"
       ]
     },
     "apps/android-simple/app/src/test/java/com/hickorydocs/simple/ChangeRequestTest.kt": {
@@ -69452,7 +69454,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "922f9f581538f1d14e9294dafa3772d6ef53b791a6503495908b100174b18412",
       "construction": "fragments",
       "fragments": [
-        "native-change-request-android-witness"
+        "native-change-request-android-witness",
+        "cleanup-android-witness"
       ]
     },
     "crates/hick-lsp/src/source_identity.rs": {
@@ -70474,6 +70477,28 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "resource-input-actual-service-witness"
+      ]
+    },
+    "crates/hickory-cli/src/serve/source_cleanup.rs": {
+      "source": ".hickory-source/mechanisms/source-cleanup.md",
+      "owner": "source-model",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "source-cleanup-proposal"
+      ]
+    },
+    "scripts/test-simple-cleanup-browser.py": {
+      "source": ".hickory-source/frontends/source-cleanup-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "8633d843da62076207c161264acfb14d8ae7aa4b436b898f62e88ab18dc7d7a6",
+      "construction": "fragments",
+      "fragments": [
+        "source-cleanup-browser-witness"
       ]
     }
   },

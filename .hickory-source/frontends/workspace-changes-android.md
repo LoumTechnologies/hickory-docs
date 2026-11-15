@@ -11,6 +11,8 @@ Provider choices resolve through their captured provider before entering the sam
 
 Provider edit discovery uses the same bounded acquisition boundary. Newly loaded targets synchronize before the host re-queries actions at the captured selection and resolves a uniquely matching title and kind. Changed or ambiguous choices refuse instead of selecting an arbitrary replacement. Tokens from the discovering response never authorize the final plan. Original draft snapshots remain fixed; only missing sources are added, and acquisition does not activate tabs.
 
+Explicit cleanup enters before language-provider acquisition. Its fixed source, selection, buffer identity and request ticket authorize only that preparation. Returning ordinary source replacements lets the existing preview, writability checks, coordinated apply and inverse history handle it; no second editor or save path is introduced. A no-op reports the observation without creating an undo entry. The cleanup profile is literal and explicit: significant trailing spaces can change, so review the before/after text.
+
 <ui:copy id="simple-android-workspace-changes">
 package com.hickorydocs.simple
 import androidx.compose.runtime.*
@@ -57,6 +59,7 @@ class WorkspaceChanges {
         }.onFailure { notice=it.message.orEmpty() }
     }
     suspend fun prepare(workspace: Workspace,proposal:(suspend (String,String)->Any)?=null,resolution:(suspend (JSONObject)->JSONObject)?=null,acquisition:(suspend (String)->SourceSnapshot)?=null) {
+        if(mode=="cleanup"){prepareCleanup(workspace,proposal);return}
         val origin = workspace.currentBuffer; val language = origin?.language
         if (origin == null || language == null || origin.readOnly) { notice="Choose writable source with a connected language provider."; return }
         val request=++revision; val source=origin.text; val selection=origin.state.selection; val identity=language.proposalIdentity
@@ -93,11 +96,29 @@ class WorkspaceChanges {
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { if (revision==request) notice=failure.message.orEmpty() }
     }
+    private suspend fun prepareCleanup(workspace:Workspace,proposal:(suspend (String,String)->Any)?) {
+        val origin=workspace.currentBuffer
+        if(origin==null||origin.readOnly||origin.saving){notice="Choose writable source before preparing cleanup.";return}
+        val request=++revision;val source=origin.text;val selection=origin.state.selection;val path=origin.file.path
+        sources=workspace.sourceSnapshots();current={revision==request&&workspace.buffers[path]===origin&&origin.text==source&&origin.state.selection==selection}
+        val valid=current
+        plan=null;choices=emptyList();referencePaths=emptyList();notice="Preparing trailing-whitespace cleanup…"
+        try{
+            val edit=if(proposal!=null)proposal("cleanup","") else {
+                val engine=workspace.engine ?: error("Connect to a workspace server first.")
+                val uri=languageURI(path)
+                engine.request("POST","/api/changes/cleanup",JSONObject().put("uri",uri).put("source",source).put("profile","trim_trailing_horizontal"))
+            }
+            if(!valid()){if(revision==request)notice="Source or selection changed. Prepare cleanup again.";return}
+            install("Trim trailing whitespace",edit,workspace)
+        }catch(cancelled:CancellationException){throw cancelled}catch(error:Exception){if(revision==request)notice=error.message.orEmpty()}
+    }
     private fun install(title: String, edit: Any?, workspace: Workspace) {
         check(current()) { "Source, selection or provider changed. Prepare again." }
-        val next=planWorkspaceEdit(title,edit,sources)
+        val next=planWorkspaceEdit(title,edit,sources,allowNoop=mode=="cleanup")
         validateChangePlan(next,workspace.sourceSnapshots())?.let { error(it) }
         validateReferencedTargets(next,referencePaths)
+        if(next.patches.isEmpty()){plan=null;notice="No trailing ASCII spaces or tabs to remove.";return}
         plan=next; choices=emptyList(); file=0; page=0; notice=""
     }
     suspend fun choose(index:Int,workspace:Workspace,expectedSnapshot:Int?=null) {
@@ -165,7 +186,7 @@ The existing Edit menu presents this bounded floating dialog. Every affected sou
         Text("Workspace change preview",fontSize=16.sp); Text("Source drafts · not saved or verified",fontSize=11.sp)
         TextButton(onClick={changes.close(workspace)}) { Text("Close") }
         if (changes.mode=="rename") OutlinedTextField(changes.name,{changes.updateName(it)},label={Text("New symbol name")},singleLine=true)
-        if (changes.mode!="undo" && changes.mode!="redo") TextButton(enabled=changes.mode!="rename" || changes.name.isNotBlank(),onClick={scope.launch {changes.prepare(workspace)}}) { Text(if(changes.mode=="actions") "Prepare provider actions" else if(changes.mode=="format") "Prepare formatting" else "Prepare rename") }
+        if (changes.mode!="undo" && changes.mode!="redo") TextButton(enabled=changes.mode!="rename" || changes.name.isNotBlank(),onClick={scope.launch {changes.prepare(workspace)}}) { Text(if(changes.mode=="actions") "Prepare provider actions" else if(changes.mode=="format") "Prepare formatting" else if(changes.mode=="cleanup") "Prepare cleanup" else "Prepare rename") }
         if (changes.notice.isNotEmpty()) Text(changes.notice,fontSize=12.sp)
         for(index in changes.choices.indices.drop(changes.actionPage*100).take(100)) {
             val action=changes.choices[index]
@@ -218,7 +239,41 @@ class ChangeRequestTest {
 }
 </ui:copy>
 
-<ui:file path="apps/android-simple/app/src/test/java/com/hickorydocs/simple/ChangeRequestTest.kt"><ui:paste select="#native-change-request-android-witness"/></ui:file>
+## Exercise provider-independent cleanup and its authority
+
+Use the real workspace change model without a language service. Preview, apply, workspace undo/redo and a no-op observation share the existing change machinery. Reorder held replies and close during preparation to check that an older response cannot borrow a newer request’s authority. Physical device input is not established by these tests.
+
+<ui:copy id="cleanup-android-witness">
+class CleanupRequestTest {
+ @Test fun cleanupUsesCapturedSourceWithoutAProviderAndRetainsWorkspaceUndo()=runBlocking {
+  val workspace=Workspace(this);val file=FileNode("a.py","a.py",false,emptyList(),null,null)
+  val before="😀 value \t\r\n";val after="😀 value\r\n";val buffer=DocumentBuffer(file,FileText(before,"base"))
+  workspace.buffers[file.path]=buffer;workspace.show(file.path);val changes=workspace.changes
+  fun edit()=JSONObject("""{"changes":{"hick:///a.py":[{"range":{"start":{"line":0,"character":8},"end":{"line":0,"character":10}},"newText":""}]}}""")
+  changes.open("cleanup",workspace);changes.prepare(workspace,{kind,_->assertEquals("cleanup",kind);edit()})
+  assertEquals(before,buffer.text);assertEquals(after,changes.plan?.patches?.first()?.after)
+  changes.apply(workspace);assertEquals(after,buffer.text);changes.open("undo",workspace);assertEquals(before,buffer.text)
+  changes.open("redo",workspace);assertEquals(after,buffer.text);assertEquals(before,buffer.base)
+  changes.open("cleanup",workspace);changes.prepare(workspace,{_,_->JSONObject("""{"changes":{"hick:///a.py":[]}}""")})
+  assertNull(changes.plan);assertTrue(changes.notice.contains("No trailing"))
+ }
+ @Test fun cleanupCannotBorrowNewerAuthorityOrApplyAfterClose()=runBlocking {
+  val workspace=Workspace(this);val file=FileNode("a.py","a.py",false,emptyList(),null,null);val buffer=DocumentBuffer(file,FileText("x ","base"))
+  workspace.buffers[file.path]=buffer;workspace.show(file.path);val changes=workspace.changes;changes.open("cleanup",workspace)
+  val held=mutableListOf<CompletableDeferred<Any>>()
+  val proposal:suspend (String,String)->Any={_,_->CompletableDeferred<Any>().also{held.add(it)}.await()}
+  suspend fun settle(count:Int){withTimeout(2000){while(held.size<count)yield()}}
+  fun edit(text:String)=JSONObject().put("changes",JSONObject().put("hick:///a.py",JSONArray().put(JSONObject().put("range",JSONObject().put("start",JSONObject().put("line",0).put("character",1)).put("end",JSONObject().put("line",0).put("character",2))).put("newText",text))))
+  val first=async{changes.prepare(workspace,proposal)};settle(1);val second=async{changes.prepare(workspace,proposal)};settle(2)
+  held[1].complete(edit(""));second.await();assertEquals("x",changes.plan?.patches?.first()?.after)
+  held[0].complete(edit("old"));first.await();assertEquals("x",changes.plan?.patches?.first()?.after)
+  val closed=async{changes.prepare(workspace,proposal)};settle(3);changes.close(workspace);held[2].complete(edit(""));closed.await()
+  assertNull(changes.plan);assertEquals("x ",buffer.text)
+ }
+}
+</ui:copy>
+
+<ui:file path="apps/android-simple/app/src/test/java/com/hickorydocs/simple/ChangeRequestTest.kt"><ui:paste select="#native-change-request-android-witness"/><ui:paste select="#cleanup-android-witness"/></ui:file>
 ## Keep resolved choices with their preparation
 
 Complete a newer choice before an older resolver reply, then reject a row from a replaced preparation and a reply after closing. These controlled callbacks exercise the actual native change model; source stays unchanged until explicit application. They do not claim native pointer or provider-language acceptance.

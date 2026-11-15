@@ -11,6 +11,8 @@ Provider choices resolve through their captured provider before entering the sam
 
 Provider edit discovery uses the same bounded acquisition boundary. Newly loaded targets synchronize before the host re-queries actions at the captured selection and resolves a uniquely matching title and kind. Changed or ambiguous choices refuse instead of selecting an arbitrary replacement. Tokens from the discovering response never authorize the final plan. Original draft snapshots remain fixed; only missing sources are added, and acquisition does not activate tabs.
 
+Explicit cleanup enters before language-provider acquisition. Its fixed source, selection, buffer identity and request ticket authorize only that preparation. Returning ordinary source replacements lets the existing preview, writability checks, coordinated apply and inverse history handle it; no second editor or save path is introduced. A no-op reports the observation without creating an undo entry. The cleanup profile is literal and explicit: significant trailing spaces can change, so review the before/after text.
+
 <ui:copy id="simple-apple-workspace-changes">
 import SwiftUI
 import Observation
@@ -45,6 +47,7 @@ import Observation
         } catch { notice = error.localizedDescription }
     }
     func prepare(_ workspace: Workspace,proposal:((String,String) async throws->Any)?=nil,resolution:(([String:Any]) async throws->[String:Any])?=nil,acquisition:((String) async throws->SourceSnapshot)?=nil) async {
+        if mode == "cleanup" { await prepareCleanup(workspace,proposal:proposal); return }
         guard let origin = workspace.currentBuffer, let language = origin.language, !origin.readOnly else { notice = "Choose writable source with a connected language provider."; return }
         revision = UUID(); let request = revision, source = origin.text, selection = origin.selection, identity = language.proposalIdentity
         let sources = workspace.sourceSnapshots()
@@ -84,11 +87,34 @@ import Observation
             else { try install(kind == "rename" ? "Rename to \(nextName)" : "Format source", edit:result, workspace:workspace) }
         } catch { if revision == request { notice = error.localizedDescription } }
     }
+    private func prepareCleanup(_ workspace:Workspace,proposal:((String,String) async throws->Any)?) async {
+        guard let origin=workspace.currentBuffer,!origin.readOnly,!origin.saving else {notice="Choose writable source before preparing cleanup.";return}
+        revision=UUID();let request=revision,source=origin.text,selection=origin.selection,path=origin.file.path
+        captured=(workspace.sourceSnapshots(),{[weak self,weak workspace,weak origin] in
+            guard let self,let workspace,let origin else{return false}
+            return self.revision==request && workspace.buffers[path] === origin && exactUTF8(origin.text,source) && origin.selection==selection
+        })
+        let valid=captured!.current
+        plan=nil;choices=[];referencePaths=[];notice="Preparing trailing-whitespace cleanup…"
+        do {
+            let edit:Any
+            if let proposal {edit=try await proposal("cleanup","")}
+            else {
+                guard let engine=workspace.engine else{throw EngineError(message:"Connect to a workspace server first.")}
+                let address=languageURI(path)
+                let response:CleanupResponse=try await engine.request("POST","/api/changes/cleanup",body:["uri":address,"source":source,"profile":"trim_trailing_horizontal"])
+                edit=response.workspaceEdit
+            }
+            guard valid() else{if revision==request{notice="Source or selection changed. Prepare cleanup again."};return}
+            try install("Trim trailing whitespace",edit:edit,workspace:workspace)
+        }catch{if revision==request{notice=error.localizedDescription}}
+    }
     private func install(_ title: String, edit: Any, workspace: Workspace) throws {
         guard let captured, captured.current() else { throw EngineError(message:"Source, selection or provider changed. Prepare again.") }
-        let next = try planWorkspaceEdit(title,raw:edit,sources:captured.sources)
+        let next = try planWorkspaceEdit(title,raw:edit,sources:captured.sources,allowNoop:mode == "cleanup")
         if let refusal = validateChangePlan(next,sources:workspace.sourceSnapshots()) { throw EngineError(message:refusal) }
         try validateReferencedTargets(next,referencePaths:referencePaths)
+        if next.patches.isEmpty {plan=nil;notice="No trailing ASCII spaces or tabs to remove.";return}
         plan = next; choices = []; file = 0; page = 0; notice = ""
     }
     func choose(_ index:Int,workspace:Workspace,expectedSnapshot:UUID?=nil) async {
@@ -169,7 +195,7 @@ struct WorkspaceChangesView: View {
             HStack { Text("Workspace change preview").font(.headline); Spacer(); Button("Close") { changes.close(workspace) } }
             Text("Source drafts · not saved or verified").font(.caption)
             if changes.mode == "rename" { TextField("New symbol name",text:$changes.name).textFieldStyle(.roundedBorder) }
-            if changes.mode != "undo", changes.mode != "redo" { Button(changes.mode == "actions" ? "Prepare provider actions" : changes.mode == "format" ? "Prepare formatting" : "Prepare rename") { Task { await changes.prepare(workspace) } }.disabled(changes.mode == "rename" && changes.name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty) }
+            if changes.mode != "undo", changes.mode != "redo" { Button(changes.mode == "actions" ? "Prepare provider actions" : changes.mode == "format" ? "Prepare formatting" : changes.mode == "cleanup" ? "Prepare cleanup" : "Prepare rename") { Task { await changes.prepare(workspace) } }.disabled(changes.mode == "rename" && changes.name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty) }
             if !changes.notice.isEmpty { Text(changes.notice).font(.caption) }
             ScrollView { VStack(alignment:.leading,spacing:6) {
                 ForEach(Array(changes.choices.indices.dropFirst(changes.actionPage*100).prefix(100)),id:\.self) { index in
@@ -197,7 +223,21 @@ struct WorkspaceChangesView: View {
 
 
 
-<ui:file path="apps/apple-simple/Sources/WorkspaceChanges.swift"><ui:paste select="#simple-apple-workspace-changes"/><ui:paste select="#simple-apple-workspace-changes-application"/><ui:paste select="#simple-apple-workspace-changes-presentation"/></ui:file>
+## Decode cleanup into the existing workspace edit model
+
+Keep the network response typed, then pass its ordinary replacements through the same source-range validation and preview planner as provider actions. Decoding does not authorize edits or bypass the source capture.
+
+<ui:copy id="cleanup-apple-wire">
+private struct CleanupResponse:Decodable {
+    struct Point:Decodable {let line:Int;let character:Int;var wire:[String:Int]{["line":line,"character":character]}}
+    struct Span:Decodable {let start:Point;let end:Point}
+    struct Replacement:Decodable {let range:Span;let newText:String}
+    let changes:[String:[Replacement]]
+    var workspaceEdit:[String:Any]{["changes":changes.mapValues{edits in edits.map{["range":["start":$0.range.start.wire,"end":$0.range.end.wire],"newText":$0.newText] as [String:Any]}}]}
+}
+</ui:copy>
+
+<ui:file path="apps/apple-simple/Sources/WorkspaceChanges.swift"><ui:paste select="#simple-apple-workspace-changes"/><ui:paste select="#simple-apple-workspace-changes-application"/><ui:paste select="#simple-apple-workspace-changes-presentation"/><ui:paste select="#cleanup-apple-wire"/></ui:file>
 ## Retire older proposal requests
 
 Hold two provider replies against the same unchanged source and selection. Completing the newer rename first must leave its preview intact when the older result arrives. A byte-distinct Unicode name change also retires the previous preview. Each preparation therefore retains its own validity closure; consulting a mutable current-request property would let old work borrow new authority. The injected provider boundary tests asynchronous intent safety without claiming an actual language-server run; source stays unchanged until explicit application.
@@ -226,7 +266,52 @@ import XCTest
 }
 </ui:copy>
 
-<ui:file path="apps/apple-simple/Tests/ChangeRequestTests.swift"><ui:paste select="#native-change-request-apple-witness"/></ui:file>
+## Exercise provider-independent cleanup and its authority
+
+Use the real workspace change model with a source that has no language service. Preview leaves it unchanged; apply and coordinated undo/redo retain the saved baseline. Held replies must use their own capture, and closing retires pending preparation. These model witnesses do not claim physical input acceptance.
+
+<ui:copy id="cleanup-apple-witness">
+extension ChangeRequestTests {
+    func testCleanupUsesCapturedSourceWithoutAProviderAndRetainsWorkspaceUndo() async throws {
+        let workspace=Workspace(),file=FileNode(name:"a.py",path:"a.py",dir:false)
+        let before="😀 value \t\r\n",after="😀 value\r\n"
+        let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:before,hash:"base"))
+        workspace.buffers[file.path]=buffer;workspace.show(file.path)
+        let changes=workspace.changes
+        let edit:[String:Any]=["changes":[languageURI(file.path):[["range":["start":["line":0,"character":8],"end":["line":0,"character":10]],"newText":""]]]]
+        changes.open("cleanup",workspace:workspace)
+        await changes.prepare(workspace,proposal:{kind,_ in XCTAssertEqual(kind,"cleanup");return edit})
+        XCTAssertEqual(buffer.text,before);XCTAssertEqual(changes.plan?.patches.first?.after,after)
+        changes.apply(workspace);XCTAssertEqual(buffer.text,after)
+        changes.open("undo",workspace:workspace);XCTAssertEqual(buffer.text,before)
+        changes.open("redo",workspace:workspace);XCTAssertEqual(buffer.text,after)
+        XCTAssertEqual(buffer.base,before)
+        changes.open("cleanup",workspace:workspace)
+        await changes.prepare(workspace,proposal:{_,_ in ["changes":[languageURI(file.path):[]]]})
+        XCTAssertNil(changes.plan);XCTAssertTrue(changes.notice.contains("No trailing"))
+    }
+    func testCleanupCannotBorrowNewerAuthorityOrApplyAfterClose() async throws {
+        let workspace=Workspace(),file=FileNode(name:"a.py",path:"a.py",dir:false)
+        let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:"x ",hash:"base"))
+        workspace.buffers[file.path]=buffer;workspace.show(file.path)
+        let changes=workspace.changes;changes.open("cleanup",workspace:workspace)
+        var held:[CheckedContinuation<Any,Error>]=[]
+        let proposal:(String,String) async throws->Any={_,_ in try await withCheckedThrowingContinuation{held.append($0)}}
+        func settle(_ count:Int) async {let deadline=Date().addingTimeInterval(2);while held.count<count && Date()<deadline{try? await Task.sleep(for:.milliseconds(1))}}
+        func edit(_ text:String)->Any{["changes":[languageURI(file.path):[["range":["start":["line":0,"character":1],"end":["line":0,"character":2]],"newText":text]]]]}
+        let first=Task{await changes.prepare(workspace,proposal:proposal)};await settle(1)
+        let second=Task{await changes.prepare(workspace,proposal:proposal)};await settle(2)
+        XCTAssertEqual(held.count,2);guard held.count==2 else{return}
+        held[1].resume(returning:edit(""));await second.value;XCTAssertEqual(changes.plan?.patches.first?.after,"x")
+        held[0].resume(returning:edit("old"));await first.value;XCTAssertEqual(changes.plan?.patches.first?.after,"x")
+        let closed=Task{await changes.prepare(workspace,proposal:proposal)};await settle(3)
+        changes.close(workspace);held[2].resume(returning:edit(""));await closed.value
+        XCTAssertNil(changes.plan);XCTAssertEqual(buffer.text,"x ")
+    }
+}
+</ui:copy>
+
+<ui:file path="apps/apple-simple/Tests/ChangeRequestTests.swift"><ui:paste select="#native-change-request-apple-witness"/><ui:paste select="#cleanup-apple-witness"/></ui:file>
 ## Keep resolved choices with their preparation
 
 Complete a newer choice before an older resolver reply, then reject a row from a replaced preparation and a reply after closing. These controlled callbacks exercise the actual native change model; source stays unchanged until explicit application. They do not claim native pointer or provider-language acceptance.

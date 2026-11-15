@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import {request} from "../api/client";
 import { createPortal } from "react-dom";
 import { isolateHistory } from "@codemirror/commands";
 import { type Transaction } from "@codemirror/state";
@@ -13,7 +14,7 @@ import type { CodeAction } from "../lsp/client";
 import type { Buffer, Buffers } from "./buffers";
 import { semanticLocations, semanticPath } from "./Intelligence";
 import { providerActionPaths,validateReferencedTargets, planWorkspaceEdit, invertChangePlan, validateChangePlan, type SourceSnapshot, type ChangePlan } from "./ChangePlan";
-export type ChangeCommand = "rename" | "actions" | "format" | "undo" | "redo";
+export type ChangeCommand = "rename" | "actions" | "format" | "cleanup" | "undo" | "redo";
 const eventName = "hickory:simple:workspace-change";
 export function requestWorkspaceChange(command: ChangeCommand) { window.dispatchEvent(new CustomEvent(eventName, { detail: command })); }
 export function workspaceSnapshots(buffers: Buffers): Map<string, SourceSnapshot> { return new Map([...buffers.values].map(([path, buffer]) => [path, { text: buffer.text, writable: !buffer.readonly && !buffer.saving && !buffer.transient }])); }
@@ -45,13 +46,13 @@ export function WorkspaceChanges({ buffers, current, focus,files }: { files:File
   const install = (title: string, edit: unknown) => {
     const capture = captured.current;
     if (!capture?.current()) throw new Error("Source, selection or provider changed. Prepare the proposal again.");
-    const next = planWorkspaceEdit(title, edit, capture.sources), refusal = validateChangePlan(next, workspaceSnapshots(buffers));
-    if (refusal) throw new Error(refusal); validateReferencedTargets(next, capture.references); setPlan(next); setChoices([]); setFile(0); setPage(0); setNotice("");
+    const next = planWorkspaceEdit(title, edit, capture.sources, mode === "cleanup"), refusal = validateChangePlan(next, workspaceSnapshots(buffers));
+    if (refusal) throw new Error(refusal); validateReferencedTargets(next, capture.references); if(!next.patches.length){setPlan(null);setNotice("No trailing ASCII spaces or tabs to remove.");return;} setPlan(next); setChoices([]); setFile(0); setPage(0); setNotice("");
   };
   useEffect(() => {
     const command = (event: Event) => {
       const next = (event as CustomEvent).detail as ChangeCommand;
-      if (!["rename", "actions", "format", "undo", "redo"].includes(next)) return;
+      if (!["rename", "actions", "format", "cleanup", "undo", "redo"].includes(next)) return;
       ticket.current++; setMode(next); setPlan(null); setChoices([]); setName(""); setNotice(""); setActionPage(0);
       if (next === "undo" || next === "redo") {
         const history = next === "undo" ? undo.current : redo.current, target = history.at(-1);
@@ -64,6 +65,20 @@ export function WorkspaceChanges({ buffers, current, focus,files }: { files:File
   }, [buffers]);
   useEffect(() => { if (mode === "rename") input.current?.focus(); else if (mode) panel.current?.focus(); }, [mode]);
   async function prepare() {
+    if (mode === "cleanup") {
+      const buffer=current(),view=buffer&&editorForBuffer(buffer)?.view;
+      if(!buffer||!view||buffer.readonly||buffer.saving||buffer.transient){setNotice("Choose writable source before preparing cleanup.");return;}
+      const source=buffer.text,selection=view.state.selection,id=++ticket.current;
+      const valid=()=>id===ticket.current&&buffers.values.get(buffer.file.path)===buffer&&buffer.text===source&&view.state.doc.toString()===source&&view.state.selection.eq(selection);
+      captured.current={sources:workspaceSnapshots(buffers),references:[],current:valid,request:id,choices:[],resolve:async()=>{throw new Error("Prepare provider actions first.");},acquire:async()=>{throw new Error("Cleanup has one captured source.");}};
+      setPlan(null);setChoices([]);setNotice("Preparing trailing-whitespace cleanup…");
+      try{
+        const edit=await request<unknown>("POST","/api/changes/cleanup",{uri:"hick:///"+buffer.file.path.split("/").map(encodeURIComponent).join("/"),source,profile:"trim_trailing_horizontal"});
+        if(!valid()){if(id===ticket.current)setNotice("Source or selection changed. Prepare cleanup again.");return;}
+        install("Trim trailing whitespace",edit);
+      }catch(error){if(id===ticket.current)setNotice(String(error));}
+      return;
+    }
     const buffer = current(), view = buffer && editorForBuffer(buffer)?.view, session = buffer && lookup(buffer);
     if (!buffer || !view || !session?.client || !session.ready || buffer.readonly) { setNotice("Choose writable source with a connected language provider, then prepare again."); return; }
     const source = buffer.text, selection = view.state.selection, client = session.client, id = ++ticket.current, sources = workspaceSnapshots(buffers);
@@ -133,7 +148,7 @@ export function WorkspaceChanges({ buffers, current, focus,files }: { files:File
   return createPortal(<div ref={panel} tabIndex={-1} className="simple-workspace-problems" role="dialog" aria-label="Workspace change preview" onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); close(); } }}>
     <button aria-label="Close change preview" onClick={close}>×</button><strong>Workspace change preview</strong><p>Source drafts · not saved or verified</p>
     {mode === "rename" && <input ref={input} aria-label="New symbol name" value={name} onChange={event => { ticket.current++; setPlan(null); setChoices([]); setName(event.target.value); setNotice(""); }} />}
-    {!["undo", "redo"].includes(mode) && <button disabled={mode === "rename" && !name.trim()} onClick={() => { void prepare(); }}>Prepare {mode === "actions" ? "provider actions" : mode === "format" ? "formatting" : "rename"}</button>}
+    {!["undo", "redo"].includes(mode) && <button disabled={mode === "rename" && !name.trim()} onClick={() => { void prepare(); }}>Prepare {mode === "actions" ? "provider actions" : mode === "format" ? "formatting" : mode === "cleanup" ? "cleanup" : "rename"}</button>}
     {notice && <p role="status">{notice}</p>}
     {choices.slice(actionPage * 100, (actionPage + 1) * 100).map((action, index) => <div key={index}><button onClick={() => {void choose(action);}}>{action.title}</button>{action.disabled && <small>{action.disabled.reason}</small>}</div>)}
     {choices.length > 100 && <div><button disabled={!actionPage} onClick={() => setActionPage(actionPage - 1)}>Previous actions</button><button disabled={(actionPage + 1) * 100 >= choices.length} onClick={() => setActionPage(actionPage + 1)}>Next actions</button></div>}
