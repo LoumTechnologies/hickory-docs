@@ -686,3 +686,30 @@ engine protocol witness passes deleted/moved construction analysis alongside the
 resource acquisition/planning checks, with saved source and destinations unchanged.
 Resource UI namespace application, saving and coordinated resource undo remain
 required across all platforms.
+
+## Analyze candidate construction ownership before resource publication
+
+The shared resource model revalidates complete acquired source/saved/ownership
+facts before evaluating a proposed namespace. Fresh acquisition identities do not
+replace the reviewed plan’s identities. Compare source text, version stamps,
+capabilities, exact saved states and held root scope; unavailable targets cannot
+be republished as nominal no-ops.
+
+Analyze both the candidate saved construction layer and supplied unsaved drafts.
+A surviving entry follows its source identity through a move. Newly declared
+project roots are analyzed, removed entries stay absent, and a new construction
+fragment needs context in at least one candidate layer. The response reports the
+exact entries and their compiler output paths, checks saved dependencies again,
+and names proposed targets that would become generated. A fingerprint identifies
+these facts; it grants no publication permission and is not workspace-wide
+project discovery. No source, generated output or index is modified by analysis.
+This optional capability runs independently of the filesystem write gate.
+
+Focused evidence (2026-11-15): seven candidate cases cover final generated
+destinations, source-only construction changes, moved/removed entries, broken
+dependencies, draft-owned fragments, new project roots, fresh capture changes and
+unavailable no-op targets. The write-gate observation cases cover this named
+route. The real-engine protocol witness detects a newly generated destination in
+both candidate layers while retaining all saved files. Resource namespace UI
+application, guarded saving/recovery and coordinated resource undo still remain
+required across all platforms.

@@ -82,7 +82,7 @@ pub struct Draft {
     pub version: Option<i32>,
     pub writable: bool,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
     pub context: String,
@@ -105,7 +105,7 @@ pub enum SavedSource {
         mode: Option<u32>,
     },
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Inputs {
     pub version: u32,
     pub context: String,
@@ -236,7 +236,7 @@ fn default_project_entry(root: &Path) -> Result<Option<String>, String> {
         }
     })
 }
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ownership {
     pub mode: String,
     pub entry: Option<String>,
@@ -790,5 +790,281 @@ mod tests {
             std::fs::read(temp.path().join("original/a.py")).unwrap(),
             b"source"
         );
+    }
+}
+pub(crate) fn validate_candidate(
+    captured: &Inputs,
+    fresh: &Inputs,
+    plan: &super::resource_changes::ResourcePlan,
+) -> Result<BTreeMap<String, SourceState>, String> {
+    fn same(a: &SourceState, b: &SourceState) -> bool {
+        match (a, b) {
+            (SourceState::Missing { creatable: a }, SourceState::Missing { creatable: b }) => {
+                a == b
+            }
+            (
+                SourceState::File {
+                    text: a,
+                    writable: aw,
+                    removable: ar,
+                    version: av,
+                    ..
+                },
+                SourceState::File {
+                    text: b,
+                    writable: bw,
+                    removable: br,
+                    version: bv,
+                    ..
+                },
+            ) => a == b && aw == bw && ar == br && av == bv,
+            _ => false,
+        }
+    }
+    if captured.version != 1
+        || fresh.version != 1
+        || captured.source_files_modified
+        || fresh.source_files_modified
+        || captured.workspace != fresh.workspace
+        || captured.context != fresh.context
+        || captured.saved_sources != fresh.saved_sources
+        || captured.ownership != fresh.ownership
+        || captured.sources.len() != fresh.sources.len()
+        || !captured.sources.iter().all(|(path, state)| {
+            fresh
+                .sources
+                .get(path)
+                .is_some_and(|value| same(state, value))
+        })
+    {
+        return Err("Saved source, workspace identity, construction ownership or draft acquisition changed. Prepare the whole resource proposal again.".into());
+    }
+    let after = plan.apply(&fresh.context, &captured.sources)?;
+    for patch in &plan.patches {
+        if !matches!(
+            fresh.sources.get(&patch.path),
+            Some(SourceState::File { writable: true, .. })
+                | Some(SourceState::Missing { creatable: true })
+        ) {
+            return Err(format!(
+                "Resource target is unavailable for publication: {}. Prepare again without unavailable targets.",
+                patch.path
+            ));
+        }
+    }
+    Ok(after)
+}
+#[cfg(test)]
+mod candidate_tests {
+    use super::*;
+    use crate::serve::{resource_candidates, resource_changes};
+    fn project(root: &Path) -> (String, String) {
+        let entry="<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"part.md\"/></h:doc>".to_string();
+        let part="<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:file path=\"before.py\">value = 1</h:file></h:doc>".to_string();
+        std::fs::write(root.join("project.md"), &entry).unwrap();
+        std::fs::write(root.join("part.md"), &part).unwrap();
+        (entry, part)
+    }
+    fn request(edit: Value) -> Request {
+        Request {
+            context: "candidate".into(),
+            edit,
+            drafts: BTreeMap::new(),
+            project_entry: None,
+            ownership_sources: BTreeMap::new(),
+        }
+    }
+    fn text(path: &str, before: &str, after: &str) -> Value {
+        json!({"textDocument":{"uri":format!("hick:///{path}"),"version":null},"edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":before.encode_utf16().count()}},"newText":after}]})
+    }
+    fn analyze(root: &Path, request: &Request) -> Result<resource_candidates::Facts, String> {
+        let index = crate::serve::store::DocIndex::scan(root).unwrap();
+        let identity = RootIdentity::bind(root);
+        let captured = capture(root, &index, &identity, request.clone())?;
+        let fresh = capture(root, &index, &identity, request.clone())?;
+        let plan = resource_changes::prepare(resource_changes::Request {
+            context: request.context.clone(),
+            title: "Candidate namespace".into(),
+            edit: request.edit.clone(),
+            sources: captured.sources.clone(),
+        })?;
+        resource_candidates::analyze(root, &captured, &fresh, request, &plan)
+    }
+    #[test]
+    fn candidate_generated_destinations_are_protected_before_source_publication() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let (_, part) = project(root);
+        let updated = part.replace("before.py", "after.py");
+        let request = request(
+            json!({"documentChanges":[text("part.md",&part,&updated),{"kind":"create","uri":"hick:///after.py"}]}),
+        );
+        let facts = analyze(root, &request).unwrap();
+        assert_eq!(facts.protected_targets, ["after.py"]);
+        assert!(facts.saved.output_paths.contains("after.py"));
+        assert!(facts.draft.output_paths.contains("after.py"));
+        assert_ne!(
+            facts.checked_saved_sources["part.md"],
+            facts.saved.source_hashes["part.md"]
+        );
+        assert!(!facts.source_files_modified);
+        assert_eq!(std::fs::read_to_string(root.join("part.md")).unwrap(), part);
+        assert!(!root.join("after.py").exists());
+    }
+    #[test]
+    fn source_changes_can_change_constructed_outputs_without_writing_them() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let (_, part) = project(root);
+        let updated = part.replace("before.py", "after.py");
+        let request = request(json!({"documentChanges":[text("part.md",&part,&updated)]}));
+        let facts = analyze(root, &request).unwrap();
+        assert!(facts.protected_targets.is_empty());
+        assert!(facts.saved.output_paths.contains("after.py"));
+        assert!(!facts.saved.output_paths.contains("before.py"));
+        assert!(!root.join("after.py").exists());
+    }
+    #[test]
+    fn entry_identity_follows_a_move_and_broken_removed_dependencies_refuse() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        project(root);
+        let moved = request(
+            json!({"documentChanges":[{"kind":"rename","oldUri":"hick:///project.md","newUri":"hick:///moved.md"}]}),
+        );
+        let facts = analyze(root, &moved).unwrap();
+        assert!(facts.protected_targets.is_empty());
+        assert_eq!(facts.saved.entries, ["moved.md"]);
+        assert!(facts.saved.output_paths.contains("before.py"));
+        assert!(root.join("project.md").exists());
+        assert!(!root.join("moved.md").exists());
+        let deleted =
+            request(json!({"documentChanges":[{"kind":"delete","uri":"hick:///part.md"}]}));
+        assert!(
+            analyze(root, &deleted)
+                .unwrap_err()
+                .contains("deleted source part.md")
+        );
+    }
+    #[test]
+    fn a_new_fragment_needs_one_candidate_project_context() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let (entry, part) = project(root);
+        let newpart = part.replace("before.py", "new.py");
+        let edit = json!({"documentChanges":[{"kind":"create","uri":"hick:///new.md"},text("new.md","",&newpart)]});
+        let mut request = request(edit);
+        assert!(
+            analyze(root, &request)
+                .unwrap_err()
+                .contains("no selected project context")
+        );
+        request
+            .ownership_sources
+            .insert("project.md".into(), entry.replace("part.md", "new.md"));
+        request.ownership_sources.insert("new.md".into(), newpart);
+        let facts = analyze(root, &request).unwrap();
+        assert!(facts.protected_targets.is_empty());
+        assert!(!facts.saved.source_hashes.contains_key("new.md"));
+        assert!(facts.draft.source_hashes.contains_key("new.md"));
+        assert!(facts.draft.output_paths.contains("new.py"));
+        assert!(!root.join("new.md").exists());
+    }
+    #[test]
+    fn fresh_capture_identity_is_independent_but_saved_root_and_source_facts_are_exact() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        std::fs::write(root.join("a.py"), "a").unwrap();
+        let request = request(
+            json!({"documentChanges":[{"kind":"rename","oldUri":"hick:///a.py","newUri":"hick:///b.py"}]}),
+        );
+        let index = crate::serve::store::DocIndex::scan(root).unwrap();
+        let identity = RootIdentity::bind(root);
+        let captured = capture(root, &index, &identity, request.clone()).unwrap();
+        let mut fresh = capture(root, &index, &identity, request.clone()).unwrap();
+        let plan = resource_changes::prepare(resource_changes::Request {
+            context: request.context.clone(),
+            title: "Move source".into(),
+            edit: request.edit.clone(),
+            sources: captured.sources.clone(),
+        })
+        .unwrap();
+        assert_ne!(captured.sources, fresh.sources);
+        assert!(validate_candidate(&captured, &fresh, &plan).is_ok());
+        let first = resource_candidates::analyze(root, &captured, &fresh, &request, &plan).unwrap();
+        let second =
+            resource_candidates::analyze(root, &captured, &fresh, &request, &plan).unwrap();
+        assert_eq!(first.fingerprint, second.fingerprint);
+        fresh.workspace = "other-root".into();
+        assert!(validate_candidate(&captured, &fresh, &plan).is_err());
+        let fresh = capture(root, &index, &identity, request.clone()).unwrap();
+        std::fs::write(root.join("a.py"), "external").unwrap();
+        let changed = capture(root, &index, &identity, request).unwrap();
+        assert!(validate_candidate(&captured, &changed, &plan).is_err());
+        assert!(
+            validate_candidate(&captured, &fresh, &plan).is_ok(),
+            "A captured observation is not a filesystem freeze; publication must recheck it"
+        );
+    }
+    #[test]
+    fn new_project_roots_add_ownership_and_removed_entries_do_not_resurrect() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let (entry, part) = project(root);
+        let new_entry = entry.replace("part.md", "new-part.md");
+        let new_part = part.replace("before.py", "created.py");
+        let new = request(json!({"documentChanges":[
+            {"kind":"create","uri":"hick:///new-project.md"},text("new-project.md","",&new_entry),
+            {"kind":"create","uri":"hick:///new-part.md"},text("new-part.md","",&new_part),
+            {"kind":"create","uri":"hick:///created.py"}
+        ]}));
+        let facts = analyze(root, &new).unwrap();
+        assert_eq!(facts.protected_targets, ["created.py"]);
+        assert_eq!(facts.saved.entries, ["new-project.md", "project.md"]);
+        assert!(facts.saved.source_hashes.contains_key("new-part.md"));
+        assert!(!root.join("new-project.md").exists());
+        let removed =
+            request(json!({"documentChanges":[{"kind":"delete","uri":"hick:///project.md"}]}));
+        let facts = analyze(root, &removed).unwrap();
+        assert!(facts.saved.entries.is_empty());
+        assert_eq!(facts.saved.removed_entries, ["project.md"]);
+        assert!(root.join("project.md").exists());
+    }
+    #[test]
+    fn an_unavailable_target_cannot_be_republished_as_a_nominal_noop() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let path = root.join("a.py");
+        std::fs::write(&path, "readable").unwrap();
+        let original = std::fs::metadata(&path).unwrap().permissions();
+        let mut readonly = original.clone();
+        readonly.set_readonly(true);
+        std::fs::set_permissions(&path, readonly).unwrap();
+        let request = request(json!({"changes":{"hick:///a.py":[]}}));
+        let index = crate::serve::store::DocIndex::scan(root).unwrap();
+        let identity = RootIdentity::bind(root);
+        let captured = capture(root, &index, &identity, request.clone()).unwrap();
+        let fresh = capture(root, &index, &identity, request).unwrap();
+        let state = captured.sources["a.py"].clone();
+        let plan = resource_changes::ResourcePlan {
+            version: 1,
+            context: captured.context.clone(),
+            title: "Unchanged source".into(),
+            patches: vec![resource_changes::ResourcePatch {
+                path: "a.py".into(),
+                before: state.clone(),
+                after: state,
+            }],
+            annotations: vec![],
+        };
+        let pure = plan.apply(&captured.context, &captured.sources);
+        let admission = validate_candidate(&captured, &fresh, &plan);
+        std::fs::set_permissions(&path, original).unwrap();
+        assert!(
+            pure.is_ok(),
+            "A pure namespace no-op does not authorize a filesystem replacement"
+        );
+        assert!(admission.is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"readable");
     }
 }

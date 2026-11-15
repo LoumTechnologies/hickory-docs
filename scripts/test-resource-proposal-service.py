@@ -26,6 +26,12 @@ def main():
    body={"context":"service-fixture","edit":edit,"drafts":{"a.py":{"text":draft,"base_sha256":hashlib.sha256(saved.encode()).hexdigest(),"version":7,"writable":True}}}
    inputs=call("changes/resource-inputs",body);assert inputs["context"]==body["context"] and inputs["workspace"] and not inputs["source_files_modified"];assert inputs["sources"]["a.py"]["text"]==draft;assert inputs["saved_sources"]["a.py"]["text"]==saved;assert inputs["saved_sources"]["b.py"]["kind"]=="missing"
    proposal=call("changes/plan-resources",{"context":body["context"],"title":"Move draft","edit":edit,"sources":inputs["sources"]});assert not proposal["applied"] and not proposal["saved"];patches={patch["path"]:patch for patch in proposal["plan"]["patches"]};assert patches["a.py"]["after"]["kind"]=="missing";assert patches["b.py"]["after"]["text"]=="renamed\n# unsaved draft\n";assert patches["b.py"]["after"]["identity"]==inputs["sources"]["a.py"]["identity"]
+   consequences=call("changes/resource-consequences",{"inputs":inputs,"capture":body,"plan":proposal["plan"]});assert consequences["protected_targets"]==[] and not consequences["source_files_modified"] and len(consequences["fingerprint"])==64
+   candidate_part=part.replace("main-generated.py","candidate-generated.py")
+   edit2={"documentChanges":[{"textDocument":{"uri":"hick:///part.md","version":None},"edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":len(part.encode("utf-16-le"))//2}},"newText":candidate_part}]},{"kind":"create","uri":"hick:///candidate-generated.py"}]}
+   capture2={"context":"candidate-owned-output","edit":edit2};inputs2=call("changes/resource-inputs",capture2);plan2=call("changes/plan-resources",{"context":capture2["context"],"title":"Candidate output guard","edit":edit2,"sources":inputs2["sources"]})["plan"]
+   consequences2=call("changes/resource-consequences",{"inputs":inputs2,"capture":capture2,"plan":plan2});assert consequences2["protected_targets"]==["candidate-generated.py"] and "candidate-generated.py" in consequences2["saved"]["output_paths"] and "candidate-generated.py" in consequences2["draft"]["output_paths"]
+   assert (root/"part.md").read_text()==part and not (root/"candidate-generated.py").exists()
    body["drafts"]["a.py"]["base_sha256"]=hashlib.sha256(b"old").hexdigest()
    try:call("changes/resource-inputs",body)
    except urllib.error.HTTPError as error:assert error.code==422
@@ -41,7 +47,7 @@ def main():
    output=next(item for item in reading["outputs"] if item["path"]=="main-generated.py");assert output["before"]["preview"]=="main" and output["after"]["preview"]=="moved"
    assert (root/"part.md").read_text()==part and (root/"project.md").read_text()==entry and not (root/"moved.md").exists()
    assert (root/"a.py").read_bytes()==saved.encode();assert not (root/"b.py").exists()
-   print("PASS: actual resource target/acquisition/planning routes, held root identity, separate saved/draft text, complete move/text delta, stale-base refusal, main/selected saved/draft ownership union, explicit deleted/moved construction namespace, unchanged saved files")
+   print("PASS: actual resource target/acquisition/planning routes, held root identity, separate saved/draft text, complete move/text delta, stale-base refusal, main/selected saved/draft ownership union, explicit deleted/moved construction namespace, candidate saved/draft output guards, unchanged saved files")
   finally:
    if engine:fixture.stop(engine)
 if __name__=="__main__":main()

@@ -153825,6 +153825,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/test-source-service.md",
       "symbol": "Compile explicit missing and moved source states without publication",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-input-fresh-candidate",
+      "output": "crates/hickory-cli/src/serve/resource_inputs.rs",
+      "page": ".hickory-source/mechanisms/resource-inputs.md",
+      "symbol": "Revalidate a complete candidate against fresh observations",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-candidate-ownership",
+      "output": "crates/hickory-cli/src/serve/resource_candidates.rs",
+      "page": ".hickory-source/mechanisms/resource-candidates.md",
+      "symbol": "Candidate saved and draft construction ownership",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-candidate-ownership-tests",
+      "output": "crates/hickory-cli/src/serve/resource_inputs.rs",
+      "page": ".hickory-source/mechanisms/resource-inputs.md",
+      "symbol": "Exercise final namespace ownership before any publication",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

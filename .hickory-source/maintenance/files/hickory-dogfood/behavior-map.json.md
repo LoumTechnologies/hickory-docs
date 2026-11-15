@@ -70472,7 +70472,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "resource-input-ownership-model",
         "resource-input-capture",
         "resource-input-independent-handler",
-        "resource-input-read-witnesses"
+        "resource-input-read-witnesses",
+        "resource-input-fresh-candidate",
+        "resource-candidate-ownership-tests"
       ]
     },
     "scripts/test-resource-proposal-service.py": {
@@ -70608,6 +70610,17 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "resource-save-recovery-record"
+      ]
+    },
+    "crates/hickory-cli/src/serve/resource_candidates.rs": {
+      "source": ".hickory-source/mechanisms/resource-candidates.md",
+      "owner": "source-model",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "resource-candidate-ownership"
       ]
     }
   },
