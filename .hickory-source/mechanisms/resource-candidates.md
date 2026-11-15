@@ -21,7 +21,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
 };
-#[derive(Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
     pub inputs: Inputs,

@@ -333,4 +333,6 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="resource-publish.md" />
 
+<storycode:include file="resource-saves.md" />
+
 </storycode:doc>

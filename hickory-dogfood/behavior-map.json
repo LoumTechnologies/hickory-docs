@@ -54681,7 +54681,8 @@
         "f-60e6f71bfd5c-impl-FileDocStore",
         "f-60e6f71bfd5c-impl-DocStore-for-FileDocStore",
         "f-60e6f71bfd5c-write_atomic",
-        "f-60e6f71bfd5c-tests"
+        "f-60e6f71bfd5c-tests",
+        "register-discovered-source-path"
       ],
       "anchor": "output-60e6f71bfd5c",
       "narrative_owner": "mechanism:crates/hickory-cli"
@@ -70633,6 +70634,21 @@
         "resource-source-publication-installation",
         "resource-source-publication-publication",
         "resource-source-publication-tests"
+      ]
+    },
+    "crates/hickory-cli/src/serve/resource_saves.rs": {
+      "source": ".hickory-source/mechanisms/resource-saves.md",
+      "owner": "resource-source-publication",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "1341957197043d4146a135459868b9e4de9e6f5a228366a36542792475d78d25",
+      "construction": "fragments",
+      "fragments": [
+        "resource-save-attempts",
+        "resource-save-rooms",
+        "resource-save-admission",
+        "resource-save-save",
+        "resource-save-status"
       ]
     }
   },

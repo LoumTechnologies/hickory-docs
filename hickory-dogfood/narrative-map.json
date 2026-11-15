@@ -153908,6 +153908,48 @@
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/engine/writes.rs.md",
       "symbol": "Keep admitted writes ordered after a response disconnects",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-save-attempts",
+      "output": "crates/hickory-cli/src/serve/resource_saves.rs",
+      "page": ".hickory-source/mechanisms/resource-saves.md",
+      "symbol": "Bind one attempt to one reviewed request",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-save-rooms",
+      "output": "crates/hickory-cli/src/serve/resource_saves.rs",
+      "page": ".hickory-source/mechanisms/resource-saves.md",
+      "symbol": "Check live source while changing its saved path",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-save-admission",
+      "output": "crates/hickory-cli/src/serve/resource_saves.rs",
+      "page": ".hickory-source/mechanisms/resource-saves.md",
+      "symbol": "Recompute the reviewed consequences before publishing",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-save-save",
+      "output": "crates/hickory-cli/src/serve/resource_saves.rs",
+      "page": ".hickory-source/mechanisms/resource-saves.md",
+      "symbol": "Retain the outcome even after a response disconnects",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-save-status",
+      "output": "crates/hickory-cli/src/serve/resource_saves.rs",
+      "page": ".hickory-source/mechanisms/resource-saves.md",
+      "symbol": "Read the original attempt without repeating it",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "register-discovered-source-path",
+      "output": "crates/hickory-cli/src/serve/store.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/store.rs.md",
+      "symbol": "Register a newly addressed source before live-room access",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

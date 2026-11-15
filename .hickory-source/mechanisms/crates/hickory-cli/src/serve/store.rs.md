@@ -534,6 +534,22 @@ Both direct saves and collaborative saves must preserve existing captures, even 
 The tutorial builds this part in [the construction step](../../../../../05-saving.md#immutable-scaffold-write-document).
 
 
-<storycode:file path="crates/hickory-cli/src/serve/store.rs"><storycode:paste select="#f-60e6f71bfd5c-DocIndex"/><storycode:paste select="#f-60e6f71bfd5c-impl-DocIndex"/><storycode:paste select="#f-60e6f71bfd5c-doc_id"/><storycode:paste select="#f-60e6f71bfd5c-FileDocStore"/><storycode:paste select="#f-60e6f71bfd5c-impl-FileDocStore"/><storycode:paste select="#f-60e6f71bfd5c-impl-DocStore-for-FileDocStore"/><storycode:paste select="#f-60e6f71bfd5c-write_atomic"/><storycode:paste select="#f-60e6f71bfd5c-tests"/><storycode:paste select="#immutable-scaffold-write-document"/></storycode:file>
+## Register a newly addressed source before live-room access
+
+The daemon initially registers a snapshot of each workspace index. A resource operation may address a Markdown source discovered after that snapshot. Add that exact source to both the workspace index and the shared store before loading its room; registering only the index leaves the live store unable to resolve the document. This updates one mapping without rescanning all known documents. Registration does not grant permission to write: publication still owns path confinement and revision checks.
+
+<storycode:copy id="register-discovered-source-path">
+impl FileDocStore {
+    pub fn register_source(&self, index: &DocIndex, relative: &str) -> String {
+        let id = index.add(relative);
+        if let Some(path) = index.absolute(&id) {
+            self.paths.write().unwrap().insert(id.clone(), path);
+        }
+        id
+    }
+}
+</storycode:copy>
+
+<storycode:file path="crates/hickory-cli/src/serve/store.rs"><storycode:paste select="#f-60e6f71bfd5c-DocIndex"/><storycode:paste select="#f-60e6f71bfd5c-impl-DocIndex"/><storycode:paste select="#f-60e6f71bfd5c-doc_id"/><storycode:paste select="#f-60e6f71bfd5c-FileDocStore"/><storycode:paste select="#f-60e6f71bfd5c-impl-FileDocStore"/><storycode:paste select="#f-60e6f71bfd5c-impl-DocStore-for-FileDocStore"/><storycode:paste select="#f-60e6f71bfd5c-write_atomic"/><storycode:paste select="#f-60e6f71bfd5c-tests"/><storycode:paste select="#immutable-scaffold-write-document"/><storycode:paste select="#register-discovered-source-path"/></storycode:file>
 
 </storycode:doc>

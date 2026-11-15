@@ -98,7 +98,7 @@ impl RootIdentity {
 The response binds observations to the supplied context and held root identity. Saved SHA-256 values are separate from ordinary file-save fingerprints. A draft must have the captured saved baseline; its contents do not implicitly save or replace that baseline. Limits apply to source bytes and the serialized response, including escaped text and repeated path keys.
 
 <ui:copy id="resource-input-snapshots">
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Draft {
     pub text: String,
@@ -106,7 +106,7 @@ pub struct Draft {
     pub version: Option<i32>,
     pub writable: bool,
 }
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
     pub context: String,
@@ -129,7 +129,7 @@ pub enum SavedSource {
         mode: Option<u32>,
     },
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Inputs {
     pub version: u32,
     pub context: String,
@@ -1170,10 +1170,10 @@ mod candidate_tests {
 <ui:file path="crates/hickory-cli/src/serve/resource_inputs.rs"><ui:paste select="#resource-input-imports"/><ui:paste select="#resource-input-root-identity"/><ui:paste select="#resource-input-snapshots"/><ui:paste select="#resource-input-path-identity"/><ui:paste select="#resource-input-saved-bytes"/><ui:paste select="#resource-input-ownership-model"/><ui:paste select="#resource-input-capture"/><ui:paste select="#resource-input-independent-handler"/><ui:paste select="#resource-input-read-witnesses"/><ui:paste select="#resource-input-fresh-candidate"/><ui:paste select="#resource-candidate-ownership-tests"/></ui:file>
 ## Exercise the actual acquisition and planning routes
 
-Start a temporary real engine with one saved source and supply a separate dirty draft. Discover both move endpoints, acquire their saved/draft states, and prepare the ordered move/text proposal. Check the unchanged saved file and absent destination, then require an HTTP refusal for a stale editor base. This verifies the service protocol and bootstrap binding without claiming frontend application or saved-file publication.
+Start a temporary real engine with one saved source and supply a separate dirty draft. Discover both move endpoints, acquire their saved/draft states, and prepare the ordered move/text proposal. Check the unchanged saved file and absent destination, then require an HTTP refusal for a stale editor base. After those read-only assertions, explicitly save the reviewed move and check exact saved/draft recovery, duplicate request identity, read-only status, generated-destination and stale-source refusal, and authored-document retirement. The witness exercises source publication through the real engine; it does not establish frontend namespace application or saved/draft undo.
 
 <ui:copy id="resource-input-actual-service-witness">
-"""Actual engine protocol: resource preparation never publishes the saved or draft source."""
+"""Actual engine protocol: read-only preparation followed by explicit reviewed resource saves."""
 import hashlib
 import importlib.util
 import json
@@ -1202,6 +1202,7 @@ def main():
    inputs=call("changes/resource-inputs",body);assert inputs["context"]==body["context"] and inputs["workspace"] and not inputs["source_files_modified"];assert inputs["sources"]["a.py"]["text"]==draft;assert inputs["saved_sources"]["a.py"]["text"]==saved;assert inputs["saved_sources"]["b.py"]["kind"]=="missing"
    proposal=call("changes/plan-resources",{"context":body["context"],"title":"Move draft","edit":edit,"sources":inputs["sources"]});assert not proposal["applied"] and not proposal["saved"];patches={patch["path"]:patch for patch in proposal["plan"]["patches"]};assert patches["a.py"]["after"]["kind"]=="missing";assert patches["b.py"]["after"]["text"]=="renamed\n# unsaved draft\n";assert patches["b.py"]["after"]["identity"]==inputs["sources"]["a.py"]["identity"]
    consequences=call("changes/resource-consequences",{"inputs":inputs,"capture":body,"plan":proposal["plan"]});assert consequences["protected_targets"]==[] and not consequences["source_files_modified"] and len(consequences["fingerprint"])==64
+   reviewed_save=json.loads(json.dumps({"request_id":"1"*32,"reviewed_fingerprint":consequences["fingerprint"],"proposal":{"inputs":inputs,"capture":body,"plan":proposal["plan"]}}))
    candidate_part=part.replace("main-generated.py","candidate-generated.py")
    edit2={"documentChanges":[{"textDocument":{"uri":"hick:///part.md","version":None},"edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":len(part.encode("utf-16-le"))//2}},"newText":candidate_part}]},{"kind":"create","uri":"hick:///candidate-generated.py"}]}
    capture2={"context":"candidate-owned-output","edit":edit2};inputs2=call("changes/resource-inputs",capture2);plan2=call("changes/plan-resources",{"context":capture2["context"],"title":"Candidate output guard","edit":edit2,"sources":inputs2["sources"]})["plan"]
@@ -1222,7 +1223,45 @@ def main():
    output=next(item for item in reading["outputs"] if item["path"]=="main-generated.py");assert output["before"]["preview"]=="main" and output["after"]["preview"]=="moved"
    assert (root/"part.md").read_text()==part and (root/"project.md").read_text()==entry and not (root/"moved.md").exists()
    assert (root/"a.py").read_bytes()==saved.encode();assert not (root/"b.py").exists()
-   print("PASS: actual resource target/acquisition/planning routes, held root identity, separate saved/draft text, complete move/text delta, stale-base refusal, main/selected saved/draft ownership union, explicit deleted/moved construction namespace, candidate saved/draft output guards, unchanged saved files")
+   records=root/".hick-cache"/"resource-changes"
+   existing=set(records.iterdir()) if records.exists() else set()
+   rejected={"request_id":"2"*32,"reviewed_fingerprint":consequences2["fingerprint"],"proposal":{"inputs":inputs2,"capture":capture2,"plan":plan2}}
+   try:call("changes/resource-save",rejected)
+   except urllib.error.HTTPError as error:assert error.code==409
+   else:raise AssertionError("Candidate generated destination was published")
+   assert not (root/"candidate-generated.py").exists() and (root/"part.md").read_text()==part
+   saved_result=call("changes/resource-save",reviewed_save);outcome=saved_result["outcome"]
+   assert outcome["complete"] and outcome["source_files_modified"] and not outcome["source_files_uncertain"]
+   assert outcome["applied"]==["a.py","b.py"]
+   assert not (root/"a.py").exists() and (root/"b.py").read_text()=="renamed\n# unsaved draft\n"
+   record=json.loads((root/outcome["recovery"]).read_text());assert record["version"]==2 and record["before"]["a.py"]["text"]==saved
+   assert next(patch for patch in record["reviewed_plan"]["patches"] if patch["path"]=="a.py")["before"]["text"]==draft
+   after=set(records.iterdir());assert len(after-existing)==1
+   assert call("changes/resource-save",reviewed_save)==saved_result and set(records.iterdir())==after
+   with urllib.request.urlopen(origin+"/api/changes/resource-save?request_id="+reviewed_save["request_id"],timeout=30) as reply:assert json.load(reply)==saved_result
+   changed=json.loads(json.dumps(reviewed_save));changed["reviewed_fingerprint"]="0"*64
+   try:call("changes/resource-save",changed)
+   except urllib.error.HTTPError as error:assert error.code==409
+   else:raise AssertionError("A save request identity accepted different review content")
+   assert set(records.iterdir())==after
+   stale_edit={"documentChanges":[{"kind":"rename","oldUri":"hick:///b.py","newUri":"hick:///c.py"}]}
+   stale_capture={"context":"stale-save","edit":stale_edit};stale_inputs=call("changes/resource-inputs",stale_capture)
+   stale_plan=call("changes/plan-resources",{"context":stale_capture["context"],"title":"Stale move","edit":stale_edit,"sources":stale_inputs["sources"]})["plan"]
+   stale_proposal={"inputs":stale_inputs,"capture":stale_capture,"plan":stale_plan};stale_facts=call("changes/resource-consequences",stale_proposal)
+   (root/"b.py").write_text("independent edit\n")
+   try:call("changes/resource-save",{"request_id":"3"*32,"reviewed_fingerprint":stale_facts["fingerprint"],"proposal":stale_proposal})
+   except urllib.error.HTTPError as error:assert error.code==409
+   else:raise AssertionError("Stale save changed a source")
+   assert (root/"b.py").read_text()=="independent edit\n" and not (root/"c.py").exists() and set(records.iterdir())==after
+   note='<h:doc xmlns:h="http://www.hickorydocs.com/1.0">Original note</h:doc>'
+   (root/"note.md").write_text(note)
+   note_edit={"documentChanges":[{"kind":"rename","oldUri":"hick:///note.md","newUri":"hick:///moved-note.md"}]}
+   note_capture={"context":"move-authored-document","edit":note_edit};note_inputs=call("changes/resource-inputs",note_capture)
+   note_plan=call("changes/plan-resources",{"context":note_capture["context"],"title":"Move note","edit":note_edit,"sources":note_inputs["sources"]})["plan"]
+   note_proposal={"inputs":note_inputs,"capture":note_capture,"plan":note_plan};note_facts=call("changes/resource-consequences",note_proposal)
+   note_result=call("changes/resource-save",{"request_id":"4"*32,"reviewed_fingerprint":note_facts["fingerprint"],"proposal":note_proposal})
+   assert note_result["outcome"]["complete"] and not (root/"note.md").exists() and (root/"moved-note.md").read_text()==note,note_result
+   print("PASS: actual resource acquisition, planning and candidate ownership; explicit guarded save of a moved dirty draft, retained saved/draft recovery, duplicate/status identity, changed-request refusal, stale-source and generated-destination refusal, authored document retirement/move")
   finally:
    if engine:fixture.stop(engine)
 if __name__=="__main__":main()

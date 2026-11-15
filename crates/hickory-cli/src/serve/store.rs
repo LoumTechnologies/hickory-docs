@@ -479,3 +479,12 @@ fn immutable_scaffold_save_refuses_rehash_without_touching_disk() {
     write_document(&path, &with_prose).unwrap();
     assert_eq!(std::fs::read_to_string(&path).unwrap(), with_prose);
 }
+impl FileDocStore {
+    pub fn register_source(&self, index: &DocIndex, relative: &str) -> String {
+        let id = index.add(relative);
+        if let Some(path) = index.absolute(&id) {
+            self.paths.write().unwrap().insert(id.clone(), path);
+        }
+        id
+    }
+}

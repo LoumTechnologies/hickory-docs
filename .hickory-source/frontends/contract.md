@@ -738,4 +738,24 @@ create/delete, a new destination racing preflight, stale initial source and part
 publication that preserves an independent later edit. Frontend resource application,
 recovery UI and saved/draft undo remain required on every simple platform.
 
+## Publish reviewed resource sources through the engine
+
+The explicit engine resource-save endpoint repeats candidate consequences and
+fresh acquisition, refuses changed reviews and generated targets, and uses the
+shared checked publisher under process-lifetime mutation ordering. Markdown
+replacements compare live room text; deletion retires the old room. Sources
+addressed after startup are registered in both the workspace index and shared
+store before room access. The save request identity binds its entire typed review;
+repeated identical requests return the retained outcome, and a read-only status
+query never repeats publication. Missing or uncertain results require inspecting
+recovery. Retention and dependency IO have explicit bounds.
+
+The rebuilt real-engine witness passes dirty-draft move/save, exact saved/draft
+recovery, duplicate/status responses, changed-request refusal, stale saved-source
+and candidate-generated destination refusal, and a newly discovered Markdown
+source move. Five publication safety cases continue to pass after introducing the
+live-document adapter seam. This establishes an engine save path, not frontend
+resource namespace adoption, recovery UI, or coordinated saved/draft undo. Those
+remain required on browser, macOS, iOS and Android.
+
 </ui:doc>

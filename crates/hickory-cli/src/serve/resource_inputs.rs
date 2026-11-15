@@ -74,7 +74,7 @@ impl RootIdentity {
         Ok(id)
     }
 }
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Draft {
     pub text: String,
@@ -82,7 +82,7 @@ pub struct Draft {
     pub version: Option<i32>,
     pub writable: bool,
 }
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
     pub context: String,
@@ -105,7 +105,7 @@ pub enum SavedSource {
         mode: Option<u32>,
     },
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Inputs {
     pub version: u32,
     pub context: String,

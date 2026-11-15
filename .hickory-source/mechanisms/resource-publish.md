@@ -7,7 +7,7 @@ The publication core is separate from proposal planning and recovery storage. A
 caller must hold the mutation gate and check live editors, rooms and construction
 ownership; the authority callback runs before recovery and before each path. It
 receives already applied paths so a caller can account for this batch's own edits.
-This core exposes no HTTP route and does not by itself grant permission to save.
+This core exposes no HTTP route and does not by itself grant permission to save. The [engine save adapter](resource-saves.md) supplies current construction and live-document admission through the per-path write seam.
 
 Preflight compares exact saved bytes, metadata, filename spelling and ordinary
 parent directories. Retain the complete saved and dirty-draft recovery record
@@ -106,7 +106,7 @@ fn synchronize_parent(path: &Path) -> Result<(), String> {
         .map_err(|error| format!("Source directory synchronization was not confirmed: {error}"))?;
     Ok(())
 }
-fn replace(
+pub(super) fn replace(
     root: &Path,
     path: &str,
     before: &SavedSource,
@@ -197,7 +197,22 @@ pub fn publish(
     root: &Path,
     identity: &RootIdentity,
     manifest: &Manifest,
+    authority: impl FnMut(&BTreeSet<String>) -> Result<(), String>,
+) -> Result<Outcome, String> {
+    publish_with(
+        root,
+        identity,
+        manifest,
+        authority,
+        |path, before, after| replace(root, path, before, after),
+    )
+}
+pub(super) fn publish_with(
+    root: &Path,
+    identity: &RootIdentity,
+    manifest: &Manifest,
     mut authority: impl FnMut(&BTreeSet<String>) -> Result<(), String>,
+    mut write: impl FnMut(&str, &SavedSource, &SavedSource) -> Result<bool, String>,
 ) -> Result<Outcome, String> {
     root_matches(root, identity, &manifest.workspace)?;
     authority(&BTreeSet::new())?;
@@ -232,7 +247,7 @@ pub fn publish(
             authority(&outcome.applied)?;
             check(root, path, &manifest.before[path], &manifest.after[path])?;
             attempted = manifest.before[path] != manifest.after[path];
-            let changed = replace(root, path, &manifest.before[path], &manifest.after[path])?;
+            let changed = write(path, &manifest.before[path], &manifest.after[path])?;
             outcome.source_files_modified |= changed;
             root_matches(root, identity, &manifest.workspace)?;
             Ok::<_, String>(())
