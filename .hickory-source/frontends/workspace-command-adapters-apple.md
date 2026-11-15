@@ -15,7 +15,7 @@ extension Workspace {
             "shell.search":{self.showEverywhere=true},"edit.find":{self.currentBuffer?.showFind=true},"workspace.find":{self.showWorkspaceSearch=true},
             "symbol.rename":{self.changes.open("rename",workspace:self)},"symbol.actions":{self.changes.open("actions",workspace:self)},"document.format":{self.changes.open("format",workspace:self)},
             "workspace.undo":{self.changes.open("undo",workspace:self)},"workspace.redo":{self.changes.open("redo",workspace:self)},
-            "workspace.coverage":{self.showCoverage=true},"workspace.tests":{self.showTests=true},"workspace.problems":{self.showProblems=true},"workspace.analysis":{self.showAnalysis=true},"problem.next":{Task {await self.navigateProblem(1)}},"problem.previous":{Task {await self.navigateProblem(-1)}},
+            "workspace.review":{self.showReview=true},"workspace.coverage":{self.showCoverage=true},"workspace.tests":{self.showTests=true},"workspace.problems":{self.showProblems=true},"workspace.analysis":{self.showAnalysis=true},"problem.next":{Task {await self.navigateProblem(1)}},"problem.previous":{Task {await self.navigateProblem(-1)}},
             "navigation.back":{Task {await self.navigateHistory(-1)}},"navigation.forward":{Task {await self.navigateHistory(1)}},
             "editor.tools":{Task {await self.currentBuffer?.language?.inspect()};Task {await self.currentBuffer?.language?.complete()}},
             "editor.undo":{_ = self.currentBuffer?.undoSource?()},"editor.redo":{_ = self.currentBuffer?.redoSource?()},

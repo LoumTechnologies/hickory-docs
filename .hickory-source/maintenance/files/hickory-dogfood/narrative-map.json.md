@@ -153167,6 +153167,76 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/snippet-sessions.md",
       "symbol": "Compose completion imports around the field forest",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-review-browser",
+      "output": "apps/web/src/simple/GitReview.tsx",
+      "page": ".hickory-source/frontends/git-review-browser.md",
+      "symbol": "simple-git-review-browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-review-apple",
+      "output": "apps/apple-simple/Sources/GitReview.swift",
+      "page": ".hickory-source/frontends/git-review-apple.md",
+      "symbol": "simple-git-review-apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-review-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/GitReview.kt",
+      "page": ".hickory-source/frontends/git-review-android.md",
+      "symbol": "simple-git-review-android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-review-browser-tests",
+      "output": "apps/web/src/simple/GitReview.test.ts",
+      "page": ".hickory-source/frontends/git-review-browser.md",
+      "symbol": "Reject obsolete and foreign diff replies",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-review-apple-tests",
+      "output": "apps/apple-simple/Tests/GitReviewTests.swift",
+      "page": ".hickory-source/frontends/git-review-apple.md",
+      "symbol": "Reject obsolete and foreign diff replies",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-review-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/GitReviewTest.kt",
+      "page": ".hickory-source/frontends/git-review-android.md",
+      "symbol": "Reject obsolete and foreign diff replies",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-review-browser-engine-witness",
+      "output": "scripts/test-simple-git-review-browser.py",
+      "page": ".hickory-source/frontends/git-review-browser.md",
+      "symbol": "Review saved Git state while retaining an unsaved editor",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-review-browser-view",
+      "output": "apps/web/src/simple/GitReview.tsx",
+      "page": ".hickory-source/frontends/git-review-browser.md",
+      "symbol": "Present the captured reading without moving code",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-review-apple-view",
+      "output": "apps/apple-simple/Sources/GitReview.swift",
+      "page": ".hickory-source/frontends/git-review-apple.md",
+      "symbol": "Present the captured reading without moving code",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-review-android-view",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/GitReview.kt",
+      "page": ".hickory-source/frontends/git-review-android.md",
+      "symbol": "Present the captured reading without moving code",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

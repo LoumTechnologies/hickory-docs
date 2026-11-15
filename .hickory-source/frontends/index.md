@@ -190,4 +190,10 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="action-chooser-browser-witness.md" />
 
+<ui:include file="git-review-browser.md" />
+
+<ui:include file="git-review-apple.md" />
+
+<ui:include file="git-review-android.md" />
+
 </ui:doc>

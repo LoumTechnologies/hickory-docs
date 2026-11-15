@@ -324,6 +324,12 @@ Menus and action search need one vocabulary and one availability decision. The s
     "label": "Move tab to next group",
     "group": "View",
     "requires": "multi"
+  },
+  {
+    "id": "workspace.review",
+    "label": "Repository changes",
+    "group": "View",
+    "requires": "always"
   }
 ]
 </ui:copy>

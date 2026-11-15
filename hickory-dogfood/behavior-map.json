@@ -70107,6 +70107,86 @@
       "fragments": [
         "source-undo-context-journal-tests"
       ]
+    },
+    "apps/web/src/simple/GitReview.tsx": {
+      "source": ".hickory-source/frontends/git-review-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "f51d31e218d6689b6bbf57a97798cf570bfc8770cf8fe7668d5117fd63b3a388",
+      "construction": "fragments",
+      "fragments": [
+        "simple-git-review-browser",
+        "simple-git-review-browser-view"
+      ]
+    },
+    "apps/apple-simple/Sources/GitReview.swift": {
+      "source": ".hickory-source/frontends/git-review-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "1f017cd9bf2446ebb3899c98776148d782cc65f70528a17b2a90e9679d65638f",
+      "construction": "fragments",
+      "fragments": [
+        "simple-git-review-apple",
+        "simple-git-review-apple-view"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/GitReview.kt": {
+      "source": ".hickory-source/frontends/git-review-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "459f47f290c3e4fa461b286609a6c7fcf62a1fc1493cfc495e7b17a0ec57bfaf",
+      "construction": "fragments",
+      "fragments": [
+        "simple-git-review-android",
+        "simple-git-review-android-view"
+      ]
+    },
+    "apps/web/src/simple/GitReview.test.ts": {
+      "source": ".hickory-source/frontends/git-review-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "simple-git-review-browser-tests"
+      ]
+    },
+    "apps/apple-simple/Tests/GitReviewTests.swift": {
+      "source": ".hickory-source/frontends/git-review-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "simple-git-review-apple-tests"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/GitReviewTest.kt": {
+      "source": ".hickory-source/frontends/git-review-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "simple-git-review-android-tests"
+      ]
+    },
+    "scripts/test-simple-git-review-browser.py": {
+      "source": ".hickory-source/frontends/git-review-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "simple-git-review-browser-engine-witness"
+      ]
     }
   },
   "evidence_records": [

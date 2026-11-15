@@ -44,6 +44,7 @@ struct WorkspaceView: View {
             }.font(.system(size: 11)).padding(.horizontal, 8).frame(height: 24)
         }
         .popover(isPresented:$workspace.showCoverage) {SimpleCoverageView(workspace:workspace).onKeyPress(.escape){workspace.showCoverage=false;workspace.currentBuffer?.focusSource?();return .handled}}
+        .popover(isPresented:$workspace.showReview) {GitReviewView(workspace:workspace).onKeyPress(.escape){workspace.showReview=false;workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:$workspace.showTests) {TestSourcesView(workspace:workspace).onKeyPress(.escape){workspace.showTests=false;workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:$workspace.showEverywhere) {SearchEverywhereView(workspace:workspace,commands:menuCommands)}
         .sheet(isPresented: Binding(get: { workspace.fileCommand != nil }, set: { if !$0 { workspace.fileCommand = nil; workspace.savingAll = false } })) {

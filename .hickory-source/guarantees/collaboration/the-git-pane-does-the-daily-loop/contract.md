@@ -553,7 +553,7 @@ pub struct DiffParams {
 <a id="f-900059e12d12-diff"></a>
 ### `diff`
 
-An untracked file has no staged diff. Return an empty staged view instead of displaying its working-tree contents as if they were in the index. Disable external diff and text-conversion drivers while reading literal file paths.
+An untracked file has no staged diff. Return an empty staged view instead of displaying its working-tree contents as if they were in the index. Disable external diff and text-conversion drivers while reading literal file paths. A failed read must not become an empty successful diff: only the expected nonempty no-index difference accepts Git’s status 1. The [simple review engine witness](../../../frontends/git-review-browser.md) removes a file between listing and comparison and checks the explicit failure while retaining an unsaved draft.
 
 `GET /api/git/diff?path=&staged=` — one file's diff, as git prints it.
 An untracked file is shown as wholly added.
@@ -601,6 +601,14 @@ pub async fn diff(
                 ],
             )?
         };
+        if !out.status.success()
+            && (tracked || out.status.code() != Some(1) || out.stdout.is_empty())
+        {
+            return Err(ApiError::unprocessable(format!(
+                "Git diff refused: {}. Refresh repository changes.",
+                String::from_utf8_lossy(&out.stderr).trim()
+            )));
+        }
         let text = String::from_utf8_lossy(&out.stdout).into_owned();
         let binary = text.lines().any(|l| l.starts_with("Binary files"));
         Ok(Json(

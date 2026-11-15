@@ -286,6 +286,14 @@ pub async fn diff(
                 ],
             )?
         };
+        if !out.status.success()
+            && (tracked || out.status.code() != Some(1) || out.stdout.is_empty())
+        {
+            return Err(ApiError::unprocessable(format!(
+                "Git diff refused: {}. Refresh repository changes.",
+                String::from_utf8_lossy(&out.stderr).trim()
+            )));
+        }
         let text = String::from_utf8_lossy(&out.stdout).into_owned();
         let binary = text.lines().any(|l| l.starts_with("Binary files"));
         Ok(Json(

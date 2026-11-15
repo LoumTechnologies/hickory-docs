@@ -315,6 +315,10 @@ try {
         }
         case "redo":await editor(request.path).press(process.platform==="darwin"?"Meta+Shift+z":"Control+y");break;
         case "type-source-selection":await editor(request.path).focus();await page.keyboard.insertText(request.text);break;
+        case "review-open":await menu("View","Repository changes");await page.waitForFunction(()=>{const text=document.querySelector('[role="dialog"][aria-label="Repository changes"] [role="status"]')?.textContent;return !!text&&!text.startsWith("Reading");});value=await page.getByRole("dialog",{name:"Repository changes",exact:true}).innerText();break;
+        case "review-select": {const panel=page.getByRole("dialog",{name:"Repository changes",exact:true});await panel.getByRole("button",{name:`${request.staged?'Staged':'Working tree'} ${request.path}`,exact:true}).click();await panel.getByRole("heading",{name:`${request.path} · ${request.staged?'Staged':'Working tree'}`,exact:true}).waitFor();await page.waitForFunction(()=>{const text=document.querySelector('[role="dialog"][aria-label="Repository changes"] [role="status"]')?.textContent;return !!text&&!text.startsWith("Reading");});value=await panel.getByLabel("Git diff",{exact:true}).innerText();break;}
+        case "review-status":value=await page.getByRole("dialog",{name:"Repository changes",exact:true}).getByRole("status").innerText();break;
+        case "review-close":await page.getByRole("dialog",{name:"Repository changes",exact:true}).getByRole("button",{name:"Close",exact:true}).click();break;
         case "template-next":await menu("Edit","Next template field");break;
         case "template-previous":await menu("Edit","Previous template field");break;
         case "template-choices":await menu("Edit","Choose template value");break;
