@@ -748,3 +748,247 @@ fn retained_compiler_sources_pin_later_analysis_without_materializing_or_leaking
     let ordinary = scan(root, &draft).unwrap();
     assert!(ordinary.source_texts.is_empty());
 }
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConstructionRequest {
+    pub entry: String,
+    #[serde(default)]
+    pub sources: BTreeMap<String, String>,
+    pub focus: Option<String>,
+}
+/// Read compiler relationships and changed outputs, without invoking execution or writes.
+fn construction_reading(root: &Path, request: ConstructionRequest) -> Result<Value, String> {
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|error| format!("Workspace unavailable: {error}. Reconnect and retry."))?;
+    let root = canonical_root.as_path();
+    let entry = relative(Path::new(""), &request.entry)?;
+    let focus = request
+        .focus
+        .map(|path| relative(Path::new(""), &path))
+        .transpose()?;
+    let baseline_source = saved_source(root, &entry)?;
+    let before = scan_with_sources(
+        root,
+        &Request {
+            path: entry.clone(),
+            source: baseline_source.clone(),
+            project_entry: Some(entry.clone()),
+            sources: BTreeMap::new(),
+            capture: false,
+        },
+        None,
+    )?;
+    let after = scan_with_sources(
+        root,
+        &Request {
+            path: entry.clone(),
+            source: request
+                .sources
+                .get(&entry)
+                .cloned()
+                .unwrap_or(baseline_source),
+            project_entry: Some(entry.clone()),
+            sources: request.sources,
+            capture: false,
+        },
+        Some(&before.source_texts),
+    )?;
+    let before_tree = before
+        .tree
+        .as_ref()
+        .ok_or("The selected entry did not construct a project tree.")?;
+    let after_tree = after
+        .tree
+        .as_ref()
+        .ok_or("The draft did not construct a project tree.")?;
+    let base = Path::new(&entry).parent().unwrap_or(Path::new(""));
+    let paths: BTreeSet<_> = before_tree
+        .entries()
+        .keys()
+        .chain(after_tree.entries().keys())
+        .cloned()
+        .collect();
+    let mut outputs = Vec::new();
+    let mut total = 0usize;
+    for path in paths {
+        let old = before_tree.get(&path);
+        let new = after_tree.get(&path);
+        let target = relative(base, &path)?;
+        let mut contributors = BTreeSet::new();
+        let mut origins = Vec::new();
+        for (phase, output, sources) in [
+            ("before", old, &before.source_texts),
+            ("after", new, &after.source_texts),
+        ] {
+            if let Some(output) = output {
+                for origin in &output.origins {
+                    let source_path = relative(base, &origin.document)?;
+                    contributors.insert(source_path.clone());
+                    let source = sources.get(&source_path);
+                    let exact = source
+                        .and_then(|text| text.as_bytes().get(origin.source.0..origin.source.1))
+                        .zip(output.bytes.get(origin.output.0..origin.output.1))
+                        .is_some_and(|(a, b)| a == b);
+                    if origins.len() < 100 {
+                        origins.push(
+                            json!({"phase":phase,"path":source_path,"source_bytes":origin.source,
+                            "output_bytes":origin.output,"exact":exact,
+                            "source_hash":source.map(|text|digest(text.as_bytes()))}),
+                        );
+                    }
+                }
+            }
+        }
+        if focus
+            .as_ref()
+            .is_some_and(|focus| focus != &target && !contributors.contains(focus))
+        {
+            continue;
+        }
+        total += 1;
+        if outputs.len() >= 300 {
+            continue;
+        }
+        let change = match (old, new) {
+            (None, Some(_)) => "added",
+            (Some(_), None) => "deleted",
+            (Some(a), Some(b)) if a.same_output(b) => "unchanged",
+            _ => "modified",
+        };
+        let snapshot = |item: Option<&std::sync::Arc<hick_lang::ProjectEntry>>| {
+            item.map(|item| {
+            let text = std::str::from_utf8(&item.bytes).ok();
+            json!({"hash":digest(&item.bytes),"kind":format!("{:?}",item.kind),"executable":item.executable,
+                "size":item.bytes.len(),"preview":text.map(|text|text.chars().take(2000).collect::<String>()),
+                "preview_truncated":text.is_some_and(|text|text.chars().count()>2000)})
+        })
+        };
+        let origin_count =
+            old.map_or(0, |item| item.origins.len()) + new.map_or(0, |item| item.origins.len());
+        outputs.push(
+            json!({"path":target,"change":change,"before":snapshot(old),"after":snapshot(new),
+            "contributors":contributors,"origins":origins,"origins_truncated":origin_count>100}),
+        );
+    }
+    let tests: Vec<_> = after
+        .candidates
+        .iter()
+        .filter(|test| {
+            focus.as_ref().is_none_or(|focus| {
+                test.source
+                    .as_ref()
+                    .is_some_and(|source| &source.path == focus)
+                    || &test.target.path == focus
+            })
+        })
+        .collect();
+    Ok(
+        json!({"version":1,"entry":entry,"focus":focus,"workspace_id":after.workspace_id,
+        "before_sources":before.source_hashes,"after_sources":after.source_hashes,
+        "outputs":outputs,"output_count":total,"outputs_truncated":total>300,
+        "tests":tests.iter().take(300).collect::<Vec<_>>(),"test_count":tests.len(),"tests_truncated":tests.len()>300,
+        "test_relationship":"detected declaration; not coverage or execution evidence",
+        "evidence_status":"not_queried","materialized":false,"notices":after.notices,
+        "unused_sources":after.unused_sources}),
+    )
+}
+pub async fn inspect_construction(
+    State(state): State<LocalState>,
+    Json(request): Json<ConstructionRequest>,
+) -> ApiResult<Json<Value>> {
+    let root = state.index.root().to_path_buf();
+    tokio::task::spawn_blocking(move || construction_reading(&root, request))
+        .await
+        .map_err(|error| {
+            ApiError::internal(format!(
+                "Construction reading failed: {error}. Refresh and retry."
+            ))
+        })?
+        .map(Json)
+        .map_err(ApiError::unprocessable)
+}
+#[cfg(test)]
+#[test]
+fn construction_reading_compares_drafts_without_writing_or_claiming_evidence() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let entry = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"part.md\"/></h:doc>";
+    let part = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:copy id=\"body\">one</h:copy><h:file path=\"output.txt\"><h:paste select=\"#body\"/></h:file></h:doc>";
+    std::fs::write(root.join("entry.md"), entry).unwrap();
+    std::fs::write(root.join("part.md"), part).unwrap();
+    let reading = construction_reading(
+        root,
+        ConstructionRequest {
+            entry: "entry.md".into(),
+            sources: BTreeMap::from([("part.md".into(), part.replace("one", "two"))]),
+            focus: Some("part.md".into()),
+        },
+    )
+    .unwrap();
+    assert_eq!(reading["outputs"][0]["change"], "modified");
+    assert_eq!(reading["outputs"][0]["before"]["preview"], "one");
+    assert_eq!(reading["outputs"][0]["after"]["preview"], "two");
+    assert_eq!(reading["evidence_status"], "not_queried");
+    assert_eq!(reading["materialized"], false);
+    assert!(
+        reading["outputs"][0]["origins"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|origin| origin["exact"] == true)
+    );
+    assert!(!root.join("output.txt").exists());
+    assert_eq!(std::fs::read_to_string(root.join("part.md")).unwrap(), part);
+    assert!(
+        construction_reading(
+            root,
+            ConstructionRequest {
+                entry: "../entry.md".into(),
+                sources: BTreeMap::new(),
+                focus: None
+            }
+        )
+        .is_err()
+    );
+}
+#[cfg(test)]
+#[test]
+fn construction_reading_reports_additions_deletions_and_invalid_drafts() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let entry = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"part.md\"/></h:doc>";
+    let part = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:file path=\"old.txt\">saved</h:file></h:doc>";
+    std::fs::write(root.join("entry.md"), entry).unwrap();
+    std::fs::write(root.join("part.md"), part).unwrap();
+    let reading = construction_reading(
+        root,
+        ConstructionRequest {
+            entry: "entry.md".into(),
+            sources: BTreeMap::from([("part.md".into(), part.replace("old.txt", "new.txt"))]),
+            focus: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(reading["outputs"][0]["path"], "new.txt");
+    assert_eq!(reading["outputs"][0]["change"], "added");
+    assert_eq!(reading["outputs"][1]["path"], "old.txt");
+    assert_eq!(reading["outputs"][1]["change"], "deleted");
+    assert!(
+        construction_reading(
+            root,
+            ConstructionRequest {
+                entry: "entry.md".into(),
+                sources: BTreeMap::from([(
+                    "part.md".into(),
+                    part.replace("old.txt", "../outside.txt")
+                )]),
+                focus: None
+            }
+        )
+        .is_err()
+    );
+    assert_eq!(std::fs::read_to_string(root.join("part.md")).unwrap(), part);
+    assert!(!root.join("new.txt").exists());
+    assert!(!root.join("old.txt").exists());
+}

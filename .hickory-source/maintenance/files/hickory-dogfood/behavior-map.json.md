@@ -68735,7 +68735,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "source-test-service-project-witness",
         "source-test-service-scope-witness",
         "source-test-service-test-suffix",
-        "source-test-retained-input-context-witness"
+        "source-test-retained-input-context-witness",
+        "construction-reading-compiler-impact"
       ]
     },
     "apps/web/src/api/testSources.ts": {

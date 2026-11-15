@@ -153362,6 +153362,13 @@
       "page": ".hickory-source/mechanisms/test-source-service.md",
       "symbol": "Pin exact consumed inputs without running or materializing",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "construction-reading-compiler-impact",
+      "output": "crates/hickory-cli/src/serve/source_tests.rs",
+      "page": ".hickory-source/mechanisms/test-source-service.md",
+      "symbol": "Read compiler contributions and draft consequences",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

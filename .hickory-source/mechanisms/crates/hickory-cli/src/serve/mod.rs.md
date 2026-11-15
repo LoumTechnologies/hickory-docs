@@ -1366,6 +1366,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/environments/manager", put(environments::choose))
         .route("/tests/run", post(test_run::run))
         .route("/tests/source-candidates",post(source_tests::inspect).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
+        .route("/construction/reading",post(source_tests::inspect_construction).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
         .route("/tests/run-source",post(source_tests::run).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
         .route(
             "/performance",
