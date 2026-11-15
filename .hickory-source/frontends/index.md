@@ -208,4 +208,10 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="git-attribution-android.md" />
 
+<ui:include file="construction-reading-browser.md" />
+
+<ui:include file="construction-reading-apple.md" />
+
+<ui:include file="construction-reading-android.md" />
+
 </ui:doc>

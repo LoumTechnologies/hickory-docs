@@ -70327,6 +70327,86 @@
       "fragments": [
         "simple-git-attribution-android-tests"
       ]
+    },
+    "apps/web/src/simple/ConstructionReading.tsx": {
+      "source": ".hickory-source/frontends/construction-reading-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "767e954064b17d55966e7778a58952195de011d16497aa9e9becfc8341ce7673",
+      "construction": "fragments",
+      "fragments": [
+        "construction-reading-browser-model",
+        "construction-reading-browser-view"
+      ]
+    },
+    "apps/apple-simple/Sources/ConstructionReading.swift": {
+      "source": ".hickory-source/frontends/construction-reading-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "5d4fdcce521c04ea4d6501b94de1296a910ec3c60049fae0ceff46f056eaa4ba",
+      "construction": "fragments",
+      "fragments": [
+        "construction-reading-apple-model",
+        "construction-reading-apple-view"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/ConstructionReading.kt": {
+      "source": ".hickory-source/frontends/construction-reading-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "134ec0f0898a22c8abe3733664b209958cf0dd96f58e36a7481aa3d7b13ccd20",
+      "construction": "fragments",
+      "fragments": [
+        "construction-reading-android-model",
+        "construction-reading-android-view"
+      ]
+    },
+    "apps/web/src/simple/ConstructionReading.test.ts": {
+      "source": ".hickory-source/frontends/construction-reading-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "construction-reading-browser-lifetime-witness"
+      ]
+    },
+    "apps/apple-simple/Tests/ConstructionReadingTests.swift": {
+      "source": ".hickory-source/frontends/construction-reading-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "construction-reading-apple-lifetime-witness"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/ConstructionReadingTest.kt": {
+      "source": ".hickory-source/frontends/construction-reading-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "construction-reading-android-lifetime-witness"
+      ]
+    },
+    "scripts/test-simple-construction-browser.py": {
+      "source": ".hickory-source/frontends/construction-reading-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "construction-reading-browser-real-engine"
+      ]
     }
   },
   "evidence_records": [

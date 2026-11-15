@@ -120,6 +120,12 @@
     "requires": "always"
   },
   {
+    "id": "workspace.construction",
+    "label": "Construction reading",
+    "group": "View",
+    "requires": "always"
+  },
+  {
     "id": "workspace.tests",
     "label": "Source tests",
     "group": "Edit",

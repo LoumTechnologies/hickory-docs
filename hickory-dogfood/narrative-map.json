@@ -153369,6 +153369,76 @@
       "page": ".hickory-source/mechanisms/test-source-service.md",
       "symbol": "Read compiler contributions and draft consequences",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "construction-reading-browser-model",
+      "output": "apps/web/src/simple/ConstructionReading.tsx",
+      "page": ".hickory-source/frontends/construction-reading-browser.md",
+      "symbol": "construction-reading-browser-model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "construction-reading-browser-view",
+      "output": "apps/web/src/simple/ConstructionReading.tsx",
+      "page": ".hickory-source/frontends/construction-reading-browser.md",
+      "symbol": "Compare captured outputs without resizing the editor",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "construction-reading-apple-model",
+      "output": "apps/apple-simple/Sources/ConstructionReading.swift",
+      "page": ".hickory-source/frontends/construction-reading-apple.md",
+      "symbol": "construction-reading-apple-model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "construction-reading-apple-view",
+      "output": "apps/apple-simple/Sources/ConstructionReading.swift",
+      "page": ".hickory-source/frontends/construction-reading-apple.md",
+      "symbol": "Compare captured outputs without resizing the editor",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "construction-reading-android-model",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/ConstructionReading.kt",
+      "page": ".hickory-source/frontends/construction-reading-android.md",
+      "symbol": "construction-reading-android-model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "construction-reading-android-view",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/ConstructionReading.kt",
+      "page": ".hickory-source/frontends/construction-reading-android.md",
+      "symbol": "Compare captured outputs without resizing the editor",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "construction-reading-browser-lifetime-witness",
+      "output": "apps/web/src/simple/ConstructionReading.test.ts",
+      "page": ".hickory-source/frontends/construction-reading-browser.md",
+      "symbol": "Retire replaced and closed readings",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "construction-reading-apple-lifetime-witness",
+      "output": "apps/apple-simple/Tests/ConstructionReadingTests.swift",
+      "page": ".hickory-source/frontends/construction-reading-apple.md",
+      "symbol": "Retire replaced and closed readings",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "construction-reading-android-lifetime-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/ConstructionReadingTest.kt",
+      "page": ".hickory-source/frontends/construction-reading-android.md",
+      "symbol": "Retire replaced and closed readings",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "construction-reading-browser-real-engine",
+      "output": "scripts/test-simple-construction-browser.py",
+      "page": ".hickory-source/frontends/construction-reading-browser.md",
+      "symbol": "Read draft consequences through the actual menu",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

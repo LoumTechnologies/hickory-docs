@@ -56,6 +56,14 @@ File, Edit and View/Panes menus now consume the same command values as action se
 
 Browser acceptance `--search-everywhere-only` passed against real Python language services for menu and keyboard entry, disabled action reasons, type/member search, exact declaration columns, action-to-Problems transition, stale-type retirement, retained editor identity/drafts/geometry and unchanged disk. Focused search/command models passed on all three implementations. A real macOS AppKit/SwiftUI view witness passed Down/Return selection and retained-draft opening. The iOS simulator build and Android compilation passed separately; native device pointer, IME and assistive-technology acceptance remain unverified.
 
+## Captured construction readings
+
+View → Construction reading opens a floating reader on browser, macOS, iOS and Android. An explicit Markdown entry compares its saved construction with retained authored drafts over pinned compiler inputs. Optional contributor/output focus restricts the reading. Added, deleted and modified outputs retain byte hashes, file kind and executable metadata. Saved/draft previews describe constructed trees; the reader does not materialize them or save source. A failed baseline or draft refuses instead of reporting an empty impact.
+
+Compiler contribution ranges retain source/output byte offsets and distinguish equal byte slices from unconfirmed reported origins. The response bounds output and test pages at 300, origins at 100 per output, and text previews at 2,000 characters, with explicit truncation. Detected test declarations are separate from execution/coverage evidence, whose status is not queried. These are construction relationships, not a complete semantic dependency or verification graph. This reader does not authorize edits or invent navigable source positions from byte ranges.
+
+Focused reader lifetime checks passed on browser, Apple and Android; TypeScript checking and the iOS simulator build passed. The real-engine browser witness checked retained draft consequences, both compiler preview sides, editor identity and dimensions, unchanged saved sources and absent generated materialization. Native physical input, IME and accessibility acceptance remain unverified.
+
 ## Existing and extended editor behavior
 
 Given a reachable existing Hickory engine, each frontend exposes the same four pane kinds: files, text document, workspace agent and terminal. Plain and literate source open as text. Generated outputs open read-only in this slice. File and pane commands remain in menus or tab strips; editor content has no permanent feature toolbar.
