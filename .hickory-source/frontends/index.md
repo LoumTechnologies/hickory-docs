@@ -224,4 +224,6 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="workspace-change-events-browser.md" />
 
+<ui:include file="source-recovery.md" />
+
 </ui:doc>

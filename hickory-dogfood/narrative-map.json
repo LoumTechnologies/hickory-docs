@@ -154062,6 +154062,90 @@
       "page": ".hickory-source/mechanisms/resource-saves.md",
       "symbol": "Return editor baselines without a second file read",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-recovery-discovery",
+      "output": "crates/hickory-cli/src/serve/resource_journal.rs",
+      "page": ".hickory-source/mechanisms/resource-journal.md",
+      "symbol": "Discover retained identities without replay",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-recovery-list-route",
+      "output": "crates/hickory-cli/src/serve/resource_recovery_api.rs",
+      "page": ".hickory-source/mechanisms/resource-recovery-api.md",
+      "symbol": "Read a bounded discovery page under the held workspace",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-recovery-browser-0",
+      "output": "apps/web/src/simple/SourceRecovery.tsx",
+      "page": ".hickory-source/frontends/source-recovery.md",
+      "symbol": "source-recovery-browser-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-recovery-browser-1",
+      "output": "apps/web/src/simple/SourceRecovery.tsx",
+      "page": ".hickory-source/frontends/source-recovery.md",
+      "symbol": "source-recovery-browser-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-recovery-apple-0",
+      "output": "apps/apple-simple/Sources/SourceRecovery.swift",
+      "page": ".hickory-source/frontends/source-recovery.md",
+      "symbol": "source-recovery-apple-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-recovery-apple-1",
+      "output": "apps/apple-simple/Sources/SourceRecovery.swift",
+      "page": ".hickory-source/frontends/source-recovery.md",
+      "symbol": "source-recovery-apple-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-recovery-android-0",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceRecovery.kt",
+      "page": ".hickory-source/frontends/source-recovery.md",
+      "symbol": "source-recovery-android-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-recovery-android-1",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceRecovery.kt",
+      "page": ".hickory-source/frontends/source-recovery.md",
+      "symbol": "source-recovery-android-1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-recovery-browser-test-0",
+      "output": "apps/web/src/simple/SourceRecovery.test.ts",
+      "page": ".hickory-source/frontends/source-recovery.md",
+      "symbol": "source-recovery-browser-test-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-recovery-apple-test-0",
+      "output": "apps/apple-simple/Tests/SourceRecoveryTests.swift",
+      "page": ".hickory-source/frontends/source-recovery.md",
+      "symbol": "source-recovery-apple-test-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-recovery-android-test-0",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SourceRecoveryTest.kt",
+      "page": ".hickory-source/frontends/source-recovery.md",
+      "symbol": "source-recovery-android-test-0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-recovery-browser-service-witness",
+      "output": "scripts/test-simple-recovery-browser.py",
+      "page": ".hickory-source/frontends/source-recovery.md",
+      "symbol": "Read recovery through the existing View menu",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

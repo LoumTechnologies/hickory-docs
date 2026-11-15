@@ -134,6 +134,12 @@ Menus and action search need one vocabulary and one availability decision. The s
     "requires": "always"
   },
   {
+    "id": "workspace.recovery",
+    "label": "Source recovery",
+    "group": "View",
+    "requires": "always"
+  },
+  {
     "id": "workspace.construction",
     "label": "Construction reading",
     "group": "View",

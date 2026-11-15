@@ -917,5 +917,132 @@ impl Manifest {
 }
 </ui:copy>
 
-<ui:file path="crates/hickory-cli/src/serve/resource_journal.rs"><ui:paste select="#resource-save-recovery-record"/><ui:paste select="#resource-journal-review-integrity-test"/><ui:paste select="#resource-journal-from-review"/><ui:paste select="#resource-recovery-reading"/><ui:paste select="#resource-recovery-reading-tests"/><ui:paste select="#resource-restoration-record"/></ui:file>
+## Discover retained identities without replay
+
+A recovery reading must be reachable after the originating HTTP response or engine session is lost. List bounded ordinary batch directories without opening their source snapshots. A directory identity is a discovery hint, not validated evidence or permission to restore; selecting it still runs the complete record reader. Cursor pages sort exact ASCII identities and never imply chronological order. Missing history is empty; symlink parents refuse. Hold and recheck existing parents around enumeration, and refuse an oversized scan rather than silently choosing a filesystem-dependent subset.
+
+<ui:copy id="resource-recovery-discovery">
+#[derive(Serialize)]
+pub struct RecoveryPage {
+    pub ids: Vec<String>,
+    pub next: Option<String>,
+    pub ignored: usize,
+}
+pub fn list_recoveries(root: &Path, after: Option<&str>) -> Result<RecoveryPage, String> {
+    let valid = |id: &str| {
+        id.len() == 32
+            && id
+                .bytes()
+                .all(|byte| matches!(byte,b'0'..=b'9'|b'a'..=b'f'))
+    };
+    if after.is_some_and(|id| !valid(id)) {
+        return Err("Recovery cursor must be an exact retained identity.".into());
+    }
+    let cache = root.join(".hick-cache");
+    let changes = cache.join("resource-changes");
+    let mut held = Vec::new();
+    for path in [&cache, &changes] {
+        let metadata = match std::fs::symlink_metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(RecoveryPage {
+                    ids: Vec::new(),
+                    next: None,
+                    ignored: 0,
+                });
+            }
+            Err(error) => return Err(format!("Recovery directory is unavailable: {error}")),
+        };
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err("Recovery path is not an ordinary directory.".into());
+        }
+        held.push(same_file::Handle::from_path(path).map_err(|error| error.to_string())?);
+    }
+    let mut ids = Vec::new();
+    let mut ignored = 0;
+    for (index, entry) in std::fs::read_dir(&changes)
+        .map_err(|error| error.to_string())?
+        .enumerate()
+    {
+        if index >= 20_000 {
+            return Err("Recovery history exceeds its interactive discovery budget. Inspect retained history on disk.".into());
+        }
+        let entry = entry.map_err(|error| error.to_string())?;
+        let kind = entry.file_type().map_err(|error| error.to_string())?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            ignored += 1;
+            continue;
+        };
+        if !valid(name) || !kind.is_dir() || kind.is_symlink() {
+            ignored += 1;
+            continue;
+        }
+        if after.is_none_or(|cursor| name > cursor) {
+            ids.push(name.to_string());
+        }
+    }
+    for (path, expected) in [&cache, &changes].into_iter().zip(held) {
+        let metadata = std::fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+        if !metadata.is_dir()
+            || metadata.file_type().is_symlink()
+            || same_file::Handle::from_path(path).map_err(|error| error.to_string())? != expected
+        {
+            return Err(
+                "Recovery history changed while listing. Refresh before selecting a record.".into(),
+            );
+        }
+    }
+    ids.sort();
+    let more = ids.len() > 100;
+    ids.truncate(100);
+    let next = if more { ids.last().cloned() } else { None };
+    Ok(RecoveryPage { ids, next, ignored })
+}
+#[cfg(test)]
+mod discovery_tests {
+    use super::*;
+    #[test]
+    fn missing_history_is_read_only_and_pages_are_exact_sorted_identities() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(list_recoveries(root.path(), None).unwrap().ids.is_empty());
+        assert!(!root.path().join(".hick-cache").exists());
+        let changes = root.path().join(".hick-cache/resource-changes");
+        std::fs::create_dir_all(&changes).unwrap();
+        for n in (0..102).rev() {
+            std::fs::create_dir(changes.join(format!("{n:032x}"))).unwrap();
+        }
+        std::fs::write(changes.join("not-a-record"), "keep").unwrap();
+        let first = list_recoveries(root.path(), None).unwrap();
+        assert_eq!(first.ids.len(), 100);
+        assert_eq!(first.ids[0], format!("{:032x}", 0));
+        assert_eq!(first.ignored, 1);
+        let second = list_recoveries(root.path(), first.next.as_deref()).unwrap();
+        assert_eq!(
+            second.ids,
+            vec![format!("{:032x}", 100), format!("{:032x}", 101)]
+        );
+        assert!(second.next.is_none());
+        assert!(list_recoveries(root.path(), Some("../outside")).is_err());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn discovery_refuses_symlink_parents_and_ignores_symlink_batches() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join(".hick-cache")).unwrap();
+        assert!(list_recoveries(root.path(), None).is_err());
+        std::fs::remove_file(root.path().join(".hick-cache")).unwrap();
+        let changes = root.path().join(".hick-cache/resource-changes");
+        std::fs::create_dir_all(&changes).unwrap();
+        std::os::unix::fs::symlink(outside.path(), changes.join("a".repeat(32))).unwrap();
+        let page = list_recoveries(root.path(), None).unwrap();
+        assert!(page.ids.is_empty());
+        assert_eq!(page.ignored, 1);
+        assert!(std::fs::read_dir(outside.path()).unwrap().next().is_none());
+    }
+}
+</ui:copy>
+
+<ui:file path="crates/hickory-cli/src/serve/resource_journal.rs"><ui:paste select="#resource-save-recovery-record"/><ui:paste select="#resource-journal-review-integrity-test"/><ui:paste select="#resource-journal-from-review"/><ui:paste select="#resource-recovery-reading"/><ui:paste select="#resource-recovery-reading-tests"/><ui:paste select="#resource-restoration-record"/><ui:paste select="#resource-recovery-discovery"/></ui:file>
 </ui:doc>

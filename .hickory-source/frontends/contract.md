@@ -849,4 +849,22 @@ outcome/attempt, four write-gate and four startup cases pass. Invalid historical
 draft layers, partial-state recovery, persistent interrupted-request discovery and
 frontend namespace/undo adoption remain outstanding across the simple platforms.
 
+## Read retained resource recovery through existing menus
+
+All simple hosts expose **View → Source recovery** as a floating reading over the
+existing editor. The shared engine lists bounded, sorted recovery identities
+without claiming time order or successful publication. Selecting one validates
+the retained evidence; snapshots distinguish saved baselines from dirty drafts,
+before from after, and empty text from absence. Readers reject retired requests,
+changed workspace sessions and mixed evidence fingerprints. Discovery/inspection
+remain independent of unrelated workspace preparation and do not authorize writes.
+
+The real browser witness passes exact named snapshot selection and preservation
+of editor identity, dimensions, newer dirty text and undo/redo. Two focused model
+cases pass per frontend, two shared-store discovery cases pass, and TypeScript,
+Apple/Android compilation and the iOS simulator build pass. The service witness
+also reads discovery and separate saved/draft text through the actual engine.
+These checks establish a recovery reading, not frontend restoration, ordinary-save
+local history, crash/session recovery or native physical-input acceptance.
+
 </ui:doc>

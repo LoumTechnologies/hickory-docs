@@ -70619,7 +70619,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "resource-journal-from-review",
         "resource-recovery-reading",
         "resource-recovery-reading-tests",
-        "resource-restoration-record"
+        "resource-restoration-record",
+        "resource-recovery-discovery"
       ]
     },
     "crates/hickory-cli/src/serve/resource_candidates.rs": {
@@ -70691,7 +70692,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "resource-recovery-api-preparation",
         "resource-recovery-api-publication",
-        "resource-recovery-api-inspection"
+        "resource-recovery-api-inspection",
+        "resource-recovery-list-route"
       ]
     },
     "scripts/test-resource-entry-restoration-service.py": {
@@ -70703,6 +70705,86 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "resource-recovery-entry-service-witness"
+      ]
+    },
+    "apps/web/src/simple/SourceRecovery.tsx": {
+      "source": ".hickory-source/frontends/source-recovery.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "c4827186d83c5dab88bc3783653abc7d58c77c383da8b2baba5595f26ae98540",
+      "construction": "fragments",
+      "fragments": [
+        "source-recovery-browser-0",
+        "source-recovery-browser-1"
+      ]
+    },
+    "apps/apple-simple/Sources/SourceRecovery.swift": {
+      "source": ".hickory-source/frontends/source-recovery.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "83a966ca43a3c587d75d6e594eaa5667efa3f03dacfe66cd19b8bd7fa2174505",
+      "construction": "fragments",
+      "fragments": [
+        "source-recovery-apple-0",
+        "source-recovery-apple-1"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceRecovery.kt": {
+      "source": ".hickory-source/frontends/source-recovery.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "e0ccd7238360e36ddc49f7d3c61f0a990926ef0a5f44fa6aac2cc82f6aa1cef9",
+      "construction": "fragments",
+      "fragments": [
+        "source-recovery-android-0",
+        "source-recovery-android-1"
+      ]
+    },
+    "apps/web/src/simple/SourceRecovery.test.ts": {
+      "source": ".hickory-source/frontends/source-recovery.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "ddfa891d38c48216a7dcc69e41c3c1e81c04598a8f557a1512f2474335ebecdb",
+      "construction": "fragments",
+      "fragments": [
+        "source-recovery-browser-test-0"
+      ]
+    },
+    "apps/apple-simple/Tests/SourceRecoveryTests.swift": {
+      "source": ".hickory-source/frontends/source-recovery.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "4ff342feb20f2a93ee979e1ecc389738bbb8940be76e63e7e401fa3c85da0d7b",
+      "construction": "fragments",
+      "fragments": [
+        "source-recovery-apple-test-0"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SourceRecoveryTest.kt": {
+      "source": ".hickory-source/frontends/source-recovery.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "6a468b2384496ec29d3182f0ed8bd9cc4cb928625e2c8ce419b81ad9add1bee9",
+      "construction": "fragments",
+      "fragments": [
+        "source-recovery-android-test-0"
+      ]
+    },
+    "scripts/test-simple-recovery-browser.py": {
+      "source": ".hickory-source/frontends/source-recovery.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "e0fa1eaf99ad257df37bd0f26e5e4914a7672aab41e418c2a4d21a92c1b90d7a",
+      "construction": "fragments",
+      "fragments": [
+        "source-recovery-browser-service-witness"
       ]
     }
   },

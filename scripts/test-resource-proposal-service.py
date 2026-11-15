@@ -49,6 +49,8 @@ def main():
    output=next(item for item in reading["outputs"] if item["path"]=="main-generated.py");assert output["before"]["preview"]=="main" and output["after"]["preview"]=="moved"
    assert (root/"part.md").read_text()==part and (root/"project.md").read_text()==entry and not (root/"moved.md").exists()
    assert (root/"a.py").read_bytes()==saved.encode();assert not (root/"b.py").exists()
+   with urllib.request.urlopen(origin+"/api/changes/resource-recoveries",timeout=30) as reply:
+    empty=json.load(reply);assert empty["ids"]==[] and empty["next"] is None
    records=root/".hick-cache"/"resource-changes"
    existing=set(records.iterdir()) if records.exists() else set()
    rejected={"request_id":"2"*32,"reviewed_fingerprint":consequences2["fingerprint"],"proposal":{"inputs":inputs2,"capture":capture2,"plan":plan2}}
@@ -63,6 +65,12 @@ def main():
    receipts={item["file"]["path"]:item for item in saved_result["source_files"]}
    with urllib.request.urlopen(origin+"/api/file?path=b.py",timeout=30) as reply:assert receipts["b.py"]["hash"]==json.load(reply)["hash"]
    assert receipts["b.py"]["saved"]["text"]=="renamed\n# unsaved draft\n" and receipts["b.py"]["file"]["name"]=="b.py"
+   with urllib.request.urlopen(origin+"/api/changes/resource-recoveries",timeout=30) as reply:
+    discovered=json.load(reply);assert discovered["workspace"]==reviewed_save["proposal"]["inputs"]["workspace"] and discovered["ids"]==[Path(outcome["recovery"]).parent.name]
+   record_id=discovered["ids"][0]
+   for query,key,expected in [("saved=before","saved_text",saved),("draft=before","draft_text",draft)]:
+    with urllib.request.urlopen(origin+"/api/changes/resource-recovery?id="+record_id+"&path=a.py&"+query,timeout=30) as reply:assert json.load(reply)[key]==expected
+
    record=json.loads((root/outcome["recovery"]).read_text());assert record["version"]==2 and record["before"]["a.py"]["text"]==saved
    assert next(patch for patch in record["reviewed_plan"]["patches"] if patch["path"]=="a.py")["before"]["text"]==draft
    after=set(records.iterdir());assert len(after-existing)==1

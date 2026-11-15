@@ -373,6 +373,7 @@ pub(super) fn editor_bootstrap(path: &str, method: &axum::http::Method) -> bool 
                     | "/api/projects"
                     | "/api/prediction/state"
                     | "/api/changes/resource-recovery"
+                    | "/api/changes/resource-recoveries"
             ) | (
                 &Method::GET | &Method::PUT | &Method::DELETE,
                 "/api/workspace/ui" | "/api/workspace/drafts"
@@ -453,6 +454,7 @@ mod raw_source_tests {
             for path in [
                 "/api/file",
                 "/api/changes/resource-recovery",
+                "/api/changes/resource-recoveries",
                 "/api/docs/source.md",
                 "/api/docs/dir%2Fsource.md",
             ] {

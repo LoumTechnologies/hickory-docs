@@ -1384,6 +1384,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/changes/resource-consequences",post(resource_candidates::inspect).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
         .route("/changes/resource-save",get(resource_saves::status).post(resource_saves::save).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
         .route("/changes/resource-recovery",get(resource_recovery_api::inspect))
+        .route("/changes/resource-recoveries",get(resource_recovery_api::list))
         .route("/changes/prepare-restoration",post(resource_recovery_api::prepare).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
         .route("/changes/restore-resources",post(resource_recovery_api::restore).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
         .route("/changes/resource-inputs",post(resource_inputs::inspect).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))

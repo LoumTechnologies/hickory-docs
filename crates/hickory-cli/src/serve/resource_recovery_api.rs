@@ -168,6 +168,7 @@ pub struct InspectRequest {
     pub id: String,
     pub path: Option<String>,
     pub draft: Option<DraftSide>,
+    pub saved: Option<DraftSide>,
 }
 fn saved_summary(source: &SavedSource) -> Value {
     match source {
@@ -192,7 +193,7 @@ fn draft_summary(source: &SourceState) -> Value {
     }
 }
 fn summary(recovery: Recovery, query: InspectRequest, workspace: &str) -> Result<Value, String> {
-    if query.draft.is_some() && query.path.is_none() {
+    if (query.draft.is_some() || query.saved.is_some()) && query.path.is_none() {
         return Err("Select a recorded source path before requesting its draft text.".into());
     }
     if query
@@ -202,11 +203,23 @@ fn summary(recovery: Recovery, query: InspectRequest, workspace: &str) -> Result
     {
         return Err("The selected source is not part of this recovery record.".into());
     }
+    if query.draft.is_some() && query.saved.is_some() {
+        return Err("Select either a saved baseline or a dirty draft.".into());
+    }
     let mut paths = Vec::new();
     let mut text = None;
+    let mut saved_text = None;
     for patch in &recovery.manifest.reviewed_plan.patches {
         paths.push(json!({"path":patch.path,"saved_before":saved_summary(&recovery.manifest.before[&patch.path]),"saved_after":saved_summary(&recovery.manifest.after[&patch.path]),"draft_before":draft_summary(&patch.before),"draft_after":draft_summary(&patch.after)}));
         if query.path.as_ref() == Some(&patch.path) {
+            let saved = match query.saved {
+                Some(DraftSide::Before) => Some(&recovery.manifest.before[&patch.path]),
+                Some(DraftSide::After) => Some(&recovery.manifest.after[&patch.path]),
+                None => None,
+            };
+            if let Some(SavedSource::File { text: source, .. }) = saved {
+                saved_text = Some(source.clone());
+            }
             let draft = match query.draft {
                 Some(DraftSide::Before) => Some(&patch.before),
                 Some(DraftSide::After) => Some(&patch.after),
@@ -220,7 +233,7 @@ fn summary(recovery: Recovery, query: InspectRequest, workspace: &str) -> Result
     Ok(
         json!({"version":1,"workspace":workspace,"id":recovery.id,"fingerprint":recovery.fingerprint,"manifest_sha256":recovery.manifest_sha256,
         "recorded_workspace":recovery.manifest.workspace,"record_version":recovery.manifest.version,"restore_of":recovery.manifest.restore_of,"context":recovery.manifest.context,"title":recovery.manifest.title.chars().take(256).collect::<String>(),"title_truncated":recovery.manifest.title.chars().count()>256,
-        "paths":paths,"receipts":recovery.receipts,"unrecognized_files":recovery.unrecognized_files,"all_paths_recorded_applied":recovery.all_paths_recorded_applied,"draft_text":text}),
+        "paths":paths,"receipts":recovery.receipts,"unrecognized_files":recovery.unrecognized_files,"all_paths_recorded_applied":recovery.all_paths_recorded_applied,"draft_text":text,"saved_text":saved_text}),
     )
 }
 static READS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
@@ -257,4 +270,30 @@ pub async fn inspect(
     .map_err(|error| ApiError::internal(format!("Recovery inspection stopped: {error}")))?
     .map(Json)
     .map_err(ApiError::conflict)
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ListRequest {
+    pub after: Option<String>,
+}
+pub async fn list(
+    State(state): State<LocalState>,
+    Query(query): Query<ListRequest>,
+) -> ApiResult<Json<Value>> {
+    state
+        .resource_root
+        .ready()
+        .await
+        .map_err(ApiError::unavailable)?;
+    let permit = READS.try_acquire().map_err(|_| {
+        ApiError::conflict("Recovery inspection is busy. Let the current read finish.")
+    })?;
+    let root = state.index.root().to_path_buf();
+    let identity = state.resource_root.clone();
+    tokio::task::spawn_blocking(move || {
+  let _permit=permit;let workspace=identity.check(&root)?.to_string();
+  let page=super::resource_journal::list_recoveries(&root,query.after.as_deref())?;
+  if identity.check(&root)?!=workspace{return Err("Workspace changed while listing recovery. Reconnect and refresh.".to_string());}
+  Ok(serde_json::json!({"version":1,"workspace":workspace,"ids":page.ids,"next":page.next,"ignored":page.ignored}))
+ }).await.map_err(|error|ApiError::internal(format!("Recovery discovery stopped: {error}")))?.map(Json).map_err(ApiError::conflict)
 }

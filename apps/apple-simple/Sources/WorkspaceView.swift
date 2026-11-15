@@ -44,6 +44,7 @@ struct WorkspaceView: View {
             }.font(.system(size: 11)).padding(.horizontal, 8).frame(height: 24)
         }
         .popover(isPresented:$workspace.showCoverage) {SimpleCoverageView(workspace:workspace).onKeyPress(.escape){workspace.showCoverage=false;workspace.currentBuffer?.focusSource?();return .handled}}
+        .popover(isPresented:$workspace.showRecovery) {SourceRecoveryView(workspace:workspace).onKeyPress(.escape){workspace.showRecovery=false;workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:$workspace.showConstruction) {ConstructionReadingView(workspace:workspace).onKeyPress(.escape){workspace.showConstruction=false;workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:$workspace.showAttribution) {GitAttributionView(workspace:workspace,model:workspace.gitAttribution).onKeyPress(.escape){workspace.showAttribution=false;workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:$workspace.showHistory) {GitHistoryView(workspace:workspace,model:workspace.gitHistory).onKeyPress(.escape){workspace.showHistory=false;workspace.currentBuffer?.focusSource?();return .handled}}
