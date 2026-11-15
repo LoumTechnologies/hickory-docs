@@ -9,4 +9,15 @@ import XCTest
   await model.read{_,_ in self.value("other.md")};XCTAssertNil(model.value);XCTAssertTrue(model.notice.contains("identity changed"))
   await model.read{_,_ in self.value(materialized:true)};XCTAssertNil(model.value)
  }
+ func testSourcePointsRequireExactHashesAndScalarBoundariesAndRetireOlderLinks()async{
+  let source="😀e\u{301}\né😀code",hash=nativeSourceHash(source)
+  let point=TestSourcePoint(path:"part.md",line:2,character:3,hash:hash)
+  XCTAssertEqual(constructionPointOffset(source,point,actualHash:hash),(source as NSString).range(of:"code").location)
+  var split=point;split.character=2;XCTAssertNil(constructionPointOffset(source,split,actualHash:hash))
+  split=point;split.line=0;XCTAssertNil(constructionPointOffset(source,split,actualHash:hash))
+  split=point;split.character=99;XCTAssertNil(constructionPointOffset(source,split,actualHash:hash))
+  XCTAssertNil(constructionPointOffset(source,point,actualHash:String(repeating:"b",count:64)))
+  let model=ConstructionReadingModel();await model.read{_,_ in self.value()};let old=model.sourceLink(),latest=model.sourceLink();XCTAssertFalse(old());XCTAssertTrue(latest());model.close();XCTAssertFalse(latest())
+ }
+
 }

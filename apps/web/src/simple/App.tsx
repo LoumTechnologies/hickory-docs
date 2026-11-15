@@ -11,7 +11,7 @@ import { runEditorCommand,sourceSnippetContext } from "./Document";
 import { WorkspaceChanges, requestWorkspaceChange } from "./WorkspaceChanges";
 import { WorkspaceAnalysisView, requestWorkspaceAnalysis } from "./WorkspaceAnalysisView";
 import { WorkspaceSearch } from "./WorkspaceSearch";
-import {ConstructionReadingView} from "./ConstructionReading";
+import {ConstructionReadingView,constructionPointOffset} from "./ConstructionReading";
 import {GitAttributionView} from "./GitAttribution";
 import {GitHistoryView,type GitHistoryRequest} from "./GitHistory";
 import {GitReviewView} from "./GitReview";
@@ -315,7 +315,16 @@ export function App() {
     <SearchEverywhereView visible={showEverywhere} setVisible={setShowEverywhere} buffers={buffers} files={workspaceFiles} analysis={analysis} commands={commands} openFile={path=>{const file=buffers.values.get(path)?.file??findPath(path);if(file)void openFileVisit(file);else setNotice("File no longer listed. Refresh the workspace.");}} focusCurrent={()=>{if(buffer)editorForBuffer(buffer)?.view.focus();}} />
     <WorkspaceChanges files={workspaceFiles} buffers={buffers} current={() => buffer} focus={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />
     <WorkspaceSearch visible={showWorkspaceSearch} close={() => { setShowWorkspaceSearch(false); if (buffer) editorForBuffer(buffer)?.view.focus(); }} buffers={buffers} files={workspaceFiles} />
-    {showConstruction&&<ConstructionReadingView key={"construction:"+workspaceRoot} sources={()=>Object.fromEntries([...buffers.values].filter(([,item])=>!item.readonly).map(([path,item])=>[path,item.text]))} close={()=>{setShowConstruction(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />}
+    {showConstruction&&<ConstructionReadingView key={"construction:"+workspaceRoot} sources={()=>Object.fromEntries([...buffers.values].filter(([,item])=>!item.readonly).map(([path,item])=>[path,item.text]))} navigate={async(point,current)=>{
+      const identity=workspaceIdentity.current,file=buffers.values.get(point.path)?.file??findPath(point.path);if(!file)throw new Error("Source no longer listed. Refresh the construction reading.");
+      const target=await buffers.open(file),source=target.text;
+      const hash=[...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(source)))].map(byte=>byte.toString(16).padStart(2,"0")).join("");
+      const offset=constructionPointOffset(source,point,hash),valid=()=>current()&&workspaceIdentity.current===identity&&target.text===source;
+      if(!valid())return;if(offset===null)throw new Error("Source changed or position is unavailable. Refresh the construction reading.");
+      const departed=currentLocation();await open(file);if(!valid())return;
+      for(let attempt=0;attempt<20;attempt++){if(!valid())return;const view=editorForBuffer(target)?.view;if(view?.dom.isConnected){if(view.state.doc.toString()!==source)throw new Error("Editor source changed. Refresh the construction reading.");view.dispatch({selection:{anchor:offset},scrollIntoView:true});view.focus();const start={line:point.line-1,character:point.character};trail.record(departed,{uri:documentUri(point.path),range:{start,end:start}});refreshTrail(value=>value+1);setShowConstruction(false);return;}await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));}
+      throw new Error("Source opened but its editor is not ready. Try the source link again.");
+    }} close={()=>{setShowConstruction(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />}
     {attributionPath!==null&&<GitAttributionView key={"attribution:"+workspaceRoot} workspace={workspaceRoot} path={attributionPath} close={()=>{setAttributionPath(null);if(buffer)editorForBuffer(buffer)?.view.focus();}} readCommit={(sha,title)=>{setAttributionPath(null);setShowReview(false);setHistoryRequest({kind:'commit',sha,title});setShowHistory(true);}} />}
     <GitHistoryView key={"history:"+workspaceRoot} workspace={workspaceRoot} visible={showHistory} request={historyRequest} close={()=>{setShowHistory(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
     <GitReviewView key={workspaceRoot} workspace={workspaceRoot} visible={showReview} close={()=>{setShowReview(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />

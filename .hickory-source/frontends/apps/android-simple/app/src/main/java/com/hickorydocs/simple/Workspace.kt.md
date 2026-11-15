@@ -1,6 +1,8 @@
 <ui:doc xmlns:ui="http://www.hickorydocs.com/1.0">
 # Retain Compose text state outside layout composition
 
+The read-only navigation epoch lets a fact reader reject work after a workspace switch. Semantic navigation also accepts a requester-lifetime guard; check it before opening, after acquisition and before a delayed source reveal. Existing callers retain their default behavior. A coordinate is still checked against the exact expected source. Report a completed reveal only after the editor accepts the source selection, so a fact reader does not close on a failed reveal.
+
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
 Each document owns a TextFieldState, including selection and undo, while the ViewModel owns connections and layout. Background requests retain a workspace generation so stale replies cannot populate a newly connected workspace.
@@ -261,6 +263,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     var address by mutableStateOf("")
     var connecting by mutableStateOf(false)
     private var generation = UUID.randomUUID()
+    val sourceNavigationEpoch:UUID get()=generation
     private val loading = mutableMapOf<String,kotlinx.coroutines.Deferred<DocumentBuffer>>()
     private val newestOpen = mutableMapOf<String, String>()
     val agent = AgentSession()
@@ -357,21 +360,22 @@ Foreground file opening and background intelligence share one acquisition path. 
         val (next, location) = navigationTrail.step(direction, currentSemanticLocation()); navigationTrail = next
         if (location != null) openSemanticLocation(location, recordHistory = false, allowDirty = true)
     }
-    suspend fun openSemanticLocation(location: SemanticLocation, recordHistory: Boolean = true, allowDirty: Boolean = false, expectedSource: String? = null) {
+    suspend fun openSemanticLocation(location: SemanticLocation, recordHistory: Boolean = true, allowDirty: Boolean = false, expectedSource: String? = null, isCurrent: () -> Boolean = {true}, onRevealed: () -> Unit = {}) {
+        if(!isCurrent())return
         val departed = currentSemanticLocation()
         val path = location.path ?: return
         fun find(nodes: List<FileNode>): FileNode? { nodes.forEach { if (it.path == path) return it; find(it.children)?.let { child -> return child } }; return null }
         val file = (buffers[path]?.file ?: find(rootFiles))?.takeUnless { it.dir } ?: run { status = "Location not found: $path. Refresh files and query again."; return }
         val current = generation
         open(file, recordNavigation = false)
-        if (generation != current || active != path) return
+        if (!isCurrent() || generation != current || active != path) return
         val buffer = buffers[path] ?: return
         if (buffer.dirty && !allowDirty && departed?.path != path) { status = "Save $path and query again before using a cross-file source position."; return }
         val source = buffer.text
         if (expectedSource != null && source != expectedSource) { status = "Source changed. Refresh the query before navigating."; return }
         val offset = languageOffset(source, org.json.JSONObject().put("line", location.line).put("character", location.character))
             ?: run { status = "Location no longer fits $path. Query again."; return }
-        if (buffer.selectSourceRange(offset, offset, source)) { if (recordHistory) navigationTrail = navigationTrail.record(departed, location); buffer.focusSource?.invoke() }
+        if (buffer.selectSourceRange(offset, offset, source)) { if (recordHistory) navigationTrail = navigationTrail.record(departed, location); buffer.focusSource?.invoke(); onRevealed() }
     }
     suspend fun revealDebug(path: String, line: Int) {
         fun find(nodes: List<FileNode>): FileNode? { nodes.forEach { if (it.path == path) return it; find(it.children)?.let { child -> return child } }; return null }

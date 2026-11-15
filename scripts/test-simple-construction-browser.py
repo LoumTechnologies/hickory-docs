@@ -22,14 +22,17 @@ def main():
    driver.act("construction-set-source",path="part.md",source=draft);actual=driver.act("construction-source",path="part.md");assert actual==draft,(draft,actual)
    driver.act("construction-open");text=driver.act("construction-read",entry="project.md",focus="part.md");assert "modified" in text and "output.txt" in text and "not_queried" in text,text
    assert driver.act("construction-side",after=False)=="one";assert driver.act("construction-side",after=True)=="two"
-   driver.act("construction-close")
+   stale=driver.act("construction-origin",phase="before",path="part.md",stale=True);assert "Source changed" in stale and "declared copy #body" in stale,stale
+   driver.act("construction-origin",phase="after",path="part.md",stale=False)
+   selected=driver.act("construction-source",path="part.md",selection=True);assert selected["anchor"]==draft.index(">two<")+1,selected
+   driver.act("construction-open");driver.act("construction-close")
    assert driver.act("editor-is-retained",path="part.md"), "Editor identity changed"
    after_size=driver.act("editor-size",path="part.md");assert after_size==size,(size,after_size)
    after_source=driver.act("construction-source",path="part.md");assert after_source==draft,(draft,after_source)
    driver.act("construction-history",redo=False);assert driver.act("construction-source",path="part.md")==source
    driver.act("construction-history",redo=True);assert driver.act("construction-source",path="part.md")==draft
    assert (root/"part.md").read_bytes()==source.encode();assert (root/"project.md").read_bytes()==entry.encode();assert not (root/"output.txt").exists()
-   print("PASS: existing View menu, captured retained draft, compiler contribution/impact reading, saved/draft previews, retained editor and dimensions, unchanged source and no generated materialization")
+   print("PASS: existing View menu, captured retained draft, compiler contribution/impact reading, saved/draft previews, stale-link refusal and exact matching-source reveal, retained editor/dimensions/undo/redo, unchanged source and no generated materialization")
   finally:
    if driver:driver.close()
    for process in reversed(processes):fixture.stop(process)

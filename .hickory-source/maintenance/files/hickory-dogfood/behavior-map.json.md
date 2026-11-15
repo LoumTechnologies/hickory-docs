@@ -70347,7 +70347,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "construction-reading-browser-model",
-        "construction-reading-browser-view"
+        "construction-reading-browser-view",
+        "construction-reading-browser-source-point"
       ]
     },
     "apps/apple-simple/Sources/ConstructionReading.swift": {
@@ -70359,7 +70360,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "construction-reading-apple-model",
-        "construction-reading-apple-view"
+        "construction-reading-apple-view",
+        "construction-reading-apple-source-point"
       ]
     },
     "apps/android-simple/app/src/main/java/com/hickorydocs/simple/ConstructionReading.kt": {
@@ -70371,7 +70373,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "construction-reading-android-model",
-        "construction-reading-android-view"
+        "construction-reading-android-view",
+        "construction-reading-android-source-point"
       ]
     },
     "apps/web/src/simple/ConstructionReading.test.ts": {

@@ -1,6 +1,8 @@
 <ui:doc xmlns:ui="http://www.hickorydocs.com/1.0">
 # Keep network work outside the editing path
 
+The read-only navigation epoch lets a fact reader reject work after a workspace switch. Semantic navigation also accepts a requester-lifetime guard; check it before opening, after acquisition and before a delayed source reveal. Existing callers retain their default behavior. A coordinate is still checked against the exact expected source. Report a completed reveal only after the editor accepts the source selection, so a fact reader does not close on a failed reveal.
+
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
 The host launcher supplies `HICKORY_API_ORIGIN` for the initial connection; without it the manual Connect sheet remains available. Observation tracks each document separately. Text is published after one raw read. The optional language socket starts after buffer creation and never gates publication, saving or pane interaction. Generated files are conservatively read-only until source-mapped editing is integrated.
@@ -280,6 +282,7 @@ import Observation
     let agent = AgentSession()
     let terminal = TerminalSession()
     private var generation = UUID()
+    var sourceNavigationEpoch:UUID {generation}
     var active: String? { layout.nodes[focused]?.active }
     var currentBuffer: DocumentBuffer? { active.flatMap { buffers[$0] } }
     var hasUnsavedChanges: Bool { !agent.prompt.isEmpty || agent.running || buffers.values.contains { $0.dirty || $0.saving } || debugger?.active == true }
@@ -392,7 +395,8 @@ Foreground file opening and background intelligence share one acquisition path. 
         guard let location = navigationTrail.step(direction, current: currentSemanticLocation()) else { return }
         await openSemanticLocation(location, recordHistory: false, allowDirty: true)
     }
-    func openSemanticLocation(_ location: SemanticLocation, recordHistory: Bool = true, allowDirty: Bool = false, expectedSource: String? = nil) async {
+    func openSemanticLocation(_ location: SemanticLocation, recordHistory: Bool = true, allowDirty: Bool = false, expectedSource: String? = nil, isCurrent: () -> Bool = {true}, onRevealed: () -> Void = {}) async {
+        guard isCurrent() else {return}
         let departed = currentSemanticLocation()
         guard let path = location.path else { return }
         func find(_ nodes: [FileNode]) -> FileNode? {
@@ -401,14 +405,14 @@ Foreground file opening and background intelligence share one acquisition path. 
         guard let file = buffers[path]?.file ?? find(rootFiles), !file.dir else { status = "Location not found: \(path). Refresh files and query again."; return }
         let current = generation
         await open(file, recordNavigation: false)
-        guard generation == current, active == path, let buffer = buffers[path] else { return }
+        guard isCurrent(), generation == current, active == path, let buffer = buffers[path] else { return }
         if buffer.dirty && !allowDirty && departed?.path != path { status = "Save \(path) and query again before using a cross-file source position."; return }
         let source = buffer.text
         if let expectedSource, !exactUTF8(source,expectedSource) { status = "Source changed. Refresh the query before navigating."; return }
         guard let offset = languageOffset(source, ["line": location.line, "character": location.character]) else { status = "Location no longer fits \(path). Query again."; return }
         for _ in 0..<20 {
-            guard generation == current, exactUTF8(buffer.text,source), (!buffer.dirty || allowDirty || departed?.path == path) else { return }
-            if buffer.selectSourceRange?(NSRange(location: offset, length: 0), source) == true { if recordHistory { navigationTrail.record(from: departed, to: location) }; buffer.focusSource?(); return }
+            guard isCurrent(), generation == current, exactUTF8(buffer.text,source), (!buffer.dirty || allowDirty || departed?.path == path) else { return }
+            if buffer.selectSourceRange?(NSRange(location: offset, length: 0), source) == true { if recordHistory { navigationTrail.record(from: departed, to: location) }; buffer.focusSource?(); onRevealed(); return }
             try? await Task.sleep(for: .milliseconds(25))
         }
         status = "Opened \(path); editor could not reveal the position. Query again once it is ready."

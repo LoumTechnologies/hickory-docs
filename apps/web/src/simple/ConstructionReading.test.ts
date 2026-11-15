@@ -1,5 +1,5 @@
 import {it,expect} from 'vitest';
-import {ConstructionReadingModel,type ConstructionReading} from './ConstructionReading';
+import {ConstructionReadingModel,constructionPointOffset,type ConstructionReading} from './ConstructionReading';
 const value=(entry='project.md'):ConstructionReading=>({version:1,entry,focus:null,materialized:false,outputs:[],output_count:0,outputs_truncated:false,tests:[],test_count:0,tests_truncated:false,test_relationship:'declaration',evidence_status:'not_queried',notices:[],unused_sources:[]});
 it('retires superseded and closed compiler readings and rejects foreign identities',async()=>{
  const pending:((value:ConstructionReading)=>void)[]=[];const model=new ConstructionReadingModel(()=>new Promise(resolve=>pending.push(resolve)));const input={entry:'project.md',focus:null,sources:{}};
@@ -10,4 +10,14 @@ it('retires superseded and closed compiler readings and rejects foreign identiti
 });
 it('captures request identity before callers change their request object',async()=>{
  let finish!:(value:ConstructionReading)=>void;const model=new ConstructionReadingModel(()=>new Promise(resolve=>finish=resolve));const input={entry:'project.md',focus:null,sources:{'a.md':'one'}};const read=model.read(input);input.entry='other.md';input.sources['a.md']='two';finish(value());await read;expect(model.value?.entry).toBe('project.md');
+});
+
+it('requires exact source hashes and scalar UTF-16 boundaries and supersedes older links',()=>{
+ const source='😀e\u0301\né😀code',hash='a'.repeat(64),point={path:'part.md',line:2,character:3,hash};
+ expect(constructionPointOffset(source,point,hash)).toBe(source.indexOf('code'));
+ expect(constructionPointOffset(source,{...point,character:2},hash)).toBeNull();
+ expect(constructionPointOffset(source,{...point,line:0},hash)).toBeNull();
+ expect(constructionPointOffset(source,{...point,character:99},hash)).toBeNull();
+ expect(constructionPointOffset(source,point,'b'.repeat(64))).toBeNull();
+ const model=new ConstructionReadingModel(async()=>value());model.value=value();const old=model.sourceLink(model.value),latest=model.sourceLink(model.value);expect(old()).toBe(false);expect(latest()).toBe(true);model.close();expect(latest()).toBe(false);
 });

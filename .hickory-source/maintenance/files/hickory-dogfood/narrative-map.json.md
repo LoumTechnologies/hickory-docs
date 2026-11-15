@@ -153461,6 +153461,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/test-source-service.md",
       "symbol": "Bound observations while preserving metadata changes",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "construction-reading-browser-source-point",
+      "output": "apps/web/src/simple/ConstructionReading.tsx",
+      "page": ".hickory-source/frontends/construction-reading-browser.md",
+      "symbol": "Validate a captured point before moving the editor",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "construction-reading-apple-source-point",
+      "output": "apps/apple-simple/Sources/ConstructionReading.swift",
+      "page": ".hickory-source/frontends/construction-reading-apple.md",
+      "symbol": "Validate a captured point before moving the editor",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "construction-reading-android-source-point",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/ConstructionReading.kt",
+      "page": ".hickory-source/frontends/construction-reading-android.md",
+      "symbol": "Validate a captured point before moving the editor",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {
