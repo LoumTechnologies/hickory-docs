@@ -283,6 +283,7 @@ fn git(dir: &Path, args: &[&str]) -> Result<std::process::Output, ApiError> {
     command
         .arg("-C")
         .arg(dir)
+        .arg("--literal-pathspecs")
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0");
     // The user's own ssh command wins; without one, batch mode so an unknown
@@ -382,6 +383,8 @@ fn paths_of(paths: &[String]) -> Result<Vec<&str>, ApiError> {
 <a id="f-900059e12d12-parse_status_line"></a>
 ### `parse_status_line`
 
+Review actions need exact path identities. Use Git’s NUL-delimited porcelain format, where a rename has a separate old-path record and filenames are never display-quoted. Consume the old path even when the new path is outside this workspace; otherwise the next record becomes misaligned. Strip only the repository-to-workspace prefix, preserving newlines, Unicode, quotes and literal arrow text. Refuse truncated records instead of inventing a path. The process adapter disables pathspec expansion so an ordinary filename containing Git magic cannot select other files.
+
 Reading the working tree
 One line of `git status --porcelain`, decoded.
 
@@ -390,22 +393,58 @@ One line of `git status --porcelain`, decoded.
 // Reading the working tree
 // ---------------------------------------------------------------------------
 
-/// One line of `git status --porcelain`, decoded.
-fn parse_status_line(line: &str) -> Option<Value> {
-    let mut chars = line.chars();
-    let index = chars.next()?;
-    let tree = chars.next()?;
-    let rest: String = chars.skip(1).collect();
-    // A rename is `R  old -> new`.
-    let (from, path) = match rest.split_once(" -> ") {
-        Some((from, to)) => (Some(from.to_string()), to.to_string()),
-        None => (None, rest),
-    };
-    let mut item = json!({ "path": path, "index": index.to_string(), "tree": tree.to_string() });
-    if let Some(from) = from {
-        item["from"] = Value::String(from);
+/// Decode one raw NUL-delimited porcelain record without interpreting its path.
+fn parse_status_line(record: &str) -> Option<Value> {
+    let bytes = record.as_bytes();
+    if bytes.len() < 4 || bytes[2] != b' ' || !bytes[0].is_ascii() || !bytes[1].is_ascii() {
+        return None;
     }
-    Some(item)
+    Some(json!({"index": &record[..1], "tree": &record[1..2], "path": &record[3..]}))
+}
+fn parse_status_zero(text: &str, prefix: &str) -> Result<(String, Vec<Value>), String> {
+    if !text.ends_with('\0') {
+        return Err("Git returned incomplete status records. Refresh repository changes.".into());
+    }
+    let mut records = text.split_terminator('\0');
+    let header = records
+        .next()
+        .filter(|value| value.starts_with("## "))
+        .ok_or("Git returned no branch header.")?
+        .to_owned();
+    let mut files = Vec::new();
+    while let Some(record) = records.next() {
+        let mut item =
+            parse_status_line(record).ok_or("Git returned a malformed change record.")?;
+        let path = item["path"].as_str().unwrap().to_owned();
+        let rename = [item["index"].as_str(), item["tree"].as_str()]
+            .into_iter()
+            .any(|value| matches!(value, Some("R" | "C")));
+        let from = if rename {
+            Some(
+                records
+                    .next()
+                    .filter(|value| !value.is_empty())
+                    .ok_or("Git returned an incomplete rename record.")?,
+            )
+        } else {
+            None
+        };
+        let Some(local) = path.strip_prefix(prefix) else {
+            continue;
+        };
+        if local.is_empty() {
+            continue;
+        }
+        item["path"] = json!(local);
+        if let Some(from) = from {
+            item["from"] = json!(from.strip_prefix(prefix).unwrap_or(from));
+            if !from.starts_with(prefix) {
+                item["from_outside_workspace"] = json!(true);
+            }
+        }
+        files.push(item);
+    }
+    Ok((header, files))
 }
 
 </storycode:copy>
@@ -447,6 +486,8 @@ fn parse_branch_line(line: &str) -> (String, Option<String>, u64, u64) {
 <a id="f-900059e12d12-changes"></a>
 ### `changes`
 
+Read saved Git state independently of editor drafts. Reject undecodable paths before JSON serialization, retain staged and working-tree columns separately, and translate repository-root paths to this workspace. This is one captured response; a later diff or mutation must establish its own freshness.
+
 `GET /api/git/changes` — the working tree: every changed file with its
 index and tree state, the branch, its upstream, and how far apart they are.
 
@@ -459,14 +500,30 @@ pub async fn changes(State(state): State<LocalState>) -> ApiResult<Json<Value>> 
         if !is_repository(&root) {
             return Ok(Json(json!({ "repository": false, "files": [] })));
         }
-        let text = git_ok(
+        let output = git(
             &root,
-            &["status", "--porcelain=v1", "-b", "--untracked-files=all"],
+            &[
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "-b",
+                "--untracked-files=all",
+            ],
         )?;
-        let mut lines = text.lines();
-        let (branch, upstream, ahead, behind) =
-            parse_branch_line(lines.next().unwrap_or("## HEAD"));
-        let files: Vec<Value> = lines.filter_map(parse_status_line).collect();
+        if !output.status.success() {
+            return Err(ApiError::unprocessable(
+                "Git status refused. Refresh the repository and retry.",
+            ));
+        }
+        let text = String::from_utf8(output.stdout).map_err(|_| {
+            ApiError::unprocessable(
+                "Git paths are not valid UTF-8. Rename those paths before reviewing them here.",
+            )
+        })?;
+        let prefix = git_ok(&root, &["rev-parse", "--show-prefix"])?;
+        let prefix = prefix.strip_suffix('\n').unwrap_or(&prefix);
+        let (header, files) = parse_status_zero(&text, prefix).map_err(ApiError::unprocessable)?;
+        let (branch, upstream, ahead, behind) = parse_branch_line(&header);
         Ok(Json(json!({
             "repository": true,
             "branch": branch,
@@ -496,6 +553,8 @@ pub struct DiffParams {
 <a id="f-900059e12d12-diff"></a>
 ### `diff`
 
+An untracked file has no staged diff. Return an empty staged view instead of displaying its working-tree contents as if they were in the index. Disable external diff and text-conversion drivers while reading literal file paths.
+
 `GET /api/git/diff?path=&staged=` — one file's diff, as git prints it.
 An untracked file is shown as wholly added.
 
@@ -516,18 +575,30 @@ pub async fn diff(
             .status
             .success();
         let out = if tracked {
-            let mut args = vec!["diff", "--no-color", "--no-ext-diff"];
+            let mut args = vec!["diff", "--no-color", "--no-ext-diff", "--no-textconv"];
             if params.staged {
                 args.push("--cached");
             }
             args.extend(["--", path.as_str()]);
             git(&root, &args)?
         } else {
+            if params.staged {
+                return Ok(Json(json!({"path": path, "diff": "", "binary": false})));
+            }
             // `--no-index` exits 1 when the files differ, which they do.
             let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
             git(
                 &root,
-                &["diff", "--no-color", "--no-index", "--", null, &path],
+                &[
+                    "diff",
+                    "--no-color",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "--no-index",
+                    "--",
+                    null,
+                    &path,
+                ],
             )?
         };
         let text = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -926,6 +997,8 @@ pub async fn stash(
 <a id="f-900059e12d12-tests"></a>
 ### `tests`
 
+The focused fixture creates a temporary repository, stages a rename containing quoted and newline paths, then verifies workspace-relative identities and a literal magic-looking filename. Parsing cases separately reject incomplete rename and status records.
+
 <storycode:copy id="f-900059e12d12-tests">
 #[cfg(test)]
 mod tests {
@@ -943,7 +1016,8 @@ mod tests {
 
     #[test]
     fn a_rename_keeps_both_names() {
-        let item = parse_status_line("R  old.rs -> new.rs").unwrap();
+        let (_, items) = parse_status_zero("## main\0R  new.rs\0old.rs\0", "").unwrap();
+        let item = &items[0];
         assert_eq!(item["from"], "old.rs");
         assert_eq!(item["path"], "new.rs");
     }
@@ -968,6 +1042,77 @@ mod tests {
         assert!(checked_path("/etc/passwd").is_err());
         assert!(checked_path("").is_err());
         assert!(checked_path("src/main.rs").is_ok());
+    }
+    #[test]
+    fn zero_records_preserve_literal_paths_and_workspace_relative_renames() {
+        let (_, files) = parse_status_zero("## main\0 M sub/a -> b\n\"é.md\0R  sub/new\nname\0sub/old -> name\0?? other/outside\0?? sub/:(glob)*.md\0", "sub/").unwrap();
+        assert_eq!(files.len(), 3);
+        assert_eq!(files[0]["path"], "a -> b\n\"é.md");
+        assert_eq!(files[1]["path"], "new\nname");
+        assert_eq!(files[1]["from"], "old -> name");
+        assert_eq!(files[2]["path"], ":(glob)*.md");
+        assert!(parse_status_zero("## main\0R  target\0", "").is_err());
+        assert!(parse_status_zero("## main\0?? truncated", "").is_err());
+    }
+    #[test]
+    fn real_git_status_preserves_quoted_paths_and_literal_pathspecs() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        git_ok(root, &["init", "-q"]).unwrap();
+        std::fs::create_dir(root.join("sub")).unwrap();
+        let names = ["quoted \"é\n -> file.md", ":(glob)*.md", "other.md"];
+        for name in names {
+            std::fs::write(root.join("sub").join(name), "before\n").unwrap();
+        }
+        git_ok(root, &["add", "--", "sub"]).unwrap();
+        git_ok(
+            root,
+            &[
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "commit",
+                "-qm",
+                "base",
+            ],
+        )
+        .unwrap();
+        std::fs::rename(
+            root.join("sub").join(names[0]),
+            root.join("sub/new\nname.md"),
+        )
+        .unwrap();
+        git_ok(root, &["add", "--", "sub"]).unwrap();
+        for name in &names[1..] {
+            std::fs::write(root.join("sub").join(name), "changed\n").unwrap();
+        }
+        let folder = root.join("sub");
+        let prefix = git_ok(&folder, &["rev-parse", "--show-prefix"]).unwrap();
+        let raw = git_ok(
+            &folder,
+            &[
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "-b",
+                "--untracked-files=all",
+            ],
+        )
+        .unwrap();
+        let (_, files) = parse_status_zero(&raw, prefix.strip_suffix('\n').unwrap()).unwrap();
+        assert!(
+            files
+                .iter()
+                .any(|file| file["path"] == "new\nname.md" && file["from"] == names[0])
+        );
+        let literal = git_ok(
+            &folder,
+            &["diff", "--no-ext-diff", "--no-textconv", "--", names[1]],
+        )
+        .unwrap();
+        assert!(literal.contains(":(glob)*.md"));
+        assert!(!literal.contains("other.md"));
     }
 }
 </storycode:copy>
