@@ -5,11 +5,23 @@ For maintainers implementing recoverable namespace saves independently of any ed
 
 An explicit resource save first records its complete before/after namespace, including missing files, exact text and modeled permissions. This record preserves overwritten or swapped source even if publication stops partway through. Versioned append-only receipts name observed per-path outcomes; they never authorize replay. Records are bounded and installed without clobbering existing evidence. Existing symlink/non-directory recovery paths refuse. The batch holds its directory identity and checks its recovery path before adding receipts. The publisher must check its held workspace identity around all operations and independently validate source before writing; this store is not a filesystem transaction or automatic rollback mechanism. Files are synchronized before publication; Unix also synchronizes containing directories. Other hosts do not gain a directory-fsync guarantee from this implementation.
 
+Version 2 also retains the exact reviewed plan: its before states contain unsaved
+drafts, stable source identities and preparation versions, while the separate
+saved before states retain disk bytes and permissions. Applying the inverse can
+therefore recover the draft without replacing its older saved baseline. Validate
+the complete plan, namespace kinds, final source text and saved SHA-256 values
+before creating recovery directories. An incomplete or contradictory record must
+fail before publication can begin. Existing version-1 records have no draft
+snapshot and cannot be promoted to complete undo records.
+
 This store exposes no resource-save route. A publisher must recheck generated ownership in both candidate saved and draft construction namespaces, including explicit source absence, before writing any candidate destination. Retaining a record does not substitute for that authority check.
 
 <ui:copy id="resource-save-recovery-record">
 //! Explicit resource saves retain their before/after states before publishing source.
-use super::resource_inputs::SavedSource;
+use super::{
+    resource_changes::{ResourcePlan, SourceState},
+    resource_inputs::SavedSource,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -22,6 +34,7 @@ pub struct Manifest {
     pub workspace: String,
     pub context: String,
     pub title: String,
+    pub reviewed_plan: ResourcePlan,
     pub before: BTreeMap<String, SavedSource>,
     pub after: BTreeMap<String, SavedSource>,
 }
@@ -73,13 +86,44 @@ fn write_new(directory: &Path, name: &str, bytes: &[u8]) -> Result<(), String> {
         .map_err(|error| format!("Cannot publish resource recovery record: {error}"))?;
     sync_directory(directory)
 }
+fn validate_saved(source: &SavedSource) -> Result<(), String> {
+    if let SavedSource::File { text, sha256, .. } = source {
+        if text.len() > 8 * 1024 * 1024
+            || sha256 != &super::workspace_fs::view::hash(text.as_bytes())
+        {
+            return Err(
+                "Resource recovery saved source has an invalid content fingerprint.".into(),
+            );
+        }
+    }
+    Ok(())
+}
+fn same_kind(saved: &SavedSource, draft: &SourceState) -> bool {
+    matches!(
+        (saved, draft),
+        (SavedSource::Missing, SourceState::Missing { .. })
+            | (SavedSource::File { .. }, SourceState::File { .. })
+    )
+}
+fn same_saved_draft(saved: &SavedSource, draft: &SourceState) -> bool {
+    match (saved, draft) {
+        (SavedSource::Missing, SourceState::Missing { .. }) => true,
+        (SavedSource::File { text: saved, .. }, SourceState::File { text: draft, .. }) => {
+            saved == draft
+        }
+        _ => false,
+    }
+}
 impl Batch {
     /// The caller must check its held workspace identity before and after creating this record.
     pub fn begin(root: &Path, manifest: &Manifest) -> Result<Self, String> {
-        if manifest.version != 1
+        if manifest.version != 2
             || manifest.workspace.is_empty()
             || manifest.context.is_empty()
+            || manifest.before.is_empty()
             || manifest.before.len() > 10_000
+            || manifest.reviewed_plan.context != manifest.context
+            || manifest.reviewed_plan.title != manifest.title
             || manifest.before.keys().ne(manifest.after.keys())
         {
             return Err(
@@ -88,6 +132,29 @@ impl Batch {
         }
         for path in manifest.before.keys() {
             super::resource_changes::validate_path(path)?;
+        }
+        // The plan retains the pre-save drafts independently of saved bytes.
+        // Reconstruct it to reject duplicate paths or a truncated review record.
+        let drafts: BTreeMap<_, _> = manifest
+            .reviewed_plan
+            .patches
+            .iter()
+            .map(|patch| (patch.path.clone(), patch.before.clone()))
+            .collect();
+        if drafts.keys().ne(manifest.before.keys()) {
+            return Err("Resource recovery must retain every reviewed source path.".into());
+        }
+        let after = manifest.reviewed_plan.apply(&manifest.context, &drafts)?;
+        for (path, saved) in &manifest.before {
+            validate_saved(saved)?;
+            validate_saved(&manifest.after[path])?;
+            if !same_kind(saved, &drafts[path])
+                || !same_saved_draft(&manifest.after[path], &after[path])
+            {
+                return Err(format!(
+                    "Resource recovery differs from the reviewed namespace: {path}. Prepare again."
+                ));
+            }
         }
         let bytes = serde_json::to_vec(manifest).map_err(|error| error.to_string())?;
         if bytes.len() > 40 * 1024 * 1024 {
@@ -167,9 +234,39 @@ impl Batch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn manifest() -> Manifest {
+    pub(super) fn manifest() -> Manifest {
         Manifest {
-            version: 1,
+            version: 2,
+            reviewed_plan: ResourcePlan {
+                version: 1,
+                context: "reviewed-change".into(),
+                title: "Move draft".into(),
+                annotations: vec![],
+                patches: vec![
+                    super::super::resource_changes::ResourcePatch {
+                        path: "a.py".into(),
+                        before: SourceState::File {
+                            identity: "original-a".into(),
+                            text: "😀 unsaved draft\n".into(),
+                            writable: true,
+                            removable: true,
+                            version: Some(4),
+                        },
+                        after: SourceState::Missing { creatable: true },
+                    },
+                    super::super::resource_changes::ResourcePatch {
+                        path: "b.py".into(),
+                        before: SourceState::Missing { creatable: true },
+                        after: SourceState::File {
+                            identity: "original-a".into(),
+                            text: "after\n".into(),
+                            writable: true,
+                            removable: true,
+                            version: Some(4),
+                        },
+                    },
+                ],
+            },
             workspace: "held-root".into(),
             context: "reviewed-change".into(),
             title: "Move draft".into(),
@@ -178,7 +275,7 @@ mod tests {
                     "a.py".into(),
                     SavedSource::File {
                         text: "😀 before\n".into(),
-                        sha256: "before".into(),
+                        sha256: super::super::workspace_fs::view::hash("😀 before\n".as_bytes()),
                         readonly: false,
                         executable: true,
                         mode: Some(0o755),
@@ -192,7 +289,7 @@ mod tests {
                     "b.py".into(),
                     SavedSource::File {
                         text: "after\n".into(),
-                        sha256: "after".into(),
+                        sha256: super::super::workspace_fs::view::hash(b"after\n"),
                         readonly: false,
                         executable: true,
                         mode: Some(0o755),
@@ -213,6 +310,36 @@ mod tests {
         .unwrap();
         assert_eq!(captured.before, expected.before);
         assert_eq!(captured.after, expected.after);
+        assert_eq!(
+            serde_json::to_value(&captured.reviewed_plan).unwrap(),
+            serde_json::to_value(&expected.reviewed_plan).unwrap()
+        );
+        let SourceState::File {
+            text,
+            identity,
+            version,
+            ..
+        } = &captured.reviewed_plan.patches[0].before
+        else {
+            panic!("missing draft")
+        };
+        assert_eq!(text, "😀 unsaved draft\n");
+        assert_eq!(identity, "original-a");
+        assert_eq!(*version, Some(4));
+        let restored = captured
+            .reviewed_plan
+            .inverse()
+            .apply(
+                &captured.context,
+                &captured
+                    .reviewed_plan
+                    .patches
+                    .iter()
+                    .map(|patch| (patch.path.clone(), patch.after.clone()))
+                    .collect(),
+            )
+            .unwrap();
+        assert_eq!(&restored["a.py"], &captured.reviewed_plan.patches[0].before);
         let receipt = Receipt {
             sequence: 0,
             path: "b.py".into(),
@@ -284,5 +411,32 @@ mod tests {
 }
 </ui:copy>
 
-<ui:file path="crates/hickory-cli/src/serve/resource_journal.rs"><ui:paste select="#resource-save-recovery-record"/></ui:file>
+## Reject incomplete reviewed draft recovery records
+
+Corrupt one part at a time: discard a reviewed path, change final saved text, or supply a false saved fingerprint. Every case must refuse before even creating the recovery directory. The retained-state case above separately checks that the original dirty draft, identity and version survive serialization and inverse planning.
+
+<ui:copy id="resource-journal-review-integrity-test">
+#[cfg(test)]
+#[test]
+fn resource_recovery_rejects_truncated_drafts_and_inconsistent_saved_states_before_io() {
+    let root = tempfile::tempdir().unwrap();
+    let mut missing = tests::manifest();
+    missing.reviewed_plan.patches.pop();
+    assert!(Batch::begin(root.path(), &missing).is_err());
+    let mut wrong_text = tests::manifest();
+    if let SavedSource::File { text, sha256, .. } = wrong_text.after.get_mut("b.py").unwrap() {
+        *text = "unreviewed".into();
+        *sha256 = super::workspace_fs::view::hash(text.as_bytes());
+    }
+    assert!(Batch::begin(root.path(), &wrong_text).is_err());
+    let mut wrong_hash = tests::manifest();
+    if let SavedSource::File { sha256, .. } = wrong_hash.before.get_mut("a.py").unwrap() {
+        *sha256 = "invented".into();
+    }
+    assert!(Batch::begin(root.path(), &wrong_hash).is_err());
+    assert!(!root.path().join(".hick-cache").exists());
+}
+</ui:copy>
+
+<ui:file path="crates/hickory-cli/src/serve/resource_journal.rs"><ui:paste select="#resource-save-recovery-record"/><ui:paste select="#resource-journal-review-integrity-test"/></ui:file>
 </ui:doc>

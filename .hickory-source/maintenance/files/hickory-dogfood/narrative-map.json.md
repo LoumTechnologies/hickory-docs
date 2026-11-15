@@ -153860,6 +153860,13 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/api/tests/tree_tests.rs.md",
       "symbol": "Distinguish declarations from examples",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-journal-review-integrity-test",
+      "output": "crates/hickory-cli/src/serve/resource_journal.rs",
+      "page": ".hickory-source/mechanisms/resource-journal.md",
+      "symbol": "Reject incomplete reviewed draft recovery records",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {
