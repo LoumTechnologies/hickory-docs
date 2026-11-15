@@ -9,6 +9,8 @@ A rename also checks coherence with a fresh provider reference read: every autho
 
 Discovery and planning share the same workspace-edit decoder. It validates source identities, representation, edit lists and unsupported resource/version forms before loading any target. Decoding paths is discovery only: ranges and replacements still require exact captured text in the planner.
 
+Completion planning reuses the scalar-aware offset decoder. Only an explicit selection-only caller may allow an empty patch set after all targets and edits have still been validated; ordinary workspace proposals continue to refuse no-change results. Hosts must retain the before snapshot and recheck source and permissions even for an empty patch set.
+
 <ui:copy id="simple-android-change-plans">
 package com.hickorydocs.simple
 import org.json.JSONObject
@@ -17,7 +19,7 @@ data class SourceSnapshot(val text: String, val writable: Boolean)
 data class SourceReplacement(val from: Int, val to: Int, val text: String)
 data class SourcePatch(val path: String, val before: String, val after: String, val edits: List<SourceReplacement>)
 data class ChangePlan(val title: String, val patches: List<SourcePatch>)
-private fun changeOffset(source: String, raw: Any?): Int {
+fun sourceChangeOffset(source: String, raw: Any?): Int {
     val point = raw as? JSONObject ?: error("Invalid UTF-16 source position")
     for (key in listOf("line","character")) { val value = point.opt(key) as? Number ?: error("Invalid UTF-16 source position"); require(value.toDouble() == value.toInt().toDouble() && value.toInt() >= 0) { "Invalid UTF-16 source position" } }
     val offset = languageOffset(source,point) ?: error("Source edit lies outside its captured source")
@@ -58,7 +60,7 @@ fun providerActionPaths(action:JSONObject):List<String> {
     require(items.length() in 1..10000){"Malformed provider source acquisition"}
     return (0 until items.length()).map{val uri=items.optJSONObject(it)?.opt("uri") as? String ?: error("Unsupported provider acquisition source");SemanticLocation(uri,0,0).path ?: error("Unsupported provider acquisition source")}
 }
-fun planWorkspaceEdit(title: String, raw: Any?, sources: Map<String,SourceSnapshot>): ChangePlan {
+fun planWorkspaceEdit(title: String, raw: Any?, sources: Map<String,SourceSnapshot>,allowNoop:Boolean=false): ChangePlan {
     val groups = sortedMapOf<String,MutableList<SourceReplacement>>()
     for(target in workspaceEditTargets(raw)) {
         val path=target.path;val items=target.items
@@ -69,7 +71,7 @@ fun planWorkspaceEdit(title: String, raw: Any?, sources: Map<String,SourceSnapsh
             val item = items.optJSONObject(index) ?: error("Malformed source replacement")
             val range = item.optJSONObject("range") ?: error("Missing source range")
             val text = item.opt("newText") as? String ?: error("Missing replacement text")
-            val replacement = SourceReplacement(changeOffset(source.text,range.opt("start")),changeOffset(source.text,range.opt("end")),text)
+            val replacement = SourceReplacement(sourceChangeOffset(source.text,range.opt("start")),sourceChangeOffset(source.text,range.opt("end")),text)
             require(replacement.from <= replacement.to) { "Source replacement runs backwards" }
             if (replacement !in replacements) replacements.add(replacement)
             require(replacements.size <= 10000) { "Proposal exceeds 10,000 replacements in one source" }
@@ -82,7 +84,7 @@ fun planWorkspaceEdit(title: String, raw: Any?, sources: Map<String,SourceSnapsh
         for (item in edits.asReversed()) after.replace(item.from,item.to,item.text)
         if (before == after.toString()) null else SourcePatch(path,before,after.toString(),edits)
     }
-    require(patches.isNotEmpty()) { "The provider proposed no source changes" }
+    require(patches.isNotEmpty()||allowNoop) { "The provider proposed no source changes" }
     return ChangePlan(title,patches)
 }
 fun invertChangePlan(plan: ChangePlan): ChangePlan = ChangePlan("Undo ${plan.title}",plan.patches.map { patch ->

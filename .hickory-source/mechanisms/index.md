@@ -309,4 +309,6 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="provider-completion-witnesses.md"/>
 
+<storycode:include file="completion-drafts.md"/>
+
 </storycode:doc>

@@ -152788,6 +152788,55 @@
       "page": ".hickory-source/mechanisms/provider-completion-witnesses.md",
       "symbol": "Use an isolated engine and controlled children",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "completion-draft-browser",
+      "output": "apps/web/src/simple/CompletionPlan.ts",
+      "page": ".hickory-source/mechanisms/completion-drafts.md",
+      "symbol": "Browser completion draft",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "completion-draft-apple",
+      "output": "apps/apple-simple/Sources/CompletionPlan.swift",
+      "page": ".hickory-source/mechanisms/completion-drafts.md",
+      "symbol": "Apple completion draft",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "completion-draft-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/CompletionPlan.kt",
+      "page": ".hickory-source/mechanisms/completion-drafts.md",
+      "symbol": "Android completion draft",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "completion-draft-shared-vectors",
+      "output": "apps/simple-contract/completion-plan-cases.json",
+      "page": ".hickory-source/mechanisms/completion-drafts.md",
+      "symbol": "Specify the complete result independently of a renderer",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "completion-draft-browser-witness",
+      "output": "apps/web/src/simple/CompletionPlan.test.ts",
+      "page": ".hickory-source/mechanisms/completion-drafts.md",
+      "symbol": "Run the browser model against the shared vectors",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "completion-draft-apple-witness",
+      "output": "apps/apple-simple/Tests/CompletionPlanTests.swift",
+      "page": ".hickory-source/mechanisms/completion-drafts.md",
+      "symbol": "Run the Apple model against the same vectors",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "completion-draft-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/CompletionPlanTest.kt",
+      "page": ".hickory-source/mechanisms/completion-drafts.md",
+      "symbol": "Run the Android model against the same vectors",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

@@ -1,0 +1,499 @@
+{
+  "cases": [
+    {
+      "name": "plain fallback",
+      "source": "va",
+      "item": {
+        "label": "value"
+      },
+      "from": 0,
+      "to": 2,
+      "after": "value",
+      "selection": {
+        "from": 5,
+        "to": 5
+      },
+      "insertionFrom": 0
+    },
+    {
+      "name": "import at primary start",
+      "source": "va\n",
+      "item": {
+        "label": "value",
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "value"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "# import\n"
+          }
+        ]
+      },
+      "from": 0,
+      "to": 2,
+      "after": "# import\nvalue\n",
+      "selection": {
+        "from": 14,
+        "to": 14
+      },
+      "insertionFrom": 9
+    },
+    {
+      "name": "ordered imports and identical duplicate",
+      "source": "va",
+      "item": {
+        "label": "value",
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "# first\n"
+          },
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "# second\n"
+          },
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "# first\n"
+          }
+        ]
+      },
+      "from": 0,
+      "to": 2,
+      "after": "# first\n# second\nvalue",
+      "selection": {
+        "from": 22,
+        "to": 22
+      },
+      "insertionFrom": 17
+    },
+    {
+      "name": "distinct Unicode import bytes",
+      "source": "va",
+      "item": {
+        "label": "value",
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#é\n"
+          },
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#é\n"
+          }
+        ]
+      },
+      "from": 0,
+      "to": 2,
+      "after": "#é\n#é\nvalue",
+      "selection": {
+        "from": 12,
+        "to": 12
+      },
+      "insertionFrom": 7
+    },
+    {
+      "name": "earlier replacement moves primary caret",
+      "source": "header\nva\n",
+      "item": {
+        "label": "value",
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 1,
+              "character": 0
+            },
+            "end": {
+              "line": 1,
+              "character": 2
+            }
+          },
+          "newText": "value"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 6
+              }
+            },
+            "newText": "longheader"
+          }
+        ]
+      },
+      "from": 7,
+      "to": 9,
+      "after": "longheader\nvalue\n",
+      "selection": {
+        "from": 16,
+        "to": 16
+      },
+      "insertionFrom": 11
+    },
+    {
+      "name": "replace form consumes the remaining suffix",
+      "source": "valu",
+      "item": {
+        "label": "value",
+        "textEdit": {
+          "insert": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "replace": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 4
+            }
+          },
+          "newText": "value"
+        }
+      },
+      "from": 0,
+      "to": 2,
+      "after": "value",
+      "selection": {
+        "from": 5,
+        "to": 5
+      },
+      "insertionFrom": 0
+    },
+    {
+      "name": "no-op still has a source-bound caret",
+      "source": "value",
+      "item": {
+        "label": "value"
+      },
+      "from": 0,
+      "to": 5,
+      "patchCount": 0,
+      "after": "value",
+      "selection": {
+        "from": 5,
+        "to": 5
+      },
+      "insertionFrom": 0
+    },
+    {
+      "name": "expanded selection follows imports in UTF16",
+      "source": "va",
+      "item": {
+        "label": "snippet",
+        "insertText": "${1:😀}",
+        "insertTextFormat": 2,
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#é\n"
+          }
+        ]
+      },
+      "from": 0,
+      "to": 2,
+      "expansion": {
+        "text": "😀",
+        "selection": {
+          "from": 0,
+          "to": 2
+        }
+      },
+      "after": "#é\n😀",
+      "selection": {
+        "from": 3,
+        "to": 5
+      },
+      "insertionFrom": 3
+    },
+    {
+      "name": "readonly cannot become selection authority",
+      "source": "value",
+      "item": {
+        "label": "value"
+      },
+      "from": 0,
+      "to": 5,
+      "writable": false,
+      "error": true
+    },
+    {
+      "name": "command refuses its edit portion",
+      "source": "va",
+      "item": {
+        "label": "value",
+        "command": {
+          "title": "Effect",
+          "command": "effect"
+        }
+      },
+      "from": 0,
+      "to": 2,
+      "error": true
+    },
+    {
+      "name": "snippet requires an expander",
+      "source": "va",
+      "item": {
+        "label": "value",
+        "insertText": "$1",
+        "insertTextFormat": 2
+      },
+      "from": 0,
+      "to": 2,
+      "error": true
+    },
+    {
+      "name": "additional overlap refuses whole proposal",
+      "source": "va",
+      "item": {
+        "label": "value",
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 1
+              },
+              "end": {
+                "line": 0,
+                "character": 2
+              }
+            },
+            "newText": "bad"
+          }
+        ]
+      },
+      "from": 0,
+      "to": 2,
+      "error": true
+    },
+    {
+      "name": "malformed additional list",
+      "source": "va",
+      "item": {
+        "label": "value",
+        "additionalTextEdits": "bad"
+      },
+      "from": 0,
+      "to": 2,
+      "error": true
+    },
+    {
+      "name": "boolean source position",
+      "source": "va",
+      "item": {
+        "label": "value",
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": false,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "value"
+        }
+      },
+      "from": 0,
+      "to": 2,
+      "error": true
+    },
+    {
+      "name": "boolean format",
+      "source": "va",
+      "item": {
+        "label": "value",
+        "insertTextFormat": true
+      },
+      "from": 0,
+      "to": 2,
+      "error": true
+    },
+    {
+      "name": "ambiguous edit representation",
+      "source": "va",
+      "item": {
+        "label": "value",
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "value",
+          "replace": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          }
+        }
+      },
+      "from": 0,
+      "to": 2,
+      "error": true
+    },
+    {
+      "name": "selection cannot split expanded scalar",
+      "source": "va",
+      "item": {
+        "label": "value",
+        "insertText": "$1",
+        "insertTextFormat": 2
+      },
+      "from": 0,
+      "to": 2,
+      "expansion": {
+        "text": "😀",
+        "selection": {
+          "from": 1,
+          "to": 2
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "fallback cannot split source scalar",
+      "source": "😀",
+      "item": {
+        "label": "value"
+      },
+      "from": 1,
+      "to": 2,
+      "error": true
+    },
+    {
+      "name": "foreign source URI",
+      "source": "va",
+      "item": {
+        "label": "value"
+      },
+      "from": 0,
+      "to": 2,
+      "uri": "file:///etc/passwd",
+      "error": true
+    },
+    {
+      "name": "null edit is malformed",
+      "source": "va",
+      "item": {
+        "label": "value",
+        "textEdit": null
+      },
+      "from": 0,
+      "to": 2,
+      "error": true
+    },
+    {
+      "name": "null insertion format is malformed",
+      "source": "va",
+      "item": {
+        "label": "value",
+        "insertTextFormat": null
+      },
+      "from": 0,
+      "to": 2,
+      "error": true
+    }
+  ]
+}

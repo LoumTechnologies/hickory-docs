@@ -3,7 +3,7 @@ export interface SourceSnapshot { text: string; writable: boolean }
 export interface SourceReplacement { from: number; to: number; text: string }
 export interface SourcePatch { path: string; before: string; after: string; edits: SourceReplacement[] }
 export interface ChangePlan { title: string; patches: SourcePatch[] }
-function offset(source: string, position: unknown): number {
+export function sourceChangeOffset(source: string, position: unknown): number {
   const point = position as { line?: number; character?: number } | null;
   if (!Number.isSafeInteger(point?.line) || !Number.isSafeInteger(point?.character) || point!.line! < 0 || point!.character! < 0) throw new Error("Invalid UTF-16 source position");
   const rows = source.split("\n"), row = rows[point!.line!];
@@ -42,7 +42,7 @@ export function providerActionPaths(action:{data?:unknown;edit?:unknown}):string
   if(!Array.isArray(raw)||!raw.length||raw.length>10000)throw new Error("Malformed provider source acquisition");
   return raw.map(item=>{const path=typeof item?.uri==="string"&&semanticPath(item.uri);if(!path)throw new Error("Unsupported provider acquisition source");return path;});
 }
-export function planWorkspaceEdit(title: string, raw: unknown, sources: ReadonlyMap<string, SourceSnapshot>): ChangePlan {
+export function planWorkspaceEdit(title: string, raw: unknown, sources: ReadonlyMap<string, SourceSnapshot>,allowNoop=false): ChangePlan {
   const groups = new Map<string, SourceReplacement[]>();
   for(const {path,items:rawEdits} of workspaceEditTargets(raw)) {
     const source=sources.get(path);
@@ -52,7 +52,7 @@ export function planWorkspaceEdit(title: string, raw: unknown, sources: Readonly
     for (const raw of rawEdits) {
       const item = raw as { range?: { start?: unknown; end?: unknown }; newText?: unknown } | null;
       if (!item?.range || typeof item.newText !== "string") throw new Error("Malformed source replacement");
-      const replacement = { from: offset(source.text, item.range.start), to: offset(source.text, item.range.end), text: item.newText };
+      const replacement = { from: sourceChangeOffset(source.text, item.range.start), to: sourceChangeOffset(source.text, item.range.end), text: item.newText };
       if (replacement.to < replacement.from) throw new Error("Source replacement runs backwards");
       if (!replacements.some(other => other.from === replacement.from && other.to === replacement.to && other.text === replacement.text)) replacements.push(replacement);
       if (replacements.length > 10000) throw new Error("Proposal exceeds 10,000 replacements in one source");
@@ -66,7 +66,7 @@ export function planWorkspaceEdit(title: string, raw: unknown, sources: Readonly
     for (const item of edits.slice().reverse()) after = after.slice(0, item.from) + item.text + after.slice(item.to);
     return before === after ? [] : [{ path, before, after, edits }];
   });
-  if (!patches.length) throw new Error("The provider proposed no source changes");
+  if (!patches.length&&!allowNoop) throw new Error("The provider proposed no source changes");
   return { title, patches };
 }
 export function invertChangePlan(plan: ChangePlan): ChangePlan {

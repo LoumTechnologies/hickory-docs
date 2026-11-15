@@ -483,4 +483,12 @@ Completion offers now use the same installed source/ownership revision model as 
 
 The [completion mechanism](../mechanisms/provider-completion-artifacts.md) is independent of popup rendering and never applies, saves or executes a command. This backend slice establishes safe resolution; frontend snippet/import acceptance is a separate required integration, not claimed by these checks. Three focused model cases and the actual-engine two-provider protocol witness pass for defaults, original opaque Unicode/range-shaped data, complete import results, eager behavior, trigger context, caller substitution refusal, stale/foreign tokens, held-reply refusal and unchanged disk. Focused existing action/type protocol checks, source reconstruction/audit and Rust formatting also pass.
 
+## Whole completion draft model
+
+The shared completion draft models on browser, Apple and Android prepare a primary replacement, complete import edits and the resulting UTF-16 selection without touching UI or disk. Imports inserted at the primary edit's start precede it in the provider's declared order; identical imports collapse, while distinct Unicode byte sequences stay distinct. Other changes pass through the existing source planner. Replacements before the primary edit move its selection consistently. A replaceable snippet expander can supply plain text and an initial selection; absent expansion refuses snippet syntax rather than inserting it literally.
+
+A completion may explicitly allow an empty patch set to move a caret, but retains its exact before snapshot and still requires fresh host source/selection/permission checks. Other workspace proposals continue to refuse no-change results. Commands, malformed edits, overlap, read-only ownership and scalar-splitting selections refuse the whole proposal. The Apple vectors reproduced JSON booleans being accepted as integer positions and format values; exact numeric decoding now rejects those values consistently with browser and Android.
+
+Verification: all three models pass the same 21 source/import/selection/refusal vectors and the existing workspace-edit safety cases; TypeScript checking, native compilation, the iOS simulator build and source reconstruction/audit pass. This establishes draft planning and an expansion interface. Completion-popup acceptance and snippet field interaction remain separate required integrations; no native pointer/IME acceptance is inferred from these model checks.
+
 </ui:doc>

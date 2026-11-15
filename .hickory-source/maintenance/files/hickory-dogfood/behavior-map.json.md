@@ -69682,6 +69682,83 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "completion-protocol-runner"
       ]
+    },
+    "apps/web/src/simple/CompletionPlan.ts": {
+      "source": ".hickory-source/mechanisms/completion-drafts.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "737d2555977cc6c75d647d2bcbdb5440e9d994bfd5028ccd0950bc8adec93879",
+      "construction": "fragments",
+      "fragments": [
+        "completion-draft-browser"
+      ]
+    },
+    "apps/apple-simple/Sources/CompletionPlan.swift": {
+      "source": ".hickory-source/mechanisms/completion-drafts.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "743c53273fa417511f5531ce5d0709939aaf5680259fa3760148db8e7eb5ea93",
+      "construction": "fragments",
+      "fragments": [
+        "completion-draft-apple"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/CompletionPlan.kt": {
+      "source": ".hickory-source/mechanisms/completion-drafts.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "743bae21c37509af8ba1851af96fe92253bb5367fbbbbc07bd3277da46889e77",
+      "construction": "fragments",
+      "fragments": [
+        "completion-draft-android"
+      ]
+    },
+    "apps/simple-contract/completion-plan-cases.json": {
+      "source": ".hickory-source/mechanisms/completion-drafts.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "d228f868be637b33dd976b57d29b56ed750480bf0cbf2b70dd235e03e3c3d653",
+      "construction": "fragments",
+      "fragments": [
+        "completion-draft-shared-vectors"
+      ]
+    },
+    "apps/web/src/simple/CompletionPlan.test.ts": {
+      "source": ".hickory-source/mechanisms/completion-drafts.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "a85703a4f28ee5675d670f7c322fdb54d99de80f0d077a585842d5ca017a9aba",
+      "construction": "fragments",
+      "fragments": [
+        "completion-draft-browser-witness"
+      ]
+    },
+    "apps/apple-simple/Tests/CompletionPlanTests.swift": {
+      "source": ".hickory-source/mechanisms/completion-drafts.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "4e35a2816411f1c7abbaab57ac9e89b25af2008655eb8919e6ba444e18775264",
+      "construction": "fragments",
+      "fragments": [
+        "completion-draft-apple-witness"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/CompletionPlanTest.kt": {
+      "source": ".hickory-source/mechanisms/completion-drafts.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "bb1006e028a4359c3243e9ce04d5369219b48c36c7b065f6a9039f4e8c799711",
+      "construction": "fragments",
+      "fragments": [
+        "completion-draft-android-witness"
+      ]
     }
   },
   "evidence_records": [
