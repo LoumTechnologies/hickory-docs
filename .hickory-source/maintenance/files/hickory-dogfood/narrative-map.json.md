@@ -153363,6 +153363,13 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/git-attribution-android.md",
       "symbol": "Present saved facts and reuse immutable commit reading",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-retained-input-context-witness",
+      "output": "crates/hickory-cli/src/serve/source_tests.rs",
+      "page": ".hickory-source/mechanisms/test-source-service.md",
+      "symbol": "Pin exact consumed inputs without running or materializing",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

@@ -77,7 +77,11 @@ pub struct Scan {
     pub project_context: Option<Value>,
     #[serde(skip)]
     pub(crate) tree: Option<hick_lang::ProjectTree>,
+    /// Retained only for compiler-fact consumers; never serialized by test endpoints.
+    #[serde(skip)]
+    pub(crate) source_texts: BTreeMap<String, String>,
 }
+
 </ui:copy>
 
 ## Resolve only workspace sources
@@ -88,7 +92,7 @@ Normalize relative paths under the workspace and reject escapes before reading. 
 pub(crate) fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
-fn relative(base: &Path, path: &str) -> Result<String, String> {
+pub(crate) fn relative(base: &Path, path: &str) -> Result<String, String> {
     if path.is_empty()
         || path.contains('\\')
         || path.contains(':')
@@ -116,7 +120,7 @@ fn relative(base: &Path, path: &str) -> Result<String, String> {
     hick_lang::validate_project_path(&result)?;
     Ok(result)
 }
-fn saved_source(root: &Path, path: &str) -> Result<String, String> {
+pub(crate) fn saved_source(root: &Path, path: &str) -> Result<String, String> {
     let joined = root.join(path);
     if !std::fs::symlink_metadata(&joined)
         .map_err(|e| {
@@ -149,6 +153,7 @@ fn saved_source(root: &Path, path: &str) -> Result<String, String> {
     }
     Ok(value)
 }
+
 </ui:copy>
 
 ## Identify source and target observations separately
@@ -214,6 +219,7 @@ fn base_scan(request: &Request, path: &str, root: &Path) -> Scan {
         unused_sources: vec![],
         project_context: None,
         tree: None,
+        source_texts: BTreeMap::new(),
     }
 }
 fn seal(mut scan: Scan) -> Scan {
@@ -233,6 +239,7 @@ fn seal(mut scan: Scan) -> Scan {
     scan.fingerprint=digest(&serde_json::to_vec(&json!({"version":scan.version,"workspace":scan.workspace_id,"scope":scan.scope,"entry":scan.project_entry,"sources":scan.source_hashes,"targets":scan.candidates.iter().map(|c|(&c.id,&c.target.path,&c.target.hash,&c.run_scope)).collect::<Vec<_>>()})).unwrap());
     scan
 }
+
 </ui:copy>
 
 ## Read one declared source closure
@@ -245,6 +252,7 @@ fn project_state(
     request: &Request,
     path: &str,
     entry: &str,
+    pinned: Option<&BTreeMap<String, String>>,
 ) -> Result<(hick_lsp::document::HickDocumentState, PathBuf, Vec<String>), String> {
     let entry = relative(Path::new(""), entry)?;
     let base = Path::new(&entry).parent().unwrap_or(Path::new(""));
@@ -267,6 +275,8 @@ fn project_state(
     let sources = hick_lang::load_project_sources(name, &|logical| {
         let key = relative(base, logical)?;
         let value = if let Some(value) = supplied.get(&key) {
+            value.clone()
+        } else if let Some(value) = pinned.and_then(|sources| sources.get(&key)) {
             value.clone()
         } else {
             saved_source(root, &key)?
@@ -294,15 +304,34 @@ fn project_state(
     let state=hick_lsp::document::HickDocumentState::from_project(name,&sources).map_err(|e|format!("Construction analysis failed: {e}. Correct the selected source or choose another entry."))?;
     Ok((state, base.to_path_buf(), unused))
 }
+
 </ui:copy>
 
 ## Project candidates through compiler ownership
 
 Plain files use their routed source detector immediately. Literate documents use the existing compiler position maps, with generated runtime line numbering kept separate from authored source coordinates. Project mappings retain foreign contributor identities. Local document scope is stated explicitly and can be expanded with a chosen project entry. One unsupported output does not erase facts from unrelated outputs.
 
+Compiler-fact readers may retain the exact consumed source set without changing the test endpoint's wire payload or ordinary memory lifetime. A second analysis can pin those captured inputs: explicit draft overrides win, then pinned source, then newly needed saved source. This prevents unrelated external disk edits from entering a before/after comparison halfway through. Construction entries retain the compiler’s existing Markdown source requirement.
+
 <ui:copy id="source-test-service-analysis">
 /// Collect source facts only. No test planner, runner or materializer is called.
 pub(crate) fn scan(root: &Path, request: &Request) -> Result<Scan, String> {
+    scan_captured(root, request, false, None)
+}
+/// Keep the compiler's exact consumed inputs for a subsequent read-only analysis.
+pub(crate) fn scan_with_sources(
+    root: &Path,
+    request: &Request,
+    pinned: Option<&BTreeMap<String, String>>,
+) -> Result<Scan, String> {
+    scan_captured(root, request, true, pinned)
+}
+fn scan_captured(
+    root: &Path,
+    request: &Request,
+    retain_sources: bool,
+    pinned: Option<&BTreeMap<String, String>>,
+) -> Result<Scan, String> {
     let root = root
         .canonicalize()
         .map_err(|e| format!("Workspace unavailable: {e}. Reconnect and retry."))?;
@@ -329,6 +358,11 @@ pub(crate) fn scan(root: &Path, request: &Request) -> Result<Scan, String> {
                 .candidates
                 .push(candidate(language, item, Some(at.clone()), at)?);
         }
+        if retain_sources {
+            result
+                .source_texts
+                .insert(path.clone(), request.source.clone());
+        }
         return Ok(seal(result));
     }
     let parsed = hick_lang::parse(&request.source).map_err(|e| {
@@ -339,7 +373,7 @@ pub(crate) fn scan(root: &Path, request: &Request) -> Result<Scan, String> {
         .clone()
         .or_else(|| (!parsed.find_tags("project").is_empty()).then(|| path.clone()));
     let (state, base, unused) = if let Some(entry) = &explicit {
-        let (state, base, unused) = project_state(&root, request, &path, entry)?;
+        let (state, base, unused) = project_state(&root, request, &path, entry, pinned)?;
         result.scope = "project".into();
         result.project_entry = Some(relative(Path::new(""), entry)?);
         (state, base, unused)
@@ -437,12 +471,24 @@ pub(crate) fn scan(root: &Path, request: &Request) -> Result<Scan, String> {
         }
     }
     result.unsupported_languages = unsupported.into_iter().collect();
-    result.tree = state.selected_project.clone();
+    if retain_sources {
+        result.source_texts = if state.selected_project.is_some() {
+            state
+                .project_sources
+                .into_iter()
+                .map(|(logical, source)| Ok((relative(&base, &logical)?, source)))
+                .collect::<Result<_, String>>()?
+        } else {
+            BTreeMap::from([(path.clone(), request.source.clone())])
+        };
+    }
+    result.tree = state.selected_project;
     if result.candidates.len() > 10000 {
         return Err("More than 10,000 source test candidates. Narrow the selected entry or use runner discovery.".into());
     }
     Ok(seal(result))
 }
+
 </ui:copy>
 
 ## Recheck saved contributors before a run
@@ -748,5 +794,69 @@ mod tests {
 }
 </ui:copy>
 
-<ui:file path="crates/hickory-cli/src/serve/source_tests.rs"><ui:paste select="#source-test-service-types"/><ui:paste select="#source-test-service-paths"/><ui:paste select="#source-test-service-identities"/><ui:paste select="#source-test-service-inputs"/><ui:paste select="#source-test-service-analysis"/><ui:paste select="#source-test-service-saved-guards"/><ui:paste select="#source-test-service-run-admission"/><ui:paste select="#source-test-service-http"/><ui:paste select="#source-test-service-test-prefix"/><ui:paste select="#source-test-service-plain-witness"/><ui:paste select="#source-test-service-document-witness"/><ui:paste select="#source-test-service-project-witness"/><ui:paste select="#source-test-service-scope-witness"/><ui:paste select="#source-test-service-test-suffix"/></ui:file>
+## Pin exact consumed inputs without running or materializing
+
+Capture a construction, change its saved contributor, and analyze against the retained input set. The pinned bytes must win over later disk changes, explicit drafts must win over the pin, and neither analysis may create generated files or leak retained source text through the existing test response.
+
+<ui:copy id="source-test-retained-input-context-witness">
+#[cfg(test)]
+#[test]
+fn retained_compiler_sources_pin_later_analysis_without_materializing_or_leaking_text() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let entry = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"part.md\"/></h:doc>";
+    let source = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:copy id=\"body\">one</h:copy><h:file path=\"output.txt\"><h:paste select=\"#body\"/></h:file></h:doc>";
+    std::fs::write(root.join("entry.md"), entry).unwrap();
+    std::fs::write(root.join("part.md"), source).unwrap();
+    let request = Request {
+        path: "entry.md".into(),
+        source: entry.into(),
+        project_entry: Some("entry.md".into()),
+        sources: BTreeMap::new(),
+        capture: false,
+    };
+    let before = scan_with_sources(root, &request, None).unwrap();
+    assert_eq!(before.source_texts["part.md"], source);
+    std::fs::write(root.join("part.md"), source.replace("one", "external")).unwrap();
+    let pinned = scan_with_sources(root, &request, Some(&before.source_texts)).unwrap();
+    assert_eq!(
+        pinned
+            .tree
+            .as_ref()
+            .unwrap()
+            .get("output.txt")
+            .unwrap()
+            .bytes
+            .as_ref(),
+        b"one"
+    );
+    let mut draft = request;
+    draft
+        .sources
+        .insert("part.md".into(), source.replace("one", "two"));
+    let after = scan_with_sources(root, &draft, Some(&before.source_texts)).unwrap();
+    assert_eq!(
+        after
+            .tree
+            .as_ref()
+            .unwrap()
+            .get("output.txt")
+            .unwrap()
+            .bytes
+            .as_ref(),
+        b"two"
+    );
+    assert!(
+        serde_json::to_value(&after)
+            .unwrap()
+            .get("source_texts")
+            .is_none()
+    );
+    assert!(!root.join("output.txt").exists());
+    let ordinary = scan(root, &draft).unwrap();
+    assert!(ordinary.source_texts.is_empty());
+}
+</ui:copy>
+
+<ui:file path="crates/hickory-cli/src/serve/source_tests.rs"><ui:paste select="#source-test-service-types"/><ui:paste select="#source-test-service-paths"/><ui:paste select="#source-test-service-identities"/><ui:paste select="#source-test-service-inputs"/><ui:paste select="#source-test-service-analysis"/><ui:paste select="#source-test-service-saved-guards"/><ui:paste select="#source-test-service-run-admission"/><ui:paste select="#source-test-service-http"/><ui:paste select="#source-test-service-test-prefix"/><ui:paste select="#source-test-service-plain-witness"/><ui:paste select="#source-test-service-document-witness"/><ui:paste select="#source-test-service-project-witness"/><ui:paste select="#source-test-service-scope-witness"/><ui:paste select="#source-test-service-test-suffix"/><ui:paste select="#source-test-retained-input-context-witness"/></ui:file>
 </ui:doc>
