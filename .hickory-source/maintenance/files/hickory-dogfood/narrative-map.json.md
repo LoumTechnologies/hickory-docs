@@ -153853,6 +153853,13 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/guarantees/authoring/the-editor-does-not-wait-for-workspace-preparation/contract.md",
       "symbol": "Observe source independently of preparation readiness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "parsed-output-declaration-boundaries",
+      "output": "crates/hickory-cli/src/serve/api/tests/tree_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/api/tests/tree_tests.rs.md",
+      "symbol": "Distinguish declarations from examples",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

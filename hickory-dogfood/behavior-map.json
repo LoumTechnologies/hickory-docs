@@ -52923,7 +52923,8 @@
         "f-c98e0438f96c-a_volume_output_directory_claims_the_files_under_it",
         "f-c98e0438f96c-markdown_source_and_weave_none_claim_no_rendered_output",
         "f-c98e0438f96c-marking_skips_documents_and_directories",
-        "workspace-tree-routing-facts-test"
+        "workspace-tree-routing-facts-test",
+        "parsed-output-declaration-boundaries"
       ],
       "anchor": "output-c98e0438f96c",
       "narrative_owner": "mechanism:crates/hickory-cli"

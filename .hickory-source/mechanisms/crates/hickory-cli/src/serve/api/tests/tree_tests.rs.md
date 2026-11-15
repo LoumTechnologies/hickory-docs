@@ -287,6 +287,46 @@ fn workspace_tree_routing_facts_do_not_wait_for_source_parsing() {
 }
 </storycode:copy>
 
-<storycode:file path="crates/hickory-cli/src/serve/api/tests/tree_tests.rs"><storycode:paste select="#f-c98e0438f96c-a_documents_weave_target_is_one_of_its_outputs"/><storycode:paste select="#f-c98e0438f96c-every_generated_file_block_is_an_output"/><storycode:paste select="#f-c98e0438f96c-outputs_are_relative_to_the_documents_own_directory"/><storycode:paste select="#f-c98e0438f96c-a_dot_dot_in_a_path_is_resolved_rather_than_left_in_the_key"/><storycode:paste select="#f-c98e0438f96c-a_path_built_from_a_variable_is_not_claimed"/><storycode:paste select="#f-c98e0438f96c-a_volume_output_directory_claims_the_files_under_it"/><storycode:paste select="#f-c98e0438f96c-markdown_source_and_weave_none_claim_no_rendered_output"/><storycode:paste select="#f-c98e0438f96c-marking_skips_documents_and_directories"/><storycode:paste select="#workspace-tree-routing-facts-test"/></storycode:file>
+## Distinguish declarations from examples
+
+The focused reader cases use a namespace alias and single quotes, then put deceptive output and ingestion tags inside fenced prose and raw entry text. Only the real declarations may affect the output map. A separate real ingestion tag must still release its volume directory claim. The existing incomplete-source cases retain their conservative behavior.
+
+<storycode:copy id="parsed-output-declaration-boundaries">
+#[test]
+fn parsed_output_claims_follow_namespace_and_literal_boundaries() {
+    let source = r#"<story:doc xmlns:story='http://www.hickorydocs.com/1.0' weave='rendered.md'>
+<story:file path='src/main.rs'>fn main() {}</story:file>
+<story:volume name='generated' output='api' />
+
+```xml
+<story:file path='example.rs'/>
+<story:ingested/>
+```
+
+<story:entry path='raw.txt' kind='file'>
+<story:file path='raw-example.rs'/>
+<story:ingested/>
+</story:entry>
+</story:doc>"#;
+    hick_lang::parse(source).unwrap();
+    assert_eq!(
+        declared_outputs("nested/source.md", source),
+        vec!["nested/rendered.md", "nested/src/main.rs", "nested/api/"]
+    );
+}
+
+#[test]
+fn parsed_ingestion_releases_volume_claim_without_losing_files() {
+    let source = r#"<x:doc xmlns:x='http://www.hickorydocs.com/1.0' weave='none'>
+<x:volume name='generated' output='api'/>
+<x:ingested/>
+<x:file path='api/owned.rs'>owned</x:file>
+</x:doc>"#;
+    hick_lang::parse(source).unwrap();
+    assert_eq!(declared_outputs("source.md", source), vec!["api/owned.rs"]);
+}
+</storycode:copy>
+
+<storycode:file path="crates/hickory-cli/src/serve/api/tests/tree_tests.rs"><storycode:paste select="#f-c98e0438f96c-a_documents_weave_target_is_one_of_its_outputs"/><storycode:paste select="#f-c98e0438f96c-every_generated_file_block_is_an_output"/><storycode:paste select="#f-c98e0438f96c-outputs_are_relative_to_the_documents_own_directory"/><storycode:paste select="#f-c98e0438f96c-a_dot_dot_in_a_path_is_resolved_rather_than_left_in_the_key"/><storycode:paste select="#f-c98e0438f96c-a_path_built_from_a_variable_is_not_claimed"/><storycode:paste select="#f-c98e0438f96c-a_volume_output_directory_claims_the_files_under_it"/><storycode:paste select="#f-c98e0438f96c-markdown_source_and_weave_none_claim_no_rendered_output"/><storycode:paste select="#f-c98e0438f96c-marking_skips_documents_and_directories"/><storycode:paste select="#workspace-tree-routing-facts-test"/><storycode:paste select="#parsed-output-declaration-boundaries"/></storycode:file>
 
 </storycode:doc>

@@ -216,3 +216,36 @@ fn workspace_tree_routing_facts_do_not_wait_for_source_parsing() {
             .is_none()
     );
 }
+#[test]
+fn parsed_output_claims_follow_namespace_and_literal_boundaries() {
+    let source = r#"<story:doc xmlns:story='http://www.hickorydocs.com/1.0' weave='rendered.md'>
+<story:file path='src/main.rs'>fn main() {}</story:file>
+<story:volume name='generated' output='api' />
+
+```xml
+<story:file path='example.rs'/>
+<story:ingested/>
+```
+
+<story:entry path='raw.txt' kind='file'>
+<story:file path='raw-example.rs'/>
+<story:ingested/>
+</story:entry>
+</story:doc>"#;
+    hick_lang::parse(source).unwrap();
+    assert_eq!(
+        declared_outputs("nested/source.md", source),
+        vec!["nested/rendered.md", "nested/src/main.rs", "nested/api/"]
+    );
+}
+
+#[test]
+fn parsed_ingestion_releases_volume_claim_without_losing_files() {
+    let source = r#"<x:doc xmlns:x='http://www.hickorydocs.com/1.0' weave='none'>
+<x:volume name='generated' output='api'/>
+<x:ingested/>
+<x:file path='api/owned.rs'>owned</x:file>
+</x:doc>"#;
+    hick_lang::parse(source).unwrap();
+    assert_eq!(declared_outputs("source.md", source), vec!["api/owned.rs"]);
+}

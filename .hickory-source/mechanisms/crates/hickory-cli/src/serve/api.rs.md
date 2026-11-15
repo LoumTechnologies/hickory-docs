@@ -707,7 +707,7 @@ struct TreeNode {
 
 The `weave` attribute of a document's root element, and the `path` of a
 `hick:file` block. Both are plain literal attributes in the source, which
-is what makes reading them without a parse honest — see `declared_outputs`.
+supports the incomplete-source fallback — see `declared_outputs`.
 
 <storycode:copy id="f-e71b04ae5298-WEAVE_ATTR">
 /// The `weave` attribute of a document's root element, and the `path` of a
@@ -1016,11 +1016,54 @@ pub(crate) fn join_under(dir: &str, value: &str) -> Option<String> {
 <a id="f-e71b04ae5298-declared_outputs"></a>
 ### `declared_outputs`
 
+A resource proposal must not overwrite a declared output merely because its
+owner uses another namespace prefix or single quoted attributes. Parse complete
+documents with the language parser before collecting literal output declarations.
+This also keeps fenced examples and raw entry payloads from claiming files or
+pretending a volume was ingested. These are static declarations: this reader does
+not run cells, resolve dynamic paths or establish complete project ownership.
+During incomplete typing, retain the earlier conservative pattern claims rather
+than silently removing an existing guard. That fallback may overclaim malformed
+source; the compiler-backed resource analysis remains the stronger check.
+
 <storycode:copy id="f-e71b04ae5298-declared_outputs">
 pub(crate) fn declared_outputs(doc_rel: &str, source: &str) -> Vec<String> {
     let dir = doc_rel.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
     let join = |value: &str| -> Option<String> { join_under(dir, value) };
 
+    // Valid documents use the same tag boundaries and namespace binding as
+    // the language. Literal examples must not grant or suppress ownership.
+    if let Ok(document) = hick_lang::parse(source) {
+        let mut out = Vec::new();
+        if let Some(value) = document.weave_path.as_deref()
+            && value.trim() != hick_lang::WEAVE_NONE
+            && let Some(path) = join(value)
+        {
+            out.push(path);
+        }
+        let tags = document.all_tags();
+        let ingested = tags.iter().any(|tag| tag.name == "ingested");
+        for tag in tags {
+            match tag.name.as_str() {
+                "file" => {
+                    if let Some(path) = tag.get_attribute("path").and_then(join) {
+                        out.push(path);
+                    }
+                }
+                "volume" if !ingested => {
+                    if let Some(path) = tag.get_attribute("output").and_then(join)
+                        && !path.is_empty()
+                    {
+                        out.push(format!("{path}/"));
+                    }
+                }
+                _ => {}
+            }
+        }
+        return out;
+    }
+    // Keep the legacy conservative claims while an incomplete document is
+    // being typed. This fallback is not compiler or execution evidence.
     let mut out = Vec::new();
     for capture in WEAVE_ATTR.captures_iter(source) {
         // `weave="none"` is the opt-out, not a file called `none`.

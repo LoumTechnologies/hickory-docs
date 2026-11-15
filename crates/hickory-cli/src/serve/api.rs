@@ -660,6 +660,39 @@ pub(crate) fn declared_outputs(doc_rel: &str, source: &str) -> Vec<String> {
     let dir = doc_rel.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
     let join = |value: &str| -> Option<String> { join_under(dir, value) };
 
+    // Valid documents use the same tag boundaries and namespace binding as
+    // the language. Literal examples must not grant or suppress ownership.
+    if let Ok(document) = hick_lang::parse(source) {
+        let mut out = Vec::new();
+        if let Some(value) = document.weave_path.as_deref()
+            && value.trim() != hick_lang::WEAVE_NONE
+            && let Some(path) = join(value)
+        {
+            out.push(path);
+        }
+        let tags = document.all_tags();
+        let ingested = tags.iter().any(|tag| tag.name == "ingested");
+        for tag in tags {
+            match tag.name.as_str() {
+                "file" => {
+                    if let Some(path) = tag.get_attribute("path").and_then(join) {
+                        out.push(path);
+                    }
+                }
+                "volume" if !ingested => {
+                    if let Some(path) = tag.get_attribute("output").and_then(join)
+                        && !path.is_empty()
+                    {
+                        out.push(format!("{path}/"));
+                    }
+                }
+                _ => {}
+            }
+        }
+        return out;
+    }
+    // Keep the legacy conservative claims while an incomplete document is
+    // being typed. This fallback is not compiler or execution evidence.
     let mut out = Vec::new();
     for capture in WEAVE_ATTR.captures_iter(source) {
         // `weave="none"` is the opt-out, not a file called `none`.
