@@ -153999,6 +153999,20 @@
       "page": ".hickory-source/mechanisms/resource-restoration.md",
       "symbol": "Analyze separate restored construction layers",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-restoration-record",
+      "output": "crates/hickory-cli/src/serve/resource_journal.rs",
+      "page": ".hickory-source/mechanisms/resource-journal.md",
+      "symbol": "Retain both sides of a saved/draft restoration",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-restoration-publication-tests",
+      "output": "crates/hickory-cli/src/serve/resource_restoration.rs",
+      "page": ".hickory-source/mechanisms/resource-restoration.md",
+      "symbol": "Publish saved baselines while retaining dirty draft restoration",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

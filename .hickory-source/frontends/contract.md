@@ -814,4 +814,19 @@ analysis leave source/recovery records unchanged; independent draft text, saved
 metadata, permissions, versions and root scopes refuse. Restoration-aware durable
 publication, recovery endpoints and UI namespace/undo adoption are still required.
 
+## Retain restoration-aware saved/draft publication
+
+Version-3 recovery records retain the old saved baseline separately from the
+restored dirty draft and reference the parent evidence identity/fingerprint.
+Version-2 ordinary saves still require their saved after text to equal the
+reviewed draft. Both validate complete paths, saved hashes and namespace kinds.
+Parent evidence is not write permission; current admission remains required.
+
+Four focused restoration cases and nine recovery-store cases pass. A temporary
+root performs save, saved-baseline restore and redo through the shared publisher;
+its restored editor snapshot remains dirty, parent records remain unchanged, and
+invalid versions/origins/hashes refuse before new recovery IO. Recovery HTTP
+admission, live-document restoration integration and frontend namespace/undo
+adoption are still required.
+
 </ui:doc>

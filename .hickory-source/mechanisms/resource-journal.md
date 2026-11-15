@@ -35,8 +35,16 @@ pub struct Manifest {
     pub context: String,
     pub title: String,
     pub reviewed_plan: ResourcePlan,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restore_of: Option<RestorationOrigin>,
     pub before: BTreeMap<String, SavedSource>,
     pub after: BTreeMap<String, SavedSource>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RestorationOrigin {
+    pub recovery_id: String,
+    pub fingerprint: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -115,7 +123,9 @@ fn same_saved_draft(saved: &SavedSource, draft: &SourceState) -> bool {
     }
 }
 fn manifest_bytes(manifest: &Manifest) -> Result<Vec<u8>, String> {
-    if manifest.version != 2
+    if !matches!(manifest.version, 2 | 3)
+        || (manifest.version == 2 && manifest.restore_of.is_some())
+        || (manifest.version == 3 && manifest.restore_of.is_none())
         || manifest.workspace.is_empty()
         || manifest.context.is_empty()
         || manifest.before.is_empty()
@@ -127,6 +137,21 @@ fn manifest_bytes(manifest: &Manifest) -> Result<Vec<u8>, String> {
         return Err(
             "Resource recovery requires one complete versioned before/after namespace.".into(),
         );
+    }
+    if let Some(origin) = &manifest.restore_of {
+        if origin.recovery_id.len() != 32
+            || !origin
+                .recovery_id
+                .bytes()
+                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+            || origin.fingerprint.len() != 64
+            || !origin
+                .fingerprint
+                .bytes()
+                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+        {
+            return Err("A restoration record requires its exact recovery identity and evidence fingerprint.".into());
+        }
     }
     for path in manifest.before.keys() {
         super::resource_changes::validate_path(path)?;
@@ -147,7 +172,11 @@ fn manifest_bytes(manifest: &Manifest) -> Result<Vec<u8>, String> {
         validate_saved(saved)?;
         validate_saved(&manifest.after[path])?;
         if !same_kind(saved, &drafts[path])
-            || !same_saved_draft(&manifest.after[path], &after[path])
+            || if manifest.restore_of.is_some() {
+                !same_kind(&manifest.after[path], &after[path])
+            } else {
+                !same_saved_draft(&manifest.after[path], &after[path])
+            }
         {
             return Err(format!(
                 "Resource recovery differs from the reviewed namespace: {path}. Prepare again."
@@ -241,6 +270,7 @@ mod tests {
     pub(super) fn manifest() -> Manifest {
         Manifest {
             version: 2,
+            restore_of: None,
             reviewed_plan: ResourcePlan {
                 version: 1,
                 context: "reviewed-change".into(),
@@ -516,6 +546,7 @@ impl Manifest {
             context: inputs.context.clone(),
             title: plan.title.clone(),
             reviewed_plan: plan.clone(),
+            restore_of: None,
             before,
             after,
         })
@@ -848,5 +879,43 @@ mod recovery_read_tests {
 }
 </ui:copy>
 
-<ui:file path="crates/hickory-cli/src/serve/resource_journal.rs"><ui:paste select="#resource-save-recovery-record"/><ui:paste select="#resource-journal-review-integrity-test"/><ui:paste select="#resource-journal-from-review"/><ui:paste select="#resource-recovery-reading"/><ui:paste select="#resource-recovery-reading-tests"/></ui:file>
+Focused evidence (2026-11-15): four restoration model/publication cases and all
+nine existing recovery-store cases pass with mixed version-2/version-3 records.
+Temporary-root restore and redo retain separate saved/draft state and parent
+fingerprints; invalid origins, versions and saved hashes refuse before another
+batch is created. This proves the shared record/publisher path, not a recovery
+HTTP action or frontend undo flow.
+
+## Retain both sides of a saved/draft restoration
+
+An ordinary version-2 save records a saved after state equal to its reviewed draft. A version-3 restoration instead retains the exact historical saved baseline independently of the restored dirty draft, and names its parent recovery observation. File presence, hashes, complete paths and the reviewed transition remain validated. The parent ID and fingerprint are evidence references, never permission to replay: a publisher must recheck the parent and current source authority before writing. Version-2 records without the optional field remain readable. This constructor creates only a record value; it does not publish source.
+
+<ui:copy id="resource-restoration-record">
+impl Manifest {
+    pub fn from_restoration(
+        restoration: &super::resource_restoration::Restoration,
+    ) -> Result<Self, String> {
+        if restoration.version != 1 {
+            return Err("Unsupported saved/draft restoration version.".into());
+        }
+        let manifest = Self {
+            version: 3,
+            workspace: restoration.workspace.clone(),
+            context: restoration.context.clone(),
+            title: restoration.plan.title.clone(),
+            reviewed_plan: restoration.plan.clone(),
+            restore_of: Some(RestorationOrigin {
+                recovery_id: restoration.recovery_id.clone(),
+                fingerprint: restoration.recovery_fingerprint.clone(),
+            }),
+            before: restoration.saved_before.clone(),
+            after: restoration.saved_after.clone(),
+        };
+        let _ = manifest_bytes(&manifest)?;
+        Ok(manifest)
+    }
+}
+</ui:copy>
+
+<ui:file path="crates/hickory-cli/src/serve/resource_journal.rs"><ui:paste select="#resource-save-recovery-record"/><ui:paste select="#resource-journal-review-integrity-test"/><ui:paste select="#resource-journal-from-review"/><ui:paste select="#resource-recovery-reading"/><ui:paste select="#resource-recovery-reading-tests"/><ui:paste select="#resource-restoration-record"/></ui:file>
 </ui:doc>

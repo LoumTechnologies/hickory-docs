@@ -70618,7 +70618,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "resource-journal-review-integrity-test",
         "resource-journal-from-review",
         "resource-recovery-reading",
-        "resource-recovery-reading-tests"
+        "resource-recovery-reading-tests",
+        "resource-restoration-record"
       ]
     },
     "crates/hickory-cli/src/serve/resource_candidates.rs": {
@@ -70673,7 +70674,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "resource-restoration-states",
         "resource-restoration-preparation",
         "resource-restoration-consequences",
-        "resource-restoration-tests"
+        "resource-restoration-tests",
+        "resource-restoration-publication-tests"
       ]
     }
   },

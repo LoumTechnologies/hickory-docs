@@ -139,7 +139,7 @@ mod tests {
         resource_publish,
     };
     use super::*;
-    fn fixture() -> (tempfile::TempDir, Recovery, Inputs) {
+    pub(super) fn fixture() -> (tempfile::TempDir, Recovery, Inputs) {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("a.py"), "saved baseline\n").unwrap();
         let identity = RootIdentity::bind(root.path());
@@ -322,5 +322,144 @@ mod tests {
 }
 </ui:copy>
 
-<ui:file path="crates/hickory-cli/src/serve/resource_restoration.rs"><ui:paste select="#resource-restoration-states"/><ui:paste select="#resource-restoration-preparation"/><ui:paste select="#resource-restoration-consequences"/><ui:paste select="#resource-restoration-tests"/></ui:file>
+## Publish saved baselines while retaining dirty draft restoration
+
+Drive a real temporary-root save, restoration and redo through the shared publisher. Each restoration record must retain its parent evidence and both saved/draft transitions. Restoring must write the old saved baseline, while its reviewed editor after state remains the original dirty text; redo returns the saved moved draft. The original record remains unchanged. A version-3 record without valid origin, a version-2 origin override and invalid restored fingerprints must fail before creating another batch. These are publisher/model checks, not frontend or HTTP undo acceptance.
+
+<ui:copy id="resource-restoration-publication-tests">
+#[cfg(test)]
+mod publication_tests {
+    use super::super::{
+        resource_inputs::RootIdentity,
+        resource_journal::{Batch, Manifest, read_recovery},
+        resource_publish,
+    };
+    use super::*;
+    fn read_outcome(root: &std::path::Path, outcome: &resource_publish::Outcome) -> Recovery {
+        let id = std::path::Path::new(&outcome.recovery)
+            .parent()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap();
+        read_recovery(root, id).unwrap()
+    }
+    #[test]
+    fn publication_restores_saved_baseline_separately_from_dirty_draft_and_redo() {
+        let (root, original, mut current) = tests::fixture();
+        // Explicit recovery may use a newly bound engine session at the same root.
+        let identity = RootIdentity::bind(root.path());
+        current.workspace = identity.check(root.path()).unwrap().into();
+        let restoration = prepare(&original, &current, &current).unwrap();
+        let record = Manifest::from_restoration(&restoration).unwrap();
+        assert_eq!(record.version, 3);
+        assert_eq!(record.restore_of.as_ref().unwrap().recovery_id, original.id);
+        let outcome =
+            resource_publish::publish(root.path(), &identity, &record, |_| Ok(())).unwrap();
+        assert!(outcome.complete && !outcome.source_files_uncertain);
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("a.py")).unwrap(),
+            "saved baseline\n"
+        );
+        assert!(!root.path().join("b.py").exists());
+        let restored = read_outcome(root.path(), &outcome);
+        assert!(restored.all_paths_recorded_applied);
+        assert_eq!(restored.manifest.after, restoration.saved_after);
+        let SourceState::File { text, .. } = &restored
+            .manifest
+            .reviewed_plan
+            .patches
+            .iter()
+            .find(|patch| patch.path == "a.py")
+            .unwrap()
+            .after
+        else {
+            panic!("restored draft missing")
+        };
+        assert_eq!(text, "unsaved draft\n");
+        assert_eq!(
+            restored.manifest.restore_of.as_ref().unwrap().fingerprint,
+            original.fingerprint
+        );
+        let mut redo_current = current.clone();
+        redo_current.context = "redo-current".into();
+        redo_current.sources = restoration
+            .plan
+            .patches
+            .iter()
+            .map(|patch| (patch.path.clone(), patch.after.clone()))
+            .collect();
+        redo_current.saved_sources = restored.manifest.after.clone();
+        if let SourceState::File {
+            identity, version, ..
+        } = redo_current.sources.get_mut("a.py").unwrap()
+        {
+            *identity = "current-editor-a".into();
+            *version = Some(101);
+        }
+        let redo = prepare(&restored, &redo_current, &redo_current).unwrap();
+        let redo_record = Manifest::from_restoration(&redo).unwrap();
+        let redo_outcome =
+            resource_publish::publish(root.path(), &identity, &redo_record, |_| Ok(())).unwrap();
+        assert!(redo_outcome.complete);
+        assert!(!root.path().join("a.py").exists());
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("b.py")).unwrap(),
+            "unsaved draft\n"
+        );
+        let redone = read_outcome(root.path(), &redo_outcome);
+        assert_eq!(redone.manifest.after, original.manifest.after);
+        assert_eq!(
+            redone.manifest.restore_of.as_ref().unwrap().recovery_id,
+            restored.id
+        );
+        assert_eq!(
+            read_recovery(root.path(), &original.id)
+                .unwrap()
+                .fingerprint,
+            original.fingerprint
+        );
+        assert_eq!(
+            std::fs::read_dir(root.path().join(".hick-cache/resource-changes"))
+                .unwrap()
+                .count(),
+            3
+        );
+    }
+    #[test]
+    fn restoration_records_require_versioned_origin_and_valid_saved_states_before_io() {
+        let (root, original, current) = tests::fixture();
+        let restoration = prepare(&original, &current, &current).unwrap();
+        let valid = Manifest::from_restoration(&restoration).unwrap();
+        let mut missing = valid.clone();
+        missing.restore_of = None;
+        assert!(Batch::begin(root.path(), &missing).is_err());
+        let mut old = valid.clone();
+        old.version = 2;
+        assert!(Batch::begin(root.path(), &old).is_err());
+        let mut bad = valid.clone();
+        bad.restore_of.as_mut().unwrap().recovery_id = "../outside".into();
+        assert!(Batch::begin(root.path(), &bad).is_err());
+        let mut bad = valid;
+        if let SavedSource::File { sha256, .. } = bad.after.get_mut("a.py").unwrap() {
+            *sha256 = "invalid".into();
+        }
+        assert!(Batch::begin(root.path(), &bad).is_err());
+        assert_eq!(
+            std::fs::read_dir(root.path().join(".hick-cache/resource-changes"))
+                .unwrap()
+                .count(),
+            1
+        );
+        assert!(!root.path().join("a.py").exists());
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("b.py")).unwrap(),
+            "unsaved draft\n"
+        );
+    }
+}
+</ui:copy>
+
+<ui:file path="crates/hickory-cli/src/serve/resource_restoration.rs"><ui:paste select="#resource-restoration-states"/><ui:paste select="#resource-restoration-preparation"/><ui:paste select="#resource-restoration-consequences"/><ui:paste select="#resource-restoration-tests"/><ui:paste select="#resource-restoration-publication-tests"/></ui:file>
 </ui:doc>
