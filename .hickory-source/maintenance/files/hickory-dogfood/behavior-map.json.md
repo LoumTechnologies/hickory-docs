@@ -50896,7 +50896,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "f-5b2a07360017-macro_invocation",
         "f-5b2a07360017-during",
-        "observation-dispatch"
+        "observation-dispatch",
+        "request-write-lifetime"
       ],
       "anchor": "output-5b2a07360017",
       "narrative_owner": "mechanism:crates/hickory-cli"

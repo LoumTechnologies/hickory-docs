@@ -153909,6 +153909,13 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/resource-publish.md",
       "symbol": "Exercise overwrite, partial completion and stale preflight",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "request-write-lifetime",
+      "output": "crates/hickory-cli/src/engine/writes.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/engine/writes.rs.md",
+      "symbol": "Keep admitted writes ordered after a response disconnects",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

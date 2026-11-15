@@ -31,18 +31,6 @@ pub(crate) fn post_observation(method: &axum::http::Method, path: &str) -> bool 
                 | "/api/changes/resource-consequences"
         )
 }
-/// Observation uses its own capability locks; it must not hold up unrelated saves.
-pub(crate) async fn dispatch<T>(
-    writes: &std::sync::Arc<tokio::sync::Mutex<()>>,
-    observation: bool,
-    work: impl std::future::Future<Output = T>,
-) -> T {
-    if observation {
-        work.await
-    } else {
-        during(writes, work).await
-    }
-}
 #[cfg(test)]
 mod observation_tests {
     use super::*;
@@ -63,7 +51,9 @@ mod observation_tests {
         ] {
             assert!(observation(&Method::POST, path));
             assert_eq!(
-                dispatch(&writes, observation(&Method::POST, path), async { 1 }).now_or_never(),
+                dispatch(&writes, observation(&Method::POST, path), async { 1 })
+                    .map(Result::unwrap)
+                    .now_or_never(),
                 Some(1)
             );
         }
@@ -83,7 +73,7 @@ mod observation_tests {
         }
         assert!(!observation(&Method::PUT, "/api/changes/resource-inputs"));
         drop(held);
-        assert_eq!(dispatch(&writes, false, async { 3 }).await, 3);
+        assert_eq!(dispatch(&writes, false, async { 3 }).await.unwrap(), 3);
     }
     #[tokio::test]
     async fn an_observation_does_not_hold_the_gate_while_its_capability_is_pending() {
@@ -103,6 +93,88 @@ mod observation_tests {
         started.await.unwrap();
         assert!(writes.try_lock().is_ok());
         release.send(()).unwrap();
-        task.await.unwrap();
+        task.await.unwrap().unwrap();
+    }
+}
+/// A dispatched write outlives its HTTP waiter. Dropping a response future must
+/// not release ordering while its blocking publisher is still changing source.
+pub(crate) async fn dispatch<T: Send + 'static>(
+    writes: &std::sync::Arc<tokio::sync::Mutex<()>>,
+    observation: bool,
+    work: impl std::future::Future<Output = T> + Send + 'static,
+) -> Result<T, tokio::task::JoinError> {
+    if observation || HELD.try_with(|_| ()).is_ok() {
+        return Ok(work.await);
+    }
+    let writes = writes.clone();
+    tokio::spawn(async move { during(&writes, work).await }).await
+}
+#[cfg(test)]
+mod request_lifetime_tests {
+    use super::*;
+    use futures::FutureExt;
+    use std::{sync::Arc, time::Duration};
+    use tokio::sync::{Mutex, oneshot};
+    #[tokio::test]
+    async fn losing_the_http_waiter_cannot_release_an_active_write_gate() {
+        let writes = Arc::new(Mutex::new(()));
+        let (enter, entered) = oneshot::channel();
+        let (release, blocked) = oneshot::channel();
+        let (complete, completed) = oneshot::channel();
+        let caller = {
+            let writes = writes.clone();
+            tokio::spawn(async move {
+                dispatch(&writes, false, async move {
+                    enter.send(()).unwrap();
+                    blocked.await.unwrap();
+                    complete.send(()).unwrap();
+                })
+                .await
+            })
+        };
+        entered.await.unwrap();
+        caller.abort();
+        assert!(caller.await.unwrap_err().is_cancelled());
+        assert!(writes.try_lock().is_err());
+        assert_eq!(dispatch(&writes, true, async { 7 }).await.unwrap(), 7);
+        assert!(during(&writes, async { 8 }).now_or_never().is_none());
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(2), completed)
+            .await
+            .unwrap()
+            .unwrap();
+        let _available = tokio::time::timeout(Duration::from_secs(2), writes.lock())
+            .await
+            .unwrap();
+    }
+    #[tokio::test]
+    async fn an_admitted_queued_write_outlives_its_waiter_and_nested_work_uses_its_act() {
+        let writes = Arc::new(Mutex::new(()));
+        let held = writes.lock().await;
+        let (complete, completed) = oneshot::channel();
+        assert!(
+            dispatch(&writes, false, async move {
+                complete.send(9).unwrap();
+            })
+            .now_or_never()
+            .is_none()
+        );
+        drop(held);
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), completed)
+                .await
+                .unwrap()
+                .unwrap(),
+            9
+        );
+        let nested = during(&writes, async {
+            dispatch(&writes, false, async { 11 }).await.unwrap()
+        });
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), nested)
+                .await
+                .unwrap(),
+            11
+        );
     }
 }

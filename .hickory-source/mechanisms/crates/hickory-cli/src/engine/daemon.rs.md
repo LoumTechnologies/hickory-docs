@@ -790,10 +790,15 @@ async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Response {
         || websocket
         || bootstrap;
     let request = Request::from_parts(parts, body);
-    super::writes::dispatch(&engine.writes, observation, async {
+    match super::writes::dispatch(&engine.writes, observation, async move {
         router.oneshot(request).await.unwrap()
-    })
-    .await
+    }).await {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::error!(%error, "dispatched filesystem act stopped unexpectedly");
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Filesystem operation stopped unexpectedly. Inspect current source and recovery state before retrying."}))).into_response()
+        }
+    }
 }
 
 </storycode:copy>
