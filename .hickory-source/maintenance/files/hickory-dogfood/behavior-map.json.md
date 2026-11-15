@@ -70440,7 +70440,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "resource-change-ordered-result",
         "resource-change-reversal-route",
         "resource-change-safety-witnesses",
-        "resource-change-target-discovery"
+        "resource-change-target-discovery",
+        "resource-change-recreation-identity-witness"
       ]
     },
     "crates/hickory-cli/src/serve/resource_inputs.rs": {

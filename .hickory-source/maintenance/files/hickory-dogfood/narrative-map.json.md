@@ -153629,6 +153629,13 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/resource-change-plans.md",
       "symbol": "Discover the read set before acquiring sources",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-change-recreation-identity-witness",
+      "output": "crates/hickory-cli/src/serve/resource_changes.rs",
+      "page": ".hickory-source/mechanisms/resource-change-plans.md",
+      "symbol": "Do not reuse a retired document identity",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

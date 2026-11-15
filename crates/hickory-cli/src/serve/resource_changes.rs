@@ -385,6 +385,14 @@ pub fn prepare(request: Request) -> Result<ResourcePlan, String> {
     if operations.len() > 10000 {
         return Err("Proposal exceeds 10,000 operations. Narrow the change.".into());
     }
+    let mut allocated_identities: BTreeSet<String> = request
+        .sources
+        .values()
+        .filter_map(|state| match state {
+            SourceState::File { identity, .. } => Some(identity.clone()),
+            _ => None,
+        })
+        .collect();
     let mut states = request.sources.clone();
     let (mut replacements, mut work) = (0usize, 0usize);
     for (index, item) in operations.into_iter().enumerate() {
@@ -413,10 +421,19 @@ pub fn prepare(request: Request) -> Result<ResourcePlan, String> {
                         }
                         SourceState::File { .. } => {}
                     }
+                    let mut nonce = [0u8; 16];
+                    getrandom::fill(&mut nonce).map_err(|error|format!("Resource identity could not be allocated: {error}. Prepare the proposal again."))?;
+                    let identity = format!("created:{}:{index}", hex::encode(nonce));
+                    if !allocated_identities.insert(identity.clone()) {
+                        return Err(
+                            "Resource identity collision. Prepare the complete proposal again."
+                                .into(),
+                        );
+                    }
                     states.insert(
                         destination.clone(),
                         SourceState::File {
-                            identity: format!("created:{index}:{destination}"),
+                            identity,
                             text: String::new(),
                             writable: true,
                             removable: true,
@@ -968,5 +985,45 @@ fn resource_target_discovery_captures_temporary_destinations_and_rejects_ambiguo
     );
     assert!(
         targets(&json!({"documentChanges":[{"kind":"unknown","uri":"hick:///a.py"}]})).is_err()
+    );
+}
+#[cfg(test)]
+#[test]
+fn resource_recreation_at_the_same_path_keeps_distinct_logical_identities() {
+    use SourceState::{File, Missing};
+    let initial = BTreeMap::from([("a.py".into(), Missing { creatable: true })]);
+    let make = |edit, sources| Request {
+        context: "same-workspace".into(),
+        title: "resource identity".into(),
+        edit,
+        sources,
+    };
+    let create = || json!({"documentChanges":[{"kind":"create","uri":"hick:///a.py"}]});
+    let first = prepare(make(create(), initial.clone())).unwrap();
+    let created = first.apply("same-workspace", &initial).unwrap();
+    let original_id = if let File { identity, .. } = &created["a.py"] {
+        identity.clone()
+    } else {
+        panic!("Expected a created file")
+    };
+    let deletion = prepare(make(
+        json!({"documentChanges":[{"kind":"delete","uri":"hick:///a.py"}]}),
+        created.clone(),
+    ))
+    .unwrap();
+    let absent = deletion.apply("same-workspace", &created).unwrap();
+    let second = prepare(make(create(), absent.clone())).unwrap();
+    let recreated = second.apply("same-workspace", &absent).unwrap();
+    assert!(matches!(&recreated["a.py"],File{identity,..} if identity!=&original_id));
+    assert_eq!(
+        second
+            .inverse()
+            .apply("same-workspace", &recreated)
+            .unwrap(),
+        absent
+    );
+    assert_eq!(
+        deletion.inverse().apply("same-workspace", &absent).unwrap(),
+        created
     );
 }

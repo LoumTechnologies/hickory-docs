@@ -416,6 +416,14 @@ pub fn prepare(request: Request) -> Result<ResourcePlan, String> {
     if operations.len() > 10000 {
         return Err("Proposal exceeds 10,000 operations. Narrow the change.".into());
     }
+    let mut allocated_identities: BTreeSet<String> = request
+        .sources
+        .values()
+        .filter_map(|state| match state {
+            SourceState::File { identity, .. } => Some(identity.clone()),
+            _ => None,
+        })
+        .collect();
     let mut states = request.sources.clone();
     let (mut replacements, mut work) = (0usize, 0usize);
     for (index, item) in operations.into_iter().enumerate() {
@@ -426,7 +434,7 @@ pub fn prepare(request: Request) -> Result<ResourcePlan, String> {
 
 ## Create only an acquired destination
 
-A missing target needs a creation capability. An existing destination requires explicit overwrite and replacement capability; ignoreIfExists is a deliberate no-op unless overwrite takes precedence. A new empty document receives a distinct logical identity and no invented provider version.
+A missing target needs a creation capability. An existing destination requires explicit overwrite and replacement capability; ignoreIfExists is a deliberate no-op unless overwrite takes precedence. A new empty document receives a fresh opaque logical identity and no invented provider version. The identity must not derive only from path and operation position: deleting and recreating the same path would otherwise reuse an editor/undo identity. Allocate before publishing the draft result, and reject collisions with existing or earlier allocated identities. No source filesystem action occurs.
 
 <ui:copy id="resource-change-create">
                 "create" => {
@@ -451,10 +459,19 @@ A missing target needs a creation capability. An existing destination requires e
                         }
                         SourceState::File { .. } => {}
                     }
+                    let mut nonce = [0u8; 16];
+                    getrandom::fill(&mut nonce).map_err(|error|format!("Resource identity could not be allocated: {error}. Prepare the proposal again."))?;
+                    let identity = format!("created:{}:{index}", hex::encode(nonce));
+                    if !allocated_identities.insert(identity.clone()) {
+                        return Err(
+                            "Resource identity collision. Prepare the complete proposal again."
+                                .into(),
+                        );
+                    }
                     states.insert(
                         destination.clone(),
                         SourceState::File {
-                            identity: format!("created:{index}:{destination}"),
+                            identity,
                             text: String::new(),
                             writable: true,
                             removable: true,
@@ -716,7 +733,7 @@ fn allowed_transition(before: &SourceState, after: &SourceState) -> bool {
 
 ## Exercise ordered resources and refusal boundaries
 
-Check one create/move/delete/text proposal and its inverse, including a provider-version counter changing after application. Then check late refusal without partial mutation, overwrite/ignore precedence, source ownership, missing destinations, UTF-16 scalar boundaries, same-position insertion order, literal URI decoding, aliases, annotations and text budgets. These pure witnesses do not establish frontend binding or filesystem publication.
+Check one create/move/delete/text proposal and its inverse, including a provider-version counter changing after application. Then check late refusal without partial mutation, overwrite/ignore precedence, source ownership, missing destinations, UTF-16 scalar boundaries, same-position insertion order, literal URI decoding, aliases, annotations and text budgets. These draft-model witnesses do not establish frontend binding or filesystem publication.
 
 <ui:copy id="resource-change-safety-witnesses">
 #[cfg(test)]
@@ -1052,5 +1069,52 @@ fn resource_target_discovery_captures_temporary_destinations_and_rejects_ambiguo
 }
 </ui:copy>
 
-<ui:file path="crates/hickory-cli/src/serve/resource_changes.rs"><ui:paste select="#resource-change-states"/><ui:paste select="#resource-change-text-ranges"/><ui:paste select="#resource-change-annotations-limits"/><ui:paste select="#resource-change-ordered-prefix"/><ui:paste select="#resource-change-create"/><ui:paste select="#resource-change-rename"/><ui:paste select="#resource-change-delete"/><ui:paste select="#resource-change-ordered-result"/><ui:paste select="#resource-change-reversal-route"/><ui:paste select="#resource-change-safety-witnesses"/><ui:paste select="#resource-change-target-discovery"/></ui:file>
+## Do not reuse a retired document identity
+
+Create, delete and recreate the same path within one workspace context. The recreated document must receive a different logical identity even though its path and empty text match the earlier document. Inverse plans must still restore the appropriate missing or original-document state, keeping retired editor/undo references separate.
+
+<ui:copy id="resource-change-recreation-identity-witness">
+#[cfg(test)]
+#[test]
+fn resource_recreation_at_the_same_path_keeps_distinct_logical_identities() {
+    use SourceState::{File, Missing};
+    let initial = BTreeMap::from([("a.py".into(), Missing { creatable: true })]);
+    let make = |edit, sources| Request {
+        context: "same-workspace".into(),
+        title: "resource identity".into(),
+        edit,
+        sources,
+    };
+    let create = || json!({"documentChanges":[{"kind":"create","uri":"hick:///a.py"}]});
+    let first = prepare(make(create(), initial.clone())).unwrap();
+    let created = first.apply("same-workspace", &initial).unwrap();
+    let original_id = if let File { identity, .. } = &created["a.py"] {
+        identity.clone()
+    } else {
+        panic!("Expected a created file")
+    };
+    let deletion = prepare(make(
+        json!({"documentChanges":[{"kind":"delete","uri":"hick:///a.py"}]}),
+        created.clone(),
+    ))
+    .unwrap();
+    let absent = deletion.apply("same-workspace", &created).unwrap();
+    let second = prepare(make(create(), absent.clone())).unwrap();
+    let recreated = second.apply("same-workspace", &absent).unwrap();
+    assert!(matches!(&recreated["a.py"],File{identity,..} if identity!=&original_id));
+    assert_eq!(
+        second
+            .inverse()
+            .apply("same-workspace", &recreated)
+            .unwrap(),
+        absent
+    );
+    assert_eq!(
+        deletion.inverse().apply("same-workspace", &absent).unwrap(),
+        created
+    );
+}
+</ui:copy>
+
+<ui:file path="crates/hickory-cli/src/serve/resource_changes.rs"><ui:paste select="#resource-change-states"/><ui:paste select="#resource-change-text-ranges"/><ui:paste select="#resource-change-annotations-limits"/><ui:paste select="#resource-change-ordered-prefix"/><ui:paste select="#resource-change-create"/><ui:paste select="#resource-change-rename"/><ui:paste select="#resource-change-delete"/><ui:paste select="#resource-change-ordered-result"/><ui:paste select="#resource-change-reversal-route"/><ui:paste select="#resource-change-safety-witnesses"/><ui:paste select="#resource-change-target-discovery"/><ui:paste select="#resource-change-recreation-identity-witness"/></ui:file>
 </ui:doc>
