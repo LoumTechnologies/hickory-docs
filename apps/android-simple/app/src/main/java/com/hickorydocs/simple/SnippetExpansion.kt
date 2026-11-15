@@ -6,11 +6,13 @@ fun completionExpansion(item:JSONObject):CompletionExpansion? {
  val raw=item.optJSONObject("data")?.optJSONObject("hickory_snippet") ?: error("Snippet expansion unavailable or out of date. Request completions again.")
  fun number(value:Any?):Int {check(value is Number&&value.toDouble().isFinite()&&value.toDouble()==value.toInt().toDouble()&&value.toInt()>=0){"Malformed snippet field"};return value.toInt()}
  check(number(raw.opt("version"))==1&&raw.opt("syntax")==completionInsertion(item)){"Snippet expansion unavailable or out of date. Request completions again."}
- val text=raw.opt("text") as? String ?: error("Malformed snippet text");check(text.length<=1048576){"Snippet expansion limit exceeded"}
+ val text=raw.opt("text") as? String ?: error("Malformed snippet text");check(text.toByteArray(Charsets.UTF_8).size<=1048576){"Snippet expansion limit exceeded"}
  val values=raw.optJSONArray("fields") ?: error("Malformed snippet fields");check(values.length() in 1..4096){"Malformed snippet fields"}
+ var metadataBytes=0L
  val fields=(0 until values.length()).map {offset->
   val value=values.optJSONObject(offset) ?: error("Malformed snippet field");val index=number(value.opt("index"));val from=number(value.opt("from"));val to=number(value.opt("to"));check(index<=1004096&&from<=to&&to<=text.length){"Malformed snippet field"}
   val choices=value.optJSONArray("choices") ?: error("Malformed snippet choices");val options=(0 until choices.length()).map{choices.opt(it) as? String ?: error("Malformed snippet choices")}
+  metadataBytes+=64L+options.sumOf{it.toByteArray(Charsets.UTF_8).size.toLong()};check(metadataBytes<=1048576){"Snippet metadata expansion limit exceeded"}
   sourceChangeOffset(text,languagePosition(text,from));sourceChangeOffset(text,languagePosition(text,to))
   val id=if(value.has("id"))number(value.opt("id")) else null;val parent=if(value.has("id")&&!value.isNull("parent"))number(value.opt("parent")) else null
   check((id==null&&!value.has("parent")||id!=null&&id<4096&&value.has("parent"))&&(parent==null||parent<4096)){"Malformed snippet ancestry"}

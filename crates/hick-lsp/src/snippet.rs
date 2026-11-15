@@ -220,6 +220,7 @@ struct Renderer<'a> {
     fields: Vec<SnippetField>,
     parents: Vec<usize>,
     next_occurrence: usize,
+    metadata_bytes: usize,
 }
 impl Renderer<'_> {
     fn text(&mut self, text: &str) -> Result<(), String> {
@@ -250,6 +251,15 @@ impl Renderer<'_> {
         self.parents.pop();
         if self.fields.len() >= MAX_FIELDS {
             return Err("Snippet expansion field limit exceeded".into());
+        }
+        let metadata = 64
+            + definition
+                .as_ref()
+                .map(|value| value.choices.iter().map(String::len).sum::<usize>())
+                .unwrap_or(0);
+        self.metadata_bytes += metadata;
+        if self.metadata_bytes > MAX_OUTPUT {
+            return Err("Snippet metadata expansion limit exceeded".into());
         }
         self.fields.push(SnippetField {
             id,
@@ -333,10 +343,11 @@ pub fn expand_snippet(
         fields: vec![],
         parents: vec![],
         next_occurrence: 0,
+        metadata_bytes: 0,
     };
     renderer.render(&nodes, 0)?;
     if !renderer.fields.iter().any(|field| field.index == 0) {
-        if renderer.next_occurrence >= MAX_FIELDS {
+        if renderer.next_occurrence >= MAX_FIELDS || renderer.metadata_bytes + 64 > MAX_OUTPUT {
             return Err("Snippet expansion field limit exceeded".into());
         }
         renderer.fields.push(SnippetField {
@@ -438,6 +449,16 @@ mod tests {
                 .fields
                 .len(),
             MAX_FIELDS
+        );
+    }
+    #[test]
+    fn empty_choice_mirrors_cannot_amplify_unbounded_metadata() {
+        let source = format!("${{1|,{}|}}{}$0", "x".repeat(1024), "$1".repeat(1029));
+        assert!(source.len() < MAX_BYTES);
+        assert!(
+            expand_snippet(&source, &BTreeMap::new())
+                .unwrap_err()
+                .contains("metadata")
         );
     }
     #[test]

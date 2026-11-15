@@ -15,4 +15,12 @@ class SnippetExpansionTest {
    draft.fields.forEachIndexed {i,field->val expectedField=fields.getJSONObject(i);assertEquals(name,expectedField.getInt("index"),field.index);assertEquals(name,expectedField.getInt("sourceFrom"),field.from);assertEquals(name,expectedField.getInt("sourceTo"),field.to);if(expectedField.has("id")){assertEquals(name,expectedField.getInt("id"),field.id);assertEquals(name,if(expectedField.isNull("parent"))null else expectedField.getInt("parent"),field.parent)}}
   }
  }
+ @Test fun choiceMetadataAmplificationRefusesBeforePreparingSource(){
+  val alternative="x".repeat(1024);val syntax="$"+"{1|,"+alternative+"|}"+"$1".repeat(1029)+"$0";val fields=org.json.JSONArray()
+  for(id in 0 until 1030)fields.put(JSONObject().put("id",id).put("parent",JSONObject.NULL).put("index",1).put("from",0).put("to",0).put("choices",org.json.JSONArray().put("").put(alternative)))
+  fields.put(JSONObject().put("id",1030).put("parent",JSONObject.NULL).put("index",0).put("from",0).put("to",0).put("choices",org.json.JSONArray()))
+  val item=JSONObject().put("label","large choices").put("insertTextFormat",2).put("insertText",syntax).put("data",JSONObject().put("hickory_snippet",JSONObject().put("version",1).put("syntax",syntax).put("text","").put("fields",fields)))
+  assertTrue(runCatching{completionExpansion(item)}.isFailure)
+ }
+
 }

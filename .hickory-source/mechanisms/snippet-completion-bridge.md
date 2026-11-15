@@ -16,13 +16,14 @@ export function completionExpansion(item:unknown):CompletionExpansion|undefined 
  const value=item as {insertTextFormat?:unknown;data?:{hickory_snippet?:unknown}};
  if(value?.insertTextFormat!==2)return undefined;
  const raw=value.data?.hickory_snippet as {version?:unknown;syntax?:unknown;text?:unknown;fields?:unknown}|undefined;
- if(!raw||raw.version!==1||raw.syntax!==completionInsertion(item)||typeof raw.text!=='string'||raw.text.length>1048576||!Array.isArray(raw.fields)||!raw.fields.length||raw.fields.length>4096)throw new Error('Snippet expansion unavailable or out of date. Request completions again.');
- const text=raw.text;
+ if(!raw||raw.version!==1||raw.syntax!==completionInsertion(item)||typeof raw.text!=='string'||new TextEncoder().encode(raw.text).length>1048576||!Array.isArray(raw.fields)||!raw.fields.length||raw.fields.length>4096)throw new Error('Snippet expansion unavailable or out of date. Request completions again.');
+ const text=raw.text;let metadataBytes=0;
  const number=(value:unknown)=>{if(typeof value!=='number'||!Number.isSafeInteger(value)||value<0)throw new Error('Malformed snippet field');return value;};
  const fields:SnippetField[]=raw.fields.map(value=>{
   if(!value||typeof value!=='object')throw new Error('Malformed snippet field');
   const field=value as Record<string,unknown>,index=number(field.index),from=number(field.from),to=number(field.to);
   if(index>1004096||from>to||to>text.length||!Array.isArray(field.choices)||field.choices.some(value=>typeof value!=='string'))throw new Error('Malformed snippet field');
+  metadataBytes+=64+(field.choices as string[]).reduce((sum,value)=>sum+new TextEncoder().encode(value).length,0);if(metadataBytes>1048576)throw new Error('Snippet metadata expansion limit exceeded');
   sourceChangeOffset(text,utf16ToPosition(text,from));sourceChangeOffset(text,utf16ToPosition(text,to));
   const ancestry:Pick<SnippetField,'id'|'parent'>={};
   if(field.id!==undefined){ancestry.id=number(field.id);ancestry.parent=field.parent===null?null:number(field.parent);if(ancestry.id>=4096||ancestry.parent!==null&&ancestry.parent>=4096)throw new Error('Malformed snippet ancestry');}
@@ -54,10 +55,11 @@ import Foundation
 struct SnippetField {var index:Int;var from:Int;var to:Int;var choices:[String];var id:Int?=nil;var parent:Int?=nil}
 func completionExpansion(_ item:[String:Any])throws->CompletionExpansion? {
     guard sourceChangeInteger(item["insertTextFormat"])==2 else{return nil}
-    guard let raw=(item["data"] as? [String:Any])?["hickory_snippet"] as? [String:Any],sourceChangeInteger(raw["version"])==1,let syntax=raw["syntax"] as? String,exactUTF8(syntax,try completionInsertion(item)),let text=raw["text"] as? String,text.utf16.count<=1048576,let values=raw["fields"] as? [[String:Any]],!values.isEmpty,values.count<=4096 else{throw EngineError(message:"Snippet expansion unavailable or out of date. Request completions again.")}
-    var fields:[SnippetField]=[]
+    guard let raw=(item["data"] as? [String:Any])?["hickory_snippet"] as? [String:Any],sourceChangeInteger(raw["version"])==1,let syntax=raw["syntax"] as? String,exactUTF8(syntax,try completionInsertion(item)),let text=raw["text"] as? String,text.utf8.count<=1048576,let values=raw["fields"] as? [[String:Any]],!values.isEmpty,values.count<=4096 else{throw EngineError(message:"Snippet expansion unavailable or out of date. Request completions again.")}
+    var fields:[SnippetField]=[];var metadataBytes=0
     for value in values {
         guard let index=sourceChangeInteger(value["index"]),index>=0,index<=1004096,let from=sourceChangeInteger(value["from"]),let to=sourceChangeInteger(value["to"]),from>=0,from<=to,to<=text.utf16.count,let choices=value["choices"] as? [String] else{throw EngineError(message:"Malformed snippet field")}
+        metadataBytes+=64+choices.reduce(0){$0+$1.utf8.count};guard metadataBytes<=1048576 else{throw EngineError(message:"Snippet metadata expansion limit exceeded")}
         _ = try sourceChangeOffset(text,languagePosition(text,from));_ = try sourceChangeOffset(text,languagePosition(text,to))
         var id:Int?=nil,parent:Int?=nil
         if value["id"] != nil {
@@ -104,11 +106,13 @@ fun completionExpansion(item:JSONObject):CompletionExpansion? {
  val raw=item.optJSONObject("data")?.optJSONObject("hickory_snippet") ?: error("Snippet expansion unavailable or out of date. Request completions again.")
  fun number(value:Any?):Int {check(value is Number&&value.toDouble().isFinite()&&value.toDouble()==value.toInt().toDouble()&&value.toInt()>=0){"Malformed snippet field"};return value.toInt()}
  check(number(raw.opt("version"))==1&&raw.opt("syntax")==completionInsertion(item)){"Snippet expansion unavailable or out of date. Request completions again."}
- val text=raw.opt("text") as? String ?: error("Malformed snippet text");check(text.length<=1048576){"Snippet expansion limit exceeded"}
+ val text=raw.opt("text") as? String ?: error("Malformed snippet text");check(text.toByteArray(Charsets.UTF_8).size<=1048576){"Snippet expansion limit exceeded"}
  val values=raw.optJSONArray("fields") ?: error("Malformed snippet fields");check(values.length() in 1..4096){"Malformed snippet fields"}
+ var metadataBytes=0L
  val fields=(0 until values.length()).map {offset->
   val value=values.optJSONObject(offset) ?: error("Malformed snippet field");val index=number(value.opt("index"));val from=number(value.opt("from"));val to=number(value.opt("to"));check(index<=1004096&&from<=to&&to<=text.length){"Malformed snippet field"}
   val choices=value.optJSONArray("choices") ?: error("Malformed snippet choices");val options=(0 until choices.length()).map{choices.opt(it) as? String ?: error("Malformed snippet choices")}
+  metadataBytes+=64L+options.sumOf{it.toByteArray(Charsets.UTF_8).size.toLong()};check(metadataBytes<=1048576){"Snippet metadata expansion limit exceeded"}
   sourceChangeOffset(text,languagePosition(text,from));sourceChangeOffset(text,languagePosition(text,to))
   val id=if(value.has("id"))number(value.opt("id")) else null;val parent=if(value.has("id")&&!value.isNull("parent"))number(value.opt("parent")) else null
   check((id==null&&!value.has("parent")||id!=null&&id<4096&&value.has("parent"))&&(parent==null||parent<4096)){"Malformed snippet ancestry"}
@@ -2014,6 +2018,11 @@ it('validates shared snippet payloads and maps fields through imports',()=>{
   expect(draft.plan.patches[0].after,value.name).toBe(expected.after);for(const [index,field] of expected.fields.entries()){if('id' in field&&'parent' in field){expect(draft.fields[index].id,value.name).toBe(field.id);expect(draft.fields[index].parent,value.name).toBe(field.parent);}}expect(draft.fields.map(field=>({index:field.index,from:field.from,to:field.to})),value.name).toEqual(expected.fields.map(field=>({index:field.index,from:field.sourceFrom,to:field.sourceTo})));
  }
 });
+it('refuses empty text that amplifies choice metadata beyond the shared budget',()=>{
+ const alternative='x'.repeat(1024),syntax='${1|,'+alternative+'|}'+'$1'.repeat(1029)+'$0';
+ const fields=Array.from({length:1030},(_,id)=>({id,parent:null,index:1,from:0,to:0,choices:['',alternative]}));fields.push({id:1030,parent:null,index:0,from:0,to:0,choices:[]});
+ expect(()=>completionExpansion({label:'large choices',insertTextFormat:2,insertText:syntax,data:{hickory_snippet:{version:1,syntax,text:'',fields}}})).toThrow(/metadata/);
+});
 </ui:copy>
 
 <ui:file path="apps/web/src/simple/SnippetExpansion.test.ts"><ui:paste select="#snippet-expansion-browser-tests"/></ui:file>
@@ -2041,6 +2050,13 @@ final class SnippetExpansionTests:XCTestCase {
             for (actual,field) in zip(draft.fields,fields){XCTAssertEqual(actual.index,field["index"] as? Int,name);XCTAssertEqual(actual.from,field["sourceFrom"] as? Int,name);XCTAssertEqual(actual.to,field["sourceTo"] as? Int,name);if field["id"] != nil{XCTAssertEqual(actual.id,field["id"] as? Int,name);XCTAssertEqual(actual.parent,field["parent"] as? Int,name)}}
         }
     }
+    func testChoiceMetadataAmplificationRefusesBeforePreparingSource()throws {
+        let alternative=String(repeating:"x",count:1024),syntax="${1|,"+String(repeating:"x",count:1024)+"|}"+String(repeating:"$1",count:1029)+"$0"
+        var fields:[[String:Any]]=(0..<1030).map{["id":$0,"parent":NSNull(),"index":1,"from":0,"to":0,"choices":["",alternative]]}
+        fields.append(["id":1030,"parent":NSNull(),"index":0,"from":0,"to":0,"choices":[]])
+        XCTAssertThrowsError(try completionExpansion(["label":"large choices","insertTextFormat":2,"insertText":syntax,"data":["hickory_snippet":["version":1,"syntax":syntax,"text":"","fields":fields]]]))
+    }
+
 }
 </ui:copy>
 
@@ -2068,6 +2084,14 @@ class SnippetExpansionTest {
    draft.fields.forEachIndexed {i,field->val expectedField=fields.getJSONObject(i);assertEquals(name,expectedField.getInt("index"),field.index);assertEquals(name,expectedField.getInt("sourceFrom"),field.from);assertEquals(name,expectedField.getInt("sourceTo"),field.to);if(expectedField.has("id")){assertEquals(name,expectedField.getInt("id"),field.id);assertEquals(name,if(expectedField.isNull("parent"))null else expectedField.getInt("parent"),field.parent)}}
   }
  }
+ @Test fun choiceMetadataAmplificationRefusesBeforePreparingSource(){
+  val alternative="x".repeat(1024);val syntax="$"+"{1|,"+alternative+"|}"+"$1".repeat(1029)+"$0";val fields=org.json.JSONArray()
+  for(id in 0 until 1030)fields.put(JSONObject().put("id",id).put("parent",JSONObject.NULL).put("index",1).put("from",0).put("to",0).put("choices",org.json.JSONArray().put("").put(alternative)))
+  fields.put(JSONObject().put("id",1030).put("parent",JSONObject.NULL).put("index",0).put("from",0).put("to",0).put("choices",org.json.JSONArray()))
+  val item=JSONObject().put("label","large choices").put("insertTextFormat",2).put("insertText",syntax).put("data",JSONObject().put("hickory_snippet",JSONObject().put("version",1).put("syntax",syntax).put("text","").put("fields",fields)))
+  assertTrue(runCatching{completionExpansion(item)}.isFailure)
+ }
+
 }
 </ui:copy>
 

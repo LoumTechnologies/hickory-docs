@@ -16,4 +16,11 @@ final class SnippetExpansionTests:XCTestCase {
             for (actual,field) in zip(draft.fields,fields){XCTAssertEqual(actual.index,field["index"] as? Int,name);XCTAssertEqual(actual.from,field["sourceFrom"] as? Int,name);XCTAssertEqual(actual.to,field["sourceTo"] as? Int,name);if field["id"] != nil{XCTAssertEqual(actual.id,field["id"] as? Int,name);XCTAssertEqual(actual.parent,field["parent"] as? Int,name)}}
         }
     }
+    func testChoiceMetadataAmplificationRefusesBeforePreparingSource()throws {
+        let alternative=String(repeating:"x",count:1024),syntax="${1|,"+String(repeating:"x",count:1024)+"|}"+String(repeating:"$1",count:1029)+"$0"
+        var fields:[[String:Any]]=(0..<1030).map{["id":$0,"parent":NSNull(),"index":1,"from":0,"to":0,"choices":["",alternative]]}
+        fields.append(["id":1030,"parent":NSNull(),"index":0,"from":0,"to":0,"choices":[]])
+        XCTAssertThrowsError(try completionExpansion(["label":"large choices","insertTextFormat":2,"insertText":syntax,"data":["hickory_snippet":["version":1,"syntax":syntax,"text":"","fields":fields]]]))
+    }
+
 }

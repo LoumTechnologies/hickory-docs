@@ -6,13 +6,14 @@ export function completionExpansion(item:unknown):CompletionExpansion|undefined 
  const value=item as {insertTextFormat?:unknown;data?:{hickory_snippet?:unknown}};
  if(value?.insertTextFormat!==2)return undefined;
  const raw=value.data?.hickory_snippet as {version?:unknown;syntax?:unknown;text?:unknown;fields?:unknown}|undefined;
- if(!raw||raw.version!==1||raw.syntax!==completionInsertion(item)||typeof raw.text!=='string'||raw.text.length>1048576||!Array.isArray(raw.fields)||!raw.fields.length||raw.fields.length>4096)throw new Error('Snippet expansion unavailable or out of date. Request completions again.');
- const text=raw.text;
+ if(!raw||raw.version!==1||raw.syntax!==completionInsertion(item)||typeof raw.text!=='string'||new TextEncoder().encode(raw.text).length>1048576||!Array.isArray(raw.fields)||!raw.fields.length||raw.fields.length>4096)throw new Error('Snippet expansion unavailable or out of date. Request completions again.');
+ const text=raw.text;let metadataBytes=0;
  const number=(value:unknown)=>{if(typeof value!=='number'||!Number.isSafeInteger(value)||value<0)throw new Error('Malformed snippet field');return value;};
  const fields:SnippetField[]=raw.fields.map(value=>{
   if(!value||typeof value!=='object')throw new Error('Malformed snippet field');
   const field=value as Record<string,unknown>,index=number(field.index),from=number(field.from),to=number(field.to);
   if(index>1004096||from>to||to>text.length||!Array.isArray(field.choices)||field.choices.some(value=>typeof value!=='string'))throw new Error('Malformed snippet field');
+  metadataBytes+=64+(field.choices as string[]).reduce((sum,value)=>sum+new TextEncoder().encode(value).length,0);if(metadataBytes>1048576)throw new Error('Snippet metadata expansion limit exceeded');
   sourceChangeOffset(text,utf16ToPosition(text,from));sourceChangeOffset(text,utf16ToPosition(text,to));
   const ancestry:Pick<SnippetField,'id'|'parent'>={};
   if(field.id!==undefined){ancestry.id=number(field.id);ancestry.parent=field.parent===null?null:number(field.parent);if(ancestry.id>=4096||ancestry.parent!==null&&ancestry.parent>=4096)throw new Error('Malformed snippet ancestry');}
