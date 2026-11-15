@@ -70478,7 +70478,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "resource-input-independent-handler",
         "resource-input-read-witnesses",
         "resource-input-fresh-candidate",
-        "resource-candidate-ownership-tests"
+        "resource-candidate-ownership-tests",
+        "restored-saved-draft-candidate-test"
       ]
     },
     "scripts/test-resource-proposal-service.py": {

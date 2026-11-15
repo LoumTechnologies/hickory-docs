@@ -758,4 +758,21 @@ live-document adapter seam. This establishes an engine save path, not frontend
 resource namespace adoption, recovery UI, or coordinated saved/draft undo. Those
 remain required on browser, macOS, iOS and Android.
 
+## Analyze saved restoration separately from its unsaved draft
+
+An internal consequence-analysis seam can project complete saved restoration
+states independently of the reviewed draft transition. Saved fingerprints and
+namespace presence must be valid. Compile the layers independently, bind the
+saved projection into its consequence fingerprint and protect both output sets.
+Construction consumption requires the actual candidate text hash, not merely the
+same source address. The public ordinary-save API still saves its reviewed draft
+and accepts no arbitrary saved override.
+
+Focused evidence: the restoration projection case passes for distinct saved/draft
+outputs, protected-target union, changed fingerprint, incomplete projections,
+contradictory absence, false hashes, and an unconsumed draft at an address where
+older saved text was consumed. Seven existing candidate cases pass. Historical
+invalid draft restoration, recovery admission, UI namespace adoption and
+coordinated saved/draft undo remain outstanding.
+
 </ui:doc>

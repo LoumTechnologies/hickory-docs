@@ -1080,3 +1080,161 @@ mod candidate_tests {
         assert_eq!(std::fs::read(&path).unwrap(), b"readable");
     }
 }
+#[cfg(test)]
+mod restored_saved_candidate_tests {
+    use super::*;
+    #[test]
+    fn restored_saved_source_and_unsaved_draft_keep_separate_compiler_layers() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        let entry = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"part.md\"/></h:doc>";
+        let original = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:file path=\"original.py\">value = 1</h:file></h:doc>";
+        let draft = original.replace("original.py", "draft-output.py");
+        let saved = original.replace("original.py", "saved-output.py");
+        std::fs::write(root.join("project.md"), entry).unwrap();
+        std::fs::write(root.join("part.md"), original).unwrap();
+        let edit = json!({"documentChanges":[
+            {"textDocument":{"uri":"hick:///part.md","version":null},"edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":original.encode_utf16().count()}},"newText":draft}]},
+            {"kind":"create","uri":"hick:///saved-output.py"},
+            {"kind":"create","uri":"hick:///draft-output.py"}
+        ]});
+        let request = Request {
+            context: "restore-layers".into(),
+            edit: edit.clone(),
+            drafts: BTreeMap::new(),
+            project_entry: None,
+            ownership_sources: BTreeMap::new(),
+        };
+        let identity = RootIdentity::bind(root);
+        let index = super::super::store::DocIndex::scan(root).unwrap();
+        let inputs = capture(root, &index, &identity, request.clone()).unwrap();
+        let fresh = capture(root, &index, &identity, request.clone()).unwrap();
+        let plan =
+            super::super::resource_changes::prepare(super::super::resource_changes::Request {
+                context: request.context.clone(),
+                title: "Restore two layers".into(),
+                edit,
+                sources: inputs.sources.clone(),
+            })
+            .unwrap();
+        let ordinary =
+            super::super::resource_candidates::analyze(root, &inputs, &fresh, &request, &plan)
+                .unwrap();
+        let mut projection = super::super::resource_journal::Manifest::from_review(&inputs, &plan)
+            .unwrap()
+            .after;
+        if let SavedSource::File { text, sha256, .. } = projection.get_mut("part.md").unwrap() {
+            *text = saved.clone();
+            *sha256 = sha(saved.as_bytes());
+        }
+        let facts = super::super::resource_candidates::analyze_with_saved(
+            root,
+            &inputs,
+            &fresh,
+            &request,
+            &plan,
+            Some(&projection),
+        )
+        .unwrap();
+        assert!(facts.saved.output_paths.contains("saved-output.py"));
+        assert!(!facts.saved.output_paths.contains("draft-output.py"));
+        assert!(facts.draft.output_paths.contains("draft-output.py"));
+        assert!(!facts.draft.output_paths.contains("saved-output.py"));
+        assert_eq!(
+            facts.protected_targets,
+            ["draft-output.py", "saved-output.py"]
+        );
+        assert_eq!(facts.saved.source_hashes["part.md"], sha(saved.as_bytes()));
+        assert_eq!(facts.draft.source_hashes["part.md"], sha(draft.as_bytes()));
+        assert_ne!(facts.fingerprint, ordinary.fingerprint);
+
+        // A saved layer consuming older text cannot legitimize an unrelated,
+        // unconsumed draft fragment at the same address.
+        let mut detached = request.clone();
+        detached.edit["documentChanges"].as_array_mut().unwrap().push(json!({
+            "textDocument":{"uri":"hick:///project.md","version":null},
+            "edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":entry.encode_utf16().count()}},"newText":entry.replace("part.md", "")}]
+        }));
+        let detached_inputs = capture(root, &index, &identity, detached.clone()).unwrap();
+        let detached_fresh = capture(root, &index, &identity, detached.clone()).unwrap();
+        let detached_plan =
+            super::super::resource_changes::prepare(super::super::resource_changes::Request {
+                context: detached.context.clone(),
+                title: "Separate consumed text".into(),
+                edit: detached.edit.clone(),
+                sources: detached_inputs.sources.clone(),
+            })
+            .unwrap();
+        let mut detached_saved =
+            super::super::resource_journal::Manifest::from_review(&detached_inputs, &detached_plan)
+                .unwrap()
+                .after;
+        detached_saved.insert(
+            "project.md".into(),
+            detached_inputs.saved_sources["project.md"].clone(),
+        );
+        detached_saved.insert(
+            "part.md".into(),
+            detached_inputs.saved_sources["part.md"].clone(),
+        );
+        assert!(
+            super::super::resource_candidates::analyze_with_saved(
+                root,
+                &detached_inputs,
+                &detached_fresh,
+                &detached,
+                &detached_plan,
+                Some(&detached_saved)
+            )
+            .unwrap_err()
+            .contains("no selected project context")
+        );
+
+        let mut incomplete = projection.clone();
+        incomplete.remove("part.md");
+        assert!(
+            super::super::resource_candidates::analyze_with_saved(
+                root,
+                &inputs,
+                &fresh,
+                &request,
+                &plan,
+                Some(&incomplete)
+            )
+            .is_err()
+        );
+        let mut missing = projection.clone();
+        missing.insert("part.md".into(), SavedSource::Missing);
+        assert!(
+            super::super::resource_candidates::analyze_with_saved(
+                root,
+                &inputs,
+                &fresh,
+                &request,
+                &plan,
+                Some(&missing)
+            )
+            .is_err()
+        );
+        if let SavedSource::File { sha256, .. } = projection.get_mut("part.md").unwrap() {
+            *sha256 = "wrong".into();
+        }
+        assert!(
+            super::super::resource_candidates::analyze_with_saved(
+                root,
+                &inputs,
+                &fresh,
+                &request,
+                &plan,
+                Some(&projection)
+            )
+            .is_err()
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("part.md")).unwrap(),
+            original
+        );
+        assert!(!root.join("saved-output.py").exists());
+        assert!(!root.join("draft-output.py").exists());
+    }
+}

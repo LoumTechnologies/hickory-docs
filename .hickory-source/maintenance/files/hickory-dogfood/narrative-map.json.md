@@ -153958,6 +153958,13 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/store.rs.md",
       "symbol": "Register a newly addressed source before live-room access",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "restored-saved-draft-candidate-test",
+      "output": "crates/hickory-cli/src/serve/resource_inputs.rs",
+      "page": ".hickory-source/mechanisms/resource-inputs.md",
+      "symbol": "Analyze restored saved source independently of its dirty draft",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

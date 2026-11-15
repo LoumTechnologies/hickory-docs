@@ -7,6 +7,24 @@ Reacquire the complete before state first, retaining the reviewed identities onl
 
 The snapshot pins verified saved dependencies, bounds unique and cumulative source work, and checks every saved dependency again after analysis. The response reports each layer’s actual compiler output paths and any proposal targets that would become generated. Entries in the result state the exact compiler scope; this is not workspace-wide project discovery. A fingerprint binds the plan, root scope and these facts for later review; it is not a signed write receipt or publication permission. One optional analysis runs at a time on a blocking worker, independent of source opening and the filesystem write gate. No source file, generated output or index is modified, and this endpoint exposes no save operation. A later publisher must repeat admission checks, validate current UI drafts and handle per-path publication/recovery explicitly.
 
+A restoration can return an older saved baseline while retaining a different
+unsaved draft. The internal saved-layer seam accepts a complete, fingerprinted
+saved namespace independently of the reviewed draft transition. File presence
+must agree; saved text and drafts are compiled in their own layers and their
+output claims remain a union. The projection enters the consequence fingerprint.
+The public ordinary-save request has no override: a caller implementing recovery
+must bind this internal projection to retained evidence before writing. Invalid
+construction layers still refuse analysis; this change does not yet authorize
+restoring an invalid historical draft or expose an undo route.
+
+Focused evidence (2026-11-15): the separate saved/draft projection case passes
+with distinct output inventories and hashes, their protected-target union, bound
+consequence fingerprints, incomplete/contradictory/false-hash refusal and no
+saved source changes. Consuming older saved text cannot validate a different
+unconsumed draft at the same address: consumption must match the candidate text
+hash. Seven existing candidate cases pass unchanged. This is internal analysis
+for later restoration admission, not a working undo command.
+
 <ui:copy id="resource-candidate-ownership">
 //! Evaluate the saved and draft construction layers of a proposed resource namespace.
 use super::{
@@ -217,6 +235,18 @@ pub(crate) fn analyze(
     capture: &Capture,
     plan: &ResourcePlan,
 ) -> Result<Facts, String> {
+    analyze_with_saved(root, inputs, fresh, capture, plan, None)
+}
+/// Internal restoration seam: the caller must bind saved states to retained recovery.
+/// Ordinary resource saves always use the reviewed final draft as their saved state.
+pub(crate) fn analyze_with_saved(
+    root: &Path,
+    inputs: &Inputs,
+    fresh: &Inputs,
+    capture: &Capture,
+    plan: &ResourcePlan,
+    saved_after: Option<&BTreeMap<String, super::resource_inputs::SavedSource>>,
+) -> Result<Facts, String> {
     let after = super::resource_inputs::validate_candidate(inputs, fresh, plan)?;
     let root = root.canonicalize().map_err(|error| error.to_string())?;
     let mut snapshot = Snapshot {
@@ -246,7 +276,50 @@ pub(crate) fn analyze(
             changed.insert(patch.path.clone(), text.clone());
         }
     }
-    let mut saved = changed.clone();
+    let saved_changed = if let Some(states) = saved_after {
+        let paths: BTreeSet<_> = plan
+            .patches
+            .iter()
+            .map(|patch| patch.path.clone())
+            .collect();
+        if states.keys().cloned().collect::<BTreeSet<_>>() != paths {
+            return Err(
+                "Restoration must retain the complete saved namespace separately from its drafts."
+                    .into(),
+            );
+        }
+        let mut overlays = BTreeMap::new();
+        for (path, saved) in states {
+            match (saved, after.get(path)) {
+                (
+                    super::resource_inputs::SavedSource::Missing,
+                    Some(SourceState::Missing { .. }),
+                ) => {}
+                (
+                    super::resource_inputs::SavedSource::File { text, sha256, .. },
+                    Some(SourceState::File { .. }),
+                ) => {
+                    if text.len() > 8 * 1024 * 1024 || &hash(text) != sha256 {
+                        return Err(
+                            "Restored saved source has an invalid content fingerprint or size."
+                                .into(),
+                        );
+                    }
+                    overlays.insert(path.clone(), text.clone());
+                }
+                _ => {
+                    return Err(
+                        "Restored saved and draft namespaces disagree about source presence."
+                            .into(),
+                    );
+                }
+            }
+        }
+        overlays
+    } else {
+        changed.clone()
+    };
+    let mut saved = saved_changed.clone();
     let mut draft = capture.ownership_sources.clone();
     for (path, value) in &capture.drafts {
         draft.insert(path.clone(), value.text.clone());
@@ -258,11 +331,11 @@ pub(crate) fn analyze(
     }
     let saved = layer(&mut snapshot, inputs, &after, &saved, &missing)?;
     let draft = layer(&mut snapshot, inputs, &after, &draft, &missing)?;
-    for (path, text) in &changed {
+    for (path, text) in changed.iter().chain(saved_changed.iter()) {
         if markdown(path)
             && construction(text)?.1
-            && !saved.source_hashes.contains_key(path)
-            && !draft.source_hashes.contains_key(path)
+            && saved.source_hashes.get(path) != Some(&hash(text))
+            && draft.source_hashes.get(path) != Some(&hash(text))
         {
             return Err(format!(
                 "Candidate construction source {path} has no selected project context. Link it to a construction entry in this proposal before saving resource changes."
@@ -291,7 +364,12 @@ pub(crate) fn analyze(
         protected_targets,
         source_files_modified: false,
     };
-    let bytes = serde_json::to_vec(&(plan, &facts)).map_err(|error| error.to_string())?;
+    let bytes = if let Some(saved_after) = saved_after {
+        serde_json::to_vec(&(plan, saved_after, &facts))
+    } else {
+        serde_json::to_vec(&(plan, &facts))
+    }
+    .map_err(|error| error.to_string())?;
     if bytes.len() > 16 * 1024 * 1024 {
         return Err(
             "Candidate consequence response exceeds its interactive budget. Narrow the change."
