@@ -25,10 +25,13 @@ def main():
    text=driver.act("review-open");assert new in text and old in text and "main.py" in text,text
    (root/"removed.py").unlink();assert driver.act("review-select",path="removed.py",staged=False)=="";assert "Git diff refused" in driver.act("review-status")
    diff=driver.act("review-select",path="main.py",staged=False);assert "+value = 2" in diff and "unsaved draft" not in diff,diff
+   driver.act("review-stage");staged=git("diff","--cached","--","main.py").stdout.decode();assert "+value = 2" in staged and "unsaved draft" not in staged,staged
+   driver.act("review-select",path="main.py",staged=True);driver.act("review-unstage");assert git("diff","--cached","--","main.py").stdout==b"";assert (root/"main.py").read_text()==saved
    diff=driver.act("review-select",path=new,staged=True);assert "+renamed = True" in diff,diff
+   driver.act("review-unstage");assert git("diff","--cached","--name-only").stdout==b"";assert (root/new).read_text()=="renamed = True\n";assert not (root/old).exists()
    diff=driver.act("review-select",path="main.py",staged=True);assert diff=="",diff
    driver.act("review-close");assert driver.act("editor-is-retained",path="main.py");assert driver.act("editor-size",path="main.py")==size;assert driver.act("search-source",path="main.py")==draft;assert (root/"main.py").read_text()==saved
-   print("PASS: existing View menu, literal renamed paths, working-tree/index diffs, unsaved draft retained, stable code dimensions and unchanged disk")
+   print("PASS: existing View menu, literal renamed paths, working-tree/index diffs, saved-file stage/unstage and complete rename unstaging, unsaved draft retained, stable code dimensions and unchanged disk")
   finally:
    if driver:driver.close()
    for process in reversed(processes):fixture.stop(process)
