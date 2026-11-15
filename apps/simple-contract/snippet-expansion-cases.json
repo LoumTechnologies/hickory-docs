@@ -1069,6 +1069,789 @@
         "insertTextFormat": 1
       },
       "plain": true
+    },
+    {
+      "name": "explicit occurrence forest survives import mapping",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": [],
+                "id": 0,
+                "parent": null
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": [],
+                "id": 1,
+                "parent": null
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": [],
+                "id": 2,
+                "parent": null
+              }
+            ]
+          }
+        }
+      },
+      "expected": {
+        "text": "😀 + 😀",
+        "selection": {
+          "from": 0,
+          "to": 2
+        },
+        "after": "#\n😀 + 😀",
+        "fields": [
+          {
+            "index": 1,
+            "from": 0,
+            "to": 2,
+            "choices": [],
+            "sourceFrom": 2,
+            "sourceTo": 4,
+            "id": 0,
+            "parent": null
+          },
+          {
+            "index": 1,
+            "from": 5,
+            "to": 7,
+            "choices": [],
+            "sourceFrom": 7,
+            "sourceTo": 9,
+            "id": 1,
+            "parent": null
+          },
+          {
+            "index": 0,
+            "from": 7,
+            "to": 7,
+            "choices": [],
+            "sourceFrom": 9,
+            "sourceTo": 9,
+            "id": 2,
+            "parent": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicate occurrence id",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": [],
+                "id": 0,
+                "parent": null
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": [],
+                "id": 0,
+                "parent": null
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": [],
+                "id": 2,
+                "parent": null
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "missing occurrence parent",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": [],
+                "id": 0
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": [],
+                "id": 1,
+                "parent": null
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": [],
+                "id": 2,
+                "parent": null
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "nonexistent occurrence parent",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": [],
+                "id": 0,
+                "parent": 99
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": [],
+                "id": 1,
+                "parent": null
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": [],
+                "id": 2,
+                "parent": null
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "parent does not contain child",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": [],
+                "id": 0,
+                "parent": 1
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": [],
+                "id": 1,
+                "parent": null
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": [],
+                "id": 2,
+                "parent": null
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "self ancestry cycle",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": [],
+                "id": 0,
+                "parent": 0
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": [],
+                "id": 1,
+                "parent": null
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": [],
+                "id": 2,
+                "parent": null
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "partially identified forest",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": [],
+                "id": 0,
+                "parent": null
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": []
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": [],
+                "id": 2,
+                "parent": null
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "boolean parent identity",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": [],
+                "id": 0,
+                "parent": true
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": [],
+                "id": 1,
+                "parent": null
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": [],
+                "id": 2,
+                "parent": null
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "oversized occurrence identity",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": [],
+                "id": 4096,
+                "parent": null
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": [],
+                "id": 1,
+                "parent": null
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": [],
+                "id": 2,
+                "parent": null
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "nested and adjacent empty fields retain distinct parents",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:${2:}}$3$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:${2:}}$3$0",
+            "text": "",
+            "fields": [
+              {
+                "index": 2,
+                "id": 1,
+                "parent": 0,
+                "from": 0,
+                "to": 0,
+                "choices": []
+              },
+              {
+                "index": 1,
+                "id": 0,
+                "parent": null,
+                "from": 0,
+                "to": 0,
+                "choices": []
+              },
+              {
+                "index": 3,
+                "id": 2,
+                "parent": null,
+                "from": 0,
+                "to": 0,
+                "choices": []
+              },
+              {
+                "index": 0,
+                "id": 3,
+                "parent": null,
+                "from": 0,
+                "to": 0,
+                "choices": []
+              }
+            ]
+          }
+        }
+      },
+      "expected": {
+        "text": "",
+        "selection": {
+          "from": 0,
+          "to": 0
+        },
+        "after": "#\n",
+        "fields": [
+          {
+            "index": 2,
+            "id": 1,
+            "parent": 0,
+            "from": 0,
+            "to": 0,
+            "choices": [],
+            "sourceFrom": 2,
+            "sourceTo": 2
+          },
+          {
+            "index": 1,
+            "id": 0,
+            "parent": null,
+            "from": 0,
+            "to": 0,
+            "choices": [],
+            "sourceFrom": 2,
+            "sourceTo": 2
+          },
+          {
+            "index": 3,
+            "id": 2,
+            "parent": null,
+            "from": 0,
+            "to": 0,
+            "choices": [],
+            "sourceFrom": 2,
+            "sourceTo": 2
+          },
+          {
+            "index": 0,
+            "id": 3,
+            "parent": null,
+            "from": 0,
+            "to": 0,
+            "choices": [],
+            "sourceFrom": 2,
+            "sourceTo": 2
+          }
+        ]
+      }
     }
   ]
 }

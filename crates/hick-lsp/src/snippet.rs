@@ -7,6 +7,8 @@ const MAX_DEPTH: usize = 32;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SnippetField {
+    pub id: usize,
+    pub parent: Option<usize>,
     pub index: u32,
     pub from: usize,
     pub to: usize,
@@ -216,6 +218,8 @@ struct Renderer<'a> {
     text: String,
     offset: usize,
     fields: Vec<SnippetField>,
+    parents: Vec<usize>,
+    next_occurrence: usize,
 }
 impl Renderer<'_> {
     fn text(&mut self, text: &str) -> Result<(), String> {
@@ -230,16 +234,26 @@ impl Renderer<'_> {
         if !self.active.insert(index) {
             return Err("Cyclic snippet field default".into());
         }
+        if self.next_occurrence >= MAX_FIELDS {
+            return Err("Snippet expansion field limit exceeded".into());
+        }
+        let id = self.next_occurrence;
+        self.next_occurrence += 1;
+        let parent = self.parents.last().copied();
+        self.parents.push(id);
         let from = self.offset;
         let definition = self.definitions.get(&index).cloned();
         if let Some(definition) = &definition {
             self.render(&definition.nodes, depth + 1)?;
         }
         self.active.remove(&index);
+        self.parents.pop();
         if self.fields.len() >= MAX_FIELDS {
             return Err("Snippet expansion field limit exceeded".into());
         }
         self.fields.push(SnippetField {
+            id,
+            parent,
             index,
             from,
             to: self.offset,
@@ -317,10 +331,17 @@ pub fn expand_snippet(
         text: String::new(),
         offset: 0,
         fields: vec![],
+        parents: vec![],
+        next_occurrence: 0,
     };
     renderer.render(&nodes, 0)?;
     if !renderer.fields.iter().any(|field| field.index == 0) {
+        if renderer.next_occurrence >= MAX_FIELDS {
+            return Err("Snippet expansion field limit exceeded".into());
+        }
         renderer.fields.push(SnippetField {
+            id: renderer.next_occurrence,
+            parent: None,
             index: 0,
             from: renderer.offset,
             to: renderer.offset,
@@ -394,6 +415,30 @@ mod tests {
         assert_eq!(plan.fields[0].choices, vec!["a,b", "c|d"]);
         assert_eq!(plan.fields.iter().filter(|f| f.index == 2).count(), 2);
         assert_eq!(expand_snippet("${1:}", &vars).unwrap().fields[0].from, 0);
+    }
+    #[test]
+    fn occurrence_parents_distinguish_nested_and_adjacent_empty_fields() {
+        let plan = expand_snippet("${1:${2:}}$3$0", &BTreeMap::new()).unwrap();
+        assert_eq!(
+            plan.fields
+                .iter()
+                .map(|field| (field.id, field.parent, field.index))
+                .collect::<Vec<_>>(),
+            vec![(1, Some(0), 2), (0, None, 1), (2, None, 3), (3, None, 0)]
+        );
+        assert!(
+            plan.fields
+                .iter()
+                .all(|field| field.from == 0 && field.to == 0)
+        );
+        assert!(expand_snippet(&"$1".repeat(MAX_FIELDS), &BTreeMap::new()).is_err());
+        assert_eq!(
+            expand_snippet(&"$1".repeat(MAX_FIELDS - 1), &BTreeMap::new())
+                .unwrap()
+                .fields
+                .len(),
+            MAX_FIELDS
+        );
     }
     #[test]
     fn malformed_cyclic_unsupported_and_excessive_input_refuse() {

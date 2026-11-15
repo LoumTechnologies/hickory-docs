@@ -113,7 +113,7 @@ func planCompletion(_ uri:String,item:[String:Any],snapshot:SourceSnapshot,from 
     let fields=try inserted.fields.map{field in
         try validateOffset(inserted.text,field.from);try validateOffset(inserted.text,field.to)
         guard field.from<=field.to else{throw EngineError(message:"Invalid snippet field")}
-        return SnippetField(index:field.index,from:insertionFrom+field.from,to:insertionFrom+field.to,choices:field.choices)
+        return SnippetField(index:field.index,from:insertionFrom+field.from,to:insertionFrom+field.to,choices:field.choices,id:field.id,parent:field.parent)
     }
     return CompletionDraft(path:path,before:source,plan:plan,insertionFrom:insertionFrom,selection:CompletionSelection(from:insertionFrom+selection.from,to:insertionFrom+selection.to),fields:fields)
 }

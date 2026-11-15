@@ -555,7 +555,7 @@ fn completion_snippet_data(
     }
     let plan = crate::snippet::expand_snippet(syntax, &variables).map_err(completion_error)?;
     Ok(Some(
-        json!({"version":1,"syntax":syntax,"text":plan.text,"fields":plan.fields.into_iter().map(|field|json!({"index":field.index,"from":field.from,"to":field.to,"choices":field.choices})).collect::<Vec<_>>()}),
+        json!({"version":1,"syntax":syntax,"text":plan.text,"fields":plan.fields.into_iter().map(|field|json!({"id":field.id,"parent":field.parent,"index":field.index,"from":field.from,"to":field.to,"choices":field.choices})).collect::<Vec<_>>()}),
     ))
 }
 #[cfg(test)]

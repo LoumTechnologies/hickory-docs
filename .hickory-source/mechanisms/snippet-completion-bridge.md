@@ -5,13 +5,13 @@ For maintainers changing snippet expansion independently of popup rendering. The
 
 ## Validate browser snippet fields
 
-A resolved snippet must match its exact insertion syntax. Reject malformed versions, offsets splitting a scalar, missing or repeated exits and inconsistent mirror contents. Derive the first field from numeric order rather than trusting transport order; retain every occurrence and choice for the later editing session. This capability writes neither source nor disk.
+A resolved snippet must match its exact insertion syntax. Reject malformed versions, offsets splitting a scalar, missing or repeated exits and inconsistent mirror contents. Derive the first field from numeric order rather than trusting transport order; retain every occurrence and choice for the later editing session. Optional occurrence identities must be complete and unique, with a contained, acyclic parent forest. Legacy payloads without identities can still expand and select text, but do not establish a field-editing session. This capability writes neither source nor disk.
 
 <ui:copy id="snippet-expansion-browser">
 import {sourceChangeOffset} from './ChangePlan';
 import {completionInsertion,type CompletionExpansion} from './CompletionPlan';
 import {utf16ToPosition} from '../lsp/positions';
-export interface SnippetField {index:number;from:number;to:number;choices:string[]}
+export interface SnippetField {index:number;from:number;to:number;choices:string[];id?:number;parent?:number|null}
 export function completionExpansion(item:unknown):CompletionExpansion|undefined {
  const value=item as {insertTextFormat?:unknown;data?:{hickory_snippet?:unknown}};
  if(value?.insertTextFormat!==2)return undefined;
@@ -24,8 +24,17 @@ export function completionExpansion(item:unknown):CompletionExpansion|undefined 
   const field=value as Record<string,unknown>,index=number(field.index),from=number(field.from),to=number(field.to);
   if(index>1004096||from>to||to>text.length||!Array.isArray(field.choices)||field.choices.some(value=>typeof value!=='string'))throw new Error('Malformed snippet field');
   sourceChangeOffset(text,utf16ToPosition(text,from));sourceChangeOffset(text,utf16ToPosition(text,to));
-  return {index,from,to,choices:field.choices as string[]};
+  const ancestry:Pick<SnippetField,'id'|'parent'>={};
+  if(field.id!==undefined){ancestry.id=number(field.id);ancestry.parent=field.parent===null?null:number(field.parent);if(ancestry.id>=4096||ancestry.parent!==null&&ancestry.parent>=4096)throw new Error('Malformed snippet ancestry');}
+  else if(field.parent!==undefined)throw new Error('Malformed snippet ancestry');
+  return {index,from,to,choices:field.choices as string[],...ancestry};
  });
+ if(fields.some(field=>field.id!==undefined)){
+  const ids=new Map(fields.map(field=>[field.id,field]));
+  if(ids.has(undefined)||ids.size!==fields.length)throw new Error('Malformed snippet ancestry');
+  const visited=new Set<number>();
+  for(const field of fields){const chain=new Set<number>();let next:SnippetField|undefined=field;while(next&&!visited.has(next.id!)){if(chain.has(next.id!))throw new Error('Cyclic snippet ancestry');chain.add(next.id!);if(next.parent===null)break;const parent=ids.get(next.parent!);if(!parent||parent.from>next.from||parent.to<next.to)throw new Error('Malformed snippet ancestry');next=parent;}for(const id of chain)visited.add(id);}
+ }
  if(fields.filter(field=>field.index===0).length!==1)throw new Error('Malformed snippet exit');
  const first=new Map<number,SnippetField>();
  for(const field of fields){const previous=first.get(field.index);if(previous&&(text.slice(previous.from,previous.to)!==text.slice(field.from,field.to)||JSON.stringify(previous.choices)!==JSON.stringify(field.choices)))throw new Error('Inconsistent snippet mirrors');first.set(field.index,field);}
@@ -38,11 +47,11 @@ export function completionExpansion(item:unknown):CompletionExpansion|undefined 
 
 ## Validate Apple snippet fields
 
-A resolved snippet must match its exact insertion syntax. Reject malformed versions, offsets splitting a scalar, missing or repeated exits and inconsistent mirror contents. Derive the first field from numeric order rather than trusting transport order; retain every occurrence and choice for the later editing session. This capability writes neither source nor disk.
+A resolved snippet must match its exact insertion syntax. Reject malformed versions, offsets splitting a scalar, missing or repeated exits and inconsistent mirror contents. Derive the first field from numeric order rather than trusting transport order; retain every occurrence and choice for the later editing session. Optional occurrence identities must be complete and unique, with a contained, acyclic parent forest. Legacy payloads without identities can still expand and select text, but do not establish a field-editing session. This capability writes neither source nor disk.
 
 <ui:copy id="snippet-expansion-apple">
 import Foundation
-struct SnippetField {var index:Int;var from:Int;var to:Int;var choices:[String]}
+struct SnippetField {var index:Int;var from:Int;var to:Int;var choices:[String];var id:Int?=nil;var parent:Int?=nil}
 func completionExpansion(_ item:[String:Any])throws->CompletionExpansion? {
     guard sourceChangeInteger(item["insertTextFormat"])==2 else{return nil}
     guard let raw=(item["data"] as? [String:Any])?["hickory_snippet"] as? [String:Any],sourceChangeInteger(raw["version"])==1,let syntax=raw["syntax"] as? String,exactUTF8(syntax,try completionInsertion(item)),let text=raw["text"] as? String,text.utf16.count<=1048576,let values=raw["fields"] as? [[String:Any]],!values.isEmpty,values.count<=4096 else{throw EngineError(message:"Snippet expansion unavailable or out of date. Request completions again.")}
@@ -50,7 +59,21 @@ func completionExpansion(_ item:[String:Any])throws->CompletionExpansion? {
     for value in values {
         guard let index=sourceChangeInteger(value["index"]),index>=0,index<=1004096,let from=sourceChangeInteger(value["from"]),let to=sourceChangeInteger(value["to"]),from>=0,from<=to,to<=text.utf16.count,let choices=value["choices"] as? [String] else{throw EngineError(message:"Malformed snippet field")}
         _ = try sourceChangeOffset(text,languagePosition(text,from));_ = try sourceChangeOffset(text,languagePosition(text,to))
-        fields.append(SnippetField(index:index,from:from,to:to,choices:choices))
+        var id:Int?=nil,parent:Int?=nil
+        if value["id"] != nil {
+            guard let identity=sourceChangeInteger(value["id"]),identity>=0,identity<4096 else{throw EngineError(message:"Malformed snippet ancestry")};id=identity
+            if !(value["parent"] is NSNull){guard let identity=sourceChangeInteger(value["parent"]),identity>=0,identity<4096 else{throw EngineError(message:"Malformed snippet ancestry")};parent=identity}
+        }else if value["parent"] != nil{throw EngineError(message:"Malformed snippet ancestry")}
+        fields.append(SnippetField(index:index,from:from,to:to,choices:choices,id:id,parent:parent))
+    }
+    if fields.contains(where:{$0.id != nil}) {
+        var ids:[Int:SnippetField]=[:]
+        for field in fields{guard let id=field.id,ids[id]==nil else{throw EngineError(message:"Malformed snippet ancestry")};ids[id]=field}
+        var visited:Set<Int>=[]
+        for field in fields{var chain:Set<Int>=[],next:SnippetField?=field
+            while let current=next,!visited.contains(current.id!){guard chain.insert(current.id!).inserted else{throw EngineError(message:"Cyclic snippet ancestry")};guard let identity=current.parent else{break};guard let parent=ids[identity],parent.from<=current.from,parent.to>=current.to else{throw EngineError(message:"Malformed snippet ancestry")};next=parent}
+            visited.formUnion(chain)
+        }
     }
     guard fields.filter({$0.index==0}).count==1 else{throw EngineError(message:"Malformed snippet exit")}
     var first:[Int:SnippetField]=[:];let source=text as NSString
@@ -70,12 +93,12 @@ func completionExpansion(_ item:[String:Any])throws->CompletionExpansion? {
 
 ## Validate Android snippet fields
 
-A resolved snippet must match its exact insertion syntax. Reject malformed versions, offsets splitting a scalar, missing or repeated exits and inconsistent mirror contents. Derive the first field from numeric order rather than trusting transport order; retain every occurrence and choice for the later editing session. This capability writes neither source nor disk.
+A resolved snippet must match its exact insertion syntax. Reject malformed versions, offsets splitting a scalar, missing or repeated exits and inconsistent mirror contents. Derive the first field from numeric order rather than trusting transport order; retain every occurrence and choice for the later editing session. Optional occurrence identities must be complete and unique, with a contained, acyclic parent forest. Legacy payloads without identities can still expand and select text, but do not establish a field-editing session. This capability writes neither source nor disk.
 
 <ui:copy id="snippet-expansion-android">
 package com.hickorydocs.simple
 import org.json.JSONObject
-data class SnippetField(val index:Int,val from:Int,val to:Int,val choices:List<String>)
+data class SnippetField(val index:Int,val from:Int,val to:Int,val choices:List<String>,val id:Int?=null,val parent:Int?=null)
 fun completionExpansion(item:JSONObject):CompletionExpansion? {
  if((item.opt("insertTextFormat") as? Number)?.toDouble()!=2.0)return null
  val raw=item.optJSONObject("data")?.optJSONObject("hickory_snippet") ?: error("Snippet expansion unavailable or out of date. Request completions again.")
@@ -86,7 +109,16 @@ fun completionExpansion(item:JSONObject):CompletionExpansion? {
  val fields=(0 until values.length()).map {offset->
   val value=values.optJSONObject(offset) ?: error("Malformed snippet field");val index=number(value.opt("index"));val from=number(value.opt("from"));val to=number(value.opt("to"));check(index<=1004096&&from<=to&&to<=text.length){"Malformed snippet field"}
   val choices=value.optJSONArray("choices") ?: error("Malformed snippet choices");val options=(0 until choices.length()).map{choices.opt(it) as? String ?: error("Malformed snippet choices")}
-  sourceChangeOffset(text,languagePosition(text,from));sourceChangeOffset(text,languagePosition(text,to));SnippetField(index,from,to,options)
+  sourceChangeOffset(text,languagePosition(text,from));sourceChangeOffset(text,languagePosition(text,to))
+  val id=if(value.has("id"))number(value.opt("id")) else null;val parent=if(value.has("id")&&!value.isNull("parent"))number(value.opt("parent")) else null
+  check((id==null&&!value.has("parent")||id!=null&&id<4096&&value.has("parent"))&&(parent==null||parent<4096)){"Malformed snippet ancestry"}
+  SnippetField(index,from,to,options,id,parent)
+ }
+ if(fields.any{it.id!=null}){
+  val ids=fields.associateBy{it.id};check(!ids.containsKey(null)&&ids.size==fields.size){"Malformed snippet ancestry"};val visited=mutableSetOf<Int>()
+  for(field in fields){val chain=mutableSetOf<Int>();var next:SnippetField?=field
+   while(next!=null&&!visited.contains(next.id!!)){val current=next;check(chain.add(current.id!!)){"Cyclic snippet ancestry"};val identity=current.parent ?: break;val parent=ids[identity] ?: error("Malformed snippet ancestry");check(parent.from<=current.from&&parent.to>=current.to){"Malformed snippet ancestry"};next=parent};visited.addAll(chain)
+  }
  }
  check(fields.count{it.index==0}==1){"Malformed snippet exit"}
  val first=mutableMapOf<Int,SnippetField>();for(field in fields){val previous=first[field.index];check(previous==null||text.substring(previous.from,previous.to)==text.substring(field.from,field.to)&&previous.choices==field.choices){"Inconsistent snippet mirrors"};first[field.index]=field}
@@ -1173,6 +1205,789 @@ These shared vectors independently state the complete expanded text, initial fie
         "insertTextFormat": 1
       },
       "plain": true
+    },
+    {
+      "name": "explicit occurrence forest survives import mapping",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": [],
+                "id": 0,
+                "parent": null
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": [],
+                "id": 1,
+                "parent": null
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": [],
+                "id": 2,
+                "parent": null
+              }
+            ]
+          }
+        }
+      },
+      "expected": {
+        "text": "😀 + 😀",
+        "selection": {
+          "from": 0,
+          "to": 2
+        },
+        "after": "#\n😀 + 😀",
+        "fields": [
+          {
+            "index": 1,
+            "from": 0,
+            "to": 2,
+            "choices": [],
+            "sourceFrom": 2,
+            "sourceTo": 4,
+            "id": 0,
+            "parent": null
+          },
+          {
+            "index": 1,
+            "from": 5,
+            "to": 7,
+            "choices": [],
+            "sourceFrom": 7,
+            "sourceTo": 9,
+            "id": 1,
+            "parent": null
+          },
+          {
+            "index": 0,
+            "from": 7,
+            "to": 7,
+            "choices": [],
+            "sourceFrom": 9,
+            "sourceTo": 9,
+            "id": 2,
+            "parent": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicate occurrence id",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": [],
+                "id": 0,
+                "parent": null
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": [],
+                "id": 0,
+                "parent": null
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": [],
+                "id": 2,
+                "parent": null
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "missing occurrence parent",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": [],
+                "id": 0
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": [],
+                "id": 1,
+                "parent": null
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": [],
+                "id": 2,
+                "parent": null
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "nonexistent occurrence parent",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": [],
+                "id": 0,
+                "parent": 99
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": [],
+                "id": 1,
+                "parent": null
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": [],
+                "id": 2,
+                "parent": null
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "parent does not contain child",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": [],
+                "id": 0,
+                "parent": 1
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": [],
+                "id": 1,
+                "parent": null
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": [],
+                "id": 2,
+                "parent": null
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "self ancestry cycle",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": [],
+                "id": 0,
+                "parent": 0
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": [],
+                "id": 1,
+                "parent": null
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": [],
+                "id": 2,
+                "parent": null
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "partially identified forest",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": [],
+                "id": 0,
+                "parent": null
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": []
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": [],
+                "id": 2,
+                "parent": null
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "boolean parent identity",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": [],
+                "id": 0,
+                "parent": true
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": [],
+                "id": 1,
+                "parent": null
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": [],
+                "id": 2,
+                "parent": null
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "oversized occurrence identity",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": [],
+                "id": 4096,
+                "parent": null
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": [],
+                "id": 1,
+                "parent": null
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": [],
+                "id": 2,
+                "parent": null
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "nested and adjacent empty fields retain distinct parents",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:${2:}}$3$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:${2:}}$3$0",
+            "text": "",
+            "fields": [
+              {
+                "index": 2,
+                "id": 1,
+                "parent": 0,
+                "from": 0,
+                "to": 0,
+                "choices": []
+              },
+              {
+                "index": 1,
+                "id": 0,
+                "parent": null,
+                "from": 0,
+                "to": 0,
+                "choices": []
+              },
+              {
+                "index": 3,
+                "id": 2,
+                "parent": null,
+                "from": 0,
+                "to": 0,
+                "choices": []
+              },
+              {
+                "index": 0,
+                "id": 3,
+                "parent": null,
+                "from": 0,
+                "to": 0,
+                "choices": []
+              }
+            ]
+          }
+        }
+      },
+      "expected": {
+        "text": "",
+        "selection": {
+          "from": 0,
+          "to": 0
+        },
+        "after": "#\n",
+        "fields": [
+          {
+            "index": 2,
+            "id": 1,
+            "parent": 0,
+            "from": 0,
+            "to": 0,
+            "choices": [],
+            "sourceFrom": 2,
+            "sourceTo": 2
+          },
+          {
+            "index": 1,
+            "id": 0,
+            "parent": null,
+            "from": 0,
+            "to": 0,
+            "choices": [],
+            "sourceFrom": 2,
+            "sourceTo": 2
+          },
+          {
+            "index": 3,
+            "id": 2,
+            "parent": null,
+            "from": 0,
+            "to": 0,
+            "choices": [],
+            "sourceFrom": 2,
+            "sourceTo": 2
+          },
+          {
+            "index": 0,
+            "id": 3,
+            "parent": null,
+            "from": 0,
+            "to": 0,
+            "choices": [],
+            "sourceFrom": 2,
+            "sourceTo": 2
+          }
+        ]
+      }
     }
   ]
 }
@@ -1196,7 +2011,7 @@ it('validates shared snippet payloads and maps fields through imports',()=>{
   if('plain' in value){expect(expand(),value.name).toBeUndefined();continue;}
   const expansion=expand()!,expected=value.expected!;expect(expansion.text,value.name).toBe(expected.text);expect(expansion.selection,value.name).toEqual(expected.selection);
   const draft=planCompletion('hick:///a.py',value.item,{text:'va',writable:true},0,2,expansion);
-  expect(draft.plan.patches[0].after,value.name).toBe(expected.after);expect(draft.fields.map(field=>({index:field.index,from:field.from,to:field.to})),value.name).toEqual(expected.fields.map(field=>({index:field.index,from:field.sourceFrom,to:field.sourceTo})));
+  expect(draft.plan.patches[0].after,value.name).toBe(expected.after);for(const [index,field] of expected.fields.entries()){if('id' in field&&'parent' in field){expect(draft.fields[index].id,value.name).toBe(field.id);expect(draft.fields[index].parent,value.name).toBe(field.parent);}}expect(draft.fields.map(field=>({index:field.index,from:field.from,to:field.to})),value.name).toEqual(expected.fields.map(field=>({index:field.index,from:field.sourceFrom,to:field.sourceTo})));
  }
 });
 </ui:copy>
@@ -1223,7 +2038,7 @@ final class SnippetExpansionTests:XCTestCase {
             let draft=try planCompletion("hick:///a.py",item:item,snapshot:SourceSnapshot(text:"va",writable:true),from:0,to:2,expansion:expansion)
             XCTAssertTrue(exactUTF8(draft.plan.patches[0].after,expected["after"] as! String),name)
             let fields=expected["fields"] as! [[String:Any]];XCTAssertEqual(draft.fields.count,fields.count,name)
-            for (actual,field) in zip(draft.fields,fields){XCTAssertEqual(actual.index,field["index"] as? Int,name);XCTAssertEqual(actual.from,field["sourceFrom"] as? Int,name);XCTAssertEqual(actual.to,field["sourceTo"] as? Int,name)}
+            for (actual,field) in zip(draft.fields,fields){XCTAssertEqual(actual.index,field["index"] as? Int,name);XCTAssertEqual(actual.from,field["sourceFrom"] as? Int,name);XCTAssertEqual(actual.to,field["sourceTo"] as? Int,name);if field["id"] != nil{XCTAssertEqual(actual.id,field["id"] as? Int,name);XCTAssertEqual(actual.parent,field["parent"] as? Int,name)}}
         }
     }
 }
@@ -1250,7 +2065,7 @@ class SnippetExpansionTest {
    val expansion=result.getOrThrow()!!;val expected=value.getJSONObject("expected");val selection=expected.getJSONObject("selection");assertEquals(name,expected.getString("text"),expansion.text);assertEquals(name,selection.getInt("from"),expansion.selection!!.from);assertEquals(name,selection.getInt("to"),expansion.selection.to)
    val draft=planCompletion("hick:///a.py",item,SourceSnapshot("va",true),0,2,expansion);assertEquals(name,expected.getString("after"),draft.plan.patches[0].after)
    val fields=expected.getJSONArray("fields");assertEquals(name,fields.length(),draft.fields.size)
-   draft.fields.forEachIndexed {i,field->val expectedField=fields.getJSONObject(i);assertEquals(name,expectedField.getInt("index"),field.index);assertEquals(name,expectedField.getInt("sourceFrom"),field.from);assertEquals(name,expectedField.getInt("sourceTo"),field.to)}
+   draft.fields.forEachIndexed {i,field->val expectedField=fields.getJSONObject(i);assertEquals(name,expectedField.getInt("index"),field.index);assertEquals(name,expectedField.getInt("sourceFrom"),field.from);assertEquals(name,expectedField.getInt("sourceTo"),field.to);if(expectedField.has("id")){assertEquals(name,expectedField.getInt("id"),field.id);assertEquals(name,if(expectedField.isNull("parent"))null else expectedField.getInt("parent"),field.parent)}}
   }
  }
 }

@@ -1,6 +1,6 @@
 package com.hickorydocs.simple
 import org.json.JSONObject
-data class SnippetField(val index:Int,val from:Int,val to:Int,val choices:List<String>)
+data class SnippetField(val index:Int,val from:Int,val to:Int,val choices:List<String>,val id:Int?=null,val parent:Int?=null)
 fun completionExpansion(item:JSONObject):CompletionExpansion? {
  if((item.opt("insertTextFormat") as? Number)?.toDouble()!=2.0)return null
  val raw=item.optJSONObject("data")?.optJSONObject("hickory_snippet") ?: error("Snippet expansion unavailable or out of date. Request completions again.")
@@ -11,7 +11,16 @@ fun completionExpansion(item:JSONObject):CompletionExpansion? {
  val fields=(0 until values.length()).map {offset->
   val value=values.optJSONObject(offset) ?: error("Malformed snippet field");val index=number(value.opt("index"));val from=number(value.opt("from"));val to=number(value.opt("to"));check(index<=1004096&&from<=to&&to<=text.length){"Malformed snippet field"}
   val choices=value.optJSONArray("choices") ?: error("Malformed snippet choices");val options=(0 until choices.length()).map{choices.opt(it) as? String ?: error("Malformed snippet choices")}
-  sourceChangeOffset(text,languagePosition(text,from));sourceChangeOffset(text,languagePosition(text,to));SnippetField(index,from,to,options)
+  sourceChangeOffset(text,languagePosition(text,from));sourceChangeOffset(text,languagePosition(text,to))
+  val id=if(value.has("id"))number(value.opt("id")) else null;val parent=if(value.has("id")&&!value.isNull("parent"))number(value.opt("parent")) else null
+  check((id==null&&!value.has("parent")||id!=null&&id<4096&&value.has("parent"))&&(parent==null||parent<4096)){"Malformed snippet ancestry"}
+  SnippetField(index,from,to,options,id,parent)
+ }
+ if(fields.any{it.id!=null}){
+  val ids=fields.associateBy{it.id};check(!ids.containsKey(null)&&ids.size==fields.size){"Malformed snippet ancestry"};val visited=mutableSetOf<Int>()
+  for(field in fields){val chain=mutableSetOf<Int>();var next:SnippetField?=field
+   while(next!=null&&!visited.contains(next.id!!)){val current=next;check(chain.add(current.id!!)){"Cyclic snippet ancestry"};val identity=current.parent ?: break;val parent=ids[identity] ?: error("Malformed snippet ancestry");check(parent.from<=current.from&&parent.to>=current.to){"Malformed snippet ancestry"};next=parent};visited.addAll(chain)
+  }
  }
  check(fields.count{it.index==0}==1){"Malformed snippet exit"}
  val first=mutableMapOf<Int,SnippetField>();for(field in fields){val previous=first[field.index];check(previous==null||text.substring(previous.from,previous.to)==text.substring(field.from,field.to)&&previous.choices==field.choices){"Inconsistent snippet mirrors"};first[field.index]=field}
