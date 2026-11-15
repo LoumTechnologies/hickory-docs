@@ -153447,6 +153447,20 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/construction-reading-browser.md",
       "symbol": "Read draft consequences through the actual menu",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "construction-reading-declared-fragments",
+      "output": "crates/hickory-cli/src/serve/source_tests.rs",
+      "page": ".hickory-source/mechanisms/test-source-service.md",
+      "symbol": "Name declared fragments without inventing behavior semantics",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "construction-reading-bounds-witness",
+      "output": "crates/hickory-cli/src/serve/source_tests.rs",
+      "page": ".hickory-source/mechanisms/test-source-service.md",
+      "symbol": "Bound observations while preserving metadata changes",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

@@ -917,6 +917,8 @@ fn construction_reading(root: &Path, request: ConstructionRequest) -> Result<Val
         .tree
         .as_ref()
         .ok_or("The draft did not construct a project tree.")?;
+    let before_fragments = construction_fragments(&before.source_texts);
+    let after_fragments = construction_fragments(&after.source_texts);
     let base = Path::new(&entry).parent().unwrap_or(Path::new(""));
     let paths: BTreeSet<_> = before_tree
         .entries()
@@ -931,28 +933,9 @@ fn construction_reading(root: &Path, request: ConstructionRequest) -> Result<Val
         let new = after_tree.get(&path);
         let target = relative(base, &path)?;
         let mut contributors = BTreeSet::new();
-        let mut origins = Vec::new();
-        for (phase, output, sources) in [
-            ("before", old, &before.source_texts),
-            ("after", new, &after.source_texts),
-        ] {
-            if let Some(output) = output {
-                for origin in &output.origins {
-                    let source_path = relative(base, &origin.document)?;
-                    contributors.insert(source_path.clone());
-                    let source = sources.get(&source_path);
-                    let exact = source
-                        .and_then(|text| text.as_bytes().get(origin.source.0..origin.source.1))
-                        .zip(output.bytes.get(origin.output.0..origin.output.1))
-                        .is_some_and(|(a, b)| a == b);
-                    if origins.len() < 100 {
-                        origins.push(
-                            json!({"phase":phase,"path":source_path,"source_bytes":origin.source,
-                            "output_bytes":origin.output,"exact":exact,
-                            "source_hash":source.map(|text|digest(text.as_bytes()))}),
-                        );
-                    }
-                }
+        for output in [old, new].into_iter().flatten() {
+            for origin in &output.origins {
+                contributors.insert(relative(base, &origin.document)?);
             }
         }
         if focus
@@ -964,6 +947,55 @@ fn construction_reading(root: &Path, request: ConstructionRequest) -> Result<Val
         total += 1;
         if outputs.len() >= 300 {
             continue;
+        }
+        let mut origins = Vec::new();
+        for (phase, output, sources, hashes, fragments) in [
+            (
+                "before",
+                old,
+                &before.source_texts,
+                &before.source_hashes,
+                &before_fragments,
+            ),
+            (
+                "after",
+                new,
+                &after.source_texts,
+                &after.source_hashes,
+                &after_fragments,
+            ),
+        ] {
+            if let Some(output) = output {
+                for origin in &output.origins {
+                    let source_path = relative(base, &origin.document)?;
+                    if origins.len() >= 100 {
+                        break;
+                    }
+                    let source = sources.get(&source_path);
+                    let exact = source
+                        .and_then(|text| text.as_bytes().get(origin.source.0..origin.source.1))
+                        .zip(output.bytes.get(origin.output.0..origin.output.1))
+                        .is_some_and(|(a, b)| a == b);
+                    if origins.len() < 100 {
+                        let hash = hashes.get(&source_path);
+                        let point = if exact {
+                            source.zip(hash).and_then(|(text, hash)| {
+                                construction_source_point(&source_path, text, origin.source.0, hash)
+                            })
+                        } else {
+                            None
+                        };
+                        let fragment = fragments.get(&source_path).and_then(|fragments| {
+                            enclosing_construction_fragment(fragments, origin.source)
+                        });
+                        origins.push(
+                            json!({"phase":phase,"path":source_path,"source_bytes":origin.source,
+                            "output_bytes":origin.output,"exact":exact,"source_hash":hash,
+                            "source_point":point,"fragment":fragment}),
+                        );
+                    }
+                }
+            }
         }
         let change = match (old, new) {
             (None, Some(_)) => "added",
@@ -1053,6 +1085,18 @@ fn construction_reading_compares_drafts_without_writing_or_claiming_evidence() {
             .iter()
             .all(|origin| origin["exact"] == true)
     );
+    let after_origin = reading["outputs"][0]["origins"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|origin| origin["phase"] == "after")
+        .unwrap();
+    assert_eq!(after_origin["fragment"]["name"], "body");
+    assert_eq!(
+        after_origin["source_point"]["hash"],
+        reading["after_sources"]["part.md"]
+    );
+    assert_eq!(after_origin["source_point"]["path"], "part.md");
     assert!(!root.join("output.txt").exists());
     assert_eq!(std::fs::read_to_string(root.join("part.md")).unwrap(), part);
     assert!(
@@ -1109,5 +1153,156 @@ fn construction_reading_reports_additions_deletions_and_invalid_drafts() {
 }
 </ui:copy>
 
-<ui:file path="crates/hickory-cli/src/serve/source_tests.rs"><ui:paste select="#source-test-service-types"/><ui:paste select="#source-test-service-paths"/><ui:paste select="#source-test-service-identities"/><ui:paste select="#source-test-service-inputs"/><ui:paste select="#source-test-service-analysis"/><ui:paste select="#source-test-service-saved-guards"/><ui:paste select="#source-test-service-run-admission"/><ui:paste select="#source-test-service-http"/><ui:paste select="#source-test-service-test-prefix"/><ui:paste select="#source-test-service-plain-witness"/><ui:paste select="#source-test-service-document-witness"/><ui:paste select="#source-test-service-project-witness"/><ui:paste select="#source-test-service-scope-witness"/><ui:paste select="#source-test-service-test-suffix"/><ui:paste select="#source-test-retained-input-context-witness"/><ui:paste select="#construction-reading-compiler-impact"/></ui:file>
+## Name declared fragments without inventing behavior semantics
+
+Parse each captured source independently so declaration spans index that exact source, without include-spliced file identities. Choose the smallest named tag body containing the reported contribution. Its ID and tag kind are declared syntax, not an inferred contract or proof. Only selected, bounded result rows compute detailed origin observations; source hashes reuse the captured compiler scan rather than hashing a whole contributor for every origin. Source links require equal contribution bytes, scalar byte boundaries and source hashes; convert their positions to UTF-16 without normalizing path or source text.
+
+<ui:copy id="construction-reading-declared-fragments">
+#[derive(Clone, Serialize)]
+struct ConstructionFragment {
+    name: String,
+    kind: String,
+    body: (usize, usize),
+}
+fn construction_fragments(
+    sources: &BTreeMap<String, String>,
+) -> BTreeMap<String, Vec<ConstructionFragment>> {
+    sources
+        .iter()
+        .map(|(path, source)| {
+            let fragments = hick_lang::parse(source)
+                .ok()
+                .map(|document| {
+                    document
+                        .all_tags()
+                        .into_iter()
+                        .filter_map(|tag| {
+                            let name = tag.get_attribute("id")?;
+                            let (open, close) = (tag.source_span?, tag.close_span?);
+                            if open.file_id.is_some()
+                                || close.file_id.is_some()
+                                || open.end > close.start
+                                || source.get(open.end..close.start).is_none()
+                            {
+                                return None;
+                            }
+                            Some(ConstructionFragment {
+                                name: name.into(),
+                                kind: tag.name.clone(),
+                                body: (open.end, close.start),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            (path.clone(), fragments)
+        })
+        .collect()
+}
+fn construction_source_point(
+    path: &str,
+    source: &str,
+    offset: usize,
+    hash: &str,
+) -> Option<SourcePoint> {
+    let prefix = source.get(..offset)?;
+    Some(SourcePoint {
+        path: path.into(),
+        line: u32::try_from(prefix.bytes().filter(|byte| *byte == b'\n').count() + 1).ok()?,
+        character: u32::try_from(prefix.rsplit('\n').next()?.encode_utf16().count()).ok()?,
+        hash: hash.into(),
+    })
+}
+fn enclosing_construction_fragment(
+    fragments: &[ConstructionFragment],
+    range: (usize, usize),
+) -> Option<&ConstructionFragment> {
+    if range.1 < range.0 {
+        return None;
+    }
+    fragments
+        .iter()
+        .filter(|fragment| fragment.body.0 <= range.0 && range.1 <= fragment.body.1)
+        .min_by_key(|fragment| fragment.body.1 - fragment.body.0)
+}
+#[cfg(test)]
+#[test]
+fn construction_fragment_names_remain_declared_and_points_use_exact_utf16() {
+    let source = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:copy id=\"outer\"><h:copy id=\"inner\">code</h:copy></h:copy></h:doc>";
+    let fragments = construction_fragments(&BTreeMap::from([("part.md".into(), source.into())]));
+    let start = source.find("code").unwrap();
+    let fragment =
+        enclosing_construction_fragment(&fragments["part.md"], (start, start + 4)).unwrap();
+    assert_eq!(fragment.name, "inner");
+    assert_eq!(fragment.kind, "copy");
+    assert!(enclosing_construction_fragment(&fragments["part.md"], (0, source.len())).is_none());
+    let text = "😀e\u{301}\né😀code";
+    let hash = digest(text.as_bytes());
+    let point =
+        construction_source_point("cafe\u{301}.md", text, text.find("code").unwrap(), &hash)
+            .unwrap();
+    assert_eq!((point.line, point.character), (2, 3));
+    assert_eq!(point.path, "cafe\u{301}.md");
+    assert_eq!(point.hash, hash);
+    assert!(construction_source_point("part.md", text, 1, &hash).is_none());
+}
+</ui:copy>
+
+## Bound observations while preserving metadata changes
+
+Construct 304 outputs with repeated origins and a Unicode preview. The result must state the complete related count while bounding displayed outputs, origins and characters. A changed executable bit remains a modified consequence even when its byte hash is unchanged. No output is written.
+
+<ui:copy id="construction-reading-bounds-witness">
+#[cfg(test)]
+#[test]
+fn construction_reading_bounds_detail_and_includes_metadata_only_changes() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let entry = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"part.md\"/></h:doc>";
+    let mut part = String::from(
+        "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:copy id=\"body\">x</h:copy><h:file path=\"000-run.sh\" executable=\"false\">x</h:file><h:file path=\"001-many.txt\">",
+    );
+    part.push_str(&"<h:paste select=\"#body\"/>".repeat(102));
+    part.push_str("</h:file><h:file path=\"002-big.txt\">");
+    part.push_str(&"😀".repeat(2100));
+    part.push_str("</h:file>");
+    for index in 0..301 {
+        part.push_str(&format!(
+            "<h:file path=\"f{index:03}.txt\"><h:paste select=\"#body\"/></h:file>"
+        ));
+    }
+    part.push_str("</h:doc>");
+    std::fs::write(root.join("entry.md"), entry).unwrap();
+    std::fs::write(root.join("part.md"), &part).unwrap();
+    let reading = construction_reading(
+        root,
+        ConstructionRequest {
+            entry: "entry.md".into(),
+            sources: BTreeMap::from([(
+                "part.md".into(),
+                part.replace("executable=\"false\"", "executable=\"true\""),
+            )]),
+            focus: Some("part.md".into()),
+        },
+    )
+    .unwrap();
+    assert_eq!(reading["output_count"], 304);
+    assert_eq!(reading["outputs"].as_array().unwrap().len(), 300);
+    assert_eq!(reading["outputs_truncated"], true);
+    let run = &reading["outputs"][0];
+    assert_eq!(run["path"], "000-run.sh");
+    assert_eq!(run["change"], "modified");
+    assert_eq!(run["before"]["hash"], run["after"]["hash"]);
+    assert_eq!(run["after"]["executable"], true);
+    let many = &reading["outputs"][1];
+    assert_eq!(many["origins"].as_array().unwrap().len(), 100);
+    assert_eq!(many["origins_truncated"], true);
+    let big = &reading["outputs"][2]["after"];
+    assert_eq!(big["preview"].as_str().unwrap().chars().count(), 2000);
+    assert_eq!(big["preview_truncated"], true);
+    assert!(!root.join("000-run.sh").exists());
+}
+</ui:copy>
+
+<ui:file path="crates/hickory-cli/src/serve/source_tests.rs"><ui:paste select="#source-test-service-types"/><ui:paste select="#source-test-service-paths"/><ui:paste select="#source-test-service-identities"/><ui:paste select="#source-test-service-inputs"/><ui:paste select="#source-test-service-analysis"/><ui:paste select="#source-test-service-saved-guards"/><ui:paste select="#source-test-service-run-admission"/><ui:paste select="#source-test-service-http"/><ui:paste select="#source-test-service-test-prefix"/><ui:paste select="#source-test-service-plain-witness"/><ui:paste select="#source-test-service-document-witness"/><ui:paste select="#source-test-service-project-witness"/><ui:paste select="#source-test-service-scope-witness"/><ui:paste select="#source-test-service-test-suffix"/><ui:paste select="#source-test-retained-input-context-witness"/><ui:paste select="#construction-reading-compiler-impact"/><ui:paste select="#construction-reading-declared-fragments"/><ui:paste select="#construction-reading-bounds-witness"/></ui:file>
 </ui:doc>
