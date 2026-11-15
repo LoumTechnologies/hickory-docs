@@ -153636,6 +153636,13 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/resource-change-plans.md",
       "symbol": "Do not reuse a retired document identity",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-input-actual-service-witness",
+      "output": "scripts/test-resource-proposal-service.py",
+      "page": ".hickory-source/mechanisms/resource-inputs.md",
+      "symbol": "Exercise the actual acquisition and planning routes",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

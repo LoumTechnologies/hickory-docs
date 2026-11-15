@@ -70462,6 +70462,17 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "resource-input-independent-handler",
         "resource-input-read-witnesses"
       ]
+    },
+    "scripts/test-resource-proposal-service.py": {
+      "source": ".hickory-source/mechanisms/resource-inputs.md",
+      "owner": "source-model",
+      "used_by": [],
+      "role": "test",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "resource-input-actual-service-witness"
+      ]
     }
   },
   "evidence_records": [
