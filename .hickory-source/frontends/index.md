@@ -188,4 +188,6 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="source-coverage-browser.md" />
 
+<ui:include file="action-chooser-browser-witness.md" />
+
 </ui:doc>

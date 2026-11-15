@@ -610,6 +610,27 @@ class NativeLanguage(engine: Engine, private val buffer: DocumentBuffer, private
         check(epoch == identity && buffer.text == source && buffer.state.selection == selection) { "Source, selection or provider changed. Prepare again." }
         return if (kind == "format") JSONObject().put("changes",JSONObject().put(uri,result)) else result
     }
+</ui:copy>
+
+## Resolve held provider actions on android
+
+Resolution synchronizes the originating document and retains its exact source, selection and provider identity across the request. Eager legacy edits need no unsupported RPC. The complete resolved value returns to the change model; this language adapter never executes a command or applies source.
+
+<ui:copy id="native-provider-action-resolution-android">
+    suspend fun resolveProposal(action:JSONObject):JSONObject {
+        val held=action.optJSONObject("data")?.opt("hickory_action") is String
+        if(!held&&(!action.isNull("edit")||action.isNull("data")))return action
+        check(opened&&!buffer.readOnly){"Choose writable source with a connected language provider."}
+        sync();val source=buffer.text;val selection=buffer.state.selection;val identity=epoch
+        val params=JSONObject(action.toString()).put("textDocument",doc());val result=request("codeAction/resolve",params)
+        check(epoch==identity&&buffer.text==source&&buffer.state.selection==selection){"Source, selection or provider changed. Prepare actions again."}
+        check(result is JSONObject&&result.opt("title") is String){"Provider did not resolve this action. Prepare actions again."};return result
+    }
+</ui:copy>
+
+Continue the independent completion service after the action-resolution boundary.
+
+<ui:copy id="native-language-after-action-resolution-android">
     suspend fun complete() {
         if (!opened || buffer.readOnly) return
         sync(); val source = buffer.text; val selection = buffer.state.selection; val current = epoch; val id = ++completion
@@ -642,6 +663,6 @@ class NativeLanguage(engine: Engine, private val buffer: DocumentBuffer, private
 
 Keep construction order explicit; the explanations above describe the decisions at each boundary.
 
-<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt"><ui:paste select="#simple-38d4bd61a8-0"/><ui:paste select="#simple-38d4bd61a8-1"/><ui:paste select="#simple-android-debug-session"/><ui:paste select="#simple-android-language-service"/></ui:file>
+<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt"><ui:paste select="#simple-38d4bd61a8-0"/><ui:paste select="#simple-38d4bd61a8-1"/><ui:paste select="#simple-android-debug-session"/><ui:paste select="#simple-android-language-service"/><ui:paste select="#native-provider-action-resolution-android"/><ui:paste select="#native-language-after-action-resolution-android"/></ui:file>
 
 </ui:doc>

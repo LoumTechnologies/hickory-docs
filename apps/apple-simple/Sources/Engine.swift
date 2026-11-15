@@ -449,6 +449,16 @@ func rebaseNativeTokens(_ tokens: [NativeSemanticToken], from old: String, to ne
         guard epoch == identity, exactUTF8(buffer.text,source), buffer.selection == selection else { throw EngineError(message: "Source, selection or provider changed. Prepare again.") }
         return kind == "format" ? ["changes":[uri:result]] : result
     }
+    func resolveProposal(_ action:[String:Any]) async throws->[String:Any] {
+        let data=action["data"] as? [String:Any]
+        if data?["hickory_action"] as? String == nil && ((action["edit"] != nil && !(action["edit"] is NSNull)) || action["data"] == nil || action["data"] is NSNull) {return action}
+        guard let buffer,!buffer.readOnly,subscription != nil else{throw EngineError(message:"Choose writable source with a connected language provider.")}
+        sync();let source=buffer.text,selection=buffer.selection,identity=epoch
+        var params=action;params["textDocument"]=["uri":uri]
+        let result=try await request("codeAction/resolve",params)
+        guard epoch==identity,exactUTF8(buffer.text,source),buffer.selection==selection else{throw EngineError(message:"Source, selection or provider changed. Prepare actions again.")}
+        guard let value=result as? [String:Any],value["title"] is String else{throw EngineError(message:"Provider did not resolve this action. Prepare actions again.")};return value
+    }
     func complete() async {
         showingSuggestions = true
         guard let buffer, !buffer.readOnly else { return }

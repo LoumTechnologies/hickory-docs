@@ -152551,6 +152551,76 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/provider-action-protocol-witness.md",
       "symbol": "provider-action-isolated-engine-witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "browser-provider-action-resolution",
+      "output": "apps/web/src/lsp/codeActionResolution.ts",
+      "page": ".hickory-source/mechanisms/provider-action-resolution-browser.md",
+      "symbol": "browser-provider-action-resolution",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "browser-provider-action-resolution-witness",
+      "output": "apps/web/src/lsp/codeActionResolution.test.ts",
+      "page": ".hickory-source/mechanisms/provider-action-resolution-browser.md",
+      "symbol": "browser-provider-action-resolution-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-provider-action-resolution-apple",
+      "output": "apps/apple-simple/Sources/Engine.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Engine.swift.md",
+      "symbol": "resolveProposal",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-language-after-action-resolution-apple",
+      "output": "apps/apple-simple/Sources/Engine.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Engine.swift.md",
+      "symbol": "simple-apple-language-snapshots",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-provider-action-resolution-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt.md",
+      "symbol": "resolveProposal",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-language-after-action-resolution-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt.md",
+      "symbol": "simple-android-language-service",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-action-choice-apple-witness",
+      "output": "apps/apple-simple/Tests/ActionChoiceTests.swift",
+      "page": ".hickory-source/frontends/workspace-changes-apple.md",
+      "symbol": "native-action-choice-apple-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-action-choice-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/ActionChoiceTest.kt",
+      "page": ".hickory-source/frontends/workspace-changes-android.md",
+      "symbol": "native-action-choice-android-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-action-chooser-browser-witness",
+      "output": "scripts/test-action-chooser-browser.py",
+      "page": ".hickory-source/frontends/action-chooser-browser-witness.md",
+      "symbol": "simple-action-chooser-browser-witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "browser-resolved-action-editor-witness",
+      "output": "apps/web/src/lsp/codeActionResolutionEditor.test.ts",
+      "page": ".hickory-source/mechanisms/provider-action-resolution-browser.md",
+      "symbol": "browser-resolved-action-editor-witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

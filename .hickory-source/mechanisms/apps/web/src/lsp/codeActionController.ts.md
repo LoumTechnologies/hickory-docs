@@ -14,6 +14,7 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 ### `freeze`
 
 <storycode:copy id="f-67a81de633f2-freeze">
+import {resolveCodeAction,actionNeedsResolution} from "./codeActionResolution";
 import { sameDocumentUri } from "./documentUri";
 import type { EditorSelection, Extension, Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
@@ -45,32 +46,42 @@ A disabled provider action is readable information, never an edit authority. Ret
 
 Retained provider choices; model titles or IDs cannot fabricate a workspace edit.
 
+Resolve selected retained values before admitting their complete edits. Recheck source, selection, composition, attachment, retained snapshot and latest choice after the await. A superseded response returns an unavailable outcome without replacing a newer message. Multi-document edits still require a workspace preview, and an edit-plus-command action never applies its edit portion alone.
+
 <storycode:copy id="f-67a81de633f2-codeActionController">
 /** Retained provider choices; model titles or IDs cannot fabricate a workspace edit. */
 export function codeActionController(opts: LspFeatureOptions, apply: (view: EditorView, edit: WorkspaceEdit | null, opts: LspFeatureOptions) => boolean): { extensions: Extension[]; human: (view: EditorView) => boolean } {
-  let captured: Capture | undefined;
-  const writable = (view: EditorView) => !view.state.readOnly && view.state.facet(EditorView.editable);
+  let captured: Capture | undefined;let query=0,choiceEpoch=0;
+  const writable = (view: EditorView) => view.dom.isConnected && !view.composing && !view.state.readOnly && view.state.facet(EditorView.editable);
   const matches = (view: EditorView, capture: Capture) => writable(view) && view.state.doc === capture.source && view.state.selection.eq(capture.selection);
   const refuse = (reason: string): UiOutcome => { opts.onMessage?.(reason); return { status: "unavailable", reason }; };
   const collect = async (view: EditorView, signal?: AbortSignal): Promise<Capture | UiOutcome> => {
+    const request=++query;choiceEpoch++;captured=undefined;
     const { client, uri } = opts, source = view.state.doc, selection = view.state.selection;
     const start = opts.positionAt(selection.main.from, view), end = opts.positionAt(selection.main.to, view) ?? start;
     if (!client || !writable(view) || !start || !end) return refuse("Code actions need a writable mapped source selection.");
     try {
       const actions = await client.codeActions(uri, { start, end });
-      if (signal?.aborted || view.state.doc !== source || !view.state.selection.eq(selection) || !writable(view)) return refuse("The source or selection changed. Request code actions again.");
+      if(request!==query||signal?.aborted||!view.dom.isConnected)return {status:"unavailable",reason:"Code action query superseded."};
+      if (view.state.doc !== source || !view.state.selection.eq(selection) || !writable(view)) return refuse("The source or selection changed. Request code actions again.");
       const choices = structuredClone(actions).map(action => ({ id: crypto.randomUUID(), action: freeze(action) }));
       const id = crypto.randomUUID();
-      const bytes = new TextEncoder().encode(JSON.stringify({ snapshot: id, choices: choices.map(({ id, action }) => ({ id, title: action.title, kind: action.kind, disabled_reason: action.disabled?.reason, has_edit: !!action.edit, needs_command: !!action.command, command_supported: false })) }));
+      const bytes = new TextEncoder().encode(JSON.stringify({ snapshot: id, choices: choices.map(({ id, action }) => ({ id, title: action.title, kind: action.kind, disabled_reason: action.disabled?.reason, has_edit: !!action.edit, needs_resolution:actionNeedsResolution(action), needs_command: !!action.command, command_supported: false })) }));
       captured = { id, source, selection, choices, bytes };
       return captured;
-    } catch (e) { return refuse(e instanceof Error ? e.message : String(e)); }
+    } catch (e) { if(request!==query||signal?.aborted||!view.dom.isConnected)return {status:"unavailable",reason:"Code action query superseded."};return refuse(e instanceof Error ? e.message : String(e)); }
   };
-  const choose = (view: EditorView, capture: Capture, id: string, signal?: AbortSignal): UiOutcome => {
+  const choose = async (view: EditorView, capture: Capture, id: string, signal?: AbortSignal): Promise<UiOutcome> => {
+    const choice=++choiceEpoch;
     if (captured !== capture || !matches(view, capture) || signal?.aborted) return refuse("Code action choices changed. Request them again.");
-    const chosen = capture.choices.find(choice => choice.id === id)?.action;
+    let chosen = capture.choices.find(choice => choice.id === id)?.action;
     if (!chosen) return refuse("Choose an action from this retained provider snapshot.");
     if (chosen.disabled) return refuse(chosen.disabled.reason);
+    try {chosen=await resolveCodeAction(opts.client!,chosen,opts.uri);}catch(error){if(choice!==choiceEpoch||captured!==capture||signal?.aborted||!view.dom.isConnected)return {status:"unavailable",reason:"Code action choice superseded."};return refuse(error instanceof Error?error.message:String(error));}
+    if(choice!==choiceEpoch||captured!==capture||signal?.aborted||!view.dom.isConnected)return {status:"unavailable",reason:"Code action choice superseded."};
+    if(!matches(view,capture))return refuse("Code action source or selection changed. Request actions again.");
+    if(chosen.disabled)return refuse(chosen.disabled.reason);
+    if(!chosen.edit&&!chosen.command)return refuse("This provider action has no source edit to apply. Request actions again.");
     // The human editor also cannot execute arbitrary provider commands. Do not
     // silently apply only the edit portion of an edit+command action.
     if (chosen.command) return refuse(`"${chosen.title}" needs a language-server command this editor cannot execute yet.`);
@@ -114,7 +125,7 @@ export function codeActionController(opts: LspFeatureOptions, apply: (view: Edit
       const selected = await opts.onCodeActions!(actions);
       if (!selected) return;
       const choice = capture.choices.find(choice => choice.action === selected);
-      if (choice) choose(view, capture, choice.id);
+      if (choice) await choose(view, capture, choice.id);
       else refuse("The selected action is not from the retained provider choices.");
     })().catch(e => opts.onMessage?.(e instanceof Error ? e.message : String(e)));
     return true;

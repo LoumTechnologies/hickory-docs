@@ -567,6 +567,15 @@ class NativeLanguage(engine: Engine, private val buffer: DocumentBuffer, private
         check(epoch == identity && buffer.text == source && buffer.state.selection == selection) { "Source, selection or provider changed. Prepare again." }
         return if (kind == "format") JSONObject().put("changes",JSONObject().put(uri,result)) else result
     }
+    suspend fun resolveProposal(action:JSONObject):JSONObject {
+        val held=action.optJSONObject("data")?.opt("hickory_action") is String
+        if(!held&&(!action.isNull("edit")||action.isNull("data")))return action
+        check(opened&&!buffer.readOnly){"Choose writable source with a connected language provider."}
+        sync();val source=buffer.text;val selection=buffer.state.selection;val identity=epoch
+        val params=JSONObject(action.toString()).put("textDocument",doc());val result=request("codeAction/resolve",params)
+        check(epoch==identity&&buffer.text==source&&buffer.state.selection==selection){"Source, selection or provider changed. Prepare actions again."}
+        check(result is JSONObject&&result.opt("title") is String){"Provider did not resolve this action. Prepare actions again."};return result
+    }
     suspend fun complete() {
         if (!opened || buffer.readOnly) return
         sync(); val source = buffer.text; val selection = buffer.state.selection; val current = epoch; val id = ++completion

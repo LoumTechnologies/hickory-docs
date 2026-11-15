@@ -186,6 +186,9 @@ try {
           await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
           await page.keyboard.insertText(request.text); break;
         case "change-open": await menu("Edit", request.command || "Rename symbol"); await page.getByRole("dialog",{name:"Workspace change preview",exact:true}).waitFor(); break;
+        case "action-choose": {
+          const panel=page.getByRole("dialog",{name:"Workspace change preview",exact:true});await panel.getByRole("button",{name:request.title,exact:true}).click();await panel.getByRole("button",{name:"Apply to source drafts",exact:true}).waitFor();break;
+        }
         case "change-prepare": {
           const panel=page.getByRole("dialog",{name:"Workspace change preview",exact:true});
           if (request.name) await panel.getByRole("textbox",{name:"New symbol name",exact:true}).fill(request.name);

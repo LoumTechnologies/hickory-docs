@@ -82,6 +82,7 @@ export interface FoldingRange {
 
 export interface CodeAction {
   title: string;
+  data?: unknown;
   disabled?: { reason: string };
   kind?: string;
   edit?: WorkspaceEdit;

@@ -67325,6 +67325,8 @@
         "simple-apple-language-transport",
         "simple-apple-language-session",
         "simple-apple-language-snapshots",
+        "native-provider-action-resolution-apple",
+        "native-language-after-action-resolution-apple",
         "simple-apple-debug-session"
       ]
     },
@@ -67519,7 +67521,9 @@
         "simple-38d4bd61a8-0",
         "simple-38d4bd61a8-1",
         "simple-android-debug-session",
-        "simple-android-language-service"
+        "simple-android-language-service",
+        "native-provider-action-resolution-android",
+        "native-language-after-action-resolution-android"
       ]
     },
     "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Workspace.kt": {
@@ -69498,6 +69502,72 @@
       "construction": "fragments",
       "fragments": [
         "provider-action-isolated-engine-witness"
+      ]
+    },
+    "apps/web/src/lsp/codeActionResolution.ts": {
+      "source": ".hickory-source/mechanisms/provider-action-resolution-browser.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "d14855d8f010e9595a2772e8e389cca36eb79468c2b8a2ea257ca4ef0dedb565",
+      "construction": "fragments",
+      "fragments": [
+        "browser-provider-action-resolution"
+      ]
+    },
+    "apps/web/src/lsp/codeActionResolution.test.ts": {
+      "source": ".hickory-source/mechanisms/provider-action-resolution-browser.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "8bc88955457244ce24a1ebb77456be1e7dbaceb20b6f8663d490af7898736a64",
+      "construction": "fragments",
+      "fragments": [
+        "browser-provider-action-resolution-witness"
+      ]
+    },
+    "apps/apple-simple/Tests/ActionChoiceTests.swift": {
+      "source": ".hickory-source/frontends/workspace-changes-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "3f30e868d4c2978245a6fa6073349416f93a80547e558d2e03991f330c93d32c",
+      "construction": "fragments",
+      "fragments": [
+        "native-action-choice-apple-witness"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/ActionChoiceTest.kt": {
+      "source": ".hickory-source/frontends/workspace-changes-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "c46fb9ae39db001a8676423403ab57d468dd27c87752349eb429b5968b7dda9e",
+      "construction": "fragments",
+      "fragments": [
+        "native-action-choice-android-witness"
+      ]
+    },
+    "scripts/test-action-chooser-browser.py": {
+      "source": ".hickory-source/frontends/action-chooser-browser-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "c37fb1d1127feddfbb9db4fa0f7c180cc724ce42cacb1c749e90e0893ef2a660",
+      "construction": "fragments",
+      "fragments": [
+        "simple-action-chooser-browser-witness"
+      ]
+    },
+    "apps/web/src/lsp/codeActionResolutionEditor.test.ts": {
+      "source": ".hickory-source/mechanisms/provider-action-resolution-browser.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "b44c03a9f890e70f674264668d044369f8ae9c496499348815961d11ef817807",
+      "construction": "fragments",
+      "fragments": [
+        "browser-resolved-action-editor-witness"
       ]
     }
   },

@@ -283,6 +283,7 @@ export interface FoldingRange {
 <storycode:copy id="f-6bc953112fd0-CodeAction">
 export interface CodeAction {
   title: string;
+  data?: unknown;
   disabled?: { reason: string };
   kind?: string;
   edit?: WorkspaceEdit;

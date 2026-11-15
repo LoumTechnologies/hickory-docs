@@ -503,6 +503,28 @@ Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet
         guard epoch == identity, exactUTF8(buffer.text,source), buffer.selection == selection else { throw EngineError(message: "Source, selection or provider changed. Prepare again.") }
         return kind == "format" ? ["changes":[uri:result]] : result
     }
+</ui:copy>
+
+## Resolve held provider actions on apple
+
+Resolution synchronizes the originating document and retains its exact source, selection and provider identity across the request. Eager legacy edits need no unsupported RPC. The complete resolved value returns to the change model; this language adapter never executes a command or applies source.
+
+<ui:copy id="native-provider-action-resolution-apple">
+    func resolveProposal(_ action:[String:Any]) async throws->[String:Any] {
+        let data=action["data"] as? [String:Any]
+        if data?["hickory_action"] as? String == nil && ((action["edit"] != nil && !(action["edit"] is NSNull)) || action["data"] == nil || action["data"] is NSNull) {return action}
+        guard let buffer,!buffer.readOnly,subscription != nil else{throw EngineError(message:"Choose writable source with a connected language provider.")}
+        sync();let source=buffer.text,selection=buffer.selection,identity=epoch
+        var params=action;params["textDocument"]=["uri":uri]
+        let result=try await request("codeAction/resolve",params)
+        guard epoch==identity,exactUTF8(buffer.text,source),buffer.selection==selection else{throw EngineError(message:"Source, selection or provider changed. Prepare actions again.")}
+        guard let value=result as? [String:Any],value["title"] is String else{throw EngineError(message:"Provider did not resolve this action. Prepare actions again.")};return value
+    }
+</ui:copy>
+
+Continue the independent completion service after the action-resolution boundary.
+
+<ui:copy id="native-language-after-action-resolution-apple">
     func complete() async {
         showingSuggestions = true
         guard let buffer, !buffer.readOnly else { return }
@@ -815,6 +837,6 @@ struct NativeRunOutput: Equatable {
 
 Keep construction order explicit; the explanations above describe the decisions at each boundary.
 
-<ui:file path="apps/apple-simple/Sources/Engine.swift"><ui:paste select="#simple-ff9425b170-0"/><ui:paste select="#simple-ff9425b170-1"/><ui:paste select="#simple-apple-language-transport"/><ui:paste select="#simple-apple-language-session"/><ui:paste select="#simple-apple-language-snapshots"/><ui:paste select="#simple-apple-debug-session"/></ui:file>
+<ui:file path="apps/apple-simple/Sources/Engine.swift"><ui:paste select="#simple-ff9425b170-0"/><ui:paste select="#simple-ff9425b170-1"/><ui:paste select="#simple-apple-language-transport"/><ui:paste select="#simple-apple-language-session"/><ui:paste select="#simple-apple-language-snapshots"/><ui:paste select="#native-provider-action-resolution-apple"/><ui:paste select="#native-language-after-action-resolution-apple"/><ui:paste select="#simple-apple-debug-session"/></ui:file>
 
 </ui:doc>

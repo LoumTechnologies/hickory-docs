@@ -7,6 +7,8 @@ The existing Edit menu requests a rename, formatting or provider action. Capture
 
 Rename discovery acquires previously unopened reference targets through the existing workspace buffer loader. Their language sessions synchronize before a fresh reference query; the discovering answer cannot authorize edits against later-loaded text. Acquisition never activates a tab. Captured source snapshots remain immutable inputs to the final provider proposal, and complete draft-plan validation still precedes application. Native preparation retains its own fixed request-validity closure so an older reply cannot borrow a newer request's authority.
 
+Provider choices resolve through their captured provider before entering the same complete change-plan preview. A latest-choice ticket and the fixed preparation snapshot reject late answers or a replaced choice list. Disabled actions and complete edit-plus-command results refuse explicitly; resolving never applies an edit portion or saves source. The native view passes the rendered preparation identity so an old row index cannot select a newer list item.
+
 <ui:copy id="simple-browser-workspace-changes">
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -14,6 +16,7 @@ import { isolateHistory } from "@codemirror/commands";
 import { type Transaction } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { editorForBuffer } from "./Document";
+import {resolveCodeAction} from "../lsp/codeActionResolution";
 import {acquireReferenceSources} from "./ReferenceSources";
 import type {FileNode} from "../api/types";
 import { useWorkspaceLanguageLookup,useWorkspaceOutlineReader } from "./WorkspaceLanguages";
@@ -54,8 +57,8 @@ export function WorkspaceChanges({ buffers, current, focus,files }: { files:File
   const [mode, setMode] = useState<ChangeCommand | null>(null), [name, setName] = useState(""), [notice, setNotice] = useState("");
   const [plan, setPlan] = useState<ChangePlan | null>(null), [choices, setChoices] = useState<CodeAction[]>([]);
   const [file, setFile] = useState(0), [page, setPage] = useState(0), [actionPage, setActionPage] = useState(0);
-  const undo = useRef<ChangePlan[]>([]), redo = useRef<ChangePlan[]>([]), ticket = useRef(0);
-  const captured = useRef<{ sources: Map<string, SourceSnapshot>; references: string[]; current: () => boolean } | null>(null);
+  const undo = useRef<ChangePlan[]>([]), redo = useRef<ChangePlan[]>([]), ticket = useRef(0),choiceTicket=useRef(0);
+  const captured = useRef<{ sources: Map<string, SourceSnapshot>; references: string[]; current: () => boolean;request:number;choices:CodeAction[];resolve:(action:CodeAction)=>Promise<CodeAction> } | null>(null);
   const input = useRef<HTMLInputElement>(null), panel = useRef<HTMLDivElement>(null);
   const close = () => { ticket.current++; setMode(null); focus(); };
   const install = (title: string, edit: unknown) => {
@@ -84,7 +87,7 @@ export function WorkspaceChanges({ buffers, current, focus,files }: { files:File
     if (!buffer || !view || !session?.client || !session.ready || buffer.readonly) { setNotice("Choose writable source with a connected language provider, then prepare again."); return; }
     const source = buffer.text, selection = view.state.selection, client = session.client, id = ++ticket.current, sources = workspaceSnapshots(buffers);
     const valid = () => id === ticket.current && buffer.text === source && view.state.doc.toString() === source && view.state.selection.eq(selection) && lookup(buffer).client === client && lookup(buffer).ready;
-    captured.current = { sources, references: [], current: valid }; setPlan(null); setChoices([]); setNotice("Preparing complete source changes…");
+    captured.current = { sources, references: [], current: valid,request:id,choices:[],resolve:action=>resolveCodeAction(client,action,session.uri) }; setPlan(null); setChoices([]); setNotice("Preparing complete source changes…");
     try {
       const uri = session.uri, position = utf16ToPosition(source, selection.main.head);
       const method = mode === "rename" ? "textDocument/rename" : mode === "format" ? "textDocument/formatting" : "textDocument/codeAction";
@@ -108,13 +111,25 @@ export function WorkspaceChanges({ buffers, current, focus,files }: { files:File
       }
       const result = await client.request(method, params);
       if (!valid()) { if (id === ticket.current) setNotice("Source, selection or provider changed. Prepare the proposal again."); return; }
-      if (mode === "actions") { setChoices(Array.isArray(result) ? structuredClone(result) : []); setNotice(Array.isArray(result) && result.length ? "Choose a provider action to preview." : "No provider actions here. Support depends on the installed language server."); }
+      if (mode === "actions") { const choices:CodeAction[]=Array.isArray(result)?structuredClone(result):[];captured.current!.choices=choices;setChoices(choices); setNotice(Array.isArray(result) && result.length ? "Choose a provider action to preview." : "No provider actions here. Support depends on the installed language server."); }
       else install(mode === "rename" ? `Rename to ${name}` : "Format source", mode === "format" ? { changes: { [uri]: result } } : result);
-    } catch (error) { if (valid()) setNotice(String(error)); }
+    } catch (error) { if (id===ticket.current) setNotice(String(error)); }
   }
-  const choose = (action: CodeAction) => {
-    try { if (action.disabled) throw new Error(action.disabled.reason); if (action.command) throw new Error("This action requires a provider command; its edit has not been applied."); install(action.title, action.edit); }
-    catch (error) { setNotice(String(error)); }
+  const choose = async (action: CodeAction) => {
+    const capture=captured.current,choice=++choiceTicket.current;
+    const owned=()=>!!capture&&captured.current===capture&&capture.request===ticket.current&&choiceTicket.current===choice;
+    try {
+      if(!capture||!capture.current()||!capture.choices.includes(action))throw new Error("Code action choices changed. Prepare actions again.");
+      if(action.disabled)throw new Error(action.disabled.reason);
+      setPlan(null);setNotice("Resolving complete provider action…");
+      const resolved=await capture.resolve(action);
+      if(!owned())return;
+      if(!capture.current())throw new Error("Source, selection or provider changed. Prepare actions again.");
+      if(resolved.disabled)throw new Error(resolved.disabled.reason);
+      if(resolved.command)throw new Error("This action requires a provider command; its edit has not been applied.");
+      if(!resolved.edit)throw new Error("This provider action has no source edit to preview. Prepare actions again.");
+      install(resolved.title,resolved.edit);
+    }catch(error){if(owned())setNotice(String(error));}
   };
   function apply() {
     if (!plan) return;
@@ -135,7 +150,7 @@ A fixed floating dialog uses the existing menu, restores editor focus when dismi
     {mode === "rename" && <input ref={input} aria-label="New symbol name" value={name} onChange={event => { ticket.current++; setPlan(null); setChoices([]); setName(event.target.value); setNotice(""); }} />}
     {!["undo", "redo"].includes(mode) && <button disabled={mode === "rename" && !name.trim()} onClick={() => { void prepare(); }}>Prepare {mode === "actions" ? "provider actions" : mode === "format" ? "formatting" : "rename"}</button>}
     {notice && <p role="status">{notice}</p>}
-    {choices.slice(actionPage * 100, (actionPage + 1) * 100).map((action, index) => <div key={index}><button onClick={() => choose(action)}>{action.title}</button>{action.disabled && <small>{action.disabled.reason}</small>}</div>)}
+    {choices.slice(actionPage * 100, (actionPage + 1) * 100).map((action, index) => <div key={index}><button onClick={() => {void choose(action);}}>{action.title}</button>{action.disabled && <small>{action.disabled.reason}</small>}</div>)}
     {choices.length > 100 && <div><button disabled={!actionPage} onClick={() => setActionPage(actionPage - 1)}>Previous actions</button><button disabled={(actionPage + 1) * 100 >= choices.length} onClick={() => setActionPage(actionPage + 1)}>Next actions</button></div>}
     {plan && patch && <><p>{plan.title} · {plan.patches.length} source files</p>{mode === "rename" && <p>Reference targets: {new Set(captured.current?.references).size} files · project analysis scope not established</p>}<select aria-label="Preview source file" value={file} onChange={event => { setFile(Number(event.target.value)); setPage(0); }}>{plan.patches.map((patch, index) => <option key={patch.path} value={index}>{patch.path}</option>)}</select>
       <div><strong>Before · lines {selected * 100 + 1}–{Math.min(before.length, (selected + 1) * 100)}</strong><pre>{before.slice(selected * 100, (selected + 1) * 100).join("\n")}</pre><strong>After</strong><pre>{after.slice(selected * 100, (selected + 1) * 100).join("\n")}</pre></div>

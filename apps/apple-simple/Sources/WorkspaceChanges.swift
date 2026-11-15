@@ -9,6 +9,9 @@ import Observation
     var file = 0; var page = 0; var actionPage = 0
     var referencePaths: [String] = []
     private var revision = UUID()
+    var actionSnapshot:UUID {revision}
+    private var choiceRevision=UUID()
+    private var resolver:(([String:Any]) async throws->[String:Any])?
     private var captured: (sources:[String:SourceSnapshot], current:()->Bool)?
     private var undo: [ChangePlan] = []
     private var redo: [ChangePlan] = []
@@ -25,7 +28,7 @@ import Observation
             notice = "Workspace \(kind) applied to \(target.patches.count) drafts. Not saved or verified." + refresh
         } catch { notice = error.localizedDescription }
     }
-    func prepare(_ workspace: Workspace,proposal:((String,String) async throws->Any)?=nil) async {
+    func prepare(_ workspace: Workspace,proposal:((String,String) async throws->Any)?=nil,resolution:(([String:Any]) async throws->[String:Any])?=nil) async {
         guard let origin = workspace.currentBuffer, let language = origin.language, !origin.readOnly else { notice = "Choose writable source with a connected language provider."; return }
         revision = UUID(); let request = revision, source = origin.text, selection = origin.selection, identity = language.proposalIdentity
         let sources = workspace.sourceSnapshots()
@@ -33,6 +36,7 @@ import Observation
             guard let self, let origin, let language else { return false }
             return self.revision == request && exactUTF8(origin.text,source) && origin.selection == selection && origin.language === language && language.proposalIdentity == identity
         })
+        resolver=resolution ?? {[weak language] action in guard let language else{throw EngineError(message:"Provider changed. Prepare actions again.")};return try await language.resolveProposal(action)}
         let valid=captured!.current
         let propose: (String,String) async throws->Any = proposal ?? {kind,name in try await language.propose(kind,name:name)}
         plan = nil; choices = []; referencePaths = []; notice = "Preparing complete source changes…"
@@ -68,13 +72,21 @@ import Observation
         try validateReferencedTargets(next,referencePaths:referencePaths)
         plan = next; choices = []; file = 0; page = 0; notice = ""
     }
-    func choose(_ index: Int, workspace: Workspace) {
-        guard choices.indices.contains(index) else { return }; let action = choices[index]
+    func choose(_ index:Int,workspace:Workspace,expectedSnapshot:UUID?=nil) async {
+        guard expectedSnapshot==nil || expectedSnapshot==revision else{notice="Code action choices changed. Prepare actions again.";return}
+        guard choices.indices.contains(index),let captured,let resolver else{return};let action=choices[index],request=revision,choice=UUID();choiceRevision=choice
         do {
-            if let disabled = action["disabled"] as? [String:Any] { throw EngineError(message:disabled["reason"] as? String ?? "Provider action disabled") }
-            if action["command"] != nil { throw EngineError(message:"This action requires a provider command; its edit has not been applied.") }
-            try install(action["title"] as? String ?? "Provider action",edit:action["edit"] ?? NSNull(),workspace:workspace)
-        } catch { notice = error.localizedDescription }
+            guard captured.current() else{throw EngineError(message:"Source, selection or provider changed. Prepare actions again.")}
+            if let disabled=action["disabled"] as? [String:Any]{throw EngineError(message:disabled["reason"] as? String ?? "Provider action disabled")}
+            plan=nil;notice="Resolving complete provider action…"
+            let resolved=try await resolver(action)
+            guard revision==request,choiceRevision==choice else{return}
+            guard captured.current() else{throw EngineError(message:"Source, selection or provider changed. Prepare actions again.")}
+            if let disabled=resolved["disabled"] as? [String:Any]{throw EngineError(message:disabled["reason"] as? String ?? "Provider action disabled")}
+            if resolved["command"] != nil{throw EngineError(message:"This action requires a provider command; its edit has not been applied.")}
+            guard let edit=resolved["edit"] else{throw EngineError(message:"This provider action has no source edit to preview. Prepare actions again.")}
+            try install(resolved["title"] as? String ?? "Provider action",edit:edit,workspace:workspace)
+        }catch{if revision==request,choiceRevision==choice{notice=error.localizedDescription}}
     }
     func apply(_ workspace: Workspace) {
         guard let plan else { return }
@@ -108,6 +120,7 @@ struct WorkspaceChangesView: View {
     @Bindable var workspace: Workspace
     var body: some View {
         @Bindable var changes = workspace.changes
+        let actionSnapshot=changes.actionSnapshot
         VStack(alignment:.leading,spacing:8) {
             HStack { Text("Workspace change preview").font(.headline); Spacer(); Button("Close") { changes.close(workspace) } }
             Text("Source drafts · not saved or verified").font(.caption)
@@ -116,7 +129,7 @@ struct WorkspaceChangesView: View {
             if !changes.notice.isEmpty { Text(changes.notice).font(.caption) }
             ScrollView { VStack(alignment:.leading,spacing:6) {
                 ForEach(Array(changes.choices.indices.dropFirst(changes.actionPage*100).prefix(100)),id:\.self) { index in
-                    Button(changes.choices[index]["title"] as? String ?? "Provider action") { changes.choose(index,workspace:workspace) }
+                    Button(changes.choices[index]["title"] as? String ?? "Provider action") { Task {await changes.choose(index,workspace:workspace,expectedSnapshot:actionSnapshot)} }
                     if let disabled = changes.choices[index]["disabled"] as? [String:Any], let reason = disabled["reason"] as? String { Text(reason).font(.caption) }
                 }
                 if let plan = changes.plan, let patch = plan.patches.dropFirst(min(changes.file,plan.patches.count-1)).first {

@@ -7,6 +7,8 @@ The existing Edit menu requests a rename, formatting or provider action. Capture
 
 Rename discovery acquires previously unopened reference targets through the existing workspace buffer loader. Their language sessions synchronize before a fresh reference query; the discovering answer cannot authorize edits against later-loaded text. Acquisition never activates a tab. Captured source snapshots remain immutable inputs to the final provider proposal, and complete draft-plan validation still precedes application. Native preparation retains its own fixed request-validity closure so an older reply cannot borrow a newer request's authority.
 
+Provider choices resolve through their captured provider before entering the same complete change-plan preview. A latest-choice ticket and the fixed preparation snapshot reject late answers or a replaced choice list. Disabled actions and complete edit-plus-command results refuse explicitly; resolving never applies an edit portion or saves source. The native view passes the rendered preparation identity so an old row index cannot select a newer list item.
+
 <ui:copy id="simple-android-workspace-changes">
 package com.hickorydocs.simple
 import androidx.compose.runtime.*
@@ -31,6 +33,9 @@ class WorkspaceChanges {
     var file by mutableStateOf(0); var page by mutableStateOf(0); var actionPage by mutableStateOf(0)
     var referencePaths by mutableStateOf<List<String>>(emptyList())
     private var revision = 0
+    val actionSnapshot get()=revision
+    private var choiceRevision=0
+    private var resolver:suspend (JSONObject)->JSONObject={error("Prepare provider actions first.")}
     private var sources: Map<String,SourceSnapshot> = emptyMap()
     private var current: ()->Boolean = { false }
     private val undo = mutableListOf<ChangePlan>(); private val redo = mutableListOf<ChangePlan>()
@@ -47,11 +52,12 @@ class WorkspaceChanges {
             notice="Workspace $kind applied to ${target.patches.size} drafts. Not saved or verified."
         }.onFailure { notice=it.message.orEmpty() }
     }
-    suspend fun prepare(workspace: Workspace,proposal:(suspend (String,String)->Any)?=null) {
+    suspend fun prepare(workspace: Workspace,proposal:(suspend (String,String)->Any)?=null,resolution:(suspend (JSONObject)->JSONObject)?=null) {
         val origin = workspace.currentBuffer; val language = origin?.language
         if (origin == null || language == null || origin.readOnly) { notice="Choose writable source with a connected language provider."; return }
         val request=++revision; val source=origin.text; val selection=origin.state.selection; val identity=language.proposalIdentity
         sources=workspace.sourceSnapshots(); current={revision==request && origin.text==source && origin.state.selection==selection && origin.language===language && language.proposalIdentity==identity}
+        resolver=resolution ?: {language.resolveProposal(it)}
         val valid=current
         val propose:suspend (String,String)->Any=proposal ?: {kind,value->language.propose(kind,value)}
         plan=null; choices=emptyList(); referencePaths=emptyList(); notice="Preparing complete source changes…"
@@ -88,13 +94,20 @@ class WorkspaceChanges {
         validateReferencedTargets(next,referencePaths)
         plan=next; choices=emptyList(); file=0; page=0; notice=""
     }
-    fun choose(index: Int, workspace: Workspace) {
-        val action=choices.getOrNull(index) ?: return
-        runCatching {
-            action.optJSONObject("disabled")?.let { error(it.optString("reason","Provider action disabled")) }
-            check(!action.has("command")) { "This action requires a provider command; its edit has not been applied." }
-            install(action.optString("title","Provider action"),action.opt("edit"),workspace)
-        }.onFailure { notice=it.message.orEmpty() }
+    suspend fun choose(index:Int,workspace:Workspace,expectedSnapshot:Int?=null) {
+        if(expectedSnapshot!=null&&expectedSnapshot!=revision){notice="Code action choices changed. Prepare actions again.";return}
+        val action=choices.getOrNull(index) ?: return;val request=revision;val choice=++choiceRevision;val valid=current;val resolve=resolver
+        try {
+            check(valid()){"Source, selection or provider changed. Prepare actions again."}
+            action.optJSONObject("disabled")?.let{error(it.optString("reason","Provider action disabled"))}
+            plan=null;notice="Resolving complete provider action…";val resolved=resolve(action)
+            if(revision!=request||choiceRevision!=choice)return
+            check(valid()){"Source, selection or provider changed. Prepare actions again."}
+            resolved.optJSONObject("disabled")?.let{error(it.optString("reason","Provider action disabled"))}
+            check(resolved.isNull("command")){"This action requires a provider command; its edit has not been applied."}
+            check(!resolved.isNull("edit")){"This provider action has no source edit to preview. Prepare actions again."}
+            install(resolved.optString("title","Provider action"),resolved.get("edit"),workspace)
+        }catch(cancelled:CancellationException){throw cancelled}catch(error:Exception){if(revision==request&&choiceRevision==choice)notice=error.message.orEmpty()}
     }
     fun apply(workspace: Workspace) {
         val next=plan ?: return
@@ -133,7 +146,7 @@ The existing Edit menu presents this bounded floating dialog. Every affected sou
 
 <ui:copy id="simple-android-workspace-changes-presentation">
 @Composable fun WorkspaceChangesView(workspace: Workspace) {
-    val changes=workspace.changes; val scope=rememberCoroutineScope()
+    val changes=workspace.changes; val scope=rememberCoroutineScope();val actionSnapshot=changes.actionSnapshot
     Column(Modifier.widthIn(min=260.dp,max=400.dp).heightIn(max=480.dp).verticalScroll(rememberScrollState()).padding(8.dp)) {
         Text("Workspace change preview",fontSize=16.sp); Text("Source drafts · not saved or verified",fontSize=11.sp)
         TextButton(onClick={changes.close(workspace)}) { Text("Close") }
@@ -142,7 +155,7 @@ The existing Edit menu presents this bounded floating dialog. Every affected sou
         if (changes.notice.isNotEmpty()) Text(changes.notice,fontSize=12.sp)
         for(index in changes.choices.indices.drop(changes.actionPage*100).take(100)) {
             val action=changes.choices[index]
-            TextButton(onClick={changes.choose(index,workspace)}) { Text(action.optString("title","Provider action")) }
+            TextButton(onClick={scope.launch {changes.choose(index,workspace,actionSnapshot)}}) { Text(action.optString("title","Provider action")) }
             action.optJSONObject("disabled")?.let { Text(it.optString("reason"),fontSize=11.sp) }
         }
         if(changes.choices.size>100) Row { TextButton(enabled=changes.actionPage>0,onClick={changes.actionPage--}) {Text("Previous actions")}; TextButton(enabled=(changes.actionPage+1)*100<changes.choices.size,onClick={changes.actionPage++}) {Text("Next actions")} }
@@ -192,4 +205,36 @@ class ChangeRequestTest {
 </ui:copy>
 
 <ui:file path="apps/android-simple/app/src/test/java/com/hickorydocs/simple/ChangeRequestTest.kt"><ui:paste select="#native-change-request-android-witness"/></ui:file>
+## Keep resolved choices with their preparation
+
+Complete a newer choice before an older resolver reply, then reject a row from a replaced preparation and a reply after closing. These controlled callbacks exercise the actual native change model; source stays unchanged until explicit application. They do not claim native pointer or provider-language acceptance.
+
+<ui:copy id="native-action-choice-android-witness">
+package com.hickorydocs.simple
+import org.junit.Test
+import org.junit.Assert.*
+import kotlinx.coroutines.*
+import org.json.JSONObject
+import org.json.JSONArray
+class ActionChoiceTest {
+ @Test fun latestChoiceWinsAndOldRowsCannotBorrowNewLists()=runBlocking {
+  val workspace=Workspace(this);val engine=Engine("http://127.0.0.1:1");val file=FileNode("a.py","a.py",false,emptyList(),null,null)
+  val buffer=DocumentBuffer(file,FileText("old\n","base"));buffer.language=NativeLanguage(engine,buffer,this);workspace.buffers[file.path]=buffer;workspace.show(file.path)
+  val changes=workspace.changes;changes.open("actions",workspace);val held=mutableMapOf<String,CompletableDeferred<JSONObject>>()
+  val actions=JSONArray().put(JSONObject().put("title","first").put("data",JSONObject().put("hickory_action","first"))).put(JSONObject().put("title","second").put("data",JSONObject().put("hickory_action","second")))
+  val resolve:suspend (JSONObject)->JSONObject={action->val result=CompletableDeferred<JSONObject>();held[action.getString("title")]=result;result.await()}
+  suspend fun prepare(){changes.prepare(workspace,{_,_->actions},resolve)}
+  suspend fun settle(condition:()->Boolean){withTimeout(2000){while(!condition())yield()}}
+  fun resolved(name:String)=JSONObject().put("title",name).put("edit",JSONObject().put("changes",JSONObject().put(languageURI(file.path),JSONArray().put(JSONObject().put("range",JSONObject().put("start",JSONObject().put("line",0).put("character",0)).put("end",JSONObject().put("line",0).put("character",3))).put("newText",name)))))
+  prepare();val snapshot=changes.actionSnapshot;val first=async{changes.choose(0,workspace,snapshot)};settle{held["first"]!=null};val second=async{changes.choose(1,workspace,snapshot)};settle{held["second"]!=null}
+  held.getValue("second").complete(resolved("second"));second.await();held.getValue("first").complete(resolved("first"));first.await();assertEquals("second\n",changes.plan?.patches?.first()?.after)
+  held.clear();prepare();changes.choose(0,workspace,snapshot);assertTrue(held.isEmpty());assertNull(changes.plan)
+  val current=changes.actionSnapshot;val closing=async{changes.choose(0,workspace,current)};settle{held["first"]!=null};changes.close(workspace);held.getValue("first").complete(resolved("first"));closing.await();assertNull(changes.plan);assertEquals("old\n",buffer.text)
+  changes.open("actions",workspace);changes.prepare(workspace,{_,_->actions},{resolved("partial").put("command",JSONObject().put("title","Effect").put("command","provider.effect"))})
+  changes.choose(0,workspace,changes.actionSnapshot);assertNull(changes.plan);assertTrue(changes.notice.contains("provider command"));assertEquals("old\n",buffer.text)
+ }
+}
+</ui:copy>
+
+<ui:file path="apps/android-simple/app/src/test/java/com/hickorydocs/simple/ActionChoiceTest.kt"><ui:paste select="#native-action-choice-android-witness"/></ui:file>
 </ui:doc>
