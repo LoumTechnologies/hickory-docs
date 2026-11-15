@@ -153237,6 +153237,69 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/git-review-android.md",
       "symbol": "Present the captured reading without moving code",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-history-browser",
+      "output": "apps/web/src/simple/GitHistory.tsx",
+      "page": ".hickory-source/frontends/git-history-browser.md",
+      "symbol": "simple-git-history-browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-history-apple",
+      "output": "apps/apple-simple/Sources/GitHistory.swift",
+      "page": ".hickory-source/frontends/git-history-apple.md",
+      "symbol": "simple-git-history-apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-history-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/GitHistory.kt",
+      "page": ".hickory-source/frontends/git-history-android.md",
+      "symbol": "simple-git-history-android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-history-browser-tests",
+      "output": "apps/web/src/simple/GitHistory.test.ts",
+      "page": ".hickory-source/frontends/git-history-browser.md",
+      "symbol": "Keep immutable readings bound to exact commit identities",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-history-apple-tests",
+      "output": "apps/apple-simple/Tests/GitHistoryTests.swift",
+      "page": ".hickory-source/frontends/git-history-apple.md",
+      "symbol": "Keep immutable readings bound to exact commit identities",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-history-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/GitHistoryTest.kt",
+      "page": ".hickory-source/frontends/git-history-android.md",
+      "symbol": "Keep immutable readings bound to exact commit identities",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-history-browser-view",
+      "output": "apps/web/src/simple/GitHistory.tsx",
+      "page": ".hickory-source/frontends/git-history-browser.md",
+      "symbol": "Present immutable file sides without replacing live source",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-history-apple-view",
+      "output": "apps/apple-simple/Sources/GitHistory.swift",
+      "page": ".hickory-source/frontends/git-history-apple.md",
+      "symbol": "Present immutable file sides without replacing live source",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-git-history-android-view",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/GitHistory.kt",
+      "page": ".hickory-source/frontends/git-history-android.md",
+      "symbol": "Present immutable file sides without replacing live source",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

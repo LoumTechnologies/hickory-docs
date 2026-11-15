@@ -281,11 +281,14 @@ pub struct LogParams {
 <a id="f-3794196055eb-git"></a>
 ### `git`
 
+A saved-file history query names one literal workspace path. Disable Git pathspec expansion at this process boundary so a filename such as `:(glob)*.py` cannot select unrelated files. The integrated simple repository-reading witness opens that uncommitted literal file and expects no historical commits, while ordinary repository and saved-file readings still work.
+
 <storycode:copy id="f-3794196055eb-git">
 fn git(dir: &std::path::Path, args: &[&str]) -> Option<std::process::Output> {
     Command::new("git")
         .arg("-C")
         .arg(dir)
+        .arg("--literal-pathspecs")
         .args(args)
         .output()
         .ok()

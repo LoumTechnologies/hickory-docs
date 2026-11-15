@@ -220,6 +220,9 @@ import Observation
     var showTests=false
     var showReview=false
     var gitReview=GitReviewModel()
+    var showHistory=false
+    var historyPath:String?
+    var gitHistory=GitHistoryModel()
     var showEverywhere = false
     var showAnalysis = false
     func startAnalysis() {
@@ -290,7 +293,7 @@ import Observation
             debugger?.close()
             for buffer in buffers.values { buffer.language?.close() }
             languageConnection?.close();languageConnection=nil
-            analysis.stop(); analysis=WorkspaceAnalysis(); showAnalysis=false; showEverywhere=false;showTests=false;showReview=false;gitReview.close();gitReview=GitReviewModel();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=nil
+            analysis.stop(); analysis=WorkspaceAnalysis(); showAnalysis=false; showEverywhere=false;showTests=false;showReview=false;showHistory=false;historyPath=nil;gitHistory.close();gitHistory=GitHistoryModel();gitReview.close();gitReview=GitReviewModel();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=nil
             generation = UUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; debugger = NativeDebugger(engine: next)
             debugger?.onLocation = { [weak self] path, line in Task { await self?.revealDebug(path, line: line) } }; files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); buffers = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
             layout = PaneLayout(); focused = "document-group"; status = tree.root

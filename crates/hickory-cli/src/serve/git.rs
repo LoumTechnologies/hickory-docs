@@ -188,6 +188,7 @@ fn git(dir: &std::path::Path, args: &[&str]) -> Option<std::process::Output> {
     Command::new("git")
         .arg("-C")
         .arg(dir)
+        .arg("--literal-pathspecs")
         .args(args)
         .output()
         .ok()

@@ -330,6 +330,18 @@ Menus and action search need one vocabulary and one availability decision. The s
     "label": "Repository changes",
     "group": "View",
     "requires": "always"
+  },
+  {
+    "id": "workspace.history",
+    "label": "Repository history",
+    "group": "View",
+    "requires": "always"
+  },
+  {
+    "id": "document.history",
+    "label": "Saved file history",
+    "group": "View",
+    "requires": "editor"
   }
 ]
 </ui:copy>

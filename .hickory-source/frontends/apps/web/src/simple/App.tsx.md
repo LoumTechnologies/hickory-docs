@@ -29,6 +29,7 @@ import { runEditorCommand,sourceSnippetContext } from "./Document";
 import { WorkspaceChanges, requestWorkspaceChange } from "./WorkspaceChanges";
 import { WorkspaceAnalysisView, requestWorkspaceAnalysis } from "./WorkspaceAnalysisView";
 import { WorkspaceSearch } from "./WorkspaceSearch";
+import {GitHistoryView} from "./GitHistory";
 import {GitReviewView} from "./GitReview";
 import { SimpleLanguages } from "./WorkspaceLanguages";
 import { WorkspaceProblems, requestProblemNavigation } from "./Problems";
@@ -81,6 +82,7 @@ export function App() {
   const [showCoverage,setShowCoverage]=useState(false);
   const [showTests,setShowTests]=useState(false);
   const [showReview,setShowReview]=useState(false);
+  const [showHistory,setShowHistory]=useState(false),[historyPath,setHistoryPath]=useState<string|null>(null);
   const [testInspection,setTestInspection]=useState<SourceTestInspection|null>(null);
   const [workspaceRoot,setWorkspaceRoot]=useState("");
   const workspaceIdentity=useRef(workspaceRoot);workspaceIdentity.current=workspaceRoot;
@@ -286,7 +288,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
     "file.save":()=>{void saveCurrent();},"file.saveAs":()=>{void saveAs();},"file.saveAll":()=>{void saveAll();},"file.refresh":()=>{void loadFiles();},"file.close":()=>{if(active)close(active);},
     "shell.search":()=>setShowEverywhere(true),"edit.find":()=>{if(buffer)openFind(buffer);},"workspace.find":()=>setShowWorkspaceSearch(true),
     "symbol.rename":()=>requestWorkspaceChange("rename"),"symbol.actions":()=>requestWorkspaceChange("actions"),"document.format":()=>requestWorkspaceChange("format"),"workspace.undo":()=>requestWorkspaceChange("undo"),"workspace.redo":()=>requestWorkspaceChange("redo"),
-    "workspace.review":()=>setShowReview(true),"workspace.coverage":()=>setShowCoverage(true),"workspace.tests":()=>setShowTests(true),"workspace.problems":()=>setShowProblems(true),"workspace.analysis":requestWorkspaceAnalysis,"problem.next":()=>requestProblemNavigation(1),"problem.previous":()=>requestProblemNavigation(-1),"navigation.back":()=>navigateHistory(-1),"navigation.forward":()=>navigateHistory(1),
+    "workspace.review":()=>{setShowHistory(false);setShowReview(true);},"workspace.history":()=>{setHistoryPath(null);setShowReview(false);setShowHistory(true);},"document.history":()=>{setHistoryPath(buffer?.file.path??null);setShowReview(false);setShowHistory(true);},"workspace.coverage":()=>setShowCoverage(true),"workspace.tests":()=>setShowTests(true),"workspace.problems":()=>setShowProblems(true),"workspace.analysis":requestWorkspaceAnalysis,"problem.next":()=>requestProblemNavigation(1),"problem.previous":()=>requestProblemNavigation(-1),"navigation.back":()=>navigateHistory(-1),"navigation.forward":()=>navigateHistory(1),
     "view.files":()=>openTab("files"),"view.agent":()=>openTab("agent"),"view.terminal":()=>{void openTerminal();},"view.splitRight":()=>divide("horizontal"),"view.splitBelow":()=>divide("vertical"),"view.move":nextGroup,
   };
   for(const query of semanticQueries)handlers[`semantic.${query.kind}`]=()=>{if(buffer){const text=query.kind==="symbols"?window.prompt("Search workspace symbols",""):"";if(text!==null)openSemanticQuery(buffer,query.kind,text);}};
@@ -334,6 +336,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
     <SearchEverywhereView visible={showEverywhere} setVisible={setShowEverywhere} buffers={buffers} files={workspaceFiles} analysis={analysis} commands={commands} openFile={path=>{const file=buffers.values.get(path)?.file??findPath(path);if(file)void openFileVisit(file);else setNotice("File no longer listed. Refresh the workspace.");}} focusCurrent={()=>{if(buffer)editorForBuffer(buffer)?.view.focus();}} />
     <WorkspaceChanges files={workspaceFiles} buffers={buffers} current={() => buffer} focus={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />
     <WorkspaceSearch visible={showWorkspaceSearch} close={() => { setShowWorkspaceSearch(false); if (buffer) editorForBuffer(buffer)?.view.focus(); }} buffers={buffers} files={workspaceFiles} />
+    <GitHistoryView key={"history:"+workspaceRoot} workspace={workspaceRoot} visible={showHistory} path={historyPath} close={()=>{setShowHistory(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
     <GitReviewView key={workspaceRoot} workspace={workspaceRoot} visible={showReview} close={()=>{setShowReview(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
     <footer role="status" title={[notice,buffer?.completionNotice].filter(Boolean).join(" · ")}><WorkspaceAnalysisView buffers={buffers} files={workspaceFiles} model={analysis} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} /><WorkspaceProblems buffers={buffers} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{notice ? `${notice} · ` : ""}{buffer?.completionNotice?`${buffer.completionNotice} · `:""}{buffer ? `${buffer.file.name} · ${buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
   </main></SourceCoverageProvider></SourceTestGutterProvider></SimpleLanguages>;

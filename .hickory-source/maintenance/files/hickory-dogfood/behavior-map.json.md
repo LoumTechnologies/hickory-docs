@@ -70195,6 +70195,75 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "simple-git-review-browser-engine-witness"
       ]
+    },
+    "apps/web/src/simple/GitHistory.tsx": {
+      "source": ".hickory-source/frontends/git-history-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "f97fe0072e8e69d83b48839fcc02eb133c6c8af74f30c9bb2213d340c586301b",
+      "construction": "fragments",
+      "fragments": [
+        "simple-git-history-browser",
+        "simple-git-history-browser-view"
+      ]
+    },
+    "apps/apple-simple/Sources/GitHistory.swift": {
+      "source": ".hickory-source/frontends/git-history-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "d94cc6428053ded0ff4763a77a40c053080691b5a30df97ef1fa6d1872894320",
+      "construction": "fragments",
+      "fragments": [
+        "simple-git-history-apple",
+        "simple-git-history-apple-view"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/GitHistory.kt": {
+      "source": ".hickory-source/frontends/git-history-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "b3bc53c7e4c207e77139f09024a0838755a688608550bddfc8f82ad81a82c7cf",
+      "construction": "fragments",
+      "fragments": [
+        "simple-git-history-android",
+        "simple-git-history-android-view"
+      ]
+    },
+    "apps/web/src/simple/GitHistory.test.ts": {
+      "source": ".hickory-source/frontends/git-history-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "simple-git-history-browser-tests"
+      ]
+    },
+    "apps/apple-simple/Tests/GitHistoryTests.swift": {
+      "source": ".hickory-source/frontends/git-history-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "simple-git-history-apple-tests"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/GitHistoryTest.kt": {
+      "source": ".hickory-source/frontends/git-history-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "simple-git-history-android-tests"
+      ]
     }
   },
   "evidence_records": [
