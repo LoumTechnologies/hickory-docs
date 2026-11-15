@@ -526,6 +526,7 @@ pub mod source_tests;
 pub mod resource_changes;
 pub mod source_cleanup;
 pub mod resource_inputs;
+pub mod resource_journal;
 </storycode:copy>
 <a id="f-09ea558208cd-watch"></a>
 ### `watch`

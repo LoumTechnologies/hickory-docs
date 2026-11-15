@@ -327,4 +327,6 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="source-cleanup.md" />
 
+<storycode:include file="resource-journal.md" />
+
 </storycode:doc>

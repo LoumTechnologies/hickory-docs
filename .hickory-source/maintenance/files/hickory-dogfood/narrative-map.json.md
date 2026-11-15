@@ -153804,6 +153804,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/workspace-changes-android.md",
       "symbol": "Keep reviewed-source proposals inside coordinated draft history",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-save-recovery-record",
+      "output": "crates/hickory-cli/src/serve/resource_journal.rs",
+      "page": ".hickory-source/mechanisms/resource-journal.md",
+      "symbol": "Recoverable resource save records",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "compiler-namespace-missing-sources",
+      "output": "crates/hickory-cli/src/serve/source_tests.rs",
+      "page": ".hickory-source/mechanisms/test-source-service.md",
+      "symbol": "Keep deleted sources absent from compiler snapshots",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "compiler-namespace-missing-tests",
+      "output": "crates/hickory-cli/src/serve/source_tests.rs",
+      "page": ".hickory-source/mechanisms/test-source-service.md",
+      "symbol": "Compile explicit missing and moved source states without publication",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

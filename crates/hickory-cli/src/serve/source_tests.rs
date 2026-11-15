@@ -220,6 +220,7 @@ fn project_state(
     path: &str,
     entry: &str,
     pinned: Option<&BTreeMap<String, String>>,
+    missing: &BTreeSet<String>,
 ) -> Result<(hick_lsp::document::HickDocumentState, PathBuf, Vec<String>), String> {
     let entry = relative(Path::new(""), entry)?;
     let base = Path::new(&entry).parent().unwrap_or(Path::new(""));
@@ -241,6 +242,11 @@ fn project_state(
     let observed = std::cell::RefCell::new((BTreeSet::new(), 0usize));
     let sources = hick_lang::load_project_sources(name, &|logical| {
         let key = relative(base, logical)?;
+        if missing.contains(&key) {
+            return Err(format!(
+                "Construction still references deleted source {key}. Update the construction before saving the resource change."
+            ));
+        }
         let value = if let Some(value) = supplied.get(&key) {
             value.clone()
         } else if let Some(value) = pinned.and_then(|sources| sources.get(&key)) {
@@ -271,10 +277,9 @@ fn project_state(
     let state=hick_lsp::document::HickDocumentState::from_project(name,&sources).map_err(|e|format!("Construction analysis failed: {e}. Correct the selected source or choose another entry."))?;
     Ok((state, base.to_path_buf(), unused))
 }
-
 /// Collect source facts only. No test planner, runner or materializer is called.
 pub(crate) fn scan(root: &Path, request: &Request) -> Result<Scan, String> {
-    scan_captured(root, request, false, None)
+    scan_captured(root, request, false, None, &BTreeSet::new())
 }
 /// Keep the compiler's exact consumed inputs for a subsequent read-only analysis.
 pub(crate) fn scan_with_sources(
@@ -282,18 +287,31 @@ pub(crate) fn scan_with_sources(
     request: &Request,
     pinned: Option<&BTreeMap<String, String>>,
 ) -> Result<Scan, String> {
-    scan_captured(root, request, true, pinned)
+    scan_captured(root, request, true, pinned, &BTreeSet::new())
 }
 fn scan_captured(
     root: &Path,
     request: &Request,
     retain_sources: bool,
     pinned: Option<&BTreeMap<String, String>>,
+    missing: &BTreeSet<String>,
 ) -> Result<Scan, String> {
     let root = root
         .canonicalize()
         .map_err(|e| format!("Workspace unavailable: {e}. Reconnect and retry."))?;
     let path = relative(Path::new(""), &request.path)?;
+    if missing.len() > 10_000 || missing.iter().map(String::len).sum::<usize>() > 1024 * 1024 {
+        return Err(
+            "Deleted-source namespace exceeds its interactive budget. Narrow the change.".into(),
+        );
+    }
+    let missing: BTreeSet<_> = missing
+        .iter()
+        .map(|path| relative(Path::new(""), path))
+        .collect::<Result<_, _>>()?;
+    if missing.contains(&path) || request.sources.keys().any(|path| missing.contains(path)) {
+        return Err("A source is both supplied and deleted. Capture one complete resource namespace before analysis.".into());
+    }
     if request.source.len() > 8 * 1024 * 1024
         || request.sources.len() > 4096
         || request.sources.values().map(String::len).sum::<usize>() > 32 * 1024 * 1024
@@ -331,7 +349,7 @@ fn scan_captured(
         .clone()
         .or_else(|| (!parsed.find_tags("project").is_empty()).then(|| path.clone()));
     let (state, base, unused) = if let Some(entry) = &explicit {
-        let (state, base, unused) = project_state(&root, request, &path, entry, pinned)?;
+        let (state, base, unused) = project_state(&root, request, &path, entry, pinned, &missing)?;
         result.scope = "project".into();
         result.project_entry = Some(relative(Path::new(""), entry)?);
         (state, base, unused)
@@ -446,7 +464,6 @@ fn scan_captured(
     }
     Ok(seal(result))
 }
-
 /// Supplied source fingerprints are checked separately from execution's target fingerprint.
 pub(crate) fn check_saved_sources(
     root: &Path,
@@ -753,6 +770,8 @@ fn retained_compiler_sources_pin_later_analysis_without_materializing_or_leaking
 pub struct ConstructionRequest {
     pub entry: String,
     #[serde(default)]
+    pub missing_sources: BTreeSet<String>,
+    #[serde(default)]
     pub sources: BTreeMap<String, String>,
     pub focus: Option<String>,
 }
@@ -779,7 +798,7 @@ fn construction_reading(root: &Path, request: ConstructionRequest) -> Result<Val
         },
         None,
     )?;
-    let after = scan_with_sources(
+    let after = scan_with_namespace(
         root,
         &Request {
             path: entry.clone(),
@@ -793,6 +812,7 @@ fn construction_reading(root: &Path, request: ConstructionRequest) -> Result<Val
             capture: false,
         },
         Some(&before.source_texts),
+        &request.missing_sources,
     )?;
     let before_tree = before
         .tree
@@ -952,6 +972,7 @@ fn construction_reading_compares_drafts_without_writing_or_claiming_evidence() {
     let reading = construction_reading(
         root,
         ConstructionRequest {
+            missing_sources: BTreeSet::new(),
             entry: "entry.md".into(),
             sources: BTreeMap::from([("part.md".into(), part.replace("one", "two"))]),
             focus: Some("part.md".into()),
@@ -988,6 +1009,7 @@ fn construction_reading_compares_drafts_without_writing_or_claiming_evidence() {
         construction_reading(
             root,
             ConstructionRequest {
+                missing_sources: BTreeSet::new(),
                 entry: "../entry.md".into(),
                 sources: BTreeMap::new(),
                 focus: None
@@ -1008,6 +1030,7 @@ fn construction_reading_reports_additions_deletions_and_invalid_drafts() {
     let reading = construction_reading(
         root,
         ConstructionRequest {
+            missing_sources: BTreeSet::new(),
             entry: "entry.md".into(),
             sources: BTreeMap::from([("part.md".into(), part.replace("old.txt", "new.txt"))]),
             focus: None,
@@ -1022,6 +1045,7 @@ fn construction_reading_reports_additions_deletions_and_invalid_drafts() {
         construction_reading(
             root,
             ConstructionRequest {
+                missing_sources: BTreeSet::new(),
                 entry: "entry.md".into(),
                 sources: BTreeMap::from([(
                     "part.md".into(),
@@ -1148,6 +1172,7 @@ fn construction_reading_bounds_detail_and_includes_metadata_only_changes() {
     let reading = construction_reading(
         root,
         ConstructionRequest {
+            missing_sources: BTreeSet::new(),
             entry: "entry.md".into(),
             sources: BTreeMap::from([(
                 "part.md".into(),
@@ -1172,4 +1197,133 @@ fn construction_reading_bounds_detail_and_includes_metadata_only_changes() {
     assert_eq!(big["preview"].as_str().unwrap().chars().count(), 2000);
     assert_eq!(big["preview_truncated"], true);
     assert!(!root.join("000-run.sh").exists());
+}
+/// Compile a draft namespace with explicit absence, without touching saved source.
+pub(crate) fn scan_with_namespace(
+    root: &Path,
+    request: &Request,
+    pinned: Option<&BTreeMap<String, String>>,
+    missing: &BTreeSet<String>,
+) -> Result<Scan, String> {
+    scan_captured(root, request, true, pinned, missing)
+}
+#[cfg(test)]
+mod namespace_tests {
+    use super::*;
+    fn request(entry: &str, source: &str, sources: BTreeMap<String, String>) -> Request {
+        Request {
+            path: entry.into(),
+            source: source.into(),
+            project_entry: Some(entry.into()),
+            sources,
+            capture: false,
+        }
+    }
+    #[test]
+    fn deleted_sources_never_fall_back_to_saved_or_pinned_bytes() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let entry = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"old.md\"/></h:doc>";
+        let body = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:file path=\"output.txt\">old</h:file></h:doc>";
+        std::fs::write(root.join("project.md"), entry).unwrap();
+        std::fs::write(root.join("old.md"), body).unwrap();
+        let before =
+            scan_with_sources(root, &request("project.md", entry, BTreeMap::new()), None).unwrap();
+        let missing = BTreeSet::from(["old.md".to_string()]);
+        for pinned in [None, Some(&before.source_texts)] {
+            let error = scan_with_namespace(
+                root,
+                &request("project.md", entry, BTreeMap::new()),
+                pinned,
+                &missing,
+            )
+            .err()
+            .expect("Deleted source must refuse both fallback sources");
+            assert!(error.contains("deleted source old.md"), "{error}");
+        }
+        assert_eq!(std::fs::read_to_string(root.join("old.md")).unwrap(), body);
+        assert!(!root.join("output.txt").exists());
+    }
+    #[test]
+    fn moved_sources_compile_only_after_the_entry_uses_the_new_namespace() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let entry = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"old.md\"/></h:doc>";
+        let body = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:file path=\"output.txt\">old</h:file></h:doc>";
+        std::fs::write(root.join("project.md"), entry).unwrap();
+        std::fs::write(root.join("old.md"), body).unwrap();
+        let before =
+            scan_with_sources(root, &request("project.md", entry, BTreeMap::new()), None).unwrap();
+        let updated = entry.replace("old.md", "new.md");
+        let replacement = body.replace(">old<", ">new<");
+        let request = request(
+            "project.md",
+            &updated,
+            BTreeMap::from([("new.md".into(), replacement.clone())]),
+        );
+        let result = scan_with_namespace(
+            root,
+            &request,
+            Some(&before.source_texts),
+            &BTreeSet::from(["old.md".into()]),
+        )
+        .unwrap();
+        assert_eq!(
+            result
+                .tree
+                .as_ref()
+                .unwrap()
+                .get("output.txt")
+                .unwrap()
+                .bytes
+                .as_ref(),
+            b"new"
+        );
+        assert_eq!(result.source_texts["new.md"], replacement);
+        assert!(!result.source_texts.contains_key("old.md"));
+        assert_eq!(
+            std::fs::read_to_string(root.join("project.md")).unwrap(),
+            entry
+        );
+        assert!(!root.join("new.md").exists());
+        assert!(!root.join("output.txt").exists());
+    }
+    #[test]
+    fn contradictory_or_unconfined_missing_sources_refuse_before_analysis() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let entry = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"part.md\"/></h:doc>";
+        let request = request("project.md", entry, BTreeMap::new());
+        for missing in [
+            BTreeSet::from(["project.md".into()]),
+            BTreeSet::from(["../outside.md".into()]),
+        ] {
+            assert!(scan_with_namespace(root, &request, None, &missing).is_err());
+        }
+    }
+    #[test]
+    fn construction_reading_accepts_explicit_absence_without_resurrecting_old_sources() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let entry = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"old.md\"/></h:doc>";
+        let body = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:file path=\"output.txt\">old</h:file></h:doc>";
+        std::fs::write(root.join("project.md"), entry).unwrap();
+        std::fs::write(root.join("old.md"), body).unwrap();
+        let raw =
+            json!({"entry":"project.md","sources":{},"focus":null,"missing_sources":["old.md"]});
+        let request = serde_json::from_value::<ConstructionRequest>(raw).unwrap();
+        assert!(
+            construction_reading(root, request)
+                .err()
+                .unwrap()
+                .contains("deleted source old.md")
+        );
+        let raw = json!({"entry":"project.md","sources":{"project.md":entry.replace("old.md","new.md"),"new.md":body.replace(">old<",">new<")},"focus":null,"missing_sources":["old.md"]});
+        let result = construction_reading(root, serde_json::from_value(raw).unwrap()).unwrap();
+        assert_eq!(result["outputs"][0]["before"]["preview"], "old");
+        assert_eq!(result["outputs"][0]["after"]["preview"], "new");
+        assert_eq!(std::fs::read_to_string(root.join("old.md")).unwrap(), body);
+        assert!(!root.join("new.md").exists());
+        assert!(!root.join("output.txt").exists());
+    }
 }

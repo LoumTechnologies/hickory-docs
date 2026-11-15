@@ -658,3 +658,31 @@ explicit actions. Editor identity/dimensions remain stable. This covers choosing
 a whole regular text stage and subsequent ordinary editing; assisted merge-hunk
 composition and delete/rename conflict resolutions remain required. Native
 physical input and accessibility acceptance remain unverified.
+
+## Preserve explicit absence in resource namespace analysis
+
+The shared compiler model can mark source addresses absent independently of saved
+bytes or pinned snapshots. A construction that still refers to a removed source
+refuses analysis. Updating its entry and supplying the new source address permits
+a read-only moved-source analysis without creating files or outputs. Construction
+reading accepts the same optional missing-source set; existing UI requests retain
+their default empty set.
+
+A separate resource recovery store can retain versioned saved before/after states
+and append-only per-path receipts before a later publisher writes source. It
+retains exact text, missing states and modeled permission metadata, refuses
+pre-existing symlink/non-directory recovery paths and replaced batch directories,
+and never automatically replays a receipt. This is a prerequisite for recoverable
+namespace saves, not a connected resource Save command or a cross-file transaction.
+Candidate saved/draft construction ownership must be rechecked against the final
+namespace before a publisher is connected.
+
+Focused evidence (2026-11-15): four namespace cases pass for deleted-source refusal
+against disk and pinned fallbacks, moved-source analysis, invalid/contradictory
+absence and the construction-reading request. Three existing construction-reading
+cases continue to pass. Four recovery-store cases pass for exact states, no-clobber
+receipts, symlink/non-directory refusal and replaced batch identity. The actual
+engine protocol witness passes deleted/moved construction analysis alongside the
+resource acquisition/planning checks, with saved source and destinations unchanged.
+Resource UI namespace application, saving and coordinated resource undo remain
+required across all platforms.

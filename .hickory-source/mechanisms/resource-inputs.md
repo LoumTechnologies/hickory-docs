@@ -907,8 +907,14 @@ def main():
    inputs=call("changes/resource-inputs",{"context":"narrow-reading","project_entry":"other.md","ownership_sources":{"part.md":part.replace("main-generated.py","draft-generated.py")},"edit":{"documentChanges":[{"kind":"create","uri":"hick:///"+path} for path in protected]}})
    assert inputs["ownership"]["protected_entries"]==["other.md","project.md"]
    for path in protected:assert inputs["sources"][path]=={"kind":"missing","creatable":False} and not (root/path).exists()
+   try:call("construction/reading",{"entry":"project.md","sources":{},"missing_sources":["part.md"]})
+   except urllib.error.HTTPError as error:assert error.code==422
+   else:raise AssertionError("Deleted construction source fell back to saved bytes")
+   reading=call("construction/reading",{"entry":"project.md","sources":{"project.md":entry.replace("part.md","moved.md"),"moved.md":part.replace(">main<",">moved<")},"missing_sources":["part.md"]})
+   output=next(item for item in reading["outputs"] if item["path"]=="main-generated.py");assert output["before"]["preview"]=="main" and output["after"]["preview"]=="moved"
+   assert (root/"part.md").read_text()==part and (root/"project.md").read_text()==entry and not (root/"moved.md").exists()
    assert (root/"a.py").read_bytes()==saved.encode();assert not (root/"b.py").exists()
-   print("PASS: actual resource target/acquisition/planning routes, held root identity, separate saved/draft text, complete move/text delta, stale-base refusal, main/selected saved/draft ownership union, unchanged saved files")
+   print("PASS: actual resource target/acquisition/planning routes, held root identity, separate saved/draft text, complete move/text delta, stale-base refusal, main/selected saved/draft ownership union, explicit deleted/moved construction namespace, unchanged saved files")
   finally:
    if engine:fixture.stop(engine)
 if __name__=="__main__":main()

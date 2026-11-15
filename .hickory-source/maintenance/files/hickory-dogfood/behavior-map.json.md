@@ -68745,7 +68745,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "source-test-retained-input-context-witness",
         "construction-reading-compiler-impact",
         "construction-reading-declared-fragments",
-        "construction-reading-bounds-witness"
+        "construction-reading-bounds-witness",
+        "compiler-namespace-missing-sources",
+        "compiler-namespace-missing-tests"
       ]
     },
     "apps/web/src/api/testSources.ts": {
@@ -70595,6 +70597,17 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "workspace-change-browser-events"
+      ]
+    },
+    "crates/hickory-cli/src/serve/resource_journal.rs": {
+      "source": ".hickory-source/mechanisms/resource-journal.md",
+      "owner": "source-model",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "resource-save-recovery-record"
       ]
     }
   },
