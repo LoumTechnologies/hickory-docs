@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 import urllib.error
 import urllib.request
+import urllib.parse
 ROOT=Path(__file__).resolve().parents[1]
 def main():
  spec=importlib.util.spec_from_file_location("fixture",ROOT/"scripts/test-simple-browser.py");fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
@@ -95,7 +96,57 @@ def main():
    except urllib.error.HTTPError as error:assert error.code==409 and "canonical project.md" in error.read().decode()
    else:raise AssertionError("Resource save silently removed canonical entry ownership")
    assert (root/"project.md").read_text()==entry and not (root/"moved-project.md").exists() and set(records.iterdir())==root_records
-   print("PASS: actual resource acquisition, planning and candidate ownership; explicit guarded save of a moved dirty draft, retained saved/draft recovery, duplicate/status identity, changed-request refusal, stale-source and generated-destination refusal, authored document retirement/move, canonical-entry ownership guard")
+
+   def read_recovery(identifier,path=None,side=None):
+    query="?id="+identifier
+    if path is not None:query+="&path="+urllib.parse.quote(path,safe="")
+    if side is not None:query+="&draft="+side
+    with urllib.request.urlopen(origin+"/api/changes/resource-recovery"+query,timeout=30) as reply:return json.load(reply)
+   def restoration_proposal(identifier,context,drafts=None):
+    capture={"context":context,"edit":{"changes":{"hick:///a.py":[],"hick:///b.py":[]}},"drafts":drafts or {}}
+    return {"recovery_id":identifier,"inputs":call("changes/resource-inputs",capture),"capture":capture}
+   original_id=Path(outcome["recovery"]).parent.name
+   inspection=read_recovery(original_id,"a.py","before")
+   assert inspection["draft_text"]==draft and inspection["all_paths_recorded_applied"]
+   assert {item["path"] for item in inspection["paths"]}=={"a.py","b.py"}
+   before_recovery=set(records.iterdir())
+   # The independent edit above must never be silently rolled back.
+   independent=restoration_proposal(original_id,"refuse-independent-recovery")
+   try:call("changes/prepare-restoration",independent)
+   except urllib.error.HTTPError as error:assert error.code==409
+   else:raise AssertionError("Recovery silently accepted an independent saved edit")
+   assert (root/"b.py").read_text()=="independent edit\n" and set(records.iterdir())==before_recovery
+   # Resolve that test-owned external edit explicitly, then review the inverse.
+   (root/"b.py").write_text("renamed\n# unsaved draft\n")
+   restore_proposal=restoration_proposal(original_id,"restore-service")
+   restoration=call("changes/prepare-restoration",restore_proposal)
+   assert restoration["restoration"]["saved_after"]["a.py"]["text"]==saved
+   assert next(patch for patch in restoration["restoration"]["plan"]["patches"] if patch["path"]=="a.py")["after"]["text"]==draft
+   assert not (root/"a.py").exists() and (root/"b.py").read_text()=="renamed\n# unsaved draft\n"
+   restore_request={"request_id":"6"*32,"reviewed_fingerprint":restoration["consequences"]["fingerprint"],"reviewed_recovery_fingerprint":restoration["restoration"]["recovery_fingerprint"],"proposal":restore_proposal}
+   for identifier,field in [("8"*32,"reviewed_recovery_fingerprint"),("9"*32,"reviewed_fingerprint")]:
+    wrong=json.loads(json.dumps(restore_request));wrong["request_id"]=identifier;wrong[field]="0"*64
+    try:call("changes/restore-resources",wrong)
+    except urllib.error.HTTPError as error:assert error.code==409
+    else:raise AssertionError("Restoration accepted changed review evidence")
+   assert set(records.iterdir())==before_recovery and not (root/"a.py").exists()
+   restored_result=call("changes/restore-resources",restore_request)
+   assert restored_result["outcome"]["complete"] and restored_result["saved_sources"]["a.py"]["text"]==saved
+   assert (root/"a.py").read_text()==saved and not (root/"b.py").exists()
+   restored_id=Path(restored_result["outcome"]["recovery"]).parent.name
+   restored_record=json.loads((root/restored_result["outcome"]["recovery"]).read_text())
+   assert restored_record["version"]==3 and restored_record["restore_of"]["recovery_id"]==original_id
+   assert read_recovery(restored_id,"a.py","after")["draft_text"]==draft
+   assert call("changes/restore-resources",restore_request)==restored_result
+   assert len(set(records.iterdir())-before_recovery)==1
+   with urllib.request.urlopen(origin+"/api/changes/resource-save?request_id="+restore_request["request_id"],timeout=30) as reply:assert json.load(reply)==restored_result
+   # The UI's restored draft is supplied separately from its older disk base.
+   redo_proposal=restoration_proposal(restored_id,"redo-service",{"a.py":{"text":draft,"base_sha256":hashlib.sha256(saved.encode()).hexdigest(),"version":8,"writable":True}})
+   redo=call("changes/prepare-restoration",redo_proposal)
+   redone=call("changes/restore-resources",{"request_id":"7"*32,"reviewed_fingerprint":redo["consequences"]["fingerprint"],"reviewed_recovery_fingerprint":redo["restoration"]["recovery_fingerprint"],"proposal":redo_proposal})
+   assert redone["outcome"]["complete"] and not (root/"a.py").exists() and (root/"b.py").read_text()=="renamed\n# unsaved draft\n"
+   assert read_recovery(original_id)["fingerprint"]==inspection["fingerprint"]
+   print("PASS: actual resource acquisition, planning and candidate ownership; explicit guarded save of a moved dirty draft, retained saved/draft recovery, duplicate/status identity, changed-request refusal, stale-source and generated-destination refusal, authored document retirement/move, canonical-entry ownership guard, read-only recovery inspection, separate saved/draft restore and redo, evidence refusal, retained restoration result")
   finally:
    if engine:fixture.stop(engine)
 if __name__=="__main__":main()

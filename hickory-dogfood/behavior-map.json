@@ -70651,8 +70651,10 @@
         "resource-save-attempts",
         "resource-save-rooms",
         "resource-save-admission",
+        "resource-save-publication",
         "resource-save-save",
-        "resource-save-status"
+        "resource-save-status",
+        "resource-published-outcome-contract-tests"
       ]
     },
     "crates/hickory-cli/src/serve/resource_restoration.rs": {
@@ -70668,6 +70670,30 @@
         "resource-restoration-consequences",
         "resource-restoration-tests",
         "resource-restoration-publication-tests"
+      ]
+    },
+    "crates/hickory-cli/src/serve/resource_recovery_api.rs": {
+      "source": ".hickory-source/mechanisms/resource-recovery-api.md",
+      "owner": "resource-source-restoration",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "dd6adf07a8523f60ac1f0d3ee9f1dcc729db0cdcbd2d767f25a4f53c2d722422",
+      "construction": "fragments",
+      "fragments": [
+        "resource-recovery-api-preparation",
+        "resource-recovery-api-publication",
+        "resource-recovery-api-inspection"
+      ]
+    },
+    "scripts/test-resource-entry-restoration-service.py": {
+      "source": ".hickory-source/mechanisms/resource-recovery-api.md",
+      "owner": "resource-source-restoration",
+      "used_by": [],
+      "role": "test",
+      "sha256": "875f1aa9b91cacc16393d026599f044e97b9b02886ae2b41ead65a6412321226",
+      "construction": "fragments",
+      "fragments": [
+        "resource-recovery-entry-service-witness"
       ]
     }
   },

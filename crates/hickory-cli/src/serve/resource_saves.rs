@@ -33,20 +33,22 @@ struct Attempts {
 }
 static ATTEMPTS: std::sync::LazyLock<Mutex<Attempts>> =
     std::sync::LazyLock::new(|| Mutex::new(Attempts::default()));
-fn hex(value: &str, length: usize) -> bool {
+pub(super) fn hex(value: &str, length: usize) -> bool {
     value.len() == length && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
-fn reserve(workspace: &str, request: &Request) -> Result<Option<Result<Value, String>>, String> {
-    if !hex(workspace, 32)
-        || !hex(&request.request_id, 32)
-        || !hex(&request.reviewed_fingerprint, 64)
-    {
+pub(super) fn reserve<T: Serialize>(
+    workspace: &str,
+    request_id: &str,
+    reviewed_fingerprint: &str,
+    request: &T,
+) -> Result<Option<Result<Value, String>>, String> {
+    if !hex(workspace, 32) || !hex(request_id, 32) || !hex(reviewed_fingerprint, 64) {
         return Err("Resource saves require a current workspace, unique request identity and reviewed consequence fingerprint.".into());
     }
     let hash = super::workspace_fs::view::hash(
         &serde_json::to_vec(request).map_err(|error| error.to_string())?,
     );
-    let key = format!("{workspace}:{}", request.request_id);
+    let key = format!("{workspace}:{request_id}");
     let mut attempts = ATTEMPTS.lock().map_err(|_| "Resource save outcomes are unavailable. Inspect retained recovery records before retrying.")?;
     if let Some(attempt) = attempts.records.get(&key) {
         if attempt.hash != hash {
@@ -60,7 +62,7 @@ fn reserve(workspace: &str, request: &Request) -> Result<Option<Result<Value, St
     attempts.records.insert(key, Attempt { hash, result: None });
     Ok(None)
 }
-fn retain(workspace: &str, id: &str, result: &Result<Value, String>) {
+pub(super) fn retain(workspace: &str, id: &str, result: &Result<Value, String>) {
     let Ok(mut attempts) = ATTEMPTS.lock() else {
         return;
     };
@@ -167,18 +169,47 @@ async fn execute(state: LocalState, request: Request) -> Result<Value, String> {
         &request.proposal.plan,
     )?;
     let manifest = Manifest::from_review(&request.proposal.inputs, &request.proposal.plan)?;
+    let entries = request.proposal.inputs.ownership.protected_entries.clone();
+    publish(
+        state,
+        manifest,
+        facts,
+        request.request_id,
+        entries,
+        EntryTransition::Stable,
+    )
+    .await
+}
+pub(super) enum EntryTransition {
+    Stable,
+    Historical,
+}
+pub(super) async fn publish(
+    state: LocalState,
+    manifest: Manifest,
+    facts: super::resource_candidates::Facts,
+    request_id: String,
+    protected_entries: Vec<String>,
+    entry_policy: EntryTransition,
+) -> Result<Value, String> {
     let runtime = tokio::runtime::Handle::current();
     tokio::task::spawn_blocking(move || {
         let root = state.index.root();
         let paths: BTreeSet<_> = manifest.before.keys().cloned().collect();
         // The default entry is still address-bound. Do not silently lose its
         // ownership scope before an explicit workspace-entry transition exists.
-        if request.proposal.inputs.ownership.protected_entries.iter().any(|entry| entry == "project.md") {
+        if protected_entries.iter().any(|entry| entry == "project.md") {
             for patch in &manifest.reviewed_plan.patches {
                 if matches!(patch.after, super::resource_changes::SourceState::Missing { .. })
                     && same_file::is_same_file(root.join(&patch.path), root.join("project.md")).unwrap_or(false)
                 {
-                    return Err("The canonical project.md entry or its physical alias cannot be moved or deleted by a resource save yet. Keep that entry in place and move its source members instead.".into());
+                    let survives = match &patch.before {
+                        super::resource_changes::SourceState::File { identity, .. } => manifest.reviewed_plan.patches.iter().any(|candidate| matches!(&candidate.after, super::resource_changes::SourceState::File { identity: after, .. } if after == identity)),
+                        _ => false,
+                    };
+                    if matches!(entry_policy, EntryTransition::Stable) || survives {
+                        return Err("The canonical project.md entry or its physical alias cannot be moved or deleted by a resource save yet. Keep that entry in place and move its source members instead.".into());
+                    }
                 }
             }
         }
@@ -201,8 +232,25 @@ async fn execute(state: LocalState, request: Request) -> Result<Value, String> {
                 }
             }
         }
-        Ok(json!({"version":1,"request_id":request.request_id,"workspace":manifest.workspace,"context":manifest.context,"outcome":outcome,"saved_sources":manifest.after}))
+        publication_reply(request_id, manifest.workspace, manifest.context, outcome, manifest.after)
     }).await.map_err(|error|format!("Resource publication stopped unexpectedly: {error}. Inspect retained recovery before retrying."))?
+}
+fn publication_reply(
+    request_id: String,
+    workspace: String,
+    context: String,
+    outcome: super::resource_publish::Outcome,
+    after: BTreeMap<String, SavedSource>,
+) -> Result<Value, String> {
+    let confirmed = outcome.complete;
+    let mut reply = json!({"version":1,"request_id":request_id,"workspace":workspace,"context":context,"outcome":outcome,"saved_sources":null});
+    let key = if confirmed {
+        "saved_sources"
+    } else {
+        "intended_saved_sources"
+    };
+    reply[key] = serde_json::to_value(after).map_err(|error| error.to_string())?;
+    Ok(reply)
 }
 /// Dispatch already owns the process-lifetime mutation gate, including after disconnect.
 pub async fn save(
@@ -225,7 +273,14 @@ pub async fn save(
             "Workspace identity changed. Reconnect and prepare again.",
         ));
     }
-    if let Some(result) = reserve(&workspace, &request).map_err(ApiError::conflict)? {
+    if let Some(result) = reserve(
+        &workspace,
+        &request.request_id,
+        &request.reviewed_fingerprint,
+        &request,
+    )
+    .map_err(ApiError::conflict)?
+    {
         return result.map(Json).map_err(ApiError::conflict);
     }
     let id = request.request_id.clone();
@@ -272,4 +327,70 @@ pub async fn status(
         })?
         .map(Json)
         .map_err(ApiError::conflict)
+}
+#[cfg(test)]
+mod outcome_contract_tests {
+    use super::*;
+    fn outcome(complete: bool) -> super::super::resource_publish::Outcome {
+        super::super::resource_publish::Outcome {
+            complete,
+            source_files_modified: true,
+            source_files_uncertain: !complete,
+            recovery: ".hick-cache/resource-changes/record/manifest.json".into(),
+            applied: BTreeSet::from(["a.py".into()]),
+            error: (!complete).then(|| "b.py was not confirmed".into()),
+        }
+    }
+    #[test]
+    fn partial_publication_exposes_intent_without_confirmed_saved_baselines() {
+        let after = BTreeMap::from([("a.py".into(), SavedSource::Missing)]);
+        let partial = publication_reply(
+            "request".into(),
+            "workspace".into(),
+            "context".into(),
+            outcome(false),
+            after.clone(),
+        )
+        .unwrap();
+        assert!(partial["saved_sources"].is_null());
+        assert_eq!(partial["intended_saved_sources"]["a.py"]["kind"], "missing");
+        assert_eq!(partial["outcome"]["applied"], json!(["a.py"]));
+        let complete = publication_reply(
+            "request".into(),
+            "workspace".into(),
+            "context".into(),
+            outcome(true),
+            after,
+        )
+        .unwrap();
+        assert_eq!(complete["saved_sources"]["a.py"]["kind"], "missing");
+        assert!(complete.get("intended_saved_sources").is_none());
+    }
+    #[test]
+    fn shared_attempt_identity_refuses_pending_and_changed_content_and_retains_completed_result() {
+        let mut nonce = [0u8; 16];
+        getrandom::fill(&mut nonce).unwrap();
+        let workspace = hex::encode(nonce);
+        let id = "a".repeat(32);
+        let fingerprint = "b".repeat(64);
+        let body = json!({"request_id":id,"reviewed_fingerprint":fingerprint,"kind":"save"});
+        assert!(
+            reserve(&workspace, &id, &fingerprint, &body)
+                .unwrap()
+                .is_none()
+        );
+        assert!(reserve(&workspace, &id, &fingerprint, &body).is_err());
+        let result = Ok(json!({"outcome":{"complete":true},"saved_sources":{}}));
+        retain(&workspace, &id, &result);
+        assert_eq!(
+            reserve(&workspace, &id, &fingerprint, &body).unwrap(),
+            Some(result.clone())
+        );
+        let changed = json!({"request_id":id,"reviewed_fingerprint":fingerprint,"kind":"restore"});
+        assert!(reserve(&workspace, &id, &fingerprint, &changed).is_err());
+        assert_eq!(
+            reserve(&workspace, &id, &fingerprint, &body).unwrap(),
+            Some(result)
+        );
+    }
 }

@@ -154013,6 +154013,48 @@
       "page": ".hickory-source/mechanisms/resource-restoration.md",
       "symbol": "Publish saved baselines while retaining dirty draft restoration",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-save-publication",
+      "output": "crates/hickory-cli/src/serve/resource_saves.rs",
+      "page": ".hickory-source/mechanisms/resource-saves.md",
+      "symbol": "Share checked saved source publication",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-recovery-api-preparation",
+      "output": "crates/hickory-cli/src/serve/resource_recovery_api.rs",
+      "page": ".hickory-source/mechanisms/resource-recovery-api.md",
+      "symbol": "Prepare against current source and checked recovery",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-recovery-api-publication",
+      "output": "crates/hickory-cli/src/serve/resource_recovery_api.rs",
+      "page": ".hickory-source/mechanisms/resource-recovery-api.md",
+      "symbol": "Repeat admission and retain one restoration outcome",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-recovery-api-inspection",
+      "output": "crates/hickory-cli/src/serve/resource_recovery_api.rs",
+      "page": ".hickory-source/mechanisms/resource-recovery-api.md",
+      "symbol": "Inspect metadata and explicitly selected historical draft text",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-published-outcome-contract-tests",
+      "output": "crates/hickory-cli/src/serve/resource_saves.rs",
+      "page": ".hickory-source/mechanisms/resource-saves.md",
+      "symbol": "Do not adopt partial plans as saved baselines",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-recovery-entry-service-witness",
+      "output": "scripts/test-resource-entry-restoration-service.py",
+      "page": ".hickory-source/mechanisms/resource-recovery-api.md",
+      "symbol": "Canonical entry restoration through the actual engine",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

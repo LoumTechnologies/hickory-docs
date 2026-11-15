@@ -61,6 +61,7 @@ pub(crate) fn post_observation(method: &axum::http::Method, path: &str) -> bool 
                 | "/api/changes/resource-inputs"
                 | "/api/changes/cleanup"
                 | "/api/changes/resource-consequences"
+                | "/api/changes/prepare-restoration"
         )
 }
 #[cfg(test)]
@@ -80,6 +81,7 @@ mod observation_tests {
             "/api/changes/resource-inputs",
             "/api/changes/cleanup",
             "/api/changes/resource-consequences",
+            "/api/changes/prepare-restoration",
         ] {
             assert!(observation(&Method::POST, path));
             assert_eq!(
@@ -94,6 +96,8 @@ mod observation_tests {
             "/api/file",
             "/api/files/op",
             "/api/changes/publish-resources",
+            "/api/changes/resource-save",
+            "/api/changes/restore-resources",
             "/api/construction/reading/extra",
         ] {
             assert!(!observation(&Method::POST, path));

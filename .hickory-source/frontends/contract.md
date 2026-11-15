@@ -829,4 +829,24 @@ invalid versions/origins/hashes refuse before new recovery IO. Recovery HTTP
 admission, live-document restoration integration and frontend namespace/undo
 adoption are still required.
 
+## Admit recovery through the shared engine publisher
+
+The engine now exposes read-only recovery metadata and explicitly selected draft
+text, read-only restoration preparation, and guarded restoration publication.
+Both parent evidence and candidate consequences are checked again after review.
+Restore uses the same current source, root, dependency, static-output and
+live-document publication guards as ordinary resource save, retaining one outcome
+per request identity. Complete results expose confirmed saved baselines; partial
+results expose intended states with a null confirmed map. Historical draft plans
+remain separate from physical saved baselines.
+
+The rebuilt actual-engine witness passes inspection, independent saved-edit
+refusal, changed evidence/consequence refusal, saved-baseline restore with a
+separate dirty draft, redo, repeated-request identity and status. A second real
+engine witness supports undoing canonical entry creation to absence and refuses a
+historical canonical move without changing files or recovery inventory. Two
+outcome/attempt, four write-gate and four startup cases pass. Invalid historical
+draft layers, partial-state recovery, persistent interrupted-request discovery and
+frontend namespace/undo adoption remain outstanding across the simple platforms.
+
 </ui:doc>

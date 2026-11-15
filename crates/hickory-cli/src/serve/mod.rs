@@ -117,6 +117,7 @@ pub mod resource_journal;
 pub mod resource_publish;
 pub mod resource_saves;
 pub mod resource_restoration;
+pub mod resource_recovery_api;
 pub mod resource_candidates;
 pub mod watch;
 pub mod workspace;
@@ -804,6 +805,9 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/changes/resource-targets",post(resource_changes::inspect_targets).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
         .route("/changes/resource-consequences",post(resource_candidates::inspect).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
         .route("/changes/resource-save",get(resource_saves::status).post(resource_saves::save).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
+        .route("/changes/resource-recovery",get(resource_recovery_api::inspect))
+        .route("/changes/prepare-restoration",post(resource_recovery_api::prepare).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
+        .route("/changes/restore-resources",post(resource_recovery_api::restore).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
         .route("/changes/resource-inputs",post(resource_inputs::inspect).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
         .route("/tests/run-source",post(source_tests::run).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
         .route(

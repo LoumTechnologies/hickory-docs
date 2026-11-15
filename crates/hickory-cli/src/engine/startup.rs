@@ -100,6 +100,7 @@ pub(super) fn editor_bootstrap(path: &str, method: &axum::http::Method) -> bool 
                     | "/api/files"
                     | "/api/projects"
                     | "/api/prediction/state"
+                    | "/api/changes/resource-recovery"
             ) | (
                 &Method::GET | &Method::PUT | &Method::DELETE,
                 "/api/workspace/ui" | "/api/workspace/drafts"
@@ -163,6 +164,7 @@ mod raw_source_tests {
             assert!(startup.result().is_none_or(|result| result.is_err()));
             for path in [
                 "/api/file",
+                "/api/changes/resource-recovery",
                 "/api/docs/source.md",
                 "/api/docs/dir%2Fsource.md",
             ] {
@@ -206,6 +208,7 @@ mod independent_capability_tests {
                 "/api/changes/resource-inputs",
                 "/api/changes/cleanup",
                 "/api/changes/resource-consequences",
+                "/api/changes/prepare-restoration",
             ] {
                 assert!(editor_bootstrap(path, &Method::POST), "{path}");
                 assert!(!editor_bootstrap(path, &Method::PUT), "{path}");
@@ -213,6 +216,8 @@ mod independent_capability_tests {
             for path in [
                 "/api/tests/run-source",
                 "/api/changes/publish-resources",
+                "/api/changes/resource-save",
+                "/api/changes/restore-resources",
                 "/api/file",
                 "/api/files/op",
                 "/api/docs/source/run",
