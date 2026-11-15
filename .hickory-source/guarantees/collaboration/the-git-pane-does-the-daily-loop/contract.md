@@ -1138,7 +1138,220 @@ mod tests {
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/src/serve/git_ops.rs"><storycode:paste select="#f-900059e12d12-git"/><storycode:paste select="#f-900059e12d12-git_ok"/><storycode:paste select="#f-900059e12d12-is_repository"/><storycode:paste select="#f-900059e12d12-not_a_repository"/><storycode:paste select="#f-900059e12d12-checked_path"/><storycode:paste select="#f-900059e12d12-paths_of"/><storycode:paste select="#f-900059e12d12-parse_status_line"/><storycode:paste select="#f-900059e12d12-parse_branch_line"/><storycode:paste select="#f-900059e12d12-changes"/><storycode:paste select="#f-900059e12d12-DiffParams"/><storycode:paste select="#f-900059e12d12-diff"/><storycode:paste select="#f-900059e12d12-PathsBody"/><storycode:paste select="#f-900059e12d12-on_repo"/><storycode:paste select="#f-900059e12d12-stage"/><storycode:paste select="#f-900059e12d12-unstage"/><storycode:paste select="#f-900059e12d12-discard"/><storycode:paste select="#f-900059e12d12-CommitBody"/><storycode:paste select="#f-900059e12d12-commit"/><storycode:paste select="#f-900059e12d12-push"/><storycode:paste select="#f-900059e12d12-pull"/><storycode:paste select="#f-900059e12d12-branches"/><storycode:paste select="#f-900059e12d12-CheckoutBody"/><storycode:paste select="#f-900059e12d12-checkout"/><storycode:paste select="#f-900059e12d12-StashBody"/><storycode:paste select="#f-900059e12d12-stash"/><storycode:paste select="#f-900059e12d12-tests"/></storycode:file>
+## Read exact conflict stages independently of editable source
+
+An unresolved index records up to three immutable objects: base at stage 1, stage 2 and stage 3. Keep those Git labels during merge and rebase rather than guessing which branch is local. Read literal NUL-delimited paths, validate full object identities, bound regular text before acquiring blobs, and report binary or special-file stages as unavailable text. Re-read the index after blob acquisition so a changed conflict cannot mix stages. The root-bound fingerprint identifies this observed stage set, not current source bytes or authorization to save a resolution.
+
+<storycode:copy id="git-conflict-observation">
+#[derive(Deserialize)]
+pub struct ConflictParams {
+    pub path: String,
+}
+/// Read Git's exact unmerged stages. Stage 2/3 labels retain Git's semantics,
+/// including during rebase; they are not relabeled as a guessed branch direction.
+fn conflict_snapshot(root: &Path, path: &str) -> ApiResult<Value> {
+    checked_path(path)?;
+    if path.len() > 4096
+        || path
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == ".git")
+        || path.contains('\\')
+    {
+        return Err(ApiError::bad_request(
+            "Choose a literal source path inside the workspace.",
+        ));
+    }
+    if !is_repository(root) {
+        return Err(not_a_repository());
+    }
+    let records = git(
+        root,
+        &["ls-files", "--unmerged", "--stage", "-z", "--", path],
+    )?;
+    if !records.status.success() {
+        return Err(ApiError::unprocessable(
+            "Git could not read the conflict index. Refresh repository changes.",
+        ));
+    }
+    if records.stdout.len() > 16 * 1024 {
+        return Err(ApiError::unprocessable(
+            "Conflict index response is too large. Use Terminal to inspect it.",
+        ));
+    }
+    let mut stages = std::collections::BTreeMap::new();
+    for record in records
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|record| !record.is_empty())
+    {
+        let tab = record
+            .iter()
+            .position(|byte| *byte == b'\t')
+            .ok_or_else(|| ApiError::unprocessable("Malformed Git conflict index."))?;
+        if record[tab + 1..] != *path.as_bytes() {
+            return Err(ApiError::unprocessable(
+                "Git conflict path changed. Open the repository root and refresh.",
+            ));
+        }
+        let header = std::str::from_utf8(&record[..tab])
+            .map_err(|_| ApiError::unprocessable("Malformed Git conflict index."))?;
+        let fields: Vec<_> = header.split(' ').collect();
+        if fields.len() != 3
+            || !matches!(fields[2], "1" | "2" | "3")
+            || !matches!(fields[1].len(), 40 | 64)
+            || !fields[1].bytes().all(|byte| byte.is_ascii_hexdigit())
+            || stages.contains_key(fields[2])
+        {
+            return Err(ApiError::unprocessable(
+                "Ambiguous Git conflict index. Refresh repository changes.",
+            ));
+        }
+        let (mode, oid) = (fields[0], fields[1]);
+        let mut value = json!({"stage":fields[2].parse::<u32>().unwrap(),"mode":mode,"oid":oid,"text":null,"unavailable":null});
+        if !matches!(mode, "100644" | "100755") {
+            value["unavailable"] = json!("This stage is not a regular source file.");
+        } else {
+            let size = git_ok(root, &["cat-file", "-s", oid])?
+                .trim()
+                .parse::<usize>()
+                .map_err(|_| {
+                    ApiError::unprocessable("Git returned an invalid conflict object size.")
+                })?;
+            if size > 2 * 1024 * 1024 {
+                value["unavailable"] = json!("Stage exceeds the 2 MiB text preview limit.");
+            } else {
+                let blob = git(root, &["cat-file", "blob", oid])?;
+                if !blob.status.success() || blob.stdout.len() != size {
+                    return Err(ApiError::unprocessable(
+                        "Git conflict object could not be read completely. Refresh.",
+                    ));
+                }
+                match String::from_utf8(blob.stdout) {
+                    Ok(text) if !text.contains('\0') => value["text"] = json!(text),
+                    _ => {
+                        value["unavailable"] =
+                            json!("Binary or non-UTF-8 stage; use an external merge tool.")
+                    }
+                }
+            }
+        }
+        stages.insert(fields[2].to_string(), value);
+    }
+    if stages.is_empty() {
+        return Err(ApiError::conflict(
+            "This path has no unmerged index stages. Refresh repository changes.",
+        ));
+    }
+    // Re-read the index after object acquisition so one response never mixes stages.
+    let after = git(
+        root,
+        &["ls-files", "--unmerged", "--stage", "-z", "--", path],
+    )?;
+    if !after.status.success() || after.stdout != records.stdout {
+        return Err(ApiError::conflict(
+            "Conflict stages changed while reading. Refresh before choosing a resolution.",
+        ));
+    }
+    let root = root
+        .canonicalize()
+        .map_err(|_| ApiError::unprocessable("Workspace root is unavailable."))?;
+    let fingerprint = super::workspace_fs::view::hash(
+        &serde_json::to_vec(&json!({"root":root,"path":path,"stages":stages}))
+            .map_err(|error| ApiError::internal(error.to_string()))?,
+    );
+    Ok(
+        json!({"version":1,"path":path,"fingerprint":fingerprint,"stages":stages.into_values().collect::<Vec<_>>(),"index_modified":false,"source_files_modified":false}),
+    )
+}
+pub async fn conflict(
+    State(state): State<LocalState>,
+    Query(params): Query<ConflictParams>,
+) -> ApiResult<Json<Value>> {
+    let root = state.index.root().to_path_buf();
+    tokio::task::spawn_blocking(move || conflict_snapshot(&root, &params.path))
+        .await
+        .map_err(|error| {
+            ApiError::internal(format!(
+                "Conflict inspection failed: {error}. Refresh repository changes."
+            ))
+        })?
+        .map(Json)
+}
+</storycode:copy>
+
+## Exercise real unresolved Git stages without writes
+
+Create conflicts in temporary repositories with isolated identity configuration. Read base/current/incoming bytes for a pattern-looking literal filename, check stable observations and unchanged index/working text, then refuse a resolved or unrelated path. Binary blobs remain unavailable instead of becoming lossy replacement text. No external repository or network is touched.
+
+<storycode:copy id="git-conflict-observation-tests">
+#[cfg(test)]
+mod conflict_tests {
+    use super::*;
+    fn fixture(path: &str, base: &[u8], current: &[u8], incoming: &[u8]) -> tempfile::TempDir {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        git_ok(root, &["init", "-b", "main"]).unwrap();
+        git_ok(root, &["config", "user.email", "test@example.invalid"]).unwrap();
+        git_ok(root, &["config", "user.name", "Conflict fixture"]).unwrap();
+        std::fs::write(root.join(path), base).unwrap();
+        git_ok(root, &["add", "--", path]).unwrap();
+        git_ok(root, &["commit", "-m", "base"]).unwrap();
+        git_ok(root, &["checkout", "-b", "incoming"]).unwrap();
+        std::fs::write(root.join(path), incoming).unwrap();
+        git_ok(root, &["commit", "-am", "incoming"]).unwrap();
+        git_ok(root, &["checkout", "main"]).unwrap();
+        std::fs::write(root.join(path), current).unwrap();
+        git_ok(root, &["commit", "-am", "current"]).unwrap();
+        assert!(!git(root, &["merge", "incoming"]).unwrap().status.success());
+        temp
+    }
+    // Contract: .hickory-source/frontends/contract.md — conflict review does not mutate source or index.
+    #[test]
+    fn exact_unmerged_stages_are_literal_immutable_observations() {
+        let path = "literal[ab] name.txt";
+        let temp = fixture(path, b"base\n", b"current\n", b"incoming\n");
+        let root = temp.path();
+        std::fs::write(root.join("literala name.txt"), "unrelated").unwrap();
+        let index = std::fs::read(root.join(".git/index")).unwrap();
+        let working = std::fs::read(root.join(path)).unwrap();
+        let value = conflict_snapshot(root, path).unwrap();
+        assert_eq!(value["path"], path);
+        assert_eq!(value["version"], 1);
+        let stages = value["stages"].as_array().unwrap();
+        assert_eq!(stages.len(), 3);
+        for (stage, text) in [(1, "base\n"), (2, "current\n"), (3, "incoming\n")] {
+            let item = stages.iter().find(|item| item["stage"] == stage).unwrap();
+            assert_eq!(item["text"], text);
+            assert_eq!(item["mode"], "100644");
+            assert!(matches!(item["oid"].as_str().unwrap().len(), 40 | 64));
+        }
+        assert_eq!(value["index_modified"], false);
+        assert_eq!(value["source_files_modified"], false);
+        assert_eq!(std::fs::read(root.join(".git/index")).unwrap(), index);
+        assert_eq!(std::fs::read(root.join(path)).unwrap(), working);
+        assert_eq!(
+            conflict_snapshot(root, path).unwrap()["fingerprint"],
+            value["fingerprint"]
+        );
+        assert!(conflict_snapshot(root, "literala name.txt").is_err());
+        assert!(conflict_snapshot(root, "../outside").is_err());
+        std::fs::write(root.join(path), "resolved\n").unwrap();
+        git_ok(root, &["add", "--", path]).unwrap();
+        assert!(conflict_snapshot(root, path).is_err());
+    }
+    #[test]
+    fn binary_stages_do_not_become_lossy_text_resolutions() {
+        let temp = fixture("binary.txt", b"base\0\n", b"current\0\n", b"incoming\0\n");
+        let value = conflict_snapshot(temp.path(), "binary.txt").unwrap();
+        for stage in value["stages"].as_array().unwrap() {
+            assert!(stage["text"].is_null());
+            assert!(stage["unavailable"].as_str().unwrap().contains("Binary"));
+        }
+    }
+}
+</storycode:copy>
+
+<storycode:file path="crates/hickory-cli/src/serve/git_ops.rs"><storycode:paste select="#f-900059e12d12-git"/><storycode:paste select="#f-900059e12d12-git_ok"/><storycode:paste select="#f-900059e12d12-is_repository"/><storycode:paste select="#f-900059e12d12-not_a_repository"/><storycode:paste select="#f-900059e12d12-checked_path"/><storycode:paste select="#f-900059e12d12-paths_of"/><storycode:paste select="#f-900059e12d12-parse_status_line"/><storycode:paste select="#f-900059e12d12-parse_branch_line"/><storycode:paste select="#f-900059e12d12-changes"/><storycode:paste select="#f-900059e12d12-DiffParams"/><storycode:paste select="#f-900059e12d12-diff"/><storycode:paste select="#f-900059e12d12-PathsBody"/><storycode:paste select="#f-900059e12d12-on_repo"/><storycode:paste select="#f-900059e12d12-stage"/><storycode:paste select="#f-900059e12d12-unstage"/><storycode:paste select="#f-900059e12d12-discard"/><storycode:paste select="#f-900059e12d12-CommitBody"/><storycode:paste select="#f-900059e12d12-commit"/><storycode:paste select="#f-900059e12d12-push"/><storycode:paste select="#f-900059e12d12-pull"/><storycode:paste select="#f-900059e12d12-branches"/><storycode:paste select="#f-900059e12d12-CheckoutBody"/><storycode:paste select="#f-900059e12d12-checkout"/><storycode:paste select="#f-900059e12d12-StashBody"/><storycode:paste select="#f-900059e12d12-stash"/><storycode:paste select="#f-900059e12d12-tests"/><storycode:paste select="#git-conflict-observation"/><storycode:paste select="#git-conflict-observation-tests"/></storycode:file>
 
 ## Implementation review
 

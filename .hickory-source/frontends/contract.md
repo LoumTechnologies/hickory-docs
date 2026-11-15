@@ -608,3 +608,23 @@ and the iOS simulator build pass. This establishes this explicit cleanup profile
 semantic cleanup profiles, the template/code-generation catalog and the rest of
 the parity requirements remain required. Physical native input/accessibility
 acceptance is not established by these model tests and build.
+
+## Inspect immutable conflict stages inside repository review
+
+Every simple UI offers Inspect conflict stages inside the selected file’s
+existing repository review. Stage 1 is the base; stages 2 and 3 keep Git’s labels,
+including during rebase. Exact immutable object names and file modes accompany
+paged text. Missing, binary, oversized and special-file stages are not invented
+as empty editable text. Inspection changes neither working source nor index.
+These stage observations are separate from dirty editor drafts.
+
+Focused evidence (2026-11-15): two real-Git backend cases pass for literal
+pattern-looking paths, exact stages, stable fingerprints, binary refusal and
+unchanged index/working text. Two focused cases on each UI host cover held,
+closed and byte-distinct foreign replies and malformed stage availability. The
+real-engine browser witness displays all three actual merge stages while
+retaining dirty source, editor identity/dimensions and undo/redo; HEAD, index and
+saved bytes remain unchanged. TypeScript checking and the iOS simulator build
+pass. This is conflict inspection: applying a reviewed resolution with guarded
+source and index authority remains required work. Native physical input and
+accessibility acceptance remain unverified.

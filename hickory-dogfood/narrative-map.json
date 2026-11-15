@@ -153684,6 +153684,69 @@
       "page": ".hickory-source/frontends/workspace-changes-apple.md",
       "symbol": "Decode cleanup into the existing workspace edit model",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "git-conflict-observation",
+      "output": "crates/hickory-cli/src/serve/git_ops.rs",
+      "page": ".hickory-source/guarantees/collaboration/the-git-pane-does-the-daily-loop/contract.md",
+      "symbol": "Read exact conflict stages independently of editable source",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-conflict-observation-tests",
+      "output": "crates/hickory-cli/src/serve/git_ops.rs",
+      "page": ".hickory-source/guarantees/collaboration/the-git-pane-does-the-daily-loop/contract.md",
+      "symbol": "Exercise real unresolved Git stages without writes",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-conflict-browser",
+      "output": "apps/web/src/simple/GitConflict.tsx",
+      "page": ".hickory-source/frontends/git-conflict-browser.md",
+      "symbol": "git-conflict-browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-conflict-apple",
+      "output": "apps/apple-simple/Sources/GitConflict.swift",
+      "page": ".hickory-source/frontends/git-conflict-apple.md",
+      "symbol": "git-conflict-apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-conflict-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/GitConflict.kt",
+      "page": ".hickory-source/frontends/git-conflict-android.md",
+      "symbol": "git-conflict-android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-conflict-browser-tests",
+      "output": "apps/web/src/simple/GitConflict.test.ts",
+      "page": ".hickory-source/frontends/git-conflict-browser.md",
+      "symbol": "Retire stale conflict observations",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-conflict-apple-tests",
+      "output": "apps/apple-simple/Tests/GitConflictTests.swift",
+      "page": ".hickory-source/frontends/git-conflict-apple.md",
+      "symbol": "Retire stale conflict observations",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-conflict-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/GitConflictTest.kt",
+      "page": ".hickory-source/frontends/git-conflict-android.md",
+      "symbol": "Retire stale conflict observations",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-conflict-real-browser",
+      "output": "scripts/test-simple-conflict-browser.py",
+      "page": ".hickory-source/frontends/git-conflict-browser.md",
+      "symbol": "Read actual conflict stages beside a retained draft",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

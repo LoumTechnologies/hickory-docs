@@ -53419,7 +53419,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-900059e12d12-checkout",
         "f-900059e12d12-StashBody",
         "f-900059e12d12-stash",
-        "f-900059e12d12-tests"
+        "f-900059e12d12-tests",
+        "git-conflict-observation",
+        "git-conflict-observation-tests"
       ],
       "anchor": "output-900059e12d12",
       "narrative_owner": "collaboration/the-git-pane-does-the-daily-loop.md"
@@ -70499,6 +70501,83 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "source-cleanup-browser-witness"
+      ]
+    },
+    "apps/web/src/simple/GitConflict.tsx": {
+      "source": ".hickory-source/frontends/git-conflict-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "68c78460625e56a50e9578359f6a9f15faf08c3368df375d6daa9f34f50a66c4",
+      "construction": "fragments",
+      "fragments": [
+        "git-conflict-browser"
+      ]
+    },
+    "apps/apple-simple/Sources/GitConflict.swift": {
+      "source": ".hickory-source/frontends/git-conflict-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "efa8bd1c4339fcf94ac4c0491c47b7097d0b9a25b9eeb966a4bb7e839aeb59c2",
+      "construction": "fragments",
+      "fragments": [
+        "git-conflict-apple"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/GitConflict.kt": {
+      "source": ".hickory-source/frontends/git-conflict-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "f7397c096aa5c45c52faf98f1ab4574c7c442de87ea91ac08cc2ba914d6e632b",
+      "construction": "fragments",
+      "fragments": [
+        "git-conflict-android"
+      ]
+    },
+    "apps/web/src/simple/GitConflict.test.ts": {
+      "source": ".hickory-source/frontends/git-conflict-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "git-conflict-browser-tests"
+      ]
+    },
+    "apps/apple-simple/Tests/GitConflictTests.swift": {
+      "source": ".hickory-source/frontends/git-conflict-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "git-conflict-apple-tests"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/GitConflictTest.kt": {
+      "source": ".hickory-source/frontends/git-conflict-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "git-conflict-android-tests"
+      ]
+    },
+    "scripts/test-simple-conflict-browser.py": {
+      "source": ".hickory-source/frontends/git-conflict-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "git-conflict-real-browser"
       ]
     }
   },

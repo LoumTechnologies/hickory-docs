@@ -216,4 +216,10 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="source-cleanup-acceptance.md" />
 
+<ui:include file="git-conflict-browser.md" />
+
+<ui:include file="git-conflict-apple.md" />
+
+<ui:include file="git-conflict-android.md" />
+
 </ui:doc>

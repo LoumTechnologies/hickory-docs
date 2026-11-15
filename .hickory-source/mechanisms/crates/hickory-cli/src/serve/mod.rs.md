@@ -1288,6 +1288,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/v1/outputs/regenerate", post(api::regenerate_output))
         .route("/git/changes", get(git_ops::changes))
         .route("/git/diff", get(git_ops::diff))
+        .route("/git/conflict", get(git_ops::conflict))
         .route("/git/stage", post(git_ops::stage))
         .route("/git/unstage", post(git_ops::unstage))
         .route("/git/discard", post(git_ops::discard))
