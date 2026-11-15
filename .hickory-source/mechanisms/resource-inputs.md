@@ -1426,7 +1426,16 @@ def main():
    note_proposal={"inputs":note_inputs,"capture":note_capture,"plan":note_plan};note_facts=call("changes/resource-consequences",note_proposal)
    note_result=call("changes/resource-save",{"request_id":"4"*32,"reviewed_fingerprint":note_facts["fingerprint"],"proposal":note_proposal})
    assert note_result["outcome"]["complete"] and not (root/"note.md").exists() and (root/"moved-note.md").read_text()==note,note_result
-   print("PASS: actual resource acquisition, planning and candidate ownership; explicit guarded save of a moved dirty draft, retained saved/draft recovery, duplicate/status identity, changed-request refusal, stale-source and generated-destination refusal, authored document retirement/move")
+   root_edit={"documentChanges":[{"kind":"rename","oldUri":"hick:///project.md","newUri":"hick:///moved-project.md"}]}
+   root_capture={"context":"canonical-entry-save-guard","edit":root_edit};root_inputs=call("changes/resource-inputs",root_capture)
+   root_plan=call("changes/plan-resources",{"context":root_capture["context"],"title":"Move canonical entry","edit":root_edit,"sources":root_inputs["sources"]})["plan"]
+   root_proposal={"inputs":root_inputs,"capture":root_capture,"plan":root_plan};root_facts=call("changes/resource-consequences",root_proposal)
+   root_records=set(records.iterdir())
+   try:call("changes/resource-save",{"request_id":"5"*32,"reviewed_fingerprint":root_facts["fingerprint"],"proposal":root_proposal})
+   except urllib.error.HTTPError as error:assert error.code==409 and "canonical project.md" in error.read().decode()
+   else:raise AssertionError("Resource save silently removed canonical entry ownership")
+   assert (root/"project.md").read_text()==entry and not (root/"moved-project.md").exists() and set(records.iterdir())==root_records
+   print("PASS: actual resource acquisition, planning and candidate ownership; explicit guarded save of a moved dirty draft, retained saved/draft recovery, duplicate/status identity, changed-request refusal, stale-source and generated-destination refusal, authored document retirement/move, canonical-entry ownership guard")
   finally:
    if engine:fixture.stop(engine)
 if __name__=="__main__":main()

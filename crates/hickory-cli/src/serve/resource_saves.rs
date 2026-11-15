@@ -171,6 +171,17 @@ async fn execute(state: LocalState, request: Request) -> Result<Value, String> {
     tokio::task::spawn_blocking(move || {
         let root = state.index.root();
         let paths: BTreeSet<_> = manifest.before.keys().cloned().collect();
+        // The default entry is still address-bound. Do not silently lose its
+        // ownership scope before an explicit workspace-entry transition exists.
+        if request.proposal.inputs.ownership.protected_entries.iter().any(|entry| entry == "project.md") {
+            for patch in &manifest.reviewed_plan.patches {
+                if matches!(patch.after, super::resource_changes::SourceState::Missing { .. })
+                    && same_file::is_same_file(root.join(&patch.path), root.join("project.md")).unwrap_or(false)
+                {
+                    return Err("The canonical project.md entry or its physical alias cannot be moved or deleted by a resource save yet. Keep that entry in place and move its source members instead.".into());
+                }
+            }
+        }
         dependency_budget(root, &facts.checked_saved_sources, &paths)?;
         let claims = super::api::generated_outputs(root, &state.index);
         for path in &paths {

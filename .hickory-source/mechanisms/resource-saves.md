@@ -148,6 +148,12 @@ fn room_write(
 }
 </ui:copy>
 
+The current default construction entry is address-bound to `project.md`. Until an
+explicit workspace-entry transition is implemented, save refuses to remove or
+move that entry or a physical alias. A successful file move must not silently
+remove main-project ownership from subsequent requests. Read-only construction
+analysis can still describe such a hypothetical move; it is not save permission.
+
 ### Recompute the reviewed consequences before publishing
 
 Repeat candidate saved/draft construction analysis and exact source acquisition. Refuse changed fingerprints, newly generated targets and positive static output claims from other visible documents. Check non-target compiler dependencies before every path, with a bounded cumulative IO budget. Candidate target source changes are this plan’s own transitions; final saved states are reobserved before confirming the result. This remains selected/main compiler scope with additional static claims, not discovery of every hidden construction in the workspace.
@@ -206,6 +212,17 @@ async fn execute(state: LocalState, request: Request) -> Result<Value, String> {
     tokio::task::spawn_blocking(move || {
         let root = state.index.root();
         let paths: BTreeSet<_> = manifest.before.keys().cloned().collect();
+        // The default entry is still address-bound. Do not silently lose its
+        // ownership scope before an explicit workspace-entry transition exists.
+        if request.proposal.inputs.ownership.protected_entries.iter().any(|entry| entry == "project.md") {
+            for patch in &manifest.reviewed_plan.patches {
+                if matches!(patch.after, super::resource_changes::SourceState::Missing { .. })
+                    && same_file::is_same_file(root.join(&patch.path), root.join("project.md")).unwrap_or(false)
+                {
+                    return Err("The canonical project.md entry or its physical alias cannot be moved or deleted by a resource save yet. Keep that entry in place and move its source members instead.".into());
+                }
+            }
+        }
         dependency_budget(root, &facts.checked_saved_sources, &paths)?;
         let claims = super::api::generated_outputs(root, &state.index);
         for path in &paths {

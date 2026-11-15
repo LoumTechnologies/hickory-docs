@@ -789,4 +789,15 @@ and complete receipt sets, retained dirty drafts, independent current source,
 unknown/oversized records, changed fingerprints and Unix symlink refusal. A
 recovery endpoint, review UI and coordinated saved/draft restore remain required.
 
+## Keep canonical entry ownership stable during resource saves
+
+The default main construction remains address-bound to `project.md`. Until a
+workspace-entry transition is implemented, resource save refuses to move/delete
+that entry or a physical alias when it is the protected canonical construction.
+Read-only consequences may describe a hypothetical entry move; they do not grant
+save permission. The rebuilt real-engine witness confirms this refusal leaves
+both source and the recovery record inventory unchanged, while ordinary dirty
+source and authored-document moves continue to pass. Explicit workspace-entry
+changes remain outstanding.
+
 </ui:doc>
