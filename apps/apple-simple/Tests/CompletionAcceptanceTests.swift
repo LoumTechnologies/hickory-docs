@@ -22,6 +22,22 @@ import AppKit
         XCTAssertEqual(buffer.text,"external");XCTAssertEqual(editor.text.string,"external");XCTAssertTrue(service.completionNotice.contains("history retired"));XCTAssertFalse(editor.text.undoManager?.canUndo ?? false)
         #endif
     }
+    func testActualMacSnippetSelectionAndImportsUndoTogether()async throws {
+        #if os(macOS)
+        let apps=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let vectors=try JSONSerialization.jsonObject(with:Data(contentsOf:apps.appendingPathComponent("simple-contract/snippet-expansion-cases.json"))) as! [String:Any]
+        let resolved=(vectors["cases"] as! [[String:Any]])[0]["item"] as! [String:Any]
+        let source="va",file=FileNode(name:"a.py",path:"a.py",dir:false),buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"va",hash:"base"))
+        let service=NativeLanguage(engine:try Engine(address:"http://fixture.invalid"),buffer:buffer);buffer.language=service
+        let editor=MacEditor(buffer),window=NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false);window.contentView=editor.scroll
+        defer{service.close();window.contentView=nil}
+        editor.text.setSelectedRange(NSRange(location:2,length:0));buffer.selection=editor.text.selectedRange()
+        let item=NativeCompletion(id:1,label:file.name,detail:"",range:NSRange(location:0,length:2),insert:"",source:source,selection:buffer.selection,original:resolved)
+        let accepted=await service.accept(item,resolution:{_ in resolved});XCTAssertTrue(accepted)
+        XCTAssertEqual(buffer.text,"#\n😀 + 😀");XCTAssertEqual(editor.text.selectedRange(),NSRange(location:2,length:2));XCTAssertEqual(buffer.base,source)
+        editor.text.undoManager?.undo();XCTAssertEqual(buffer.text,source);editor.text.undoManager?.redo();XCTAssertEqual(editor.text.selectedRange(),NSRange(location:2,length:2))
+        #endif
+    }
     func testNewerChoiceAndDismissalRetireHeldResolutionWithoutOverwritingSource()async throws {
         let source="va\n",buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"va\n",hash:"base"))
         let service=NativeLanguage(engine:try Engine(address:"http://fixture.invalid"),buffer:buffer);buffer.language=service;buffer.selection=NSRange(location:2,length:0);defer{service.close()}

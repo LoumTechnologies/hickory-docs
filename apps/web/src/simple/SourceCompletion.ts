@@ -7,6 +7,7 @@ import {lspCompletion} from '../lsp/completion';
 import {beginCompletionAcceptance} from '../lsp/completionAcceptance';
 import {prepareEditorChanges} from '../editor/textInput';
 import {planCompletion} from './CompletionPlan';
+import {completionExpansion} from './SnippetExpansion';
 export interface SourceCompletionAdapter {
  uri:string;resolve:(item:CompletionItem)=>Promise<CompletionItem>;current:()=>boolean;writable:()=>boolean;notice:(text:string)=>void;
 }
@@ -32,13 +33,16 @@ export async function acceptSourceCompletion(view:EditorView,item:CompletionItem
   if(!request.current()||request.cancelled())return;
   if(view.composing)throw new Error('Finish composition, then request completions again.');
   if(!valid())throw new Error('Source, cursor or provider changed. Request completions again.');
-  const draft=planCompletion(adapter.uri,resolved,{text:source,writable:adapter.writable()},from,to);
+  const draft=planCompletion(adapter.uri,resolved,{text:source,writable:adapter.writable()},from,to,completionExpansion(resolved));
   const patch=draft.plan.patches[0],after=patch?.after??source,changes=(patch?.edits??[]).map(edit=>({from:edit.from,to:edit.to,insert:edit.text}));
   const input=prepareEditorChanges(source,changes);if('reason' in input)throw new Error(input.reason);
   if(!valid())throw new Error('Source, cursor or provider changed. Request completions again.');
   const transaction=view.state.update({changes,selection:{anchor:draft.selection.from,head:draft.selection.to},annotations:[isolateHistory.of('full'),...(completion?[pickedCompletion.of(completion)]:[])],userEvent:'input.complete',filter:false});
   if(transaction.newDoc.toString()!==after)throw new Error('Editor could not prepare the complete completion. Request again.');
-  expectedAfter=after;request.update({phase:'applying'});view.update([transaction]);
+  // CodeMirror records the redo selection from a following selection event;
+  // otherwise it maps the old caret through the replacement and loses fields.
+  const retainedSelection=transaction.docChanged?transaction.state.update({selection:transaction.newSelection,userEvent:'select.complete',filter:false}):null;
+  expectedAfter=after;request.update({phase:'applying'});view.update(retainedSelection?[transaction,retainedSelection]:[transaction]);
   const applied=view.state.doc.toString()===after;
   request.update({phase:applied?'applied':'unavailable',applied,source_changed:applied&&transaction.docChanged,message:applied?'Completion applied to draft.':'Editor could not reflect the complete completion. Inspect the current draft.'});
   report(applied?(transaction.docChanged?'Completion applied · draft':'Completion selected'):'Editor could not reflect the complete completion. Inspect the current draft.');

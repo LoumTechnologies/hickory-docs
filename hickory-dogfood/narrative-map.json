@@ -152949,6 +152949,62 @@
       "page": ".hickory-source/mechanisms/crates/hick-lsp/src/lib.rs.md",
       "symbol": "Share snippet plans",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-expansion-browser",
+      "output": "apps/web/src/simple/SnippetExpansion.ts",
+      "page": ".hickory-source/mechanisms/snippet-completion-bridge.md",
+      "symbol": "Validate browser snippet fields",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-expansion-apple",
+      "output": "apps/apple-simple/Sources/SnippetExpansion.swift",
+      "page": ".hickory-source/mechanisms/snippet-completion-bridge.md",
+      "symbol": "Validate Apple snippet fields",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-expansion-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SnippetExpansion.kt",
+      "page": ".hickory-source/mechanisms/snippet-completion-bridge.md",
+      "symbol": "Validate Android snippet fields",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "completion-provider-snippet-wire",
+      "output": "crates/hick-lsp/src/backend/completions.rs",
+      "page": ".hickory-source/mechanisms/provider-completion-artifacts.md",
+      "symbol": "Expand only the resolved authored snippet",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-expansion-shared-vectors",
+      "output": "apps/simple-contract/snippet-expansion-cases.json",
+      "page": ".hickory-source/mechanisms/snippet-completion-bridge.md",
+      "symbol": "Specify authoritative wire and import outcomes",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-expansion-browser-tests",
+      "output": "apps/web/src/simple/SnippetExpansion.test.ts",
+      "page": ".hickory-source/mechanisms/snippet-completion-bridge.md",
+      "symbol": "Run browser expansion vectors",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-expansion-apple-tests",
+      "output": "apps/apple-simple/Tests/SnippetExpansionTests.swift",
+      "page": ".hickory-source/mechanisms/snippet-completion-bridge.md",
+      "symbol": "Run Apple expansion vectors",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-expansion-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SnippetExpansionTest.kt",
+      "page": ".hickory-source/mechanisms/snippet-completion-bridge.md",
+      "symbol": "Run Android expansion vectors",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

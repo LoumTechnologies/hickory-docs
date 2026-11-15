@@ -32,7 +32,7 @@ export function beginCompletionAcceptance(view:EditorView,notice:(message:string
 
 ## Prepare and commit one complete browser transaction
 
-An optional source-editor adapter retains the actual native choice and query selection, resolves through its producing client and rechecks attachment, source, selection, provider, permissions, saving and composition before planning. This bridge currently requires one caret; multiple-carets are retained and refused until independently captured proposals can be combined. The whole source/import plan passes the shared input guard and transaction preparation before one synchronous commit with isolated undo. Guarded no-op selection is supported; a late or replaced job cannot write source or overwrite a newer status.
+An optional source-editor adapter retains the actual native choice and query selection, resolves through its producing client and rechecks attachment, source, selection, provider, permissions, saving and composition before planning. This bridge currently requires one caret; multiple-carets are retained and refused until independently captured proposals can be combined. The whole source/import plan passes the shared input guard and transaction preparation before one synchronous update with isolated undo. A following selection-only transaction in that same update records the final selection for CodeMirror redo; it adds no second document edit or separate undo step. Guarded no-op selection is supported; a late or replaced job cannot write source or overwrite a newer status.
 
 <ui:copy id="completion-acceptance-browser">
 import {isolateHistory} from '@codemirror/commands';
@@ -44,6 +44,7 @@ import {lspCompletion} from '../lsp/completion';
 import {beginCompletionAcceptance} from '../lsp/completionAcceptance';
 import {prepareEditorChanges} from '../editor/textInput';
 import {planCompletion} from './CompletionPlan';
+import {completionExpansion} from './SnippetExpansion';
 export interface SourceCompletionAdapter {
  uri:string;resolve:(item:CompletionItem)=>Promise<CompletionItem>;current:()=>boolean;writable:()=>boolean;notice:(text:string)=>void;
 }
@@ -69,13 +70,16 @@ export async function acceptSourceCompletion(view:EditorView,item:CompletionItem
   if(!request.current()||request.cancelled())return;
   if(view.composing)throw new Error('Finish composition, then request completions again.');
   if(!valid())throw new Error('Source, cursor or provider changed. Request completions again.');
-  const draft=planCompletion(adapter.uri,resolved,{text:source,writable:adapter.writable()},from,to);
+  const draft=planCompletion(adapter.uri,resolved,{text:source,writable:adapter.writable()},from,to,completionExpansion(resolved));
   const patch=draft.plan.patches[0],after=patch?.after??source,changes=(patch?.edits??[]).map(edit=>({from:edit.from,to:edit.to,insert:edit.text}));
   const input=prepareEditorChanges(source,changes);if('reason' in input)throw new Error(input.reason);
   if(!valid())throw new Error('Source, cursor or provider changed. Request completions again.');
   const transaction=view.state.update({changes,selection:{anchor:draft.selection.from,head:draft.selection.to},annotations:[isolateHistory.of('full'),...(completion?[pickedCompletion.of(completion)]:[])],userEvent:'input.complete',filter:false});
   if(transaction.newDoc.toString()!==after)throw new Error('Editor could not prepare the complete completion. Request again.');
-  expectedAfter=after;request.update({phase:'applying'});view.update([transaction]);
+  // CodeMirror records the redo selection from a following selection event;
+  // otherwise it maps the old caret through the replacement and loses fields.
+  const retainedSelection=transaction.docChanged?transaction.state.update({selection:transaction.newSelection,userEvent:'select.complete',filter:false}):null;
+  expectedAfter=after;request.update({phase:'applying'});view.update(retainedSelection?[transaction,retainedSelection]:[transaction]);
   const applied=view.state.doc.toString()===after;
   request.update({phase:applied?'applied':'unavailable',applied,source_changed:applied&&transaction.docChanged,message:applied?'Completion applied to draft.':'Editor could not reflect the complete completion. Inspect the current draft.'});
   report(applied?(transaction.docChanged?'Completion applied · draft':'Completion selected'):'Editor could not reflect the complete completion. Inspect the current draft.');
@@ -97,6 +101,7 @@ import {history,undo,redo} from '@codemirror/commands';
 import {acceptSourceCompletion,type SourceCompletionAdapter} from './SourceCompletion';
 import {readCompletionAcceptance,waitCompletionAcceptance,cancelCompletionAcceptance,withCompletionAcceptanceSignal} from '../lsp/completionAcceptance';
 import type {CompletionItem} from '../lsp/client';
+import snippetVectors from '../../../simple-contract/snippet-expansion-cases.json';
 function held(){let resolve!:(value:CompletionItem)=>void;const promise=new Promise<CompletionItem>(done=>{resolve=done;});return {promise,resolve};}
 function fixture(){const parent=document.body.appendChild(document.createElement('div'));const view=new EditorView({state:EditorState.create({doc:'va\n',selection:{anchor:2},extensions:history()}),parent});return {view,close:()=>{view.destroy();parent.remove();}};}
 const raw={label:'value',data:{hickory_completion:'held'}};
@@ -106,6 +111,15 @@ it('waits for the whole resolved import edit, commits one undo and maps the care
  try{const work=acceptSourceCompletion(view,raw,'va\n',view.state.selection,0,2,{uri:'hick:///a.py',resolve:()=>pending.promise,current:()=>true,writable:()=>true,notice:value=>notices.push(value)});
   const before=readCompletionAcceptance(view)!;const finished=waitCompletionAcceptance(view,before.job);expect(before.phase).toBe('resolving');expect(view.state.doc.toString()).toBe('va\n');pending.resolve(resolved());await work;
   expect((await finished).phase).toBe('applied');expect(view.state.doc.toString()).toBe('# import\nvalue\n');expect(view.state.selection.main.head).toBe(14);expect(notices.at(-1)).toContain('draft');expect(undo(view)).toBe(true);expect(view.state.doc.toString()).toBe('va\n');expect(redo(view)).toBe(true);expect(view.state.doc.toString()).toBe('# import\nvalue\n');
+ }finally{close();}
+});
+it('restores snippet field selection with complete imports on redo',async()=>{
+ const {view,close}=fixture();try{
+  const resolved=snippetVectors.cases[0].item as CompletionItem;
+  await acceptSourceCompletion(view,raw,'va\n',view.state.selection,0,2,{uri:'hick:///a.py',resolve:async()=>resolved,current:()=>true,writable:()=>true,notice:()=>{}});
+  expect(view.state.doc.toString()).toBe('#\n😀 + 😀\n');expect(view.state.selection.main.anchor).toBe(2);expect(view.state.selection.main.head).toBe(4);
+  expect(undo(view)).toBe(true);expect(view.state.doc.toString()).toBe('va\n');expect(redo(view)).toBe(true);
+  expect(view.state.doc.toString()).toBe('#\n😀 + 😀\n');expect(view.state.selection.main.anchor).toBe(2);expect(view.state.selection.main.head).toBe(4);
  }finally{close();}
 });
 it('a newer choice owns the result and late older replies cannot overwrite it',async()=>{
@@ -201,6 +215,22 @@ import AppKit
         XCTAssertEqual(buffer.text,"external");XCTAssertEqual(editor.text.string,"external");XCTAssertTrue(service.completionNotice.contains("history retired"));XCTAssertFalse(editor.text.undoManager?.canUndo ?? false)
         #endif
     }
+    func testActualMacSnippetSelectionAndImportsUndoTogether()async throws {
+        #if os(macOS)
+        let apps=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let vectors=try JSONSerialization.jsonObject(with:Data(contentsOf:apps.appendingPathComponent("simple-contract/snippet-expansion-cases.json"))) as! [String:Any]
+        let resolved=(vectors["cases"] as! [[String:Any]])[0]["item"] as! [String:Any]
+        let source="va",file=FileNode(name:"a.py",path:"a.py",dir:false),buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"va",hash:"base"))
+        let service=NativeLanguage(engine:try Engine(address:"http://fixture.invalid"),buffer:buffer);buffer.language=service
+        let editor=MacEditor(buffer),window=NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false);window.contentView=editor.scroll
+        defer{service.close();window.contentView=nil}
+        editor.text.setSelectedRange(NSRange(location:2,length:0));buffer.selection=editor.text.selectedRange()
+        let item=NativeCompletion(id:1,label:file.name,detail:"",range:NSRange(location:0,length:2),insert:"",source:source,selection:buffer.selection,original:resolved)
+        let accepted=await service.accept(item,resolution:{_ in resolved});XCTAssertTrue(accepted)
+        XCTAssertEqual(buffer.text,"#\n😀 + 😀");XCTAssertEqual(editor.text.selectedRange(),NSRange(location:2,length:2));XCTAssertEqual(buffer.base,source)
+        editor.text.undoManager?.undo();XCTAssertEqual(buffer.text,source);editor.text.undoManager?.redo();XCTAssertEqual(editor.text.selectedRange(),NSRange(location:2,length:2))
+        #endif
+    }
     func testNewerChoiceAndDismissalRetireHeldResolutionWithoutOverwritingSource()async throws {
         let source="va\n",buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"va\n",hash:"base"))
         let service=NativeLanguage(engine:try Engine(address:"http://fixture.invalid"),buffer:buffer);buffer.language=service;buffer.selection=NSRange(location:2,length:0);defer{service.close()}
@@ -250,6 +280,15 @@ class CompletionAcceptanceTest {
    buffer.state.undoState.undo();assertEquals(source,buffer.text);buffer.state.undoState.redo();assertEquals("longheader\nvalue\n",buffer.text);assertEquals(16,buffer.state.selection.start)
   }finally{service.close()}
  }
+ @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+ @Test fun snippetFieldsAndImportsAreOneUndo()=runBlocking {
+  val source="va";val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"));val service=NativeLanguage(Engine("http://127.0.0.1:1"),buffer,this);buffer.language=service;buffer.state.edit{selection=TextRange(2)}
+  val resolved=JSONObject(javaClass.classLoader!!.getResource("snippet-expansion-cases.json")!!.readText()).getJSONArray("cases").getJSONObject(0).getJSONObject("item")
+  try{val item=NativeLanguageCompletion("snippet","",NativeSourceEdit(0,2,""),source,buffer.state.selection,resolved)
+   assertTrue(service.accept(item){resolved});assertEquals("#\n😀 + 😀",buffer.text);assertEquals(TextRange(2,4),buffer.state.selection);assertEquals(source,buffer.base)
+   buffer.state.undoState.undo();assertEquals(source,buffer.text);buffer.state.undoState.redo();assertEquals(TextRange(2,4),buffer.state.selection)
+  }finally{service.close()}
+ }
  @Test fun newerChoiceAndDismissalRetireHeldResolution()=runBlocking {
   val source="va\n";val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"));val service=NativeLanguage(Engine("http://127.0.0.1:1"),buffer,this);buffer.language=service;buffer.state.edit{selection=TextRange(2)}
   val held=mutableMapOf<String,CompletableDeferred<JSONObject>>()
@@ -286,7 +325,7 @@ def main():
     spec=importlib.util.spec_from_file_location("simple_fixture",ROOT/"scripts/test-simple-browser.py")
     fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
     with tempfile.TemporaryDirectory(prefix="hickory-source-completion-") as temporary:
-        folder=Path(temporary);root=folder/"workspace";root.mkdir();path="a.py";source="value = 1\n";(root/path).write_text(source);events=folder/"events.jsonl";gate=folder/"release"
+        folder=Path(temporary);root=folder/"workspace";root.mkdir();snippet="--snippet" in sys.argv;path="snippet.py" if snippet else "a.py";source="value = 1\n";(root/path).write_text(source);events=folder/"events.jsonl";gate=folder/"release"
         (root/".hick-lsp.json").write_text(json.dumps({"servers":{"python":{"command":[sys.executable,str(ROOT/"scripts/controlled-action-provider.py"),"python",str(events),str(gate)]}}}))
         environment={**os.environ,"HICKORY_STATE_DIR":str(folder/"state")};processes=[];driver=None
         try:
@@ -301,10 +340,12 @@ def main():
                 assert time.monotonic()<deadline,options;time.sleep(.1)
             assert driver.act("editor-size",path=path)==size;assert driver.act("search-source",path=path)==source
             notice=driver.act("completion-choose",title="python completion");assert "Completion applied" in notice,notice
-            after="python_completed = 1\n# imported\n";assert driver.act("search-source",path=path)==after;assert driver.act("caret-offset",path=path)==16
+            after=("😀 value + 😀 value = 1\n# imported\n" if snippet else "python_completed = 1\n# imported\n");caret=0 if snippet else 16;assert driver.act("search-source",path=path)==after,{"expected":after,"actual":driver.act("search-source",path=path)};assert driver.act("caret-offset",path=path)==caret,{"caret":driver.act("caret-offset",path=path)}
+            if snippet:assert driver.act("selected-source-text",path=path)=="😀 value"
             assert driver.act("editor-is-retained",path=path);assert driver.act("editor-size",path=path)==size;assert (root/path).read_text()==source
             driver.act("undo",path=path);assert driver.act("search-source",path=path)==source
-            driver.act("redo",path=path);assert driver.act("search-source",path=path)==after;assert driver.act("caret-offset",path=path)==16;assert (root/path).read_text()==source
+            driver.act("redo",path=path);assert driver.act("search-source",path=path)==after,{"redo_source":driver.act("search-source",path=path)};assert driver.act("caret-offset",path=path)==caret,{"redo_caret":driver.act("caret-offset",path=path),"selected":driver.act("selected-source-text",path=path)};assert (root/path).read_text()==source
+            if snippet:assert driver.act("selected-source-text",path=path)=="😀 value"
             driver.act("undo",path=path);assert driver.act("search-source",path=path)==source
             options=driver.act("completion-open",path=path,offset=2);assert any("python completion" in value for value in options),options
             driver.act("completion-pick",title="python completion");deadline=time.monotonic()+3
@@ -319,7 +360,7 @@ def main():
                 assert time.monotonic()<deadline,observed;time.sleep(.01)
             driver.act("completion-drain");assert driver.act("search-source",path=path)==source;assert driver.act("editor-is-retained",path=path);assert driver.act("editor-size",path=path)==size;assert (root/path).read_text()==source
             observed=[json.loads(line) for line in events.read_text().splitlines()];assert [item["completion_resolved"] for item in observed if "completion_resolved" in item]==["python","python"],observed
-            print("PASS: native completion popup, actual lazy resolution, primary and import edits, precise caret, one undo/redo, Escape refusal of a held late reply, retained editor geometry and unchanged disk")
+            print("PASS: native completion popup, actual lazy resolution, primary and import edits, "+("expanded snippet and retained first-field selection, " if snippet else "precise caret, ")+"one undo/redo, Escape refusal of a held late reply, retained editor geometry and unchanged disk")
         finally:
             if driver:driver.close()
             for process in reversed(processes):fixture.stop(process)

@@ -523,7 +523,7 @@ func rebaseNativeTokens(_ tokens: [NativeSemanticToken], from old: String, to ne
             let resolved=try await (resolution ?? {try await self.resolveCompletion($0)})(original)
             guard acceptingCompletion==request else{return false}
             guard epoch==identity,buffer.language===self,!buffer.readOnly,!buffer.saving,exactUTF8(buffer.text,completion.source),buffer.selection==completion.selection,!(exactUTF8(buffer.multiSource,buffer.text)&&buffer.multiRanges.count>1) else{throw EngineError(message:"Source, cursor or provider changed. Request completions again.")}
-            let draft=try planCompletion(uri,item:resolved,snapshot:SourceSnapshot(text:completion.source,writable:!buffer.readOnly && !buffer.saving),from:completion.range.location,to:NSMaxRange(completion.range))
+            let draft=try planCompletion(uri,item:resolved,snapshot:SourceSnapshot(text:completion.source,writable:!buffer.readOnly && !buffer.saving),from:completion.range.location,to:NSMaxRange(completion.range),expansion:try completionExpansion(resolved))
             guard exactUTF8(draft.path,buffer.file.path),buffer.applyCompletionDraft?(draft,completion.selection)==true else{throw EngineError(message:"Editor refused the complete completion. Finish composition or request again.")}
             completionPending=false;completionNotice=draft.plan.patches.isEmpty ? "Completion selected":"Completion applied · draft";showingSuggestions=false;return true
         }catch{if acceptingCompletion==request{completionNotice=error.localizedDescription};return false}

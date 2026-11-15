@@ -334,7 +334,11 @@ impl HickBackend {
             .get(&uri_key(held.virtual_uri.as_str()))
             .ok_or_else(|| completion_error("Completion source mapping changed. Request again."))?;
         let mut mapped = map_completion_item(&original, primary, map, &held.origin, held.position)?;
+        let snippet = completion_snippet_data(&mapped, &held.origin, held.position, map)?;
         mapped["data"] = json!({"hickory_completion":token});
+        if let Some(snippet) = snippet {
+            mapped["data"]["hickory_snippet"] = snippet;
+        }
         self.require_provider_revision(&revision).await?;
         serde_json::from_value(mapped)
             .map_err(|_| completion_error("Malformed resolved completion"))
@@ -416,6 +420,119 @@ mod tests {
         backwards["textEdit"] = json!({"insert":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}},"replace":{"start":{"line":0,"character":0},"end":{"line":0,"character":2}},"newText":"replacement"});
         assert!(
             map_completion_item(&backwards, &origin, &map, &origin, Position::new(0, 1)).is_err()
+        );
+    }
+}
+fn completion_snippet_data(
+    item: &Value,
+    origin: &Url,
+    position: Position,
+    map: &PositionMap,
+) -> Result<Option<Value>> {
+    if item.get("insertTextFormat").and_then(Value::as_u64) != Some(2) {
+        return Ok(None);
+    }
+    let syntax = item
+        .get("textEdit")
+        .and_then(|edit| edit.get("newText"))
+        .or_else(|| item.get("insertText"))
+        .or_else(|| item.get("label"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| completion_error("Missing snippet insertion text"))?;
+    let mut variables: std::collections::BTreeMap<String, Option<String>> = [
+        "TM_SELECTED_TEXT",
+        "TM_CURRENT_LINE",
+        "TM_CURRENT_WORD",
+        "TM_LINE_INDEX",
+        "TM_LINE_NUMBER",
+        "TM_FILENAME",
+        "TM_FILENAME_BASE",
+        "TM_DIRECTORY",
+        "TM_FILEPATH",
+        "RELATIVE_FILEPATH",
+        "WORKSPACE_NAME",
+        "WORKSPACE_FOLDER",
+        "CLIPBOARD",
+        "CURRENT_YEAR",
+        "CURRENT_YEAR_SHORT",
+        "CURRENT_MONTH",
+        "CURRENT_MONTH_NAME",
+        "CURRENT_MONTH_NAME_SHORT",
+        "CURRENT_DATE",
+        "CURRENT_DAY_NAME",
+        "CURRENT_DAY_NAME_SHORT",
+        "CURRENT_HOUR",
+        "CURRENT_MINUTE",
+        "CURRENT_SECOND",
+        "CURRENT_SECONDS_UNIX",
+        "CURRENT_TIMEZONE_OFFSET",
+        "RANDOM",
+        "RANDOM_HEX",
+        "UUID",
+        "BLOCK_COMMENT_START",
+        "BLOCK_COMMENT_END",
+        "LINE_COMMENT",
+    ]
+    .into_iter()
+    .map(|name| (name.into(), None))
+    .collect();
+    if let Ok(path) = origin.to_file_path() {
+        for (name, value) in [
+            ("TM_FILEPATH", Some(path.as_path())),
+            ("TM_DIRECTORY", path.parent()),
+        ] {
+            if let Some(value) = value.and_then(|path| path.to_str()) {
+                variables.insert(name.into(), Some(value.into()));
+            }
+        }
+        for (name, value) in [
+            ("TM_FILENAME", path.file_name()),
+            ("TM_FILENAME_BASE", path.file_stem()),
+        ] {
+            if let Some(value) = value.and_then(|value| value.to_str()) {
+                variables.insert(name.into(), Some(value.into()));
+            }
+        }
+    }
+    if let Some((_, range)) = map.source_edit_range(Range::new(position, position)) {
+        variables.insert("TM_LINE_INDEX".into(), Some(range.start.line.to_string()));
+        variables.insert(
+            "TM_LINE_NUMBER".into(),
+            Some((u64::from(range.start.line) + 1).to_string()),
+        );
+    }
+    let plan = crate::snippet::expand_snippet(syntax, &variables).map_err(completion_error)?;
+    Ok(Some(
+        json!({"version":1,"syntax":syntax,"text":plan.text,"fields":plan.fields.into_iter().map(|field|json!({"index":field.index,"from":field.from,"to":field.to,"choices":field.choices})).collect::<Vec<_>>()}),
+    ))
+}
+#[cfg(test)]
+mod snippet_wire_tests {
+    use super::*;
+    #[test]
+    fn resolved_snippet_metadata_uses_authored_coordinates_and_never_provider_metadata() {
+        let item = json!({"label":"function","insertTextFormat":2,"insertText":"${1:😀 value} = $1; ${TM_FILENAME} ${TM_LINE_NUMBER}$0","data":{"hickory_snippet":{"text":"forged"}}});
+        let plan = completion_snippet_data(
+            &item,
+            &Url::parse("file:///work/a%20file.py").unwrap(),
+            Position::new(2, 1),
+            &PositionMap::identity(4),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(plan["text"], "😀 value = 😀 value; a file.py 3");
+        assert_eq!(plan["fields"][0]["to"], 8);
+        assert_eq!(plan["syntax"], item["insertText"]);
+        let unsupported =
+            json!({"label":"unsupported","insertTextFormat":2,"insertText":"${1/x/y/}"});
+        assert!(
+            completion_snippet_data(
+                &unsupported,
+                &Url::parse("file:///a.py").unwrap(),
+                Position::new(0, 0),
+                &PositionMap::identity(4)
+            )
+            .is_err()
         );
     }
 }

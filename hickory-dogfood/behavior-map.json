@@ -69655,7 +69655,8 @@
         "completion-provider-projection",
         "completion-provider-query",
         "completion-provider-resolve",
-        "completion-provider-witness"
+        "completion-provider-witness",
+        "completion-provider-snippet-wire"
       ]
     },
     "scripts/provider-completions-driver.mjs": {
@@ -69856,6 +69857,83 @@
         "snippet-plan-syntax",
         "snippet-plan-render",
         "snippet-plan-witnesses"
+      ]
+    },
+    "apps/web/src/simple/SnippetExpansion.ts": {
+      "source": ".hickory-source/mechanisms/snippet-completion-bridge.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "de5ef1badc8d243ebba9ca1057c6b7cde9801ad25c6aa4938c0958019fe14f36",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-expansion-browser"
+      ]
+    },
+    "apps/apple-simple/Sources/SnippetExpansion.swift": {
+      "source": ".hickory-source/mechanisms/snippet-completion-bridge.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "812fe0856b0197b6df3263ef643febd24791227ccef2f7ecb8e083bb953a7625",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-expansion-apple"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SnippetExpansion.kt": {
+      "source": ".hickory-source/mechanisms/snippet-completion-bridge.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "d63acd5f4aeba98f4bc6da7b01d0624c08486523fe6ac3688e7d9bb0c2620976",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-expansion-android"
+      ]
+    },
+    "apps/simple-contract/snippet-expansion-cases.json": {
+      "source": ".hickory-source/mechanisms/snippet-completion-bridge.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test-fixture",
+      "sha256": "07203041a3baa6f63a4123d9734e6f4161bacdad348f2275bcf2d979e90888f0",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-expansion-shared-vectors"
+      ]
+    },
+    "apps/web/src/simple/SnippetExpansion.test.ts": {
+      "source": ".hickory-source/mechanisms/snippet-completion-bridge.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "86d23dfcb876be41d12aeb31cf9c44b7f57ef63084cbf28133bf303f7d138ef7",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-expansion-browser-tests"
+      ]
+    },
+    "apps/apple-simple/Tests/SnippetExpansionTests.swift": {
+      "source": ".hickory-source/mechanisms/snippet-completion-bridge.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "cb6a39159c1debe2c5e31940e71cb00eea9ed64d55856be2a9c0532e0210b0b5",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-expansion-apple-tests"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SnippetExpansionTest.kt": {
+      "source": ".hickory-source/mechanisms/snippet-completion-bridge.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "996856e181303397b04ec5418e524da733e3bda5a42f19fee9cc71ba1b8542be",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-expansion-android-tests"
       ]
     }
   },

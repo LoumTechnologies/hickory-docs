@@ -65,6 +65,7 @@ Supply list defaults with opaque, Unicode and range-shaped data. A lazy resolver
             event({"error":"altered completion or wrong provider","language":language});send({"jsonrpc":"2.0","id":identity,"error":{"code":-32602,"message":"Original completion payload was not preserved"}});continue
         event({"completion_resolved":language,"slow_completion":params["data"].get("slow",False)})
         result={**params,"textEdit":{**params["textEdit"],"newText":"python_completed"},"additionalTextEdits":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":0}},"newText":"# imported\n"}]}
+        if uri.endswith("/snippet.py"):result.update(insertTextFormat=2,textEdit={**params["textEdit"],"newText":"${1:😀 value} + $1$0"})
         if params["data"].get("slow"):
             def release_completion(identity=identity,result=result):
                 deadline=time.monotonic()+10

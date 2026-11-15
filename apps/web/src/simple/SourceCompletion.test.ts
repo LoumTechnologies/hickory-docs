@@ -5,6 +5,7 @@ import {history,undo,redo} from '@codemirror/commands';
 import {acceptSourceCompletion,type SourceCompletionAdapter} from './SourceCompletion';
 import {readCompletionAcceptance,waitCompletionAcceptance,cancelCompletionAcceptance,withCompletionAcceptanceSignal} from '../lsp/completionAcceptance';
 import type {CompletionItem} from '../lsp/client';
+import snippetVectors from '../../../simple-contract/snippet-expansion-cases.json';
 function held(){let resolve!:(value:CompletionItem)=>void;const promise=new Promise<CompletionItem>(done=>{resolve=done;});return {promise,resolve};}
 function fixture(){const parent=document.body.appendChild(document.createElement('div'));const view=new EditorView({state:EditorState.create({doc:'va\n',selection:{anchor:2},extensions:history()}),parent});return {view,close:()=>{view.destroy();parent.remove();}};}
 const raw={label:'value',data:{hickory_completion:'held'}};
@@ -14,6 +15,15 @@ it('waits for the whole resolved import edit, commits one undo and maps the care
  try{const work=acceptSourceCompletion(view,raw,'va\n',view.state.selection,0,2,{uri:'hick:///a.py',resolve:()=>pending.promise,current:()=>true,writable:()=>true,notice:value=>notices.push(value)});
   const before=readCompletionAcceptance(view)!;const finished=waitCompletionAcceptance(view,before.job);expect(before.phase).toBe('resolving');expect(view.state.doc.toString()).toBe('va\n');pending.resolve(resolved());await work;
   expect((await finished).phase).toBe('applied');expect(view.state.doc.toString()).toBe('# import\nvalue\n');expect(view.state.selection.main.head).toBe(14);expect(notices.at(-1)).toContain('draft');expect(undo(view)).toBe(true);expect(view.state.doc.toString()).toBe('va\n');expect(redo(view)).toBe(true);expect(view.state.doc.toString()).toBe('# import\nvalue\n');
+ }finally{close();}
+});
+it('restores snippet field selection with complete imports on redo',async()=>{
+ const {view,close}=fixture();try{
+  const resolved=snippetVectors.cases[0].item as CompletionItem;
+  await acceptSourceCompletion(view,raw,'va\n',view.state.selection,0,2,{uri:'hick:///a.py',resolve:async()=>resolved,current:()=>true,writable:()=>true,notice:()=>{}});
+  expect(view.state.doc.toString()).toBe('#\n😀 + 😀\n');expect(view.state.selection.main.anchor).toBe(2);expect(view.state.selection.main.head).toBe(4);
+  expect(undo(view)).toBe(true);expect(view.state.doc.toString()).toBe('va\n');expect(redo(view)).toBe(true);
+  expect(view.state.doc.toString()).toBe('#\n😀 + 😀\n');expect(view.state.selection.main.anchor).toBe(2);expect(view.state.selection.main.head).toBe(4);
  }finally{close();}
 });
 it('a newer choice owns the result and late older replies cannot overwrite it',async()=>{

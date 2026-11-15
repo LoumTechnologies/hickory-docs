@@ -1,0 +1,1074 @@
+{
+  "cases": [
+    {
+      "name": "mirrors and exit follow imports in UTF16",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": []
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": []
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": []
+              }
+            ]
+          }
+        }
+      },
+      "expected": {
+        "text": "😀 + 😀",
+        "selection": {
+          "from": 0,
+          "to": 2
+        },
+        "after": "#\n😀 + 😀",
+        "fields": [
+          {
+            "index": 1,
+            "from": 0,
+            "to": 2,
+            "choices": [],
+            "sourceFrom": 2,
+            "sourceTo": 4
+          },
+          {
+            "index": 1,
+            "from": 5,
+            "to": 7,
+            "choices": [],
+            "sourceFrom": 7,
+            "sourceTo": 9
+          },
+          {
+            "index": 0,
+            "from": 7,
+            "to": 7,
+            "choices": [],
+            "sourceFrom": 9,
+            "sourceTo": 9
+          }
+        ]
+      }
+    },
+    {
+      "name": "different exact syntax",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "other",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": []
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": []
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": []
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "boolean version",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": true,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": []
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": []
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": []
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "boolean field index",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": true,
+                "from": 0,
+                "to": 2,
+                "choices": []
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": []
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": []
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "fractional field offset",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 1.5,
+                "choices": []
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": []
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": []
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "split surrogate",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 1,
+                "choices": []
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": []
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": []
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "negative range",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": -1,
+                "to": 2,
+                "choices": []
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": []
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": []
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "outside text",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 100,
+                "choices": []
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": []
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": []
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "backwards range",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 2,
+                "to": 0,
+                "choices": []
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": []
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": []
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "different mirrored text",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + hi",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": []
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": []
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": []
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "different mirrored choices",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": [
+                  "x"
+                ]
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": []
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": []
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "no exit",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": []
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": []
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "repeated exit",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": []
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": []
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": []
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": []
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "nonstring choice",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": [
+                  true
+                ]
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": []
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": []
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "empty fields",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 1,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": []
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "unsupported version",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ],
+        "data": {
+          "hickory_snippet": {
+            "version": 2,
+            "syntax": "${1:😀} + $1$0",
+            "text": "😀 + 😀",
+            "fields": [
+              {
+                "index": 1,
+                "from": 0,
+                "to": 2,
+                "choices": []
+              },
+              {
+                "index": 1,
+                "from": 5,
+                "to": 7,
+                "choices": []
+              },
+              {
+                "index": 0,
+                "from": 7,
+                "to": 7,
+                "choices": []
+              }
+            ]
+          }
+        }
+      },
+      "error": true
+    },
+    {
+      "name": "absent expansion",
+      "item": {
+        "label": "snippet",
+        "insertTextFormat": 2,
+        "textEdit": {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "${1:😀} + $1$0"
+        },
+        "additionalTextEdits": [
+          {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 0
+              }
+            },
+            "newText": "#\n"
+          }
+        ]
+      },
+      "error": true
+    },
+    {
+      "name": "plain item needs no expansion",
+      "item": {
+        "label": "plain",
+        "insertTextFormat": 1
+      },
+      "plain": true
+    }
+  ]
+}

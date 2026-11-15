@@ -1,8 +1,9 @@
 import {planWorkspaceEdit,sourceChangeOffset,type ChangePlan,type SourceReplacement,type SourceSnapshot} from './ChangePlan';
 import {semanticPath} from './Intelligence';
+import type {SnippetField} from './SnippetExpansion';
 import {utf16ToPosition} from '../lsp/positions';
-export interface CompletionExpansion {text:string;selection?:{from:number;to:number}}
-export interface CompletionDraft {path:string;before:string;plan:ChangePlan;insertionFrom:number;selection:{from:number;to:number}}
+export interface CompletionExpansion {text:string;selection?:{from:number;to:number};fields?:SnippetField[]}
+export interface CompletionDraft {path:string;before:string;plan:ChangePlan;insertionFrom:number;selection:{from:number;to:number};fields:SnippetField[]}
 export function completionInsertion(item:unknown):string {
  const value=item as Record<string,unknown>|null;if(!value||typeof value!=='object'||typeof value.label!=='string')throw new Error('Malformed completion');
  const edit=value.textEdit as Record<string,unknown>|undefined;
@@ -34,5 +35,6 @@ export function planCompletion(uri:string,item:unknown,snapshot:SourceSnapshot,f
  const plan=planWorkspaceEdit(`Complete ${String(value.label)}`,{changes:{[uri]:rawEdits}},new Map([[path,snapshot]]),true);
  const delta=others.filter(edit=>edit.from<from).reduce((sum,edit)=>sum+edit.text.length-(edit.to-edit.from),0),insertionFrom=from+delta+prefix.length;
  const selected=inserted.selection??{from:inserted.text.length,to:inserted.text.length};validateOffset(inserted.text,selected.from);validateOffset(inserted.text,selected.to);if(selected.from>selected.to)throw new Error('Completion selection runs backwards');
- return {path,before:source,plan,insertionFrom,selection:{from:insertionFrom+selected.from,to:insertionFrom+selected.to}};
+ const fields=(inserted.fields??[]).map(field=>{validateOffset(inserted.text,field.from);validateOffset(inserted.text,field.to);if(field.from>field.to)throw new Error('Invalid snippet field');return {...field,from:insertionFrom+field.from,to:insertionFrom+field.to};});
+ return {path,before:source,plan,insertionFrom,fields,selection:{from:insertionFrom+selected.from,to:insertionFrom+selected.to}};
 }
