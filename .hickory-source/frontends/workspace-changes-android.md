@@ -9,6 +9,8 @@ Rename discovery acquires previously unopened reference targets through the exis
 
 Provider choices resolve through their captured provider before entering the same complete change-plan preview. A latest-choice ticket and the fixed preparation snapshot reject late answers or a replaced choice list. Disabled actions and complete edit-plus-command results refuse explicitly; resolving never applies an edit portion or saves source. The native view passes the rendered preparation identity so an old row index cannot select a newer list item.
 
+Provider edit discovery uses the same bounded acquisition boundary. Newly loaded targets synchronize before the host re-queries actions at the captured selection and resolves a uniquely matching title and kind. Changed or ambiguous choices refuse instead of selecting an arbitrary replacement. Tokens from the discovering response never authorize the final plan. Original draft snapshots remain fixed; only missing sources are added, and acquisition does not activate tabs.
+
 <ui:copy id="simple-android-workspace-changes">
 package com.hickorydocs.simple
 import androidx.compose.runtime.*
@@ -36,6 +38,8 @@ class WorkspaceChanges {
     val actionSnapshot get()=revision
     private var choiceRevision=0
     private var resolver:suspend (JSONObject)->JSONObject={error("Prepare provider actions first.")}
+    private var acquisition:suspend (String)->SourceSnapshot={error("Prepare provider actions first.")}
+    private var actionQuery:suspend ()->List<JSONObject> = {error("Prepare provider actions first.")}
     private var sources: Map<String,SourceSnapshot> = emptyMap()
     private var current: ()->Boolean = { false }
     private val undo = mutableListOf<ChangePlan>(); private val redo = mutableListOf<ChangePlan>()
@@ -52,7 +56,7 @@ class WorkspaceChanges {
             notice="Workspace $kind applied to ${target.patches.size} drafts. Not saved or verified."
         }.onFailure { notice=it.message.orEmpty() }
     }
-    suspend fun prepare(workspace: Workspace,proposal:(suspend (String,String)->Any)?=null,resolution:(suspend (JSONObject)->JSONObject)?=null) {
+    suspend fun prepare(workspace: Workspace,proposal:(suspend (String,String)->Any)?=null,resolution:(suspend (JSONObject)->JSONObject)?=null,acquisition:(suspend (String)->SourceSnapshot)?=null) {
         val origin = workspace.currentBuffer; val language = origin?.language
         if (origin == null || language == null || origin.readOnly) { notice="Choose writable source with a connected language provider."; return }
         val request=++revision; val source=origin.text; val selection=origin.state.selection; val identity=language.proposalIdentity
@@ -60,14 +64,8 @@ class WorkspaceChanges {
         resolver=resolution ?: {language.resolveProposal(it)}
         val valid=current
         val propose:suspend (String,String)->Any=proposal ?: {kind,value->language.propose(kind,value)}
-        plan=null; choices=emptyList(); referencePaths=emptyList(); notice="Preparing complete source changes…"
-        val kind=mode ?: "actions"; val nextName=name
-        try {
-            if (kind == "rename") {
                 val listed=mutableMapOf<String,FileNode>();fun collect(nodes:List<FileNode>){for(file in nodes){if(!file.dir)listed[file.path]=file;collect(file.children)}};collect(workspace.rootFiles)
-                val acquired=acquireReferenceSources(sources,{
-                    semanticLocations(propose("references","")).map{it.path ?: error("Reference target has no writable workspace source identity. No edits were applied.")}
-                },{path->
+        val load:suspend (String)->SourceSnapshot=acquisition ?: {path->
                     check(valid()){"Source, selection or provider changed. Prepare again."}
                     val file=(workspace.buffers[path]?.file ?: listed[path])?.takeUnless{it.dir} ?: error("Referenced source is no longer listed: $path. Refresh files and prepare again.")
                     val target=workspace.loadBuffer(file);val text=target.text
@@ -75,7 +73,15 @@ class WorkspaceChanges {
                     val service=target.language ?: error("Referenced source cannot synchronize: $path. Retry language services.");service.readOutline(text)
                     check(valid()&&target.text==text){"Source changed while reading $path. Prepare again."}
                     SourceSnapshot(text,!target.readOnly&&!target.saving)
-                },valid)
+                }
+        this.acquisition=load;actionQuery={val actions=propose("actions","") as? JSONArray ?: JSONArray();(0 until actions.length()).mapNotNull{actions.optJSONObject(it)}}
+        plan=null; choices=emptyList(); referencePaths=emptyList(); notice="Preparing complete source changes…"
+        val kind=mode ?: "actions"; val nextName=name
+        try {
+            if (kind == "rename") {
+                val acquired=acquireReferenceSources(sources,{
+                    semanticLocations(propose("references","")).map{it.path ?: error("Reference target has no writable workspace source identity. No edits were applied.")}
+                },load,valid)
                 if(!valid())return;sources=acquired.sources;referencePaths=acquired.references
             }
             val result=propose(kind,nextName)
@@ -96,16 +102,24 @@ class WorkspaceChanges {
     }
     suspend fun choose(index:Int,workspace:Workspace,expectedSnapshot:Int?=null) {
         if(expectedSnapshot!=null&&expectedSnapshot!=revision){notice="Code action choices changed. Prepare actions again.";return}
-        val action=choices.getOrNull(index) ?: return;val request=revision;val choice=++choiceRevision;val valid=current;val resolve=resolver
+        val action=choices.getOrNull(index) ?: return;val request=revision;val choice=++choiceRevision;val valid=current;val resolve=resolver;val load=acquisition;val queryActions=actionQuery;val initialSources=sources
         try {
             check(valid()){"Source, selection or provider changed. Prepare actions again."}
             action.optJSONObject("disabled")?.let{error(it.optString("reason","Provider action disabled"))}
-            plan=null;notice="Resolving complete provider action…";val resolved=resolve(action)
+            plan=null;notice="Resolving complete provider action…";var first:JSONObject?=resolve(action)
+            val acquired=acquireSourceProposal(initialSources,{
+                val resolved=first?.also{first=null} ?: run {
+                    val candidates=queryActions().filter{it.optString("title")==action.optString("title")&&it.optString("kind")==action.optString("kind")}
+                    check(candidates.size==1){"The selected provider action changed or is ambiguous. Prepare actions again."}
+                    resolve(candidates.single())
+                }
+                check(revision==request&&choiceRevision==choice&&valid()){"Source, selection or provider changed. Prepare actions again."}
+                resolved.optJSONObject("disabled")?.let{error(it.optString("reason","Provider action disabled"))}
+                check(resolved.isNull("command")){"This action requires a provider command; its edit has not been applied."}
+                SourceProposal(providerActionPaths(resolved),resolved)
+            },load,{revision==request&&choiceRevision==choice&&valid()})
             if(revision!=request||choiceRevision!=choice)return
-            check(valid()){"Source, selection or provider changed. Prepare actions again."}
-            resolved.optJSONObject("disabled")?.let{error(it.optString("reason","Provider action disabled"))}
-            check(resolved.isNull("command")){"This action requires a provider command; its edit has not been applied."}
-            check(!resolved.isNull("edit")){"This provider action has no source edit to preview. Prepare actions again."}
+            sources=acquired.sources;val resolved=acquired.value
             install(resolved.optString("title","Provider action"),resolved.get("edit"),workspace)
         }catch(cancelled:CancellationException){throw cancelled}catch(error:Exception){if(revision==request&&choiceRevision==choice)notice=error.message.orEmpty()}
     }
@@ -217,6 +231,24 @@ import kotlinx.coroutines.*
 import org.json.JSONObject
 import org.json.JSONArray
 class ActionChoiceTest {
+ @Test fun unopenedActionTargetsAcquireThenRequeryAndRefuseAmbiguousChoices()=runBlocking {
+  val workspace=Workspace(this);val engine=Engine("http://127.0.0.1:1");val file=FileNode("a.py","a.py",false,emptyList(),null,null)
+  val buffer=DocumentBuffer(file,FileText("old\n","base"));buffer.language=NativeLanguage(engine,buffer,this);workspace.buffers[file.path]=buffer;workspace.show(file.path)
+  val changes=workspace.changes;val action=JSONObject().put("title","Fix both").put("kind","quickfix").put("data",JSONObject().put("hickory_action","first"))
+  var queries=0;var resolutions=0;val loads=mutableListOf<String>();var ambiguous=false
+  val propose:suspend (String,String)->Any={_,_->queries++;JSONArray().put(action).also{if(ambiguous&&queries>1)it.put(action)}}
+  val resolve:suspend (JSONObject)->JSONObject={
+   resolutions++;if(resolutions==1)JSONObject().put("title","Fix both").put("data",JSONObject().put("hickory_acquire",JSONArray().put(JSONObject().put("uri",languageURI("other.py"))))) else {val replacement=JSONObject().put("range",JSONObject().put("start",JSONObject().put("line",0).put("character",0)).put("end",JSONObject().put("line",0).put("character",3))).put("newText","new")
+   JSONObject().put("title","Fix both").put("edit",JSONObject().put("changes",JSONObject().put(languageURI("a.py"),JSONArray().put(replacement)).put(languageURI("other.py"),JSONArray().put(replacement))))}
+  }
+  val load:suspend (String)->SourceSnapshot={path->loads.add(path);val target=DocumentBuffer(FileNode(path,path,false,emptyList(),null,null),FileText("old\n","base"));workspace.buffers[path]=target;SourceSnapshot(target.text,true)}
+  changes.open("actions",workspace);changes.prepare(workspace,propose,resolve,load);changes.choose(0,workspace)
+  assertEquals(2,queries);assertEquals(2,resolutions);assertEquals(listOf("other.py"),loads);assertEquals(2,changes.plan?.patches?.size);assertEquals("a.py",workspace.currentBuffer?.file?.path);assertEquals("old\n",buffer.text)
+  workspace.buffers.getValue("other.py").state.edit{replace(0,length,"later\n")};changes.apply(workspace);assertTrue(changes.notice.contains("Source changed"));assertEquals("old\n",buffer.text)
+  workspace.buffers.remove("other.py");queries=0;ambiguous=true
+  changes.open("actions",workspace);changes.prepare(workspace,propose,resolve,load);changes.choose(0,workspace);assertNull(changes.plan);assertTrue(changes.notice.contains("ambiguous"));assertEquals("old\n",buffer.text)
+ }
+
  @Test fun latestChoiceWinsAndOldRowsCannotBorrowNewLists()=runBlocking {
   val workspace=Workspace(this);val engine=Engine("http://127.0.0.1:1");val file=FileNode("a.py","a.py",false,emptyList(),null,null)
   val buffer=DocumentBuffer(file,FileText("old\n","base"));buffer.language=NativeLanguage(engine,buffer,this);workspace.buffers[file.path]=buffer;workspace.show(file.path)

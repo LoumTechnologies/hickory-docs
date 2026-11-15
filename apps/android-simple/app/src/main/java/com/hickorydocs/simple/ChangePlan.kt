@@ -12,15 +12,45 @@ private fun changeOffset(source: String, raw: Any?): Int {
     require(offset == 0 || offset == source.length || !Character.isHighSurrogate(source[offset-1]) || !Character.isLowSurrogate(source[offset])) { "Source edit splits a Unicode scalar" }
     return offset
 }
+data class WorkspaceEditTarget(val path:String,val items:JSONArray)
+fun workspaceEditTargets(raw:Any?):List<WorkspaceEditTarget> {
+    val edit=raw as? JSONObject ?: error("No workspace edit to preview")
+    val targets=mutableListOf<WorkspaceEditTarget>()
+    fun add(rawURI:Any?,rawEdits:Any?,version:Any?=null) {
+        val uri=rawURI as? String ?: error("Malformed workspace edit target")
+        val items=rawEdits as? JSONArray ?: error("Malformed source edit list")
+        require(version==null || version==JSONObject.NULL){"Authored source version could not be established. Refresh the proposal."}
+        val path=SemanticLocation(uri,0,0).path ?: error("Unsupported source identity: $uri")
+        targets.add(WorkspaceEditTarget(path,items))
+    }
+    if (edit.has("changes")) {
+        val changes = edit.optJSONObject("changes") ?: error("Malformed workspace changes")
+        for (uri in changes.keys()) add(uri,changes.opt(uri))
+    }
+    if (edit.has("documentChanges")) {
+        require(targets.isEmpty()) { "Ambiguous workspace change representation" }
+        val changes = edit.optJSONArray("documentChanges") ?: error("Malformed documentChanges")
+        for (index in 0 until changes.length()) {
+            val change = changes.optJSONObject(index) ?: error("Malformed document change")
+            require(!change.has("kind")) { "Resource create, move and delete require a filesystem proposal" }
+            val document = change.optJSONObject("textDocument") ?: error("Missing source edit URI")
+            add(document.opt("uri"),change.opt("edits"),document.opt("version"))
+        }
+    }
+    return targets
+}
+fun providerActionPaths(action:JSONObject):List<String> {
+    val data=action.optJSONObject("data")
+    if(data==null || !data.has("hickory_acquire"))return workspaceEditTargets(action.opt("edit")).map{it.path}
+    val items=data.optJSONArray("hickory_acquire") ?: error("Malformed provider source acquisition")
+    require(items.length() in 1..10000){"Malformed provider source acquisition"}
+    return (0 until items.length()).map{val uri=items.optJSONObject(it)?.opt("uri") as? String ?: error("Unsupported provider acquisition source");SemanticLocation(uri,0,0).path ?: error("Unsupported provider acquisition source")}
+}
 fun planWorkspaceEdit(title: String, raw: Any?, sources: Map<String,SourceSnapshot>): ChangePlan {
-    val edit = raw as? JSONObject ?: error("No workspace edit to preview")
     val groups = sortedMapOf<String,MutableList<SourceReplacement>>()
-    fun add(rawURI: Any?, rawEdits: Any?, version: Any? = null) {
-        val uri = rawURI as? String ?: error("Malformed workspace edit target")
-        val items = rawEdits as? JSONArray ?: error("Malformed source edit list")
-        require(version == null || version == JSONObject.NULL) { "Authored source version could not be established. Refresh the proposal." }
-        val path = SemanticLocation(uri,0,0).path ?: error("Unsupported source identity: $uri")
-        val source = sources[path] ?: error("Open the affected source before preparing this proposal: $uri")
+    for(target in workspaceEditTargets(raw)) {
+        val path=target.path;val items=target.items
+        val source=sources[path] ?: error("Acquire the affected source before preparing this proposal: $path")
         require(source.writable) { "Source is generated, read-only or saving: $path" }
         val replacements = groups.getOrPut(path) { mutableListOf() }
         for (index in 0 until items.length()) {
@@ -31,20 +61,6 @@ fun planWorkspaceEdit(title: String, raw: Any?, sources: Map<String,SourceSnapsh
             require(replacement.from <= replacement.to) { "Source replacement runs backwards" }
             if (replacement !in replacements) replacements.add(replacement)
             require(replacements.size <= 10000) { "Proposal exceeds 10,000 replacements in one source" }
-        }
-    }
-    if (edit.has("changes")) {
-        val changes = edit.optJSONObject("changes") ?: error("Malformed workspace changes")
-        for (uri in changes.keys()) add(uri,changes.opt(uri))
-    }
-    if (edit.has("documentChanges")) {
-        require(groups.isEmpty()) { "Ambiguous workspace change representation" }
-        val changes = edit.optJSONArray("documentChanges") ?: error("Malformed documentChanges")
-        for (index in 0 until changes.length()) {
-            val change = changes.optJSONObject(index) ?: error("Malformed document change")
-            require(!change.has("kind")) { "Resource create, move and delete require a filesystem proposal" }
-            val document = change.optJSONObject("textDocument") ?: error("Missing source edit URI")
-            add(document.opt("uri"),change.opt("edits"),document.opt("version"))
         }
     }
     val patches = groups.mapNotNull { (path,replacements) ->

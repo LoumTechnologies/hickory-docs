@@ -7,6 +7,8 @@ A workspace change is a set of exact before/after snapshots and UTF-16 replaceme
 
 A rename also checks coherence with a fresh provider reference read: every authored source identity that the provider reports must occur in the proposed source patches. Missing identities refuse the preview. This does not prove that the provider indexed the whole project, and an empty reference answer is not proof that no usages exist.
 
+Discovery and planning share the same workspace-edit decoder. It validates source identities, representation, edit lists and unsupported resource/version forms before loading any target. Decoding paths is discovery only: ranges and replacements still require exact captured text in the planner.
+
 <ui:copy id="simple-browser-change-plans">
 import { semanticPath } from "./Intelligence";
 export interface SourceSnapshot { text: string; writable: boolean }
@@ -22,14 +24,41 @@ function offset(source: string, position: unknown): number {
   if (result > 0 && result < source.length && /[\uD800-\uDBFF]/.test(source[result - 1]) && /[\uDC00-\uDFFF]/.test(source[result])) throw new Error("Source edit splits a Unicode scalar");
   return result;
 }
-export function planWorkspaceEdit(title: string, raw: unknown, sources: ReadonlyMap<string, SourceSnapshot>): ChangePlan {
+interface WorkspaceEditTarget {path:string;items:unknown[]}
+export function workspaceEditTargets(raw:unknown):WorkspaceEditTarget[] {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("No workspace edit to preview");
-  const edit = raw as Record<string, unknown>, groups = new Map<string, SourceReplacement[]>();
-  const add = (uri: unknown, rawEdits: unknown, version?: unknown) => {
-    if (typeof uri !== "string" || !Array.isArray(rawEdits)) throw new Error("Malformed workspace edit target");
-    if (version !== undefined && version !== null) throw new Error("Authored source version could not be established. Refresh the proposal.");
-    const path = semanticPath(uri), source = path && sources.get(path);
-    if (!path || !source) throw new Error(`Open the affected source before preparing this proposal: ${uri}`);
+  const edit=raw as Record<string,unknown>,targets:WorkspaceEditTarget[]=[];
+  const add=(uri:unknown,rawEdits:unknown,version?:unknown)=>{
+    if(typeof uri!=="string"||!Array.isArray(rawEdits))throw new Error("Malformed workspace edit target");
+    if(version!==undefined&&version!==null)throw new Error("Authored source version could not be established. Refresh the proposal.");
+    const path=semanticPath(uri);if(!path)throw new Error(`Unsupported source identity: ${uri}`);
+    targets.push({path,items:rawEdits});
+  };
+  if (edit.changes !== undefined) {
+    if (!edit.changes || typeof edit.changes !== "object" || Array.isArray(edit.changes)) throw new Error("Malformed workspace changes");
+    for (const [uri, items] of Object.entries(edit.changes)) add(uri, items);
+  }
+  if (edit.documentChanges !== undefined) {
+    if (!Array.isArray(edit.documentChanges) || targets.length) throw new Error("Ambiguous workspace change representation");
+    for (const value of edit.documentChanges) {
+      const item = value as { kind?: unknown; textDocument?: { uri?: unknown; version?: unknown }; edits?: unknown } | null;
+      if (!item || item.kind !== undefined) throw new Error("Resource create, move and delete require a filesystem proposal");
+      add(item.textDocument?.uri, item.edits, item.textDocument?.version);
+    }
+  }
+  return targets;
+}
+export function providerActionPaths(action:{data?:unknown;edit?:unknown}):string[] {
+  const data=action.data as {hickory_acquire?:unknown}|undefined,raw=data?.hickory_acquire;
+  if(raw===undefined)return workspaceEditTargets(action.edit).map(target=>target.path);
+  if(!Array.isArray(raw)||!raw.length||raw.length>10000)throw new Error("Malformed provider source acquisition");
+  return raw.map(item=>{const path=typeof item?.uri==="string"&&semanticPath(item.uri);if(!path)throw new Error("Unsupported provider acquisition source");return path;});
+}
+export function planWorkspaceEdit(title: string, raw: unknown, sources: ReadonlyMap<string, SourceSnapshot>): ChangePlan {
+  const groups = new Map<string, SourceReplacement[]>();
+  for(const {path,items:rawEdits} of workspaceEditTargets(raw)) {
+    const source=sources.get(path);
+    if(!source)throw new Error(`Acquire the affected source before preparing this proposal: ${path}`);
     if (!source.writable) throw new Error(`Source is generated, read-only or saving: ${path}`);
     const replacements = groups.get(path) ?? []; groups.set(path, replacements);
     for (const raw of rawEdits) {
@@ -39,18 +68,6 @@ export function planWorkspaceEdit(title: string, raw: unknown, sources: Readonly
       if (replacement.to < replacement.from) throw new Error("Source replacement runs backwards");
       if (!replacements.some(other => other.from === replacement.from && other.to === replacement.to && other.text === replacement.text)) replacements.push(replacement);
       if (replacements.length > 10000) throw new Error("Proposal exceeds 10,000 replacements in one source");
-    }
-  };
-  if (edit.changes !== undefined) {
-    if (!edit.changes || typeof edit.changes !== "object" || Array.isArray(edit.changes)) throw new Error("Malformed workspace changes");
-    for (const [uri, items] of Object.entries(edit.changes)) add(uri, items);
-  }
-  if (edit.documentChanges !== undefined) {
-    if (!Array.isArray(edit.documentChanges) || groups.size) throw new Error("Ambiguous workspace change representation");
-    for (const value of edit.documentChanges) {
-      const item = value as { kind?: unknown; textDocument?: { uri?: unknown; version?: unknown }; edits?: unknown } | null;
-      if (!item || item.kind !== undefined) throw new Error("Resource create, move and delete require a filesystem proposal");
-      add(item.textDocument?.uri, item.edits, item.textDocument?.version);
     }
   }
   const patches = [...groups].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).flatMap(([path, edits]) => {

@@ -9,6 +9,8 @@ Rename discovery acquires previously unopened reference targets through the exis
 
 Provider choices resolve through their captured provider before entering the same complete change-plan preview. A latest-choice ticket and the fixed preparation snapshot reject late answers or a replaced choice list. Disabled actions and complete edit-plus-command results refuse explicitly; resolving never applies an edit portion or saves source. The native view passes the rendered preparation identity so an old row index cannot select a newer list item.
 
+Provider edit discovery uses the same bounded acquisition boundary. Newly loaded targets synchronize before the host re-queries actions at the captured selection and resolves a uniquely matching title and kind. Changed or ambiguous choices refuse instead of selecting an arbitrary replacement. Tokens from the discovering response never authorize the final plan. Original draft snapshots remain fixed; only missing sources are added, and acquisition does not activate tabs.
+
 <ui:copy id="simple-apple-workspace-changes">
 import SwiftUI
 import Observation
@@ -24,6 +26,8 @@ import Observation
     var actionSnapshot:UUID {revision}
     private var choiceRevision=UUID()
     private var resolver:(([String:Any]) async throws->[String:Any])?
+    private var acquisition:((String) async throws->SourceSnapshot)?
+    private var actionQuery:(() async throws->[[String:Any]])?
     private var captured: (sources:[String:SourceSnapshot], current:()->Bool)?
     private var undo: [ChangePlan] = []
     private var redo: [ChangePlan] = []
@@ -40,7 +44,7 @@ import Observation
             notice = "Workspace \(kind) applied to \(target.patches.count) drafts. Not saved or verified." + refresh
         } catch { notice = error.localizedDescription }
     }
-    func prepare(_ workspace: Workspace,proposal:((String,String) async throws->Any)?=nil,resolution:(([String:Any]) async throws->[String:Any])?=nil) async {
+    func prepare(_ workspace: Workspace,proposal:((String,String) async throws->Any)?=nil,resolution:(([String:Any]) async throws->[String:Any])?=nil,acquisition:((String) async throws->SourceSnapshot)?=nil) async {
         guard let origin = workspace.currentBuffer, let language = origin.language, !origin.readOnly else { notice = "Choose writable source with a connected language provider."; return }
         revision = UUID(); let request = revision, source = origin.text, selection = origin.selection, identity = language.proposalIdentity
         let sources = workspace.sourceSnapshots()
@@ -51,16 +55,10 @@ import Observation
         resolver=resolution ?? {[weak language] action in guard let language else{throw EngineError(message:"Provider changed. Prepare actions again.")};return try await language.resolveProposal(action)}
         let valid=captured!.current
         let propose: (String,String) async throws->Any = proposal ?? {kind,name in try await language.propose(kind,name:name)}
-        plan = nil; choices = []; referencePaths = []; notice = "Preparing complete source changes…"
-        let kind = mode ?? "actions", nextName = name
-        do {
-            if kind == "rename" {
                 var listed:[String:FileNode]=[:]
                 func collect(_ nodes:[FileNode]){for file in nodes{if !file.dir{listed[file.path]=file};collect(file.children ?? [])}};collect(workspace.rootFiles)
-                let acquired=try await acquireReferenceSources(sources,query:{
-                    let locations=semanticLocations(try await propose("references",""))
-                    return try locations.map {location in guard let path=location.path else{throw EngineError(message:"Reference target has no writable workspace source identity. No edits were applied.")};return path}
-                },acquire:{path in
+        let load:(String) async throws->SourceSnapshot=acquisition ?? {[weak workspace] path in
+                    guard let workspace else{throw EngineError(message:"Workspace closed. Prepare again.")}
                     guard valid() else{throw EngineError(message:"Source, selection or provider changed. Prepare again.")}
                     guard let file=workspace.buffers[path]?.file ?? listed[path],!file.dir else{throw EngineError(message:"Referenced source is no longer listed: \(path). Refresh files and prepare again.")}
                     let target=try await workspace.loadBuffer(file),text=target.text
@@ -68,7 +66,16 @@ import Observation
                     _ = try await service.readOutline(source:text)
                     guard valid(),exactUTF8(target.text,text) else{throw EngineError(message:"Source changed while reading \(path). Prepare again.")}
                     return SourceSnapshot(text:text,writable:!target.readOnly && !target.saving)
-                },current:valid)
+                }
+        self.acquisition=load;actionQuery={try await propose("actions","") as? [[String:Any]] ?? []}
+        plan = nil; choices = []; referencePaths = []; notice = "Preparing complete source changes…"
+        let kind = mode ?? "actions", nextName = name
+        do {
+            if kind == "rename" {
+                let acquired=try await acquireReferenceSources(sources,query:{
+                    let locations=semanticLocations(try await propose("references",""))
+                    return try locations.map {location in guard let path=location.path else{throw EngineError(message:"Reference target has no writable workspace source identity. No edits were applied.")};return path}
+                },acquire:load,current:valid)
                 guard valid() else{return};captured?.sources=acquired.sources;referencePaths=acquired.references
             }
             let result = try await propose(kind,nextName)
@@ -86,17 +93,28 @@ import Observation
     }
     func choose(_ index:Int,workspace:Workspace,expectedSnapshot:UUID?=nil) async {
         guard expectedSnapshot==nil || expectedSnapshot==revision else{notice="Code action choices changed. Prepare actions again.";return}
-        guard choices.indices.contains(index),let captured,let resolver else{return};let action=choices[index],request=revision,choice=UUID();choiceRevision=choice
+        guard choices.indices.contains(index),let captured,let resolver,let acquisition,let actionQuery else{return};let action=choices[index],request=revision,choice=UUID();choiceRevision=choice
         do {
             guard captured.current() else{throw EngineError(message:"Source, selection or provider changed. Prepare actions again.")}
             if let disabled=action["disabled"] as? [String:Any]{throw EngineError(message:disabled["reason"] as? String ?? "Provider action disabled")}
             plan=nil;notice="Resolving complete provider action…"
-            let resolved=try await resolver(action)
+            var first:[String:Any]?=try await resolver(action)
+            let acquired=try await acquireSourceProposal(captured.sources,query:{
+                let resolved:[String:Any]
+                if let initial=first{resolved=initial;first=nil}
+                else{
+                    let candidates=try await actionQuery().filter {exactUTF8($0["title"] as? String ?? "",action["title"] as? String ?? "") && exactUTF8($0["kind"] as? String ?? "",action["kind"] as? String ?? "")}
+                    guard candidates.count==1 else{throw EngineError(message:"The selected provider action changed or is ambiguous. Prepare actions again.")}
+                    resolved=try await resolver(candidates[0])
+                }
+                guard self.revision==request,self.choiceRevision==choice,captured.current() else{throw EngineError(message:"Source, selection or provider changed. Prepare actions again.")}
+                if let disabled=resolved["disabled"] as? [String:Any]{throw EngineError(message:disabled["reason"] as? String ?? "Provider action disabled")}
+                if resolved["command"] != nil{throw EngineError(message:"This action requires a provider command; its edit has not been applied.")}
+                return (paths:try providerActionPaths(resolved),value:resolved)
+            },acquire:acquisition,current:{self.revision==request && self.choiceRevision==choice && captured.current()})
             guard revision==request,choiceRevision==choice else{return}
-            guard captured.current() else{throw EngineError(message:"Source, selection or provider changed. Prepare actions again.")}
-            if let disabled=resolved["disabled"] as? [String:Any]{throw EngineError(message:disabled["reason"] as? String ?? "Provider action disabled")}
-            if resolved["command"] != nil{throw EngineError(message:"This action requires a provider command; its edit has not been applied.")}
-            guard let edit=resolved["edit"] else{throw EngineError(message:"This provider action has no source edit to preview. Prepare actions again.")}
+            self.captured?.sources=acquired.sources;let resolved=acquired.value
+            guard let edit=resolved["edit"] else{throw EngineError(message:"Provider source acquisition did not produce an edit. Prepare again.")}
             try install(resolved["title"] as? String ?? "Provider action",edit:edit,workspace:workspace)
         }catch{if revision==request,choiceRevision==choice{notice=error.localizedDescription}}
     }
@@ -217,6 +235,31 @@ Complete a newer choice before an older resolver reply, then reject a row from a
 import XCTest
 @testable import HickorySimple
 @MainActor final class ActionChoiceTests:XCTestCase {
+    func testUnopenedActionTargetsAcquireThenRequeryAndRefuseAmbiguousChoices()async throws {
+        let workspace=Workspace(),engine=try Engine(address:"http://127.0.0.1:1"),file=FileNode(name:"a.py",path:"a.py",dir:false)
+        let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:"old\n",hash:"base"));buffer.language=NativeLanguage(engine:engine,buffer:buffer);workspace.buffers[file.path]=buffer;workspace.show(file.path)
+        let changes=workspace.changes
+        let action:[String:Any]=["title":"Fix both","kind":"quickfix","data":["hickory_action":"first"]]
+        var queries=0,resolutions=0,loads:[String]=[];var ambiguous=false
+        let propose:(String,String) async throws->Any={_,_ in queries+=1;return ambiguous && queries>1 ? [action,action]:[action]}
+        let resolve:([String:Any]) async throws->[String:Any]={_ in
+            resolutions+=1
+            if resolutions==1{return ["title":"Fix both","data":["hickory_acquire":[["uri":languageURI("other.py")]]]]}
+            let replacement:[String:Any]=["range":["start":["line":0,"character":0],"end":["line":0,"character":3]],"newText":"new"]
+            return ["title":"Fix both","edit":["changes":[languageURI("a.py"):[replacement],languageURI("other.py"):[replacement]]]]
+        }
+        let load:(String) async throws->SourceSnapshot={path in
+            loads.append(path);let target=DocumentBuffer(file:FileNode(name:path,path:path,dir:false),text:FileText(path:path,content:"old\n",hash:"base"));workspace.buffers[path]=target
+            return SourceSnapshot(text:target.text,writable:true)
+        }
+        changes.open("actions",workspace:workspace);await changes.prepare(workspace,proposal:propose,resolution:resolve,acquisition:load);await changes.choose(0,workspace:workspace)
+        XCTAssertEqual(queries,2);XCTAssertEqual(resolutions,2);XCTAssertEqual(loads,["other.py"]);XCTAssertEqual(changes.plan?.patches.count,2);XCTAssertEqual(workspace.currentBuffer?.file.path,"a.py");XCTAssertEqual(buffer.text,"old\n")
+        workspace.buffers["other.py"]?.text="later\n";changes.apply(workspace);XCTAssertTrue(changes.notice.contains("Source changed"));XCTAssertEqual(buffer.text,"old\n")
+        workspace.buffers.removeValue(forKey:"other.py");queries=0;ambiguous=true
+        changes.open("actions",workspace:workspace);await changes.prepare(workspace,proposal:propose,resolution:resolve,acquisition:load);await changes.choose(0,workspace:workspace)
+        XCTAssertNil(changes.plan);XCTAssertTrue(changes.notice.contains("ambiguous"));XCTAssertEqual(buffer.text,"old\n")
+    }
+
     func testLatestResolvedChoiceWinsAndRenderedSnapshotsCannotBorrowNewLists()async throws {
         let workspace=Workspace(),engine=try Engine(address:"http://127.0.0.1:1"),file=FileNode(name:"a.py",path:"a.py",dir:false)
         let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:"old\n",hash:"base"));buffer.language=NativeLanguage(engine:engine,buffer:buffer);workspace.buffers[file.path]=buffer;workspace.show(file.path)

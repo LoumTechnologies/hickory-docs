@@ -1,6 +1,31 @@
 import XCTest
 @testable import HickorySimple
 @MainActor final class ActionChoiceTests:XCTestCase {
+    func testUnopenedActionTargetsAcquireThenRequeryAndRefuseAmbiguousChoices()async throws {
+        let workspace=Workspace(),engine=try Engine(address:"http://127.0.0.1:1"),file=FileNode(name:"a.py",path:"a.py",dir:false)
+        let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:"old\n",hash:"base"));buffer.language=NativeLanguage(engine:engine,buffer:buffer);workspace.buffers[file.path]=buffer;workspace.show(file.path)
+        let changes=workspace.changes
+        let action:[String:Any]=["title":"Fix both","kind":"quickfix","data":["hickory_action":"first"]]
+        var queries=0,resolutions=0,loads:[String]=[];var ambiguous=false
+        let propose:(String,String) async throws->Any={_,_ in queries+=1;return ambiguous && queries>1 ? [action,action]:[action]}
+        let resolve:([String:Any]) async throws->[String:Any]={_ in
+            resolutions+=1
+            if resolutions==1{return ["title":"Fix both","data":["hickory_acquire":[["uri":languageURI("other.py")]]]]}
+            let replacement:[String:Any]=["range":["start":["line":0,"character":0],"end":["line":0,"character":3]],"newText":"new"]
+            return ["title":"Fix both","edit":["changes":[languageURI("a.py"):[replacement],languageURI("other.py"):[replacement]]]]
+        }
+        let load:(String) async throws->SourceSnapshot={path in
+            loads.append(path);let target=DocumentBuffer(file:FileNode(name:path,path:path,dir:false),text:FileText(path:path,content:"old\n",hash:"base"));workspace.buffers[path]=target
+            return SourceSnapshot(text:target.text,writable:true)
+        }
+        changes.open("actions",workspace:workspace);await changes.prepare(workspace,proposal:propose,resolution:resolve,acquisition:load);await changes.choose(0,workspace:workspace)
+        XCTAssertEqual(queries,2);XCTAssertEqual(resolutions,2);XCTAssertEqual(loads,["other.py"]);XCTAssertEqual(changes.plan?.patches.count,2);XCTAssertEqual(workspace.currentBuffer?.file.path,"a.py");XCTAssertEqual(buffer.text,"old\n")
+        workspace.buffers["other.py"]?.text="later\n";changes.apply(workspace);XCTAssertTrue(changes.notice.contains("Source changed"));XCTAssertEqual(buffer.text,"old\n")
+        workspace.buffers.removeValue(forKey:"other.py");queries=0;ambiguous=true
+        changes.open("actions",workspace:workspace);await changes.prepare(workspace,proposal:propose,resolution:resolve,acquisition:load);await changes.choose(0,workspace:workspace)
+        XCTAssertNil(changes.plan);XCTAssertTrue(changes.notice.contains("ambiguous"));XCTAssertEqual(buffer.text,"old\n")
+    }
+
     func testLatestResolvedChoiceWinsAndRenderedSnapshotsCannotBorrowNewLists()async throws {
         let workspace=Workspace(),engine=try Engine(address:"http://127.0.0.1:1"),file=FileNode(name:"a.py",path:"a.py",dir:false)
         let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:"old\n",hash:"base"));buffer.language=NativeLanguage(engine:engine,buffer:buffer);workspace.buffers[file.path]=buffer;workspace.show(file.path)

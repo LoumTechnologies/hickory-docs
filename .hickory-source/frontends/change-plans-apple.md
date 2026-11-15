@@ -7,6 +7,8 @@ A workspace change is a set of exact before/after snapshots and UTF-16 replaceme
 
 A rename also checks coherence with a fresh provider reference read: every authored source identity that the provider reports must occur in the proposed source patches. Missing identities refuse the preview. This does not prove that the provider indexed the whole project, and an empty reference answer is not proof that no usages exist.
 
+Discovery and planning share the same workspace-edit decoder. It validates source identities, representation, edit lists and unsupported resource/version forms before loading any target. Decoding paths is discovery only: ranges and replacements still require exact captured text in the planner.
+
 <ui:copy id="simple-apple-change-plans">
 import Foundation
 struct SourceSnapshot { var text: String; var writable: Bool }
@@ -21,13 +23,39 @@ private func changeOffset(_ source: String, _ raw: Any?) throws -> Int {
           String.Index(utf16Offset: value, in: source).samePosition(in: source.unicodeScalars) != nil else { throw EngineError(message: "Invalid or non-scalar UTF-16 source position") }
     return value
 }
+struct WorkspaceEditTarget {var path:String;var items:[[String:Any]]}
+func workspaceEditTargets(_ raw:Any)throws->[WorkspaceEditTarget] {
+    guard let edit=raw as? [String:Any] else{throw EngineError(message:"No workspace edit to preview")}
+    var targets:[WorkspaceEditTarget]=[]
+    func add(_ rawURI:Any?,_ rawEdits:Any?,_ version:Any?=nil)throws {
+        guard let uri=rawURI as? String,let items=rawEdits as? [[String:Any]] else{throw EngineError(message:"Malformed workspace edit target")}
+        guard version==nil || version is NSNull else{throw EngineError(message:"Authored source version could not be established. Refresh the proposal.")}
+        guard let path=SemanticLocation(uri:uri,line:0,character:0).path else{throw EngineError(message:"Unsupported source identity: \(uri)")}
+        targets.append(WorkspaceEditTarget(path:path,items:items))
+    }
+    if let changes = edit["changes"] {
+        guard let changes = changes as? [String: Any] else { throw EngineError(message: "Malformed workspace changes") }
+        for (uri, edits) in changes { try add(uri, edits) }
+    }
+    if let changes = edit["documentChanges"] {
+        guard targets.isEmpty, let changes = changes as? [[String: Any]] else { throw EngineError(message: "Ambiguous workspace change representation") }
+        for change in changes {
+            guard change["kind"] == nil, let document = change["textDocument"] as? [String: Any] else { throw EngineError(message: "Resource create, move and delete require a filesystem proposal") }
+            try add(document["uri"], change["edits"], document["version"])
+        }
+    }
+    return targets
+}
+func providerActionPaths(_ action:[String:Any])throws->[String] {
+    guard let raw=(action["data"] as? [String:Any])?["hickory_acquire"] else{guard let edit=action["edit"] else{throw EngineError(message:"No source edit to preview")};return try workspaceEditTargets(edit).map(\.path)}
+    guard let items=raw as? [[String:Any]],!items.isEmpty,items.count<=10000 else{throw EngineError(message:"Malformed provider source acquisition")}
+    return try items.map {item in guard let uri=item["uri"] as? String,let path=SemanticLocation(uri:uri,line:0,character:0).path else{throw EngineError(message:"Unsupported provider acquisition source")};return path}
+}
 func planWorkspaceEdit(_ title: String, raw: Any, sources: [String: SourceSnapshot]) throws -> ChangePlan {
-    guard let edit = raw as? [String: Any] else { throw EngineError(message: "No workspace edit to preview") }
     var groups: [String: [SourceReplacement]] = [:]
-    func add(_ rawURI: Any?, _ rawEdits: Any?, _ version: Any? = nil) throws {
-        guard let uri = rawURI as? String, let items = rawEdits as? [[String: Any]] else { throw EngineError(message: "Malformed workspace edit target") }
-        guard version == nil || version is NSNull else { throw EngineError(message: "Authored source version could not be established. Refresh the proposal.") }
-        guard let path = SemanticLocation(uri:uri,line:0,character:0).path, let source = sources[path] else { throw EngineError(message: "Open the affected source before preparing this proposal: \(uri)") }
+    for target in try workspaceEditTargets(raw) {
+        let path=target.path,items=target.items
+        guard let source=sources[path] else{throw EngineError(message:"Acquire the affected source before preparing this proposal: \(path)")}
         guard source.writable else { throw EngineError(message: "Source is generated, read-only or saving: \(path)") }
         var replacements = groups[path] ?? []
         for item in items {
@@ -38,17 +66,6 @@ func planWorkspaceEdit(_ title: String, raw: Any, sources: [String: SourceSnapsh
             guard replacements.count <= 10000 else { throw EngineError(message: "Proposal exceeds 10,000 replacements in one source") }
         }
         groups[path] = replacements
-    }
-    if let changes = edit["changes"] {
-        guard let changes = changes as? [String: Any] else { throw EngineError(message: "Malformed workspace changes") }
-        for (uri, edits) in changes { try add(uri, edits) }
-    }
-    if let changes = edit["documentChanges"] {
-        guard groups.isEmpty, let changes = changes as? [[String: Any]] else { throw EngineError(message: "Ambiguous workspace change representation") }
-        for change in changes {
-            guard change["kind"] == nil, let document = change["textDocument"] as? [String: Any] else { throw EngineError(message: "Resource create, move and delete require a filesystem proposal") }
-            try add(document["uri"], change["edits"], document["version"])
-        }
     }
     var patches: [SourcePatch] = []
     for path in groups.keys.sorted() {

@@ -287,6 +287,7 @@ Build provider context from the child’s own diagnostics. Read its actual capab
         })?;
         let index = self.index_snapshot().await;
         self.require_action_revision(&revision).await?;
+        let workspace_root = self.workspace_root.read().await.clone();
         let mut translated = translate_edit_uris(result.clone(), &index)
             .map_err(tower_lsp::jsonrpc::Error::invalid_params)?;
         let entries = translated.as_array_mut().expect("translated action list");
@@ -295,6 +296,12 @@ Build provider context from the child’s own diagnostics. Read its actual capab
             // Raw Command alternatives are retained for an explicit client refusal.
             if original.get("command").is_some_and(Value::is_string) {
                 continue;
+            }
+            let discovery = discover_action_sources(original, &index, workspace_root.as_ref());
+            let mut data =
+                action_discovery_data(discovery.as_ref().and_then(|value| value.get("data")));
+            if let Some(discovery) = discovery {
+                *action = discovery;
             }
             let token = held.values.insert(
                 Instant::now(),
@@ -308,7 +315,8 @@ Build provider context from the child’s own diagnostics. Read its actual capab
             let object = action.as_object_mut().ok_or_else(|| {
                 tower_lsp::jsonrpc::Error::invalid_params("Malformed provider action")
             })?;
-            object.insert("data".into(), json!({"hickory_action":token}));
+            data["hickory_action"] = json!(token);
+            object.insert("data".into(), data);
         }
         serde_json::from_value(translated)
             .map(Some)
@@ -365,6 +373,8 @@ The lookup token selects held data; every other caller-supplied field is ignored
         }
         let index = self.index_snapshot().await;
         self.require_action_revision(&revision).await?;
+        let workspace_root = self.workspace_root.read().await.clone();
+        let discovery = discover_action_sources(&original, &index, workspace_root.as_ref());
         let mapped = translate_edit_uris(json!([original]), &index)
             .map_err(tower_lsp::jsonrpc::Error::invalid_params)?;
         let mut action = mapped
@@ -374,7 +384,14 @@ The lookup token selects held data; every other caller-supplied field is ignored
             .ok_or_else(|| {
                 tower_lsp::jsonrpc::Error::invalid_params("Malformed resolved provider action")
             })?;
-        action["data"] = json!({"hickory_action":token});
+        let mut data =
+            action_discovery_data(discovery.as_ref().and_then(|value| value.get("data")));
+        if let Some(discovery) = discovery {
+            action = discovery;
+        }
+        data["hickory_action"] = json!(token);
+        action["data"] = data;
+        self.require_action_revision(&revision).await?;
         serde_json::from_value(action).map_err(|error| {
             tower_lsp::jsonrpc::Error::invalid_params(format!(
                 "Malformed resolved provider action: {error}"
@@ -384,6 +401,115 @@ The lookup token selects held data; every other caller-supplied field is ignored
 }
 </ui:copy>
 
-<ui:file path="crates/hick-lsp/src/backend/actions.rs"><ui:paste select="#provider-action-source-context"/><ui:paste select="#provider-action-query"/><ui:paste select="#provider-action-resolve"/></ui:file>
+## Discover unavailable source without inventing a position map
+
+An unknown child target has no authored range authority. For an edit-only action, retain only workspace-local file identities as an explicit acquisition request, with no edit or command. The host must establish listed writable ownership, synchronize text, and query a new action; generated, external and resource-operation paths never gain an identity map by this mechanism. The held provider original remains unchanged. Only the backend-owned acquisition field survives alongside its opaque token; arbitrary child data is not exposed as host metadata.
+
+<ui:copy id="provider-action-unmapped-source-discovery">
+fn action_discovery_data(value: Option<&Value>) -> Value {
+    value
+        .and_then(|value| value.get("hickory_acquire"))
+        .map(|paths| json!({"hickory_acquire":paths}))
+        .unwrap_or_else(|| json!({}))
+}
+// Discovery identifies files to load, never source ranges or edit authority.
+fn discover_action_sources(
+    original: &Value,
+    index: &HashMap<String, (Url, PositionMap)>,
+    root: Option<&Url>,
+) -> Option<Value> {
+    if original.get("command").is_some() || original.get("disabled").is_some() {
+        return None;
+    }
+    let edit = original.get("edit")?.as_object()?;
+    let mut uris = Vec::new();
+    if let Some(changes) = edit.get("changes") {
+        for (uri, edits) in changes.as_object()? {
+            edits.as_array()?;
+            uris.push(uri.clone());
+        }
+    }
+    if let Some(changes) = edit.get("documentChanges") {
+        if !uris.is_empty() {
+            return None;
+        }
+        for change in changes.as_array()? {
+            if change.get("kind").is_some() {
+                return None;
+            }
+            change.get("edits")?.as_array()?;
+            uris.push(change.pointer("/textDocument/uri")?.as_str()?.to_owned());
+        }
+    }
+    let root = root?.to_file_path().ok()?;
+    let mut missing = std::collections::BTreeSet::new();
+    for uri in uris {
+        if index.contains_key(&uri_key(&uri)) {
+            continue;
+        }
+        let url = Url::parse(&uri).ok()?;
+        if url.query().is_some() || url.fragment().is_some() {
+            return None;
+        }
+        let path = url.to_file_path().ok()?;
+        // The host must still establish listed authored ownership. A path here
+        // only requests acquisition; it is not an identity position map.
+        if !path.starts_with(&root) || path == root {
+            return None;
+        }
+        missing.insert(url.to_string());
+        if missing.len() > 10000 {
+            return None;
+        }
+    }
+    if missing.is_empty() {
+        return None;
+    }
+    let mut answer = original.clone();
+    let object = answer.as_object_mut()?;
+    object.remove("edit");
+    object.insert("data".into(), json!({"hickory_acquire":missing.into_iter().map(|uri|json!({"uri":uri})).collect::<Vec<_>>()}));
+    Some(answer)
+}
+
+</ui:copy>
+
+## Refuse unavailable identities outside discovery scope
+
+These focused cases require an acquisition-only response without an edit, and refuse external identities, resource operations, malformed lists and command-bearing actions. The separate child-protocol witness supplies hostile metadata to verify it cannot become backend acquisition authority.
+
+<ui:copy id="provider-action-unmapped-source-discovery-witness">
+#[cfg(test)]
+mod discovery_tests {
+    use super::*;
+    #[test]
+    fn unknown_targets_are_discovery_only_and_must_stay_in_workspace() {
+        let root = Url::parse("file:///workspace/").unwrap();
+        let index = HashMap::new();
+        let action = json!({"title":"Fix","edit":{"changes":{"file:///workspace/other.py":[]}}});
+        let discovered = discover_action_sources(&action, &index, Some(&root)).unwrap();
+        assert!(discovered.get("edit").is_none());
+        assert_eq!(
+            discovered["data"]["hickory_acquire"][0]["uri"],
+            "file:///workspace/other.py"
+        );
+        for edit in [
+            json!({"changes":{"file:///outside.py":[]}}),
+            json!({"documentChanges":[{"kind":"create","uri":"file:///workspace/new.py"}]}),
+            json!({"changes":{"file:///workspace/other.py":"malformed"}}),
+        ] {
+            assert!(
+                discover_action_sources(&json!({"title":"Fix","edit":edit}), &index, Some(&root))
+                    .is_none()
+            );
+        }
+        let mut command = action;
+        command["command"] = json!({"command":"effect"});
+        assert!(discover_action_sources(&command, &index, Some(&root)).is_none());
+    }
+}
+</ui:copy>
+
+<ui:file path="crates/hick-lsp/src/backend/actions.rs"><ui:paste select="#provider-action-source-context"/><ui:paste select="#provider-action-query"/><ui:paste select="#provider-action-resolve"/><ui:paste select="#provider-action-unmapped-source-discovery"/><ui:paste select="#provider-action-unmapped-source-discovery-witness"/></ui:file>
 
 </ui:doc>

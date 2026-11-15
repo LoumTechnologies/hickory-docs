@@ -31,7 +31,7 @@ while True:
     if method=="initialize":result={"capabilities":{"textDocumentSync":1,"documentSymbolProvider":True,"codeActionProvider":{"resolveProvider":language=="python"}}}
     elif method=="textDocument/documentSymbol":result=[]
     elif method=="textDocument/codeAction":
-        uri=params["textDocument"]["uri"];opaque={"producer":language,"uri":uri,"nested":[1,{"uri":"file:///opaque-child-value"}]}
+        uri=params["textDocument"]["uri"];opaque={"producer":language,"hickory_acquire":[{"uri":"file:///untrusted-child-path"}],"uri":uri,"nested":[1,{"uri":"file:///opaque-child-value"}]}
         if params["range"]["start"]["character"]==2:opaque["slow"]=True
         result=[{"title":f"Controlled {language} fix","kind":"quickfix","data":opaque}]
         if language!="python":result[0]["edit"]={"changes":{uri:[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":language+"_fixed"}]}}
@@ -42,6 +42,9 @@ while True:
             event({"error":"altered opaque action or wrong provider","language":language,"received":params});send({"jsonrpc":"2.0","id":identity,"error":{"code":-32602,"message":"Original provider payload was not preserved"}});continue
         event({"resolved":language,"uri":uri,"slow":opaque.get("slow",False)})
         result={**params,"edit":{"changes":{uri:[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":language+"_fixed"}]}}}
+        if os.environ.get("HICKORY_CONTROLLED_ACTION_OTHER"):
+            other=uri.rsplit("/",1)[0]+"/other.py"
+            result["edit"]["changes"][other]=[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"other_fixed"}]
         if opaque.get("slow"):
             def release(identity=identity,result=result):
                 deadline=time.monotonic()+10

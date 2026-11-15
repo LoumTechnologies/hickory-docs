@@ -69468,7 +69468,9 @@
       "fragments": [
         "provider-action-source-context",
         "provider-action-query",
-        "provider-action-resolve"
+        "provider-action-resolve",
+        "provider-action-unmapped-source-discovery",
+        "provider-action-unmapped-source-discovery-witness"
       ]
     },
     "scripts/controlled-action-provider.py": {

@@ -9,6 +9,8 @@ Rename discovery acquires previously unopened reference targets through the exis
 
 Provider choices resolve through their captured provider before entering the same complete change-plan preview. A latest-choice ticket and the fixed preparation snapshot reject late answers or a replaced choice list. Disabled actions and complete edit-plus-command results refuse explicitly; resolving never applies an edit portion or saves source. The native view passes the rendered preparation identity so an old row index cannot select a newer list item.
 
+Provider edit discovery uses the same bounded acquisition boundary. Newly loaded targets synchronize before the host re-queries actions at the captured selection and resolves a uniquely matching title and kind. Changed or ambiguous choices refuse instead of selecting an arbitrary replacement. Tokens from the discovering response never authorize the final plan. Original draft snapshots remain fixed; only missing sources are added, and acquisition does not activate tabs.
+
 <ui:copy id="simple-browser-workspace-changes">
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -17,14 +19,14 @@ import { type Transaction } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { editorForBuffer } from "./Document";
 import {resolveCodeAction} from "../lsp/codeActionResolution";
-import {acquireReferenceSources} from "./ReferenceSources";
+import {acquireReferenceSources,acquireSourceProposal} from "./ReferenceSources";
 import type {FileNode} from "../api/types";
 import { useWorkspaceLanguageLookup,useWorkspaceOutlineReader } from "./WorkspaceLanguages";
 import { utf16ToPosition } from "../lsp/positions";
 import type { CodeAction } from "../lsp/client";
 import type { Buffer, Buffers } from "./buffers";
 import { semanticLocations, semanticPath } from "./Intelligence";
-import { validateReferencedTargets, planWorkspaceEdit, invertChangePlan, validateChangePlan, type SourceSnapshot, type ChangePlan } from "./ChangePlan";
+import { providerActionPaths,validateReferencedTargets, planWorkspaceEdit, invertChangePlan, validateChangePlan, type SourceSnapshot, type ChangePlan } from "./ChangePlan";
 export type ChangeCommand = "rename" | "actions" | "format" | "undo" | "redo";
 const eventName = "hickory:simple:workspace-change";
 export function requestWorkspaceChange(command: ChangeCommand) { window.dispatchEvent(new CustomEvent(eventName, { detail: command })); }
@@ -58,7 +60,7 @@ export function WorkspaceChanges({ buffers, current, focus,files }: { files:File
   const [plan, setPlan] = useState<ChangePlan | null>(null), [choices, setChoices] = useState<CodeAction[]>([]);
   const [file, setFile] = useState(0), [page, setPage] = useState(0), [actionPage, setActionPage] = useState(0);
   const undo = useRef<ChangePlan[]>([]), redo = useRef<ChangePlan[]>([]), ticket = useRef(0),choiceTicket=useRef(0);
-  const captured = useRef<{ sources: Map<string, SourceSnapshot>; references: string[]; current: () => boolean;request:number;choices:CodeAction[];resolve:(action:CodeAction)=>Promise<CodeAction> } | null>(null);
+  const captured = useRef<{ sources: Map<string, SourceSnapshot>; references: string[]; current: () => boolean;request:number;choices:CodeAction[];resolve:(action:CodeAction)=>Promise<CodeAction>;acquire:(path:string)=>Promise<SourceSnapshot>;query?:()=>Promise<CodeAction[]> } | null>(null);
   const input = useRef<HTMLInputElement>(null), panel = useRef<HTMLDivElement>(null);
   const close = () => { ticket.current++; setMode(null); focus(); };
   const install = (title: string, edit: unknown) => {
@@ -87,17 +89,8 @@ export function WorkspaceChanges({ buffers, current, focus,files }: { files:File
     if (!buffer || !view || !session?.client || !session.ready || buffer.readonly) { setNotice("Choose writable source with a connected language provider, then prepare again."); return; }
     const source = buffer.text, selection = view.state.selection, client = session.client, id = ++ticket.current, sources = workspaceSnapshots(buffers);
     const valid = () => id === ticket.current && buffer.text === source && view.state.doc.toString() === source && view.state.selection.eq(selection) && lookup(buffer).client === client && lookup(buffer).ready;
-    captured.current = { sources, references: [], current: valid,request:id,choices:[],resolve:action=>resolveCodeAction(client,action,session.uri) }; setPlan(null); setChoices([]); setNotice("Preparing complete source changes…");
-    try {
-      const uri = session.uri, position = utf16ToPosition(source, selection.main.head);
-      const method = mode === "rename" ? "textDocument/rename" : mode === "format" ? "textDocument/formatting" : "textDocument/codeAction";
-      const params = { textDocument: { uri }, ...(mode === "rename" ? { position, newName: name } : mode === "format" ? { options: { tabSize: view.state.tabSize, insertSpaces: !/^\t/m.test(source) } } : { range: { start: utf16ToPosition(source, selection.main.from), end: utf16ToPosition(source, selection.main.to) }, context: { diagnostics: [] } }) };
-      if (mode === "rename") {
         const listed=new Map<string,FileNode>();const collect=(nodes:FileNode[])=>{for(const file of nodes){if(!file.dir)listed.set(file.path,file);collect(file.children??[]);}};collect(files);
-        const acquired=await acquireReferenceSources(sources,async()=>{
-          const references=semanticLocations(await client.request("textDocument/references",{textDocument:{uri},position,context:{includeDeclaration:true}}));
-          return references.map(location=>{const path=semanticPath(location.uri);if(!path)throw new Error("Reference target has no writable workspace source identity. No edits were applied.");return path;});
-        },async path=>{
+    const acquire=async (path:string)=>{
           if(!valid())throw new Error("Source, selection or provider changed. Prepare again.");
           const file=buffers.values.get(path)?.file??listed.get(path);if(!file||file.dir)throw new Error(`Referenced source is no longer listed: ${path}. Refresh files and prepare again.`);
           const target=await buffers.open(file),text=target.text;
@@ -105,7 +98,18 @@ export function WorkspaceChanges({ buffers, current, focus,files }: { files:File
           await readOutline(target,text);
           if(!valid()||target.text!==text)throw new Error(`Source changed while reading ${path}. Prepare again.`);
           return {text,writable:!target.readonly&&!target.saving&&!target.transient};
-        },valid);
+        };
+    captured.current = { sources, references: [], current: valid,request:id,choices:[],resolve:action=>resolveCodeAction(client,action,session.uri),acquire }; setPlan(null); setChoices([]); setNotice("Preparing complete source changes…");
+    try {
+      const uri = session.uri, position = utf16ToPosition(source, selection.main.head);
+      const method = mode === "rename" ? "textDocument/rename" : mode === "format" ? "textDocument/formatting" : "textDocument/codeAction";
+      const params = { textDocument: { uri }, ...(mode === "rename" ? { position, newName: name } : mode === "format" ? { options: { tabSize: view.state.tabSize, insertSpaces: !/^\t/m.test(source) } } : { range: { start: utf16ToPosition(source, selection.main.from), end: utf16ToPosition(source, selection.main.to) }, context: { diagnostics: [] } }) };
+      captured.current!.query=async()=>{const value=await client.request("textDocument/codeAction",params);return Array.isArray(value)?value:[];};
+      if (mode === "rename") {
+        const acquired=await acquireReferenceSources(sources,async()=>{
+          const references=semanticLocations(await client.request("textDocument/references",{textDocument:{uri},position,context:{includeDeclaration:true}}));
+          return references.map(location=>{const path=semanticPath(location.uri);if(!path)throw new Error("Reference target has no writable workspace source identity. No edits were applied.");return path;});
+        },acquire,valid);
         if(!valid())return;
         captured.current!.sources=acquired.sources;captured.current!.references=acquired.references;
       }
@@ -122,12 +126,21 @@ export function WorkspaceChanges({ buffers, current, focus,files }: { files:File
       if(!capture||!capture.current()||!capture.choices.includes(action))throw new Error("Code action choices changed. Prepare actions again.");
       if(action.disabled)throw new Error(action.disabled.reason);
       setPlan(null);setNotice("Resolving complete provider action…");
-      const resolved=await capture.resolve(action);
+      let first:CodeAction|undefined=await capture.resolve(action);
+      const acquired=await acquireSourceProposal(capture.sources,async()=>{
+        let resolved=first;first=undefined;
+        if(!resolved){
+          const candidates=(await capture.query!()).filter(item=>item.title===action.title&&(item.kind??"")===(action.kind??""));
+          if(candidates.length!==1)throw new Error("The selected provider action changed or is ambiguous. Prepare actions again.");
+          resolved=await capture.resolve(candidates[0]);
+        }
+        if(!owned()||!capture.current())throw new Error("Source, selection or provider changed. Prepare actions again.");
+        if(resolved.disabled)throw new Error(resolved.disabled.reason);
+        if(resolved.command)throw new Error("This action requires a provider command; its edit has not been applied.");
+        return {paths:providerActionPaths(resolved),value:resolved};
+      },capture.acquire,()=>owned()&&capture.current());
       if(!owned())return;
-      if(!capture.current())throw new Error("Source, selection or provider changed. Prepare actions again.");
-      if(resolved.disabled)throw new Error(resolved.disabled.reason);
-      if(resolved.command)throw new Error("This action requires a provider command; its edit has not been applied.");
-      if(!resolved.edit)throw new Error("This provider action has no source edit to preview. Prepare actions again.");
+      capture.sources=acquired.sources;const resolved=acquired.value;
       install(resolved.title,resolved.edit);
     }catch(error){if(owned())setNotice(String(error));}
   };

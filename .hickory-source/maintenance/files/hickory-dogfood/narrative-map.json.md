@@ -152621,6 +152621,20 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/provider-action-resolution-browser.md",
       "symbol": "browser-resolved-action-editor-witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-action-unmapped-source-discovery",
+      "output": "crates/hick-lsp/src/backend/actions.rs",
+      "page": ".hickory-source/mechanisms/provider-action-artifacts.md",
+      "symbol": "provider-action-unmapped-source-discovery",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-action-unmapped-source-discovery-witness",
+      "output": "crates/hick-lsp/src/backend/actions.rs",
+      "page": ".hickory-source/mechanisms/provider-action-artifacts.md",
+      "symbol": "provider-action-unmapped-source-discovery-witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

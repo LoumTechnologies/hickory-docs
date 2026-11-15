@@ -69476,7 +69476,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "provider-action-source-context",
         "provider-action-query",
-        "provider-action-resolve"
+        "provider-action-resolve",
+        "provider-action-unmapped-source-discovery",
+        "provider-action-unmapped-source-discovery-witness"
       ]
     },
     "scripts/controlled-action-provider.py": {

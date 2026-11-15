@@ -20,7 +20,7 @@ try{
  const actions=uri=>request('textDocument/codeAction',{textDocument:{uri},range:{start:position,end:position},context:{diagnostics:[]}});
  const first=(await actions(a))[0],second=(await actions(b))[0];assert.equal(first.edit,undefined);assert.ok(second.edit);assert.deepEqual(Object.keys(first.data),['hickory_action']);
  const changed={...first,title:'Client substitution',command:{title:'Injected',command:'must-never-execute',arguments:[b]}};
- const resolved=await request('codeAction/resolve',changed);assert.equal(resolved.title,'Controlled python fix');assert.equal(resolved.command,undefined);assert.equal(resolved.edit.documentChanges[0].textDocument.uri,a);assert.equal(resolved.edit.documentChanges[0].edits[0].newText,'python_fixed');
+ const resolved=await request('codeAction/resolve',changed);assert.equal(resolved.title,'Controlled python fix');assert.equal(resolved.command,undefined);assert.deepEqual(Object.keys(resolved.data),['hickory_action']);assert.equal(resolved.edit.documentChanges[0].textDocument.uri,a);assert.equal(resolved.edit.documentChanges[0].edits[0].newText,'python_fixed');
  const other=await request('codeAction/resolve',{...second,title:'Client eager substitution',edit:{changes:{[a]:[]}}});assert.equal(other.title,'Controlled typescript fix');assert.equal(other.edit.documentChanges[0].textDocument.uri,b);assert.equal(other.edit.documentChanges[0].edits[0].newText,'typescript_fixed');
  send({method:'textDocument/didChange',params:{textDocument:{uri:a,version:2},contentChanges:[{text:'other = 1\n'}]}});await request('textDocument/documentSymbol',{textDocument:{uri:a}});
  await assert.rejects(request('codeAction/resolve',first),/source changed|ownership changed|expired/i);
