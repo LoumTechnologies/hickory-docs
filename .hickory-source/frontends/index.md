@@ -222,4 +222,6 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="git-conflict-android.md" />
 
+<ui:include file="workspace-change-events-browser.md" />
+
 </ui:doc>

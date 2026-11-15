@@ -68292,7 +68292,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "simple-browser-workspace-changes",
         "simple-browser-workspace-changes-controller",
-        "simple-browser-workspace-changes-presentation"
+        "simple-browser-workspace-changes-presentation",
+        "reviewed-source-browser-request"
       ]
     },
     "apps/apple-simple/Sources/WorkspaceChanges.swift": {
@@ -69445,7 +69446,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "native-change-request-apple-witness",
-        "cleanup-apple-witness"
+        "cleanup-apple-witness",
+        "reviewed-source-apple-tests"
       ]
     },
     "apps/android-simple/app/src/test/java/com/hickorydocs/simple/ChangeRequestTest.kt": {
@@ -69457,7 +69459,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "native-change-request-android-witness",
-        "cleanup-android-witness"
+        "cleanup-android-witness",
+        "reviewed-source-android-tests"
       ]
     },
     "crates/hick-lsp/src/source_identity.rs": {
@@ -70544,7 +70547,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "",
       "construction": "fragments",
       "fragments": [
-        "git-conflict-browser-tests"
+        "git-conflict-browser-tests",
+        "git-conflict-choice-browser-tests"
       ]
     },
     "apps/apple-simple/Tests/GitConflictTests.swift": {
@@ -70555,7 +70559,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "",
       "construction": "fragments",
       "fragments": [
-        "git-conflict-apple-tests"
+        "git-conflict-apple-tests",
+        "git-conflict-choice-apple-tests"
       ]
     },
     "apps/android-simple/app/src/test/java/com/hickorydocs/simple/GitConflictTest.kt": {
@@ -70566,7 +70571,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "",
       "construction": "fragments",
       "fragments": [
-        "git-conflict-android-tests"
+        "git-conflict-android-tests",
+        "git-conflict-choice-android-tests"
       ]
     },
     "scripts/test-simple-conflict-browser.py": {
@@ -70578,6 +70584,17 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "git-conflict-real-browser"
+      ]
+    },
+    "apps/web/src/simple/WorkspaceChangeEvents.ts": {
+      "source": ".hickory-source/frontends/workspace-change-events-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "1c0093ef5ed016a48eda62062feb35d64cdb4a68af56a9e8c4ae75ec6442b545",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-change-browser-events"
       ]
     }
   },

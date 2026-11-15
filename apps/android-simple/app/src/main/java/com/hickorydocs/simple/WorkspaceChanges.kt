@@ -97,6 +97,13 @@ class WorkspaceChanges {
             install("Trim trailing whitespace",edit,workspace)
         }catch(cancelled:CancellationException){throw cancelled}catch(error:Exception){if(revision==request)notice=error.message.orEmpty()}
     }
+    fun offer(title:String,edit:Any,expected:Map<String,String>,workspace:Workspace){
+        val snapshots=workspace.sourceSnapshots();val next=planWorkspaceEdit(title,edit,snapshots)
+        validateChangePlan(next,snapshots)?.let{error(it)}
+        val targets=next.patches.map{patch->val before=expected[patch.path] ?: error("Reviewed source target was not captured. Prepare again.");val buffer=workspace.buffers[patch.path] ?: error("Reviewed source is unavailable. Prepare again.");check(before==patch.before&&buffer.text==before){"Reviewed source changed. Prepare the whole proposal again."};Triple(buffer,before,buffer.state.selection)}
+        val request=++revision;sources=snapshots;current={revision==request&&targets.all{(buffer,text,selection)->workspace.buffers[buffer.file.path]===buffer&&buffer.text==text&&buffer.state.selection==selection}}
+        mode="proposal";plan=next;choices=emptyList();referencePaths=emptyList();notice="";file=0;page=0;actionPage=0
+    }
     private fun install(title: String, edit: Any?, workspace: Workspace) {
         check(current()) { "Source, selection or provider changed. Prepare again." }
         val next=planWorkspaceEdit(title,edit,sources,allowNoop=mode=="cleanup")
@@ -156,7 +163,7 @@ fun Workspace.applyWorkspacePlan(plan: ChangePlan) {
         Text("Workspace change preview",fontSize=16.sp); Text("Source drafts · not saved or verified",fontSize=11.sp)
         TextButton(onClick={changes.close(workspace)}) { Text("Close") }
         if (changes.mode=="rename") OutlinedTextField(changes.name,{changes.updateName(it)},label={Text("New symbol name")},singleLine=true)
-        if (changes.mode!="undo" && changes.mode!="redo") TextButton(enabled=changes.mode!="rename" || changes.name.isNotBlank(),onClick={scope.launch {changes.prepare(workspace)}}) { Text(if(changes.mode=="actions") "Prepare provider actions" else if(changes.mode=="format") "Prepare formatting" else if(changes.mode=="cleanup") "Prepare cleanup" else "Prepare rename") }
+        if (changes.mode!="undo" && changes.mode!="redo" && changes.mode!="proposal") TextButton(enabled=changes.mode!="rename" || changes.name.isNotBlank(),onClick={scope.launch {changes.prepare(workspace)}}) { Text(if(changes.mode=="actions") "Prepare provider actions" else if(changes.mode=="format") "Prepare formatting" else if(changes.mode=="cleanup") "Prepare cleanup" else "Prepare rename") }
         if (changes.notice.isNotEmpty()) Text(changes.notice,fontSize=12.sp)
         for(index in changes.choices.indices.drop(changes.actionPage*100).take(100)) {
             val action=changes.choices[index]

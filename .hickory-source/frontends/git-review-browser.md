@@ -10,6 +10,7 @@ import {useEffect,useMemo,useReducer,useRef} from 'react';
 import {createPortal} from 'react-dom';
 import {api} from '../api/client';
 import {GitConflictView} from './GitConflict';
+import type {Buffer} from './buffers';
 import type {GitChanges,GitDiff,GitChangeFile} from '../api/git';
 export type ReviewFile=GitChangeFile&{from_outside_workspace?:boolean};
 export function reviewIndexPaths(file:ReviewFile,unstage:boolean):string[]{
@@ -52,7 +53,7 @@ Stage and unstage use the selected saved path, never an editor draft. A rename s
 Use the existing floating surface and menu vocabulary. Paging limits the visible file list; staged and working-tree buttons select an explicit side. Keep saved Git state visibly separate from unsaved editor drafts, preserve code focus on close and retire pending requests when the surface disappears. Diff text stays selectable and never becomes an editor mutation.
 
 <ui:copy id="simple-git-review-browser-view">
-export function GitReviewView({visible,workspace,close}:{visible:boolean;workspace:string;close:()=>void}) {
+export function GitReviewView({visible,workspace,close,acquire}:{visible:boolean;workspace:string;close:()=>void;acquire:(path:string)=>Promise<Buffer>}) {
  const [,paint]=useReducer((n:number)=>n+1,0),model=useMemo(()=>new GitReviewModel({changes:()=>api.gitChanges(),diff:(path,staged)=>api.gitDiff(path,staged),writeIndex:(paths,unstage)=>unstage?api.gitUnstage({paths}):api.gitStage({paths})},paint),[workspace]);
  const panel=useRef<HTMLElement>(null);
  useEffect(()=>{if(!visible)return;void model.refresh();panel.current?.focus();return()=>model.close();},[visible,model]);
@@ -63,7 +64,7 @@ export function GitReviewView({visible,workspace,close}:{visible:boolean;workspa
   <div aria-label="Changed files">{model.files.slice(model.page*20,(model.page+1)*20).map(file=><div key={file.path}><span>{file.from?`${file.from} → `:''}{file.path}</span> <button aria-label={`Working tree ${file.path}`} onClick={()=>void model.select(file.path,false)}>Working tree {file.tree}</button> <button aria-label={`Staged ${file.path}`} onClick={()=>void model.select(file.path,true)}>Staged {file.index}</button></div>)}</div>
   <nav aria-label="Changed file pages"><button disabled={model.page===0} onClick={()=>{model.page--;paint();}}>Previous</button><span>{model.files.length} changed files · page {model.page+1}</span><button disabled={(model.page+1)*20>=model.files.length} onClick={()=>{model.page++;paint();}}>Next</button></nav>
   {model.needsRefresh&&!model.indexPending&&<p>Refresh Git state before another index action.</p>}
-  {model.selected&&<><h3>{model.selected} · {model.staged?'Staged':'Working tree'}</h3><div><button disabled={model.indexPending||model.needsRefresh||![...model.files].some(file=>file.path===model.selected&&file.tree!==' ')} onClick={()=>void model.changeIndex(model.selected!,false)}>Stage saved file</button><button disabled={model.indexPending||model.needsRefresh||!model.files.some(file=>file.path===model.selected&&![' ','?','!'].includes(file.index))} onClick={()=>void model.changeIndex(model.selected!,true)}>Unstage file</button></div><GitConflictView key={model.selected} path={model.selected}/><pre aria-label="Git diff" style={{maxHeight:'40vh',overflow:'auto',whiteSpace:'pre'}}>{model.detail}</pre></>}
+  {model.selected&&<><h3>{model.selected} · {model.staged?'Staged':'Working tree'}</h3><div><button disabled={model.indexPending||model.needsRefresh||![...model.files].some(file=>file.path===model.selected&&file.tree!==' ')} onClick={()=>void model.changeIndex(model.selected!,false)}>Stage saved file</button><button disabled={model.indexPending||model.needsRefresh||!model.files.some(file=>file.path===model.selected&&![' ','?','!'].includes(file.index))} onClick={()=>void model.changeIndex(model.selected!,true)}>Unstage file</button></div><GitConflictView key={model.selected} path={model.selected} acquire={acquire} close={close}/><pre aria-label="Git diff" style={{maxHeight:'40vh',overflow:'auto',whiteSpace:'pre'}}>{model.detail}</pre></>}
  </section>,document.body);
 }
 </ui:copy>

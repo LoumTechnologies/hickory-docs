@@ -13,6 +13,8 @@ Provider edit discovery uses the same bounded acquisition boundary. Newly loaded
 
 Explicit cleanup enters before language-provider acquisition. Its fixed source, selection, buffer identity and request ticket authorize only that preparation. Returning ordinary source replacements lets the existing preview, writability checks, coordinated apply and inverse history handle it; no second editor or save path is introduced. A no-op reports the observation without creating an undo entry. The cleanup profile is literal and explicit: significant trailing spaces can change, so review the before/after text.
 
+Reviewed capabilities can offer a complete source proposal without a language provider. Every target must have the exact supplied reviewed text, and the ordinary planner and writability checks must accept the whole proposal before it becomes a preview. Capture target buffer identities, text and selections for the approval boundary. Source or selection changes refuse; successful approval uses the same coordinated inverse history as provider changes. The proposal mode has no provider-preparation button and never saves implicitly.
+
 <ui:copy id="simple-browser-workspace-changes">
 import { useEffect, useRef, useState } from "react";
 import {request} from "../api/client";
@@ -30,9 +32,8 @@ import type { CodeAction } from "../lsp/client";
 import type { Buffer, Buffers } from "./buffers";
 import { semanticLocations, semanticPath } from "./Intelligence";
 import { providerActionPaths,validateReferencedTargets, planWorkspaceEdit, invertChangePlan, validateChangePlan, type SourceSnapshot, type ChangePlan } from "./ChangePlan";
-export type ChangeCommand = "rename" | "actions" | "format" | "cleanup" | "undo" | "redo";
-const eventName = "hickory:simple:workspace-change";
-export function requestWorkspaceChange(command: ChangeCommand) { window.dispatchEvent(new CustomEvent(eventName, { detail: command })); }
+import {workspaceChangeEventName as eventName,type ChangeCommand} from "./WorkspaceChangeEvents";
+export type {ChangeCommand} from "./WorkspaceChangeEvents";
 export function workspaceSnapshots(buffers: Buffers): Map<string, SourceSnapshot> { return new Map([...buffers.values].map(([path, buffer]) => [path, { text: buffer.text, writable: !buffer.readonly && !buffer.saving && !buffer.transient }])); }
 export function applyWorkspacePlan(buffers: Buffers, plan: ChangePlan): void {
   const refusal = validateChangePlan(plan, workspaceSnapshots(buffers)); if (refusal) throw new Error(refusal);
@@ -59,7 +60,7 @@ A menu command starts a fresh request identity. Retain the exact provider respon
 <ui:copy id="simple-browser-workspace-changes-controller">
 export function WorkspaceChanges({ buffers, current, focus,files }: { files:FileNode[];buffers: Buffers; current: () => Buffer | undefined; focus: () => void }) {
   const lookup = useWorkspaceLanguageLookup(),readOutline=useWorkspaceOutlineReader();
-  const [mode, setMode] = useState<ChangeCommand | null>(null), [name, setName] = useState(""), [notice, setNotice] = useState("");
+  const [mode, setMode] = useState<ChangeCommand | "proposal" | null>(null), [name, setName] = useState(""), [notice, setNotice] = useState("");
   const [plan, setPlan] = useState<ChangePlan | null>(null), [choices, setChoices] = useState<CodeAction[]>([]);
   const [file, setFile] = useState(0), [page, setPage] = useState(0), [actionPage, setActionPage] = useState(0);
   const undo = useRef<ChangePlan[]>([]), redo = useRef<ChangePlan[]>([]), ticket = useRef(0),choiceTicket=useRef(0);
@@ -74,6 +75,22 @@ export function WorkspaceChanges({ buffers, current, focus,files }: { files:File
   };
   useEffect(() => {
     const command = (event: Event) => {
+      const detail=(event as CustomEvent).detail;
+      if(detail?.kind==='proposal'){
+        try{
+          const sources=workspaceSnapshots(buffers),next=planWorkspaceEdit(detail.title,detail.edit,sources);
+          const targets=next.patches.map(patch=>{
+            const buffer=buffers.values.get(patch.path),view=buffer&&editorForBuffer(buffer)?.view;
+            if(!buffer||detail.expected.get(patch.path)!==patch.before||buffer.text!==patch.before)throw new Error('Reviewed source changed or a target was not captured. Prepare the whole proposal again.');
+            return {buffer,text:patch.before,view,selection:view?.state.selection};
+          });
+          const refusal=validateChangePlan(next,sources);if(refusal)throw new Error(refusal);
+          const id=++ticket.current,valid=()=>id===ticket.current&&targets.every(target=>buffers.values.get(target.buffer.file.path)===target.buffer&&target.buffer.text===target.text&&(!target.view||!!target.selection&&target.view.state.selection.eq(target.selection)));
+          captured.current={sources,references:[],current:valid,request:id,choices:[],resolve:async()=>{throw new Error('Prepare provider actions first.');},acquire:async()=>{throw new Error('Reviewed source was already captured.');}};
+          setMode('proposal');setPlan(next);setChoices([]);setNotice('');setFile(0);setPage(0);setActionPage(0);detail.accepted=true;
+        }catch(error){detail.error=String(error);}
+        return;
+      }
       const next = (event as CustomEvent).detail as ChangeCommand;
       if (!["rename", "actions", "format", "cleanup", "undo", "redo"].includes(next)) return;
       ticket.current++; setMode(next); setPlan(null); setChoices([]); setName(""); setNotice(""); setActionPage(0);
@@ -178,7 +195,7 @@ A fixed floating dialog uses the existing menu, restores editor focus when dismi
   return createPortal(<div ref={panel} tabIndex={-1} className="simple-workspace-problems" role="dialog" aria-label="Workspace change preview" onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); close(); } }}>
     <button aria-label="Close change preview" onClick={close}>×</button><strong>Workspace change preview</strong><p>Source drafts · not saved or verified</p>
     {mode === "rename" && <input ref={input} aria-label="New symbol name" value={name} onChange={event => { ticket.current++; setPlan(null); setChoices([]); setName(event.target.value); setNotice(""); }} />}
-    {!["undo", "redo"].includes(mode) && <button disabled={mode === "rename" && !name.trim()} onClick={() => { void prepare(); }}>Prepare {mode === "actions" ? "provider actions" : mode === "format" ? "formatting" : mode === "cleanup" ? "cleanup" : "rename"}</button>}
+    {!["undo", "redo", "proposal"].includes(mode) && <button disabled={mode === "rename" && !name.trim()} onClick={() => { void prepare(); }}>Prepare {mode === "actions" ? "provider actions" : mode === "format" ? "formatting" : mode === "cleanup" ? "cleanup" : "rename"}</button>}
     {notice && <p role="status">{notice}</p>}
     {choices.slice(actionPage * 100, (actionPage + 1) * 100).map((action, index) => <div key={index}><button onClick={() => {void choose(action);}}>{action.title}</button>{action.disabled && <small>{action.disabled.reason}</small>}</div>)}
     {choices.length > 100 && <div><button disabled={!actionPage} onClick={() => setActionPage(actionPage - 1)}>Previous actions</button><button disabled={(actionPage + 1) * 100 >= choices.length} onClick={() => setActionPage(actionPage + 1)}>Next actions</button></div>}
@@ -192,5 +209,13 @@ A fixed floating dialog uses the existing menu, restores editor focus when dismi
 
 
 
-<ui:file path="apps/web/src/simple/WorkspaceChanges.tsx"><ui:paste select="#simple-browser-workspace-changes"/><ui:paste select="#simple-browser-workspace-changes-controller"/><ui:paste select="#simple-browser-workspace-changes-presentation"/></ui:file>
+## Offer reviewed source changes through the existing preview
+
+A source-aware capability can offer ordinary replacements with the exact text it reviewed. The event is handled synchronously by the existing change controller; acceptance means a preview was prepared, not that source was edited or saved. Refuse an absent controller instead of leaving a pending operation.
+
+<ui:copy id="reviewed-source-browser-request">
+export {requestWorkspaceChange,requestWorkspaceProposal} from "./WorkspaceChangeEvents";
+</ui:copy>
+
+<ui:file path="apps/web/src/simple/WorkspaceChanges.tsx"><ui:paste select="#simple-browser-workspace-changes"/><ui:paste select="#simple-browser-workspace-changes-controller"/><ui:paste select="#simple-browser-workspace-changes-presentation"/><ui:paste select="#reviewed-source-browser-request"/></ui:file>
 </ui:doc>

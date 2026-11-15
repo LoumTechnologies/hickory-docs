@@ -93,6 +93,20 @@ import Observation
             try install("Trim trailing whitespace",edit:edit,workspace:workspace)
         }catch{if revision==request{notice=error.localizedDescription}}
     }
+    func offer(_ title:String,edit:Any,expected:[String:String],workspace:Workspace)throws {
+        let sources=workspace.sourceSnapshots(),next=try planWorkspaceEdit(title,raw:edit,sources:sources)
+        if let refusal=validateChangePlan(next,sources:sources){throw EngineError(message:refusal)}
+        let targets=try next.patches.map{patch -> (DocumentBuffer,String,NSRange) in
+            guard let before=expected.first(where:{exactUTF8($0.key,patch.path)})?.value,exactUTF8(before,patch.before),let buffer=workspace.buffers.values.first(where:{exactUTF8($0.file.path,patch.path)}),exactUTF8(buffer.text,before) else{throw EngineError(message:"Reviewed source changed or a target was not captured. Prepare the whole proposal again.")}
+            return (buffer,before,buffer.selection)
+        }
+        revision=UUID();let request=revision
+        captured=(sources,{[weak self,weak workspace] in
+            guard let self,let workspace,self.revision==request else{return false}
+            return targets.allSatisfy{buffer,text,selection in workspace.buffers.values.contains(where:{$0 === buffer})&&exactUTF8(buffer.text,text)&&buffer.selection==selection}
+        })
+        mode="proposal";plan=next;choices=[];referencePaths=[];notice="";file=0;page=0;actionPage=0
+    }
     private func install(_ title: String, edit: Any, workspace: Workspace) throws {
         guard let captured, captured.current() else { throw EngineError(message:"Source, selection or provider changed. Prepare again.") }
         let next = try planWorkspaceEdit(title,raw:edit,sources:captured.sources,allowNoop:mode == "cleanup")
@@ -165,7 +179,7 @@ struct WorkspaceChangesView: View {
             HStack { Text("Workspace change preview").font(.headline); Spacer(); Button("Close") { changes.close(workspace) } }
             Text("Source drafts · not saved or verified").font(.caption)
             if changes.mode == "rename" { TextField("New symbol name",text:$changes.name).textFieldStyle(.roundedBorder) }
-            if changes.mode != "undo", changes.mode != "redo" { Button(changes.mode == "actions" ? "Prepare provider actions" : changes.mode == "format" ? "Prepare formatting" : changes.mode == "cleanup" ? "Prepare cleanup" : "Prepare rename") { Task { await changes.prepare(workspace) } }.disabled(changes.mode == "rename" && changes.name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty) }
+            if changes.mode != "undo", changes.mode != "redo", changes.mode != "proposal" { Button(changes.mode == "actions" ? "Prepare provider actions" : changes.mode == "format" ? "Prepare formatting" : changes.mode == "cleanup" ? "Prepare cleanup" : "Prepare rename") { Task { await changes.prepare(workspace) } }.disabled(changes.mode == "rename" && changes.name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty) }
             if !changes.notice.isEmpty { Text(changes.notice).font(.caption) }
             ScrollView { VStack(alignment:.leading,spacing:6) {
                 ForEach(Array(changes.choices.indices.dropFirst(changes.actionPage*100).prefix(100)),id:\.self) { index in

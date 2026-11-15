@@ -13,6 +13,8 @@ Provider edit discovery uses the same bounded acquisition boundary. Newly loaded
 
 Explicit cleanup enters before language-provider acquisition. Its fixed source, selection, buffer identity and request ticket authorize only that preparation. Returning ordinary source replacements lets the existing preview, writability checks, coordinated apply and inverse history handle it; no second editor or save path is introduced. A no-op reports the observation without creating an undo entry. The cleanup profile is literal and explicit: significant trailing spaces can change, so review the before/after text.
 
+Reviewed capabilities can offer a complete source proposal without a language provider. Every target must have the exact supplied reviewed text, and the ordinary planner and writability checks must accept the whole proposal before it becomes a preview. Capture target buffer identities, text and selections for the approval boundary. Source or selection changes refuse; successful approval uses the same coordinated inverse history as provider changes. The proposal mode has no provider-preparation button and never saves implicitly.
+
 <ui:copy id="simple-apple-workspace-changes">
 import SwiftUI
 import Observation
@@ -109,6 +111,20 @@ import Observation
             try install("Trim trailing whitespace",edit:edit,workspace:workspace)
         }catch{if revision==request{notice=error.localizedDescription}}
     }
+    func offer(_ title:String,edit:Any,expected:[String:String],workspace:Workspace)throws {
+        let sources=workspace.sourceSnapshots(),next=try planWorkspaceEdit(title,raw:edit,sources:sources)
+        if let refusal=validateChangePlan(next,sources:sources){throw EngineError(message:refusal)}
+        let targets=try next.patches.map{patch -> (DocumentBuffer,String,NSRange) in
+            guard let before=expected.first(where:{exactUTF8($0.key,patch.path)})?.value,exactUTF8(before,patch.before),let buffer=workspace.buffers.values.first(where:{exactUTF8($0.file.path,patch.path)}),exactUTF8(buffer.text,before) else{throw EngineError(message:"Reviewed source changed or a target was not captured. Prepare the whole proposal again.")}
+            return (buffer,before,buffer.selection)
+        }
+        revision=UUID();let request=revision
+        captured=(sources,{[weak self,weak workspace] in
+            guard let self,let workspace,self.revision==request else{return false}
+            return targets.allSatisfy{buffer,text,selection in workspace.buffers.values.contains(where:{$0 === buffer})&&exactUTF8(buffer.text,text)&&buffer.selection==selection}
+        })
+        mode="proposal";plan=next;choices=[];referencePaths=[];notice="";file=0;page=0;actionPage=0
+    }
     private func install(_ title: String, edit: Any, workspace: Workspace) throws {
         guard let captured, captured.current() else { throw EngineError(message:"Source, selection or provider changed. Prepare again.") }
         let next = try planWorkspaceEdit(title,raw:edit,sources:captured.sources,allowNoop:mode == "cleanup")
@@ -195,7 +211,7 @@ struct WorkspaceChangesView: View {
             HStack { Text("Workspace change preview").font(.headline); Spacer(); Button("Close") { changes.close(workspace) } }
             Text("Source drafts · not saved or verified").font(.caption)
             if changes.mode == "rename" { TextField("New symbol name",text:$changes.name).textFieldStyle(.roundedBorder) }
-            if changes.mode != "undo", changes.mode != "redo" { Button(changes.mode == "actions" ? "Prepare provider actions" : changes.mode == "format" ? "Prepare formatting" : changes.mode == "cleanup" ? "Prepare cleanup" : "Prepare rename") { Task { await changes.prepare(workspace) } }.disabled(changes.mode == "rename" && changes.name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty) }
+            if changes.mode != "undo", changes.mode != "redo", changes.mode != "proposal" { Button(changes.mode == "actions" ? "Prepare provider actions" : changes.mode == "format" ? "Prepare formatting" : changes.mode == "cleanup" ? "Prepare cleanup" : "Prepare rename") { Task { await changes.prepare(workspace) } }.disabled(changes.mode == "rename" && changes.name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty) }
             if !changes.notice.isEmpty { Text(changes.notice).font(.caption) }
             ScrollView { VStack(alignment:.leading,spacing:6) {
                 ForEach(Array(changes.choices.indices.dropFirst(changes.actionPage*100).prefix(100)),id:\.self) { index in
@@ -311,7 +327,33 @@ extension ChangeRequestTests {
 }
 </ui:copy>
 
-<ui:file path="apps/apple-simple/Tests/ChangeRequestTests.swift"><ui:paste select="#native-change-request-apple-witness"/><ui:paste select="#cleanup-apple-witness"/></ui:file>
+## Keep reviewed-source proposals inside coordinated draft history
+
+Offer exact reviewed text without a language provider. Missing or stale captures refuse before becoming previews. Approval applies through the same workspace history, while source or selection changes after preparation refuse. The saved baseline remains untouched until a separate save.
+
+<ui:copy id="reviewed-source-apple-tests">
+extension ChangeRequestTests {
+ func testReviewedSourceProposalUsesSharedPreviewApplyAndUndo()throws{
+  let workspace=Workspace(),file=FileNode(name:"a.txt",path:"a.txt",dir:false),before="draft\n",after="incoming\n"
+  let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:before,hash:"base"));workspace.buffers[file.path]=buffer;workspace.show(file.path)
+  let edit:[String:Any]=["changes":[languageURI(file.path):[["range":["start":["line":0,"character":0],"end":["line":1,"character":0]],"newText":after]]]]
+  XCTAssertThrowsError(try workspace.changes.offer("Reviewed source",edit:edit,expected:[:],workspace:workspace));XCTAssertNil(workspace.changes.mode);XCTAssertEqual(buffer.text,before)
+  try workspace.changes.offer("Reviewed source",edit:edit,expected:[file.path:before],workspace:workspace);XCTAssertEqual(workspace.changes.mode,"proposal");XCTAssertEqual(buffer.text,before)
+  workspace.changes.apply(workspace);XCTAssertEqual(buffer.text,after);XCTAssertEqual(buffer.base,before)
+  workspace.changes.open("undo",workspace:workspace);XCTAssertEqual(buffer.text,before);workspace.changes.open("redo",workspace:workspace);XCTAssertEqual(buffer.text,after)
+ }
+ func testReviewedSourceProposalRefusesEditsOrSelectionChangesBeforeApproval()throws{
+  let workspace=Workspace(),file=FileNode(name:"a.txt",path:"a.txt",dir:false)
+  let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:"x",hash:"base"));workspace.buffers[file.path]=buffer;workspace.show(file.path)
+  let edit:[String:Any]=["changes":[languageURI(file.path):[["range":["start":["line":0,"character":0],"end":["line":0,"character":1]],"newText":"y"]]]]
+  try workspace.changes.offer("Reviewed source",edit:edit,expected:[file.path:"x"],workspace:workspace);buffer.text="typed";workspace.changes.apply(workspace);XCTAssertEqual(buffer.text,"typed")
+  XCTAssertThrowsError(try workspace.changes.offer("Reviewed source",edit:edit,expected:[file.path:"x"],workspace:workspace))
+  buffer.text="x";try workspace.changes.offer("Reviewed source",edit:edit,expected:[file.path:"x"],workspace:workspace);buffer.selection=NSRange(location:1,length:0);workspace.changes.apply(workspace);XCTAssertEqual(buffer.text,"x")
+ }
+}
+</ui:copy>
+
+<ui:file path="apps/apple-simple/Tests/ChangeRequestTests.swift"><ui:paste select="#native-change-request-apple-witness"/><ui:paste select="#cleanup-apple-witness"/><ui:paste select="#reviewed-source-apple-tests"/></ui:file>
 ## Keep resolved choices with their preparation
 
 Complete a newer choice before an older resolver reply, then reject a row from a replaced preparation and a reply after closing. These controlled callbacks exercise the actual native change model; source stays unchanged until explicit application. They do not claim native pointer or provider-language acceptance.

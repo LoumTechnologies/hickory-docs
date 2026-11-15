@@ -86,7 +86,7 @@ func planWorkspaceEdit(_ title: String, raw: Any, sources: [String: SourceSnapsh
         for item in edits.reversed() { after.replaceCharacters(in: NSRange(location:item.from,length:item.to-item.from), with: item.text) }
         if !exactUTF8(before,after as String) { patches.append(SourcePatch(path:path,before:before,after:after as String,edits:edits)) }
     }
-    guard !patches.isEmpty || allowNoop else { throw EngineError(message: "The provider proposed no source changes") }
+    guard !patches.isEmpty || allowNoop else { throw EngineError(message: "The proposal contains no source changes") }
     return ChangePlan(title:title,patches:patches)
 }
 func invertChangePlan(_ plan: ChangePlan) -> ChangePlan {

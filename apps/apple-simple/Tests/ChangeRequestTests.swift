@@ -57,3 +57,22 @@ extension ChangeRequestTests {
         XCTAssertNil(changes.plan);XCTAssertEqual(buffer.text,"x ")
     }
 }
+extension ChangeRequestTests {
+ func testReviewedSourceProposalUsesSharedPreviewApplyAndUndo()throws{
+  let workspace=Workspace(),file=FileNode(name:"a.txt",path:"a.txt",dir:false),before="draft\n",after="incoming\n"
+  let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:before,hash:"base"));workspace.buffers[file.path]=buffer;workspace.show(file.path)
+  let edit:[String:Any]=["changes":[languageURI(file.path):[["range":["start":["line":0,"character":0],"end":["line":1,"character":0]],"newText":after]]]]
+  XCTAssertThrowsError(try workspace.changes.offer("Reviewed source",edit:edit,expected:[:],workspace:workspace));XCTAssertNil(workspace.changes.mode);XCTAssertEqual(buffer.text,before)
+  try workspace.changes.offer("Reviewed source",edit:edit,expected:[file.path:before],workspace:workspace);XCTAssertEqual(workspace.changes.mode,"proposal");XCTAssertEqual(buffer.text,before)
+  workspace.changes.apply(workspace);XCTAssertEqual(buffer.text,after);XCTAssertEqual(buffer.base,before)
+  workspace.changes.open("undo",workspace:workspace);XCTAssertEqual(buffer.text,before);workspace.changes.open("redo",workspace:workspace);XCTAssertEqual(buffer.text,after)
+ }
+ func testReviewedSourceProposalRefusesEditsOrSelectionChangesBeforeApproval()throws{
+  let workspace=Workspace(),file=FileNode(name:"a.txt",path:"a.txt",dir:false)
+  let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:"x",hash:"base"));workspace.buffers[file.path]=buffer;workspace.show(file.path)
+  let edit:[String:Any]=["changes":[languageURI(file.path):[["range":["start":["line":0,"character":0],"end":["line":0,"character":1]],"newText":"y"]]]]
+  try workspace.changes.offer("Reviewed source",edit:edit,expected:[file.path:"x"],workspace:workspace);buffer.text="typed";workspace.changes.apply(workspace);XCTAssertEqual(buffer.text,"typed")
+  XCTAssertThrowsError(try workspace.changes.offer("Reviewed source",edit:edit,expected:[file.path:"x"],workspace:workspace))
+  buffer.text="x";try workspace.changes.offer("Reviewed source",edit:edit,expected:[file.path:"x"],workspace:workspace);buffer.selection=NSRange(location:1,length:0);workspace.changes.apply(workspace);XCTAssertEqual(buffer.text,"x")
+ }
+}

@@ -153755,6 +153755,55 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/git-conflict-browser.md",
       "symbol": "Read actual conflict stages beside a retained draft",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "reviewed-source-browser-request",
+      "output": "apps/web/src/simple/WorkspaceChanges.tsx",
+      "page": ".hickory-source/frontends/workspace-changes-browser.md",
+      "symbol": "Offer reviewed source changes through the existing preview",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-change-browser-events",
+      "output": "apps/web/src/simple/WorkspaceChangeEvents.ts",
+      "page": ".hickory-source/frontends/workspace-change-events-browser.md",
+      "symbol": "workspace-change-browser-events",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-conflict-choice-browser-tests",
+      "output": "apps/web/src/simple/GitConflict.test.ts",
+      "page": ".hickory-source/frontends/git-conflict-browser.md",
+      "symbol": "Recheck a chosen stage before offering a source preview",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-conflict-choice-apple-tests",
+      "output": "apps/apple-simple/Tests/GitConflictTests.swift",
+      "page": ".hickory-source/frontends/git-conflict-apple.md",
+      "symbol": "Recheck a chosen stage before offering a source preview",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-conflict-choice-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/GitConflictTest.kt",
+      "page": ".hickory-source/frontends/git-conflict-android.md",
+      "symbol": "Recheck a chosen stage before offering a source preview",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "reviewed-source-apple-tests",
+      "output": "apps/apple-simple/Tests/ChangeRequestTests.swift",
+      "page": ".hickory-source/frontends/workspace-changes-apple.md",
+      "symbol": "Keep reviewed-source proposals inside coordinated draft history",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "reviewed-source-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/ChangeRequestTest.kt",
+      "page": ".hickory-source/frontends/workspace-changes-android.md",
+      "symbol": "Keep reviewed-source proposals inside coordinated draft history",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

@@ -628,3 +628,33 @@ saved bytes remain unchanged. TypeScript checking and the iOS simulator build
 pass. This is conflict inspection: applying a reviewed resolution with guarded
 source and index authority remains required work. Native physical input and
 accessibility acceptance remain unverified.
+
+## Preview an available conflict text stage as a source change
+
+Every simple UI can offer an available regular Git conflict stage through the
+existing source-change preview. Recheck the captured conflict fingerprint, object
+identity, mode and exact chosen bytes before preparing that proposal. Retired,
+changed, binary and special-file stages cannot offer source replacements. Bind
+the preview to the exact authored draft and selection; a later source/selection
+change refuses approval. Applying changes the draft only and uses coordinated
+workspace undo/redo. The existing Save and Stage actions are separate, explicit
+boundaries; choosing a stage never commits or changes the index automatically.
+
+The same reviewed-source proposal boundary is available to other source-aware
+capabilities without importing or replacing an editor renderer. Missing target
+captures and changed source refuse before becoming previews. This mechanism
+currently supports ordinary text changes; resource operations still require their
+complete namespace/save model.
+
+Focused evidence (2026-11-15): each UI host passes choice admission cases for
+changed fingerprints, mismatching selected bytes, closed replies and binary
+stages. Each native host passes reviewed-source preview/apply/workspace undo/redo,
+saved-base retention, missing/stale captures and changed-selection refusal. The
+real-engine browser flow reads actual conflict stages, reviews a stage against a
+dirty draft, applies and exactly undoes/redoes it, then separately saves and stages
+the chosen bytes to resolve its temporary conflict. HEAD remains unchanged;
+inspection and draft application leave index/saved bytes unchanged until those
+explicit actions. Editor identity/dimensions remain stable. This covers choosing
+a whole regular text stage and subsequent ordinary editing; assisted merge-hunk
+composition and delete/rename conflict resolutions remain required. Native
+physical input and accessibility acceptance remain unverified.

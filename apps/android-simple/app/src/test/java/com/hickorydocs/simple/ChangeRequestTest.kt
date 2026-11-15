@@ -44,3 +44,20 @@ class CleanupRequestTest {
   assertNull(changes.plan);assertEquals("x ",buffer.text)
  }
 }
+class ReviewedSourceProposalTest {
+ @Test fun reviewedSourceUsesSharedPreviewApplyAndUndo()=runBlocking{
+  val workspace=Workspace(this);val file=FileNode("a.txt","a.txt",false,emptyList(),null,null);val before="draft\n";val after="incoming\n";val buffer=DocumentBuffer(file,FileText(before,"base"));workspace.buffers[file.path]=buffer;workspace.show(file.path)
+  val edit=JSONObject("""{"changes":{"hick:///a.txt":[{"range":{"start":{"line":0,"character":0},"end":{"line":1,"character":0}},"newText":"incoming\n"}]}}""")
+  assertTrue(runCatching{workspace.changes.offer("Reviewed source",edit,emptyMap(),workspace)}.isFailure);assertNull(workspace.changes.mode);assertEquals(before,buffer.text)
+  workspace.changes.offer("Reviewed source",edit,mapOf(file.path to before),workspace);assertEquals("proposal",workspace.changes.mode);assertEquals(before,buffer.text)
+  workspace.changes.apply(workspace);assertEquals(after,buffer.text);assertEquals(before,buffer.base)
+  workspace.changes.open("undo",workspace);assertEquals(before,buffer.text);workspace.changes.open("redo",workspace);assertEquals(after,buffer.text)
+ }
+ @Test fun reviewedSourceRefusesEditsOrSelectionChangesBeforeApproval()=runBlocking{
+  val workspace=Workspace(this);val file=FileNode("a.txt","a.txt",false,emptyList(),null,null);val buffer=DocumentBuffer(file,FileText("x","base"));workspace.buffers[file.path]=buffer;workspace.show(file.path)
+  val edit=JSONObject("""{"changes":{"hick:///a.txt":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"newText":"y"}]}}""")
+  workspace.changes.offer("Reviewed source",edit,mapOf(file.path to "x"),workspace);buffer.state.edit{replace(0,length,"typed")};workspace.changes.apply(workspace);assertEquals("typed",buffer.text)
+  assertTrue(runCatching{workspace.changes.offer("Reviewed source",edit,mapOf(file.path to "x"),workspace)}.isFailure)
+  buffer.state.edit{replace(0,length,"x")};workspace.changes.offer("Reviewed source",edit,mapOf(file.path to "x"),workspace);buffer.state.edit{selection=androidx.compose.ui.text.TextRange(if(selection.start==0&&selection.end==0)1 else 0)};workspace.changes.apply(workspace);assertEquals("x",buffer.text)
+ }
+}

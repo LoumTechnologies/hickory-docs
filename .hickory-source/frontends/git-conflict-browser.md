@@ -5,9 +5,14 @@ For maintainers changing workspace services independently of the editor renderer
 
 Conflict inspection is an optional capability inside the existing repository review. It validates literal source identity, protocol version, immutable object names, stage uniqueness and explicit text availability. A fixed read ticket retires held/closed/foreign replies. Stage labels preserve Git’s meaning during rebase. Source text and index remain separate from this observation; this view does not publish a resolution. Page the retained stage text without reserving code space, and disclose a cap for a very long page.
 
+Choosing an available regular text stage first re-reads the conflict. The stage fingerprint, immutable object identity, mode and exact selected bytes must still match. A fixed choice ticket retires closed or replaced work. Only then may the host acquire the authored buffer and offer an ordinary source replacement with its reviewed text. The existing change controller owns preview, approval, coordinated draft history and later source validation; this capability owns neither saving nor index mutation.
+
 <ui:copy id="git-conflict-browser">
 import {useEffect,useMemo,useReducer,useState} from 'react';
 import {request} from '../api/client';
+import type {Buffer} from './buffers';
+import {requestWorkspaceProposal} from './WorkspaceChangeEvents';
+import {utf16ToPosition} from '../lsp/positions';
 export interface ConflictStage {stage:number;mode:string;oid:string;text:string|null;unavailable:string|null}
 export interface ConflictReading {version:1;path:string;fingerprint:string;stages:ConflictStage[];index_modified:false;source_files_modified:false}
 export function validateConflict(value:ConflictReading,path:string):void {
@@ -21,15 +26,29 @@ export class GitConflictModel {
  async read(path:string,load:(path:string)=>Promise<ConflictReading>){const id=++this.ticket;this.value=null;this.loading=true;this.notice='Reading unmerged stages…';this.changed();
  try{const value=await load(path);if(id!==this.ticket)return;validateConflict(value,path);this.value=value;this.notice='Captured immutable Git stages. Working text and unsaved drafts are separate.';}
  catch(error){if(id===this.ticket)this.notice=String(error);}finally{if(id===this.ticket){this.loading=false;this.changed();}}}
+ async choose(stage:number,load:(path:string)=>Promise<ConflictReading>,offer:(stage:ConflictStage,value:ConflictReading,current:()=>boolean)=>Promise<void>){
+  const value=this.value,item=value?.stages.find(item=>item.stage===stage);if(!value||!item||item.text===null){this.notice='Choose an available regular text stage first.';this.changed();return;}
+  const id=++this.ticket,current=()=>id===this.ticket&&this.value===value;this.loading=true;this.notice='Checking captured conflict stages…';this.changed();
+  try{const fresh=await load(value.path);if(!current())return;validateConflict(fresh,value.path);if(fresh.fingerprint!==value.fingerprint||!fresh.stages.some(other=>other.stage===item.stage&&other.mode===item.mode&&other.oid===item.oid&&other.text===item.text))throw new Error('Conflict stages changed. Inspect them again before choosing a resolution.');await offer(item,value,current);if(current())this.notice='Prepared a source change preview. Nothing saved or staged.';}
+  catch(error){if(current())this.notice=String(error);}finally{if(id===this.ticket){this.loading=false;this.changed();}}
+ }
+
 }
-export function GitConflictView({path}:{path:string}){
+export function GitConflictView({path,acquire,close}:{path:string;acquire:(path:string)=>Promise<Buffer>;close:()=>void}){
  const [,paint]=useReducer(n=>n+1,0),model=useMemo(()=>new GitConflictModel(paint),[path]);const [selected,setSelected]=useState(2),[page,setPage]=useState(0);
  useEffect(()=>()=>model.close(),[model]);
+ const load=(path:string)=>request<ConflictReading>('GET','/api/git/conflict?path='+encodeURIComponent(path));
+ const choose=(stage:number)=>model.choose(stage,load,async(item,value,current)=>{
+  const buffer=await acquire(value.path);if(!current())return;
+  if(buffer.readonly||buffer.saving||buffer.transient)throw new Error('Choose an authored, editable source that is not saving.');
+  const source=buffer.text,uri='hick:///'+value.path.split('/').map(encodeURIComponent).join('/');
+  requestWorkspaceProposal(`Use Git stage ${item.stage} · ${item.oid}`,{changes:{[uri]:[{range:{start:{line:0,character:0},end:utf16ToPosition(source,source.length)},newText:item.text}]}},new Map([[value.path,source]]));close();
+ });
  const stage=model.value?.stages.find(item=>item.stage===selected)??model.value?.stages[0],rows=stage?.text?.split('\n')??[],last=Math.max(0,Math.ceil(rows.length/100)-1),index=Math.min(page,last),text=rows.slice(index*100,(index+1)*100).join('\n');
  return <section aria-label="Conflict stages"><button disabled={model.loading} onClick={()=>{setPage(0);void model.read(path,path=>request('GET','/api/git/conflict?path='+encodeURIComponent(path)));}}>Inspect conflict stages</button>{model.notice&&<p role="status">{model.notice}</p>}{model.value&&<>
  <p>Stage 1: base · Stage 2 and Stage 3 retain Git’s meanings, including during rebase.</p>
  {model.value.stages.map(item=><button key={item.stage} aria-pressed={stage===item} onClick={()=>{setSelected(item.stage);setPage(0);}}>Stage {item.stage}{item.stage===1?' · Base':''}</button>)}
- {stage&&<><p>Stage {stage.stage} · mode {stage.mode}</p><code>{stage.oid}</code>{stage.text===null?<p>{stage.unavailable}</p>:<><p>Lines {index*100+1}–{Math.min(rows.length,(index+1)*100)}{text.length>200000?' · page preview capped at 200,000 characters':''}</p><pre aria-label="Conflict stage text" style={{maxHeight:'30vh',overflow:'auto'}}>{text.slice(0,200000)}</pre><button disabled={!index} onClick={()=>setPage(index-1)}>Previous stage lines</button><button disabled={index===last} onClick={()=>setPage(index+1)}>Next stage lines</button></>}</>}
+ {stage&&<><p>Stage {stage.stage} · mode {stage.mode}</p><code>{stage.oid}</code>{stage.text===null?<p>{stage.unavailable}</p>:<><button disabled={model.loading} onClick={()=>void choose(stage.stage)}>Preview this stage as source</button><p>Lines {index*100+1}–{Math.min(rows.length,(index+1)*100)}{text.length>200000?' · page preview capped at 200,000 characters':''}</p><pre aria-label="Conflict stage text" style={{maxHeight:'30vh',overflow:'auto'}}>{text.slice(0,200000)}</pre><button disabled={!index} onClick={()=>setPage(index-1)}>Previous stage lines</button><button disabled={index===last} onClick={()=>setPage(index+1)}>Next stage lines</button></>}</>}
  </>}</section>;
 }
 </ui:copy>
@@ -56,7 +75,22 @@ it('requires complete immutable identities and unambiguous text availability',()
 });
 </ui:copy>
 
-<ui:file path="apps/web/src/simple/GitConflict.test.ts"><ui:paste select="#git-conflict-browser-tests"/></ui:file>
+## Recheck a chosen stage before offering a source preview
+
+An unchanged stage can offer one preview. A new stage fingerprint, changed bytes under a claimed identity, unavailable binary text or a closed pending request must offer none. These witnesses exercise selection admission without changing source or index.
+
+<ui:copy id="git-conflict-choice-browser-tests">
+it('rechecks captured stages and never offers a changed, binary or closed selection',async()=>{
+ const model=new GitConflictModel();let offered=0;const load=async()=>reading('a.txt');const offer=async()=>{offered++;};
+ await model.read('a.txt',load);await model.choose(2,load,offer);expect(offered).toBe(1);
+ await model.choose(2,async()=>({...reading('a.txt'),fingerprint:'c'.repeat(64)}),offer);expect(offered).toBe(1);expect(model.notice).toContain('stages changed');
+ await model.choose(2,async()=>reading('a.txt','different bytes'),offer);expect(offered).toBe(1);
+ let release!:(value:ConflictReading)=>void;const pending=model.choose(2,()=>new Promise(resolve=>{release=resolve;}),offer);model.close();release(reading('a.txt'));await pending;expect(offered).toBe(1);
+ const binary=reading('a.txt');binary.stages[0]={...binary.stages[0],text:null,unavailable:'Binary'};await model.read('a.txt',async()=>binary);await model.choose(2,async()=>binary,offer);expect(offered).toBe(1);
+});
+</ui:copy>
+
+<ui:file path="apps/web/src/simple/GitConflict.test.ts"><ui:paste select="#git-conflict-browser-tests"/><ui:paste select="#git-conflict-choice-browser-tests"/></ui:file>
 ## Read actual conflict stages beside a retained draft
 
 Use a real merge conflict and the existing repository dialog, then compare all three immutable stage texts. Keep a dirty source open, exercise its undo/redo, and assert unchanged code dimensions, editor identity, HEAD, index and saved source. The fixture and all Git writes remain inside its temporary repository.
@@ -69,6 +103,7 @@ from pathlib import Path
 import socket
 import subprocess
 import tempfile
+import time
 ROOT=Path(__file__).resolve().parents[1]
 def main():
  spec=importlib.util.spec_from_file_location("fixture",ROOT/"scripts/test-simple-browser.py");fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
@@ -93,7 +128,21 @@ def main():
    assert driver.act("editor-is-retained",path=path);assert driver.act("editor-size",path=path)==size
    driver.act("construction-history",redo=False);assert driver.act("construction-source",path=path)==saved.decode();driver.act("construction-history",redo=True);assert driver.act("construction-source",path=path)==draft
    assert (root/path).read_bytes()==saved;assert (root/".git/index").read_bytes()==index;assert git("rev-parse","HEAD")==head
-   print("PASS: real conflict stage 1/2/3 inspection through repository review, literal path, retained dirty source/editor/dimensions/undo, unchanged HEAD/index/working bytes")
+   driver.act("review-open");driver.act("review-select",path=path,staged=False);driver.act("review-conflict-read");driver.act("review-conflict-stage",stage=3)
+   preview=driver.act("review-conflict-preview");assert "Use Git stage 3" in preview and "Before" in preview and "Apply to source drafts" in preview,preview
+   assert driver.act("construction-source",path=path)==draft;assert (root/path).read_bytes()==saved;assert (root/".git/index").read_bytes()==index
+   driver.act("change-apply");driver.act("change-close");assert driver.act("construction-source",path=path)=="incoming\n"
+   driver.act("change-open",command="Undo workspace change");driver.act("change-close");assert driver.act("construction-source",path=path)==draft
+   driver.act("change-open",command="Redo workspace change");driver.act("change-close");assert driver.act("construction-source",path=path)=="incoming\n"
+   assert (root/path).read_bytes()==saved;assert (root/".git/index").read_bytes()==index
+   driver.act("file-command",command="Save")
+   deadline=time.monotonic()+10
+   while (root/path).read_bytes()!=b"incoming\n" and time.monotonic()<deadline:time.sleep(.01)
+   assert (root/path).read_bytes()==b"incoming\n";assert (root/".git/index").read_bytes()==index
+   driver.act("review-open");driver.act("review-select",path=path,staged=False);notice=driver.act("review-stage");assert "Saved paths staged" in notice,notice;driver.act("review-close")
+   assert git("ls-files","--unmerged","--",path)==b"";assert git("show",":0:"+path)==b"incoming\n";assert git("rev-parse","HEAD")==head
+   assert driver.act("editor-is-retained",path=path);assert driver.act("editor-size",path=path)==size
+   print("PASS: actual conflict stages and literal path; unchanged inspection; source-bound stage preview, explicit draft apply and exact workspace undo/redo; separate Save and Stage resolve the temporary conflict without committing; retained editor/dimensions")
   finally:
    if driver:driver.close()
    for process in reversed(processes):fixture.stop(process)

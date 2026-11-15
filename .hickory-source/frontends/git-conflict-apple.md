@@ -5,6 +5,8 @@ For maintainers changing workspace services independently of the editor renderer
 
 Conflict inspection is an optional capability inside the existing repository review. It validates literal source identity, protocol version, immutable object names, stage uniqueness and explicit text availability. A fixed read ticket retires held/closed/foreign replies. Stage labels preserve Git’s meaning during rebase. Source text and index remain separate from this observation; this view does not publish a resolution. Page the retained stage text without reserving code space, and disclose a cap for a very long page.
 
+Choosing an available regular text stage first re-reads the conflict. The stage fingerprint, immutable object identity, mode and exact selected bytes must still match. A fixed choice ticket retires closed or replaced work. Only then may the host acquire the authored buffer and offer an ordinary source replacement with its reviewed text. The existing change controller owns preview, approval, coordinated draft history and later source validation; this capability owns neither saving nor index mutation.
+
 <ui:copy id="git-conflict-apple">
 import SwiftUI
 import Observation
@@ -21,9 +23,29 @@ func validateConflict(_ value:ConflictReading,path:String)throws {
  func close(){ticket=UUID();loading=false;value=nil}
  func read(_ path:String,load:(String)async throws->ConflictReading)async{let id=UUID();ticket=id;value=nil;loading=true;notice="Reading unmerged stages…";defer{if ticket==id{loading=false}}
  do{let result=try await load(path);guard ticket==id else{return};try validateConflict(result,path:path);value=result;notice="Captured immutable Git stages. Working text and unsaved drafts are separate."}catch{if ticket==id{notice=error.localizedDescription}}}
+ func choose(_ stage:Int,load:(String)async throws->ConflictReading,offer:(ConflictStage,ConflictReading,@escaping ()->Bool)async throws->Void)async{
+  guard let value,let item=value.stages.first(where:{$0.stage==stage}),item.text != nil else{notice="Choose an available regular text stage first.";return}
+  let id=UUID();ticket=id;let current={[weak self] in self?.ticket==id && self?.value != nil};loading=true;notice="Checking captured conflict stages…";defer{if ticket==id{loading=false}}
+  do{let fresh=try await load(value.path);guard current() else{return};try validateConflict(fresh,path:value.path);guard exactUTF8(fresh.fingerprint,value.fingerprint),fresh.stages.contains(where:{$0.stage==item.stage && exactUTF8($0.mode,item.mode) && exactUTF8($0.oid,item.oid) && $0.text.map{Array($0.utf8)}==item.text.map{Array($0.utf8)}}) else{throw EngineError(message:"Conflict stages changed. Inspect them again before choosing a resolution.")};try await offer(item,value,current);if current(){notice="Prepared a source change preview. Nothing saved or staged."}}catch{if current(){notice=error.localizedDescription}}
+ }
+
 }
 struct GitConflictView:View {
  var workspace:Workspace;var path:String;@State private var model=GitConflictModel();@State private var selected=2;@State private var page=0
+ private func choose(_ stage:Int)async{
+  guard let engine=workspace.engine else{model.notice="Connect to a workspace server first.";return};let epoch=workspace.sourceNavigationEpoch
+  await model.choose(stage,load:{path in try await engine.request("GET","/api/git/conflict",query:[URLQueryItem(name:"path",value:path)])},offer:{item,value,current in
+   let valid={current()&&workspace.sourceNavigationEpoch==epoch&&workspace.engine?.origin==engine.origin}
+   guard valid() else{throw EngineError(message:"Workspace changed. Prepare the conflict again.")}
+   func find(_ files:[FileNode])->FileNode?{for file in files{if exactUTF8(file.path,value.path){return file};if let child=find(file.children ?? []){return child}};return nil}
+   guard let file=workspace.buffers.values.first(where:{exactUTF8($0.file.path,value.path)})?.file ?? find(workspace.rootFiles),!file.dir else{throw EngineError(message:"Conflict source is no longer listed. Refresh files and try again.")}
+   let buffer=try await workspace.loadBuffer(file);guard valid() else{throw EngineError(message:"Workspace changed. Prepare the conflict again.")}
+   guard !buffer.readOnly,!buffer.saving,let replacement=item.text else{throw EngineError(message:"Choose an authored, editable source that is not saving.")}
+   let source=buffer.text,rows=source.components(separatedBy:"\n")
+   let edit:[String:Any]=["changes":[languageURI(value.path):[["range":["start":["line":0,"character":0],"end":["line":rows.count-1,"character":rows.last!.utf16.count]],"newText":replacement]]]]
+   try workspace.changes.offer("Use Git stage \(item.stage) · \(item.oid)",edit:edit,expected:[value.path:source],workspace:workspace);workspace.showReview=false
+  })
+ }
  var body:some View {
   VStack(alignment:.leading,spacing:6){
    Button("Inspect conflict stages"){Task{guard let engine=workspace.engine else{model.notice="Connect to a workspace server first.";return};page=0;await model.read(path){path in try await engine.request("GET","/api/git/conflict",query:[URLQueryItem(name:"path",value:path)])}}}.disabled(model.loading)
@@ -33,7 +55,7 @@ struct GitConflictView:View {
     HStack{ForEach(value.stages,id:\.stage){stage in Button("Stage \(stage.stage)\(stage.stage==1 ? " · Base":"")"){selected=stage.stage;page=0}}}
     if let stage=value.stages.first(where:{$0.stage==selected}) ?? value.stages.first{
      Text("Stage \(stage.stage) · mode \(stage.mode)").font(.caption);Text(stage.oid).font(.system(.caption,design:.monospaced)).textSelection(.enabled)
-     if let text=stage.text{let rows=text.components(separatedBy:"\n"),last=max(0,(rows.count+99)/100-1),index=min(page,last),preview=rows.dropFirst(index*100).prefix(100).joined(separator:"\n")
+     if let text=stage.text{Button("Preview this stage as source"){Task{await choose(stage.stage)}}.disabled(model.loading);let rows=text.components(separatedBy:"\n"),last=max(0,(rows.count+99)/100-1),index=min(page,last),preview=rows.dropFirst(index*100).prefix(100).joined(separator:"\n")
       Text("Lines \(index*100+1)–\(min(rows.count,(index+1)*100))\(preview.count>200000 ? " · page preview capped at 200,000 characters":"")").font(.caption)
       ScrollView([.horizontal,.vertical]){Text(String(preview.prefix(200000))).font(.system(.caption,design:.monospaced)).textSelection(.enabled)}.frame(maxHeight:220)
       HStack{Button("Previous stage lines"){page=index-1}.disabled(index==0);Button("Next stage lines"){page=index+1}.disabled(index==last)}
@@ -74,5 +96,24 @@ import XCTest
 }
 </ui:copy>
 
-<ui:file path="apps/apple-simple/Tests/GitConflictTests.swift"><ui:paste select="#git-conflict-apple-tests"/></ui:file>
+## Recheck a chosen stage before offering a source preview
+
+An unchanged stage can offer one preview. A new stage fingerprint, changed bytes under a claimed identity, unavailable binary text or a closed pending request must offer none. These witnesses exercise selection admission without changing source or index.
+
+<ui:copy id="git-conflict-choice-apple-tests">
+extension GitConflictTests {
+ func testChangedBinaryAndClosedChoicesCannotOfferSource()async throws{
+  let model=GitConflictModel();var offered=0;let load:(String)async throws->ConflictReading={_ in self.reading("a.txt")};let offer:(ConflictStage,ConflictReading,@escaping ()->Bool)async throws->Void={_,_,_ in offered+=1}
+  await model.read("a.txt",load:load);await model.choose(2,load:load,offer:offer);XCTAssertEqual(offered,1)
+  await model.choose(2,load:{_ in var value=self.reading("a.txt");value.fingerprint=String(repeating:"c",count:64);return value},offer:offer);XCTAssertEqual(offered,1);XCTAssertTrue(model.notice.contains("stages changed"))
+  await model.choose(2,load:{_ in self.reading("a.txt","different bytes")},offer:offer);XCTAssertEqual(offered,1)
+  var held:CheckedContinuation<ConflictReading,Error>?
+  let pending=Task{await model.choose(2,load:{_ in try await withCheckedThrowingContinuation{held=$0}},offer:offer)}
+  let deadline=Date().addingTimeInterval(2);while held==nil&&Date()<deadline{try? await Task.sleep(for:.milliseconds(1))};model.close();try XCTUnwrap(held).resume(returning:reading("a.txt"));await pending.value;XCTAssertEqual(offered,1)
+  var binary=reading("a.txt");binary.stages[0].text=nil;binary.stages[0].unavailable="Binary";await model.read("a.txt"){_ in binary};await model.choose(2,load:{_ in binary},offer:offer);XCTAssertEqual(offered,1)
+ }
+}
+</ui:copy>
+
+<ui:file path="apps/apple-simple/Tests/GitConflictTests.swift"><ui:paste select="#git-conflict-apple-tests"/><ui:paste select="#git-conflict-choice-apple-tests"/></ui:file>
 </ui:doc>

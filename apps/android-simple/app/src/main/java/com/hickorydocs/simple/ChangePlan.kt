@@ -70,7 +70,7 @@ fun planWorkspaceEdit(title: String, raw: Any?, sources: Map<String,SourceSnapsh
         for (item in edits.asReversed()) after.replace(item.from,item.to,item.text)
         if (before == after.toString()) null else SourcePatch(path,before,after.toString(),edits)
     }
-    require(patches.isNotEmpty()||allowNoop) { "The provider proposed no source changes" }
+    require(patches.isNotEmpty()||allowNoop) { "The proposal contains no source changes" }
     return ChangePlan(title,patches)
 }
 fun invertChangePlan(plan: ChangePlan): ChangePlan = ChangePlan("Undo ${plan.title}",plan.patches.map { patch ->

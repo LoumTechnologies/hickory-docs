@@ -18,3 +18,14 @@ class GitConflictTest {
   validateConflict(value.copy(stages=listOf(value.stages[0].copy(text=null,unavailable="Binary"))),"a.txt")
  }
 }
+class GitConflictChoiceTest {
+ private fun reading(text:String="captured")=ConflictReading(1,"a.txt","a".repeat(64),listOf(ConflictStage(2,"100644","b".repeat(40),text,null)),false,false)
+ @Test fun changedBinaryAndClosedChoicesCannotOfferSource()=runBlocking{
+  val model=GitConflictModel();var offered=0;val load:suspend (String)->ConflictReading={reading()};val offer:suspend (ConflictStage,ConflictReading,()->Boolean)->Unit={_,_,_->offered++}
+  model.read("a.txt",load);model.choose(2,load,offer);assertEquals(1,offered)
+  model.choose(2,{reading().copy(fingerprint="c".repeat(64))},offer);assertEquals(1,offered);assertTrue(model.notice.contains("stages changed"))
+  model.choose(2,{reading("different bytes")},offer);assertEquals(1,offered)
+  val held=CompletableDeferred<ConflictReading>();val entered=CompletableDeferred<Unit>();val pending=async{model.choose(2,{entered.complete(Unit);held.await()},offer)};entered.await();model.close();held.complete(reading());pending.await();assertEquals(1,offered)
+  val binary=reading().let{it.copy(stages=listOf(it.stages[0].copy(text=null,unavailable="Binary")))};model.read("a.txt"){binary};model.choose(2,{binary},offer);assertEquals(1,offered)
+ }
+}

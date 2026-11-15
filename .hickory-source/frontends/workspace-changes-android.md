@@ -13,6 +13,8 @@ Provider edit discovery uses the same bounded acquisition boundary. Newly loaded
 
 Explicit cleanup enters before language-provider acquisition. Its fixed source, selection, buffer identity and request ticket authorize only that preparation. Returning ordinary source replacements lets the existing preview, writability checks, coordinated apply and inverse history handle it; no second editor or save path is introduced. A no-op reports the observation without creating an undo entry. The cleanup profile is literal and explicit: significant trailing spaces can change, so review the before/after text.
 
+Reviewed capabilities can offer a complete source proposal without a language provider. Every target must have the exact supplied reviewed text, and the ordinary planner and writability checks must accept the whole proposal before it becomes a preview. Capture target buffer identities, text and selections for the approval boundary. Source or selection changes refuse; successful approval uses the same coordinated inverse history as provider changes. The proposal mode has no provider-preparation button and never saves implicitly.
+
 <ui:copy id="simple-android-workspace-changes">
 package com.hickorydocs.simple
 import androidx.compose.runtime.*
@@ -113,6 +115,13 @@ class WorkspaceChanges {
             install("Trim trailing whitespace",edit,workspace)
         }catch(cancelled:CancellationException){throw cancelled}catch(error:Exception){if(revision==request)notice=error.message.orEmpty()}
     }
+    fun offer(title:String,edit:Any,expected:Map<String,String>,workspace:Workspace){
+        val snapshots=workspace.sourceSnapshots();val next=planWorkspaceEdit(title,edit,snapshots)
+        validateChangePlan(next,snapshots)?.let{error(it)}
+        val targets=next.patches.map{patch->val before=expected[patch.path] ?: error("Reviewed source target was not captured. Prepare again.");val buffer=workspace.buffers[patch.path] ?: error("Reviewed source is unavailable. Prepare again.");check(before==patch.before&&buffer.text==before){"Reviewed source changed. Prepare the whole proposal again."};Triple(buffer,before,buffer.state.selection)}
+        val request=++revision;sources=snapshots;current={revision==request&&targets.all{(buffer,text,selection)->workspace.buffers[buffer.file.path]===buffer&&buffer.text==text&&buffer.state.selection==selection}}
+        mode="proposal";plan=next;choices=emptyList();referencePaths=emptyList();notice="";file=0;page=0;actionPage=0
+    }
     private fun install(title: String, edit: Any?, workspace: Workspace) {
         check(current()) { "Source, selection or provider changed. Prepare again." }
         val next=planWorkspaceEdit(title,edit,sources,allowNoop=mode=="cleanup")
@@ -186,7 +195,7 @@ The existing Edit menu presents this bounded floating dialog. Every affected sou
         Text("Workspace change preview",fontSize=16.sp); Text("Source drafts · not saved or verified",fontSize=11.sp)
         TextButton(onClick={changes.close(workspace)}) { Text("Close") }
         if (changes.mode=="rename") OutlinedTextField(changes.name,{changes.updateName(it)},label={Text("New symbol name")},singleLine=true)
-        if (changes.mode!="undo" && changes.mode!="redo") TextButton(enabled=changes.mode!="rename" || changes.name.isNotBlank(),onClick={scope.launch {changes.prepare(workspace)}}) { Text(if(changes.mode=="actions") "Prepare provider actions" else if(changes.mode=="format") "Prepare formatting" else if(changes.mode=="cleanup") "Prepare cleanup" else "Prepare rename") }
+        if (changes.mode!="undo" && changes.mode!="redo" && changes.mode!="proposal") TextButton(enabled=changes.mode!="rename" || changes.name.isNotBlank(),onClick={scope.launch {changes.prepare(workspace)}}) { Text(if(changes.mode=="actions") "Prepare provider actions" else if(changes.mode=="format") "Prepare formatting" else if(changes.mode=="cleanup") "Prepare cleanup" else "Prepare rename") }
         if (changes.notice.isNotEmpty()) Text(changes.notice,fontSize=12.sp)
         for(index in changes.choices.indices.drop(changes.actionPage*100).take(100)) {
             val action=changes.choices[index]
@@ -273,7 +282,31 @@ class CleanupRequestTest {
 }
 </ui:copy>
 
-<ui:file path="apps/android-simple/app/src/test/java/com/hickorydocs/simple/ChangeRequestTest.kt"><ui:paste select="#native-change-request-android-witness"/><ui:paste select="#cleanup-android-witness"/></ui:file>
+## Keep reviewed-source proposals inside coordinated draft history
+
+Offer exact reviewed text without a language provider. Missing or stale captures refuse before becoming previews. Approval applies through the same workspace history, while source or selection changes after preparation refuse. The saved baseline remains untouched until a separate save.
+
+<ui:copy id="reviewed-source-android-tests">
+class ReviewedSourceProposalTest {
+ @Test fun reviewedSourceUsesSharedPreviewApplyAndUndo()=runBlocking{
+  val workspace=Workspace(this);val file=FileNode("a.txt","a.txt",false,emptyList(),null,null);val before="draft\n";val after="incoming\n";val buffer=DocumentBuffer(file,FileText(before,"base"));workspace.buffers[file.path]=buffer;workspace.show(file.path)
+  val edit=JSONObject("""{"changes":{"hick:///a.txt":[{"range":{"start":{"line":0,"character":0},"end":{"line":1,"character":0}},"newText":"incoming\n"}]}}""")
+  assertTrue(runCatching{workspace.changes.offer("Reviewed source",edit,emptyMap(),workspace)}.isFailure);assertNull(workspace.changes.mode);assertEquals(before,buffer.text)
+  workspace.changes.offer("Reviewed source",edit,mapOf(file.path to before),workspace);assertEquals("proposal",workspace.changes.mode);assertEquals(before,buffer.text)
+  workspace.changes.apply(workspace);assertEquals(after,buffer.text);assertEquals(before,buffer.base)
+  workspace.changes.open("undo",workspace);assertEquals(before,buffer.text);workspace.changes.open("redo",workspace);assertEquals(after,buffer.text)
+ }
+ @Test fun reviewedSourceRefusesEditsOrSelectionChangesBeforeApproval()=runBlocking{
+  val workspace=Workspace(this);val file=FileNode("a.txt","a.txt",false,emptyList(),null,null);val buffer=DocumentBuffer(file,FileText("x","base"));workspace.buffers[file.path]=buffer;workspace.show(file.path)
+  val edit=JSONObject("""{"changes":{"hick:///a.txt":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"newText":"y"}]}}""")
+  workspace.changes.offer("Reviewed source",edit,mapOf(file.path to "x"),workspace);buffer.state.edit{replace(0,length,"typed")};workspace.changes.apply(workspace);assertEquals("typed",buffer.text)
+  assertTrue(runCatching{workspace.changes.offer("Reviewed source",edit,mapOf(file.path to "x"),workspace)}.isFailure)
+  buffer.state.edit{replace(0,length,"x")};workspace.changes.offer("Reviewed source",edit,mapOf(file.path to "x"),workspace);buffer.state.edit{selection=androidx.compose.ui.text.TextRange(if(selection.start==0&&selection.end==0)1 else 0)};workspace.changes.apply(workspace);assertEquals("x",buffer.text)
+ }
+}
+</ui:copy>
+
+<ui:file path="apps/android-simple/app/src/test/java/com/hickorydocs/simple/ChangeRequestTest.kt"><ui:paste select="#native-change-request-android-witness"/><ui:paste select="#cleanup-android-witness"/><ui:paste select="#reviewed-source-android-tests"/></ui:file>
 ## Keep resolved choices with their preparation
 
 Complete a newer choice before an older resolver reply, then reject a row from a replaced preparation and a reply after closing. These controlled callbacks exercise the actual native change model; source stays unchanged until explicit application. They do not claim native pointer or provider-language acceptance.

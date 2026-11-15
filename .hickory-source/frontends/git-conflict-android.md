@@ -5,6 +5,8 @@ For maintainers changing workspace services independently of the editor renderer
 
 Conflict inspection is an optional capability inside the existing repository review. It validates literal source identity, protocol version, immutable object names, stage uniqueness and explicit text availability. A fixed read ticket retires held/closed/foreign replies. Stage labels preserve Git’s meaning during rebase. Source text and index remain separate from this observation; this view does not publish a resolution. Page the retained stage text without reserving code space, and disclose a cap for a very long page.
 
+Choosing an available regular text stage first re-reads the conflict. The stage fingerprint, immutable object identity, mode and exact selected bytes must still match. A fixed choice ticket retires closed or replaced work. Only then may the host acquire the authored buffer and offer an ordinary source replacement with its reviewed text. The existing change controller owns preview, approval, coordinated draft history and later source validation; this capability owns neither saving nor index mutation.
+
 <ui:copy id="git-conflict-android">
 package com.hickorydocs.simple
 import androidx.compose.runtime.*
@@ -37,9 +39,29 @@ class GitConflictModel {
  fun close(){ticket++;loading=false;value=null}
  suspend fun read(path:String,load:suspend (String)->ConflictReading){val id=++ticket;value=null;loading=true;notice="Reading unmerged stages…"
  try{val result=load(path);if(id!=ticket)return;validateConflict(result,path);value=result;notice="Captured immutable Git stages. Working text and unsaved drafts are separate."}catch(cancelled:CancellationException){throw cancelled}catch(error:Exception){if(id==ticket)notice=error.message.orEmpty()}finally{if(id==ticket)loading=false}}
+ suspend fun choose(stage:Int,load:suspend (String)->ConflictReading,offer:suspend (ConflictStage,ConflictReading,()->Boolean)->Unit){
+  val value=value;val item=value?.stages?.firstOrNull{it.stage==stage};if(value==null||item==null||item.text==null){notice="Choose an available regular text stage first.";return}
+  val id=++ticket;val current={id==ticket&&this.value===value};loading=true;notice="Checking captured conflict stages…"
+  try{val fresh=load(value.path);if(!current())return;validateConflict(fresh,value.path);check(fresh.fingerprint==value.fingerprint&&fresh.stages.any{it==item}){"Conflict stages changed. Inspect them again before choosing a resolution."};offer(item,value,current);if(current())notice="Prepared a source change preview. Nothing saved or staged."}catch(cancelled:CancellationException){throw cancelled}catch(error:Exception){if(current())notice=error.message.orEmpty()}finally{if(id==ticket)loading=false}
+ }
+
 }
 @Composable fun GitConflictView(workspace:Workspace,path:String){
  val engine=workspace.engine;val model=remember(path,engine){GitConflictModel()};val scope=rememberCoroutineScope();var selected by remember(path){mutableIntStateOf(2)};var page by remember(path){mutableIntStateOf(0)}
+ suspend fun choose(stage:Int){
+  if(engine==null){model.notice="Connect to a workspace server first.";return};val epoch=workspace.sourceNavigationEpoch
+  model.choose(stage,{value->conflictReading(engine.request("GET","/api/git/conflict?path=${URLEncoder.encode(value,"UTF-8")}"))}){item,value,current->
+   val valid={current()&&workspace.sourceNavigationEpoch==epoch&&workspace.engine===engine};check(valid()){"Workspace changed. Prepare the conflict again."}
+   fun find(files:List<FileNode>):FileNode?{for(file in files){if(file.path==value.path)return file;find(file.children)?.let{return it}};return null}
+   val file=(workspace.buffers[value.path]?.file ?: find(workspace.rootFiles))?.takeUnless{it.dir} ?: error("Conflict source is no longer listed. Refresh files and try again.")
+   val buffer=workspace.loadBuffer(file);check(valid()){"Workspace changed. Prepare the conflict again."}
+   check(!buffer.readOnly&&!buffer.saving){"Choose an authored, editable source that is not saving."}
+   val replacement=item.text ?: error("Text unavailable");val source=buffer.text;val rows=source.split('\n')
+   val end=JSONObject().put("line",rows.size-1).put("character",rows.last().length)
+   val edit=JSONObject().put("changes",JSONObject().put(languageURI(value.path),org.json.JSONArray().put(JSONObject().put("range",JSONObject().put("start",JSONObject().put("line",0).put("character",0)).put("end",end)).put("newText",replacement))))
+   workspace.changes.offer("Use Git stage ${item.stage} · ${item.oid}",edit,mapOf(value.path to source),workspace);workspace.showReview=false
+  }
+ }
  DisposableEffect(model){onDispose{model.close()}}
  Column(verticalArrangement=Arrangement.spacedBy(6.dp)){
   TextButton(enabled=!model.loading,onClick={scope.launch{if(engine==null){model.notice="Connect to a workspace server first.";return@launch};page=0;model.read(path){value->conflictReading(engine.request("GET","/api/git/conflict?path=${URLEncoder.encode(value,"UTF-8")}"))}}}){Text("Inspect conflict stages")}
@@ -49,7 +71,7 @@ class GitConflictModel {
    Row{value.stages.forEach{stage->TextButton(onClick={selected=stage.stage;page=0}){Text("Stage ${stage.stage}${if(stage.stage==1)" · Base" else ""}")}}}
    (value.stages.firstOrNull{it.stage==selected} ?: value.stages.firstOrNull())?.let{stage->
     Text("Stage ${stage.stage} · mode ${stage.mode}",fontSize=12.sp);SelectionContainer{Text(stage.oid,fontFamily=FontFamily.Monospace,fontSize=12.sp)}
-    stage.text?.let{text->val rows=text.split('\n');val last=((rows.size+99)/100-1).coerceAtLeast(0);val index=page.coerceAtMost(last);val preview=rows.drop(index*100).take(100).joinToString("\n")
+    stage.text?.let{text->TextButton(enabled=!model.loading,onClick={scope.launch{choose(stage.stage)}}){Text("Preview this stage as source")};val rows=text.split('\n');val last=((rows.size+99)/100-1).coerceAtLeast(0);val index=page.coerceAtMost(last);val preview=rows.drop(index*100).take(100).joinToString("\n")
      Text("Lines ${index*100+1}–${rows.size.coerceAtMost((index+1)*100)}${if(preview.length>200000)" · page preview capped at 200,000 characters" else ""}",fontSize=12.sp)
      SelectionContainer{Text(preview.take(200000),fontFamily=FontFamily.Monospace,fontSize=12.sp,modifier=Modifier.horizontalScroll(rememberScrollState()))}
      Row{TextButton(enabled=index>0,onClick={page=index-1}){Text("Previous stage lines")};TextButton(enabled=index<last,onClick={page=index+1}){Text("Next stage lines")}}
@@ -88,5 +110,23 @@ class GitConflictTest {
 }
 </ui:copy>
 
-<ui:file path="apps/android-simple/app/src/test/java/com/hickorydocs/simple/GitConflictTest.kt"><ui:paste select="#git-conflict-android-tests"/></ui:file>
+## Recheck a chosen stage before offering a source preview
+
+An unchanged stage can offer one preview. A new stage fingerprint, changed bytes under a claimed identity, unavailable binary text or a closed pending request must offer none. These witnesses exercise selection admission without changing source or index.
+
+<ui:copy id="git-conflict-choice-android-tests">
+class GitConflictChoiceTest {
+ private fun reading(text:String="captured")=ConflictReading(1,"a.txt","a".repeat(64),listOf(ConflictStage(2,"100644","b".repeat(40),text,null)),false,false)
+ @Test fun changedBinaryAndClosedChoicesCannotOfferSource()=runBlocking{
+  val model=GitConflictModel();var offered=0;val load:suspend (String)->ConflictReading={reading()};val offer:suspend (ConflictStage,ConflictReading,()->Boolean)->Unit={_,_,_->offered++}
+  model.read("a.txt",load);model.choose(2,load,offer);assertEquals(1,offered)
+  model.choose(2,{reading().copy(fingerprint="c".repeat(64))},offer);assertEquals(1,offered);assertTrue(model.notice.contains("stages changed"))
+  model.choose(2,{reading("different bytes")},offer);assertEquals(1,offered)
+  val held=CompletableDeferred<ConflictReading>();val entered=CompletableDeferred<Unit>();val pending=async{model.choose(2,{entered.complete(Unit);held.await()},offer)};entered.await();model.close();held.complete(reading());pending.await();assertEquals(1,offered)
+  val binary=reading().let{it.copy(stages=listOf(it.stages[0].copy(text=null,unavailable="Binary")))};model.read("a.txt"){binary};model.choose(2,{binary},offer);assertEquals(1,offered)
+ }
+}
+</ui:copy>
+
+<ui:file path="apps/android-simple/app/src/test/java/com/hickorydocs/simple/GitConflictTest.kt"><ui:paste select="#git-conflict-android-tests"/><ui:paste select="#git-conflict-choice-android-tests"/></ui:file>
 </ui:doc>

@@ -80,7 +80,7 @@ export function planWorkspaceEdit(title: string, raw: unknown, sources: Readonly
     for (const item of edits.slice().reverse()) after = after.slice(0, item.from) + item.text + after.slice(item.to);
     return before === after ? [] : [{ path, before, after, edits }];
   });
-  if (!patches.length&&!allowNoop) throw new Error("The provider proposed no source changes");
+  if (!patches.length&&!allowNoop) throw new Error("The proposal contains no source changes");
   return { title, patches };
 }
 export function invertChangePlan(plan: ChangePlan): ChangePlan {
