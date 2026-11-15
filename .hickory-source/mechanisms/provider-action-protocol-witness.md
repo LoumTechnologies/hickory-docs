@@ -1,13 +1,13 @@
 <ui:doc xmlns:ui="http://www.hickorydocs.com/1.0">
-# Witness lazy actions across provider boundaries
+# Witness retained values across provider boundaries
 
 For maintainers changing protocol routing and source-bound provider artifacts.
 
 These controlled child providers test protocol behavior, not Python or TypeScript analysis. An isolated real engine starts both configured children. Open both documents before obtaining actions, resolve the older Python action after the TypeScript query, and require the exact original opaque payload. Caller-supplied title/command substitutions never reach a child. A later source edit retires the old token; another edit while resolution is held must reject its late answer, and neither resolution nor refusal changes disk. No provider command is executed.
 
-## controlled-action-provider
+## Frame requests and retain independent child records
 
-Speak actual Content-Length LSP framing. Python advertises lazy resolution; TypeScript supplies an eager edit without that capability. The child refuses altered nested data or another provider identity, and records successful resolutions outside the workspace fixture. It performs no language analysis or source writes.
+Speak actual Content-Length LSP framing and retain separate original values for actions, types and completions. Capability declarations distinguish lazy Python from eager TypeScript behavior; event and gate files live outside the source workspace.
 
 <ui:copy id="controlled-action-provider">
 """Controlled child LSP for routing/opaque-action tests, not language semantics."""
@@ -22,6 +22,7 @@ output_lock=threading.Lock()
 documents={}
 issued={}
 issued_types={}
+issued_completions={}
 def send(value):
     raw=json.dumps(value,separators=(",",":")).encode()
     with output_lock:sys.stdout.buffer.write(f"Content-Length: {len(raw)}\r\n\r\n".encode()+raw);sys.stdout.buffer.flush()
@@ -41,7 +42,43 @@ while True:
     if method=="textDocument/didChange":documents[params["textDocument"]["uri"]]=params["contentChanges"][-1]["text"];continue
     if method=="exit":sys.exit(0)
     if identity is None:continue
-    if method=="initialize":result={"capabilities":{"textDocumentSync":1,"documentSymbolProvider":True,"typeHierarchyProvider":True,"codeActionProvider":{"resolveProvider":language=="python"}}}
+    if method=="initialize":result={"capabilities":{"textDocumentSync":1,"documentSymbolProvider":True,"typeHierarchyProvider":True,"completionProvider":{"resolveProvider":language=="python","triggerCharacters":["."]},"codeActionProvider":{"resolveProvider":language=="python"}}}
+</ui:copy>
+
+## Witness standards-expanded completion items
+
+Supply list defaults with opaque, Unicode and range-shaped data. A lazy resolver requires the complete defaults-expanded original and returns primary plus import edits; a held reply allows source to change before completion.
+
+<ui:copy id="controlled-provider-completion-cases">
+    elif method=="textDocument/completion":
+        uri=params["textDocument"]["uri"];opaque={"producer":language,"uri":uri,"range":{"start":{"line":91,"character":2},"end":{"line":91,"character":4}},"unicode":"é😀"}
+        if params["position"]["character"]==2:opaque["slow"]=True
+        edit_range={"start":{"line":0,"character":0},"end":{"line":0,"character":5}}
+        item={"label":language+" completion","textEditText":language+"_initial"}
+        original={**item,"data":opaque,"insertTextFormat":1,"textEdit":{"range":edit_range,"newText":item["textEditText"]}}
+        issued_completions[uri]=original
+        result={"isIncomplete":False,"itemDefaults":{"editRange":edit_range,"data":opaque,"insertTextFormat":1},"items":[item]}
+        event({"completion_query":language,"context":params.get("context")})
+    elif method=="completionItem/resolve":
+        uri=params.get("data",{}).get("uri")
+        if language!="python" or params!=issued_completions.get(uri):
+            event({"error":"altered completion or wrong provider","language":language});send({"jsonrpc":"2.0","id":identity,"error":{"code":-32602,"message":"Original completion payload was not preserved"}});continue
+        event({"completion_resolved":language,"slow_completion":params["data"].get("slow",False)})
+        result={**params,"textEdit":{**params["textEdit"],"newText":"python_completed"},"additionalTextEdits":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":0}},"newText":"# imported\n"}]}
+        if params["data"].get("slow"):
+            def release_completion(identity=identity,result=result):
+                deadline=time.monotonic()+10
+                while not os.path.exists(gate) and time.monotonic()<deadline:time.sleep(.01)
+                if os.path.exists(gate):send({"jsonrpc":"2.0","id":identity,"result":result})
+                else:send({"jsonrpc":"2.0","id":identity,"error":{"code":-32603,"message":"Controlled completion gate timed out"}})
+            threading.Thread(target=release_completion,daemon=True).start();continue
+</ui:copy>
+
+## Witness opaque type follow-ups
+
+Require exact original type items and the producing language, retain returned items for another follow-up, and hold a requested answer until its source can be changed.
+
+<ui:copy id="controlled-provider-type-cases">
     elif method=="textDocument/prepareTypeHierarchy":
         uri=params["textDocument"]["uri"]
         item={"name":language+"Type","kind":5,"uri":uri,"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"tags":[1],"data":{"producer":language,"uri":uri,"nested":["opaque",{"id":17}]}}
@@ -61,6 +98,13 @@ while True:
                 if os.path.exists(gate):send({"jsonrpc":"2.0","id":identity,"result":result})
                 else:send({"jsonrpc":"2.0","id":identity,"error":{"code":-32603,"message":"Controlled type gate timed out"}})
             threading.Thread(target=release_type,daemon=True).start();continue
+</ui:copy>
+
+## Witness lazy and eager action values
+
+Require exact original actions and producing provider identity, return complete edits and keep a deliberately held action independent of later protocol requests.
+
+<ui:copy id="controlled-provider-action-cases">
     elif method=="textDocument/documentSymbol":result=[]
     elif method=="textDocument/codeAction":
         uri=params["textDocument"]["uri"];opaque={"producer":language,"hickory_acquire":[{"uri":"file:///untrusted-child-path"}],"uri":uri,"nested":[1,{"uri":"file:///opaque-child-value"}]}
@@ -84,11 +128,18 @@ while True:
                 if not os.path.exists(gate):send({"jsonrpc":"2.0","id":identity,"error":{"code":-32603,"message":"Controlled gate timed out"}})
                 else:send({"jsonrpc":"2.0","id":identity,"result":result})
             threading.Thread(target=release,daemon=True).start();continue
+</ui:copy>
+
+## Complete the framed response
+
+Unimplemented optional queries return null. Every ordinary result uses the request ID and Content-Length response writer; deliberately held replies use that same writer independently.
+
+<ui:copy id="controlled-provider-response">
     else:result=None
     send({"jsonrpc":"2.0","id":identity,"result":result})
 </ui:copy>
 
-<ui:file path="scripts/controlled-action-provider.py"><ui:paste select="#controlled-action-provider"/></ui:file>
+<ui:file path="scripts/controlled-action-provider.py"><ui:paste select="#controlled-action-provider"/><ui:paste select="#controlled-provider-completion-cases"/><ui:paste select="#controlled-provider-type-cases"/><ui:paste select="#controlled-provider-action-cases"/><ui:paste select="#controlled-provider-response"/></ui:file>
 
 ## provider-action-protocol-driver
 

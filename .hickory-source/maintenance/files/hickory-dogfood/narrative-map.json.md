@@ -152712,6 +152712,90 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/type-hierarchy.md",
       "symbol": "Adapt the pinned typed response",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "completion-provider-context",
+      "output": "crates/hick-lsp/src/backend/completions.rs",
+      "page": ".hickory-source/mechanisms/provider-completion-artifacts.md",
+      "symbol": "Retain the producing child and source",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "completion-provider-defaults",
+      "output": "crates/hick-lsp/src/backend/completions.rs",
+      "page": ".hickory-source/mechanisms/provider-completion-artifacts.md",
+      "symbol": "Expand declared list defaults before retaining items",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "completion-provider-projection",
+      "output": "crates/hick-lsp/src/backend/completions.rs",
+      "page": ".hickory-source/mechanisms/provider-completion-artifacts.md",
+      "symbol": "Project only known completion edit fields",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "completion-provider-query",
+      "output": "crates/hick-lsp/src/backend/completions.rs",
+      "page": ".hickory-source/mechanisms/provider-completion-artifacts.md",
+      "symbol": "Bind each offered item to its own context",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "completion-provider-resolve",
+      "output": "crates/hick-lsp/src/backend/completions.rs",
+      "page": ".hickory-source/mechanisms/provider-completion-artifacts.md",
+      "symbol": "Resolve against the retained original, never caller substitutions",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "completion-provider-witness",
+      "output": "crates/hick-lsp/src/backend/completions.rs",
+      "page": ".hickory-source/mechanisms/provider-completion-artifacts.md",
+      "symbol": "Check defaults, ownership and opaque fields",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "controlled-provider-completion-cases",
+      "output": "scripts/controlled-action-provider.py",
+      "page": ".hickory-source/mechanisms/provider-action-protocol-witness.md",
+      "symbol": "Witness standards-expanded completion items",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "controlled-provider-type-cases",
+      "output": "scripts/controlled-action-provider.py",
+      "page": ".hickory-source/mechanisms/provider-action-protocol-witness.md",
+      "symbol": "Witness opaque type follow-ups",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "controlled-provider-action-cases",
+      "output": "scripts/controlled-action-provider.py",
+      "page": ".hickory-source/mechanisms/provider-action-protocol-witness.md",
+      "symbol": "Witness lazy and eager action values",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "controlled-provider-response",
+      "output": "scripts/controlled-action-provider.py",
+      "page": ".hickory-source/mechanisms/provider-action-protocol-witness.md",
+      "symbol": "Complete the framed response",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "completion-protocol-driver",
+      "output": "scripts/provider-completions-driver.mjs",
+      "page": ".hickory-source/mechanisms/provider-completion-witnesses.md",
+      "symbol": "Resolve across competing provider requests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "completion-protocol-runner",
+      "output": "scripts/test-provider-completions.py",
+      "page": ".hickory-source/mechanisms/provider-completion-witnesses.md",
+      "symbol": "Use an isolated engine and controlled children",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

@@ -10,6 +10,7 @@ output_lock=threading.Lock()
 documents={}
 issued={}
 issued_types={}
+issued_completions={}
 def send(value):
     raw=json.dumps(value,separators=(",",":")).encode()
     with output_lock:sys.stdout.buffer.write(f"Content-Length: {len(raw)}\r\n\r\n".encode()+raw);sys.stdout.buffer.flush()
@@ -29,7 +30,29 @@ while True:
     if method=="textDocument/didChange":documents[params["textDocument"]["uri"]]=params["contentChanges"][-1]["text"];continue
     if method=="exit":sys.exit(0)
     if identity is None:continue
-    if method=="initialize":result={"capabilities":{"textDocumentSync":1,"documentSymbolProvider":True,"typeHierarchyProvider":True,"codeActionProvider":{"resolveProvider":language=="python"}}}
+    if method=="initialize":result={"capabilities":{"textDocumentSync":1,"documentSymbolProvider":True,"typeHierarchyProvider":True,"completionProvider":{"resolveProvider":language=="python","triggerCharacters":["."]},"codeActionProvider":{"resolveProvider":language=="python"}}}
+    elif method=="textDocument/completion":
+        uri=params["textDocument"]["uri"];opaque={"producer":language,"uri":uri,"range":{"start":{"line":91,"character":2},"end":{"line":91,"character":4}},"unicode":"é😀"}
+        if params["position"]["character"]==2:opaque["slow"]=True
+        edit_range={"start":{"line":0,"character":0},"end":{"line":0,"character":5}}
+        item={"label":language+" completion","textEditText":language+"_initial"}
+        original={**item,"data":opaque,"insertTextFormat":1,"textEdit":{"range":edit_range,"newText":item["textEditText"]}}
+        issued_completions[uri]=original
+        result={"isIncomplete":False,"itemDefaults":{"editRange":edit_range,"data":opaque,"insertTextFormat":1},"items":[item]}
+        event({"completion_query":language,"context":params.get("context")})
+    elif method=="completionItem/resolve":
+        uri=params.get("data",{}).get("uri")
+        if language!="python" or params!=issued_completions.get(uri):
+            event({"error":"altered completion or wrong provider","language":language});send({"jsonrpc":"2.0","id":identity,"error":{"code":-32602,"message":"Original completion payload was not preserved"}});continue
+        event({"completion_resolved":language,"slow_completion":params["data"].get("slow",False)})
+        result={**params,"textEdit":{**params["textEdit"],"newText":"python_completed"},"additionalTextEdits":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":0}},"newText":"# imported\n"}]}
+        if params["data"].get("slow"):
+            def release_completion(identity=identity,result=result):
+                deadline=time.monotonic()+10
+                while not os.path.exists(gate) and time.monotonic()<deadline:time.sleep(.01)
+                if os.path.exists(gate):send({"jsonrpc":"2.0","id":identity,"result":result})
+                else:send({"jsonrpc":"2.0","id":identity,"error":{"code":-32603,"message":"Controlled completion gate timed out"}})
+            threading.Thread(target=release_completion,daemon=True).start();continue
     elif method=="textDocument/prepareTypeHierarchy":
         uri=params["textDocument"]["uri"]
         item={"name":language+"Type","kind":5,"uri":uri,"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"tags":[1],"data":{"producer":language,"uri":uri,"nested":["opaque",{"id":17}]}}

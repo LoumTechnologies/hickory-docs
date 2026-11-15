@@ -1,3 +1,4 @@
+mod completions;
 mod diagnostic_context;
 mod types;
 use diagnostic_context::provider_action_diagnostics;
@@ -58,15 +59,7 @@ pub struct HickBackend {
     /// the merged set for the hick document, avoiding later children
     /// overwriting earlier children's diagnostics.
     child_diagnostics: ChildDiagnosticsStore,
-    /// The language whose child answered the most recent completion.
-    ///
-    /// `completionItem/resolve` arrives with only the item — no document, no
-    /// position — and the item's `data` is opaque to us: it is the child's own
-    /// bookkeeping (pyright puts a virtual-file URI in there). So the item can
-    /// only be resolved by the server that produced it, and this is how we
-    /// remember which one that was. An editor resolves the item it is showing,
-    /// which is always from the completion it just asked for.
-    last_completion_language: Arc<RwLock<Option<(String, String)>>>,
+    prepared_completions: Arc<Mutex<completions::PreparedCompletions>>,
     /// Hierarchy items this server handed the client, in the child's OWN
     /// coordinates, keyed by the id planted in each item's `data`.
     ///
@@ -182,7 +175,7 @@ impl HickBackend {
             notification_rx: Arc::new(Mutex::new(notification_rx)),
             vfile_index: Arc::new(RwLock::new(HashMap::new())),
             child_diagnostics: Arc::new(RwLock::new(HashMap::new())),
-            last_completion_language: Arc::new(RwLock::new(None)),
+            prepared_completions: Arc::new(Mutex::new(completions::PreparedCompletions::default())),
             prepared_hierarchy: Arc::new(RwLock::new(HashMap::new())),
             prepared_actions: Arc::new(Mutex::new(actions::PreparedActions::default())),
             prepared_types: Arc::new(Mutex::new(types::TypeHierarchyArtifacts::default())),
@@ -883,33 +876,6 @@ impl HickBackend {
             .await?;
         let index = self.index_snapshot().await;
         Some(translate_locations(result, &index))
-    }
-
-    /// Find the position map for whichever virtual file a completion item
-    /// belongs to, by looking for a URI we recognise anywhere in its `data`.
-    ///
-    /// The shape of `data` is the child's business — pyright nests a `uri`,
-    /// another server might not — so this searches rather than assumes, and
-    /// returns nothing when it recognises nothing.
-    async fn map_for_completion_data(&self, item: &CompletionItem) -> Option<PositionMap> {
-        let data = item.data.as_ref()?;
-        let index = self.vfile_index.read().await;
-        let mut stack = vec![data];
-        while let Some(value) = stack.pop() {
-            match value {
-                serde_json::Value::String(text) => {
-                    if let Ok(url) = Url::parse(text)
-                        && let Some(mapping) = index.get(&url)
-                    {
-                        return Some(mapping.position_map.clone());
-                    }
-                }
-                serde_json::Value::Object(map) => stack.extend(map.values()),
-                serde_json::Value::Array(items) => stack.extend(items.iter()),
-                _ => {}
-            }
-        }
-        None
     }
 
     /// Remember each item the child produced, plant a key in its `data`, and
@@ -1917,67 +1883,10 @@ impl LanguageServer for HickBackend {
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let uri = params.text_document_position.text_document.uri;
-        let pos = params.text_document_position.position;
-        let Some((vf_uri, lang, vpos)) = self.virtual_target(&uri, pos).await else {
-            return Ok(None);
-        };
-        let Some(result) = self
-            .child_request("textDocument/completion", &vf_uri, &lang, vpos, None)
-            .await
-        else {
-            return Ok(None);
-        };
-        // Remember who answered, so `completionItem/resolve` can go back to
-        // the same server — see `last_completion_language`.
-        *self.last_completion_language.write().await =
-            self.root_of(&vf_uri).await.map(|root| (lang.clone(), root));
-        // Completion ranges (textEdit etc.) are in virtual-file coordinates.
-        let map = {
-            let index = self.vfile_index.read().await;
-            index.get(&vf_uri).map(|m| m.position_map.clone())
-        };
-        let result = match map {
-            Some(map) => translate_bare_ranges(result, &map),
-            None => result,
-        };
-        Ok(serde_json::from_value(result).ok())
+        self.provider_completion(params).await
     }
-
     async fn completion_resolve(&self, item: CompletionItem) -> Result<CompletionItem> {
-        // Resolve is what fills in a completion's documentation and its full
-        // text edit; without it, an editor shows a bare identifier with no
-        // signature and no docs — the difference between a list of names and
-        // a language server.
-        let Some((language, root_uri)) = self.last_completion_language.read().await.clone() else {
-            return Ok(item);
-        };
-        let handle = {
-            let dispatcher = self.dispatcher.lock().await;
-            match dispatcher.get_child(&language, &root_uri) {
-                Ok(handle) => handle.clone(),
-                Err(_) => return Ok(item),
-            }
-        };
-        let Ok(params) = serde_json::to_value(&item) else {
-            return Ok(item);
-        };
-        // The resolved item's `textEdit` is in virtual-file coordinates, and
-        // the item's own `data` says which virtual file. Translating it back
-        // is what stops an accepted completion from being inserted several
-        // lines away from where it was typed.
-        let resolved = match handle.request("completionItem/resolve", params).await {
-            Ok(value) if !value.is_null() => value,
-            // An unresolvable item is still a usable item: return what the
-            // editor already had rather than dropping the completion.
-            _ => return Ok(item),
-        };
-        let map = self.map_for_completion_data(&item).await;
-        let resolved = match map {
-            Some(map) => translate_bare_ranges(resolved, &map),
-            None => resolved,
-        };
-        Ok(serde_json::from_value(resolved).unwrap_or(item))
+        self.resolve_provider_completion(item).await
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {

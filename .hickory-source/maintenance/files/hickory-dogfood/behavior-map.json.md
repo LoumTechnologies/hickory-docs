@@ -69490,7 +69490,11 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "87d837f784ef921cf0e966e0f639e004893e7e92e8a4fd041cd01853a02effe9",
       "construction": "fragments",
       "fragments": [
-        "controlled-action-provider"
+        "controlled-action-provider",
+        "controlled-provider-completion-cases",
+        "controlled-provider-type-cases",
+        "controlled-provider-action-cases",
+        "controlled-provider-response"
       ]
     },
     "scripts/provider-actions-driver.mjs": {
@@ -69639,6 +69643,44 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "type-hierarchy-browser-witness"
+      ]
+    },
+    "crates/hick-lsp/src/backend/completions.rs": {
+      "source": ".hickory-source/mechanisms/provider-completion-artifacts.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "9fd34522653539bed26e246b9c292774614273f5b8a8d4e155eeac9156d05891",
+      "construction": "fragments",
+      "fragments": [
+        "completion-provider-context",
+        "completion-provider-defaults",
+        "completion-provider-projection",
+        "completion-provider-query",
+        "completion-provider-resolve",
+        "completion-provider-witness"
+      ]
+    },
+    "scripts/provider-completions-driver.mjs": {
+      "source": ".hickory-source/mechanisms/provider-completion-witnesses.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "e08ae605c4c115cf40710b52f881a0cd37f60bee676323ec5befcaed37701581",
+      "construction": "fragments",
+      "fragments": [
+        "completion-protocol-driver"
+      ]
+    },
+    "scripts/test-provider-completions.py": {
+      "source": ".hickory-source/mechanisms/provider-completion-witnesses.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "dd973a8b5f0e89e0cf4ca01259dab0e68508c74376afe399b5668b3493b6aa69",
+      "construction": "fragments",
+      "fragments": [
+        "completion-protocol-runner"
       ]
     }
   },

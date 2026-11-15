@@ -305,4 +305,8 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="type-hierarchy-witnesses.md"/>
 
+<storycode:include file="provider-completion-artifacts.md"/>
+
+<storycode:include file="provider-completion-witnesses.md"/>
+
 </storycode:doc>
