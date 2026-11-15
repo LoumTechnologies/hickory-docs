@@ -61,6 +61,10 @@ class ParityTest {
                 try {
                     val reading=async {service.readOutline("source")};delay(10);buffer.state.edit {selection=androidx.compose.ui.text.TextRange(3)}
                     assertEquals("background",reading.await().first().name);assertEquals(3,buffer.state.selection.start);assertTrue(service.locations.isEmpty())
+                    service.navigate(SemanticQuery.Supertypes);assertEquals("supertype",service.locations.first().name)
+                    service.navigate(SemanticQuery.Subtypes);assertEquals("subtype",service.locations.first().name)
+                    val hierarchy=async{service.navigate(SemanticQuery.Supertypes)};delay(10);buffer.state.edit{selection=androidx.compose.ui.text.TextRange(4)};hierarchy.await()
+                    assertTrue(service.locations.isEmpty());assertTrue(service.locationStatus.contains("changed"));buffer.state.edit{selection=androidx.compose.ui.text.TextRange(3)}
                     val stale=async {runCatching {service.readOutline("source")}};delay(10);buffer.state.edit {replace(0,length,"draft")}
                     assertTrue(stale.await().isFailure);assertEquals("draft",buffer.text)
                 } finally {service.close()}
@@ -242,7 +246,8 @@ class ParityTest {
         val link = JSONObject().put("targetUri", "hick:///a.py").put("targetSelectionRange", range)
         assertEquals(listOf(SemanticLocation("hick:///a.py", 2, 4)), semanticLocations(org.json.JSONArray().put(direct).put(link)))
         assertTrue(semanticLocations(JSONObject().put("uri", "hick:///a.py")).isEmpty())
-        assertEquals(9, SemanticQuery.entries.size)
+        assertEquals(11, SemanticQuery.entries.size)
+        assertEquals("textDocument/prepareTypeHierarchy",SemanticQuery.Supertypes.method);assertEquals("typeHierarchy/supertypes",SemanticQuery.Supertypes.hierarchyFollowup);assertEquals("typeHierarchy/subtypes",SemanticQuery.Subtypes.hierarchyFollowup)
     }
 
     @Test fun agentMessagesUseLiterateBuffersWithoutFileOwnership() {

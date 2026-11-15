@@ -21,6 +21,7 @@ gate=sys.argv[3] if len(sys.argv)>3 else events+".release"
 output_lock=threading.Lock()
 documents={}
 issued={}
+issued_types={}
 def send(value):
     raw=json.dumps(value,separators=(",",":")).encode()
     with output_lock:sys.stdout.buffer.write(f"Content-Length: {len(raw)}\r\n\r\n".encode()+raw);sys.stdout.buffer.flush()
@@ -40,7 +41,26 @@ while True:
     if method=="textDocument/didChange":documents[params["textDocument"]["uri"]]=params["contentChanges"][-1]["text"];continue
     if method=="exit":sys.exit(0)
     if identity is None:continue
-    if method=="initialize":result={"capabilities":{"textDocumentSync":1,"documentSymbolProvider":True,"codeActionProvider":{"resolveProvider":language=="python"}}}
+    if method=="initialize":result={"capabilities":{"textDocumentSync":1,"documentSymbolProvider":True,"typeHierarchyProvider":True,"codeActionProvider":{"resolveProvider":language=="python"}}}
+    elif method=="textDocument/prepareTypeHierarchy":
+        uri=params["textDocument"]["uri"]
+        item={"name":language+"Type","kind":5,"uri":uri,"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"tags":[1],"data":{"producer":language,"uri":uri,"nested":["opaque",{"id":17}]}}
+        if params["position"]["character"]==2:item["data"]["slow"]=True
+        issued_types[(uri,item["name"])]=item;result=[item]
+    elif method in ("typeHierarchy/supertypes","typeHierarchy/subtypes"):
+        item=params.get("item",{});uri=item.get("uri")
+        if item!=issued_types.get((uri,item.get("name"))) or item.get("data",{}).get("producer")!=language:
+            event({"error":"altered type item or wrong provider","language":language});send({"jsonrpc":"2.0","id":identity,"error":{"code":-32602,"message":"Original type payload was not preserved"}});continue
+        event({"type":method,"language":language,"slow_type":item["data"].get("slow",False)})
+        answer={**item,"name":language+("Base" if method.endswith("supertypes") else "Derived"),"data":{"producer":language,"uri":uri,"nested":["returned",{"id":23}]}}
+        issued_types[(uri,answer["name"])]=answer;result=[answer]
+        if item["data"].get("slow"):
+            def release_type(identity=identity,result=result):
+                deadline=time.monotonic()+10
+                while not os.path.exists(gate) and time.monotonic()<deadline:time.sleep(.01)
+                if os.path.exists(gate):send({"jsonrpc":"2.0","id":identity,"result":result})
+                else:send({"jsonrpc":"2.0","id":identity,"error":{"code":-32603,"message":"Controlled type gate timed out"}})
+            threading.Thread(target=release_type,daemon=True).start();continue
     elif method=="textDocument/documentSymbol":result=[]
     elif method=="textDocument/codeAction":
         uri=params["textDocument"]["uri"];opaque={"producer":language,"hickory_acquire":[{"uri":"file:///untrusted-child-path"}],"uri":uri,"nested":[1,{"uri":"file:///opaque-child-value"}]}
@@ -130,7 +150,7 @@ import subprocess
 import sys
 import tempfile
 ROOT=Path(__file__).resolve().parents[1]
-def main():
+def run_provider_witness(driver="provider-actions-driver.mjs",expected_actions=("python","python")):
     spec=importlib.util.spec_from_file_location("simple_fixture",ROOT/"scripts/test-simple-browser.py")
     fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
     with tempfile.TemporaryDirectory(prefix="hickory-provider-actions-") as temporary:
@@ -141,11 +161,11 @@ def main():
         (root/".hick-lsp.json").write_text(json.dumps({"servers":{language:{"command":[sys.executable,str(provider),language,str(events),str(gate)]} for language in ["python","typescript"]}}))
         engine=fixture.start([os.environ.get("HICKORY_SIMPLE_TEST_ENGINE",str(ROOT/"target/source-edit-focus/debug/examples/engine_client")),str(root),"window","http://127.0.0.1:1"],env={**os.environ,"HICKORY_STATE_DIR":str(folder/"state")})
         try:
-            origin=fixture.origin(engine);subprocess.run(["node",str(ROOT/"scripts/provider-actions-driver.mjs"),origin,str(events),str(gate)],check=True,timeout=90)
-            observed=[json.loads(line) for line in events.read_text().splitlines()];assert [item.get("resolved") for item in observed]==["python","python"],observed
+            origin=fixture.origin(engine);subprocess.run(["node",str(ROOT/"scripts"/driver),origin,str(events),str(gate)],check=True,timeout=90)
+            observed=[json.loads(line) for line in events.read_text().splitlines()];assert [item["resolved"] for item in observed if "resolved" in item]==list(expected_actions),observed
             for path,text in sources.items():assert (root/path).read_text()==text,"Resolution wrote source"
         finally:fixture.stop(engine)
-if __name__=="__main__":main()
+if __name__=="__main__":run_provider_witness()
 </ui:copy>
 
 <ui:file path="scripts/test-provider-actions.py"><ui:paste select="#provider-action-isolated-engine-witness"/></ui:file>

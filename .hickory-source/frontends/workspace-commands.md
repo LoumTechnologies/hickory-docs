@@ -218,6 +218,18 @@ Menus and action search need one vocabulary and one availability decision. The s
     "requires": "editor"
   },
   {
+    "id": "semantic.supertypes",
+    "label": "Find supertypes",
+    "group": "Edit",
+    "requires": "editor"
+  },
+  {
+    "id": "semantic.subtypes",
+    "label": "Find subtypes",
+    "group": "Edit",
+    "requires": "editor"
+  },
+  {
     "id": "editor.tools",
     "label": "Language tools",
     "group": "Edit",

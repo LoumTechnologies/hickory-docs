@@ -250,6 +250,7 @@ impl ChildLspHandle {
                     // and code actions on the client saying it wants them.
                     "declaration": {},
                     "typeDefinition": {},
+                    "typeHierarchy": {},
                     "implementation": {},
                     "references": {},
                     "documentHighlight": {},

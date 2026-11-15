@@ -45648,7 +45648,8 @@
         "f-e8bff405197e-use_declaration-2",
         "f-e8bff405197e-use_declaration-3",
         "f-e8bff405197e-use_declaration-4",
-        "provider-artifact-mechanism-modules"
+        "provider-artifact-mechanism-modules",
+        "type-hierarchy-service-module"
       ],
       "anchor": "output-e8bff405197e",
       "narrative_owner": "mechanism:crates/hick-lsp"
@@ -69570,6 +69571,66 @@
       "construction": "fragments",
       "fragments": [
         "browser-resolved-action-editor-witness"
+      ]
+    },
+    "crates/hick-lsp/src/backend/types.rs": {
+      "source": ".hickory-source/mechanisms/type-hierarchy.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "7c51d47ae49ace56d414f403b0916ddc18dffe0d51fe73c98099e77cef788bcd",
+      "construction": "fragments",
+      "fragments": [
+        "type-hierarchy-retained-context",
+        "type-hierarchy-source-projection",
+        "type-hierarchy-retain-results",
+        "type-hierarchy-provider-queries",
+        "type-hierarchy-source-witness",
+        "type-hierarchy-typed-boundary"
+      ]
+    },
+    "crates/hick-lsp/src/service.rs": {
+      "source": ".hickory-source/mechanisms/type-hierarchy.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "3a15bed717b8f263a1c343a658bbceddf6bce0f5b3e9c49df0b243c31716c0a5",
+      "construction": "fragments",
+      "fragments": [
+        "type-hierarchy-service-registration"
+      ]
+    },
+    "scripts/type-hierarchy-driver.mjs": {
+      "source": ".hickory-source/mechanisms/type-hierarchy-witnesses.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "90a681cd847b00cedb1b099d8c2a9edb90c9e35925c78c767d282359c06c52f0",
+      "construction": "fragments",
+      "fragments": [
+        "type-hierarchy-protocol-driver"
+      ]
+    },
+    "scripts/test-type-hierarchy.py": {
+      "source": ".hickory-source/mechanisms/type-hierarchy-witnesses.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "0046bc2101c440ef115d8ca83a2911c5117b2bb5ff490debfb83b26f91e56029",
+      "construction": "fragments",
+      "fragments": [
+        "type-hierarchy-protocol-runner"
+      ]
+    },
+    "scripts/test-type-navigation-browser.py": {
+      "source": ".hickory-source/mechanisms/type-hierarchy-witnesses.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "6704a5e64b15ea903e1b11fae642ce7eb0fdbf2b0ca0f68977487b99cde47d5d",
+      "construction": "fragments",
+      "fragments": [
+        "type-hierarchy-browser-witness"
       ]
     }
   },

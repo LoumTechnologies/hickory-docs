@@ -1,7 +1,7 @@
 import Foundation
 
 enum SemanticQuery: String, CaseIterable, Identifiable {
-    case definition, references, typeDefinition, implementation, declaration, outline, symbols, callers, callees
+    case definition, references, typeDefinition, implementation, declaration, outline, symbols, callers, callees, supertypes, subtypes
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -14,6 +14,17 @@ enum SemanticQuery: String, CaseIterable, Identifiable {
         case .symbols: return "Search workspace symbols"
         case .callers: return "Find callers"
         case .callees: return "Find callees"
+        case .supertypes: return "Find supertypes"
+        case .subtypes: return "Find subtypes"
+        }
+    }
+    var hierarchyFollowup:String? {
+        switch self {
+        case .callers:return "callHierarchy/incomingCalls"
+        case .callees:return "callHierarchy/outgoingCalls"
+        case .supertypes:return "typeHierarchy/supertypes"
+        case .subtypes:return "typeHierarchy/subtypes"
+        default:return nil
         }
     }
     var method: String {
@@ -21,6 +32,7 @@ enum SemanticQuery: String, CaseIterable, Identifiable {
         case .outline: return "textDocument/documentSymbol"
         case .symbols: return "workspace/symbol"
         case .callers, .callees: return "textDocument/prepareCallHierarchy"
+        case .supertypes, .subtypes: return "textDocument/prepareTypeHierarchy"
         default: return "textDocument/" + rawValue
         }
     }

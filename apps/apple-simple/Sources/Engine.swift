@@ -363,13 +363,15 @@ func rebaseNativeTokens(_ tokens: [NativeSemanticToken], from old: String, to ne
             if query == .symbols { params = ["query": locationSymbolQuery ?? ""] }
             if query == .outline { params = ["textDocument": ["uri": uri]] }
             var result = try await request(query.method, params)
-            if query == .callers || query == .callees {
+            if let followup=query.hierarchyFollowup {
                 let items = result as? [[String: Any]] ?? []
                 guard items.count <= 32 else { throw EngineError(message: "Too many call targets. Choose a more specific symbol.") }
                 var answers: [Any] = []
                 for item in items {
-                    guard navigationID == id, epoch == current, exactUTF8(buffer.text,source), buffer.selection == selection else { return }
-                    answers.append(try await request(query == .callers ? "callHierarchy/incomingCalls" : "callHierarchy/outgoingCalls", ["item": item]))
+                    guard navigationID == id, epoch == current, exactUTF8(buffer.text,source), buffer.selection == selection else {
+                        if navigationID==id,epoch==current{locationStatus="Source or cursor changed. Run the query again."};return
+                    }
+                    answers.append(try await request(followup, ["item": item]))
                 }
                 result = answers
             }

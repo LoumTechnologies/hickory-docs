@@ -854,7 +854,7 @@ describe("simple semantic navigation", () => {
     const values = semanticLocations([{ name: "Outer", range, selectionRange: range, children: [{ name: "Inner", range: { ...range, start: { line: 3, character: 6 } } }] }, { name: "Other", location: { uri: "hick:///other.py", range } }, { from: { name: "Caller", uri: "hick:///call.py", selectionRange: range } }, { to: { name: "Callee", uri: "hick:///callee.py", selectionRange: range } }], "hick:///source.py");
     expect(values.map(value => [value.name, value.uri, value.range.start.line])).toEqual([["Outer", "hick:///source.py", 2], ["Inner", "hick:///source.py", 3], ["Other", "hick:///other.py", 2], ["Caller", "hick:///call.py", 2], ["Callee", "hick:///callee.py", 2]]);
   });
-  it("uses provider outline/symbol/call protocols and flushes the current source before position reads", async () => {
+  it("uses provider outline/symbol/call/type protocols and flushes the current source before position reads", async () => {
     // Contract: .hickory-source/frontends/contract.md
     const methods: string[] = [];
     let syncs = 0;
@@ -864,7 +864,7 @@ describe("simple semantic navigation", () => {
       const message = decodeLspFrame(frame);
       if (!message || !("method" in message) || !("id" in message)) return;
       methods.push(message.method);
-      const result = message.method === "textDocument/prepareCallHierarchy" ? [item]
+      const result = ["textDocument/prepareCallHierarchy","textDocument/prepareTypeHierarchy","typeHierarchy/supertypes","typeHierarchy/subtypes"].includes(message.method) ? [item]
         : message.method === "callHierarchy/incomingCalls" ? [{ from: item }]
         : message.method === "callHierarchy/outgoingCalls" ? [{ to: item }]
         : message.method === "textDocument/documentSymbol" ? [{ name: "Outline", range, selectionRange: range }]
@@ -877,7 +877,10 @@ describe("simple semantic navigation", () => {
       expect((await querySemanticLocations(client, "hick:///source.py", range.start, "symbols", "Work"))[0].name).toBe("Workspace");
       expect((await querySemanticLocations(client, "hick:///source.py", range.start, "callers"))[0].name).toBe("caller");
       expect((await querySemanticLocations(client, "hick:///source.py", range.start, "callees"))[0].name).toBe("caller");
-      expect(syncs).toBe(3); expect(methods).toContain("workspace/symbol"); expect(methods).toContain("callHierarchy/incomingCalls"); expect(methods).toContain("callHierarchy/outgoingCalls");
+      expect((await querySemanticLocations(client,"hick:///source.py",range.start,"supertypes"))[0].name).toBe("caller");
+      expect((await querySemanticLocations(client,"hick:///source.py",range.start,"subtypes"))[0].name).toBe("caller");
+      expect(methods).toContain("typeHierarchy/supertypes");expect(methods).toContain("typeHierarchy/subtypes");
+      expect(syncs).toBe(5); expect(methods).toContain("workspace/symbol"); expect(methods).toContain("callHierarchy/incomingCalls"); expect(methods).toContain("callHierarchy/outgoingCalls");
     } finally { unregister(); client.dispose(); }
   });
   it("does not let a previous buffer consume the destination symbol reveal", async () => {

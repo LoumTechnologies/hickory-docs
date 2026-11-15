@@ -162,7 +162,8 @@ final class ParityTests: XCTestCase {
         let link: [String: Any] = ["targetUri": "hick:///a.py", "targetSelectionRange": range]
         XCTAssertEqual(semanticLocations([direct, link]), [SemanticLocation(uri: "hick:///a.py", line: 2, character: 4)])
         XCTAssertTrue(semanticLocations(["uri": "hick:///a.py"]).isEmpty)
-        XCTAssertEqual(SemanticQuery.allCases.count, 9)
+        XCTAssertEqual(SemanticQuery.allCases.count, 11)
+        XCTAssertEqual(SemanticQuery.supertypes.method,"textDocument/prepareTypeHierarchy");XCTAssertEqual(SemanticQuery.supertypes.hierarchyFollowup,"typeHierarchy/supertypes");XCTAssertEqual(SemanticQuery.subtypes.hierarchyFollowup,"typeHierarchy/subtypes")
     }
 
     @MainActor func testSemanticNavigationRetiresStaleSourceAndSelection() throws {

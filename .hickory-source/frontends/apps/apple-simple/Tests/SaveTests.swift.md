@@ -96,6 +96,10 @@ final class SaveTests: XCTestCase {
         try await Task.sleep(for:.milliseconds(10));buffer.selection=NSRange(location:3,length:0)
         let outline=try await reading.value
         XCTAssertEqual(outline.first?.name,"background");XCTAssertEqual(buffer.selection.location,3);XCTAssertFalse(service.showingSuggestions)
+        await service.navigate(.supertypes);XCTAssertEqual(service.locations.first?.name,"supertype")
+        await service.navigate(.subtypes);XCTAssertEqual(service.locations.first?.name,"subtype")
+        let hierarchy=Task {await service.navigate(.supertypes)};try await Task.sleep(for:.milliseconds(10));buffer.selection=NSRange(location:4,length:0);await hierarchy.value
+        XCTAssertTrue(service.locations.isEmpty);XCTAssertTrue(service.locationStatus.contains("changed"));buffer.selection=NSRange(location:3,length:0)
         let stale=Task {try await service.readOutline(source:"source")}
         try await Task.sleep(for:.milliseconds(10));buffer.text="draft"
         do {_=try await stale.value;XCTFail("Source changed during outline read")} catch {}

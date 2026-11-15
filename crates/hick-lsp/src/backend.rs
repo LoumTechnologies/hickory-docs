@@ -1,4 +1,5 @@
 mod diagnostic_context;
+mod types;
 use diagnostic_context::provider_action_diagnostics;
 mod captured;
 use std::collections::HashMap;
@@ -73,6 +74,7 @@ pub struct HickBackend {
     /// with items, and the client hands one back to ask for its callers or
     prepared_hierarchy: Arc<RwLock<HashMap<String, PreparedHierarchyItem>>>,
     prepared_actions: Arc<Mutex<actions::PreparedActions>>,
+    prepared_types: Arc<Mutex<types::TypeHierarchyArtifacts>>,
     workspace_root: Arc<RwLock<Option<Url>>>,
     staging: StagingArea,
     projects: Arc<crate::ProjectContexts>,
@@ -183,6 +185,7 @@ impl HickBackend {
             last_completion_language: Arc::new(RwLock::new(None)),
             prepared_hierarchy: Arc::new(RwLock::new(HashMap::new())),
             prepared_actions: Arc::new(Mutex::new(actions::PreparedActions::default())),
+            prepared_types: Arc::new(Mutex::new(types::TypeHierarchyArtifacts::default())),
             staging: StagingArea::new(),
             projects: Arc::new(crate::ProjectContexts::default()),
             staging_failure_shown: Arc::new(RwLock::new(false)),
@@ -1795,13 +1798,9 @@ impl LanguageServer for HickBackend {
                 // "Where is this called from" — one of the most-used
                 // navigations in an IDE, forwarded like every other request.
                 //
-                // TYPE hierarchy is not here, and not because it is hard: it
-                // is the same three-step shape and the same store would serve
-                // it. `lsp-types` 0.94.1 has no `type_hierarchy_provider`
-                // field on `ServerCapabilities` at all — not even behind its
-                // `proposed` feature — so the capability cannot be declared,
-                // and a client never asks for what a server does not
-                // advertise. Handlers for it would be code nothing can reach.
+                // The pinned library has no standard type-hierarchy capability
+                // field. Standard trait handlers forward these requests.
+                experimental: Some(serde_json::json!({"hickoryTypeHierarchy":true})),
                 call_hierarchy_provider: Some(CallHierarchyServerCapability::Simple(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
@@ -2004,6 +2003,39 @@ impl LanguageServer for HickBackend {
         Ok(serde_json::from_value(result).ok())
     }
 
+    async fn prepare_type_hierarchy(
+        &self,
+        params: TypeHierarchyPrepareParams,
+    ) -> Result<Option<Vec<TypeHierarchyItem>>> {
+        types::typed_type_items(
+            self.provider_type_hierarchy(serde_json::to_value(params).map_err(|_| {
+                tower_lsp::jsonrpc::Error::invalid_params("Malformed type preparation")
+            })?)
+            .await?,
+        )
+    }
+    async fn supertypes(
+        &self,
+        params: TypeHierarchySupertypesParams,
+    ) -> Result<Option<Vec<TypeHierarchyItem>>> {
+        types::typed_type_items(
+            self.type_supertypes(serde_json::to_value(params).map_err(|_| {
+                tower_lsp::jsonrpc::Error::invalid_params("Malformed supertype query")
+            })?)
+            .await?,
+        )
+    }
+    async fn subtypes(
+        &self,
+        params: TypeHierarchySubtypesParams,
+    ) -> Result<Option<Vec<TypeHierarchyItem>>> {
+        types::typed_type_items(
+            self.type_subtypes(serde_json::to_value(params).map_err(|_| {
+                tower_lsp::jsonrpc::Error::invalid_params("Malformed subtype query")
+            })?)
+            .await?,
+        )
+    }
     async fn prepare_call_hierarchy(
         &self,
         params: CallHierarchyPrepareParams,

@@ -208,7 +208,7 @@ impl Default for PreparedActions {
     }
 }
 impl HickBackend {
-    async fn action_source_revision(&self) -> String {
+    pub(super) async fn provider_source_revision(&self) -> String {
         let index = self.vfile_index.read().await;
         crate::source_identity::source_graph_fingerprint(
             index
@@ -216,12 +216,12 @@ impl HickBackend {
                 .map(|(uri, mapping)| (uri.as_str(), mapping.source_revision)),
         )
     }
-    async fn require_action_revision(&self, expected: &str) -> Result<()> {
-        if self.action_source_revision().await == expected {
+    pub(super) async fn require_provider_revision(&self, expected: &str) -> Result<()> {
+        if self.provider_source_revision().await == expected {
             Ok(())
         } else {
             Err(tower_lsp::jsonrpc::Error::invalid_params(
-                "Source or ownership changed. Request provider actions again.",
+                "Source or ownership changed. Request provider information again.",
             ))
         }
     }
@@ -234,7 +234,7 @@ Build provider context from the child’s own diagnostics. Read its actual capab
         &self,
         params: CodeActionParams,
     ) -> Result<Option<CodeActionResponse>> {
-        let revision = self.action_source_revision().await;
+        let revision = self.provider_source_revision().await;
         let uri = params.text_document.uri;
         let Some((vf_uri, language, start)) = self.virtual_target(&uri, params.range.start).await
         else {
@@ -276,9 +276,9 @@ Build provider context from the child’s own diagnostics. Read its actual capab
                 == Some(true);
             (handle.clone(), resolve)
         };
-        self.require_action_revision(&revision).await?;
+        self.require_provider_revision(&revision).await?;
         let result=handle.request("textDocument/codeAction",json!({"textDocument":{"uri":vf_uri},"range":{"start":start,"end":{"line":end.0,"character":end.1}},"context":{"diagnostics":diagnostics}})).await.map_err(child_request_error)?;
-        self.require_action_revision(&revision).await?;
+        self.require_provider_revision(&revision).await?;
         if result.is_null() {
             return Ok(None);
         }
@@ -286,7 +286,7 @@ Build provider context from the child’s own diagnostics. Read its actual capab
             tower_lsp::jsonrpc::Error::invalid_params("Malformed provider action list")
         })?;
         let index = self.index_snapshot().await;
-        self.require_action_revision(&revision).await?;
+        self.require_provider_revision(&revision).await?;
         let workspace_root = self.workspace_root.read().await.clone();
         let mut translated = translate_edit_uris(result.clone(), &index)
             .map_err(tower_lsp::jsonrpc::Error::invalid_params)?;
@@ -342,7 +342,7 @@ The lookup token selects held data; every other caller-supplied field is ignored
                     "Unknown provider action. Request actions again.",
                 )
             })?;
-        let revision = self.action_source_revision().await;
+        let revision = self.provider_source_revision().await;
         let prepared = self
             .prepared_actions
             .lock()
@@ -356,13 +356,13 @@ The lookup token selects held data; every other caller-supplied field is ignored
             })?;
         let mut original = prepared.original;
         if prepared.resolve {
-            self.require_action_revision(&revision).await?;
+            self.require_provider_revision(&revision).await?;
             let result = prepared
                 .handle
                 .request("codeAction/resolve", original.clone())
                 .await
                 .map_err(child_request_error)?;
-            self.require_action_revision(&revision).await?;
+            self.require_provider_revision(&revision).await?;
             let resolved = result.as_object().ok_or_else(|| {
                 tower_lsp::jsonrpc::Error::invalid_params("Provider did not resolve this action")
             })?;
@@ -372,7 +372,7 @@ The lookup token selects held data; every other caller-supplied field is ignored
             }
         }
         let index = self.index_snapshot().await;
-        self.require_action_revision(&revision).await?;
+        self.require_provider_revision(&revision).await?;
         let workspace_root = self.workspace_root.read().await.clone();
         let discovery = discover_action_sources(&original, &index, workspace_root.as_ref());
         let mapped = translate_edit_uris(json!([original]), &index)
@@ -391,7 +391,7 @@ The lookup token selects held data; every other caller-supplied field is ignored
         }
         data["hickory_action"] = json!(token);
         action["data"] = data;
-        self.require_action_revision(&revision).await?;
+        self.require_provider_revision(&revision).await?;
         serde_json::from_value(action).map_err(|error| {
             tower_lsp::jsonrpc::Error::invalid_params(format!(
                 "Malformed resolved provider action: {error}"

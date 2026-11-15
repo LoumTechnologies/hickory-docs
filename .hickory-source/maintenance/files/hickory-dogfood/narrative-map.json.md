@@ -152635,6 +152635,83 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/provider-action-artifacts.md",
       "symbol": "provider-action-unmapped-source-discovery-witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "type-hierarchy-retained-context",
+      "output": "crates/hick-lsp/src/backend/types.rs",
+      "page": ".hickory-source/mechanisms/type-hierarchy.md",
+      "symbol": "Hold provider context independently of views",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "type-hierarchy-source-projection",
+      "output": "crates/hick-lsp/src/backend/types.rs",
+      "page": ".hickory-source/mechanisms/type-hierarchy.md",
+      "symbol": "Project the type name through its own source",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "type-hierarchy-retain-results",
+      "output": "crates/hick-lsp/src/backend/types.rs",
+      "page": ".hickory-source/mechanisms/type-hierarchy.md",
+      "symbol": "Retain only a source-current answer",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "type-hierarchy-provider-queries",
+      "output": "crates/hick-lsp/src/backend/types.rs",
+      "page": ".hickory-source/mechanisms/type-hierarchy.md",
+      "symbol": "Prepare and follow the provider protocol",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "type-hierarchy-source-witness",
+      "output": "crates/hick-lsp/src/backend/types.rs",
+      "page": ".hickory-source/mechanisms/type-hierarchy.md",
+      "symbol": "Check authored names and untouched child fields",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "type-hierarchy-service-registration",
+      "output": "crates/hick-lsp/src/service.rs",
+      "page": ".hickory-source/mechanisms/type-hierarchy.md",
+      "symbol": "Register both transports through one factory",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "type-hierarchy-service-module",
+      "output": "crates/hick-lsp/src/lib.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/lib.rs.md",
+      "symbol": "Expose shared service registration",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "type-hierarchy-protocol-driver",
+      "output": "scripts/type-hierarchy-driver.mjs",
+      "page": ".hickory-source/mechanisms/type-hierarchy-witnesses.md",
+      "symbol": "Keep original values through the actual protocol",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "type-hierarchy-protocol-runner",
+      "output": "scripts/test-type-hierarchy.py",
+      "page": ".hickory-source/mechanisms/type-hierarchy-witnesses.md",
+      "symbol": "Run inside an isolated actual engine",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "type-hierarchy-browser-witness",
+      "output": "scripts/test-type-navigation-browser.py",
+      "page": ".hickory-source/mechanisms/type-hierarchy-witnesses.md",
+      "symbol": "Follow the existing menus in a retained editor",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "type-hierarchy-typed-boundary",
+      "output": "crates/hick-lsp/src/backend/types.rs",
+      "page": ".hickory-source/mechanisms/type-hierarchy.md",
+      "symbol": "Adapt the pinned typed response",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

@@ -10,6 +10,8 @@ export const semanticQueries = [
   { kind: "symbols", label: "Search workspace symbols" },
   { kind: "callers", label: "Find callers" },
   { kind: "callees", label: "Find callees" },
+  { kind: "supertypes", label: "Find supertypes" },
+  { kind: "subtypes", label: "Find subtypes" },
 ] as const;
 export type SemanticQuery = typeof semanticQueries[number]["kind"];
 export function semanticPath(uri: string): string | null {
@@ -47,11 +49,12 @@ export async function querySemanticLocations(client: LspClient, uri: string, pos
   const params = { textDocument: { uri }, position, ...(kind === "references" ? { context: { includeDeclaration: true } } : {}) };
   if (kind === "symbols") return semanticLocations(await client.request("workspace/symbol", { query: text }));
   if (kind === "outline") return semanticLocations(await client.request("textDocument/documentSymbol", { textDocument: { uri } }), uri);
-  if (kind === "callers" || kind === "callees") {
-    const items = await client.request("textDocument/prepareCallHierarchy", params);
+  if (["callers","callees","supertypes","subtypes"].includes(kind)) {
+    const followup=kind==="callers"?"callHierarchy/incomingCalls":kind==="callees"?"callHierarchy/outgoingCalls":`typeHierarchy/${kind}`;
+    const items = await client.request(kind==="supertypes"||kind==="subtypes"?"textDocument/prepareTypeHierarchy":"textDocument/prepareCallHierarchy", params);
     if (!Array.isArray(items)) return [];
     if (items.length > 32) throw new Error("Too many candidate call targets. Choose a more specific symbol.");
-    const answers = await Promise.all(items.map(item => client.request(kind === "callers" ? "callHierarchy/incomingCalls" : "callHierarchy/outgoingCalls", { item })));
+    const answers = await Promise.all(items.map(item => client.request(followup, { item })));
     return semanticLocations(answers);
   }
   return semanticLocations(await client.request(`textDocument/${kind}`, params));

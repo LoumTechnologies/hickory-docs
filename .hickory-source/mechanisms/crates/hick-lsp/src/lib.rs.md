@@ -184,9 +184,18 @@ Source mapping identity and bounded opaque artifacts are internal mechanisms. Th
 <storycode:copy id="provider-artifact-mechanism-modules">
 
 mod provider_artifacts;
-mod source_identity;
 </storycode:copy>
 
-<storycode:file path="crates/hick-lsp/src/lib.rs"><storycode:paste select="#f-e8bff405197e-backend"/><storycode:paste select="#f-e8bff405197e-child_lsp"/><storycode:paste select="#f-e8bff405197e-discovery"/><storycode:paste select="#f-e8bff405197e-dispatcher"/><storycode:paste select="#f-e8bff405197e-document"/><storycode:paste select="#f-e8bff405197e-element_lint"/><storycode:paste select="#f-e8bff405197e-lang_detect"/><storycode:paste select="#f-e8bff405197e-location_map"/><storycode:paste select="#f-e8bff405197e-project_contexts"/><storycode:paste select="#f-e8bff405197e-use_declaration"/><storycode:paste select="#f-e8bff405197e-position_map"/><storycode:paste select="#f-e8bff405197e-project"/><storycode:paste select="#f-e8bff405197e-project_environment"/><storycode:paste select="#f-e8bff405197e-project_positions"/><storycode:paste select="#f-e8bff405197e-semantic"/><storycode:paste select="#f-e8bff405197e-server_config"/><storycode:paste select="#f-e8bff405197e-session_lint"/><storycode:paste select="#f-e8bff405197e-staging"/><storycode:paste select="#f-e8bff405197e-structural"/><storycode:paste select="#f-e8bff405197e-virtual_file"/><storycode:paste select="#f-e8bff405197e-use_declaration-2"/><storycode:paste select="#f-e8bff405197e-use_declaration-3"/><storycode:paste select="#f-e8bff405197e-use_declaration-4"/><storycode:paste select="#provider-artifact-mechanism-modules"/></storycode:file>
+## Expose shared service registration
+
+Transport hosts use one factory so a method cannot exist only on stdio or only on workspace sockets. Keep its protocol registration outside the backend implementation.
+
+<storycode:copy id="type-hierarchy-service-module">
+mod service;
+mod source_identity;
+pub use service::service;
+</storycode:copy>
+
+<storycode:file path="crates/hick-lsp/src/lib.rs"><storycode:paste select="#f-e8bff405197e-backend"/><storycode:paste select="#f-e8bff405197e-child_lsp"/><storycode:paste select="#f-e8bff405197e-discovery"/><storycode:paste select="#f-e8bff405197e-dispatcher"/><storycode:paste select="#f-e8bff405197e-document"/><storycode:paste select="#f-e8bff405197e-element_lint"/><storycode:paste select="#f-e8bff405197e-lang_detect"/><storycode:paste select="#f-e8bff405197e-location_map"/><storycode:paste select="#f-e8bff405197e-project_contexts"/><storycode:paste select="#f-e8bff405197e-use_declaration"/><storycode:paste select="#f-e8bff405197e-position_map"/><storycode:paste select="#f-e8bff405197e-project"/><storycode:paste select="#f-e8bff405197e-project_environment"/><storycode:paste select="#f-e8bff405197e-project_positions"/><storycode:paste select="#f-e8bff405197e-semantic"/><storycode:paste select="#f-e8bff405197e-server_config"/><storycode:paste select="#f-e8bff405197e-session_lint"/><storycode:paste select="#f-e8bff405197e-staging"/><storycode:paste select="#f-e8bff405197e-structural"/><storycode:paste select="#f-e8bff405197e-virtual_file"/><storycode:paste select="#f-e8bff405197e-use_declaration-2"/><storycode:paste select="#f-e8bff405197e-use_declaration-3"/><storycode:paste select="#f-e8bff405197e-use_declaration-4"/><storycode:paste select="#provider-artifact-mechanism-modules"/><storycode:paste select="#type-hierarchy-service-module"/></storycode:file>
 
 </storycode:doc>

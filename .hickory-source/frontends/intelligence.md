@@ -22,6 +22,8 @@ export const semanticQueries = [
   { kind: "symbols", label: "Search workspace symbols" },
   { kind: "callers", label: "Find callers" },
   { kind: "callees", label: "Find callees" },
+  { kind: "supertypes", label: "Find supertypes" },
+  { kind: "subtypes", label: "Find subtypes" },
 ] as const;
 export type SemanticQuery = typeof semanticQueries[number]["kind"];
 </ui:copy>
@@ -66,6 +68,8 @@ export function semanticLocations(result: unknown, defaultUri?: string): Semanti
 
 ## Follow the provider protocol
 
+Call and type relationships share a prepare/follow-up model. Preserve opaque items until their matching follow-up; normalize only the returned source locations. Supertypes and subtypes use standard type-hierarchy methods through the shared server registration. Missing support remains an unavailable query or empty report, never an inferred relationship.
+
 Calls are two-phase reads: prepare candidate items, then ask for incoming or outgoing calls for those exact items. A broad ambiguous preparation is refused instead of silently choosing one symbol. Outlines and workspace symbols use their own protocol shapes; source-position reads share one path. No query applies an edit or saves a file.
 
 <ui:copy id="simple-intelligence-browser-query">
@@ -73,11 +77,12 @@ export async function querySemanticLocations(client: LspClient, uri: string, pos
   const params = { textDocument: { uri }, position, ...(kind === "references" ? { context: { includeDeclaration: true } } : {}) };
   if (kind === "symbols") return semanticLocations(await client.request("workspace/symbol", { query: text }));
   if (kind === "outline") return semanticLocations(await client.request("textDocument/documentSymbol", { textDocument: { uri } }), uri);
-  if (kind === "callers" || kind === "callees") {
-    const items = await client.request("textDocument/prepareCallHierarchy", params);
+  if (["callers","callees","supertypes","subtypes"].includes(kind)) {
+    const followup=kind==="callers"?"callHierarchy/incomingCalls":kind==="callees"?"callHierarchy/outgoingCalls":`typeHierarchy/${kind}`;
+    const items = await client.request(kind==="supertypes"||kind==="subtypes"?"textDocument/prepareTypeHierarchy":"textDocument/prepareCallHierarchy", params);
     if (!Array.isArray(items)) return [];
     if (items.length > 32) throw new Error("Too many candidate call targets. Choose a more specific symbol.");
-    const answers = await Promise.all(items.map(item => client.request(kind === "callers" ? "callHierarchy/incomingCalls" : "callHierarchy/outgoingCalls", { item })));
+    const answers = await Promise.all(items.map(item => client.request(followup, { item })));
     return semanticLocations(answers);
   }
   return semanticLocations(await client.request(`textDocument/${kind}`, params));
@@ -92,7 +97,7 @@ The Swift model has no SwiftUI, editor or network dependency. It retains the sam
 import Foundation
 
 enum SemanticQuery: String, CaseIterable, Identifiable {
-    case definition, references, typeDefinition, implementation, declaration, outline, symbols, callers, callees
+    case definition, references, typeDefinition, implementation, declaration, outline, symbols, callers, callees, supertypes, subtypes
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -105,6 +110,17 @@ enum SemanticQuery: String, CaseIterable, Identifiable {
         case .symbols: return "Search workspace symbols"
         case .callers: return "Find callers"
         case .callees: return "Find callees"
+        case .supertypes: return "Find supertypes"
+        case .subtypes: return "Find subtypes"
+        }
+    }
+    var hierarchyFollowup:String? {
+        switch self {
+        case .callers:return "callHierarchy/incomingCalls"
+        case .callees:return "callHierarchy/outgoingCalls"
+        case .supertypes:return "typeHierarchy/supertypes"
+        case .subtypes:return "typeHierarchy/subtypes"
+        default:return nil
         }
     }
     var method: String {
@@ -112,6 +128,7 @@ enum SemanticQuery: String, CaseIterable, Identifiable {
         case .outline: return "textDocument/documentSymbol"
         case .symbols: return "workspace/symbol"
         case .callers, .callees: return "textDocument/prepareCallHierarchy"
+        case .supertypes, .subtypes: return "textDocument/prepareTypeHierarchy"
         default: return "textDocument/" + rawValue
         }
     }
@@ -171,7 +188,16 @@ enum class SemanticQuery(val method: String, val label: String) {
     Outline("textDocument/documentSymbol", "File outline"),
     Symbols("workspace/symbol", "Search workspace symbols"),
     Callers("textDocument/prepareCallHierarchy", "Find callers"),
-    Callees("textDocument/prepareCallHierarchy", "Find callees")
+    Callees("textDocument/prepareCallHierarchy", "Find callees"),
+    Supertypes("textDocument/prepareTypeHierarchy", "Find supertypes"),
+    Subtypes("textDocument/prepareTypeHierarchy", "Find subtypes");
+    val hierarchyFollowup:String? get()=when(this) {
+        Callers->"callHierarchy/incomingCalls"
+        Callees->"callHierarchy/outgoingCalls"
+        Supertypes->"typeHierarchy/supertypes"
+        Subtypes->"typeHierarchy/subtypes"
+        else->null
+    }
 }
 data class SemanticLocation(val uri: String, val line: Int, val character: Int, val name: String? = null, val kind: Int? = null) {
     val path: String? get() = runCatching {

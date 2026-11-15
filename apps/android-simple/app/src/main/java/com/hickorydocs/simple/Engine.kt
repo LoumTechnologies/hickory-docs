@@ -494,13 +494,17 @@ class NativeLanguage(engine: Engine, private val buffer: DocumentBuffer, private
             if (query == SemanticQuery.Symbols) params = JSONObject().put("query", locationSymbolQuery)
             if (query == SemanticQuery.Outline) params = JSONObject().put("textDocument", doc())
             var result = request(query.method, params)
-            if (query == SemanticQuery.Callers || query == SemanticQuery.Callees) {
+            val followup=query.hierarchyFollowup
+            if (followup != null) {
                 val items = result as? JSONArray ?: JSONArray()
                 check(items.length() <= 32) { "Too many call targets. Choose a more specific symbol." }
                 val answers = JSONArray()
                 for (index in 0 until items.length()) {
-                    if (navigation != id || epoch != current || buffer.text != source || buffer.state.selection != selection) return
-                    answers.put(request(if (query == SemanticQuery.Callers) "callHierarchy/incomingCalls" else "callHierarchy/outgoingCalls", JSONObject().put("item", items.get(index))))
+                    if (navigation != id || epoch != current || buffer.text != source || buffer.state.selection != selection) {
+                        if(navigation==id&&epoch==current)locationStatus="Source or cursor changed. Run the query again."
+                        return
+                    }
+                    answers.put(request(followup, JSONObject().put("item", items.get(index))))
                 }
                 result = answers
             }

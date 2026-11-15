@@ -38,4 +38,6 @@ pub use project::{
 };
 
 mod provider_artifacts;
+mod service;
 mod source_identity;
+pub use service::service;

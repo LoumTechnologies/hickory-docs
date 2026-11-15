@@ -320,9 +320,8 @@ impl Session {
         let (server_read, server_write) = tokio::io::split(server_end);
         let (mut bridge_read, mut bridge_write) = tokio::io::split(bridge_end);
 
-        let (service, socket) = tower_lsp::LspService::new(move |client| {
-            hick_lsp::HickBackend::with_projects(client, projects)
-        });
+        let (service, socket) =
+            hick_lsp::service(move |client| hick_lsp::HickBackend::with_projects(client, projects));
         let server = tokio::spawn(async move {
             tower_lsp::Server::new(server_read, server_write, socket)
                 .serve(service)
@@ -438,6 +437,7 @@ fn initialize_request(root_uri: &str) -> Value {
                     "definition": {},
                     "declaration": {},
                     "typeDefinition": {},
+                    "typeHierarchy": {},
                     "implementation": {},
                     "references": {},
                     "documentHighlight": {},

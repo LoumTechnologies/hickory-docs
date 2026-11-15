@@ -155,7 +155,11 @@ class Peer(BaseHTTPRequestHandler):
             result = {"uri": uri, "text": self.documents.get(uri), "method": method}
         if method == "textDocument/documentSymbol":
             result = [{"name": "background", "kind": 12, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}, "selectionRange": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}]
-        timer = threading.Timer(.5 if method == "fixture/block" else .07 if method in ("fixture/slow", "textDocument/documentSymbol") else .001, lambda: self.send({"jsonrpc": "2.0", "id": identifier, "result": result}))
+        if method == "textDocument/prepareTypeHierarchy" or method in ("typeHierarchy/supertypes","typeHierarchy/subtypes"):
+            target=uri if method == "textDocument/prepareTypeHierarchy" else params["item"]["uri"]
+            name="seed" if method == "textDocument/prepareTypeHierarchy" else "supertype" if method.endswith("supertypes") else "subtype"
+            result=[{"name":name,"kind":5,"uri":target,"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"data":{"fixture":"opaque type"}}]
+        timer = threading.Timer(.5 if method == "fixture/block" else .07 if method in ("fixture/slow", "textDocument/documentSymbol", "typeHierarchy/supertypes", "typeHierarchy/subtypes") else .001, lambda: self.send({"jsonrpc": "2.0", "id": identifier, "result": result}))
         timer.daemon = True
         timer.start()
 

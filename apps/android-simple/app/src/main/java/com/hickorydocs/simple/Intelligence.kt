@@ -13,7 +13,16 @@ enum class SemanticQuery(val method: String, val label: String) {
     Outline("textDocument/documentSymbol", "File outline"),
     Symbols("workspace/symbol", "Search workspace symbols"),
     Callers("textDocument/prepareCallHierarchy", "Find callers"),
-    Callees("textDocument/prepareCallHierarchy", "Find callees")
+    Callees("textDocument/prepareCallHierarchy", "Find callees"),
+    Supertypes("textDocument/prepareTypeHierarchy", "Find supertypes"),
+    Subtypes("textDocument/prepareTypeHierarchy", "Find subtypes");
+    val hierarchyFollowup:String? get()=when(this) {
+        Callers->"callHierarchy/incomingCalls"
+        Callees->"callHierarchy/outgoingCalls"
+        Supertypes->"typeHierarchy/supertypes"
+        Subtypes->"typeHierarchy/subtypes"
+        else->null
+    }
 }
 data class SemanticLocation(val uri: String, val line: Int, val character: Int, val name: String? = null, val kind: Int? = null) {
     val path: String? get() = runCatching {
