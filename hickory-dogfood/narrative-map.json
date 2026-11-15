@@ -152921,6 +152921,34 @@
       "page": ".hickory-source/mechanisms/source-completion-acceptance.md",
       "symbol": "Replay complete source history",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-plan-syntax",
+      "output": "crates/hick-lsp/src/snippet.rs",
+      "page": ".hickory-source/mechanisms/snippet-plans.md",
+      "symbol": "Parse a bounded, explicit snippet language",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-plan-render",
+      "output": "crates/hick-lsp/src/snippet.rs",
+      "page": ".hickory-source/mechanisms/snippet-plans.md",
+      "symbol": "Expand defaults and retain every field occurrence",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-plan-witnesses",
+      "output": "crates/hick-lsp/src/snippet.rs",
+      "page": ".hickory-source/mechanisms/snippet-plans.md",
+      "symbol": "Check observable text and whole-proposal refusal",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-plan-public-module",
+      "output": "crates/hick-lsp/src/lib.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/lib.rs.md",
+      "symbol": "Share snippet plans",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

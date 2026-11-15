@@ -45649,7 +45649,8 @@
         "f-e8bff405197e-use_declaration-3",
         "f-e8bff405197e-use_declaration-4",
         "provider-artifact-mechanism-modules",
-        "type-hierarchy-service-module"
+        "type-hierarchy-service-module",
+        "snippet-plan-public-module"
       ],
       "anchor": "output-e8bff405197e",
       "narrative_owner": "mechanism:crates/hick-lsp"
@@ -69842,6 +69843,19 @@
       "construction": "fragments",
       "fragments": [
         "native-source-draft-history"
+      ]
+    },
+    "crates/hick-lsp/src/snippet.rs": {
+      "source": ".hickory-source/mechanisms/snippet-plans.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "9f80a2cbdd17ba78a5ff173246d985aff312a2d3e243c96a873eb1cbb38bd361",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-plan-syntax",
+        "snippet-plan-render",
+        "snippet-plan-witnesses"
       ]
     }
   },
