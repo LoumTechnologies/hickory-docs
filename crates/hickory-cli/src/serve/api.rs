@@ -15,7 +15,7 @@ mod actions;
 mod create_new;
 mod snapshot;
 pub use snapshot::snapshot_doc;
-mod file_language;
+pub(super) mod file_language;
 pub(super) use file_language::language_of;
 
 use std::collections::HashMap;

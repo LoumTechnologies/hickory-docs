@@ -70662,7 +70662,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "resource-save-publication",
         "resource-save-save",
         "resource-save-status",
-        "resource-published-outcome-contract-tests"
+        "resource-published-outcome-contract-tests",
+        "resource-source-editor-receipts"
       ]
     },
     "crates/hickory-cli/src/serve/resource_restoration.rs": {

@@ -288,7 +288,13 @@ pub(super) async fn publish(
                 }
             }
         }
-        publication_reply(request_id, manifest.workspace, manifest.context, outcome, manifest.after)
+        let files = if outcome.complete {
+            match source_receipts(&state, &manifest.after) {
+                Ok(files) => files,
+                Err(error) => { outcome.complete = false; outcome.error = Some(format!("Source publication was observed, but editor metadata is unavailable: {error}. Inspect recovery before adopting the namespace.")); Vec::new() }
+            }
+        } else { Vec::new() };
+        publication_reply(request_id, manifest.workspace, manifest.context, outcome, manifest.after, files)
     }).await.map_err(|error|format!("Resource publication stopped unexpectedly: {error}. Inspect retained recovery before retrying."))?
 }
 fn publication_reply(
@@ -297,6 +303,7 @@ fn publication_reply(
     context: String,
     outcome: super::resource_publish::Outcome,
     after: BTreeMap<String, SavedSource>,
+    files: Vec<Value>,
 ) -> Result<Value, String> {
     let confirmed = outcome.complete;
     let mut reply = json!({"version":1,"request_id":request_id,"workspace":workspace,"context":context,"outcome":outcome,"saved_sources":null});
@@ -306,6 +313,7 @@ fn publication_reply(
         "intended_saved_sources"
     };
     reply[key] = serde_json::to_value(after).map_err(|error| error.to_string())?;
+    reply["source_files"] = json!(if confirmed { files } else { Vec::new() });
     Ok(reply)
 }
 </ui:copy>
@@ -427,9 +435,11 @@ mod outcome_contract_tests {
             "context".into(),
             outcome(false),
             after.clone(),
+            vec![json!({"file":{"path":"not-confirmed.py"}})],
         )
         .unwrap();
         assert!(partial["saved_sources"].is_null());
+        assert_eq!(partial["source_files"], json!([]));
         assert_eq!(partial["intended_saved_sources"]["a.py"]["kind"], "missing");
         assert_eq!(partial["outcome"]["applied"], json!(["a.py"]));
         let complete = publication_reply(
@@ -438,10 +448,12 @@ mod outcome_contract_tests {
             "context".into(),
             outcome(true),
             after,
+            vec![json!({"file":{"path":"confirmed.py"}})],
         )
         .unwrap();
         assert_eq!(complete["saved_sources"]["a.py"]["kind"], "missing");
         assert!(complete.get("intended_saved_sources").is_none());
+        assert_eq!(complete["source_files"][0]["file"]["path"], "confirmed.py");
     }
     #[test]
     fn shared_attempt_identity_refuses_pending_and_changed_content_and_retains_completed_result() {
@@ -473,5 +485,41 @@ mod outcome_contract_tests {
 }
 </ui:copy>
 
-<ui:file path="crates/hickory-cli/src/serve/resource_saves.rs"><ui:paste select="#resource-save-attempts"/><ui:paste select="#resource-save-rooms"/><ui:paste select="#resource-save-admission"/><ui:paste select="#resource-save-publication"/><ui:paste select="#resource-save-save"/><ui:paste select="#resource-save-status"/><ui:paste select="#resource-published-outcome-contract-tests"/></ui:file>
+## Return editor baselines without a second file read
+
+A successful namespace action already observed its exact final saved states. Return an array of file descriptors, saved baselines and the ordinary plain-file save fingerprint from that observation. Arrays retain byte-distinct path values across client runtimes. Markdown IDs come from the index registered under the live-document writer; no late filesystem canonicalization can retarget the receipt. The language hint uses the same router as the existing file tree. An incomplete result withholds these adoption receipts. This is saved-state metadata, not completed semantic analysis or client adoption.
+
+<ui:copy id="resource-source-editor-receipts">
+fn source_receipts(
+    state: &LocalState,
+    after: &BTreeMap<String, SavedSource>,
+) -> Result<Vec<Value>, String> {
+    let document_ids: BTreeMap<_, _> = state
+        .index
+        .entries()
+        .into_iter()
+        .map(|(id, path)| (path, id))
+        .collect();
+    let mut files = Vec::new();
+    for (path, saved) in after {
+        let SavedSource::File { text, .. } = saved else {
+            continue;
+        };
+        let mut file = json!({"name":path.rsplit('/').next().unwrap_or(path),"path":path,"dir":false,"language":super::api::file_language::language_of(path)});
+        let hash = if path.ends_with(".md") {
+            let id = document_ids.get(path).ok_or_else(|| {
+                format!("Saved document has no registered source identity: {path}")
+            })?;
+            file["doc_id"] = json!(id);
+            String::new()
+        } else {
+            super::plain_file::content_hash(text.as_bytes())
+        };
+        files.push(json!({"file":file,"saved":saved,"hash":hash}));
+    }
+    Ok(files)
+}
+</ui:copy>
+
+<ui:file path="crates/hickory-cli/src/serve/resource_saves.rs"><ui:paste select="#resource-save-attempts"/><ui:paste select="#resource-save-rooms"/><ui:paste select="#resource-save-admission"/><ui:paste select="#resource-save-publication"/><ui:paste select="#resource-save-save"/><ui:paste select="#resource-save-status"/><ui:paste select="#resource-published-outcome-contract-tests"/><ui:paste select="#resource-source-editor-receipts"/></ui:file>
 </ui:doc>

@@ -62,7 +62,7 @@ pub use snapshot::snapshot_doc;
 ### `file_language`
 
 <storycode:copy id="f-e71b04ae5298-file_language">
-mod file_language;
+pub(super) mod file_language;
 </storycode:copy>
 <a id="f-e71b04ae5298-use_declaration-2"></a>
 ### `use_declaration`

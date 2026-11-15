@@ -154063,6 +154063,13 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/resource-recovery-api.md",
       "symbol": "Canonical entry restoration through the actual engine",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-source-editor-receipts",
+      "output": "crates/hickory-cli/src/serve/resource_saves.rs",
+      "page": ".hickory-source/mechanisms/resource-saves.md",
+      "symbol": "Return editor baselines without a second file read",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

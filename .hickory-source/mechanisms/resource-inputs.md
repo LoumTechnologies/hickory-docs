@@ -1400,6 +1400,9 @@ def main():
    assert outcome["complete"] and outcome["source_files_modified"] and not outcome["source_files_uncertain"]
    assert outcome["applied"]==["a.py","b.py"]
    assert not (root/"a.py").exists() and (root/"b.py").read_text()=="renamed\n# unsaved draft\n"
+   receipts={item["file"]["path"]:item for item in saved_result["source_files"]}
+   with urllib.request.urlopen(origin+"/api/file?path=b.py",timeout=30) as reply:assert receipts["b.py"]["hash"]==json.load(reply)["hash"]
+   assert receipts["b.py"]["saved"]["text"]=="renamed\n# unsaved draft\n" and receipts["b.py"]["file"]["name"]=="b.py"
    record=json.loads((root/outcome["recovery"]).read_text());assert record["version"]==2 and record["before"]["a.py"]["text"]==saved
    assert next(patch for patch in record["reviewed_plan"]["patches"] if patch["path"]=="a.py")["before"]["text"]==draft
    after=set(records.iterdir());assert len(after-existing)==1
@@ -1427,6 +1430,9 @@ def main():
    note_proposal={"inputs":note_inputs,"capture":note_capture,"plan":note_plan};note_facts=call("changes/resource-consequences",note_proposal)
    note_result=call("changes/resource-save",{"request_id":"4"*32,"reviewed_fingerprint":note_facts["fingerprint"],"proposal":note_proposal})
    assert note_result["outcome"]["complete"] and not (root/"note.md").exists() and (root/"moved-note.md").read_text()==note,note_result
+   note_receipt=next(item for item in note_result["source_files"] if item["file"]["path"]=="moved-note.md")
+   with urllib.request.urlopen(origin+"/api/docs/"+note_receipt["file"]["doc_id"],timeout=30) as reply:assert json.load(reply)["source"]==note
+   assert note_receipt["hash"]=="" and note_receipt["saved"]["text"]==note
    root_edit={"documentChanges":[{"kind":"rename","oldUri":"hick:///project.md","newUri":"hick:///moved-project.md"}]}
    root_capture={"context":"canonical-entry-save-guard","edit":root_edit};root_inputs=call("changes/resource-inputs",root_capture)
    root_plan=call("changes/plan-resources",{"context":root_capture["context"],"title":"Move canonical entry","edit":root_edit,"sources":root_inputs["sources"]})["plan"]
@@ -1473,6 +1479,9 @@ def main():
    restored_result=call("changes/restore-resources",restore_request)
    assert restored_result["outcome"]["complete"] and restored_result["saved_sources"]["a.py"]["text"]==saved
    assert (root/"a.py").read_text()==saved and not (root/"b.py").exists()
+   restored_receipt=next(item for item in restored_result["source_files"] if item["file"]["path"]=="a.py")
+   with urllib.request.urlopen(origin+"/api/file?path=a.py",timeout=30) as reply:assert restored_receipt["hash"]==json.load(reply)["hash"]
+   assert restored_receipt["saved"]["text"]==saved
    restored_id=Path(restored_result["outcome"]["recovery"]).parent.name
    restored_record=json.loads((root/restored_result["outcome"]["recovery"]).read_text())
    assert restored_record["version"]==3 and restored_record["restore_of"]["recovery_id"]==original_id

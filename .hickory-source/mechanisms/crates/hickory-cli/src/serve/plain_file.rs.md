@@ -322,7 +322,7 @@ up-loop uses for change marks. Not cryptographic; it only has to answer
 /// FNV-1a over the content bytes, as hex — the same cheap fingerprint the
 /// up-loop uses for change marks. Not cryptographic; it only has to answer
 /// "is this the text the buffer was loaded from".
-fn content_hash(bytes: &[u8]) -> String {
+pub(in crate::serve) fn content_hash(bytes: &[u8]) -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in bytes {
         hash = (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3);
