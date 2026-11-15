@@ -111,6 +111,7 @@ pub mod test_coverage;
 pub mod test_run;
 pub mod source_tests;
 pub mod resource_changes;
+pub mod resource_inputs;
 pub mod watch;
 pub mod workspace;
 pub mod workspace_fs;
@@ -181,6 +182,7 @@ pub struct LocalState {
     /// Text files explicitly opened outside the workspace.
     pub opened_files: Arc<std::sync::RwLock<std::collections::HashSet<PathBuf>>>,
     pub representations: representation::Representations,
+    pub resource_root: Arc<resource_inputs::RootIdentity>,
     pub bisects: bisect::Bisects,
     /// Whether this view explicitly opened a folder, rather than one file.
     pub folder_open: bool,
@@ -791,6 +793,8 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/tests/source-candidates",post(source_tests::inspect).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
         .route("/construction/reading",post(source_tests::inspect_construction).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
         .route("/changes/plan-resources",post(resource_changes::inspect).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
+        .route("/changes/resource-targets",post(resource_changes::inspect_targets).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
+        .route("/changes/resource-inputs",post(resource_inputs::inspect).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
         .route("/tests/run-source",post(source_tests::run).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
         .route(
             "/performance",

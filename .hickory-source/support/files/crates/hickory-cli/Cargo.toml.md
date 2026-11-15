@@ -10,6 +10,8 @@ Captured SHA-256: `d4d2b907dce4824ca73b6addab97d186fbd0d09be895d912fb7e2ef79084e
 
 The comparison launcher is an example executable so it shares the real engine dependencies without a second Cargo project. Its explicit `test = true` makes target-selection and owned-process cleanup witnesses run in the existing Rust CI test scope.
 
+Resource snapshot acquisition holds a portable directory handle independently of editor startup. The existing same-file package supplies platform file-identity comparisons; acquiring that capability must not gate raw text opening.
+
 <book:entry path="crates/hickory-cli/Cargo.toml">
 [package]
 name = "hickory-cli"
@@ -52,6 +54,7 @@ env_logger = "0.11"
 # `hick up` holds an advisory lock for the directory it watches, so two
 # watchers can never fight over the same woven files.
 fs2 = "0.4"
+same-file = "1.0.6"
 # Line-level diffing of a saved output file against the bytes we last wrote,
 # so an edit that touches two regions maps back as two edits rather than one
 # span wide enough to swallow the generated text between them.

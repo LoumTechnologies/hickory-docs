@@ -3635,6 +3635,7 @@ dependencies = [
  "reqwest 0.12.28",
  "roxmltree",
  "rpassword",
+ "same-file",
  "scip",
  "serde",
  "serde_json",

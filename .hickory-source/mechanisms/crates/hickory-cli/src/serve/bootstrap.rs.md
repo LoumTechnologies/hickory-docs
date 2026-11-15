@@ -135,6 +135,7 @@ async fn prepare_inner(
         fleet_pairings: Arc::new(fleet_pairings::Pairings::default()),
         opened_files: Arc::new(std::sync::RwLock::new(std::collections::HashSet::new())),
         representations: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        resource_root: super::resource_inputs::RootIdentity::start(index.root().to_path_buf()),
         bisects: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         folder_open: folder_open.unwrap_or_else(|| target.is_dir()),
         store: store.clone(),

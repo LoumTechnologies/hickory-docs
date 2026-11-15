@@ -70431,7 +70431,27 @@
         "resource-change-delete",
         "resource-change-ordered-result",
         "resource-change-reversal-route",
-        "resource-change-safety-witnesses"
+        "resource-change-safety-witnesses",
+        "resource-change-target-discovery"
+      ]
+    },
+    "crates/hickory-cli/src/serve/resource_inputs.rs": {
+      "source": ".hickory-source/mechanisms/resource-inputs.md",
+      "owner": "source-model",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "resource-input-imports",
+        "resource-input-root-identity",
+        "resource-input-snapshots",
+        "resource-input-path-identity",
+        "resource-input-saved-bytes",
+        "resource-input-ownership-model",
+        "resource-input-capture",
+        "resource-input-independent-handler",
+        "resource-input-read-witnesses"
       ]
     }
   },

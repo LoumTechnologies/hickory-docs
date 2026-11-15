@@ -153551,6 +153551,76 @@
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/lsp_bridge.rs.md",
       "symbol": "Keep resource addresses in the workspace URI namespace",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-input-imports",
+      "output": "crates/hickory-cli/src/serve/resource_inputs.rs",
+      "page": ".hickory-source/mechanisms/resource-inputs.md",
+      "symbol": "Keep saved and editor state in separate roles",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-input-root-identity",
+      "output": "crates/hickory-cli/src/serve/resource_inputs.rs",
+      "page": ".hickory-source/mechanisms/resource-inputs.md",
+      "symbol": "Load root identity independently of readable text",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-input-snapshots",
+      "output": "crates/hickory-cli/src/serve/resource_inputs.rs",
+      "page": ".hickory-source/mechanisms/resource-inputs.md",
+      "symbol": "Describe source, saved baseline and ownership separately",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-input-path-identity",
+      "output": "crates/hickory-cli/src/serve/resource_inputs.rs",
+      "page": ".hickory-source/mechanisms/resource-inputs.md",
+      "symbol": "Acquire exact listed paths without following links",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-input-saved-bytes",
+      "output": "crates/hickory-cli/src/serve/resource_inputs.rs",
+      "page": ".hickory-source/mechanisms/resource-inputs.md",
+      "symbol": "Read regular UTF-8 source and modeled permissions",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-input-ownership-model",
+      "output": "crates/hickory-cli/src/serve/resource_inputs.rs",
+      "page": ".hickory-source/mechanisms/resource-inputs.md",
+      "symbol": "Represent the chosen ownership scope explicitly",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-input-capture",
+      "output": "crates/hickory-cli/src/serve/resource_inputs.rs",
+      "page": ".hickory-source/mechanisms/resource-inputs.md",
+      "symbol": "Combine saved observations with explicit draft overlays",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-input-independent-handler",
+      "output": "crates/hickory-cli/src/serve/resource_inputs.rs",
+      "page": ".hickory-source/mechanisms/resource-inputs.md",
+      "symbol": "Keep acquisition off the editor and verify live rooms",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-input-read-witnesses",
+      "output": "crates/hickory-cli/src/serve/resource_inputs.rs",
+      "page": ".hickory-source/mechanisms/resource-inputs.md",
+      "symbol": "Exercise saved/draft and ownership boundaries",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-change-target-discovery",
+      "output": "crates/hickory-cli/src/serve/resource_changes.rs",
+      "page": ".hickory-source/mechanisms/resource-change-plans.md",
+      "symbol": "Discover the read set before acquiring sources",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

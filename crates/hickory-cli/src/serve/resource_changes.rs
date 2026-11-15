@@ -65,7 +65,7 @@ fn path(uri: &str) -> Result<String, String> {
     validate_path(&path)?;
     Ok(path)
 }
-fn validate_path(path: &str) -> Result<(), String> {
+pub(super) fn validate_path(path: &str) -> Result<(), String> {
     if path.is_empty()
         || path.contains([':', '\\'])
         || path.chars().any(char::is_control)
@@ -877,4 +877,96 @@ mod tests {
         };
         assert!(plan.apply("fixture", &states).is_err());
     }
+}
+/// Discover the full literal source/destination read set before acquiring any bytes.
+pub fn targets(edit: &Value) -> Result<Vec<String>, String> {
+    let object = edit.as_object().ok_or("Malformed workspace edit.")?;
+    if object.contains_key("changes") && object.contains_key("documentChanges") {
+        return Err("Provider returned two workspace edit representations.".into());
+    }
+    let mut targets = BTreeSet::new();
+    if let Some(changes) = object.get("changes") {
+        for (uri, edits) in changes.as_object().ok_or("Malformed source changes.")? {
+            if !edits.is_array() {
+                return Err("Malformed source edit list.".into());
+            }
+            let source = path(uri)?;
+            if !targets.insert(source) {
+                return Err("Provider returned aliased source URIs.".into());
+            }
+        }
+    } else if let Some(changes) = object.get("documentChanges") {
+        let changes = changes
+            .as_array()
+            .ok_or("Malformed ordered source operations.")?;
+        if changes.len() > 10000 {
+            return Err("Proposal exceeds 10,000 operations.".into());
+        }
+        for item in changes {
+            match item.get("kind") {
+                Some(Value::String(kind)) if kind == "create" || kind == "delete" => {
+                    targets.insert(source_uri(item, "uri")?);
+                }
+                Some(Value::String(kind)) if kind == "rename" => {
+                    targets.insert(source_uri(item, "oldUri")?);
+                    targets.insert(source_uri(item, "newUri")?);
+                }
+                None => {
+                    if !item.get("edits").is_some_and(Value::is_array) {
+                        return Err("Missing source edit list.".into());
+                    }
+                    targets.insert(path(
+                        item.pointer("/textDocument/uri")
+                            .and_then(Value::as_str)
+                            .ok_or("Missing text document source identity.")?,
+                    )?);
+                }
+                _ => return Err("Unsupported resource operation. No sources were acquired.".into()),
+            }
+            if targets.len() > 10000 {
+                return Err("Proposal exceeds 10,000 source targets.".into());
+            }
+        }
+    } else {
+        return Err("The provider returned no workspace edits.".into());
+    }
+    if targets.len() > 10000 || targets.iter().map(String::len).sum::<usize>() > 4 * 1024 * 1024 {
+        return Err("Resource target set is too large. Narrow the change.".into());
+    }
+    Ok(targets.into_iter().collect())
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TargetRequest {
+    pub edit: Value,
+}
+pub async fn inspect_targets(
+    axum::Json(request): axum::Json<TargetRequest>,
+) -> super::api::ApiResult<axum::Json<Value>> {
+    tokio::task::spawn_blocking(move || targets(&request.edit))
+        .await
+        .map_err(|error| {
+            super::api::ApiError::internal(format!(
+                "Resource target discovery failed: {error}. Prepare it again."
+            ))
+        })?
+        .map(|paths| axum::Json(json!({"version":1,"paths":paths,"acquired":false,"saved":false})))
+        .map_err(super::api::ApiError::unprocessable)
+}
+#[cfg(test)]
+#[test]
+fn resource_target_discovery_captures_temporary_destinations_and_rejects_ambiguous_addresses() {
+    let edit = json!({"documentChanges":[{"kind":"create","uri":"hick:///new.py"},{"kind":"rename","oldUri":"hick:///a%2520.py","newUri":"hick:///new.py"},{"kind":"delete","uri":"hick:///gone.py"},{"textDocument":{"uri":"hick:///new.py","version":null},"edits":[]}]});
+    assert_eq!(
+        targets(&edit).unwrap(),
+        vec!["a%20.py", "gone.py", "new.py"]
+    );
+    assert!(targets(&json!({"changes":{"hick:///a.py":[],"hick:///%61.py":[]}})).is_err());
+    assert!(
+        targets(&json!({"documentChanges":[{"kind":"delete","uri":"file:///outside.py"}]}))
+            .is_err()
+    );
+    assert!(
+        targets(&json!({"documentChanges":[{"kind":"unknown","uri":"hick:///a.py"}]})).is_err()
+    );
 }
