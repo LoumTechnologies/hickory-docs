@@ -227,10 +227,20 @@ fn read_saved(path: &Path) -> Result<SavedSource, String> {
         mode,
     })
 }
+fn default_project_entry(root: &Path) -> Result<Option<String>, String> {
+    Ok(match read_saved(&root.join("project.md"))? {
+        SavedSource::Missing => None,
+        SavedSource::File { text, .. } => {
+            let document=hick_lang::parse(&text).map_err(|error|format!("Construction entry cannot be parsed: {error}. Correct it before resource changes."))?;
+            (!document.find_tags("project").is_empty()).then(|| "project.md".to_string())
+        }
+    })
+}
 #[derive(Debug, Serialize)]
 pub struct Ownership {
     pub mode: String,
     pub entry: Option<String>,
+    pub protected_entries: Vec<String>,
     pub saved_sources: BTreeMap<String, String>,
     pub draft_sources: BTreeMap<String, String>,
 }
@@ -239,17 +249,12 @@ fn ownership(
     index: &super::store::DocIndex,
     request: &Request,
 ) -> Result<(Ownership, BTreeSet<String>), String> {
+    let canonical_entry = default_project_entry(root)?;
     let entry = if let Some(entry) = &request.project_entry {
         resource_changes::validate_path(entry)?;
         Some(entry.clone())
     } else {
-        match read_saved(&root.join("project.md"))? {
-            SavedSource::Missing => None,
-            SavedSource::File { text, .. } => {
-                let document=hick_lang::parse(&text).map_err(|error|format!("Construction entry cannot be parsed: {error}. Correct it before resource changes."))?;
-                (!document.find_tags("project").is_empty()).then(|| "project.md".to_string())
-            }
-        }
+        canonical_entry.clone()
     };
     let Some(entry) = entry else {
         for source in request.ownership_sources.values() {
@@ -275,6 +280,7 @@ fn ownership(
                 mode: "saved claims and filesystem permission metadata; no selected construction"
                     .into(),
                 entry: None,
+                protected_entries: vec![],
                 saved_sources: BTreeMap::new(),
                 draft_sources: BTreeMap::new(),
             },
@@ -316,12 +322,45 @@ fn ownership(
             generated.insert(super::source_tests::relative(base, path)?);
         }
     }
+    let mut saved_sources = before.source_hashes;
+    let mut draft_sources = after.source_hashes;
+    let mut protected_entries = vec![entry.clone()];
+    if request.project_entry.is_some()
+        && canonical_entry.as_deref().is_some_and(|root| root != entry)
+    {
+        // A selected reading context cannot remove the main project's ownership.
+        let canonical_request = Request {
+            context: request.context.clone(),
+            edit: request.edit.clone(),
+            drafts: request.drafts.clone(),
+            project_entry: None,
+            ownership_sources: request.ownership_sources.clone(),
+        };
+        let (canonical, protected) = ownership(root, index, &canonical_request)?;
+        generated.extend(protected);
+        for (current, extra) in [
+            (&mut saved_sources, canonical.saved_sources),
+            (&mut draft_sources, canonical.draft_sources),
+        ] {
+            for (path, hash) in extra {
+                if current.get(&path).is_some_and(|previous| previous != &hash) {
+                    return Err(
+                        "Construction inputs changed during ownership acquisition. Prepare again."
+                            .into(),
+                    );
+                }
+                current.insert(path, hash);
+            }
+        }
+        protected_entries.extend(canonical.protected_entries);
+    }
     Ok((
         Ownership {
             mode: "compiler outputs from saved and supplied draft construction inputs".into(),
             entry: Some(entry),
-            saved_sources: before.source_hashes,
-            draft_sources: after.source_hashes,
+            protected_entries,
+            saved_sources,
+            draft_sources,
         },
         generated,
     ))
@@ -652,6 +691,59 @@ mod tests {
             inputs.ownership.draft_sources["part.md"]
         );
     }
+
+    #[test]
+    fn a_selected_construction_cannot_hide_main_project_outputs() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let entry = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"part.md\"/></h:doc>";
+        let part = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:file path=\"main-generated.py\">main</h:file></h:doc>";
+        let other = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:file path=\"other-generated.py\">other</h:file></h:doc>";
+        std::fs::write(root.join("project.md"), entry).unwrap();
+        std::fs::write(root.join("part.md"), part).unwrap();
+        std::fs::write(
+            root.join("other.md"),
+            entry.replace("part.md", "other-part.md"),
+        )
+        .unwrap();
+        std::fs::write(root.join("other-part.md"), other).unwrap();
+        let mut request = fixture(json!({"documentChanges":[
+            {"kind":"create","uri":"hick:///main-generated.py"},
+            {"kind":"create","uri":"hick:///draft-generated.py"},
+            {"kind":"create","uri":"hick:///other-generated.py"}
+        ]}));
+        request.project_entry = Some("other.md".into());
+        request.ownership_sources.insert(
+            "part.md".into(),
+            part.replace("main-generated.py", "draft-generated.py"),
+        );
+        let inputs = capture_at(root, request).unwrap();
+        assert_eq!(inputs.ownership.entry.as_deref(), Some("other.md"));
+        assert_eq!(
+            inputs.ownership.protected_entries,
+            ["other.md", "project.md"]
+        );
+        for path in [
+            "main-generated.py",
+            "draft-generated.py",
+            "other-generated.py",
+        ] {
+            assert!(matches!(
+                inputs.sources[path],
+                SourceState::Missing { creatable: false }
+            ));
+            assert!(!root.join(path).exists());
+        }
+        for path in ["project.md", "part.md", "other.md", "other-part.md"] {
+            assert!(inputs.ownership.saved_sources.contains_key(path));
+            assert!(inputs.ownership.draft_sources.contains_key(path));
+        }
+        assert_ne!(
+            inputs.ownership.saved_sources["part.md"],
+            inputs.ownership.draft_sources["part.md"]
+        );
+    }
+
     #[test]
     fn directories_binary_files_and_missing_parents_never_become_editable_source_files() {
         let temp = tempfile::tempdir().unwrap();

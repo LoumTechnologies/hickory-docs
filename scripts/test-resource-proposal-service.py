@@ -12,6 +12,10 @@ def main():
  spec=importlib.util.spec_from_file_location("fixture",ROOT/"scripts/test-simple-browser.py");fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
  with tempfile.TemporaryDirectory(prefix="resource-service-") as temporary:
   folder=Path(temporary);root=folder/"workspace";root.mkdir();saved="saved\n";draft=saved+"# unsaved draft\n";(root/"a.py").write_bytes(saved.encode());engine=None
+  entry='<h:doc xmlns:h="http://www.hickorydocs.com/1.0"><h:project sources="part.md"/></h:doc>'
+  part='<h:doc xmlns:h="http://www.hickorydocs.com/1.0"><h:file path="main-generated.py">main</h:file></h:doc>'
+  (root/"project.md").write_text(entry);(root/"part.md").write_text(part)
+  (root/"other.md").write_text(entry.replace("part.md","other-part.md"));(root/"other-part.md").write_text(part.replace("main-generated.py","other-generated.py"))
   try:
    engine=fixture.start([os.environ.get("HICKORY_SIMPLE_TEST_ENGINE",str(ROOT/"target/source-edit-focus/debug/examples/engine_client")),str(root),"window","http://127.0.0.1:1"],env={**os.environ,"HICKORY_STATE_DIR":str(folder/"state")});origin=fixture.origin(engine)
    def call(route,body):
@@ -26,8 +30,12 @@ def main():
    try:call("changes/resource-inputs",body)
    except urllib.error.HTTPError as error:assert error.code==422
    else:raise AssertionError("Stale saved base was accepted")
+   protected=["main-generated.py","draft-generated.py","other-generated.py"]
+   inputs=call("changes/resource-inputs",{"context":"narrow-reading","project_entry":"other.md","ownership_sources":{"part.md":part.replace("main-generated.py","draft-generated.py")},"edit":{"documentChanges":[{"kind":"create","uri":"hick:///"+path} for path in protected]}})
+   assert inputs["ownership"]["protected_entries"]==["other.md","project.md"]
+   for path in protected:assert inputs["sources"][path]=={"kind":"missing","creatable":False} and not (root/path).exists()
    assert (root/"a.py").read_bytes()==saved.encode();assert not (root/"b.py").exists()
-   print("PASS: actual resource target/acquisition/planning routes, held root identity, separate saved/draft text, complete move/text delta, stale-base refusal, unchanged saved files")
+   print("PASS: actual resource target/acquisition/planning routes, held root identity, separate saved/draft text, complete move/text delta, stale-base refusal, main/selected saved/draft ownership union, unchanged saved files")
   finally:
    if engine:fixture.stop(engine)
 if __name__=="__main__":main()
