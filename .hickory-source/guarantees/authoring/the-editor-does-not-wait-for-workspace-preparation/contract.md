@@ -16,7 +16,14 @@ startup details below describe the earlier policy, not authorization to publish
 outputs while discovering documents. Explicit standalone cell execution is still
 a separate Run action; shared project constructions use the project action.
 
+Requirement clarification (2026-11-15, user-directed): available source text must
+remain readable while parsing, ownership and language capabilities initialize or
+fail. Read access does not authorize a write or report a save. The direct file and
+document-source routes bypass preparation; rendering and execution do not.
+
 The earlier startup requirement is retained below as history. The user-directed read-only policy above supersedes its implicit generation behavior.
+
+Focused routing evidence (2026-11-15): `source_reads_bypass_pending_and_failed_preparation_without_unlocking_writes` passed for pending and failed preparation, direct raw reads, encoded document identifiers, mutations and capability subroutes. The two `engine::writes::observation_tests` passed for save-gate independence. This is routing/concurrency evidence, not a blocked-startup end-to-end or native-device acceptance claim.
 
 ## Read the detailed requirements
 
@@ -338,31 +345,38 @@ weaving just like settings: otherwise the ordinary editor remains a blank openin
 screen until every document finishes. The probe reads already-bound policy; it
 neither enables private mode nor unlocks execution or file writes.
 
-Only editor bootstrap/storage may bypass initialization. In particular,
-file reads, writes, execution, and collaboration sockets must wait until
-generated-file ownership and the reverse-edit baselines are established.
+Raw file and direct document-source reads join editor bootstrap/storage before
+initialization completes. Rendering, execution, writes and collaboration sockets
+retain their readiness checks. Matching the direct document route rather than its
+prefix keeps capability subroutes behind those checks.
 
 <storycode:copy id="f-4049bfca1169-editor_bootstrap">
-/// Only editor bootstrap/storage may bypass initialization. In particular,
-/// file reads, writes, execution, and collaboration sockets must wait until
-/// generated-file ownership and the reverse-edit baselines are established.
+/// Raw source remains readable independently of workspace capabilities.
+/// Writes, rendering, execution and collaboration retain readiness checks.
 pub(super) fn editor_bootstrap(path: &str, method: &axum::http::Method) -> bool {
     use axum::http::Method;
-    matches!(
-        (method, path),
-        (
-            &Method::GET,
-            "/api/health" | "/api/settings/ui" | "/api/files" | "/api/projects" | "/api/prediction/state"
-        ) | (
-            &Method::GET | &Method::PUT | &Method::DELETE,
-            "/api/workspace/ui" | "/api/workspace/drafts"
-        ) | (
-            &Method::POST,
-            "/api/window/close" | "/api/save-file-dialog" | "/api/pick-folder"
+    let direct_document = path
+        .strip_prefix("/api/docs/")
+        .is_some_and(|id| !id.is_empty() && !id.contains('/'));
+    (*method == Method::GET && (path == "/api/file" || direct_document))
+        || matches!(
+            (method, path),
+            (
+                &Method::GET,
+                "/api/health"
+                    | "/api/settings/ui"
+                    | "/api/files"
+                    | "/api/projects"
+                    | "/api/prediction/state"
+            ) | (
+                &Method::GET | &Method::PUT | &Method::DELETE,
+                "/api/workspace/ui" | "/api/workspace/drafts"
+            ) | (
+                &Method::POST,
+                "/api/window/close" | "/api/save-file-dialog" | "/api/pick-folder"
+            )
         )
-    )
 }
-
 </storycode:copy>
 <a id="f-4049bfca1169-tests"></a>
 ### `tests`
@@ -412,7 +426,50 @@ mod tests {
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/src/engine/startup.rs"><storycode:paste select="#f-4049bfca1169-Startup"/><storycode:paste select="#f-4049bfca1169-Progress"/><storycode:paste select="#f-4049bfca1169-impl-Startup"/><storycode:paste select="#f-4049bfca1169-editor_bootstrap"/><storycode:paste select="#f-4049bfca1169-tests"/></storycode:file>
+## Read source without granting capability authority
+
+The policy tests cover pending and failed preparation. Literal direct routes and encoded document identifiers remain readable, while subroutes, mutations and unknown paths stay gated. This tests dispatch classification; it does not claim native device acceptance.
+
+<storycode:copy id="raw-source-startup-tests">
+#[cfg(test)]
+mod raw_source_tests {
+    use super::*;
+    use axum::http::Method;
+
+    // Contract: .hickory-source/guarantees/authoring/the-editor-does-not-wait-for-workspace-preparation/contract.md
+    #[test]
+    fn source_reads_bypass_pending_and_failed_preparation_without_unlocking_writes() {
+        let (sender, startup) = Startup::channel();
+        for failed in [false, true] {
+            if failed {
+                sender.send(Some(Err("capability failed".into()))).unwrap();
+            }
+            assert!(startup.result().is_none_or(|result| result.is_err()));
+            for path in [
+                "/api/file",
+                "/api/docs/source.md",
+                "/api/docs/dir%2Fsource.md",
+            ] {
+                assert!(editor_bootstrap(path, &Method::GET), "{path}");
+                for method in [Method::PUT, Method::POST, Method::DELETE] {
+                    assert!(!editor_bootstrap(path, &method), "{method} {path}");
+                }
+            }
+            for path in [
+                "/api/docs/",
+                "/api/docs/source.md/render",
+                "/api/docs/source.md/run",
+                "/api/file/extra",
+                "/api/room/source.md",
+            ] {
+                assert!(!editor_bootstrap(path, &Method::GET), "{path}");
+            }
+        }
+    }
+}
+</storycode:copy>
+
+<storycode:file path="crates/hickory-cli/src/engine/startup.rs"><storycode:paste select="#f-4049bfca1169-Startup"/><storycode:paste select="#f-4049bfca1169-Progress"/><storycode:paste select="#f-4049bfca1169-impl-Startup"/><storycode:paste select="#f-4049bfca1169-editor_bootstrap"/><storycode:paste select="#f-4049bfca1169-tests"/><storycode:paste select="#raw-source-startup-tests"/></storycode:file>
 
 ## Test the behavior: `background_attach_serves_editor_storage_before_outputs_are_ready`
 

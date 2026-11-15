@@ -153643,6 +153643,20 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/resource-inputs.md",
       "symbol": "Exercise the actual acquisition and planning routes",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "observation-dispatch",
+      "output": "crates/hickory-cli/src/engine/writes.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/engine/writes.rs.md",
+      "symbol": "Keep observations independent of filesystem acts",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "raw-source-startup-tests",
+      "output": "crates/hickory-cli/src/engine/startup.rs",
+      "page": ".hickory-source/guarantees/authoring/the-editor-does-not-wait-for-workspace-preparation/contract.md",
+      "symbol": "Read source without granting capability authority",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

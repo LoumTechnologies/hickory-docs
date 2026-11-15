@@ -786,16 +786,14 @@ async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Response {
             .into_response();
     }
     state.store.register(&state.index);
-    let read = parts.method == axum::http::Method::GET || websocket;
+    let observation = super::writes::observation(&parts.method, parts.uri.path())
+        || websocket
+        || bootstrap;
     let request = Request::from_parts(parts, body);
-    if read || bootstrap {
+    super::writes::dispatch(&engine.writes, observation, async {
         router.oneshot(request).await.unwrap()
-    } else {
-        super::writes::during(&engine.writes, async {
-            router.oneshot(request).await.unwrap()
-        })
-        .await
-    }
+    })
+    .await
 }
 
 </storycode:copy>

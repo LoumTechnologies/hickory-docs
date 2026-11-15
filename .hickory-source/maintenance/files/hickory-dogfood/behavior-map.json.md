@@ -50858,7 +50858,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-4049bfca1169-Progress",
         "f-4049bfca1169-impl-Startup",
         "f-4049bfca1169-editor_bootstrap",
-        "f-4049bfca1169-tests"
+        "f-4049bfca1169-tests",
+        "raw-source-startup-tests"
       ],
       "anchor": "output-4049bfca1169",
       "narrative_owner": "authoring/the-editor-does-not-wait-for-workspace-preparation.md"
@@ -50893,7 +50894,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "f-5b2a07360017-macro_invocation",
-        "f-5b2a07360017-during"
+        "f-5b2a07360017-during",
+        "observation-dispatch"
       ],
       "anchor": "output-5b2a07360017",
       "narrative_owner": "mechanism:crates/hickory-cli"
