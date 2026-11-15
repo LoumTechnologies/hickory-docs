@@ -774,7 +774,7 @@ async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Response {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             [("x-hickory-startup", "pending")],
-            Json(json!({ "error": "Preparing generated files…" })),
+            Json(json!({ "error": "Preparing this workspace…" })),
         )
             .into_response();
     }

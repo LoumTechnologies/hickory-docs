@@ -153838,6 +153838,13 @@
       "page": ".hickory-source/mechanisms/resource-inputs.md",
       "symbol": "Exercise final namespace ownership before any publication",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "independent-readonly-capability-tests",
+      "output": "crates/hickory-cli/src/engine/startup.rs",
+      "page": ".hickory-source/guarantees/authoring/the-editor-does-not-wait-for-workspace-preparation/contract.md",
+      "symbol": "Observe source independently of preparation readiness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

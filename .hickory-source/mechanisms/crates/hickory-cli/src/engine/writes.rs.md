@@ -46,18 +46,22 @@ Named analysis requests read snapshots without holding the filesystem write gate
 /// New or unknown POST routes remain serialized filesystem acts by default.
 pub(crate) fn observation(method: &axum::http::Method, path: &str) -> bool {
     use axum::http::Method;
-    *method == Method::GET
-        || (*method == Method::POST
-            && matches!(
-                path,
-                "/api/tests/source-candidates"
-                    | "/api/construction/reading"
-                    | "/api/changes/plan-resources"
-                    | "/api/changes/resource-targets"
-                    | "/api/changes/resource-inputs"
-                    | "/api/changes/cleanup"
-                    | "/api/changes/resource-consequences"
-            ))
+    *method == Method::GET || post_observation(method, path)
+}
+/// These named POST routes observe supplied or captured source without publishing it.
+pub(crate) fn post_observation(method: &axum::http::Method, path: &str) -> bool {
+    use axum::http::Method;
+    *method == Method::POST
+        && matches!(
+            path,
+            "/api/tests/source-candidates"
+                | "/api/construction/reading"
+                | "/api/changes/plan-resources"
+                | "/api/changes/resource-targets"
+                | "/api/changes/resource-inputs"
+                | "/api/changes/cleanup"
+                | "/api/changes/resource-consequences"
+        )
 }
 /// Observation uses its own capability locks; it must not hold up unrelated saves.
 pub(crate) async fn dispatch<T>(

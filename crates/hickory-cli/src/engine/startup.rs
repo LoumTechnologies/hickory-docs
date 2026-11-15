@@ -82,14 +82,15 @@ impl Startup {
     }
 }
 
-/// Raw source remains readable independently of workspace capabilities.
+/// Raw source and named read-only capabilities remain independent of preparation.
 /// Writes, rendering, execution and collaboration retain readiness checks.
 pub(super) fn editor_bootstrap(path: &str, method: &axum::http::Method) -> bool {
     use axum::http::Method;
     let direct_document = path
         .strip_prefix("/api/docs/")
         .is_some_and(|id| !id.is_empty() && !id.contains('/'));
-    (*method == Method::GET && (path == "/api/file" || direct_document))
+    super::writes::post_observation(method, path)
+        || (*method == Method::GET && (path == "/api/file" || direct_document))
         || matches!(
             (method, path),
             (
@@ -177,6 +178,49 @@ mod raw_source_tests {
                 "/api/file/extra",
                 "/api/room/source.md",
             ] {
+                assert!(!editor_bootstrap(path, &Method::GET), "{path}");
+            }
+        }
+    }
+}
+#[cfg(test)]
+mod independent_capability_tests {
+    use super::*;
+    use axum::http::Method;
+    // Contract: .hickory-source/guarantees/authoring/the-editor-does-not-wait-for-workspace-preparation/contract.md
+    #[test]
+    fn readonly_capabilities_do_not_inherit_a_failed_or_slow_preparation() {
+        let (sender, startup) = Startup::channel();
+        for failed in [false, true] {
+            if failed {
+                sender
+                    .send(Some(Err("unrelated capability failed".into())))
+                    .unwrap();
+            }
+            assert!(startup.result().is_none_or(|result| result.is_err()));
+            for path in [
+                "/api/tests/source-candidates",
+                "/api/construction/reading",
+                "/api/changes/plan-resources",
+                "/api/changes/resource-targets",
+                "/api/changes/resource-inputs",
+                "/api/changes/cleanup",
+                "/api/changes/resource-consequences",
+            ] {
+                assert!(editor_bootstrap(path, &Method::POST), "{path}");
+                assert!(!editor_bootstrap(path, &Method::PUT), "{path}");
+            }
+            for path in [
+                "/api/tests/run-source",
+                "/api/changes/publish-resources",
+                "/api/file",
+                "/api/files/op",
+                "/api/docs/source/run",
+                "/api/construction/reading/extra",
+            ] {
+                assert!(!editor_bootstrap(path, &Method::POST), "{path}");
+            }
+            for path in ["/api/docs/source/render", "/api/docs/source/run"] {
                 assert!(!editor_bootstrap(path, &Method::GET), "{path}");
             }
         }

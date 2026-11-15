@@ -50859,7 +50859,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-4049bfca1169-impl-Startup",
         "f-4049bfca1169-editor_bootstrap",
         "f-4049bfca1169-tests",
-        "raw-source-startup-tests"
+        "raw-source-startup-tests",
+        "independent-readonly-capability-tests"
       ],
       "anchor": "output-4049bfca1169",
       "narrative_owner": "authoring/the-editor-does-not-wait-for-workspace-preparation.md"
