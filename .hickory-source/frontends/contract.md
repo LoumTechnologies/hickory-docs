@@ -585,7 +585,7 @@ Git attribution now retains the full commit identity in the shared engine. A val
 
 A focused real-Git engine case checks full identity on a committed line and absence on a dirty line. Five focused browser cases and five cases on each native host pass across attribution and history for old/closed/foreign replies, byte-distinct paths, duplicate lines, full-identity admission and direct observed commit requests. The real-engine browser flow reports saved attribution while excluding the unsaved draft, opens the stable line’s exact commit, and retains source, caret, undo/redo, staged content, saved file bytes and code dimensions. The caret witness waits for rendered frames after editor reattachment rather than reading transient DOM selection. TypeScript checking and the iOS simulator build pass. Git path fixtures use host-legal literal names; the targeted fixture passes on this host, not a claim of Windows runtime acceptance. Conflict resolution, durable recovery and the other parity requirements remain outstanding; native physical input/accessibility acceptance remains unverified.
 
-</ui:doc>
+
 
 ## Explicit cleanup through the existing change model
 
@@ -713,3 +713,29 @@ route. The real-engine protocol witness detects a newly generated destination in
 both candidate layers while retaining all saved files. Resource namespace UI
 application, guarded saving/recovery and coordinated resource undo still remain
 required across all platforms.
+
+
+## Retain draft-aware resource recovery and explicit publication outcomes
+
+The recovery record now retains both the reviewed draft transition and exact saved
+before/after states. Draft source identities and preparation versions survive
+serialization separately from the saved baseline. The pure record constructor
+follows source identity permissions through moves and gives newly created source
+private permissions. Records validate complete reviewed paths, final saved text
+and saved fingerprints before recovery IO.
+
+A separate publication core checks current source paths and root identity, retains
+the record before writing, installs files before deletions and reports confirmed,
+refused or uncertain outcomes. An independent edit to a later path stops that path
+without erasing earlier confirmed saves. A caller must still hold mutation ordering
+and supply current editor, live-room and construction authority. This core exposes
+no resource-save HTTP route. It is not an external-filesystem transaction, frontend
+resource namespace application or coordinated saved/draft undo.
+
+Focused evidence (2026-11-15): six recovery cases and five publication cases pass,
+including retained dirty drafts and original saved baselines, inherited permissions,
+create/delete, a new destination racing preflight, stale initial source and partial
+publication that preserves an independent later edit. Frontend resource application,
+recovery UI and saved/draft undo remain required on every simple platform.
+
+</ui:doc>

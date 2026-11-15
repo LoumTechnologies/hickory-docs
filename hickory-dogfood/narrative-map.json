@@ -153859,6 +153859,48 @@
       "page": ".hickory-source/mechanisms/resource-journal.md",
       "symbol": "Reject incomplete reviewed draft recovery records",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-journal-from-review",
+      "output": "crates/hickory-cli/src/serve/resource_journal.rs",
+      "page": ".hickory-source/mechanisms/resource-journal.md",
+      "symbol": "Construct saved namespace from reviewed source identities",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-source-publication-outcomes",
+      "output": "crates/hickory-cli/src/serve/resource_publish.rs",
+      "page": ".hickory-source/mechanisms/resource-publish.md",
+      "symbol": "Separate confirmed changes from uncertain attempts",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-source-publication-admission",
+      "output": "crates/hickory-cli/src/serve/resource_publish.rs",
+      "page": ".hickory-source/mechanisms/resource-publish.md",
+      "symbol": "Check root and source authority again",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-source-publication-installation",
+      "output": "crates/hickory-cli/src/serve/resource_publish.rs",
+      "page": ".hickory-source/mechanisms/resource-publish.md",
+      "symbol": "Install one reviewed state",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-source-publication-publication",
+      "output": "crates/hickory-cli/src/serve/resource_publish.rs",
+      "page": ".hickory-source/mechanisms/resource-publish.md",
+      "symbol": "Retain before writing and stop with explicit outcomes",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-source-publication-tests",
+      "output": "crates/hickory-cli/src/serve/resource_publish.rs",
+      "page": ".hickory-source/mechanisms/resource-publish.md",
+      "symbol": "Exercise overwrite, partial completion and stale preflight",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

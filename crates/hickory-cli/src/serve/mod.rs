@@ -114,6 +114,7 @@ pub mod resource_changes;
 pub mod source_cleanup;
 pub mod resource_inputs;
 pub mod resource_journal;
+pub mod resource_publish;
 pub mod resource_candidates;
 pub mod watch;
 pub mod workspace;

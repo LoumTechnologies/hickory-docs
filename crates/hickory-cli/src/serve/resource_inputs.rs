@@ -227,6 +227,18 @@ fn read_saved(path: &Path) -> Result<SavedSource, String> {
         mode,
     })
 }
+/// Reobserve an exact ordinary source path without acquiring compiler context.
+/// Publication callers still own generated, live-room and editor authority.
+pub(super) fn saved_target(root: &Path, path: &str) -> Result<(PathBuf, SavedSource), String> {
+    let mut names = Names {
+        entries: BTreeMap::new(),
+        count: 0,
+        bytes: 0,
+    };
+    let full = confined(root, path, &mut names)?;
+    let saved = read_saved(&full)?;
+    Ok((full, saved))
+}
 fn default_project_entry(root: &Path) -> Result<Option<String>, String> {
     Ok(match read_saved(&root.join("project.md"))? {
         SavedSource::Missing => None,

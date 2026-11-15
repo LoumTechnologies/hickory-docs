@@ -410,3 +410,114 @@ fn resource_recovery_rejects_truncated_drafts_and_inconsistent_saved_states_befo
     assert!(Batch::begin(root.path(), &wrong_hash).is_err());
     assert!(!root.path().join(".hick-cache").exists());
 }
+impl Manifest {
+    pub fn from_review(
+        inputs: &super::resource_inputs::Inputs,
+        plan: &ResourcePlan,
+    ) -> Result<Self, String> {
+        if inputs.version != 1
+            || inputs.context != plan.context
+            || inputs.workspace.is_empty()
+            || inputs.source_files_modified
+            || !inputs.refusals.is_empty()
+        {
+            return Err(
+                "Acquire complete resource inputs before retaining the reviewed change.".into(),
+            );
+        }
+        let final_drafts = plan.apply(&inputs.context, &inputs.sources)?;
+        let mut originals = BTreeMap::new();
+        for (path, source) in &inputs.sources {
+            let saved = inputs
+                .saved_sources
+                .get(path)
+                .ok_or("Saved resource baseline is incomplete.")?;
+            if !same_kind(saved, source) {
+                return Err("Saved resource namespace differs from its draft capture.".into());
+            }
+            validate_saved(saved)?;
+            if let SourceState::File { identity, .. } = source {
+                originals.insert(identity.as_str(), saved);
+            }
+        }
+        let mut before = BTreeMap::new();
+        let mut after = BTreeMap::new();
+        for patch in &plan.patches {
+            before.insert(
+                patch.path.clone(),
+                inputs.saved_sources[&patch.path].clone(),
+            );
+            let saved = match &final_drafts[&patch.path] {
+                SourceState::Missing { .. } => SavedSource::Missing,
+                SourceState::File { identity, text, .. } => {
+                    let (readonly, executable, mode) = match originals.get(identity.as_str()) {
+                        Some(SavedSource::File {
+                            readonly,
+                            executable,
+                            mode,
+                            ..
+                        }) => (*readonly, *executable, *mode),
+                        Some(SavedSource::Missing) => {
+                            return Err("A reviewed source identity has no saved baseline.".into());
+                        }
+                        None => (false, false, if cfg!(unix) { Some(0o600) } else { None }),
+                    };
+                    SavedSource::File {
+                        text: text.clone(),
+                        sha256: super::workspace_fs::view::hash(text.as_bytes()),
+                        readonly,
+                        executable,
+                        mode,
+                    }
+                }
+            };
+            after.insert(patch.path.clone(), saved);
+        }
+        Ok(Self {
+            version: 2,
+            workspace: inputs.workspace.clone(),
+            context: inputs.context.clone(),
+            title: plan.title.clone(),
+            reviewed_plan: plan.clone(),
+            before,
+            after,
+        })
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn reviewed_resource_record_follows_identity_permissions_and_keeps_dirty_baseline() {
+    let expected = tests::manifest();
+    let inputs = super::resource_inputs::Inputs {
+        version: 1,
+        context: expected.context.clone(),
+        workspace: expected.workspace.clone(),
+        ownership: super::resource_inputs::Ownership {
+            mode: "test".into(),
+            entry: None,
+            protected_entries: vec![],
+            saved_sources: BTreeMap::new(),
+            draft_sources: BTreeMap::new(),
+        },
+        sources: expected
+            .reviewed_plan
+            .patches
+            .iter()
+            .map(|patch| (patch.path.clone(), patch.before.clone()))
+            .collect(),
+        saved_sources: expected.before.clone(),
+        refusals: BTreeMap::new(),
+        source_files_modified: false,
+    };
+    let record = Manifest::from_review(&inputs, &expected.reviewed_plan).unwrap();
+    assert_eq!(record.before, expected.before);
+    assert_eq!(record.after, expected.after);
+    let root = tempfile::tempdir().unwrap();
+    Batch::begin(root.path(), &record).unwrap();
+    assert!(!root.path().join("a.py").exists());
+    assert!(!root.path().join("b.py").exists());
+    let mut wrong = inputs;
+    wrong.saved_sources.remove("a.py");
+    assert!(Manifest::from_review(&wrong, &expected.reviewed_plan).is_err());
+}

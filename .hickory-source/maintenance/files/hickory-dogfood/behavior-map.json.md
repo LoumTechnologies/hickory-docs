@@ -70612,7 +70612,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "resource-save-recovery-record",
-        "resource-journal-review-integrity-test"
+        "resource-journal-review-integrity-test",
+        "resource-journal-from-review"
       ]
     },
     "crates/hickory-cli/src/serve/resource_candidates.rs": {
@@ -70624,6 +70625,21 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "resource-candidate-ownership"
+      ]
+    },
+    "crates/hickory-cli/src/serve/resource_publish.rs": {
+      "source": ".hickory-source/mechanisms/resource-publish.md",
+      "owner": "resource-source-publication",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "5262e43ca6c7762b9adfc5863e5a319472de9df3d22ae626b3e3d72f4e21d9a5",
+      "construction": "fragments",
+      "fragments": [
+        "resource-source-publication-outcomes",
+        "resource-source-publication-admission",
+        "resource-source-publication-installation",
+        "resource-source-publication-publication",
+        "resource-source-publication-tests"
       ]
     }
   },
