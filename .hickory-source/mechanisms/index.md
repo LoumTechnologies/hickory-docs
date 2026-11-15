@@ -311,4 +311,6 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="completion-drafts.md"/>
 
+<storycode:include file="source-completion-acceptance.md"/>
+
 </storycode:doc>

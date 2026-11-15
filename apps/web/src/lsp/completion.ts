@@ -30,7 +30,7 @@ import { Facet, type Extension } from "@codemirror/state";
 /** File projections add sources to the editor’s single completion configuration. */
 export const completionSources = Facet.define<CompletionSource>();
 
-import type { LspClient } from "./client";
+import type { LspClient,CompletionItem } from "./client";
 import type { LspPosition } from "./positions";
 
 /** Where a suggestion came from. */
@@ -134,6 +134,7 @@ export function completionSource(options: {
     positionAt: (offset: number, view: CompletionContext["state"]) => LspPosition | null;
   };
   project?: (prefix: string, context: string) => Promise<ProjectSuggestion[]>;
+  lspItem?: (item:CompletionItem,context:CompletionContext,from:number)=>Completion;
 }): (context: CompletionContext) => Promise<CompletionResult | null> {
   return async (context: CompletionContext) => {
     const word = wordBefore(context);
@@ -161,7 +162,7 @@ export function completionSource(options: {
     for (const item of lspItems) {
       if (seen.has(item.label)) continue;
       seen.add(item.label);
-      completions.push(lspCompletion(item));
+      completions.push(options.lspItem?.(item,context,word.from) ?? lspCompletion(item));
     }
     for (const suggestion of projectItems) {
       // A name the language server already offered is the same name. Showing
@@ -171,7 +172,7 @@ export function completionSource(options: {
       completions.push(projectCompletion(suggestion));
     }
     if (completions.length === 0) return null;
-    return { from: word.from, options: completions, validFor: /^[A-Za-z0-9_]*$/ };
+    return { from: word.from, options: completions, validFor: options.lspItem&&lspItems.length?undefined:/^[A-Za-z0-9_]*$/ };
   };
 }
 
@@ -194,6 +195,7 @@ export function completions(options: {
     positionAt: (offset: number, state: CompletionContext["state"]) => LspPosition | null;
   };
   project?: (prefix: string, context: string) => Promise<ProjectSuggestion[]>;
+  lspItem?: (item:CompletionItem,context:CompletionContext,from:number)=>Completion;
 }): Extension {
   return [completionActions(), autocompletion({
     override: [async context => {

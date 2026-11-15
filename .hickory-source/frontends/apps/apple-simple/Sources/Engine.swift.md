@@ -183,6 +183,7 @@ struct NativeCompletion: Identifiable {
     var insert: String
     var source: String
     var selection: NSRange
+    var original:[String:Any]?=nil
 }
 func languageURI(_ path: String) -> String {
     var parts = URLComponents(); parts.scheme = "hick"; parts.host = ""; parts.path = "/" + path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -306,6 +307,7 @@ func rebaseNativeTokens(_ tokens: [NativeSemanticToken], from old: String, to ne
         changed()
     }
     func close() {
+        cancelCompletion();completionNotice=""
         navigationID = UUID(); locations = []; locationStatus = ""
         diagnostics = []; diagnosticSource = ""; hover = ""; signature = ""; inlayHints = []; inspectionID = UUID()
         epoch = UUID(); refreshTask?.cancel()
@@ -548,29 +550,63 @@ Continue the independent completion service after the action-resolution boundary
             let typed = ns.substring(with: NSRange(location: prefix, length: max(0, selection.location - prefix))).lowercased()
             var fresh: [NativeCompletion] = []
             for (index, item) in items.enumerated() {
-                guard let label = item["label"] as? String, label.lowercased().hasPrefix(typed), item["insertTextFormat"] as? Int != 2,
-                      (item["additionalTextEdits"] as? [Any] ?? []).isEmpty else { continue }
-                var range = NSRange(location: prefix, length: NSMaxRange(selection) - prefix)
-                var insert = item["insertText"] as? String ?? label
-                if let edit = item["textEdit"] as? [String: Any] {
-                    guard let raw = edit["range"] as? [String: Any], let start = raw["start"] as? [String: Any], let end = raw["end"] as? [String: Any],
-                          let from = languageOffset(source, start), let to = languageOffset(source, end), from <= to, let replacement = edit["newText"] as? String else { continue }
-                    range = NSRange(location: from, length: to - from); insert = replacement
-                }
-                fresh.append(NativeCompletion(id: index, label: label, detail: item["detail"] as? String ?? "Language server", range: range, insert: insert, source: source, selection: selection))
+                guard let label=item["label"] as? String,(item["filterText"] as? String ?? label).lowercased().hasPrefix(typed) else{continue}
+                let range=NSRange(location:prefix,length:NSMaxRange(selection)-prefix)
+                fresh.append(NativeCompletion(id:index,label:label,detail:item["detail"] as? String ?? "Language server",range:range,insert:item["insertText"] as? String ?? label,source:source,selection:selection,original:item))
                 if fresh.count >= 100 { break }
             }
             suggestions = fresh
             status = suggestions.isEmpty ? "No supported completions at this position. Open Language tools for setup or retry." : "LSP · \(suggestions.count) completions"
-        } catch { if epoch == current { status = "Completion unavailable: \(error.localizedDescription)" } }
+        } catch { if epoch == current,completionID==id,exactUTF8(buffer.text,source),buffer.selection==selection { status = "Completion unavailable: \(error.localizedDescription)" } }
     }
-    func accept(_ completion: NativeCompletion) {
-        guard let buffer, !buffer.readOnly, exactUTF8(buffer.text,completion.source), buffer.selection == completion.selection,
-              buffer.applyLanguageCompletion?(completion.range, completion.insert, completion.source, completion.selection) == true else {
-            status = "Suggestion is out of date. Request completions again."; return
+</ui:copy>
+
+## Accept complete apple source proposals
+
+Retain each offered provider item and its source/selection. Resolve before planning, keep a latest acceptance identity and reject changed source, selection, provider, saving or permissions. Dismissal retires pending acceptance. Commit the complete source/import edit and resulting selection through the existing editor batch boundary; no command or save is executed. Source-local legacy suggestions retain their guarded eager path.
+
+<ui:copy id="native-completion-acceptance-apple">
+    var completionNotice=""
+    private var acceptingCompletion=UUID()
+    private var completionPending=false
+    func cancelCompletion() {
+        acceptingCompletion=UUID()
+        if completionPending{completionNotice="Completion cancelled."}
+        completionPending=false
+    }
+    func resolveCompletion(_ item:[String:Any]) async throws->[String:Any] {
+        if item["data"]==nil || item["data"] is NSNull{return item}
+        guard let buffer,!buffer.readOnly,subscription != nil else{throw EngineError(message:"Choose writable source with a connected language provider.")}
+        sync();let source=buffer.text,selection=buffer.selection,identity=epoch
+        var params=item;params["textDocument"]=["uri":uri]
+        let result=try await request("completionItem/resolve",params)
+        guard epoch==identity,exactUTF8(buffer.text,source),buffer.selection==selection else{throw EngineError(message:"Source, cursor or provider changed. Request completions again.")}
+        guard let value=result as? [String:Any],value["label"] is String else{throw EngineError(message:"Provider did not resolve this completion. Request again.")};return value
+    }
+    @discardableResult func accept(_ completion:NativeCompletion,resolution:(([String:Any]) async throws->[String:Any])?=nil) async->Bool {
+        guard let buffer,!buffer.readOnly,!buffer.saving,exactUTF8(buffer.text,completion.source),buffer.selection==completion.selection else{completionNotice="Suggestion is out of date. Request completions again.";return false}
+        if exactUTF8(buffer.multiSource,buffer.text),buffer.multiRanges.count>1{completionNotice="Choose one caret before accepting this source completion.";return false}
+        guard let original=completion.original else {
+            guard buffer.applyLanguageCompletion?(completion.range,completion.insert,completion.source,completion.selection)==true else{completionNotice="Editor refused the completion. Finish composition or request again.";return false}
+            completionNotice="Completion selected";showingSuggestions=false;return true
         }
-        showingSuggestions = false
+        let request=UUID(),identity=epoch;acceptingCompletion=request;completionPending=true;completionNotice="Resolving completion…"
+        defer{if acceptingCompletion==request{completionPending=false}}
+        do {
+            let resolved=try await (resolution ?? {try await self.resolveCompletion($0)})(original)
+            guard acceptingCompletion==request else{return false}
+            guard epoch==identity,buffer.language===self,!buffer.readOnly,!buffer.saving,exactUTF8(buffer.text,completion.source),buffer.selection==completion.selection,!(exactUTF8(buffer.multiSource,buffer.text)&&buffer.multiRanges.count>1) else{throw EngineError(message:"Source, cursor or provider changed. Request completions again.")}
+            let draft=try planCompletion(uri,item:resolved,snapshot:SourceSnapshot(text:completion.source,writable:!buffer.readOnly && !buffer.saving),from:completion.range.location,to:NSMaxRange(completion.range))
+            guard exactUTF8(draft.path,buffer.file.path),buffer.applyCompletionDraft?(draft,completion.selection)==true else{throw EngineError(message:"Editor refused the complete completion. Finish composition or request again.")}
+            completionPending=false;completionNotice=draft.plan.patches.isEmpty ? "Completion selected":"Completion applied · draft";showingSuggestions=false;return true
+        }catch{if acceptingCompletion==request{completionNotice=error.localizedDescription};return false}
     }
+</ui:copy>
+
+Resume the remaining platform services after the completion acceptance boundary.
+
+<ui:copy id="native-completion-acceptance-apple-tail">
+
 }
 </ui:copy>
 
@@ -839,6 +875,6 @@ struct NativeRunOutput: Equatable {
 
 Keep construction order explicit; the explanations above describe the decisions at each boundary.
 
-<ui:file path="apps/apple-simple/Sources/Engine.swift"><ui:paste select="#simple-ff9425b170-0"/><ui:paste select="#simple-ff9425b170-1"/><ui:paste select="#simple-apple-language-transport"/><ui:paste select="#simple-apple-language-session"/><ui:paste select="#simple-apple-language-snapshots"/><ui:paste select="#native-provider-action-resolution-apple"/><ui:paste select="#native-language-after-action-resolution-apple"/><ui:paste select="#simple-apple-debug-session"/></ui:file>
+<ui:file path="apps/apple-simple/Sources/Engine.swift"><ui:paste select="#simple-ff9425b170-0"/><ui:paste select="#simple-ff9425b170-1"/><ui:paste select="#simple-apple-language-transport"/><ui:paste select="#simple-apple-language-session"/><ui:paste select="#simple-apple-language-snapshots"/><ui:paste select="#native-provider-action-resolution-apple"/><ui:paste select="#native-language-after-action-resolution-apple"/><ui:paste select="#native-completion-acceptance-apple"/><ui:paste select="#native-completion-acceptance-apple-tail"/><ui:paste select="#simple-apple-debug-session"/></ui:file>
 
 </ui:doc>

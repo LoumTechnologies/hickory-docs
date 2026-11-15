@@ -1115,7 +1115,7 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
             Text("⌁", modifier = Modifier.background(MaterialTheme.colorScheme.surface).clickable {
                 menu = true; scope.launch { service?.inspect() }; scope.launch { service?.complete() }
             }.padding(4.dp).semantics { contentDescription = "Language tools" })
-            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false;service?.cancelCompletion() }) {
                 if (service != null) OutlinedTextField(service.symbolQuery, { service.symbolQuery = it }, label = { Text("Symbol search") }, singleLine = true)
                 for (query in SemanticQuery.entries) DropdownMenuItem(text = { Text(query.label) }, onClick = { scope.launch { service?.navigate(query) } })
                 Text("Editor settings", modifier = Modifier.padding(8.dp))
@@ -1134,7 +1134,7 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                 HorizontalDivider()
                 Column(Modifier.width(320.dp).heightIn(max = 460.dp).verticalScroll(rememberScrollState()).padding(8.dp)) {
                     Text("Language tools", fontSize = 14.sp)
-                    Text(service?.status ?: "Language services not connected. Reconnect the workspace.", fontSize = 11.sp)
+                    Text(service?.completionNotice?.takeIf{it.isNotEmpty()} ?: service?.status ?: "Language services not connected. Reconnect the workspace.", fontSize = 11.sp)
                     if (service != null) {
                         Text("Last received information; refresh for current position.", fontSize = 11.sp)
                         if (service.hover.isNotEmpty()) Text(service.hover, fontSize = 12.sp)
@@ -1150,7 +1150,7 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                         TextButton(enabled = location.path != null && source == service.locationSource && buffer.state.selection == service.locationSelection, onClick = { if (service.open(location)) menu = false }) { Text(location.label) }
                     }
                     service?.suggestions?.forEach { item ->
-                        TextButton(enabled = !buffer.readOnly && item.source == source && item.selection == buffer.state.selection, onClick = { if (service.accept(item)) menu = false }) {
+                        TextButton(enabled = !buffer.readOnly && item.source == source && item.selection == buffer.state.selection, onClick = { scope.launch {if (service.accept(item)) menu = false} }) {
                             Column { Text(item.label, fontFamily = FontFamily.Monospace); Text(item.detail, fontSize = 11.sp) }
                         }
                     }

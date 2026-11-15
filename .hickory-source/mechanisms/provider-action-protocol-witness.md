@@ -54,7 +54,7 @@ Supply list defaults with opaque, Unicode and range-shaped data. A lazy resolver
         uri=params["textDocument"]["uri"];opaque={"producer":language,"uri":uri,"range":{"start":{"line":91,"character":2},"end":{"line":91,"character":4}},"unicode":"é😀"}
         if params["position"]["character"]==2:opaque["slow"]=True
         edit_range={"start":{"line":0,"character":0},"end":{"line":0,"character":5}}
-        item={"label":language+" completion","textEditText":language+"_initial"}
+        item={"label":language+" completion","filterText":"value","textEditText":language+"_initial"}
         original={**item,"data":opaque,"insertTextFormat":1,"textEdit":{"range":edit_range,"newText":item["textEditText"]}}
         issued_completions[uri]=original
         result={"isIncomplete":False,"itemDefaults":{"editRange":edit_range,"data":opaque,"insertTextFormat":1},"items":[item]}
@@ -69,7 +69,7 @@ Supply list defaults with opaque, Unicode and range-shaped data. A lazy resolver
             def release_completion(identity=identity,result=result):
                 deadline=time.monotonic()+10
                 while not os.path.exists(gate) and time.monotonic()<deadline:time.sleep(.01)
-                if os.path.exists(gate):send({"jsonrpc":"2.0","id":identity,"result":result})
+                if os.path.exists(gate):send({"jsonrpc":"2.0","id":identity,"result":result});event({"completion_released":language})
                 else:send({"jsonrpc":"2.0","id":identity,"error":{"code":-32603,"message":"Controlled completion gate timed out"}})
             threading.Thread(target=release_completion,daemon=True).start();continue
 </ui:copy>

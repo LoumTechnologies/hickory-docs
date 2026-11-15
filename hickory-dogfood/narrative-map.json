@@ -152837,6 +152837,90 @@
       "page": ".hickory-source/mechanisms/completion-drafts.md",
       "symbol": "Run the Android model against the same vectors",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "completion-acceptance-observation",
+      "output": "apps/web/src/lsp/completionAcceptance.ts",
+      "page": ".hickory-source/mechanisms/source-completion-acceptance.md",
+      "symbol": "Observe asynchronous acceptance independently of a popup",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "completion-acceptance-browser",
+      "output": "apps/web/src/simple/SourceCompletion.ts",
+      "page": ".hickory-source/mechanisms/source-completion-acceptance.md",
+      "symbol": "Prepare and commit one complete browser transaction",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-completion-acceptance-apple",
+      "output": "apps/apple-simple/Sources/Engine.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Engine.swift.md",
+      "symbol": "Accept a complete source completion",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-completion-acceptance-apple-tail",
+      "output": "apps/apple-simple/Sources/Engine.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Engine.swift.md",
+      "symbol": "simple-apple-language-snapshots",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-completion-acceptance-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt.md",
+      "symbol": "Accept a complete source completion",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-completion-acceptance-android-tail",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt.md",
+      "symbol": "simple-android-language-service",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-completion-browser-witness",
+      "output": "apps/web/src/simple/SourceCompletion.test.ts",
+      "page": ".hickory-source/mechanisms/source-completion-acceptance.md",
+      "symbol": "Check browser intent and atomic draft application",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-completion-agent-witness",
+      "output": "apps/web/src/simple/SourceCompletion.agent.test.tsx",
+      "page": ".hickory-source/mechanisms/source-completion-acceptance.md",
+      "symbol": "Drive the real popup through the agent adapter",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-completion-apple-witness",
+      "output": "apps/apple-simple/Tests/CompletionAcceptanceTests.swift",
+      "page": ".hickory-source/mechanisms/source-completion-acceptance.md",
+      "symbol": "Check native batching, undo and obsolete intents",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-completion-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/CompletionAcceptanceTest.kt",
+      "page": ".hickory-source/mechanisms/source-completion-acceptance.md",
+      "symbol": "Check Compose source state and obsolete intents",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-completion-browser-engine-witness",
+      "output": "scripts/test-source-completion-browser.py",
+      "page": ".hickory-source/mechanisms/source-completion-acceptance.md",
+      "symbol": "Use the existing popup against the actual engine",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-source-draft-history",
+      "output": "apps/apple-simple/Sources/SourceDraftHistory.swift",
+      "page": ".hickory-source/mechanisms/source-completion-acceptance.md",
+      "symbol": "Replay complete source history",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

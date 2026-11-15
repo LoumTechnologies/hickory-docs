@@ -3,7 +3,7 @@ import org.json.JSONObject
 import org.json.JSONArray
 data class CompletionSelection(val from:Int,val to:Int)
 data class CompletionExpansion(val text:String,val selection:CompletionSelection?=null)
-data class CompletionDraft(val before:String,val plan:ChangePlan,val insertionFrom:Int,val selection:CompletionSelection)
+data class CompletionDraft(val path:String,val before:String,val plan:ChangePlan,val insertionFrom:Int,val selection:CompletionSelection)
 fun completionInsertion(item:JSONObject):String {
  val label=item.opt("label") as? String ?: error("Malformed completion")
  if(item.has("textEdit"))return item.optJSONObject("textEdit")?.opt("newText") as? String ?: error("Missing completion insertion text")
@@ -40,5 +40,5 @@ fun planCompletion(uri:String,item:JSONObject,snapshot:SourceSnapshot,initialFro
  val plan=planWorkspaceEdit("Complete ${item.optString("label")}",JSONObject().put("changes",JSONObject().put(uri,edits)),mapOf(path to snapshot),allowNoop=true)
  val delta=others.filter{it.from<from}.sumOf{it.text.length-(it.to-it.from)};val insertionFrom=from+delta+prefix.length
  val selection=inserted.selection ?: CompletionSelection(inserted.text.length,inserted.text.length);validateOffset(inserted.text,selection.from);validateOffset(inserted.text,selection.to);check(selection.from<=selection.to){"Completion selection runs backwards"}
- return CompletionDraft(source,plan,insertionFrom,CompletionSelection(insertionFrom+selection.from,insertionFrom+selection.to))
+ return CompletionDraft(path,source,plan,insertionFrom,CompletionSelection(insertionFrom+selection.from,insertionFrom+selection.to))
 }

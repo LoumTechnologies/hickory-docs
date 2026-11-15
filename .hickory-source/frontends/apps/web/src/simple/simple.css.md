@@ -71,7 +71,7 @@ nav summary { list-style: none; cursor: pointer; padding: 3px; }
 .simple-workspace-problems input[type="checkbox"] { width: auto; }
 .simple-workspace-problems pre { overflow: auto; max-height: 240px; font-size: 11px; }
 .simple-workspace-problems select { max-width: 100%; }
-footer { border-top: 1px solid GrayText; padding: 3px 9px; font-size: 11px; overflow: auto; white-space: nowrap; }
+footer { border-top: 1px solid GrayText; padding: 3px 9px; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-body { height: 100%; display: flex; flex-direction: column; }
 .conversation { overflow: auto; flex: 1; padding: 0 12px; }
 .message { white-space: pre-wrap; overflow-wrap: anywhere; }

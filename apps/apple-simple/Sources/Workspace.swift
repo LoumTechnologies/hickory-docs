@@ -14,6 +14,7 @@ import Observation
     }
     @ObservationIgnored var navigate: ((Double) -> Void)?
     @ObservationIgnored var renderLanguage: (([NativeSemanticToken], String) -> Void)?
+    @ObservationIgnored var applyCompletionDraft: ((CompletionDraft,NSRange)->Bool)?
     @ObservationIgnored var applyLanguageCompletion: ((NSRange, String, String, NSRange) -> Bool)?
     @ObservationIgnored var selection = NSRange(location: 0, length: 0)
     @ObservationIgnored var receiptEngine: Engine?

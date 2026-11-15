@@ -954,7 +954,7 @@ final class ParityTests: XCTestCase {
         XCTAssertEqual(service.tokens.map(\.range.location), [5, 18])
         XCTAssertEqual(service.hover, "value: int"); XCTAssertEqual(service.signature, "f()")
         XCTAssertEqual(service.suggestions.count, 1)
-        service.accept(item); XCTAssertEqual(writes, 0)
+        await service.accept(item); XCTAssertEqual(writes, 0)
         // Let the real refresh task run with a closed channel: failure retains display.
         try await Task.sleep(for: .milliseconds(450))
         XCTAssertEqual(service.tokens.map(\.range.location), [5, 18])
@@ -1266,16 +1266,16 @@ final class ParityTests: XCTestCase {
         XCTAssertTrue(decodeNativeTokens([0, 3, 20, 0, 0], legend: ["keyword"], source: "😀 let").isEmpty)
         XCTAssertEqual(languageURI("a space/100%#?.md"), "hick:///a%20space/100%25%23%3F.md")
     }
-    @MainActor func testNativeCompletionRejectsChangedSourceOrSelection() throws {
+    @MainActor func testNativeCompletionRejectsChangedSourceOrSelection() async throws {
         let file = FileNode(name: "a.py", path: "a.py", dir: false)
         let buffer = DocumentBuffer(file: file, text: FileText(path: "a.py", content: "cou", hash: "base"))
         let service = NativeLanguage(engine: try Engine(address: "http://fixture.invalid"), buffer: buffer)
         var edits = 0
         buffer.applyLanguageCompletion = { _, _, _, _ in edits += 1; return true }
         let item = NativeCompletion(id: 1, label: "counter", detail: "", range: NSRange(location: 0, length: 3), insert: "counter", source: "cou", selection: NSRange(location: 3, length: 0))
-        buffer.selection = NSRange(location: 2, length: 0); service.accept(item); XCTAssertEqual(edits, 0)
-        buffer.selection = item.selection; buffer.text = "changed"; service.accept(item); XCTAssertEqual(edits, 0)
-        buffer.text = item.source; service.accept(item); XCTAssertEqual(edits, 1)
+        buffer.selection = NSRange(location: 2, length: 0); await service.accept(item); XCTAssertEqual(edits, 0)
+        buffer.selection = item.selection; buffer.text = "changed"; await service.accept(item); XCTAssertEqual(edits, 0)
+        buffer.text = item.source; await service.accept(item); XCTAssertEqual(edits, 1)
     }
     @MainActor func testRealNativeLanguageChannel() async throws {
         guard let origin = ProcessInfo.processInfo.environment["HICKORY_NATIVE_LSP_ORIGIN"] else { throw XCTSkip("Set HICKORY_NATIVE_LSP_ORIGIN for the focused real-server witness") }

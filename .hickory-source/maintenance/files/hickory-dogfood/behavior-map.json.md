@@ -67336,6 +67336,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "simple-apple-language-snapshots",
         "native-provider-action-resolution-apple",
         "native-language-after-action-resolution-apple",
+        "native-completion-acceptance-apple",
+        "native-completion-acceptance-apple-tail",
         "simple-apple-debug-session"
       ]
     },
@@ -67532,7 +67534,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "simple-android-debug-session",
         "simple-android-language-service",
         "native-provider-action-resolution-android",
-        "native-language-after-action-resolution-android"
+        "native-language-after-action-resolution-android",
+        "native-completion-acceptance-android",
+        "native-completion-acceptance-android-tail"
       ]
     },
     "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Workspace.kt": {
@@ -69758,6 +69762,94 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "completion-draft-android-witness"
+      ]
+    },
+    "apps/web/src/lsp/completionAcceptance.ts": {
+      "source": ".hickory-source/mechanisms/source-completion-acceptance.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "63e2b7eb5bc703494e23f2b508e920d2f0c9c9552e38deb4763835a11686a038",
+      "construction": "fragments",
+      "fragments": [
+        "completion-acceptance-observation"
+      ]
+    },
+    "apps/web/src/simple/SourceCompletion.ts": {
+      "source": ".hickory-source/mechanisms/source-completion-acceptance.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "6cfa0ebc61cd7a5aaa5739dacef14ea7e03acc0bd796ac3a80d2a97b9837ff21",
+      "construction": "fragments",
+      "fragments": [
+        "completion-acceptance-browser"
+      ]
+    },
+    "apps/web/src/simple/SourceCompletion.test.ts": {
+      "source": ".hickory-source/mechanisms/source-completion-acceptance.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "7780fa54bf506e11e1ba4b1241f66ea9b3830579dfb4a1a75fc2f396d8d2dfdc",
+      "construction": "fragments",
+      "fragments": [
+        "source-completion-browser-witness"
+      ]
+    },
+    "apps/web/src/simple/SourceCompletion.agent.test.tsx": {
+      "source": ".hickory-source/mechanisms/source-completion-acceptance.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "3d56b5004c28754176a0e3acd13b5a5b886f43c306932afcea741e586cfbedc4",
+      "construction": "fragments",
+      "fragments": [
+        "source-completion-agent-witness"
+      ]
+    },
+    "apps/apple-simple/Tests/CompletionAcceptanceTests.swift": {
+      "source": ".hickory-source/mechanisms/source-completion-acceptance.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "76881d82c453d03beb5dd5167676d491a9a7057e7fc894ebb8f1fcd73e0efb71",
+      "construction": "fragments",
+      "fragments": [
+        "source-completion-apple-witness"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/CompletionAcceptanceTest.kt": {
+      "source": ".hickory-source/mechanisms/source-completion-acceptance.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "31836c9f21a53af83b5aa4af4bf4b0bfb864a5725370cc204b34482961832262",
+      "construction": "fragments",
+      "fragments": [
+        "source-completion-android-witness"
+      ]
+    },
+    "scripts/test-source-completion-browser.py": {
+      "source": ".hickory-source/mechanisms/source-completion-acceptance.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "0f87d97204b28f9647e2e34cf12479898a37ee66f7ee6044f96e94067f514bc3",
+      "construction": "fragments",
+      "fragments": [
+        "source-completion-browser-engine-witness"
+      ]
+    },
+    "apps/apple-simple/Sources/SourceDraftHistory.swift": {
+      "source": ".hickory-source/mechanisms/source-completion-acceptance.md",
+      "owner": "mechanisms",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "7f8b3dec6af9d778a22ad92ca4e604bbde7c66ab022c3ecbc2e369fa3b07dcf1",
+      "construction": "fragments",
+      "fragments": [
+        "native-source-draft-history"
       ]
     }
   },

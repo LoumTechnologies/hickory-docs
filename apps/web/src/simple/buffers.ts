@@ -6,6 +6,8 @@ export class Buffer {
   hash: string;
   saving = false;
   error = "";
+  completionNotice="";
+  setCompletionNotice(value:string){if(this.completionNotice===value)return;this.completionNotice=value;this.publish();this.shellChanged();}
   version = 0;
   private listeners = new Set<() => void>();
   constructor(readonly file: FileNode, content: string, hash: string, private shellChanged: () => void, readonly transient = false) {

@@ -78,6 +78,7 @@ import { useSimpleLanguage, useHasWorkspaceLanguages } from "./WorkspaceLanguage
 import { lspSupport, setLspDiagnostics, diagnosticRanges } from "../lsp/cmLsp";
 import { lspFeatures } from "../lsp/cmLspFeatures";
 import { completions } from "../lsp/completion";
+import {sourceCompletion} from "./SourceCompletion";
 import { positionToUtf16, utf16ToPosition } from "../lsp/positions";
 import { sameDocumentUri } from "../lsp/documentUri";
 import { diagnosticBoundSource } from "../lsp/diagnosticRevision";
@@ -352,7 +353,10 @@ export function Document({ buffer }: { buffer: Buffer }) {
         } } }),
       ...lspFeatures({ client: session.client, uri: session.uri, positionAt, offsetAt, inlayHints: true }),
       ...(!buffer.readonly ? [completions({ lsp: { client: session.client, uri: session.uri,
-        positionAt: (offset, state) => utf16ToPosition(state.doc.toString(), offset) } })] : []),
+        positionAt: (offset, state) => utf16ToPosition(state.doc.toString(), offset) },
+        lspItem:(item,context)=>sourceCompletion(item,context,{uri:session.uri,current:()=>providerCurrent,writable:()=>!buffer.readonly&&!buffer.saving&&!buffer.transient,
+          resolve:async original=>await session.client!.request("completionItem/resolve",{...original,textDocument:{uri:session.uri}}) as import("../lsp/client").CompletionItem,
+          notice:text=>buffer.setCompletionNotice(text)}) })] : []),
     ]) });
     return () => { providerCurrent = false; view.dispatch({ effects: language.reconfigure([]) }); };
   }, [buffer, session.client, session.uri, session.ready, capabilities]);

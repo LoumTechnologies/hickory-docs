@@ -352,7 +352,7 @@ Use the same four source-position queries as the Apple and browser clients. Norm
 <ui:copy id="simple-android-language-service">
 data class NativeLanguageSpan(val from: Int, val to: Int, val kind: String)
 data class NativeLanguageDiagnostic(val message: String, val from: Int?, val to: Int?, val severity: Int = 1, val location: SemanticLocation? = null)
-data class NativeLanguageCompletion(val label: String, val detail: String, val edit: NativeSourceEdit, val source: String, val selection: androidx.compose.ui.text.TextRange)
+data class NativeLanguageCompletion(val label: String, val detail: String, val edit: NativeSourceEdit, val source: String, val selection: androidx.compose.ui.text.TextRange,val original:JSONObject?=null)
 fun languageURI(path: String): String = java.net.URI("hick", "", "/" + path.trimStart('/'), null).toASCIIString()
 fun languageOffset(source: String, position: JSONObject): Int? {
     val line = position.optInt("line", -1); val column = position.optInt("character", -1)
@@ -447,6 +447,7 @@ class NativeLanguage(engine: Engine, private val buffer: DocumentBuffer, private
         watcher=scope.launch {androidx.compose.runtime.snapshotFlow {buffer.text}.collect {changed()}}
     }
     fun close() {
+        cancelCompletion();completionNotice=""
         navigation++;locations=emptyList();locationStatus=""
         epoch++;inspection++;completion++;refresh?.cancel();watcher?.cancel()
         val token=subscription;subscription=null;if(token!=null) connection.detach(token)
@@ -640,6 +641,7 @@ Continue the independent completion service after the action-resolution boundary
         sync(); val source = buffer.text; val selection = buffer.state.selection; val current = epoch; val id = ++completion
         try {
             kotlinx.coroutines.delay(350)
+            if(epoch!=current||completion!=id||buffer.text!=source||buffer.state.selection!=selection)return
             val result = request("textDocument/completion", JSONObject().put("textDocument", doc()).put("position", languagePosition(source, selection.min)))
             if (epoch != current || completion != id || buffer.text != source || buffer.state.selection != selection) return
             if (result == JSONObject.NULL) return
@@ -648,18 +650,55 @@ Continue the independent completion service after the action-resolution boundary
             while (prefix > 0 && (source[prefix - 1].isLetterOrDigit() || source[prefix - 1] == '_')) prefix--
             val typed = source.substring(prefix, selection.min).lowercase()
             suggestions = items.objects().mapNotNull { item ->
-                if (!item.optString("label").lowercase().startsWith(typed)) return@mapNotNull null
-                if (item.optInt("insertTextFormat", 1) == 2 || (item.optJSONArray("additionalTextEdits")?.length() ?: 0) > 0) return@mapNotNull null
-                val label = item.optString("label"); val raw = item.optJSONObject("textEdit"); val range = raw?.optJSONObject("range")
-                val from = if (raw == null) prefix else range?.optJSONObject("start")?.let { languageOffset(source, it) } ?: return@mapNotNull null
-                val to = if (raw == null) selection.max else range?.optJSONObject("end")?.let { languageOffset(source, it) } ?: return@mapNotNull null
-                if (from > to) return@mapNotNull null
-                NativeLanguageCompletion(label, item.optString("detail"), NativeSourceEdit(from, to, raw?.optString("newText") ?: item.optString("insertText", label)), source, selection)
+                val label=item.opt("label") as? String ?: return@mapNotNull null
+                if(!(item.opt("filterText") as? String ?: label).lowercase().startsWith(typed))return@mapNotNull null
+                NativeLanguageCompletion(label,item.optString("detail"),NativeSourceEdit(prefix,selection.max,item.optString("insertText",label)),source,selection,JSONObject(item.toString()))
             }.take(100)
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-        catch (error: Exception) { if (epoch == current) status = "Completion unavailable: ${error.message}. Retry language services." }
+        catch (error: Exception) { if (epoch == current&&completion==id&&buffer.text==source&&buffer.state.selection==selection) status = "Completion unavailable: ${error.message}. Retry language services." }
     }
-    fun accept(item: NativeLanguageCompletion): Boolean = buffer.state.selection == item.selection && buffer.applySourceEdits(listOf(item.edit), item.source)
+</ui:copy>
+
+## Accept complete android source proposals
+
+Retain each offered provider item and its source/selection. Resolve before planning, keep a latest acceptance identity and reject changed source, selection, provider, saving or permissions. Dismissal retires pending acceptance. Commit the complete source/import edit and resulting selection through the existing editor batch boundary; no command or save is executed. Source-local legacy suggestions retain their guarded eager path.
+
+<ui:copy id="native-completion-acceptance-android">
+    var completionNotice by mutableStateOf("")
+    private var acceptingCompletion=0
+    private var completionPending=false
+    fun cancelCompletion(){acceptingCompletion++;if(completionPending)completionNotice="Completion cancelled.";completionPending=false}
+    suspend fun resolveCompletion(item:JSONObject):JSONObject {
+        if(item.isNull("data"))return item
+        check(opened&&!buffer.readOnly){"Choose writable source with a connected language provider."}
+        sync();val source=buffer.text;val selection=buffer.state.selection;val identity=epoch
+        val result=request("completionItem/resolve",JSONObject(item.toString()).put("textDocument",doc()))
+        check(epoch==identity&&buffer.text==source&&buffer.state.selection==selection){"Source, cursor or provider changed. Request completions again."}
+        check(result is JSONObject&&result.opt("label") is String){"Provider did not resolve this completion. Request again."};return result
+    }
+    suspend fun accept(item:NativeLanguageCompletion,resolution:(suspend (JSONObject)->JSONObject)?=null):Boolean {
+        if(buffer.readOnly||buffer.saving||buffer.text!=item.source||buffer.state.selection!=item.selection){completionNotice="Suggestion is out of date. Request completions again.";return false}
+        if(buffer.multiSource==buffer.text&&buffer.multiRanges.size>1){completionNotice="Choose one caret before accepting this source completion.";return false}
+        val original=item.original ?: return buffer.applySourceEdits(listOf(item.edit),item.source)
+        val request=++acceptingCompletion;val identity=epoch;completionPending=true;completionNotice="Resolving completion…"
+        try {
+            val resolved=(resolution ?: {resolveCompletion(it)})(original)
+            if(acceptingCompletion!=request)return false
+            check(epoch==identity&&buffer.language===this&&!buffer.readOnly&&!buffer.saving&&buffer.text==item.source&&buffer.state.selection==item.selection&&!(buffer.multiSource==buffer.text&&buffer.multiRanges.size>1)){"Source, cursor or provider changed. Request completions again."}
+            val draft=planCompletion(uri,resolved,SourceSnapshot(item.source,!buffer.readOnly&&!buffer.saving),item.edit.from,item.edit.to)
+            val edits=draft.plan.patches.firstOrNull()?.edits.orEmpty().map{NativeSourceEdit(it.from,it.to,it.text)}
+            check(buffer.applySourceEdits(edits,draft.before,androidx.compose.ui.text.TextRange(draft.selection.from,draft.selection.to))){"Editor refused the complete completion. Finish composition or request again."}
+            completionPending=false;completionNotice=if(draft.plan.patches.isEmpty())"Completion selected" else "Completion applied · draft";return true
+        }catch(cancelled:kotlinx.coroutines.CancellationException){if(acceptingCompletion==request)completionNotice="Completion cancelled.";throw cancelled}
+        catch(error:Exception){if(acceptingCompletion==request)completionNotice=error.message.orEmpty();return false}
+        finally{if(acceptingCompletion==request)completionPending=false}
+    }
+</ui:copy>
+
+Resume the remaining platform services after the completion acceptance boundary.
+
+<ui:copy id="native-completion-acceptance-android-tail">
+
 }
 </ui:copy>
 
@@ -667,6 +706,6 @@ Continue the independent completion service after the action-resolution boundary
 
 Keep construction order explicit; the explanations above describe the decisions at each boundary.
 
-<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt"><ui:paste select="#simple-38d4bd61a8-0"/><ui:paste select="#simple-38d4bd61a8-1"/><ui:paste select="#simple-android-debug-session"/><ui:paste select="#simple-android-language-service"/><ui:paste select="#native-provider-action-resolution-android"/><ui:paste select="#native-language-after-action-resolution-android"/></ui:file>
+<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt"><ui:paste select="#simple-38d4bd61a8-0"/><ui:paste select="#simple-38d4bd61a8-1"/><ui:paste select="#simple-android-debug-session"/><ui:paste select="#simple-android-language-service"/><ui:paste select="#native-provider-action-resolution-android"/><ui:paste select="#native-language-after-action-resolution-android"/><ui:paste select="#native-completion-acceptance-android"/><ui:paste select="#native-completion-acceptance-android-tail"/></ui:file>
 
 </ui:doc>

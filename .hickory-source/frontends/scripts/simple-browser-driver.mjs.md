@@ -301,6 +301,19 @@ try {
         case "semantic-open":
           await page.getByRole("dialog", { name: "Semantic locations" }).getByRole("button", { name: request.label, exact: true }).click();
           await editor(request.path).waitFor(); break;
+        case "completion-open": {
+          const content=editor(request.path);await content.focus();await page.keyboard.press(process.platform==="darwin"?"Meta+ArrowUp":"Control+Home");
+          for(let count=0;count<request.offset;count++)await page.keyboard.press("ArrowRight");await page.keyboard.press("Control+Space");
+          const choices=page.locator(".cm-tooltip-autocomplete li");await choices.first().waitFor({timeout:1500}).catch(()=>{});value=await choices.allTextContents();break;
+        }
+        case "completion-pick":await page.locator(".cm-tooltip-autocomplete li").filter({hasText:request.title}).first().click();break;
+        case "completion-cancel":await editor(request.path).press("Escape");await page.waitForFunction(()=>document.querySelector("footer")?.textContent.includes("Completion cancelled"));break;
+        case "completion-drain":await page.waitForTimeout(150);value=await page.locator("footer").innerText();break;
+        case "completion-choose": {
+          await page.locator(".cm-tooltip-autocomplete li").filter({hasText:request.title}).first().click();
+          await page.waitForFunction(()=>{const text=document.querySelector("footer")?.textContent??"";return text.includes("Completion")&&!text.includes("Resolving completion");});value=await page.locator("footer").innerText();break;
+        }
+        case "redo":await editor(request.path).press(process.platform==="darwin"?"Meta+Shift+z":"Control+y");break;
         case "caret-offset":
           value = await editor(request.path).evaluate(content => {
             const selection = window.getSelection(); if (!selection?.anchorNode || !content.contains(selection.anchorNode)) return null;

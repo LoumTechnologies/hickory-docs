@@ -33,7 +33,7 @@ struct WorkspaceView: View {
                 Text(workspace.status).lineLimit(1).help(workspace.status)
                 Spacer(minLength: 8)
                 if let buffer = workspace.currentBuffer {
-                    if let language = buffer.language { Text(language.status).lineLimit(1).frame(maxWidth: 310).help(language.status) }
+                    if let language = buffer.language { Text(language.completionNotice.isEmpty ? language.status:language.completionNotice).lineLimit(1).frame(maxWidth: 310).help(language.completionNotice.isEmpty ? language.status:language.completionNotice) }
                     Text(buffer.readOnly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved")
                 }
                 Button(workspace.analysis.running ? "Reading \(workspace.analysis.completed)/\(workspace.analysis.scope.files.count)":"Analysis") { workspace.showAnalysis.toggle() }

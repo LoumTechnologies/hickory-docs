@@ -1,7 +1,7 @@
 import Foundation
 struct CompletionSelection {var from:Int;var to:Int}
 struct CompletionExpansion {var text:String;var selection:CompletionSelection?=nil}
-struct CompletionDraft {var before:String;var plan:ChangePlan;var insertionFrom:Int;var selection:CompletionSelection}
+struct CompletionDraft {var path:String;var before:String;var plan:ChangePlan;var insertionFrom:Int;var selection:CompletionSelection}
 func completionInsertion(_ item:[String:Any])throws->String {
     guard let label=item["label"] as? String else{throw EngineError(message:"Malformed completion")}
     if let edit=item["textEdit"] {guard let object=edit as? [String:Any],let text=object["newText"] as? String else{throw EngineError(message:"Missing completion insertion text")};return text}
@@ -49,5 +49,5 @@ func planCompletion(_ uri:String,item:[String:Any],snapshot:SourceSnapshot,from 
     let selection=inserted.selection ?? CompletionSelection(from:inserted.text.utf16.count,to:inserted.text.utf16.count)
     try validateOffset(inserted.text,selection.from);try validateOffset(inserted.text,selection.to)
     guard selection.from<=selection.to else{throw EngineError(message:"Completion selection runs backwards")}
-    return CompletionDraft(before:source,plan:plan,insertionFrom:insertionFrom,selection:CompletionSelection(from:insertionFrom+selection.from,to:insertionFrom+selection.to))
+    return CompletionDraft(path:path,before:source,plan:plan,insertionFrom:insertionFrom,selection:CompletionSelection(from:insertionFrom+selection.from,to:insertionFrom+selection.to))
 }

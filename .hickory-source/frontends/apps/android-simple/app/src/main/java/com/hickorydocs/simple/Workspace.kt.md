@@ -136,11 +136,13 @@ class DocumentBuffer(val file: FileNode, loaded: FileText) {
         debugReveal = source.take(from).count { it == '\n' } to ((debugReveal?.second ?: 0) + 1)
         return true
     }
-    fun applySourceEdits(edits: List<NativeSourceEdit>, source: String): Boolean {
-        if (readOnly || text != source || state.composition != null || !validSourceEdits(edits, source.length)) return false
+    fun applySourceEdits(edits: List<NativeSourceEdit>, source: String,resultSelection:TextRange?=null): Boolean {
+        if (readOnly || saving || text != source || state.composition != null || !validSourceEdits(edits, source.length)) return false
+        val resultLength=source.length+edits.sumOf {it.text.length-(it.to-it.from)}
+        if(resultSelection!=null&&(resultSelection.min<0||resultSelection.max>resultLength))return false
         if (!applyingMulti) clearMulti()
         clearFolds()
-        state.edit { edits.sortedByDescending { it.from }.forEach { replace(it.from, it.to, it.text) } }
+        state.edit { edits.sortedByDescending { it.from }.forEach { replace(it.from, it.to, it.text) };if(resultSelection!=null)selection=resultSelection }
         return true
     }
     var foldSource by mutableStateOf<String?>(null)

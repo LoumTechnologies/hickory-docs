@@ -1,4 +1,6 @@
+import {readCompletionAcceptance,withCompletionAcceptanceSignal,waitCompletionAcceptance,cancelCompletionAcceptance} from "./completionAcceptance";
 import { acceptCompletion, closeCompletion, completionStatus, currentCompletions, selectedCompletionIndex, setSelectedCompletion, startCompletion, type Completion } from "@codemirror/autocomplete";
+import {keymap} from "@codemirror/view";
 import { EditorState, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { editorLanguageActions } from "../editor/languageActions";
@@ -16,17 +18,18 @@ export function completionActions(): Extension {
   const identity = (object: object) => { let id = identities.get(object); if (!id) { id = crypto.randomUUID(); identities.set(object, id); } return id; };
   const capture = (view: EditorView) => {
     const status = completionStatus(view.state), options = currentCompletions(view.state);
-    const value = { source_identity: identity(view.state.doc), selection: view.state.selection.toJSON(), status, selected: selectedCompletionIndex(view.state), choices: options.map((item, index) => ({ index, id: identity(item), label: item.label, insert_text: typeof item.apply === "function" ? null : item.apply ?? item.label, custom_apply: typeof item.apply === "function", display_label: item.displayLabel, detail: item.detail, type: item.type, section: typeof item.section === "string" ? item.section : item.section?.name, info: infoText.get(item) ?? (typeof item.info === "string" ? item.info : null) })) };
+    const value = { acceptance:readCompletionAcceptance(view),source_identity: identity(view.state.doc), selection: view.state.selection.toJSON(), status, selected: selectedCompletionIndex(view.state), choices: options.map((item, index) => ({ index, id: identity(item), label: item.label, insert_text: typeof item.apply === "function" ? null : item.apply ?? item.label, custom_apply: typeof item.apply === "function", display_label: item.displayLabel, detail: item.detail, type: item.type, section: typeof item.section === "string" ? item.section : item.section?.name, info: infoText.get(item) ?? (typeof item.info === "string" ? item.info : null) })) };
     const signature = JSON.stringify(value);
     if (!retained || retained.signature !== signature) retained = { signature, id: crypto.randomUUID(), bytes: new TextEncoder().encode(signature), count: options.length };
-    return { ...retained, status, selected: value.selected };
+    return { ...retained, status, selected: value.selected,acceptance:value.acceptance };
   };
-  const state = (view: EditorView): UiValue => { const current = capture(view); return { job, status: current.status ?? "closed", snapshot: current.id, count: current.count, selected: current.selected, total_bytes: current.bytes.length }; };
+  const state = (view: EditorView): UiValue => { const current = capture(view); return { acceptance:current.acceptance?{...current.acceptance}:null,job, status: current.status ?? "closed", snapshot: current.id, count: current.count, selected: current.selected, total_bytes: current.bytes.length }; };
   const writable = (view: EditorView) => !view.state.readOnly && view.state.facet(EditorView.editable);
   const number = { type: "number" as const, minimum: 0, maximum: 1000000000, integer: true };
   const snapshot = { type: "string" as const, maxLength: 128 };
   let previousStatus: ReturnType<typeof completionStatus> = null;
   return [
+    keymap.of([{key:"Escape",run:cancelCompletionAcceptance}]),
     EditorView.updateListener.of(update => {
       const next = completionStatus(update.state);
       if (next !== null && previousStatus === null) job = crypto.randomUUID();
@@ -75,8 +78,14 @@ export function completionActions(): Extension {
       enabled: view => writable(view) && completionStatus(view.state) === "active" && selectedCompletionIndex(view.state) !== null,
       execute: async (view, args, signal) => {
         if (signal.aborted || capture(view).id !== args.snapshot) return { status: "unavailable", reason: "Completion selection changed or request cancelled" };
-        const original = view.state.doc, accepted = acceptCompletion(view);
-        return { status: "completed", value: { accepted, source_changed: view.state.doc !== original, saved: false, verified: false, popup: state(view), scope: "Actual native completion acceptance; source filters may refuse changes" } };
+        const original = view.state.doc,previous=readCompletionAcceptance(view)?.job,accepted=withCompletionAcceptanceSignal(view,signal,()=>acceptCompletion(view));
+        const acceptance=readCompletionAcceptance(view);
+        if(accepted&&acceptance&&acceptance.job!==previous){
+          const settled=await waitCompletionAcceptance(view,acceptance.job);
+          if(settled.phase==="unavailable")return {status:"unavailable",reason:settled.message};
+          return {status:"completed",value:{accepted,source_changed:settled.source_changed,saved:false,verified:false,acceptance:{...settled},popup:state(view),scope:"Complete source completion applied to the current draft"}};
+        }
+        return { status: "completed", value: { accepted, source_changed: view.state.doc !== original, saved: false, verified: false, acceptance:null,popup: state(view), scope: "Actual native completion acceptance; source filters may refuse changes" } };
       },
     }),
     editorLanguageActions.of({ id: "completion:close", label: "Close editor completions", parameters: {}, value: state, enabled: view => completionStatus(view.state) !== null,

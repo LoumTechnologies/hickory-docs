@@ -14,7 +14,7 @@ import {planWorkspaceEdit,sourceChangeOffset,type ChangePlan,type SourceReplacem
 import {semanticPath} from './Intelligence';
 import {utf16ToPosition} from '../lsp/positions';
 export interface CompletionExpansion {text:string;selection?:{from:number;to:number}}
-export interface CompletionDraft {before:string;plan:ChangePlan;insertionFrom:number;selection:{from:number;to:number}}
+export interface CompletionDraft {path:string;before:string;plan:ChangePlan;insertionFrom:number;selection:{from:number;to:number}}
 export function completionInsertion(item:unknown):string {
  const value=item as Record<string,unknown>|null;if(!value||typeof value!=='object'||typeof value.label!=='string')throw new Error('Malformed completion');
  const edit=value.textEdit as Record<string,unknown>|undefined;
@@ -46,7 +46,7 @@ export function planCompletion(uri:string,item:unknown,snapshot:SourceSnapshot,f
  const plan=planWorkspaceEdit(`Complete ${String(value.label)}`,{changes:{[uri]:rawEdits}},new Map([[path,snapshot]]),true);
  const delta=others.filter(edit=>edit.from<from).reduce((sum,edit)=>sum+edit.text.length-(edit.to-edit.from),0),insertionFrom=from+delta+prefix.length;
  const selected=inserted.selection??{from:inserted.text.length,to:inserted.text.length};validateOffset(inserted.text,selected.from);validateOffset(inserted.text,selected.to);if(selected.from>selected.to)throw new Error('Completion selection runs backwards');
- return {before:source,plan,insertionFrom,selection:{from:insertionFrom+selected.from,to:insertionFrom+selected.to}};
+ return {path,before:source,plan,insertionFrom,selection:{from:insertionFrom+selected.from,to:insertionFrom+selected.to}};
 }
 </ui:copy>
 
@@ -60,7 +60,7 @@ Prepare the complete source change before touching a view. A completion explicit
 import Foundation
 struct CompletionSelection {var from:Int;var to:Int}
 struct CompletionExpansion {var text:String;var selection:CompletionSelection?=nil}
-struct CompletionDraft {var before:String;var plan:ChangePlan;var insertionFrom:Int;var selection:CompletionSelection}
+struct CompletionDraft {var path:String;var before:String;var plan:ChangePlan;var insertionFrom:Int;var selection:CompletionSelection}
 func completionInsertion(_ item:[String:Any])throws->String {
     guard let label=item["label"] as? String else{throw EngineError(message:"Malformed completion")}
     if let edit=item["textEdit"] {guard let object=edit as? [String:Any],let text=object["newText"] as? String else{throw EngineError(message:"Missing completion insertion text")};return text}
@@ -108,7 +108,7 @@ func planCompletion(_ uri:String,item:[String:Any],snapshot:SourceSnapshot,from 
     let selection=inserted.selection ?? CompletionSelection(from:inserted.text.utf16.count,to:inserted.text.utf16.count)
     try validateOffset(inserted.text,selection.from);try validateOffset(inserted.text,selection.to)
     guard selection.from<=selection.to else{throw EngineError(message:"Completion selection runs backwards")}
-    return CompletionDraft(before:source,plan:plan,insertionFrom:insertionFrom,selection:CompletionSelection(from:insertionFrom+selection.from,to:insertionFrom+selection.to))
+    return CompletionDraft(path:path,before:source,plan:plan,insertionFrom:insertionFrom,selection:CompletionSelection(from:insertionFrom+selection.from,to:insertionFrom+selection.to))
 }
 </ui:copy>
 
@@ -124,7 +124,7 @@ import org.json.JSONObject
 import org.json.JSONArray
 data class CompletionSelection(val from:Int,val to:Int)
 data class CompletionExpansion(val text:String,val selection:CompletionSelection?=null)
-data class CompletionDraft(val before:String,val plan:ChangePlan,val insertionFrom:Int,val selection:CompletionSelection)
+data class CompletionDraft(val path:String,val before:String,val plan:ChangePlan,val insertionFrom:Int,val selection:CompletionSelection)
 fun completionInsertion(item:JSONObject):String {
  val label=item.opt("label") as? String ?: error("Malformed completion")
  if(item.has("textEdit"))return item.optJSONObject("textEdit")?.opt("newText") as? String ?: error("Missing completion insertion text")
@@ -161,7 +161,7 @@ fun planCompletion(uri:String,item:JSONObject,snapshot:SourceSnapshot,initialFro
  val plan=planWorkspaceEdit("Complete ${item.optString("label")}",JSONObject().put("changes",JSONObject().put(uri,edits)),mapOf(path to snapshot),allowNoop=true)
  val delta=others.filter{it.from<from}.sumOf{it.text.length-(it.to-it.from)};val insertionFrom=from+delta+prefix.length
  val selection=inserted.selection ?: CompletionSelection(inserted.text.length,inserted.text.length);validateOffset(inserted.text,selection.from);validateOffset(inserted.text,selection.to);check(selection.from<=selection.to){"Completion selection runs backwards"}
- return CompletionDraft(source,plan,insertionFrom,CompletionSelection(insertionFrom+selection.from,insertionFrom+selection.to))
+ return CompletionDraft(path,source,plan,insertionFrom,CompletionSelection(insertionFrom+selection.from,insertionFrom+selection.to))
 }
 </ui:copy>
 

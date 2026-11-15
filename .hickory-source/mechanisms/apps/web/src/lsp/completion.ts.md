@@ -51,7 +51,7 @@ export const completionSources = Facet.define<CompletionSource>();
 ### `import_statement`
 
 <storycode:copy id="f-4123a128ce4a-import_statement">
-import type { LspClient } from "./client";
+import type { LspClient,CompletionItem } from "./client";
 </storycode:copy>
 <a id="f-4123a128ce4a-import_statement-2"></a>
 ### `import_statement`
@@ -210,6 +210,8 @@ project index must not delay the authoritative ones. Whichever fails
 contributes nothing, silently — a completion popup is not the place to
 report that a subsystem is warming up.
 
+An optional source-editor adapter prepares rich choices without changing projection-editor behavior. Its source-bound results are queried again after typing rather than reused through validFor. Project-only suggestions retain their ordinary word reuse.
+
 <storycode:copy id="f-4123a128ce4a-completionSource">
 /**
  * The combined source.
@@ -227,6 +229,7 @@ export function completionSource(options: {
     positionAt: (offset: number, view: CompletionContext["state"]) => LspPosition | null;
   };
   project?: (prefix: string, context: string) => Promise<ProjectSuggestion[]>;
+  lspItem?: (item:CompletionItem,context:CompletionContext,from:number)=>Completion;
 }): (context: CompletionContext) => Promise<CompletionResult | null> {
   return async (context: CompletionContext) => {
     const word = wordBefore(context);
@@ -254,7 +257,7 @@ export function completionSource(options: {
     for (const item of lspItems) {
       if (seen.has(item.label)) continue;
       seen.add(item.label);
-      completions.push(lspCompletion(item));
+      completions.push(options.lspItem?.(item,context,word.from) ?? lspCompletion(item));
     }
     for (const suggestion of projectItems) {
       // A name the language server already offered is the same name. Showing
@@ -264,7 +267,7 @@ export function completionSource(options: {
       completions.push(projectCompletion(suggestion));
     }
     if (completions.length === 0) return null;
-    return { from: word.from, options: completions, validFor: /^[A-Za-z0-9_]*$/ };
+    return { from: word.from, options: completions, validFor: options.lspItem&&lspItems.length?undefined:/^[A-Za-z0-9_]*$/ };
   };
 }
 
@@ -299,6 +302,7 @@ export function completions(options: {
     positionAt: (offset: number, state: CompletionContext["state"]) => LspPosition | null;
   };
   project?: (prefix: string, context: string) => Promise<ProjectSuggestion[]>;
+  lspItem?: (item:CompletionItem,context:CompletionContext,from:number)=>Completion;
 }): Extension {
   return [completionActions(), autocompletion({
     override: [async context => {

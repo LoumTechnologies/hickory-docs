@@ -882,6 +882,7 @@ private struct EquationLayout: Equatable {
     let text = SimpleMacTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
     let buffer: DocumentBuffer
     private let folding = FoldLayout()
+    private let sourceDraftHistory=SourceDraftHistory()
     private var tableViewport: CGPoint?
     private var diagramSource = ""
     private var diagramAnchor: Int?
@@ -964,6 +965,11 @@ private struct EquationLayout: Equatable {
         text.layoutManager?.delegate = folding
         buffer.toggleFold = { [weak self] line in self?.toggleFold(line) }
         buffer.focusSource = { [weak self] in guard let self else { return }; self.text.window?.makeFirstResponder(self.text) }
+        buffer.applyCompletionDraft = { [weak self] draft,initial in
+            guard let self,self.text.selectedRange()==initial,self.text.selectedRanges.count==1,exactUTF8(draft.path,self.buffer.file.path) else{return false}
+            return self.sourceDraftHistory.commit(draft.plan,path:draft.path,before:draft.before,selectionBefore:initial,selectionAfter:NSRange(location:draft.selection.from,length:draft.selection.to-draft.selection.from),manager:self.text.undoManager,
+                read:{[weak self] in self?.buffer.text ?? ""},apply:{[weak self] edits,source,selected in self?.applySourceEdits(edits,source:source,resultSelection:selected,manageUndo:false) ?? false},notice:{[weak self] text in self?.buffer.language?.completionNotice=text})
+        }
         buffer.applySourceEdits = { [weak self] edits, source in self?.applySourceEdits(edits, source: source) ?? false }
         buffer.canReflectWorkspaceEdits = { [weak self] edits, source in
             guard let self else { return false }
@@ -997,16 +1003,20 @@ private struct EquationLayout: Equatable {
     func canReflectWorkspaceEdits(_ edits: [NativeSourceEdit], source: String) -> Bool {
         !buffer.readOnly && text.isEditable && exactUTF8(text.string,source) && exactUTF8(buffer.text,source) && !text.hasMarkedText() && validSourceEdits(edits, length: (source as NSString).length)
     }
-    func applySourceEdits(_ edits: [NativeSourceEdit], source: String, expectedModelSource: String? = nil) -> Bool {
-        guard !buffer.readOnly, text.isEditable, exactUTF8(text.string,source), exactUTF8(buffer.text,expectedModelSource ?? source), !text.hasMarkedText(),
+    func applySourceEdits(_ edits: [NativeSourceEdit], source: String, expectedModelSource: String? = nil,resultSelection:NSRange?=nil,manageUndo:Bool=true) -> Bool {
+        guard !buffer.readOnly, (!buffer.saving || text.undoManager?.isUndoing==true || text.undoManager?.isRedoing==true), text.isEditable, exactUTF8(text.string,source), exactUTF8(buffer.text,expectedModelSource ?? source), !text.hasMarkedText(),
               validSourceEdits(edits, length: (source as NSString).length) else { return false }
+        let resultLength=source.utf16.count+edits.reduce(0){$0+$1.text.utf16.count-$1.range.length}
+        if let selected=resultSelection,!validSourceEdits([NativeSourceEdit(range:selected,text:"")],length:resultLength){return false}
         let wasMulti = buffer.applyingMulti; buffer.applyingMulti = true
         if !wasMulti { buffer.clearMulti() }
         defer { buffer.applyingMulti = wasMulti }
+        let viewport=scroll.contentView.bounds.origin
         unfoldAll(); text.breakUndoCoalescing()
-        let undo = text.undoManager; undo?.beginUndoGrouping()
+        let undo = manageUndo ? text.undoManager:nil; undo?.beginUndoGrouping()
         defer { undo?.endUndoGrouping(); text.breakUndoCoalescing() }
         for edit in edits.sorted(by: { $0.range.location > $1.range.location }) { text.insertText(edit.text, replacementRange: edit.range) }
+        if let selected=resultSelection{text.setSelectedRange(selected);scroll.contentView.scroll(to:viewport);scroll.reflectScrolledClipView(scroll.contentView);text.scrollRangeToVisible(selected)}
         buffer.selection = text.selectedRange(); buffer.text = text.string; measureDebugLines(); return true
     }
     func toggleFold(_ line: Int) {
@@ -1425,6 +1435,7 @@ import UIKit
 @MainActor private final class MobileEditor: NSObject, UITextViewDelegate {
     let text = SimpleTextView(usingTextLayoutManager: false)
     private let folding = FoldLayout()
+    private let sourceDraftHistory=SourceDraftHistory()
     private var tableViewport: CGPoint?
     private var diagramSource = ""
     private var diagramAnchor: Int?
@@ -1479,6 +1490,11 @@ import UIKit
         text.layoutManager.delegate = folding
         buffer.toggleFold = { [weak self] line in self?.toggleFold(line) }
         buffer.focusSource = { [weak self] in self?.text.becomeFirstResponder() }
+        buffer.applyCompletionDraft = { [weak self] draft,initial in
+            guard let self,self.text.selectedRange==initial,exactUTF8(draft.path,self.buffer.file.path) else{return false}
+            return self.sourceDraftHistory.commit(draft.plan,path:draft.path,before:draft.before,selectionBefore:initial,selectionAfter:NSRange(location:draft.selection.from,length:draft.selection.to-draft.selection.from),manager:self.text.undoManager,
+                read:{[weak self] in self?.buffer.text ?? ""},apply:{[weak self] edits,source,selected in self?.applySourceEdits(edits,source:source,resultSelection:selected,manageUndo:false) ?? false},notice:{[weak self] text in self?.buffer.language?.completionNotice=text})
+        }
         buffer.applySourceEdits = { [weak self] edits, source in self?.applySourceEdits(edits, source: source) ?? false }
         buffer.canReflectWorkspaceEdits = { [weak self] edits, source in
             guard let self else { return false }
@@ -1507,9 +1523,11 @@ import UIKit
     func canReflectWorkspaceEdits(_ edits: [NativeSourceEdit], source: String) -> Bool {
         !buffer.readOnly && text.isEditable && exactUTF8(text.text,source) && exactUTF8(buffer.text,source) && text.markedTextRange == nil && validSourceEdits(edits, length: (source as NSString).length)
     }
-    func applySourceEdits(_ edits: [NativeSourceEdit], source: String, expectedModelSource: String? = nil) -> Bool {
-        guard !buffer.readOnly, text.isEditable, exactUTF8(text.text,source), exactUTF8(buffer.text,expectedModelSource ?? source), text.markedTextRange == nil,
+    func applySourceEdits(_ edits: [NativeSourceEdit], source: String, expectedModelSource: String? = nil,resultSelection:NSRange?=nil,manageUndo:Bool=true) -> Bool {
+        guard !buffer.readOnly, (!buffer.saving || text.undoManager?.isUndoing==true || text.undoManager?.isRedoing==true), text.isEditable, exactUTF8(text.text,source), exactUTF8(buffer.text,expectedModelSource ?? source), text.markedTextRange == nil,
               validSourceEdits(edits, length: (source as NSString).length) else { return false }
+        let resultLength=source.utf16.count+edits.reduce(0){$0+$1.text.utf16.count-$1.range.length}
+        if let selected=resultSelection,!validSourceEdits([NativeSourceEdit(range:selected,text:"")],length:resultLength){return false}
         let replacements: [(UITextRange, String)] = edits.sorted(by: { $0.range.location > $1.range.location }).compactMap { edit in
             guard let start = text.position(from: text.beginningOfDocument, offset: edit.range.location),
                   let end = text.position(from: start, offset: edit.range.length), let target = text.textRange(from: start, to: end) else { return nil }
@@ -1519,10 +1537,12 @@ import UIKit
         let wasMulti = buffer.applyingMulti; buffer.applyingMulti = true
         if !wasMulti { buffer.clearMulti() }
         defer { buffer.applyingMulti = wasMulti }
+        let viewport=text.contentOffset
         unfoldAll()
-        let undo = text.undoManager; undo?.beginUndoGrouping()
+        let undo = manageUndo ? text.undoManager:nil; undo?.beginUndoGrouping()
         defer { undo?.endUndoGrouping() }
         for (target, replacement) in replacements { text.replace(target, withText: replacement) }
+        if let selected=resultSelection{text.selectedRange=selected;text.setContentOffset(viewport,animated:false);text.scrollRangeToVisible(selected)}
         textViewDidChange(text); return true
     }
     func toggleFold(_ line: Int) {
@@ -2085,10 +2105,10 @@ struct LanguageEditor: View {
             }.accessibilityLabel("Language tools")
                 .help(buffer.language?.status ?? "Language services not connected")
                 .padding(4).background(.regularMaterial).padding(.trailing, 42)
-                .popover(isPresented: Binding(get: { buffer.language?.showingSuggestions ?? false }, set: { buffer.language?.showingSuggestions = $0 })) {
+                .popover(isPresented: Binding(get: { buffer.language?.showingSuggestions ?? false }, set: { buffer.language?.showingSuggestions = $0;if !$0{buffer.language?.cancelCompletion()} })) {
                     ScrollView { VStack(alignment: .leading, spacing: 8) {
                         Text("Language tools").font(.headline)
-                        Text(buffer.language?.status ?? "Language services not connected").font(.caption).textSelection(.enabled)
+                        Text(buffer.language?.completionNotice.isEmpty==false ? buffer.language!.completionNotice : buffer.language?.status ?? "Language services not connected").font(.caption).textSelection(.enabled)
                         if let language = buffer.language {
                             TextField("Symbol search", text: Binding(get: { language.symbolQuery }, set: { language.symbolQuery = $0 })).textFieldStyle(.roundedBorder)
                             ForEach(SemanticQuery.allCases) { query in
@@ -2115,7 +2135,7 @@ struct LanguageEditor: View {
                             ScrollView {
                                 VStack(alignment: .leading, spacing: 4) {
                                     ForEach(language.suggestions) { item in
-                                        Button { language.accept(item) } label: {
+                                        Button { Task {await language.accept(item)} } label: {
                                             VStack(alignment: .leading) { Text(item.label).font(.system(.body, design: .monospaced)); Text(item.detail).font(.caption).foregroundStyle(.secondary) }
                                         }.disabled(!exactUTF8(item.source,buffer.text) || item.selection != buffer.selection || buffer.readOnly)
                                     }
