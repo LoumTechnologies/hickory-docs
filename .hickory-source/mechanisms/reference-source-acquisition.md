@@ -5,6 +5,8 @@ For maintainers expanding reviewed changes beyond visible or retained editors.
 
 An initial reference query discovers targets; it cannot authorize edits against text loaded afterward. Acquire unknown source snapshots and synchronize the provider, then query again. Keep the original retained snapshots, limit acquisition to two concurrent reads, deduplicate targets and drain started work after failure or obsolete intent. Four expanding query rounds or more than 10,000 targets refuse explicitly. This establishes the observed reference set, not exhaustive project analysis. Host callbacks validate workspace-local ownership and run on the owning UI context; reading source never navigates, saves or applies changes.
 
+A proposal query carries both discovered paths and its original value. Only a query whose paths already have captured source can return that value. This same acquisition boundary serves references and provider edits; a discovering edit is discarded after source acquisition, because synchronizing new source may invalidate the provider artifact that produced it.
+
 ## reference-source-acquisition-browser
 
 The provider query and source acquisition remain replaceable callbacks. A newly acquired snapshot becomes an input to a subsequent query; no proposal from the discovering query is returned for application.
@@ -12,12 +14,12 @@ The provider query and source acquisition remain replaceable callbacks. A newly 
 <ui:copy id="reference-source-acquisition-browser">
 import type {SourceSnapshot} from './ChangePlan';
 /** Discovery never authorizes edits. Newly found targets synchronize before a fresh query. */
-export async function acquireReferenceSources(initial:ReadonlyMap<string,SourceSnapshot>,query:()=>Promise<string[]>,acquire:(path:string)=>Promise<SourceSnapshot>,current:()=>boolean){
+export async function acquireSourceProposal<T>(initial:ReadonlyMap<string,SourceSnapshot>,query:()=>Promise<{paths:string[];value:T}>,acquire:(path:string)=>Promise<SourceSnapshot>,current:()=>boolean){
  const sources=new Map(initial);let references:string[]=[];
  const check=()=>{if(!current())throw new Error('Source, selection or provider changed. Prepare again.');};
  for(let round=0;round<4;round++){
-  check();references=[...new Set(await query())];check();if(references.length>10000)throw new Error('Reference discovery exceeds 10,000 source targets. Narrow the change.');
-  const missing=references.filter(path=>!sources.has(path));if(!missing.length)return {sources,references};
+  check();const proposal=await query();references=[...new Set(proposal.paths)];check();if(references.length>10000)throw new Error('Reference discovery exceeds 10,000 source targets. Narrow the change.');
+  const missing=references.filter(path=>!sources.has(path));if(!missing.length)return {sources,paths:references,value:proposal.value};
   let cursor=0,failure:unknown=null;
   const worker=async()=>{while(failure===null&&cursor<missing.length){if(!current()){failure=new Error('Source, selection or provider changed. Prepare again.');break;}const path=missing[cursor++];
    try{const value=await acquire(path);check();if(!value.writable)throw new Error(`Source is generated, read-only or saving: ${path}`);sources.set(path,value);}catch(error){failure=error;}
@@ -25,6 +27,10 @@ export async function acquireReferenceSources(initial:ReadonlyMap<string,SourceS
   await Promise.all([worker(),worker()]);if(failure!==null)throw failure;check();
  }
  throw new Error('Reference targets kept expanding. Refresh project analysis and prepare again. No edits were applied.');
+}
+export async function acquireReferenceSources(initial:ReadonlyMap<string,SourceSnapshot>,query:()=>Promise<string[]>,acquire:(path:string)=>Promise<SourceSnapshot>,current:()=>boolean){
+ const result=await acquireSourceProposal(initial,async()=>({paths:await query(),value:null}),acquire,current);
+ return {sources:result.sources,references:result.paths};
 }
 </ui:copy>
 
@@ -36,9 +42,13 @@ Hold source completions to prove two-worker bounds, duplicate removal and a fres
 
 <ui:copy id="reference-source-acquisition-browser-witness">
 import {expect,it} from 'vitest';
-import {acquireReferenceSources} from './ReferenceSources';
+import {acquireReferenceSources,acquireSourceProposal} from './ReferenceSources';
 function held(){let resolve!:(value:{text:string;writable:boolean})=>void;const promise=new Promise<{text:string;writable:boolean}>(done=>resolve=done);return {promise,resolve};}
 const flush=async()=>{for(let i=0;i<6;i++)await Promise.resolve();};
+it('returns only the proposal queried after all source acquisition',async()=>{
+ let round=0;const result=await acquireSourceProposal(new Map(),async()=>({paths:['other'],value:++round}),async()=>({text:'loaded',writable:true}),()=>true);
+ expect(result.value).toBe(2);expect(result.sources.get('other')?.text).toBe('loaded');
+});
 it('loads at most two unknown targets and queries again after acquisition',async()=>{
  let queries=0;const reads:{path:string;done:ReturnType<typeof held>}[]=[];
  const result=acquireReferenceSources(new Map([['retained',{text:'original draft',writable:true}]]),async()=>{queries++;return ['a','b','a','c','retained'];},path=>{const done=held();reads.push({path,done});return done.promise;},()=>true);
@@ -60,13 +70,14 @@ The provider query and source acquisition remain replaceable callbacks. A newly 
 <ui:copy id="reference-source-acquisition-apple">
 import Foundation
 struct ReferenceSourceAcquisition {var sources:[String:SourceSnapshot];var references:[String]}
-@MainActor func acquireReferenceSources(_ initial:[String:SourceSnapshot],query:@escaping () async throws->[String],acquire:@escaping (String) async throws->SourceSnapshot,current:@escaping ()->Bool) async throws->ReferenceSourceAcquisition {
+struct SourceProposalAcquisition<Value> {var sources:[String:SourceSnapshot];var paths:[String];var value:Value}
+@MainActor func acquireSourceProposal<Value>(_ initial:[String:SourceSnapshot],query:@escaping () async throws->(paths:[String],value:Value),acquire:@escaping (String) async throws->SourceSnapshot,current:@escaping ()->Bool) async throws->SourceProposalAcquisition<Value> {
     var sources=initial
     func check()throws{guard current() else{throw EngineError(message:"Source, selection or provider changed. Prepare again.")}}
     for _ in 0..<4 {
-        try check();let references=Array(Set(try await query())).sorted();try check()
+        try check();let proposal=try await query(),references=Array(Set(proposal.paths)).sorted();try check()
         guard references.count<=10000 else{throw EngineError(message:"Reference discovery exceeds 10,000 source targets. Narrow the change.")}
-        let missing=references.filter {sources[$0]==nil};if missing.isEmpty{return ReferenceSourceAcquisition(sources:sources,references:references)}
+        let missing=references.filter {sources[$0]==nil};if missing.isEmpty{return SourceProposalAcquisition(sources:sources,paths:references,value:proposal.value)}
         var cursor=0;var failure:Error?
         @MainActor func worker()async {
             while failure==nil && cursor<missing.count {
@@ -80,6 +91,10 @@ struct ReferenceSourceAcquisition {var sources:[String:SourceSnapshot];var refer
     }
     throw EngineError(message:"Reference targets kept expanding. Refresh project analysis and prepare again. No edits were applied.")
 }
+@MainActor func acquireReferenceSources(_ initial:[String:SourceSnapshot],query:@escaping () async throws->[String],acquire:@escaping (String) async throws->SourceSnapshot,current:@escaping ()->Bool) async throws->ReferenceSourceAcquisition {
+    let result=try await acquireSourceProposal(initial,query:{(paths:try await query(),value:false)},acquire:acquire,current:current)
+    return ReferenceSourceAcquisition(sources:result.sources,references:result.paths)
+}
 </ui:copy>
 
 <ui:file path="apps/apple-simple/Sources/ReferenceSources.swift"><ui:paste select="#reference-source-acquisition-apple"/></ui:file>
@@ -92,6 +107,11 @@ Hold source completions to prove two-worker bounds, duplicate removal and a fres
 import XCTest
 @testable import HickorySimple
 @MainActor final class ReferenceSourcesTests:XCTestCase {
+    func testReturnsOnlyProposalQueriedAfterAcquisition()async throws {
+        var round=0
+        let result=try await acquireSourceProposal([:],query:{round+=1;return (paths:["other"],value:round)},acquire:{_ in SourceSnapshot(text:"loaded",writable:true)},current:{true})
+        XCTAssertEqual(result.value,2);XCTAssertEqual(result.sources["other"]?.text,"loaded")
+    }
     struct Read {var path:String;var continuation:CheckedContinuation<SourceSnapshot,Error>}
     func settle(_ condition:@escaping ()->Bool)async{let deadline=Date().addingTimeInterval(2);while !condition()&&Date()<deadline{try? await Task.sleep(for:.milliseconds(1))}}
     func testBoundedAcquisitionRequeriesWithoutReplacingRetainedDrafts()async throws {
@@ -123,12 +143,14 @@ The provider query and source acquisition remain replaceable callbacks. A newly 
 package com.hickorydocs.simple
 import kotlinx.coroutines.*
 data class ReferenceSourceAcquisition(val sources:Map<String,SourceSnapshot>,val references:List<String>)
-suspend fun acquireReferenceSources(initial:Map<String,SourceSnapshot>,query:suspend ()->List<String>,acquire:suspend (String)->SourceSnapshot,current:()->Boolean):ReferenceSourceAcquisition=coroutineScope {
+data class SourceProposal<Value>(val paths:List<String>,val value:Value)
+data class SourceProposalAcquisition<Value>(val sources:Map<String,SourceSnapshot>,val paths:List<String>,val value:Value)
+suspend fun <Value> acquireSourceProposal(initial:Map<String,SourceSnapshot>,query:suspend ()->SourceProposal<Value>,acquire:suspend (String)->SourceSnapshot,current:()->Boolean):SourceProposalAcquisition<Value> = coroutineScope {
  val sources=initial.toMutableMap()
  fun checkCurrent(){check(current()){"Source, selection or provider changed. Prepare again."}}
  repeat(4){
-  checkCurrent();val references=query().distinct().sorted();checkCurrent();check(references.size<=10000){"Reference discovery exceeds 10,000 source targets. Narrow the change."}
-  val missing=references.filter{it !in sources};if(missing.isEmpty())return@coroutineScope ReferenceSourceAcquisition(sources.toMap(),references)
+  checkCurrent();val proposal=query();val references=proposal.paths.distinct().sorted();checkCurrent();check(references.size<=10000){"Reference discovery exceeds 10,000 source targets. Narrow the change."}
+  val missing=references.filter{it !in sources};if(missing.isEmpty())return@coroutineScope SourceProposalAcquisition(sources.toMap(),references,proposal.value)
   var cursor=0;var failure:Exception?=null
   suspend fun worker(){while(failure==null&&cursor<missing.size){try{checkCurrent();val path=missing[cursor++];val value=acquire(path);checkCurrent();check(value.writable){"Source is generated, read-only or saving: $path"};sources[path]=value}
    catch(cancelled:CancellationException){throw cancelled}catch(error:Exception){failure=error}
@@ -136,6 +158,10 @@ suspend fun acquireReferenceSources(initial:Map<String,SourceSnapshot>,query:sus
   val first=async{worker()};val second=async{worker()};awaitAll(first,second);failure?.let{throw it};checkCurrent()
  }
  error("Reference targets kept expanding. Refresh project analysis and prepare again. No edits were applied.")
+}
+suspend fun acquireReferenceSources(initial:Map<String,SourceSnapshot>,query:suspend ()->List<String>,acquire:suspend (String)->SourceSnapshot,current:()->Boolean):ReferenceSourceAcquisition {
+ val result=acquireSourceProposal(initial,{SourceProposal(query(),Unit)},acquire,current)
+ return ReferenceSourceAcquisition(result.sources,result.paths)
 }
 </ui:copy>
 
@@ -151,6 +177,10 @@ import org.junit.Test
 import org.junit.Assert.*
 import kotlinx.coroutines.*
 class ReferenceSourcesTest {
+ @Test fun returnsOnlyProposalQueriedAfterAcquisition()=runBlocking {
+  var round=0;val result=acquireSourceProposal(emptyMap(),{SourceProposal(listOf("other"),++round)},{SourceSnapshot("loaded",true)},{true})
+  assertEquals(2,result.value);assertEquals("loaded",result.sources["other"]?.text)
+ }
  data class Read(val path:String,val done:CompletableDeferred<SourceSnapshot>)
  private suspend fun settle(condition:()->Boolean){withTimeout(2000){while(!condition())yield()}}
  @Test fun boundedAcquisitionRequeriesWithoutReplacingRetainedDrafts()=runBlocking {

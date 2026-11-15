@@ -3,6 +3,10 @@ import org.junit.Test
 import org.junit.Assert.*
 import kotlinx.coroutines.*
 class ReferenceSourcesTest {
+ @Test fun returnsOnlyProposalQueriedAfterAcquisition()=runBlocking {
+  var round=0;val result=acquireSourceProposal(emptyMap(),{SourceProposal(listOf("other"),++round)},{SourceSnapshot("loaded",true)},{true})
+  assertEquals(2,result.value);assertEquals("loaded",result.sources["other"]?.text)
+ }
  data class Read(val path:String,val done:CompletableDeferred<SourceSnapshot>)
  private suspend fun settle(condition:()->Boolean){withTimeout(2000){while(!condition())yield()}}
  @Test fun boundedAcquisitionRequeriesWithoutReplacingRetainedDrafts()=runBlocking {

@@ -1,7 +1,11 @@
 import {expect,it} from 'vitest';
-import {acquireReferenceSources} from './ReferenceSources';
+import {acquireReferenceSources,acquireSourceProposal} from './ReferenceSources';
 function held(){let resolve!:(value:{text:string;writable:boolean})=>void;const promise=new Promise<{text:string;writable:boolean}>(done=>resolve=done);return {promise,resolve};}
 const flush=async()=>{for(let i=0;i<6;i++)await Promise.resolve();};
+it('returns only the proposal queried after all source acquisition',async()=>{
+ let round=0;const result=await acquireSourceProposal(new Map(),async()=>({paths:['other'],value:++round}),async()=>({text:'loaded',writable:true}),()=>true);
+ expect(result.value).toBe(2);expect(result.sources.get('other')?.text).toBe('loaded');
+});
 it('loads at most two unknown targets and queries again after acquisition',async()=>{
  let queries=0;const reads:{path:string;done:ReturnType<typeof held>}[]=[];
  const result=acquireReferenceSources(new Map([['retained',{text:'original draft',writable:true}]]),async()=>{queries++;return ['a','b','a','c','retained'];},path=>{const done=held();reads.push({path,done});return done.promise;},()=>true);

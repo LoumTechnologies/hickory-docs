@@ -1,6 +1,11 @@
 import XCTest
 @testable import HickorySimple
 @MainActor final class ReferenceSourcesTests:XCTestCase {
+    func testReturnsOnlyProposalQueriedAfterAcquisition()async throws {
+        var round=0
+        let result=try await acquireSourceProposal([:],query:{round+=1;return (paths:["other"],value:round)},acquire:{_ in SourceSnapshot(text:"loaded",writable:true)},current:{true})
+        XCTAssertEqual(result.value,2);XCTAssertEqual(result.sources["other"]?.text,"loaded")
+    }
     struct Read {var path:String;var continuation:CheckedContinuation<SourceSnapshot,Error>}
     func settle(_ condition:@escaping ()->Bool)async{let deadline=Date().addingTimeInterval(2);while !condition()&&Date()<deadline{try? await Task.sleep(for:.milliseconds(1))}}
     func testBoundedAcquisitionRequeriesWithoutReplacingRetainedDrafts()async throws {
