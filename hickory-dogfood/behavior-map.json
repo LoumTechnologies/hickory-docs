@@ -70778,6 +70778,72 @@
       "fragments": [
         "source-recovery-browser-service-witness"
       ]
+    },
+    "apps/web/src/simple/ResourceEditors.ts": {
+      "source": ".hickory-source/frontends/resource-editors.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "6d58f661db58f54aa45abf981486e4ad5c3bd283b467d3d5a5ec1ddc05846867",
+      "construction": "fragments",
+      "fragments": [
+        "resource-editor-routes-browser"
+      ]
+    },
+    "apps/apple-simple/Sources/ResourceEditors.swift": {
+      "source": ".hickory-source/frontends/resource-editors.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "50e708ee121579e63d4373a6b6b41d7438e43cf1e76e49fc458e0d7ea4fe92c0",
+      "construction": "fragments",
+      "fragments": [
+        "resource-editor-routes-apple"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/ResourceEditors.kt": {
+      "source": ".hickory-source/frontends/resource-editors.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "4e1a8a6a72def054408e3c5e76ed1d7e6c5bb62e8bf4691606cd81c7cf34ab50",
+      "construction": "fragments",
+      "fragments": [
+        "resource-editor-routes-android"
+      ]
+    },
+    "apps/web/src/simple/ResourceEditors.test.ts": {
+      "source": ".hickory-source/frontends/resource-editors.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "11bfa3a249b64ef0381672e943d831967554a2d60f92ba91aecc7cf03d0635cd",
+      "construction": "fragments",
+      "fragments": [
+        "resource-editor-routes-browser-tests"
+      ]
+    },
+    "apps/apple-simple/Tests/ResourceEditorsTests.swift": {
+      "source": ".hickory-source/frontends/resource-editors.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "3d1c0b259997de7ec27c7dc051e2c81880e059a5099f8e56c12cef31b8a388fe",
+      "construction": "fragments",
+      "fragments": [
+        "resource-editor-routes-apple-tests"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/ResourceEditorsTest.kt": {
+      "source": ".hickory-source/frontends/resource-editors.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "ef82c2ed577ae24acdcbe38491e3e67bc89427ac2e2b83bb81f01c6557accb5a",
+      "construction": "fragments",
+      "fragments": [
+        "resource-editor-routes-android-tests"
+      ]
     }
   },
   "evidence_records": [

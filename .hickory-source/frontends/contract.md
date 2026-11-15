@@ -867,4 +867,26 @@ also reads discovery and separate saved/draft text through the actual engine.
 These checks establish a recovery reading, not frontend restoration, ordinary-save
 local history, crash/session recovery or native physical-input acceptance.
 
+## Route resource identities before frontend namespace adoption
+
+The [resource editor routing model](resource-editors.md) computes the complete
+before/after address transition on browser, macOS/iOS and Android. Moves and swaps
+return the original editor handles. Deletions return handles for retention;
+restoration accepts an explicitly supplied retained handle, and path reuse does
+not infer identity. Duplicate paths/identities, missing or stale captures and one
+handle assigned to two sources refuse before any host mutation. Empty new source
+remains distinct from absence. Apple compares address bytes without Unicode
+canonical folding.
+
+Focused model evidence (2026-11-15): three browser cases and two cases per native
+implementation cover routing, explicit restoration, retained selection/scroll/undo
+state and complete refusal. The browser also retains an actual CodeMirror state
+and its undo depth through move and inverse routing. Apple and Kotlin cases run
+as isolated source-model targets; these are not full app/device builds. TypeScript
+checking, reconstruction and ownership audit pass. The model performs no IO or
+editor mutation. Confirmed-receipt adoption into live buffer/tab namespaces,
+renderer retention during deletion, language-session rebinding, menu-driven
+resource apply/restoration and coordinated saved/draft undo remain required on
+all hosts. This evidence does not establish frontend resource apply/undo parity.
+
 </ui:doc>

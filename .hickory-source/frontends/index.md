@@ -226,4 +226,6 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="source-recovery.md" />
 
+<ui:include file="resource-editors.md" />
+
 </ui:doc>

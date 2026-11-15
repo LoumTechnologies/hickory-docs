@@ -154154,6 +154154,48 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/source-recovery.md",
       "symbol": "Read recovery through the existing View menu",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-editor-routes-browser",
+      "output": "apps/web/src/simple/ResourceEditors.ts",
+      "page": ".hickory-source/frontends/resource-editors.md",
+      "symbol": "resource-editor-routes-browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-editor-routes-apple",
+      "output": "apps/apple-simple/Sources/ResourceEditors.swift",
+      "page": ".hickory-source/frontends/resource-editors.md",
+      "symbol": "resource-editor-routes-apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-editor-routes-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/ResourceEditors.kt",
+      "page": ".hickory-source/frontends/resource-editors.md",
+      "symbol": "resource-editor-routes-android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-editor-routes-browser-tests",
+      "output": "apps/web/src/simple/ResourceEditors.test.ts",
+      "page": ".hickory-source/frontends/resource-editors.md",
+      "symbol": "resource-editor-routes-browser-tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-editor-routes-apple-tests",
+      "output": "apps/apple-simple/Tests/ResourceEditorsTests.swift",
+      "page": ".hickory-source/frontends/resource-editors.md",
+      "symbol": "resource-editor-routes-apple-tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-editor-routes-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/ResourceEditorsTest.kt",
+      "page": ".hickory-source/frontends/resource-editors.md",
+      "symbol": "resource-editor-routes-android-tests",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {
