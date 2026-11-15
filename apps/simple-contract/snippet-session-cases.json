@@ -1697,6 +1697,309 @@
           "refuse": true
         }
       ]
+    },
+    {
+      "name": "prefix and suffix imports stay single around all mirrors",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "complete",
+          "from": 0,
+          "to": 1,
+          "text": "long",
+          "additional": [
+            {
+              "from": 0,
+              "to": 0,
+              "text": "# import\n"
+            },
+            {
+              "from": 5,
+              "to": 5,
+              "text": "\n# end"
+            }
+          ],
+          "after": "# import\nlong + long\n# end",
+          "selection": {
+            "from": 13,
+            "to": 13
+          },
+          "fields": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 9,
+              "to": 13,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 1,
+              "from": 16,
+              "to": 20,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 0,
+              "from": 20,
+              "to": 20,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "active": 1
+        }
+      ]
+    },
+    {
+      "name": "coincident prefix imports retain provider order",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "complete",
+          "from": 0,
+          "to": 1,
+          "text": "long",
+          "additional": [
+            {
+              "from": 0,
+              "to": 0,
+              "text": "first\n"
+            },
+            {
+              "from": 0,
+              "to": 0,
+              "text": "second\n"
+            }
+          ],
+          "after": "first\nsecond\nlong + long",
+          "selection": {
+            "from": 17,
+            "to": 17
+          },
+          "fields": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 13,
+              "to": 17,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 1,
+              "from": 20,
+              "to": 24,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 0,
+              "from": 24,
+              "to": 24,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "active": 1
+        }
+      ]
+    },
+    {
+      "name": "an interior additional edit refuses the complete proposal",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "complete",
+          "from": 0,
+          "to": 1,
+          "text": "long",
+          "additional": [
+            {
+              "from": 2,
+              "to": 2,
+              "text": "import"
+            }
+          ],
+          "refuse": true
+        }
+      ]
+    },
+    {
+      "name": "an overlapping additional replacement refuses the complete proposal",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "complete",
+          "from": 0,
+          "to": 1,
+          "text": "long",
+          "additional": [
+            {
+              "from": 0,
+              "to": 2,
+              "text": "import"
+            }
+          ],
+          "refuse": true
+        }
+      ]
+    },
+    {
+      "name": "stale source refuses primary and import edits",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "complete",
+          "from": 0,
+          "to": 1,
+          "text": "long",
+          "additional": [
+            {
+              "from": 0,
+              "to": 0,
+              "text": "import"
+            }
+          ],
+          "refuse": true,
+          "currentSource": "b + b"
+        }
+      ]
     }
   ]
 }

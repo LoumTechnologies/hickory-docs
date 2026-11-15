@@ -15,7 +15,7 @@ import {acceptCompletion,closeCompletion,completionStatus,pickedCompletion,start
 import {exclusiveCompletionSources,withCompletionOrigin} from '../lsp/completion';
 import {cancelCompletionAcceptance,readCompletionAcceptance} from '../lsp/completionAcceptance';
 import {prepareEditorChanges} from '../editor/textInput';
-import {beginSnippet,advanceSnippet,editSnippet,type SnippetSession} from './SnippetSession';
+import {beginSnippet,advanceSnippet,editSnippet,completeSnippet,type SnippetSession} from './SnippetSession';
 import type {CompletionDraft} from './CompletionPlan';
 export const setSourceSnippet=StateEffect.define<SnippetSession|null>();
 interface SnippetSnapshot {source:string;session:SnippetSession|null;selection:EditorSelection}
@@ -58,14 +58,12 @@ const snippetState=StateField.define<SnippetSession|null>({
  provide:field=>EditorView.decorations.from(field,session=>Decoration.set((session?.fields??[]).filter(field=>field.index>0&&field.from<field.to).map(field=>Decoration.mark({class:field.index===session!.active?'simple-snippet-field active':'simple-snippet-field'}).range(field.from,field.to)),true)),
 });
 export function sourceSnippetEffect(draft:CompletionDraft,after:string){return setSourceSnippet.of(draft.continuing??beginSnippet(after,draft.fields));}
-export function continueSourceSnippetCompletion(view:EditorView,draft:CompletionDraft,item:unknown):CompletionDraft {
+export function continueSourceSnippetCompletion(view:EditorView,draft:CompletionDraft):CompletionDraft {
  const current=readSourceSnippet(view);if(!current)return draft;
- const additional=(item as {additionalTextEdits?:unknown}|null)?.additionalTextEdits;
- if(draft.fields.length||Array.isArray(additional)&&additional.length)throw new Error('Finish the current template before accepting completion imports or another snippet. No edits were applied.');
- if(!draft.plan.patches.length)return {...draft,continuing:current};
- const patch=draft.plan.patches[0];if(draft.plan.patches.length!==1||patch.edits.length!==1)throw new Error('Completion cannot be combined with the current template. Finish it and retry.');
- const edit=patch.edits[0],input=editSnippet(current,draft.before,edit.from,edit.to,edit.text);if(!input)throw new Error('Completion leaves the active template field. Finish it and retry.');
- return {...draft,plan:{title:draft.plan.title,patches:[{path:draft.path,before:draft.before,after:input.session.source,edits:input.edits}]},selection:input.selection,insertionFrom:input.selection.from-edit.text.length,continuing:input.session};
+ if(draft.fields.length)throw new Error('Finish the current template before inserting another snippet. No edits were applied.');
+ const edit=draft.primary;if(!edit)throw new Error('Completion primary edit is unavailable. No edits were applied.');
+ const input=completeSnippet(current,draft.before,edit,draft.additional??[]);if(!input)throw new Error('Completion overlaps template fields or is unavailable. Finish the template and retry.');
+ return {...draft,plan:{title:draft.plan.title,patches:input.session.source===draft.before?[]:[{path:draft.path,before:draft.before,after:input.session.source,edits:input.edits}]},selection:input.selection,insertionFrom:input.selection.from-edit.text.length,continuing:input.session};
 }
 export function readSourceSnippet(view:EditorView):SnippetSession|null{return view.state.field(snippetState,false)??null;}
 export function finishSourceSnippet(view:EditorView):boolean {if(!readSourceSnippet(view))return false;view.dispatch({effects:setSourceSnippet.of(null)});return true;}
@@ -164,15 +162,12 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {value?.field
         }
         guard commit(input,current) else{_ = finish();return nil};return true
     }
-    func prepareCompletion(_ draft:CompletionDraft,item:[String:Any])throws->CompletionDraft {
+    func prepareCompletion(_ draft:CompletionDraft)throws->CompletionDraft {
         guard let current=active else{return draft}
-        guard draft.fields.isEmpty,(item["additionalTextEdits"] as? [Any])?.isEmpty != false else{throw EngineError(message:"Finish the current template before accepting completion imports or another snippet. No edits were applied.")}
+        guard draft.fields.isEmpty else{throw EngineError(message:"Finish the current template before inserting another snippet. No edits were applied.")}
         var result=draft
-        if draft.plan.patches.isEmpty{result.continuing=current;return result}
-        guard draft.plan.patches.count==1,let patch=draft.plan.patches.first,patch.edits.count==1 else{throw EngineError(message:"Completion cannot be combined with the current template. Finish it and retry.")}
-        let edit=patch.edits[0]
-        guard let input=editSnippet(current,source:draft.before,from:edit.from,to:edit.to,text:edit.text) else{throw EngineError(message:"Completion leaves the active template field. Finish it and retry.")}
-        result.plan=ChangePlan(title:draft.plan.title,patches:[SourcePatch(path:draft.path,before:draft.before,after:input.session.source,edits:input.edits.map{SourceReplacement(from:$0.range.location,to:NSMaxRange($0.range),text:$0.text)})]);result.selection=input.selection;result.insertionFrom=input.selection.from-edit.text.utf16.count;result.continuing=input.session;return result
+        guard let edit=draft.primary,let input=completeSnippet(current,source:draft.before,primary:edit,additional:draft.additional) else{throw EngineError(message:"Completion overlaps template fields or is unavailable. Finish the template and retry.")}
+        result.plan=ChangePlan(title:draft.plan.title,patches:exactUTF8(input.session.source,draft.before) ? []:[SourcePatch(path:draft.path,before:draft.before,after:input.session.source,edits:input.edits.map{SourceReplacement(from:$0.range.location,to:NSMaxRange($0.range),text:$0.text)})]);result.selection=input.selection;result.insertionFrom=input.selection.from-edit.text.utf16.count;result.continuing=input.session;return result
     }
     @discardableResult func choose(_ value:String)->Bool {
         guard let buffer,let current=active,!buffer.readOnly,!buffer.saving,let field=current.fields.first(where:{$0.id==current.current}),field.choices.contains(where:{exactUTF8($0,value)}) else{return false}
@@ -257,13 +252,12 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
   val input=editSnippet(current,source,from,to,text) ?: return null
   if(caret==null)return input;if(caret !in from..(from+text.length))return null;val selected=input.selection.from+caret-(from+text.length);return input.copy(selection=CompletionSelection(selected,selected))
  }
- fun prepareCompletion(draft:CompletionDraft,item:org.json.JSONObject):CompletionDraft {
+ fun prepareCompletion(draft:CompletionDraft):CompletionDraft {
   val current=active ?: return draft
-  check(draft.fields.isEmpty()&&(item.optJSONArray("additionalTextEdits")?.length() ?: 0)==0){"Finish the current template before accepting completion imports or another snippet. No edits were applied."}
-  if(draft.plan.patches.isEmpty())return draft.copy(continuing=current)
-  check(draft.plan.patches.size==1&&draft.plan.patches[0].edits.size==1){"Completion cannot be combined with the current template. Finish it and retry."}
-  val edit=draft.plan.patches[0].edits[0];val input=editSnippet(current,draft.before,edit.from,edit.to,edit.text) ?: error("Completion leaves the active template field. Finish it and retry.")
-  return draft.copy(plan=ChangePlan(draft.plan.title,listOf(SourcePatch(draft.path,draft.before,input.session.source,input.edits.map{SourceReplacement(it.from,it.to,it.text)}))),selection=input.selection,insertionFrom=input.selection.from-edit.text.length,continuing=input.session)
+  check(draft.fields.isEmpty()){"Finish the current template before inserting another snippet. No edits were applied."}
+  val edit=draft.primary ?: error("Completion primary edit is unavailable. No edits were applied.")
+  val input=completeSnippet(current,draft.before,edit,draft.additional) ?: error("Completion overlaps template fields or is unavailable. Finish the template and retry.")
+  return draft.copy(plan=ChangePlan(draft.plan.title,if(input.session.source==draft.before)emptyList() else listOf(SourcePatch(draft.path,draft.before,input.session.source,input.edits.map{SourceReplacement(it.from,it.to,it.text)}))),selection=input.selection,insertionFrom=input.selection.from-edit.text.length,continuing=input.session)
  }
  fun applyInput(source:String,from:Int,to:Int,text:String):Boolean {
   val input=proposal(source,from,to,text) ?: return false;val before=captureBefore(source,buffer.state.selection,true)!!;val serial=recordSerial
@@ -340,8 +334,21 @@ it('plain provider completion preserves all current mirrors and their history',a
   expect(view.state.doc.toString()).toBe('long + long');expect(readSourceSnippet(view)?.source).toBe('long + long');expect(undo(view)).toBe(true);expect(view.state.doc.toString()).toBe('a + a');expect(readSourceSnippet(view)?.source).toBe('a + a');
  }finally{close();}
 });
-it('completion side effects inside an active template refuse as a whole',async()=>{
- const {view,close}=fixture();try{const item:CompletionItem={label:'long',textEdit:{range:{start:{line:0,character:0},end:{line:0,character:1}},newText:'long'},additionalTextEdits:[{range:{start:{line:0,character:5},end:{line:0,character:5}},newText:'\nimport other'}]};
+it('source-equal completion retains template scope without a text history step',async()=>{
+ const {view,close}=fixture();try{const item:CompletionItem={label:'a',insertText:'a'};
+  await acceptSourceCompletion(view,item,'a + a',view.state.selection,0,1,{uri:'hick:///a.py',resolve:async()=>item,current:()=>true,writable:()=>true,notice:()=>{}});
+  expect(view.state.doc.toString()).toBe('a + a');expect(readCompletionAcceptance(view)).toMatchObject({phase:'applied',source_changed:false});expect(readSourceSnippet(view)?.active).toBe(1);expect(undo(view)).toBe(false);
+ }finally{close();}
+});
+it('completion imports apply once while the primary replacement updates every mirror',async()=>{
+ const {view,close}=fixture();try{const item:CompletionItem={label:'long',textEdit:{range:{start:{line:0,character:0},end:{line:0,character:1}},newText:'long'},additionalTextEdits:[{range:{start:{line:0,character:0},end:{line:0,character:0}},newText:'# import\n'},{range:{start:{line:0,character:5},end:{line:0,character:5}},newText:'\n# end'}]};
+  await acceptSourceCompletion(view,item,'a + a',view.state.selection,0,1,{uri:'hick:///a.py',resolve:async()=>item,current:()=>true,writable:()=>true,notice:()=>{}});
+  expect(view.state.doc.toString()).toBe('# import\nlong + long\n# end');expect(view.state.selection.main.head).toBe(13);expect(readSourceSnippet(view)?.fields.map(field=>[field.from,field.to])).toEqual([[9,13],[16,20],[20,20]]);
+  expect(undo(view)).toBe(true);expect(view.state.doc.toString()).toBe('a + a');expect(readSourceSnippet(view)?.source).toBe('a + a');expect(redo(view)).toBe(true);expect(view.state.selection.main.head).toBe(13);expect(readSourceSnippet(view)?.source).toBe(view.state.doc.toString());
+ }finally{close();}
+});
+it('additional edits inside the active template forest refuse as a whole',async()=>{
+ const {view,close}=fixture();try{const item:CompletionItem={label:'long',textEdit:{range:{start:{line:0,character:0},end:{line:0,character:1}},newText:'long'},additionalTextEdits:[{range:{start:{line:0,character:2},end:{line:0,character:2}},newText:'\nimport other'}]};
   await acceptSourceCompletion(view,item,'a + a',view.state.selection,0,1,{uri:'hick:///a.py',resolve:async()=>item,current:()=>true,writable:()=>true,notice:()=>{}});
   expect(view.state.doc.toString()).toBe('a + a');expect(readCompletionAcceptance(view)).toMatchObject({phase:'unavailable',applied:false,source_changed:false});expect(readSourceSnippet(view)?.source).toBe('a + a');
  }finally{close();}
@@ -412,7 +419,7 @@ import AppKit
         editor.text.undoManager?.undo();XCTAssertEqual(buffer.text,source);editor.text.undoManager?.redo();XCTAssertEqual(editor.text.selectedRange().location,8)
         #endif
     }
-    func testProviderCompletionPreservesMirrorsAndRefusesImportSideEffects()async throws {
+    func testProviderCompletionCombinesImportsAndRefusesInteriorEdits()async throws {
         #if os(macOS)
         let source="a + a",buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"a + a",hash:"base")),service:NativeLanguage
         service=NativeLanguage(engine:try Engine(address:"http://fixture.invalid"),buffer:buffer);buffer.language=service
@@ -422,8 +429,11 @@ import AppKit
         let edit:[String:Any]=["range":["start":["line":0,"character":0],"end":["line":0,"character":1]],"newText":"long"]
         let accepted=await service.accept(item,resolution:{_ in ["label":"long","textEdit":edit]});XCTAssertTrue(accepted);XCTAssertEqual(buffer.text,"long + long");XCTAssertEqual(buffer.snippets.active?.source,"long + long")
         editor.text.undoManager?.undo();XCTAssertEqual(buffer.text,source);XCTAssertEqual(buffer.snippets.active?.source,source)
-        let refused=await service.accept(item,resolution:{_ in ["label":"long","textEdit":edit,"additionalTextEdits":[["range":["start":["line":0,"character":5],"end":["line":0,"character":5]],"newText":"\nimport other"]]]})
-        XCTAssertFalse(refused);XCTAssertEqual(buffer.text,source);XCTAssertTrue(service.completionNotice.contains("Finish the current template"))
+        let imported=await service.accept(item,resolution:{_ in ["label":"long","textEdit":edit,"additionalTextEdits":[["range":["start":["line":0,"character":0],"end":["line":0,"character":0]],"newText":"# import\n"],["range":["start":["line":0,"character":5],"end":["line":0,"character":5]],"newText":"\n# end"]]]})
+        XCTAssertTrue(imported);XCTAssertEqual(buffer.text,"# import\nlong + long\n# end");XCTAssertEqual(editor.text.selectedRange().location,13);XCTAssertEqual(buffer.snippets.active?.fields.map{$0.from},[9,16,20])
+        editor.text.undoManager?.undo();XCTAssertEqual(buffer.text,source);XCTAssertEqual(buffer.snippets.active?.source,source);editor.text.undoManager?.redo();XCTAssertEqual(editor.text.selectedRange().location,13);editor.text.undoManager?.undo()
+        let refused=await service.accept(item,resolution:{_ in ["label":"long","textEdit":edit,"additionalTextEdits":[["range":["start":["line":0,"character":2],"end":["line":0,"character":2]],"newText":"\nimport other"]]]})
+        XCTAssertFalse(refused);XCTAssertEqual(buffer.text,source);XCTAssertTrue(service.completionNotice.contains("overlaps template"))
         #endif
     }
     func testEqualPositionNavigationRetiresHeldCompletion()async throws {
@@ -501,14 +511,17 @@ class SourceSnippetInteractionTest {
   assertEquals("call(\n  \n) + call(\n  \n)",buffer.text);assertEquals(TextRange(8),buffer.state.selection);buffer.snippets.undoSource();assertEquals(source,buffer.text);buffer.snippets.redoSource();assertEquals(TextRange(8),buffer.state.selection)
  }
  @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
- @Test fun providerCompletionPreservesMirrorsAndRefusesImportSideEffects()=kotlinx.coroutines.runBlocking {
+ @Test fun providerCompletionCombinesImportsAndRefusesInteriorEdits()=kotlinx.coroutines.runBlocking {
   val buffer=buffer();val service=NativeLanguage(Engine("http://127.0.0.1:1"),buffer,this);buffer.language=service
   val item=NativeLanguageCompletion("long","",NativeSourceEdit(0,1,"long"),"a + a",buffer.state.selection,org.json.JSONObject().put("label","long"))
   val result=org.json.JSONObject("{\"label\":\"long\",\"textEdit\":{\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":0,\"character\":1}},\"newText\":\"long\"}}")
   try{assertTrue(service.accept(item){result});assertEquals("long + long",buffer.text);assertEquals(buffer.text,buffer.snippets.active?.source)
    buffer.snippets.undoSource();assertEquals("a + a",buffer.text);assertEquals(buffer.text,buffer.snippets.active?.source)
-   val refusal=org.json.JSONObject(result.toString()).put("additionalTextEdits",org.json.JSONArray("[{\"range\":{\"start\":{\"line\":0,\"character\":5},\"end\":{\"line\":0,\"character\":5}},\"newText\":\"\\nimport other\"}]"))
-   assertFalse(service.accept(item){refusal});assertEquals("a + a",buffer.text);assertTrue(service.completionNotice.contains("Finish the current template"))
+   val additions=org.json.JSONArray().put(org.json.JSONObject().put("range",org.json.JSONObject().put("start",org.json.JSONObject().put("line",0).put("character",0)).put("end",org.json.JSONObject().put("line",0).put("character",0))).put("newText","# import\n")).put(org.json.JSONObject().put("range",org.json.JSONObject().put("start",org.json.JSONObject().put("line",0).put("character",5)).put("end",org.json.JSONObject().put("line",0).put("character",5))).put("newText","\n# end"))
+   assertTrue(service.accept(item){org.json.JSONObject(result.toString()).put("additionalTextEdits",additions)});assertEquals("# import\nlong + long\n# end",buffer.text);assertEquals(TextRange(13),buffer.state.selection);assertEquals(listOf(9,16,20),buffer.snippets.active?.fields?.map{it.from})
+   buffer.snippets.undoSource();assertEquals("a + a",buffer.text);assertEquals(buffer.text,buffer.snippets.active?.source);buffer.snippets.redoSource();assertEquals(TextRange(13),buffer.state.selection);buffer.snippets.undoSource()
+   val refusal=org.json.JSONObject(result.toString()).put("additionalTextEdits",org.json.JSONArray("[{\"range\":{\"start\":{\"line\":0,\"character\":2},\"end\":{\"line\":0,\"character\":2}},\"newText\":\"\\nimport other\"}]"))
+   assertFalse(service.accept(item){refusal});assertEquals("a + a",buffer.text);assertTrue(service.completionNotice.contains("overlaps template"))
   }finally{service.close()}
  }
  @Test fun equalPositionNavigationRetiresHeldCompletion()=kotlinx.coroutines.runBlocking {

@@ -153138,6 +153138,27 @@
       "page": ".hickory-source/mechanisms/source-snippet-interaction.md",
       "symbol": "Check context restoration without owning native text history",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-session-browser-completion",
+      "output": "apps/web/src/simple/SnippetSession.ts",
+      "page": ".hickory-source/mechanisms/snippet-sessions.md",
+      "symbol": "Compose completion imports around the field forest",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-session-apple-completion",
+      "output": "apps/apple-simple/Sources/SnippetSession.swift",
+      "page": ".hickory-source/mechanisms/snippet-sessions.md",
+      "symbol": "Compose completion imports around the field forest",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-session-android-completion",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SnippetSession.kt",
+      "page": ".hickory-source/mechanisms/snippet-sessions.md",
+      "symbol": "Compose completion imports around the field forest",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

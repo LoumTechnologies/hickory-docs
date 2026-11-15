@@ -5,7 +5,7 @@ import {acceptCompletion,closeCompletion,completionStatus,pickedCompletion,start
 import {exclusiveCompletionSources,withCompletionOrigin} from '../lsp/completion';
 import {cancelCompletionAcceptance,readCompletionAcceptance} from '../lsp/completionAcceptance';
 import {prepareEditorChanges} from '../editor/textInput';
-import {beginSnippet,advanceSnippet,editSnippet,type SnippetSession} from './SnippetSession';
+import {beginSnippet,advanceSnippet,editSnippet,completeSnippet,type SnippetSession} from './SnippetSession';
 import type {CompletionDraft} from './CompletionPlan';
 export const setSourceSnippet=StateEffect.define<SnippetSession|null>();
 interface SnippetSnapshot {source:string;session:SnippetSession|null;selection:EditorSelection}
@@ -48,14 +48,12 @@ const snippetState=StateField.define<SnippetSession|null>({
  provide:field=>EditorView.decorations.from(field,session=>Decoration.set((session?.fields??[]).filter(field=>field.index>0&&field.from<field.to).map(field=>Decoration.mark({class:field.index===session!.active?'simple-snippet-field active':'simple-snippet-field'}).range(field.from,field.to)),true)),
 });
 export function sourceSnippetEffect(draft:CompletionDraft,after:string){return setSourceSnippet.of(draft.continuing??beginSnippet(after,draft.fields));}
-export function continueSourceSnippetCompletion(view:EditorView,draft:CompletionDraft,item:unknown):CompletionDraft {
+export function continueSourceSnippetCompletion(view:EditorView,draft:CompletionDraft):CompletionDraft {
  const current=readSourceSnippet(view);if(!current)return draft;
- const additional=(item as {additionalTextEdits?:unknown}|null)?.additionalTextEdits;
- if(draft.fields.length||Array.isArray(additional)&&additional.length)throw new Error('Finish the current template before accepting completion imports or another snippet. No edits were applied.');
- if(!draft.plan.patches.length)return {...draft,continuing:current};
- const patch=draft.plan.patches[0];if(draft.plan.patches.length!==1||patch.edits.length!==1)throw new Error('Completion cannot be combined with the current template. Finish it and retry.');
- const edit=patch.edits[0],input=editSnippet(current,draft.before,edit.from,edit.to,edit.text);if(!input)throw new Error('Completion leaves the active template field. Finish it and retry.');
- return {...draft,plan:{title:draft.plan.title,patches:[{path:draft.path,before:draft.before,after:input.session.source,edits:input.edits}]},selection:input.selection,insertionFrom:input.selection.from-edit.text.length,continuing:input.session};
+ if(draft.fields.length)throw new Error('Finish the current template before inserting another snippet. No edits were applied.');
+ const edit=draft.primary;if(!edit)throw new Error('Completion primary edit is unavailable. No edits were applied.');
+ const input=completeSnippet(current,draft.before,edit,draft.additional??[]);if(!input)throw new Error('Completion overlaps template fields or is unavailable. Finish the template and retry.');
+ return {...draft,plan:{title:draft.plan.title,patches:input.session.source===draft.before?[]:[{path:draft.path,before:draft.before,after:input.session.source,edits:input.edits}]},selection:input.selection,insertionFrom:input.selection.from-edit.text.length,continuing:input.session};
 }
 export function readSourceSnippet(view:EditorView):SnippetSession|null{return view.state.field(snippetState,false)??null;}
 export function finishSourceSnippet(view:EditorView):boolean {if(!readSourceSnippet(view))return false;view.dispatch({effects:setSourceSnippet.of(null)});return true;}

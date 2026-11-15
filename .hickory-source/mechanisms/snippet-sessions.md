@@ -3,6 +3,11 @@
 
 For maintainers attaching template interaction to existing editors. Hosts retain immediate ordinary input, source permissions, composition and undo authority; this model prepares linked edits and traversal without UI or disk effects.
 
+## Compose completion imports once around a linked replacement
+
+The completion planner retains separate primary and additional edits. Mirror the primary through the current session, then combine imports in original source coordinates. Imports before the entire field forest shift its fields and intended selection; imports after it leave those positions unchanged. Prefix imports at the primary start precede its text. The source planner has already deduplicated provider additions. Refuse additions inside the forest, overlapping replacements, invalid scalar boundaries and excessive import text before any host mutation. This deliberately conservative boundary keeps an import from becoming a mirrored field edit.
+
+
 ## Keep browser field editing independent of the view
 
 A source-bound session owns ordered occurrences and active intent. Only an edit wholly inside a current active occurrence can produce linked replacements. Parent edits retire descendants; child edits update enclosing mirrors. Coincident empty mirrors produce ordered text for every occurrence, while explicit ancestry distinguishes them from nested fields. Validate scalar boundaries and fanout before producing a proposal. A stale or unsupported edit returns no linked plan so the host can retain ordinary input.
@@ -27,6 +32,7 @@ export function advanceSnippet(session:SnippetSession,source:string,from:number,
  const active=order[next],field=session.fields.find(field=>field.index===active)!;
  return {session:active===0?null:{...session,active,current:field.id!},selection:{from:field.from,to:field.to}};
 }
+
 </ui:copy>
 
 ### Prepare one complete linked input proposal
@@ -72,7 +78,33 @@ export function editSnippet(session:SnippetSession,source:string,from:number,to:
 }
 </ui:copy>
 
-<ui:file path="apps/web/src/simple/SnippetSession.ts"><ui:paste select="#snippet-session-browser"/><ui:paste select="#snippet-session-browser-input"/></ui:file>
+## Compose browser completion imports around the field forest
+
+Compose the primary mirrored edit with imports once in original source coordinates. Imports outside the complete field forest may change source length; only imports before it shift field ranges and the intended caret. Merge coincident prefix insertions in provider order and reject interior or overlapping additions before returning any proposal.
+
+<ui:copy id="snippet-session-browser-completion">
+export function completeSnippet(session:SnippetSession,source:string,primary:SnippetEdit,additional:readonly SnippetEdit[]):SnippetInput|null {
+ const input=editSnippet(session,source,primary.from,primary.to,primary.text);if(!input)return null;
+ if(!additional.length)return input;
+ const start=Math.min(...session.fields.map(field=>field.from)),end=Math.max(...session.fields.map(field=>field.to));
+ let shift=0,bytes=0;const edits=input.edits.map(edit=>({...edit}));
+ for(const edit of [...additional].reverse()){
+  if(edit.from>edit.to||!scalar(source,edit.from)||!scalar(source,edit.to))return null;
+  bytes+=new TextEncoder().encode(edit.text).length;if(bytes>1048576)return null;
+  if(edit.to<=start)shift+=edit.text.length-(edit.to-edit.from);else if(edit.from<end)return null;
+  const same=edits.find(value=>value.from===edit.from);
+  if(same){if(edit.from!==edit.to||edit.to>start)return null;same.text=edit.text+same.text;}else edits.push({...edit});
+ }
+ edits.sort((a,b)=>a.from-b.from||a.to-b.to);
+ if(edits.some((edit,index)=>index>0&&(edits[index-1].to>edit.from||edits[index-1].from===edit.from)))return null;
+ let after=source;for(const edit of [...edits].reverse())after=after.slice(0,edit.from)+edit.text+after.slice(edit.to);
+ const fields=input.session.fields.map(field=>({...field,from:field.from+shift,to:field.to+shift}));
+ if(!beginSnippet(after,fields))return null;
+ return {session:{...input.session,source:after,fields},edits,selection:{from:input.selection.from+shift,to:input.selection.to+shift}};
+}
+</ui:copy>
+
+<ui:file path="apps/web/src/simple/SnippetSession.ts"><ui:paste select="#snippet-session-browser"/><ui:paste select="#snippet-session-browser-input"/><ui:paste select="#snippet-session-browser-completion"/></ui:file>
 
 ## Keep Apple field editing independent of the view
 
@@ -107,6 +139,7 @@ func advanceSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,direc
     var next=session;next.active=field.index;next.current=field.id!
     return SnippetAdvance(session:field.index==0 ? nil:next,selection:CompletionSelection(from:field.from,to:field.to))
 }
+
 </ui:copy>
 
 ### Prepare one complete linked input proposal
@@ -160,7 +193,33 @@ func editSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:Str
 }
 </ui:copy>
 
-<ui:file path="apps/apple-simple/Sources/SnippetSession.swift"><ui:paste select="#snippet-session-apple"/><ui:paste select="#snippet-session-apple-input"/></ui:file>
+## Compose apple completion imports around the field forest
+
+Compose the primary mirrored edit with imports once in original source coordinates. Imports outside the complete field forest may change source length; only imports before it shift field ranges and the intended caret. Merge coincident prefix insertions in provider order and reject interior or overlapping additions before returning any proposal.
+
+<ui:copy id="snippet-session-apple-completion">
+func completeSnippet(_ session:SnippetSession,source:String,primary:SourceReplacement,additional:[SourceReplacement])->SnippetInput? {
+    guard let input=editSnippet(session,source:source,from:primary.from,to:primary.to,text:primary.text) else{return nil}
+    if additional.isEmpty{return input}
+    let start=session.fields.map{$0.from}.min()!,end=session.fields.map{$0.to}.max()!,text=source as NSString
+    var shift=0,bytes=0,edits=input.edits.map{SourceReplacement(from:$0.range.location,to:NSMaxRange($0.range),text:$0.text)}
+    for edit in additional.reversed() {
+        guard edit.from<=edit.to,snippetScalar(text,edit.from),snippetScalar(text,edit.to) else{return nil}
+        bytes+=edit.text.utf8.count;guard bytes<=1048576 else{return nil}
+        if edit.to<=start{shift+=edit.text.utf16.count-(edit.to-edit.from)}else if edit.from<end{return nil}
+        if let index=edits.firstIndex(where:{$0.from==edit.from}){guard edit.from==edit.to,edit.to<=start else{return nil};edits[index].text=edit.text+edits[index].text}else{edits.append(edit)}
+    }
+    edits.sort{$0.from==$1.from ? $0.to<$1.to:$0.from<$1.from}
+    for index in edits.indices.dropFirst(){guard edits[index-1].to<=edits[index].from,edits[index-1].from != edits[index].from else{return nil}}
+    let output=NSMutableString(string:source);for edit in edits.reversed(){output.replaceCharacters(in:NSRange(location:edit.from,length:edit.to-edit.from),with:edit.text)}
+    let after=output as String,fields=input.session.fields.map{field in var value=field;value.from+=shift;value.to+=shift;return value}
+    guard beginSnippet(after,fields:fields) != nil else{return nil}
+    var next=input.session;next.source=after;next.fields=fields
+    return SnippetInput(session:next,edits:edits.map{NativeSourceEdit(range:NSRange(location:$0.from,length:$0.to-$0.from),text:$0.text)},selection:CompletionSelection(from:input.selection.from+shift,to:input.selection.to+shift))
+}
+</ui:copy>
+
+<ui:file path="apps/apple-simple/Sources/SnippetSession.swift"><ui:paste select="#snippet-session-apple"/><ui:paste select="#snippet-session-apple-input"/><ui:paste select="#snippet-session-apple-completion"/></ui:file>
 
 ## Keep Android field editing independent of the view
 
@@ -185,6 +244,7 @@ fun advanceSnippet(session:SnippetSession,source:String,from:Int,to:Int,directio
  val order=session.fields.map{it.index}.filter{it>0}.distinct().sorted()+0;val at=order.indexOf(session.active);val next=at+direction;if(at<0||next !in order.indices)return null
  val field=session.fields.first{it.index==order[next]};return SnippetAdvance(if(field.index==0)null else session.copy(active=field.index,current=field.id!!),CompletionSelection(field.from,field.to))
 }
+
 </ui:copy>
 
 ### Prepare one complete linked input proposal
@@ -227,7 +287,31 @@ fun editSnippet(session:SnippetSession,source:String,from:Int,to:Int,text:String
 }
 </ui:copy>
 
-<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/SnippetSession.kt"><ui:paste select="#snippet-session-android"/><ui:paste select="#snippet-session-android-input"/></ui:file>
+## Compose android completion imports around the field forest
+
+Compose the primary mirrored edit with imports once in original source coordinates. Imports outside the complete field forest may change source length; only imports before it shift field ranges and the intended caret. Merge coincident prefix insertions in provider order and reject interior or overlapping additions before returning any proposal.
+
+<ui:copy id="snippet-session-android-completion">
+fun completeSnippet(session:SnippetSession,source:String,primary:SourceReplacement,additional:List<SourceReplacement>):SnippetInput? {
+ val input=editSnippet(session,source,primary.from,primary.to,primary.text) ?: return null
+ if(additional.isEmpty())return input
+ val start=session.fields.minOf{it.from};val end=session.fields.maxOf{it.to};var shift=0;var bytes=0L
+ val edits=input.edits.map{SourceReplacement(it.from,it.to,it.text)}.toMutableList()
+ for(edit in additional.asReversed()){
+  if(edit.from>edit.to||!snippetScalar(source,edit.from)||!snippetScalar(source,edit.to))return null
+  bytes+=edit.text.toByteArray(Charsets.UTF_8).size;if(bytes>1048576)return null
+  if(edit.to<=start)shift+=edit.text.length-(edit.to-edit.from) else if(edit.from<end)return null
+  val index=edits.indexOfFirst{it.from==edit.from}
+  if(index>=0){if(edit.from!=edit.to||edit.to>start)return null;edits[index]=edits[index].copy(text=edit.text+edits[index].text)}else edits.add(edit)
+ }
+ edits.sortWith(compareBy({it.from},{it.to}));for(index in 1 until edits.size)if(edits[index-1].to>edits[index].from||edits[index-1].from==edits[index].from)return null
+ var after=source;for(edit in edits.asReversed())after=after.replaceRange(edit.from,edit.to,edit.text)
+ val fields=input.session.fields.map{it.copy(from=it.from+shift,to=it.to+shift)};if(beginSnippet(after,fields)==null)return null
+ return SnippetInput(input.session.copy(source=after,fields=fields),edits.map{NativeSourceEdit(it.from,it.to,it.text)},CompletionSelection(input.selection.from+shift,input.selection.to+shift))
+}
+</ui:copy>
+
+<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/SnippetSession.kt"><ui:paste select="#snippet-session-android"/><ui:paste select="#snippet-session-android-input"/><ui:paste select="#snippet-session-android-completion"/></ui:file>
 
 ## Specify linked input and source selection outcomes
 
@@ -1933,6 +2017,309 @@ These independently written cases state source text, every retained field occurr
           "refuse": true
         }
       ]
+    },
+    {
+      "name": "prefix and suffix imports stay single around all mirrors",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "complete",
+          "from": 0,
+          "to": 1,
+          "text": "long",
+          "additional": [
+            {
+              "from": 0,
+              "to": 0,
+              "text": "# import\n"
+            },
+            {
+              "from": 5,
+              "to": 5,
+              "text": "\n# end"
+            }
+          ],
+          "after": "# import\nlong + long\n# end",
+          "selection": {
+            "from": 13,
+            "to": 13
+          },
+          "fields": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 9,
+              "to": 13,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 1,
+              "from": 16,
+              "to": 20,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 0,
+              "from": 20,
+              "to": 20,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "active": 1
+        }
+      ]
+    },
+    {
+      "name": "coincident prefix imports retain provider order",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "complete",
+          "from": 0,
+          "to": 1,
+          "text": "long",
+          "additional": [
+            {
+              "from": 0,
+              "to": 0,
+              "text": "first\n"
+            },
+            {
+              "from": 0,
+              "to": 0,
+              "text": "second\n"
+            }
+          ],
+          "after": "first\nsecond\nlong + long",
+          "selection": {
+            "from": 17,
+            "to": 17
+          },
+          "fields": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 13,
+              "to": 17,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 1,
+              "from": 20,
+              "to": 24,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 0,
+              "from": 24,
+              "to": 24,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "active": 1
+        }
+      ]
+    },
+    {
+      "name": "an interior additional edit refuses the complete proposal",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "complete",
+          "from": 0,
+          "to": 1,
+          "text": "long",
+          "additional": [
+            {
+              "from": 2,
+              "to": 2,
+              "text": "import"
+            }
+          ],
+          "refuse": true
+        }
+      ]
+    },
+    {
+      "name": "an overlapping additional replacement refuses the complete proposal",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "complete",
+          "from": 0,
+          "to": 1,
+          "text": "long",
+          "additional": [
+            {
+              "from": 0,
+              "to": 2,
+              "text": "import"
+            }
+          ],
+          "refuse": true
+        }
+      ]
+    },
+    {
+      "name": "stale source refuses primary and import edits",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "complete",
+          "from": 0,
+          "to": 1,
+          "text": "long",
+          "additional": [
+            {
+              "from": 0,
+              "to": 0,
+              "text": "import"
+            }
+          ],
+          "refuse": true,
+          "currentSource": "b + b"
+        }
+      ]
     }
   ]
 }
@@ -1948,18 +2335,18 @@ Run the same independently specified source, scope and selection outcomes as the
 import {expect,it} from 'vitest';
 import vectors from '../../../simple-contract/snippet-session-cases.json';
 import type {SnippetField} from './SnippetExpansion';
-import {beginSnippet,editSnippet,advanceSnippet,type SnippetSession} from './SnippetSession';
-interface Step {action:string;from:number;to:number;text?:string;repeat?:number;currentSource?:string;refuse?:boolean;after?:string;fields?:SnippetField[];selection?:{from:number;to:number};active?:number|null}
+import {beginSnippet,editSnippet,advanceSnippet,completeSnippet,type SnippetSession} from './SnippetSession';
+interface Step {additional?:{from:number;to:number;text:string}[];action:string;from:number;to:number;text?:string;repeat?:number;currentSource?:string;refuse?:boolean;after?:string;fields?:SnippetField[];selection?:{from:number;to:number};active?:number|null}
 interface Case {name:string;source:string;fields:SnippetField[];invalidBegin?:boolean;steps?:Step[]}
 it('derives complete linked source edits, field scope and traversal from shared vectors',()=>{
  for(const value of vectors.cases as unknown as Case[]){
   let session:SnippetSession|null=beginSnippet(value.source,value.fields),source=value.source;
   if(value.invalidBegin){expect(session,value.name).toBeNull();continue;}expect(session,value.name).not.toBeNull();
   for(const step of value.steps!){const before=JSON.stringify(session),current=session!,input=step.currentSource??source;
-   const result=step.action==='edit'?editSnippet(current,input,step.from,step.to,(step.text??'').repeat(step.repeat??1)):advanceSnippet(current,input,step.from,step.to,step.action==='next'?1:-1);
+   const result=step.action==='complete'?completeSnippet(current,input,{from:step.from,to:step.to,text:step.text??''},step.additional??[]):step.action==='edit'?editSnippet(current,input,step.from,step.to,(step.text??'').repeat(step.repeat??1)):advanceSnippet(current,input,step.from,step.to,step.action==='next'?1:-1);
    expect(JSON.stringify(session),value.name).toBe(before);if(step.refuse){expect(result,value.name).toBeNull();continue;}expect(result,value.name).not.toBeNull();
    expect(result!.selection,value.name).toEqual(step.selection);
-   if(step.action==='edit'){const edited=result as NonNullable<ReturnType<typeof editSnippet>>;expect(edited.session.source,value.name).toBe(step.after);source=edited.session.source;}
+   if(step.action==='edit'||step.action==='complete'){const edited=result as NonNullable<ReturnType<typeof editSnippet>>;expect(edited.session.source,value.name).toBe(step.after);source=edited.session.source;}
    session=result!.session;
    if(step.fields)expect(session?.fields,value.name).toEqual(step.fields);
    if('active' in step)expect(session?.active??null,value.name).toBe(step.active);
@@ -1988,8 +2375,9 @@ final class SnippetSessionTests:XCTestCase {
             for step in value["steps"] as! [[String:Any]] {
                 let current=try XCTUnwrap(session),input=step["currentSource"] as? String ?? source,from=step["from"] as! Int,to=step["to"] as! Int,action=step["action"] as! String
                 let selected:CompletionSelection?,next:SnippetSession?
-                if action=="edit" {
-                    let result=editSnippet(current,source:input,from:from,to:to,text:String(repeating:step["text"] as? String ?? "",count:step["repeat"] as? Int ?? 1))
+                if action=="edit" || action=="complete" {
+                    let additional=(step["additional"] as? [[String:Any]] ?? []).map{SourceReplacement(from:$0["from"] as! Int,to:$0["to"] as! Int,text:$0["text"] as! String)}
+                    let result=action=="complete" ? completeSnippet(current,source:input,primary:SourceReplacement(from:from,to:to,text:step["text"] as? String ?? ""),additional:additional):editSnippet(current,source:input,from:from,to:to,text:String(repeating:step["text"] as? String ?? "",count:step["repeat"] as? Int ?? 1))
                     if step["refuse"] as? Bool==true{XCTAssertNil(result,name);continue}
                     let applied=try XCTUnwrap(result);XCTAssertTrue(exactUTF8(applied.session.source,step["after"] as! String),name);source=applied.session.source;selected=applied.selection;next=applied.session
                 }else{
@@ -2027,8 +2415,9 @@ class SnippetSessionTest {
    val steps=value.getJSONArray("steps");for(offset in 0 until steps.length()){
     val step=steps.getJSONObject(offset);val current=session!!;val input=step.optString("currentSource",source);val from=step.getInt("from");val to=step.getInt("to");val action=step.getString("action")
     val selected:CompletionSelection;val next:SnippetSession?
-    if(action=="edit"){
-     val result=editSnippet(current,input,from,to,step.optString("text","").repeat(step.optInt("repeat",1)))
+    if(action=="edit"||action=="complete"){
+     val additions=step.optJSONArray("additional") ?: JSONArray();val additional=(0 until additions.length()).map{val edit=additions.getJSONObject(it);SourceReplacement(edit.getInt("from"),edit.getInt("to"),edit.getString("text"))}
+     val result=if(action=="complete")completeSnippet(current,input,SourceReplacement(from,to,step.optString("text","")),additional)else editSnippet(current,input,from,to,step.optString("text","").repeat(step.optInt("repeat",1)))
      if(step.optBoolean("refuse")){assertNull(name,result);continue};assertNotNull(name,result);assertEquals(name,step.getString("after"),result!!.session.source);source=result.session.source;selected=result.selection;next=result.session
     }else{
      val result=advanceSnippet(current,input,from,to,if(action=="next")1 else -1)
@@ -2044,5 +2433,6 @@ class SnippetSessionTest {
 </ui:copy>
 
 <ui:file path="apps/android-simple/app/src/test/java/com/hickorydocs/simple/SnippetSessionTest.kt"><ui:paste select="#snippet-session-android-tests"/></ui:file>
+
 
 </ui:doc>

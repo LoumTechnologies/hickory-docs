@@ -16,6 +16,7 @@ fun advanceSnippet(session:SnippetSession,source:String,from:Int,to:Int,directio
  val order=session.fields.map{it.index}.filter{it>0}.distinct().sorted()+0;val at=order.indexOf(session.active);val next=at+direction;if(at<0||next !in order.indices)return null
  val field=session.fields.first{it.index==order[next]};return SnippetAdvance(if(field.index==0)null else session.copy(active=field.index,current=field.id!!),CompletionSelection(field.from,field.to))
 }
+
 private data class SnippetReplacement(val from:Int,val to:Int,var text:String,val owners:MutableList<Int>)
 fun editSnippet(session:SnippetSession,source:String,from:Int,to:Int,text:String):SnippetInput? {
  if(source!=session.source||from>to||!snippetScalar(source,from)||!snippetScalar(source,to)||session.active==0)return null
@@ -48,4 +49,21 @@ fun editSnippet(session:SnippetSession,source:String,from:Int,to:Int,text:String
  val updated=retained.map{field->var parent=field.parent;while(parent!=null&&!retainedIds.contains(parent))parent=ids[parent]?.parent;field.copy(parent=parent,from=map(field,field.from,false),to=map(field,field.to,true))}
  val groups=mutableMapOf<Int,String>();for(field in updated){if(field.from>field.to||!snippetScalar(after,field.from)||!snippetScalar(after,field.to))return null;val value=after.substring(field.from,field.to);val previous=groups[field.index];if(previous!=null&&previous!=value)return null;groups[field.index]=value}
  val caret=map(origin,from,false)+text.length;return SnippetInput(SnippetSession(after,updated,session.active,origin.id!!),native,CompletionSelection(caret,caret))
+}
+fun completeSnippet(session:SnippetSession,source:String,primary:SourceReplacement,additional:List<SourceReplacement>):SnippetInput? {
+ val input=editSnippet(session,source,primary.from,primary.to,primary.text) ?: return null
+ if(additional.isEmpty())return input
+ val start=session.fields.minOf{it.from};val end=session.fields.maxOf{it.to};var shift=0;var bytes=0L
+ val edits=input.edits.map{SourceReplacement(it.from,it.to,it.text)}.toMutableList()
+ for(edit in additional.asReversed()){
+  if(edit.from>edit.to||!snippetScalar(source,edit.from)||!snippetScalar(source,edit.to))return null
+  bytes+=edit.text.toByteArray(Charsets.UTF_8).size;if(bytes>1048576)return null
+  if(edit.to<=start)shift+=edit.text.length-(edit.to-edit.from) else if(edit.from<end)return null
+  val index=edits.indexOfFirst{it.from==edit.from}
+  if(index>=0){if(edit.from!=edit.to||edit.to>start)return null;edits[index]=edits[index].copy(text=edit.text+edits[index].text)}else edits.add(edit)
+ }
+ edits.sortWith(compareBy({it.from},{it.to}));for(index in 1 until edits.size)if(edits[index-1].to>edits[index].from||edits[index-1].from==edits[index].from)return null
+ var after=source;for(edit in edits.asReversed())after=after.replaceRange(edit.from,edit.to,edit.text)
+ val fields=input.session.fields.map{it.copy(from=it.from+shift,to=it.to+shift)};if(beginSnippet(after,fields)==null)return null
+ return SnippetInput(input.session.copy(source=after,fields=fields),edits.map{NativeSourceEdit(it.from,it.to,it.text)},CompletionSelection(input.selection.from+shift,input.selection.to+shift))
 }

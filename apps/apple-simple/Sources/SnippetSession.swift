@@ -26,6 +26,7 @@ func advanceSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,direc
     var next=session;next.active=field.index;next.current=field.id!
     return SnippetAdvance(session:field.index==0 ? nil:next,selection:CompletionSelection(from:field.from,to:field.to))
 }
+
 private struct SnippetReplacement {var from:Int;var to:Int;var text:String;var owners:[Int]}
 func editSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:String)->SnippetInput? {
     let original=source as NSString
@@ -69,4 +70,23 @@ func editSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:Str
     for field in updated{guard field.from<=field.to,snippetScalar(output,field.from),snippetScalar(output,field.to) else{return nil};let value=output.substring(with:NSRange(location:field.from,length:field.to-field.from));if let previous=groups[field.index],!exactUTF8(previous,value){return nil};groups[field.index]=value}
     let caret=map(origin,from,false)+text.utf16.count
     return SnippetInput(session:SnippetSession(source:after,fields:updated,active:session.active,current:origin.id!),edits:native,selection:CompletionSelection(from:caret,to:caret))
+}
+func completeSnippet(_ session:SnippetSession,source:String,primary:SourceReplacement,additional:[SourceReplacement])->SnippetInput? {
+    guard let input=editSnippet(session,source:source,from:primary.from,to:primary.to,text:primary.text) else{return nil}
+    if additional.isEmpty{return input}
+    let start=session.fields.map{$0.from}.min()!,end=session.fields.map{$0.to}.max()!,text=source as NSString
+    var shift=0,bytes=0,edits=input.edits.map{SourceReplacement(from:$0.range.location,to:NSMaxRange($0.range),text:$0.text)}
+    for edit in additional.reversed() {
+        guard edit.from<=edit.to,snippetScalar(text,edit.from),snippetScalar(text,edit.to) else{return nil}
+        bytes+=edit.text.utf8.count;guard bytes<=1048576 else{return nil}
+        if edit.to<=start{shift+=edit.text.utf16.count-(edit.to-edit.from)}else if edit.from<end{return nil}
+        if let index=edits.firstIndex(where:{$0.from==edit.from}){guard edit.from==edit.to,edit.to<=start else{return nil};edits[index].text=edit.text+edits[index].text}else{edits.append(edit)}
+    }
+    edits.sort{$0.from==$1.from ? $0.to<$1.to:$0.from<$1.from}
+    for index in edits.indices.dropFirst(){guard edits[index-1].to<=edits[index].from,edits[index-1].from != edits[index].from else{return nil}}
+    let output=NSMutableString(string:source);for edit in edits.reversed(){output.replaceCharacters(in:NSRange(location:edit.from,length:edit.to-edit.from),with:edit.text)}
+    let after=output as String,fields=input.session.fields.map{field in var value=field;value.from+=shift;value.to+=shift;return value}
+    guard beginSnippet(after,fields:fields) != nil else{return nil}
+    var next=input.session;next.source=after;next.fields=fields
+    return SnippetInput(session:next,edits:edits.map{NativeSourceEdit(range:NSRange(location:$0.from,length:$0.to-$0.from),text:$0.text)},selection:CompletionSelection(from:input.selection.from+shift,to:input.selection.to+shift))
 }

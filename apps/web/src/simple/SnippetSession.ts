@@ -17,6 +17,7 @@ export function advanceSnippet(session:SnippetSession,source:string,from:number,
  const active=order[next],field=session.fields.find(field=>field.index===active)!;
  return {session:active===0?null:{...session,active,current:field.id!},selection:{from:field.from,to:field.to}};
 }
+
 export function editSnippet(session:SnippetSession,source:string,from:number,to:number,text:string):SnippetInput|null {
  if(source!==session.source||from>to||!scalar(source,from)||!scalar(source,to)||session.active===0)return null;
  const fields=session.fields,ids=new Map(fields.map(field=>[field.id!,field]));
@@ -52,4 +53,23 @@ export function editSnippet(session:SnippetSession,source:string,from:number,to:
  const groups=new Map<number,string>();for(const field of updated){const value=after.slice(field.from,field.to),previous=groups.get(field.index);if(previous!==undefined&&previous!==value)return null;groups.set(field.index,value);}
  const caret=map(origin,from,false)+text.length;
  return {session:{source:after,fields:updated,active:session.active,current:origin.id!},edits:replacements.map(({from,to,text})=>({from,to,text})),selection:{from:caret,to:caret}};
+}
+export function completeSnippet(session:SnippetSession,source:string,primary:SnippetEdit,additional:readonly SnippetEdit[]):SnippetInput|null {
+ const input=editSnippet(session,source,primary.from,primary.to,primary.text);if(!input)return null;
+ if(!additional.length)return input;
+ const start=Math.min(...session.fields.map(field=>field.from)),end=Math.max(...session.fields.map(field=>field.to));
+ let shift=0,bytes=0;const edits=input.edits.map(edit=>({...edit}));
+ for(const edit of [...additional].reverse()){
+  if(edit.from>edit.to||!scalar(source,edit.from)||!scalar(source,edit.to))return null;
+  bytes+=new TextEncoder().encode(edit.text).length;if(bytes>1048576)return null;
+  if(edit.to<=start)shift+=edit.text.length-(edit.to-edit.from);else if(edit.from<end)return null;
+  const same=edits.find(value=>value.from===edit.from);
+  if(same){if(edit.from!==edit.to||edit.to>start)return null;same.text=edit.text+same.text;}else edits.push({...edit});
+ }
+ edits.sort((a,b)=>a.from-b.from||a.to-b.to);
+ if(edits.some((edit,index)=>index>0&&(edits[index-1].to>edit.from||edits[index-1].from===edit.from)))return null;
+ let after=source;for(const edit of [...edits].reverse())after=after.slice(0,edit.from)+edit.text+after.slice(edit.to);
+ const fields=input.session.fields.map(field=>({...field,from:field.from+shift,to:field.to+shift}));
+ if(!beginSnippet(after,fields))return null;
+ return {session:{...input.session,source:after,fields},edits,selection:{from:input.selection.from+shift,to:input.selection.to+shift}};
 }

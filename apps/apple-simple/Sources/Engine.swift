@@ -526,7 +526,7 @@ func rebaseNativeTokens(_ tokens: [NativeSemanticToken], from old: String, to ne
             guard acceptingCompletion==request else{return false}
             guard epoch==identity,buffer.snippets.intent==snippetIntent,buffer.language===self,!buffer.readOnly,!buffer.saving,exactUTF8(buffer.text,completion.source),buffer.selection==completion.selection,!(exactUTF8(buffer.multiSource,buffer.text)&&buffer.multiRanges.count>1) else{throw EngineError(message:"Source, cursor or provider changed. Request completions again.")}
             let initialDraft=try planCompletion(uri,item:resolved,snapshot:SourceSnapshot(text:completion.source,writable:!buffer.readOnly && !buffer.saving),from:completion.range.location,to:NSMaxRange(completion.range),expansion:try completionExpansion(resolved))
-            let draft=try buffer.snippets.prepareCompletion(initialDraft,item:resolved)
+            let draft=try buffer.snippets.prepareCompletion(initialDraft)
             guard exactUTF8(draft.path,buffer.file.path),buffer.applyCompletionDraft?(draft,completion.selection)==true else{throw EngineError(message:"Editor refused the complete completion. Finish composition or request again.")}
             completionPending=false;completionNotice=draft.plan.patches.isEmpty ? "Completion selected":"Completion applied · draft";showingSuggestions=false;return true
         }catch{if acceptingCompletion==request{completionNotice=error.localizedDescription};return false}

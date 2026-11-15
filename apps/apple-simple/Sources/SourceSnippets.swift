@@ -37,15 +37,12 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {value?.field
         }
         guard commit(input,current) else{_ = finish();return nil};return true
     }
-    func prepareCompletion(_ draft:CompletionDraft,item:[String:Any])throws->CompletionDraft {
+    func prepareCompletion(_ draft:CompletionDraft)throws->CompletionDraft {
         guard let current=active else{return draft}
-        guard draft.fields.isEmpty,(item["additionalTextEdits"] as? [Any])?.isEmpty != false else{throw EngineError(message:"Finish the current template before accepting completion imports or another snippet. No edits were applied.")}
+        guard draft.fields.isEmpty else{throw EngineError(message:"Finish the current template before inserting another snippet. No edits were applied.")}
         var result=draft
-        if draft.plan.patches.isEmpty{result.continuing=current;return result}
-        guard draft.plan.patches.count==1,let patch=draft.plan.patches.first,patch.edits.count==1 else{throw EngineError(message:"Completion cannot be combined with the current template. Finish it and retry.")}
-        let edit=patch.edits[0]
-        guard let input=editSnippet(current,source:draft.before,from:edit.from,to:edit.to,text:edit.text) else{throw EngineError(message:"Completion leaves the active template field. Finish it and retry.")}
-        result.plan=ChangePlan(title:draft.plan.title,patches:[SourcePatch(path:draft.path,before:draft.before,after:input.session.source,edits:input.edits.map{SourceReplacement(from:$0.range.location,to:NSMaxRange($0.range),text:$0.text)})]);result.selection=input.selection;result.insertionFrom=input.selection.from-edit.text.utf16.count;result.continuing=input.session;return result
+        guard let edit=draft.primary,let input=completeSnippet(current,source:draft.before,primary:edit,additional:draft.additional) else{throw EngineError(message:"Completion overlaps template fields or is unavailable. Finish the template and retry.")}
+        result.plan=ChangePlan(title:draft.plan.title,patches:exactUTF8(input.session.source,draft.before) ? []:[SourcePatch(path:draft.path,before:draft.before,after:input.session.source,edits:input.edits.map{SourceReplacement(from:$0.range.location,to:NSMaxRange($0.range),text:$0.text)})]);result.selection=input.selection;result.insertionFrom=input.selection.from-edit.text.utf16.count;result.continuing=input.session;return result
     }
     @discardableResult func choose(_ value:String)->Bool {
         guard let buffer,let current=active,!buffer.readOnly,!buffer.saving,let field=current.fields.first(where:{$0.id==current.current}),field.choices.contains(where:{exactUTF8($0,value)}) else{return false}

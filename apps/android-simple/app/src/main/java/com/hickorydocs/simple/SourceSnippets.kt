@@ -60,13 +60,12 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
   val input=editSnippet(current,source,from,to,text) ?: return null
   if(caret==null)return input;if(caret !in from..(from+text.length))return null;val selected=input.selection.from+caret-(from+text.length);return input.copy(selection=CompletionSelection(selected,selected))
  }
- fun prepareCompletion(draft:CompletionDraft,item:org.json.JSONObject):CompletionDraft {
+ fun prepareCompletion(draft:CompletionDraft):CompletionDraft {
   val current=active ?: return draft
-  check(draft.fields.isEmpty()&&(item.optJSONArray("additionalTextEdits")?.length() ?: 0)==0){"Finish the current template before accepting completion imports or another snippet. No edits were applied."}
-  if(draft.plan.patches.isEmpty())return draft.copy(continuing=current)
-  check(draft.plan.patches.size==1&&draft.plan.patches[0].edits.size==1){"Completion cannot be combined with the current template. Finish it and retry."}
-  val edit=draft.plan.patches[0].edits[0];val input=editSnippet(current,draft.before,edit.from,edit.to,edit.text) ?: error("Completion leaves the active template field. Finish it and retry.")
-  return draft.copy(plan=ChangePlan(draft.plan.title,listOf(SourcePatch(draft.path,draft.before,input.session.source,input.edits.map{SourceReplacement(it.from,it.to,it.text)}))),selection=input.selection,insertionFrom=input.selection.from-edit.text.length,continuing=input.session)
+  check(draft.fields.isEmpty()){"Finish the current template before inserting another snippet. No edits were applied."}
+  val edit=draft.primary ?: error("Completion primary edit is unavailable. No edits were applied.")
+  val input=completeSnippet(current,draft.before,edit,draft.additional) ?: error("Completion overlaps template fields or is unavailable. Finish the template and retry.")
+  return draft.copy(plan=ChangePlan(draft.plan.title,if(input.session.source==draft.before)emptyList() else listOf(SourcePatch(draft.path,draft.before,input.session.source,input.edits.map{SourceReplacement(it.from,it.to,it.text)}))),selection=input.selection,insertionFrom=input.selection.from-edit.text.length,continuing=input.session)
  }
  fun applyInput(source:String,from:Int,to:Int,text:String):Boolean {
   val input=proposal(source,from,to,text) ?: return false;val before=captureBefore(source,buffer.state.selection,true)!!;val serial=recordSerial

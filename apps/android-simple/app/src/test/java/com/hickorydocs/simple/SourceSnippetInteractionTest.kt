@@ -22,14 +22,17 @@ class SourceSnippetInteractionTest {
   assertEquals("call(\n  \n) + call(\n  \n)",buffer.text);assertEquals(TextRange(8),buffer.state.selection);buffer.snippets.undoSource();assertEquals(source,buffer.text);buffer.snippets.redoSource();assertEquals(TextRange(8),buffer.state.selection)
  }
  @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
- @Test fun providerCompletionPreservesMirrorsAndRefusesImportSideEffects()=kotlinx.coroutines.runBlocking {
+ @Test fun providerCompletionCombinesImportsAndRefusesInteriorEdits()=kotlinx.coroutines.runBlocking {
   val buffer=buffer();val service=NativeLanguage(Engine("http://127.0.0.1:1"),buffer,this);buffer.language=service
   val item=NativeLanguageCompletion("long","",NativeSourceEdit(0,1,"long"),"a + a",buffer.state.selection,org.json.JSONObject().put("label","long"))
   val result=org.json.JSONObject("{\"label\":\"long\",\"textEdit\":{\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":0,\"character\":1}},\"newText\":\"long\"}}")
   try{assertTrue(service.accept(item){result});assertEquals("long + long",buffer.text);assertEquals(buffer.text,buffer.snippets.active?.source)
    buffer.snippets.undoSource();assertEquals("a + a",buffer.text);assertEquals(buffer.text,buffer.snippets.active?.source)
-   val refusal=org.json.JSONObject(result.toString()).put("additionalTextEdits",org.json.JSONArray("[{\"range\":{\"start\":{\"line\":0,\"character\":5},\"end\":{\"line\":0,\"character\":5}},\"newText\":\"\\nimport other\"}]"))
-   assertFalse(service.accept(item){refusal});assertEquals("a + a",buffer.text);assertTrue(service.completionNotice.contains("Finish the current template"))
+   val additions=org.json.JSONArray().put(org.json.JSONObject().put("range",org.json.JSONObject().put("start",org.json.JSONObject().put("line",0).put("character",0)).put("end",org.json.JSONObject().put("line",0).put("character",0))).put("newText","# import\n")).put(org.json.JSONObject().put("range",org.json.JSONObject().put("start",org.json.JSONObject().put("line",0).put("character",5)).put("end",org.json.JSONObject().put("line",0).put("character",5))).put("newText","\n# end"))
+   assertTrue(service.accept(item){org.json.JSONObject(result.toString()).put("additionalTextEdits",additions)});assertEquals("# import\nlong + long\n# end",buffer.text);assertEquals(TextRange(13),buffer.state.selection);assertEquals(listOf(9,16,20),buffer.snippets.active?.fields?.map{it.from})
+   buffer.snippets.undoSource();assertEquals("a + a",buffer.text);assertEquals(buffer.text,buffer.snippets.active?.source);buffer.snippets.redoSource();assertEquals(TextRange(13),buffer.state.selection);buffer.snippets.undoSource()
+   val refusal=org.json.JSONObject(result.toString()).put("additionalTextEdits",org.json.JSONArray("[{\"range\":{\"start\":{\"line\":0,\"character\":2},\"end\":{\"line\":0,\"character\":2}},\"newText\":\"\\nimport other\"}]"))
+   assertFalse(service.accept(item){refusal});assertEquals("a + a",buffer.text);assertTrue(service.completionNotice.contains("overlaps template"))
   }finally{service.close()}
  }
  @Test fun equalPositionNavigationRetiresHeldCompletion()=kotlinx.coroutines.runBlocking {

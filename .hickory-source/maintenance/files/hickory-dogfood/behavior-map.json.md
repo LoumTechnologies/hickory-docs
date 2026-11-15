@@ -69953,7 +69953,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "snippet-session-browser",
-        "snippet-session-browser-input"
+        "snippet-session-browser-input",
+        "snippet-session-browser-completion"
       ]
     },
     "apps/apple-simple/Sources/SnippetSession.swift": {
@@ -69965,7 +69966,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "snippet-session-apple",
-        "snippet-session-apple-input"
+        "snippet-session-apple-input",
+        "snippet-session-apple-completion"
       ]
     },
     "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SnippetSession.kt": {
@@ -69977,7 +69979,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "snippet-session-android",
-        "snippet-session-android-input"
+        "snippet-session-android-input",
+        "snippet-session-android-completion"
       ]
     },
     "apps/simple-contract/snippet-session-cases.json": {
