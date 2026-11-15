@@ -153013,6 +153013,76 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/snippet-completion-bridge.md",
       "symbol": "Run Android expansion vectors",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-session-browser",
+      "output": "apps/web/src/simple/SnippetSession.ts",
+      "page": ".hickory-source/mechanisms/snippet-sessions.md",
+      "symbol": "Keep browser field editing independent of the view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-session-apple",
+      "output": "apps/apple-simple/Sources/SnippetSession.swift",
+      "page": ".hickory-source/mechanisms/snippet-sessions.md",
+      "symbol": "Keep Apple field editing independent of the view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-session-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SnippetSession.kt",
+      "page": ".hickory-source/mechanisms/snippet-sessions.md",
+      "symbol": "Keep Android field editing independent of the view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-session-vectors",
+      "output": "apps/simple-contract/snippet-session-cases.json",
+      "page": ".hickory-source/mechanisms/snippet-sessions.md",
+      "symbol": "Specify linked input and source selection outcomes",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-session-browser-tests",
+      "output": "apps/web/src/simple/SnippetSession.test.ts",
+      "page": ".hickory-source/mechanisms/snippet-sessions.md",
+      "symbol": "Run the browser field-session contract",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-session-apple-tests",
+      "output": "apps/apple-simple/Tests/SnippetSessionTests.swift",
+      "page": ".hickory-source/mechanisms/snippet-sessions.md",
+      "symbol": "Run the Apple field-session contract",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-session-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SnippetSessionTest.kt",
+      "page": ".hickory-source/mechanisms/snippet-sessions.md",
+      "symbol": "Run the Android field-session contract",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-session-browser-input",
+      "output": "apps/web/src/simple/SnippetSession.ts",
+      "page": ".hickory-source/mechanisms/snippet-sessions.md",
+      "symbol": "Prepare one complete linked input proposal",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-session-apple-input",
+      "output": "apps/apple-simple/Sources/SnippetSession.swift",
+      "page": ".hickory-source/mechanisms/snippet-sessions.md",
+      "symbol": "Prepare one complete linked input proposal",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-session-android-input",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SnippetSession.kt",
+      "page": ".hickory-source/mechanisms/snippet-sessions.md",
+      "symbol": "Prepare one complete linked input proposal",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

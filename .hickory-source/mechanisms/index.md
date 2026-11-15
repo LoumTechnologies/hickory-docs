@@ -317,4 +317,6 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="snippet-completion-bridge.md" />
 
+<storycode:include file="snippet-sessions.md" />
+
 </storycode:doc>

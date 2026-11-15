@@ -1,0 +1,1662 @@
+{
+  "cases": [
+    {
+      "name": "linked typing and final exit",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 1,
+          "text": "value",
+          "after": "value + value",
+          "fields": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 5,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 1,
+              "from": 8,
+              "to": 13,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 0,
+              "from": 13,
+              "to": 13,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "selection": {
+            "from": 5,
+            "to": 5
+          }
+        },
+        {
+          "action": "edit",
+          "from": 5,
+          "to": 5,
+          "text": "!",
+          "after": "value! + value!",
+          "fields": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 6,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 1,
+              "from": 9,
+              "to": 15,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 0,
+              "from": 15,
+              "to": 15,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "selection": {
+            "from": 6,
+            "to": 6
+          }
+        },
+        {
+          "action": "next",
+          "from": 6,
+          "to": 6,
+          "active": null,
+          "selection": {
+            "from": 15,
+            "to": 15
+          }
+        }
+      ]
+    },
+    {
+      "name": "editing another mirror keeps its caret",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "edit",
+          "from": 4,
+          "to": 5,
+          "text": "value",
+          "after": "value + value",
+          "fields": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 5,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 1,
+              "from": 8,
+              "to": 13,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 0,
+              "from": 13,
+              "to": 13,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "selection": {
+            "from": 13,
+            "to": 13
+          }
+        }
+      ]
+    },
+    {
+      "name": "nested child updates mirrored parents",
+      "source": "foo bar = foo bar",
+      "fields": [
+        {
+          "id": 1,
+          "index": 2,
+          "from": 4,
+          "to": 7,
+          "choices": [],
+          "parent": 0
+        },
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 7,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 3,
+          "index": 2,
+          "from": 14,
+          "to": 17,
+          "choices": [],
+          "parent": 2
+        },
+        {
+          "id": 2,
+          "index": 1,
+          "from": 10,
+          "to": 17,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 4,
+          "index": 0,
+          "from": 17,
+          "to": 17,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "next",
+          "from": 0,
+          "to": 7,
+          "active": 2,
+          "selection": {
+            "from": 4,
+            "to": 7
+          }
+        },
+        {
+          "action": "edit",
+          "from": 4,
+          "to": 7,
+          "text": "x",
+          "after": "foo x = foo x",
+          "fields": [
+            {
+              "id": 1,
+              "index": 2,
+              "from": 4,
+              "to": 5,
+              "choices": [],
+              "parent": 0
+            },
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 5,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 3,
+              "index": 2,
+              "from": 12,
+              "to": 13,
+              "choices": [],
+              "parent": 2
+            },
+            {
+              "id": 2,
+              "index": 1,
+              "from": 8,
+              "to": 13,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 4,
+              "index": 0,
+              "from": 13,
+              "to": 13,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "selection": {
+            "from": 5,
+            "to": 5
+          }
+        },
+        {
+          "action": "prev",
+          "from": 5,
+          "to": 5,
+          "active": 1,
+          "selection": {
+            "from": 0,
+            "to": 5
+          }
+        },
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 5,
+          "text": "v",
+          "after": "v = v",
+          "fields": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 1,
+              "from": 4,
+              "to": 5,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 4,
+              "index": 0,
+              "from": 5,
+              "to": 5,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "selection": {
+            "from": 1,
+            "to": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "editing parent retires child fields",
+      "source": "foo bar = foo bar",
+      "fields": [
+        {
+          "id": 1,
+          "index": 2,
+          "from": 4,
+          "to": 7,
+          "choices": [],
+          "parent": 0
+        },
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 7,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 3,
+          "index": 2,
+          "from": 14,
+          "to": 17,
+          "choices": [],
+          "parent": 2
+        },
+        {
+          "id": 2,
+          "index": 1,
+          "from": 10,
+          "to": 17,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 4,
+          "index": 0,
+          "from": 17,
+          "to": 17,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 7,
+          "text": "value",
+          "after": "value = value",
+          "fields": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 5,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 1,
+              "from": 8,
+              "to": 13,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 4,
+              "index": 0,
+              "from": 13,
+              "to": 13,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "selection": {
+            "from": 5,
+            "to": 5
+          }
+        }
+      ]
+    },
+    {
+      "name": "no-op parent retains child fields",
+      "source": "foo bar = foo bar",
+      "fields": [
+        {
+          "id": 1,
+          "index": 2,
+          "from": 4,
+          "to": 7,
+          "choices": [],
+          "parent": 0
+        },
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 7,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 3,
+          "index": 2,
+          "from": 14,
+          "to": 17,
+          "choices": [],
+          "parent": 2
+        },
+        {
+          "id": 2,
+          "index": 1,
+          "from": 10,
+          "to": 17,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 4,
+          "index": 0,
+          "from": 17,
+          "to": 17,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 7,
+          "text": "foo bar",
+          "after": "foo bar = foo bar",
+          "fields": [
+            {
+              "id": 1,
+              "index": 2,
+              "from": 4,
+              "to": 7,
+              "choices": [],
+              "parent": 0
+            },
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 7,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 3,
+              "index": 2,
+              "from": 14,
+              "to": 17,
+              "choices": [],
+              "parent": 2
+            },
+            {
+              "id": 2,
+              "index": 1,
+              "from": 10,
+              "to": 17,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 4,
+              "index": 0,
+              "from": 17,
+              "to": 17,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "selection": {
+            "from": 7,
+            "to": 7
+          }
+        }
+      ]
+    },
+    {
+      "name": "partial parent editing retires child fields",
+      "source": "foo bar = foo bar",
+      "fields": [
+        {
+          "id": 1,
+          "index": 2,
+          "from": 4,
+          "to": 7,
+          "choices": [],
+          "parent": 0
+        },
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 7,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 3,
+          "index": 2,
+          "from": 14,
+          "to": 17,
+          "choices": [],
+          "parent": 2
+        },
+        {
+          "id": 2,
+          "index": 1,
+          "from": 10,
+          "to": 17,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 4,
+          "index": 0,
+          "from": 17,
+          "to": 17,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 1,
+          "text": "F",
+          "after": "Foo bar = Foo bar",
+          "fields": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 7,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 1,
+              "from": 10,
+              "to": 17,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 4,
+              "index": 0,
+              "from": 17,
+              "to": 17,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "selection": {
+            "from": 1,
+            "to": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "nested empty field is not an adjacent sibling",
+      "source": "",
+      "fields": [
+        {
+          "id": 1,
+          "index": 2,
+          "from": 0,
+          "to": 0,
+          "choices": [],
+          "parent": 0
+        },
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 0,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 3,
+          "from": 0,
+          "to": 0,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 3,
+          "index": 0,
+          "from": 0,
+          "to": 0,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 0,
+          "text": "a",
+          "after": "a",
+          "fields": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 3,
+              "from": 1,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 3,
+              "index": 0,
+              "from": 1,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "selection": {
+            "from": 1,
+            "to": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "editing nested empty child extends its parent",
+      "source": "",
+      "fields": [
+        {
+          "id": 1,
+          "index": 2,
+          "from": 0,
+          "to": 0,
+          "choices": [],
+          "parent": 0
+        },
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 0,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 3,
+          "from": 0,
+          "to": 0,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 3,
+          "index": 0,
+          "from": 0,
+          "to": 0,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "next",
+          "from": 0,
+          "to": 0,
+          "active": 2,
+          "selection": {
+            "from": 0,
+            "to": 0
+          }
+        },
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 0,
+          "text": "a",
+          "after": "a",
+          "fields": [
+            {
+              "id": 1,
+              "index": 2,
+              "from": 0,
+              "to": 1,
+              "choices": [],
+              "parent": 0
+            },
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 3,
+              "from": 1,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 3,
+              "index": 0,
+              "from": 1,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "selection": {
+            "from": 1,
+            "to": 1
+          }
+        },
+        {
+          "action": "next",
+          "from": 1,
+          "to": 1,
+          "active": 3,
+          "selection": {
+            "from": 1,
+            "to": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "coincident empty mirrors keep distinct occurrences",
+      "source": "",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 0,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 2,
+          "from": 0,
+          "to": 0,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 1,
+          "from": 0,
+          "to": 0,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 3,
+          "index": 0,
+          "from": 0,
+          "to": 0,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 0,
+          "text": "x",
+          "after": "xx",
+          "fields": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 2,
+              "from": 1,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 1,
+              "from": 1,
+              "to": 2,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 3,
+              "index": 0,
+              "from": 2,
+              "to": 2,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "selection": {
+            "from": 1,
+            "to": 1
+          }
+        },
+        {
+          "action": "next",
+          "from": 1,
+          "to": 1,
+          "active": 2,
+          "selection": {
+            "from": 1,
+            "to": 1
+          }
+        },
+        {
+          "action": "edit",
+          "from": 1,
+          "to": 1,
+          "text": "y",
+          "after": "xyx",
+          "fields": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 2,
+              "from": 1,
+              "to": 2,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 1,
+              "from": 2,
+              "to": 3,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 3,
+              "index": 0,
+              "from": 3,
+              "to": 3,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "selection": {
+            "from": 2,
+            "to": 2
+          }
+        }
+      ]
+    },
+    {
+      "name": "numeric order differs from source order",
+      "source": "",
+      "fields": [
+        {
+          "id": 0,
+          "index": 2,
+          "from": 0,
+          "to": 0,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 0,
+          "to": 0,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 0,
+          "to": 0,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 0,
+          "text": "x",
+          "after": "x",
+          "fields": [
+            {
+              "id": 0,
+              "index": 2,
+              "from": 0,
+              "to": 0,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 1,
+              "from": 0,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 0,
+              "from": 1,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "selection": {
+            "from": 1,
+            "to": 1
+          }
+        },
+        {
+          "action": "next",
+          "from": 1,
+          "to": 1,
+          "active": 2,
+          "selection": {
+            "from": 0,
+            "to": 0
+          }
+        },
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 0,
+          "text": "y",
+          "after": "yx",
+          "fields": [
+            {
+              "id": 0,
+              "index": 2,
+              "from": 0,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 1,
+              "from": 1,
+              "to": 2,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 0,
+              "from": 2,
+              "to": 2,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "selection": {
+            "from": 1,
+            "to": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "Unicode forms remain byte distinct",
+      "source": "😀 = 😀",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 2,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 5,
+          "to": 7,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 7,
+          "to": 7,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 2,
+          "text": "é",
+          "after": "é = é",
+          "fields": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 2,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 1,
+              "from": 5,
+              "to": 7,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 0,
+              "from": 7,
+              "to": 7,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "selection": {
+            "from": 2,
+            "to": 2
+          }
+        },
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 2,
+          "text": "é",
+          "after": "é = é",
+          "fields": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 1,
+              "from": 4,
+              "to": 5,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 0,
+              "from": 5,
+              "to": 5,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "selection": {
+            "from": 1,
+            "to": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "multiline linked input maps UTF16 ranges",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "edit",
+          "from": 1,
+          "to": 1,
+          "text": "\r\nb",
+          "after": "a\r\nb + a\r\nb",
+          "fields": [
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 4,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 1,
+              "index": 1,
+              "from": 7,
+              "to": 11,
+              "choices": [],
+              "parent": null
+            },
+            {
+              "id": 2,
+              "index": 0,
+              "from": 11,
+              "to": 11,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "selection": {
+            "from": 4,
+            "to": 4
+          }
+        },
+        {
+          "action": "edit",
+          "from": 2,
+          "to": 2,
+          "text": "x",
+          "refuse": true
+        }
+      ]
+    },
+    {
+      "name": "nested exit follows replaced parent",
+      "source": "foo suffix",
+      "fields": [
+        {
+          "id": 1,
+          "index": 0,
+          "from": 2,
+          "to": 2,
+          "choices": [],
+          "parent": 0
+        },
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 3,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 3,
+          "text": "x",
+          "after": "x suffix",
+          "fields": [
+            {
+              "id": 1,
+              "index": 0,
+              "from": 1,
+              "to": 1,
+              "choices": [],
+              "parent": 0
+            },
+            {
+              "id": 0,
+              "index": 1,
+              "from": 0,
+              "to": 1,
+              "choices": [],
+              "parent": null
+            }
+          ],
+          "selection": {
+            "from": 1,
+            "to": 1
+          }
+        },
+        {
+          "action": "next",
+          "from": 1,
+          "to": 1,
+          "active": null,
+          "selection": {
+            "from": 1,
+            "to": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "stale source ends editing intent",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 1,
+          "text": "x",
+          "currentSource": "changed",
+          "refuse": true
+        }
+      ]
+    },
+    {
+      "name": "typing outside a field stays ordinary input",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "edit",
+          "from": 2,
+          "to": 3,
+          "text": "x",
+          "refuse": true
+        }
+      ]
+    },
+    {
+      "name": "split Unicode scalar refuses mirroring",
+      "source": "😀 = 😀",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 2,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 5,
+          "to": 7,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 7,
+          "to": 7,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "edit",
+          "from": 1,
+          "to": 2,
+          "text": "x",
+          "refuse": true
+        }
+      ]
+    },
+    {
+      "name": "different mirror contents refuse whole linked edit",
+      "source": "a + b",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 1,
+          "text": "x",
+          "refuse": true
+        }
+      ]
+    },
+    {
+      "name": "bounded mirror fanout",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "edit",
+          "from": 0,
+          "to": 1,
+          "text": "x",
+          "repeat": 600000,
+          "refuse": true
+        }
+      ]
+    },
+    {
+      "name": "previous before first field is unavailable",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "prev",
+          "from": 0,
+          "to": 1,
+          "refuse": true
+        }
+      ]
+    },
+    {
+      "name": "navigation outside field is unavailable",
+      "source": "a + a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 1,
+          "from": 4,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 2,
+          "index": 0,
+          "from": 5,
+          "to": 5,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "steps": [
+        {
+          "action": "next",
+          "from": 2,
+          "to": 2,
+          "refuse": true
+        }
+      ]
+    },
+    {
+      "name": "legacy fields do not imply ancestry",
+      "source": "a",
+      "fields": [
+        {
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": []
+        },
+        {
+          "index": 0,
+          "from": 1,
+          "to": 1,
+          "choices": []
+        }
+      ],
+      "invalidBegin": true
+    },
+    {
+      "name": "duplicate occurrence identities",
+      "source": "a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 0,
+          "index": 0,
+          "from": 1,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "invalidBegin": true
+    },
+    {
+      "name": "cyclic occurrence ancestry",
+      "source": "a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": 0
+        },
+        {
+          "id": 1,
+          "index": 0,
+          "from": 1,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "invalidBegin": true
+    },
+    {
+      "name": "nonempty exit is not a field cursor",
+      "source": "a",
+      "fields": [
+        {
+          "id": 0,
+          "index": 1,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        },
+        {
+          "id": 1,
+          "index": 0,
+          "from": 0,
+          "to": 1,
+          "choices": [],
+          "parent": null
+        }
+      ],
+      "invalidBegin": true
+    }
+  ]
+}

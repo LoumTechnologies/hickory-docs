@@ -519,4 +519,12 @@ Snippet fields now carry stable occurrence identities and explicit parents throu
 
 Verification: five focused Rust parser/wire tests pass, including nested versus adjacent empty fields and the exit-inclusive limit. All three hosts pass 28 shared wire/import cases, including ancestry preservation after imports and malformed forests. Focused completion acceptance and browser redo tests continue to pass. These establish a field relationship model; Tab traversal and mirrored typing remain required integrations.
 
+## Source-bound linked field editing model
+
+Browser, Apple and Android now share the same snippet-session behavior contract independently of editor rendering. A current active field accepts an entire local replacement and prepares every mirrored replacement before returning a proposal. Explicit ancestry distinguishes child editing from parent replacement; parent edits retire descendants and child edits retain enclosing mirrored fields. A no-op retains nested fields. Ordered coincident empty mirrors insert text for every occurrence and preserve the positions of empty siblings. Numeric traversal follows field indices to the explicit exit, even when that order differs from source order.
+
+The model retains exact source, UTF-16 positions and the originating caret, rejects scalar/CRLF-splitting offsets and mismatched mirror contents, and bounds total inserted mirror text before constructing a result. Stale, outside or unsupported intent returns no linked proposal; it must not block ordinary host input. Nothing in the model applies source, saves or opens UI.
+
+Verification: all three production models pass the same 24 source/field/selection scenarios, including nested and empty fields, ordered coincident mirrors, numeric traversal, no-op preservation, distinct Unicode forms, multiline input and nested exits. Refusal cases cover stale source, edits outside a field, scalar and CRLF splits, incompatible mirrors, fanout limits and invalid session relationships. Browser checks also assert the input session remains immutable. TypeScript checking and native compilation pass. These pure-model results do not establish actual editor interaction; keyboard/menu traversal, mirrored typing, choice interaction and IME acceptance remain required integrations.
+
 </ui:doc>

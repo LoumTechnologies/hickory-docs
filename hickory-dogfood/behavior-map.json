@@ -69935,6 +69935,86 @@
       "fragments": [
         "snippet-expansion-android-tests"
       ]
+    },
+    "apps/web/src/simple/SnippetSession.ts": {
+      "source": ".hickory-source/mechanisms/snippet-sessions.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "840e719ae0969148d2da93b1844567cdfe1cea7a54a42e74db17aa914dad9242",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-session-browser",
+        "snippet-session-browser-input"
+      ]
+    },
+    "apps/apple-simple/Sources/SnippetSession.swift": {
+      "source": ".hickory-source/mechanisms/snippet-sessions.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "73911d9572f1569897ab3f0031b33e93eedfe8a04c09c1e7cee9f38e138333b0",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-session-apple",
+        "snippet-session-apple-input"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SnippetSession.kt": {
+      "source": ".hickory-source/mechanisms/snippet-sessions.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "ce1f0ed24c5a7718385f7299e0c98f31d4b0d7ac18c8c3708a5dd63141df57b3",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-session-android",
+        "snippet-session-android-input"
+      ]
+    },
+    "apps/simple-contract/snippet-session-cases.json": {
+      "source": ".hickory-source/mechanisms/snippet-sessions.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test-fixture",
+      "sha256": "74e94f87c9091625b23c0f492b19cf0384345eddd35dfaf9c58eb2af131604de",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-session-vectors"
+      ]
+    },
+    "apps/web/src/simple/SnippetSession.test.ts": {
+      "source": ".hickory-source/mechanisms/snippet-sessions.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "09092b510db360c0b045ab13863943de26c296ce9ecb17664af60b542603292a",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-session-browser-tests"
+      ]
+    },
+    "apps/apple-simple/Tests/SnippetSessionTests.swift": {
+      "source": ".hickory-source/mechanisms/snippet-sessions.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "391138207b27631de09a6c5d65315099474f6649a594f1f0617c4ce2f684b0f8",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-session-apple-tests"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SnippetSessionTest.kt": {
+      "source": ".hickory-source/mechanisms/snippet-sessions.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "02ee8005bdad77cc502c3d314740cdff64714c704fbea11f6b6c010bc3f65ddb",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-session-android-tests"
+      ]
     }
   },
   "evidence_records": [
