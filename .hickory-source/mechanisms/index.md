@@ -321,4 +321,6 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="source-snippet-interaction.md" />
 
+<storycode:include file="resource-change-plans.md" />
+
 </storycode:doc>

@@ -560,7 +560,11 @@ fn rewrite_uris(message: &mut Value, f: &dyn Fn(&str) -> Option<String>) {
                 }
             }
             for (key, value) in map.iter_mut() {
-                if (key == "uri" || key == "targetUri" || key == "rootUri")
+                if (key == "uri"
+                    || key == "targetUri"
+                    || key == "rootUri"
+                    || key == "oldUri"
+                    || key == "newUri")
                     && let Some(text) = value.as_str()
                     && let Some(rewritten) = f(text)
                 {
@@ -578,7 +582,6 @@ fn rewrite_uris(message: &mut Value, f: &dyn Fn(&str) -> Option<String>) {
         _ => {}
     }
 }
-
 /// `hick:///docs/a.md` → `file:///…/docs/a.md`.
 ///
 /// A path that escapes the project root is refused rather than translated: the
@@ -927,4 +930,21 @@ mod tests {
         hub.unsubscribe(2);
         assert!(hub.state.lock().unwrap().open.is_empty());
     }
+}
+#[cfg(test)]
+#[test]
+fn resource_operation_addresses_round_trip_without_rewriting_replacement_text() {
+    let root = std::path::Path::new("/home/u/project");
+    let mut value = serde_json::json!({"documentChanges":[{"kind":"create","uri":"file:///home/u/project/new%20%C3%A9.py"},{"kind":"rename","oldUri":"file:///home/u/project/old%2520.py","newUri":"file:///home/u/project/new%20%C3%A9.py"},{"kind":"delete","uri":"file:///home/u/project/old%2520.py"}],"newText":"file:///home/u/project/old%2520.py","label":"Move file:///home/u/project/new%20%C3%A9.py"});
+    let before = value.clone();
+    rewrite_uris(&mut value, &|uri| server_uri_to_client(uri, root));
+    assert_eq!(value["documentChanges"][1]["oldUri"], "hick:///old%2520.py");
+    assert_eq!(
+        value["documentChanges"][1]["newUri"],
+        "hick:///new%20%C3%A9.py"
+    );
+    assert_eq!(value["newText"], before["newText"]);
+    assert_eq!(value["label"], before["label"]);
+    rewrite_uris(&mut value, &|uri| client_uri_to_server(uri, root));
+    assert_eq!(value, before);
 }

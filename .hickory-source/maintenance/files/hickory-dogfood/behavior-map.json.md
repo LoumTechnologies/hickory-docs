@@ -53639,7 +53639,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-a429fedbabb9-path_to_file_uri",
         "f-a429fedbabb9-file_uri_to_path",
         "f-a429fedbabb9-percent_decode",
-        "f-a429fedbabb9-tests"
+        "f-a429fedbabb9-tests",
+        "resource-change-bridge-identities"
       ],
       "anchor": "output-a429fedbabb9",
       "narrative_owner": "mechanism:crates/hickory-cli"
@@ -70419,6 +70420,26 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "construction-reading-browser-real-engine"
+      ]
+    },
+    "crates/hickory-cli/src/serve/resource_changes.rs": {
+      "source": ".hickory-source/mechanisms/resource-change-plans.md",
+      "owner": "source-model",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "",
+      "construction": "fragments",
+      "fragments": [
+        "resource-change-states",
+        "resource-change-text-ranges",
+        "resource-change-annotations-limits",
+        "resource-change-ordered-prefix",
+        "resource-change-create",
+        "resource-change-rename",
+        "resource-change-delete",
+        "resource-change-ordered-result",
+        "resource-change-reversal-route",
+        "resource-change-safety-witnesses"
       ]
     }
   },

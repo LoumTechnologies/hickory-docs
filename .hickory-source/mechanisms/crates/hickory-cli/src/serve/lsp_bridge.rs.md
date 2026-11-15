@@ -729,7 +729,11 @@ fn rewrite_uris(message: &mut Value, f: &dyn Fn(&str) -> Option<String>) {
                 }
             }
             for (key, value) in map.iter_mut() {
-                if (key == "uri" || key == "targetUri" || key == "rootUri")
+                if (key == "uri"
+                    || key == "targetUri"
+                    || key == "rootUri"
+                    || key == "oldUri"
+                    || key == "newUri")
                     && let Some(text) = value.as_str()
                     && let Some(rewritten) = f(text)
                 {
@@ -747,7 +751,6 @@ fn rewrite_uris(message: &mut Value, f: &dyn Fn(&str) -> Option<String>) {
         _ => {}
     }
 }
-
 </storycode:copy>
 <a id="f-a429fedbabb9-client_uri_to_server"></a>
 ### `client_uri_to_server`
@@ -1145,6 +1148,30 @@ mod tests {
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/src/serve/lsp_bridge.rs"><storycode:paste select="#f-a429fedbabb9-DOC_SCHEME"/><storycode:paste select="#f-a429fedbabb9-OUTPUT_SCHEME"/><storycode:paste select="#f-a429fedbabb9-LspHub"/><storycode:paste select="#f-a429fedbabb9-HubState"/><storycode:paste select="#f-a429fedbabb9-Session"/><storycode:paste select="#f-a429fedbabb9-impl-Drop-for-Session"/><storycode:paste select="#f-a429fedbabb9-impl-LspHub"/><storycode:paste select="#f-a429fedbabb9-did_open_as_change"/><storycode:paste select="#f-a429fedbabb9-capabilities_announcement"/><storycode:paste select="#f-a429fedbabb9-frame"/><storycode:paste select="#f-a429fedbabb9-impl-HubState"/><storycode:paste select="#f-a429fedbabb9-impl-Session"/><storycode:paste select="#f-a429fedbabb9-initialize_request"/><storycode:paste select="#f-a429fedbabb9-initialized_notification"/><storycode:paste select="#f-a429fedbabb9-INITIALIZE_ID"/><storycode:paste select="#f-a429fedbabb9-write_framed"/><storycode:paste select="#f-a429fedbabb9-read_framed"/><storycode:paste select="#f-a429fedbabb9-rewrite_uris"/><storycode:paste select="#f-a429fedbabb9-client_uri_to_server"/><storycode:paste select="#f-a429fedbabb9-server_uri_to_client"/><storycode:paste select="#f-a429fedbabb9-path_to_file_uri"/><storycode:paste select="#f-a429fedbabb9-file_uri_to_path"/><storycode:paste select="#f-a429fedbabb9-percent_decode"/><storycode:paste select="#f-a429fedbabb9-tests"/></storycode:file>
+## Keep resource addresses in the workspace URI namespace
+
+Resource operations carry source identities in oldUri and newUri as well as uri. Translate these structural fields in both directions, retaining literal percent escapes. Replacement text and annotation prose are user content and must not be interpreted as addresses. This translation does not authorize a resource operation; the whole proposal still needs source/destination acquisition and preview.
+
+<storycode:copy id="resource-change-bridge-identities">
+#[cfg(test)]
+#[test]
+fn resource_operation_addresses_round_trip_without_rewriting_replacement_text() {
+    let root = std::path::Path::new("/home/u/project");
+    let mut value = serde_json::json!({"documentChanges":[{"kind":"create","uri":"file:///home/u/project/new%20%C3%A9.py"},{"kind":"rename","oldUri":"file:///home/u/project/old%2520.py","newUri":"file:///home/u/project/new%20%C3%A9.py"},{"kind":"delete","uri":"file:///home/u/project/old%2520.py"}],"newText":"file:///home/u/project/old%2520.py","label":"Move file:///home/u/project/new%20%C3%A9.py"});
+    let before = value.clone();
+    rewrite_uris(&mut value, &|uri| server_uri_to_client(uri, root));
+    assert_eq!(value["documentChanges"][1]["oldUri"], "hick:///old%2520.py");
+    assert_eq!(
+        value["documentChanges"][1]["newUri"],
+        "hick:///new%20%C3%A9.py"
+    );
+    assert_eq!(value["newText"], before["newText"]);
+    assert_eq!(value["label"], before["label"]);
+    rewrite_uris(&mut value, &|uri| client_uri_to_server(uri, root));
+    assert_eq!(value, before);
+}
+</storycode:copy>
+
+<storycode:file path="crates/hickory-cli/src/serve/lsp_bridge.rs"><storycode:paste select="#f-a429fedbabb9-DOC_SCHEME"/><storycode:paste select="#f-a429fedbabb9-OUTPUT_SCHEME"/><storycode:paste select="#f-a429fedbabb9-LspHub"/><storycode:paste select="#f-a429fedbabb9-HubState"/><storycode:paste select="#f-a429fedbabb9-Session"/><storycode:paste select="#f-a429fedbabb9-impl-Drop-for-Session"/><storycode:paste select="#f-a429fedbabb9-impl-LspHub"/><storycode:paste select="#f-a429fedbabb9-did_open_as_change"/><storycode:paste select="#f-a429fedbabb9-capabilities_announcement"/><storycode:paste select="#f-a429fedbabb9-frame"/><storycode:paste select="#f-a429fedbabb9-impl-HubState"/><storycode:paste select="#f-a429fedbabb9-impl-Session"/><storycode:paste select="#f-a429fedbabb9-initialize_request"/><storycode:paste select="#f-a429fedbabb9-initialized_notification"/><storycode:paste select="#f-a429fedbabb9-INITIALIZE_ID"/><storycode:paste select="#f-a429fedbabb9-write_framed"/><storycode:paste select="#f-a429fedbabb9-read_framed"/><storycode:paste select="#f-a429fedbabb9-rewrite_uris"/><storycode:paste select="#f-a429fedbabb9-client_uri_to_server"/><storycode:paste select="#f-a429fedbabb9-server_uri_to_client"/><storycode:paste select="#f-a429fedbabb9-path_to_file_uri"/><storycode:paste select="#f-a429fedbabb9-file_uri_to_path"/><storycode:paste select="#f-a429fedbabb9-percent_decode"/><storycode:paste select="#f-a429fedbabb9-tests"/><storycode:paste select="#resource-change-bridge-identities"/></storycode:file>
 
 </storycode:doc>

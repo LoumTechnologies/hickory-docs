@@ -523,6 +523,7 @@ pub mod test_coverage;
 <storycode:copy id="f-09ea558208cd-test_run">
 pub mod test_run;
 pub mod source_tests;
+pub mod resource_changes;
 </storycode:copy>
 <a id="f-09ea558208cd-watch"></a>
 ### `watch`
@@ -1367,6 +1368,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/tests/run", post(test_run::run))
         .route("/tests/source-candidates",post(source_tests::inspect).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
         .route("/construction/reading",post(source_tests::inspect_construction).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
+        .route("/changes/plan-resources",post(resource_changes::inspect).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
         .route("/tests/run-source",post(source_tests::run).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
         .route(
             "/performance",

@@ -153474,6 +153474,83 @@
       "page": ".hickory-source/frontends/construction-reading-android.md",
       "symbol": "Validate a captured point before moving the editor",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-change-states",
+      "output": "crates/hickory-cli/src/serve/resource_changes.rs",
+      "page": ".hickory-source/mechanisms/resource-change-plans.md",
+      "symbol": "Capture files and confirmed absence",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-change-text-ranges",
+      "output": "crates/hickory-cli/src/serve/resource_changes.rs",
+      "page": ".hickory-source/mechanisms/resource-change-plans.md",
+      "symbol": "Apply text after earlier resource operations",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-change-annotations-limits",
+      "output": "crates/hickory-cli/src/serve/resource_changes.rs",
+      "page": ".hickory-source/mechanisms/resource-change-plans.md",
+      "symbol": "Retain review labels and bound preparation",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-change-ordered-prefix",
+      "output": "crates/hickory-cli/src/serve/resource_changes.rs",
+      "page": ".hickory-source/mechanisms/resource-change-plans.md",
+      "symbol": "Choose one ordered proposal representation",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-change-create",
+      "output": "crates/hickory-cli/src/serve/resource_changes.rs",
+      "page": ".hickory-source/mechanisms/resource-change-plans.md",
+      "symbol": "Create only an acquired destination",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-change-rename",
+      "output": "crates/hickory-cli/src/serve/resource_changes.rs",
+      "page": ".hickory-source/mechanisms/resource-change-plans.md",
+      "symbol": "Move identity while retaining overwritten content for undo",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-change-delete",
+      "output": "crates/hickory-cli/src/serve/resource_changes.rs",
+      "page": ".hickory-source/mechanisms/resource-change-plans.md",
+      "symbol": "Delete only the acquired source",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-change-ordered-result",
+      "output": "crates/hickory-cli/src/serve/resource_changes.rs",
+      "page": ".hickory-source/mechanisms/resource-change-plans.md",
+      "symbol": "Return the complete draft delta",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-change-reversal-route",
+      "output": "crates/hickory-cli/src/serve/resource_changes.rs",
+      "page": ".hickory-source/mechanisms/resource-change-plans.md",
+      "symbol": "Validate the whole draft transition before applying or undoing",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-change-safety-witnesses",
+      "output": "crates/hickory-cli/src/serve/resource_changes.rs",
+      "page": ".hickory-source/mechanisms/resource-change-plans.md",
+      "symbol": "Exercise ordered resources and refusal boundaries",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-change-bridge-identities",
+      "output": "crates/hickory-cli/src/serve/lsp_bridge.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/lsp_bridge.rs.md",
+      "symbol": "Keep resource addresses in the workspace URI namespace",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {
