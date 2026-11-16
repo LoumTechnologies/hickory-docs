@@ -11,10 +11,10 @@ struct FileNode: Codable, Identifiable {
     var language: String?
     var id: String { path }
 }
-struct FileTree: Decodable { var root: String; var tree: [FileNode] }
-struct FileText: Decodable { var path: String; var content: String; var hash: String }
-struct FileSaved: Decodable { var path: String; var hash: String }
-struct SavedDocument: Decodable { var source: String; var updated_at: String? }
+struct FileTree: Decodable { var root: String; var root_path: String? = nil; var workspace_id: String? = nil; var tree: [FileNode] }
+struct FileText: Decodable { var path: String; var content: String; var hash: String; var save_guard: String? = nil; var save_guard_reason: String? = nil }
+struct FileSaved: Decodable { var path: String; var hash: String; var save_guard: String? = nil }
+struct SavedDocument: Decodable { var source: String; var updated_at: String?; var save_guard: String? = nil; var save_guard_reason: String? = nil }
 struct AgentTurn: Decodable, Identifiable {
     var id: String
     var prompt: String
@@ -54,7 +54,7 @@ struct Engine {
             let detail = object?["error"] as? String ?? String(data: data.prefix(600), encoding: .utf8) ?? "Request refused"
             throw EngineError(message: "\(detail) (HTTP \(response.statusCode)). Check the server and retry after reviewing its current state.")
         }
-        if path.hasPrefix("/api/tests/") || path.hasPrefix("/api/templates/"){try validateSourceTestJSON(data)}
+        if path.hasPrefix("/api/tests/") || path.hasPrefix("/api/templates/") || path.hasPrefix("/api/source-history") || path.hasPrefix("/api/behavior/") || path.hasPrefix("/api/changes/") || path.hasPrefix("/api/git/conflict-resolution/"){try validateSourceTestJSON(data)}
         return try JSONDecoder().decode(T.self, from: data)
     }
     func find(_ query: String, regex: Bool, matchCase: Bool, wholeWord: Bool) async throws -> WorkspaceSearchResult {
@@ -69,7 +69,7 @@ struct Engine {
     func file(_ file: FileNode) async throws -> FileText {
         if let id = file.doc_id {
             let document: SavedDocument = try await request("GET", "/api/docs/" + id)
-            return FileText(path: file.path, content: document.source, hash: "")
+            return FileText(path: file.path, content: document.source, hash: "", save_guard: document.save_guard, save_guard_reason: document.save_guard_reason)
         }
         return try await request("GET", "/api/file", query: [URLQueryItem(name: "path", value: file.path)])
     }
@@ -637,6 +637,10 @@ private struct NativeDebugFrameVariables:Decodable {
     private var pauseIdentityKnown=false
     private var latestThreadStop:UInt64?
     private var threadRequest:NativeDebugThreadRequest?
+    let adapterSources=NativeAdapterSourceModel()
+    var adapterSourceBinding:NativeAdapterSourceBinding? {guard canInspectFrame,let sessionID,let stop=latestThreadStop,let thread=selectedThread,let frame=selectedFrame,let selected=frames.first(where:{nativeDebugID($0["id"])==frame}),let reference=nativeDebugID(selected["source_reference"]),reference>0 else{return nil};return NativeAdapterSourceBinding(session:sessionID,stop:stop,thread:thread,frame:frame,reference:reference)}
+    var canReadAdapterSource:Bool {guard let number=capabilities["source_content"] as? NSNumber else{return false};return CFGetTypeID(number)==CFBooleanGetTypeID()&&number.boolValue&&adapterSourceBinding != nil}
+    func readAdapterSource(_ inspection:UUID){if let request=adapterSources.begin(adapterSourceBinding,capability:capabilities["source_content"],inspection:inspection){send(request)}}
     var frames: [[String: Any]] = []
     var variables: [[String: Any]] = []
     var capabilities: [String: Any] = [:]
@@ -716,7 +720,7 @@ private struct NativeDebugFrameVariables:Decodable {
     }
     init(engine: Engine) { self.engine = engine }
     var active: Bool { ["starting", "running", "unconfirmed", "paused", "stopping"].contains(status) }
-    var hasSessionReading:Bool {active || sessionID != nil || status=="finished" || status=="failed" || status=="unavailable" || !output.isEmpty}
+    var hasSessionReading:Bool {active || sessionID != nil || status=="finished" || status=="failed" || status=="unavailable" || !output.isEmpty || adapterSources.reading != nil}
     func line(in path: String) -> Int? {
         guard status == "paused",stackNotice.isEmpty,let reference=selectedSourceReference,reference<=0 else { return nil }
         let frame = frames.first(where: { nativeDebugID($0["id"]) == selectedFrame }) ?? frames.first
@@ -942,6 +946,8 @@ private struct NativeDebugFrameVariables:Decodable {
             if kind=="build" || event["session"] is NSNull {guard event["doc"] as? String==held.doc else{return}}
             else {guard event["session"] as? String==sessionID else{return}}
         }else {guard let id=event["session"] as? String,id==sessionID else{return}}
+        if kind=="adapter_source" {Task{[weak self] in guard let self else{return};_ = await self.adapterSources.receive(event,binding:{self.adapterSourceBinding})};return}
+        if kind=="failed",event["about"] as? String=="source" {if let request=event["request_id"] as? String{_ = adapterSources.refuse(request,event["message"] as? String ?? "Adapter source request refused.")};return}
         switch kind {
         case "started":
             if let pending=pendingSourceTest {
@@ -960,10 +966,10 @@ private struct NativeDebugFrameVariables:Decodable {
             receiveBreakpointReceipt(event,path:owner)
             if stopPending { stopPending = false; stop() }
         case "stopped":
-            guard let bytes=try? JSONSerialization.data(withJSONObject:event),let pause=try? JSONDecoder().decode(NativeDebugThreadPause.self,from:bytes) else{clearVariableTree();pauseIdentityKnown=false;stackNotice="Stopped response has no valid integer thread/stop identity. Earlier frames are historical; refresh through a current engine.";threadNotice=stackNotice;values=[:];evaluations=[:];frameRequest=nil;frameBusy=false;frameVariablesCurrent=false;threadRequest=nil;threadBusy=false;return}
+            guard let bytes=try? JSONSerialization.data(withJSONObject:event),let pause=try? JSONDecoder().decode(NativeDebugThreadPause.self,from:bytes) else{adapterSources.retire("Stopped identity is unavailable. Captured adapter text is historical.");clearVariableTree();pauseIdentityKnown=false;stackNotice="Stopped response has no valid integer thread/stop identity. Earlier frames are historical; refresh through a current engine.";threadNotice=stackNotice;values=[:];evaluations=[:];frameRequest=nil;frameBusy=false;frameVariablesCurrent=false;threadRequest=nil;threadBusy=false;return}
             guard status != "stopping" else{return}
             if let latestThreadStop {guard pause.stop>=latestThreadStop,!["running","unconfirmed"].contains(status) || pause.stop>latestThreadStop else{return}}
-            pauseUnconfirmed=false;movementRequest=nil
+            adapterSources.retire();pauseUnconfirmed=false;movementRequest=nil
             let previousFrames=frames,samePause=pause.stop==latestThreadStop && pause.thread==selectedThread
             pauseIdentityKnown=true;refreshingPause=false;admitThreadPause(pause);values=[:];evaluations=[:];evaluationNotice="";frameRequest=nil;frameBusy=false;frameSnapshot=UUID()
             stackNotice=(event["stack_error"] as? String).map{"Provider stack read refused: "+$0} ?? ""
@@ -1045,10 +1051,10 @@ private struct NativeDebugFrameVariables:Decodable {
         guard let children=event["variables"] as? [[String:Any]],children.count<=10000-variableNodes.count,children.allSatisfy({$0["name"] is String && $0["value"] is String && ($0["variables_reference"]==nil || nativeDebugID($0["variables_reference"]).map{$0>=0}==true)}) else{node.notice="Expansion is malformed or exceeds the 10,000-variable display limit.";variableNodes[node.id]=node;return}
         for value in children {let child=variableNode(value,depth:node.depth+1);variableNodes[child.id]=child;node.children.append(child.id)};node.notice=children.isEmpty ? "No child variables reported.":"";variableNodes[node.id]=node
     }
-    private func resetThreads() {
+    private func resetThreads() {adapterSources.retire();
         pauseUnconfirmed=false;clearVariableTree();threads=[];threadStop=nil;selectedThread=nil;threadRequest=nil;threadBusy=false;refreshingPause=false;threadNotice="";pauseIdentityKnown=false;latestThreadStop=nil;threadSnapshot=UUID();frameSnapshot=UUID();evaluations=[:];evaluationNotice="";frameRequest=nil;frameBusy=false;frameVariablesCurrent=false;frameNotice="";stackNotice="";threadPage=0
     }
-    private func retireThreadChoices() {
+    private func retireThreadChoices() {adapterSources.retire();
         clearVariableTree();threads=[];threadStop=nil;threadRequest=nil;threadBusy=false;refreshingPause=false;threadSnapshot=UUID();frameSnapshot=UUID();evaluations=[:];evaluationNotice="";frameRequest=nil;frameBusy=false;frameVariablesCurrent=false;frameNotice="";stackNotice="";threadPage=0
     }
     private func admitThreadPause(_ pause:NativeDebugThreadPause?) {
@@ -1056,7 +1062,7 @@ private struct NativeDebugFrameVariables:Decodable {
         let changed=latestThreadStop != pause.stop || selectedThread != pause.thread
         latestThreadStop=pause.stop;selectedThread=pause.thread
         if changed {
-            clearVariableTree();threads=[];threadStop=nil;threadSnapshot=UUID();threadPage=0;threadNotice="Read reported threads for this stopped state."
+            adapterSources.retire();clearVariableTree();threads=[];threadStop=nil;threadSnapshot=UUID();threadPage=0;threadNotice="Read reported threads for this stopped state."
             // A confirmed selection arrives as Stopped followed by its correlated
             // Threads response. Keep only that handoff; all older reads retire.
             if var request=threadRequest,request.thread==pause.thread,pause.stop>request.stop {request.stop=pause.stop;threadRequest=request}
@@ -1096,7 +1102,7 @@ private struct NativeDebugFrameVariables:Decodable {
     func selectThread(_ thread:Int64,snapshot:UUID) {
         guard canSelectThreads,let sessionID,let stop=threadStop,snapshot==threadSnapshot,threads.contains(where:{$0.id==thread}) else{threadNotice="Thread choices changed. Read the current stopped threads again.";return}
         guard thread != selectedThread else{return}
-        let id=UUID().uuidString;threadRequest=NativeDebugThreadRequest(id:id,stop:stop,thread:thread);threadBusy=true;threadNotice="Requesting the selected thread’s stopped stack…"
+        adapterSources.retire();let id=UUID().uuidString;threadRequest=NativeDebugThreadRequest(id:id,stop:stop,thread:thread);threadBusy=true;threadNotice="Requesting the selected thread’s stopped stack…"
         send(["op":"select_thread","session":sessionID,"thread":thread,"stop":stop,"request_id":id])
     }
     private func breakpointIntents(_ path:String)->[[String:Any]] {(breakpoints[path] ?? []).map{mark in var clean:[String:Any]=["line":mark["line"] ?? 0];if let condition=mark["condition"] as? String{clean["condition"]=condition};return clean}}
@@ -1164,7 +1170,7 @@ private struct NativeDebugFrameVariables:Decodable {
     }
     func select(_ frame:[String:Any],snapshot:UUID?=nil) {
         guard status=="paused",snapshot==nil || snapshot==frameSnapshot,let id=nativeDebugID(frame["id"]),frames.contains(where:{nativeDebugID($0["id"])==id}),threadRequest?.thread==nil,!refreshingPause,stackNotice.isEmpty else{return}
-        clearVariableTree();selectedFrame=id;evaluations=[:];evaluationNotice="";frameRequest=nil;frameBusy=false;frameVariablesCurrent=false
+        adapterSources.retire();clearVariableTree();selectedFrame=id;evaluations=[:];evaluationNotice="";frameRequest=nil;frameBusy=false;frameVariablesCurrent=false
         variables = selectedFrame == nativeDebugID(frames.first?["id"]) ? topVariables : []; values = [:]
         if let path=frame["source"] as? String,let hash=frame["source_hash"] as? String{confirmKnownSource(path,hash:hash)}
         else if frame["in_document"] as? Bool==true,let hash=launchBoundHash{confirmKnownSource(owner,hash:hash)}

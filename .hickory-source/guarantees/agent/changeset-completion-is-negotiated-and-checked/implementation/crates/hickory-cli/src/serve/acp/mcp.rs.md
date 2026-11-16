@@ -136,6 +136,11 @@ impl Host {
 <a id="f-89fc1623f7e6-exchange"></a>
 ### `exchange`
 
+The proposal tool is observational: it enriches one complete intention from the
+live editor capture, retains the engine review and records its token. It does not
+enter the ordinary per-file edit approval or write path. A successful tool reply
+explicitly says pending review, with no application or verification claim.
+
 <storycode:copy id="f-89fc1623f7e6-exchange">
 async fn exchange(State(bridge): State<Bridge>, Json(message): Json<Value>) -> impl IntoResponse {
     let Some(id) = message.get("id") else {
@@ -168,6 +173,11 @@ async fn exchange(State(bridge): State<Bridge>, Json(message): Json<Value>) -> i
             ),
             Err(error) => tool_error(id, &format!("{error:#}")),
         };
+    }
+    if method=="tools/call"&&name=="propose_workspace_changes"{
+        let origin=format!("agent-session:{}",super::super::workspace_fs::view::hash(bridge.record.lock().await.path.to_string_lossy().as_bytes()));
+        let result=super::super::agent_proposals::from_agent(bridge.state.clone(),&bridge.edits,origin,args).await;
+        return match result{Ok(Json(review))=>{let summary=super::super::agent_proposals::summary(&review);if let Err(error)=bridge.record.lock().await.context("agent-proposal",&summary){return tool_error(id,&format!("Proposal retained but recording failed: {error:#}. Nothing was applied."))}(StatusCode::OK,Json(json!({"jsonrpc":"2.0","id":id,"result":{"content":[{"type":"text","text":summary.to_string()}],"isError":false}})))},Err(error)=>tool_error(id,error.message())};
     }
     if method == "tools/call"
         && matches!(
@@ -349,6 +359,7 @@ async fn exchange(State(bridge): State<Bridge>, Json(message): Json<Value>) -> i
         tools.retain(|tool| tool["name"] != "begin_changeset");
         tools.extend(super::super::representation_tools::catalogue());
         tools.extend(super::edits::catalogue());
+        tools.extend(super::super::agent_proposals::catalogue());
         tools.extend(super::super::ui_actions::catalogue());
         let disabled = bridge.disabled_tools.lock().await;
         tools.retain(|tool| {

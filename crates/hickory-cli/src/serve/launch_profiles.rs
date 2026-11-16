@@ -75,6 +75,7 @@ pub(super) fn open_run(
     scratch: Option<tempfile::TempDir>,
     title: Option<String>,
 ) -> anyhow::Result<hick_term::SessionSummary> {
+    let root_lease=state.resource_root.check(state.index.root()).map_err(anyhow::Error::msg)?;
     let cwd = crate::debug_sessions::safe_cwd(root, &profile.definition.cwd)?;
     let mut argv = profile.run_argv(root).map_err(anyhow::Error::msg)?;
     if argv.first().is_some_and(|s| s == "python3")
@@ -83,6 +84,7 @@ pub(super) fn open_run(
         argv[0] = python.to_string_lossy().into_owned();
     }
     let command = terminal_command(profile, &argv);
+    if state.resource_root.check(state.index.root()).map_err(anyhow::Error::msg)?!=root_lease{anyhow::bail!("Workspace changed before process dispatch; no process was started.");}
     let session = state.terminals.open(hick_term::SessionSpec {
         title: title.unwrap_or_else(|| format!("Run {}", profile.definition.name)),
         cwd,

@@ -64,6 +64,7 @@ class GitConflictModel {
  }
  DisposableEffect(model){onDispose{model.close()}}
  Column(verticalArrangement=Arrangement.spacedBy(6.dp)){
+  GitResolutionView(workspace,path)
   TextButton(enabled=!model.loading,onClick={scope.launch{if(engine==null){model.notice="Connect to a workspace server first.";return@launch};page=0;model.read(path){value->conflictReading(engine.request("GET","/api/git/conflict?path=${URLEncoder.encode(value,"UTF-8")}"))}}}){Text("Inspect conflict stages")}
   if(model.notice.isNotEmpty())Text(model.notice,fontSize=12.sp)
   model.value?.let{value->

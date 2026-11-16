@@ -23,6 +23,28 @@ The complete outcome includes:
 
 These are required outcomes. Existing verification paragraphs establish only the explicitly tested slices; unsupported providers, missing relationships and unexecuted native acceptance must remain visible. JetBrains-specific language engines are supplied through existing language/provider interfaces; the UI must never claim an unavailable refactoring or an unmeasured test result.
 
+## Checkpoint requested during implementation
+
+The current checkpoint is intentionally partial. The latest source includes
+publication protocol2, loaded physical guard maps and an Apple connected-reading
+port; these are not yet certified by the earlier end-to-end receipts below.
+Scoped current checks pass Rust compilation and proposal models, browser
+37-case guard/graph/conflict checks and TypeScript checking, and Android 22-case
+compilation/guard checks. Three positive Rust ownership fixtures initially lacked
+the newly required original guards; after a narrow fixture correction all
+eighteen ownership cases pass. The new Apple graph view initially had two operator-spacing
+compile errors; symmetric whitespace fixes parse successfully, while its full
+typecheck remains pending at this checkpoint.
+
+Still unfinished here: rollback proof for a foreign same-byte occupant, original
+publication proof for inverse restoration, final legacy-history migration checks,
+post-effect owned-process retention (currently unwired helper code), the next
+all-suffix/unaddressed graph authority migration, agent proposal host application,
+and the remaining parity outcomes in the ledger. Android's first actual
+adapter-source run reached real literal content but failed on a test-only Step
+spelling; the corrected complete flow has not yet passed. These are open work,
+not completion claims. No broad regression run or status monitoring was performed.
+
 ## Current integration ledger
 
 This ledger reconciles the required outcome with the implementation inspected on
@@ -37,15 +59,161 @@ until reconstruction, focused safety checks and the connected path pass.
 | Safe changes, cleanup, generation and templates | Multi-source draft review/undo, cleanup and nested source snippets have focused evidence. Ordered resource publication and saved/draft undo now have connected browser/provider and native controller acceptance. Canonical-entry moves and ambiguous native wire path identities still refuse. A reusable template catalog now has reviewed Apply and coordinated field/history acceptance across the hosts, with rendered browser/macOS and native Android controller evidence. Semantic cleanup/provider generation, full snippet transforms/variable contexts, multi-caret templates and mirrored native IME remain open. |
 | Diagnostics and contextual fixes | Source-bound Problems, exact provider action resolution and multi-source action review have focused evidence. Complete bulk-fix workflow and provider analysis completeness remain open. |
 | Tests and coverage | Source declarations, saved-run admission, discovery/results and source-bound imported coverage have focused evidence. An actual Python collector now retains failed-run coverage and reruns only the failed case, marking the earlier source evidence historical after a source change. Python/pytest source-adjacent Debug now has actual writable physical/authored gutter acceptance on browser, macOS and Android, with the shared Apple path building for iOS. Other test-debug providers remain explicitly unavailable. Collector-to-host end-to-end acceptance and the remaining supported collectors remain open. |
-| Review and recovery | Diffs, staging, immutable history, attribution and choosing a conflict stage have focused evidence. Resource recovery publication/adoption and ordered text/resource undo now have actual-engine acceptance. Invalid historical construction drafts and partial-state restoration still refuse. Arbitrary conflict composition, delete/rename conflicts, ordinary-save local history and crash/session/layout restoration remain open. |
-| Debugger | Inline launch, profile selection, breakpoints, frames and evaluation have focused slices. Explicit threads, scoped caller locals, immediate running-session controls and pre-launch protocol admission now have actual-engine browser and native controller evidence. Attach, adapter-owned source content, complete stack paging, source-bound breakpoint retention after edits and supported-adapter acceptance breadth remain open. |
-| Connected behavior readings | Captured construction/contributor/output readings have focused evidence. Complete contract/explanation/implementation/test/execution-evidence relationships remain open; detected tests are not execution evidence. |
-| Change impact and relevant verification | Compiler saved/draft output consequences exist. Complete mechanism/check relationships and selection/execution of relevant verification with explicit unknown dependencies remain open. |
-| Agent proposal review | Retained agent conversation and existing guarded source-change mechanisms are foundations. Coherent agent proposals connecting explanation, implementation, generated consequences and checks through guarded application remain open. |
+| Review and recovery | Diffs, staging, immutable history, attribution and choosing a conflict stage have focused evidence. Resource recovery publication/adoption and ordered text/resource undo now have actual-engine acceptance. Invalid historical construction drafts and partial-state restoration still refuse. Shared conflict composition/delete/rename publication and complete-group staging pass real-engine checks; browser and Android have connected usable paths, while the Apple composer remains open. Ordinary strict Save/Save As, retained local-history previews and draft-only restoration now have actual browser and native controller/editor evidence. Complete resource physical-admission/replay/inverse guards, deleted-source history and crash/session/layout restoration remain open. |
+| Debugger | Inline launch, profile selection, breakpoints, frames and evaluation have focused slices. Explicit threads, scoped caller locals, immediate running-session controls and pre-launch protocol admission now have actual-engine browser and native controller evidence. Adapter-owned literal source reading passes controlled-provider browser and Apple native flows; Android model/controller checks pass and its complete actual flow is pending a test-only Step spelling correction. Complete stack paging has owned protocol evidence. Attach, source-bound breakpoint retention after edits, deep-stack host acceptance and supported-adapter acceptance breadth remain open. |
+| Connected behavior readings | Captured construction/contributor/output readings have focused evidence. Connected graph/source paging and declared contract/implementation/test/evidence distinctions now pass real-engine browser and Android flows. The Apple port, physical-root migration final integration and complete host acceptance remain open; detected tests are not execution evidence. |
+| Change impact and relevant verification | Compiler saved/draft output consequences exist. Bounded declared relationships, selected checks/profiles and retained process-only results have real-engine browser and Android acceptance. Apple integration, post-effect root-loss retention and final physical-root admission acceptance remain open. Undeclared dependencies stay unknown. |
+| Agent proposal review | Retained agent conversation and existing guarded source-change mechanisms are foundations. A shared immutable review service and agent-tool preparation now have focused and real-engine no-effect admission checks. Sealed material, durable inspection and cross-platform coherent review/application remain under implementation; the backend alone does not close this outcome. |
 
 Physical native input, assistive technology and device IME acceptance remain
 unverified unless an explicit executed receipt says otherwise. No row is a claim
 of complete JetBrains/ReSharper parity.
+
+## History, connected readings and conflict composition in progress, 2026-11-16
+
+The ordinary-save history service now retains before/after source evidence and
+confirmed, failed or uncertain outcomes separately. Restore prepares an editor
+draft, preserving native undo; it does not directly publish historical bytes.
+The first canonical focused Rust run passed four cases and exposed a root-alias
+failure in the fifth. After the fix, all five cases passed, including verified
+root aliases, exact retry/no reexecution, stale recreation, tampered evidence and
+failed/unknown writer outcomes. Three Apple
+model/native-editor cases passed; the live case initially skipped without a
+fresh-engine fixture. The subsequent owned live fixture passed all four Apple
+cases without skips: actual WorkspaceView/menu, ordinary Save, retained preview,
+guarded draft restore and native Undo/Redo preserved source bytes, editor identity,
+selection and geometry. Strict save identity, creation and proven resource-move
+lineage remain under implementation; this is not complete local-history parity.
+
+Connected readings now assemble bounded compiler, declaration and observation
+relationships, preserve unknown impact after invalid/deleted drafts, and admit
+explicit relevant checks through existing source-test/profile authority. The
+first canonical shared run passed five cases and failed an invalid-construction
+fixture that used an unbound prefix; a policy-invalid fixture replaced it and
+all six shared cases then passed. Twenty-three browser cases passed. Actual graph/check
+execution and the native adapters remain unverified at this checkpoint.
+
+Git composition/delete/rename reviews and complete-group staging are being
+implemented separately from source publication. The legacy stage path now
+refuses unmerged paths so it cannot bypass review. A conflict-only publisher
+policy requests guarded rollback of this attempt's still-matching writes; it
+retains a separate rollback report without rewriting forward receipts. Foreign
+edits and authority loss must remain untouched and uncertain. Seven focused
+publisher tests passed, including own-write rollback, retained rollback evidence,
+foreign-edit preservation and rollback authority loss. These new paths
+are not yet a verified full conflict workflow and remain open in the ledger.
+The initial Android integration passed six focused methods with no skips. Browser
+composition is now wired inside the existing floating repository review; seventeen
+focused history/conflict controller and strict-save checks plus TypeScript checking
+passed, including no-op staging and pending-request retention across close.
+Complete real-engine/browser/native acceptance of this combined path is pending.
+
+
+## Focused integration checkpoint, 2026-11-16
+
+The latest canonical shared build passes seven ordinary-history cases, including
+logical resource move/delete/restore lineage and refusal of recreated physical
+occupants. Thirteen connected-reading cases pass, including scalar source paging,
+source/namespace admission, stale known-output refusal and binary evidence hashing.
+The private ordinary-save and resource-lineage records are excluded from generic
+resource inverse publication by a focused executed refusal test. These are shared
+mechanism receipts; writer-held resource lineage integration remains in progress.
+
+The browser passes six strict ordinary-save, six history and six conflict review
+cases. Adapter-source reading passes five model cases, two channel/hook cases and
+one literal-rendering case. The two owned DAP transaction cases also pass the new
+literal-source, MIME and quota assertions. Actual adapter-source browser acceptance
+and native integration are still pending; an owned provider cannot certify vendor
+adapter support. The guarded creation route builds, but its end-to-end Save As
+acceptance remains pending on each host. No complete-parity row is closed here.
+
+The rebuilt owned-engine HTTP witnesses pass strict source creation and all eight
+conflict scenarios. Creation confirms full submitted text directly and replays the
+same intention without another inode; changed intentions, foreign workspace,
+dirty construction output claims, missing construction guards, saved generated
+targets and same-byte independent recreation refuse. The conflict witness covers
+text, no-op, delete/rename groups, stale source/index and foreign/staging locks.
+Android's actual compose/preview/draft Undo/Redo/Save/separate Stage flow passes,
+preserving its native text state and scroll. These do not establish crash recovery
+or native physical input acceptance.
+
+The enhanced actual browser graph flow passes full later-fragment paging,
+relationship and unrelated-test distinctions, selected pytest and explicit profile
+execution, exact-intent replay, stale output/inventory refusal and retained
+process-only results. It exercises genuine pytest coverage and JUnit imports
+separately from manual, stale and legacy observations. Editor identity, selection,
+geometry, unsaved text and Undo/Redo survive the flow. Thirty-one focused browser
+graph/API checks and TypeScript checking pass. Android compiles and passes 24
+focused history/graph/conflict/receipt/source-reading cases, including six scoped
+adapter-source cases; rendered native graph acceptance remains pending.
+
+The owned stdio-provider/browser adapter-source flow passes exact reported frame
+reference admission, literal HTML-MIME rendering, stepping while source IO is held,
+late-receipt retirement, local provider refusal, Watch/Stop and preserved editor
+identity/selection/geometry/undo/unsaved text. This explicitly controlled fixture
+proves the connected protocol path; it does not certify a vendor adapter.
+
+## Native source and verification checkpoint, 2026-11-16
+
+Apple's ordinary-history and same-buffer strict Save As flow passes all thirteen
+focused cases without skips, including the actual File-menu route, same
+NSTextView/identity/geometry, native Undo/Redo and explicit creation absence.
+The final iOS simulator build passes. Android's same-buffer Save As passes six
+focused cases and its maintained actual-engine menu witness without skips;
+its original source and independent old-name occupant remain intact. Browser
+Save/Save As/history passes thirty-five focused checks, TypeScript checking and
+the maintained actual flow, including native and coordinated workspace Undo/Redo.
+
+Apple adapter-source reading passes eight focused cases without skips and the
+owned stdio-provider/native floating-view flow; macOS and iOS builds pass.
+Browser literal paging passes seven focused cases after correcting an overlapping
+surrogate boundary; commit `75688152` preserves exact consecutive-page text and
+removes an empty final page. Commit `b801be9c` contains the earlier shared/browser
+source-reading integration. These controlled fixtures do not certify vendor
+adapter breadth, native physical input or assistive technology.
+
+The corrected shared ownership boundary passes seventeen focused cases: ordinary
+unaddressed notes remain allowed, unaddressed or unselected construction cannot
+silently disappear, and a new named contributor is allowed only through the same
+complete explicit creation plan with its selected draft hash. The new persistent
+root fingerprint survives child edits and distinguishes a recreated same path
+across restart. Source text remains independently readable when this capability
+is unavailable. Draft original-guard capture, publication protocol2, replay and
+inverse proof are subsequent in-progress integration; these tests do not certify
+those still-changing paths.
+
+The physical-root graph passes the maintained browser flow plus same-engine
+same-byte root replacement refusal and old-reading/new-engine refusal. Android's
+actual graph passes exact namespace/runtime/opaque physical identity, full scalar
+paging, selected pytest/profile execution, retained process-only observations,
+stale edit/Undo refusal and unchanged editor state. Its latest focused Kotlin
+batch passes twenty-two methods without skips. Browser graph/API/resource/conflict
+checks pass fifty-three methods and TypeScript checking. The graph explanation
+fixture still needs its latest source-only legacy-origin wording regenerated;
+its previous canonical run passed twelve of thirteen cases.
+
+The proposal service passes its two focused intention/refusal checks, all six
+ordinary-entry refusals in the prepared-private-session safety fixture, and the
+owned real-engine review/validation/lookup/report witness. Reports remain
+explicitly host-reported draft transitions and cannot become saved source or test
+evidence. Sealed envelope and original editor-guard integration are not yet
+certified by those earlier API receipts, and no host Apply path is claimed here.
+
+## Debugger transition and retained process safety, 2026-11-16
+
+Commit `e67dd250` replaces reusable terminal counters with fallible random
+process identities before spawn. Its selected real owned-process restart witness
+passed; a retained Run/verification link cannot acquire the replacement process.
+
+Commit `4b3d7d5c` serializes temporary Run To delivery, live user breakpoint
+replacement and stop cleanup. Pending cleanup is retained before adapter effects,
+including partial delivery or cancellation, and cleanup failure is explicit.
+The two owned stdio-adapter transaction witnesses passed with concurrent root and
+contributor replacements, repeated Run To refusal and cleanup preserving the new
+user wishes. The same cases read all 123 reported frames across pages and refuse
+repeated frame identities or premature page exhaustion. Live deep-stack and
+concurrent provider/host acceptance remain separate open checks; these protocol
+witnesses do not establish attach or adapter-owned source support.
 
 ## Guarded debugger integration in progress, 2026-11-16
 

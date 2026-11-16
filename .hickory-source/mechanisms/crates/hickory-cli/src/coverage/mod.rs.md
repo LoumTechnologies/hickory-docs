@@ -169,6 +169,12 @@ pub struct TestResult {
 <storycode:copy id="f-670d7c0cde38-Record">
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Record {
+    /// Namespace of newly captured records; absent legacy records have unknown origin.
+    #[serde(default)]
+    pub workspace_id: Option<String>,
+    /// Only physical-root-v1 establishes current physical workspace origin.
+    #[serde(default)]
+    pub workspace_identity_kind: Option<String>,
     pub id: String,
     pub mode: String,
     pub status: String,
@@ -651,10 +657,47 @@ fn locations(root: &Path, request: &Request) -> Result<Value> {
 }
 </storycode:copy>
 
+### Read observations without borrowing legacy origin authority
+
+Connected readings inspect a bounded subset of retained collector records without creating a cache directory, starting a process, or asking the regression monitor for status. A hash match describes bytes, while namespace, manual origin and collector attribution remain separate. Skipped/malformed records and enumeration limits remain explicit unknowns.
+
+<storycode:copy id="coverage-reading-evidence">
+/// Read-only bounded projection for connected readings. Never starts a collector.
+pub(crate) fn reading_evidence(root:&Path,workspace:&str,sources:&BTreeMap<String,String>)->Result<Value>{
+ let mut dir=root.canonicalize()?;for part in [".hick-cache","coverage"]{dir.push(part);match std::fs::symlink_metadata(&dir){Ok(meta)=>ensure!(meta.is_dir()&&!meta.file_type().is_symlink(),"Coverage evidence storage is unsafe"),Err(e)if e.kind()==std::io::ErrorKind::NotFound=>return Ok(json!({"records":[],"status":"missing","truncated":false})),Err(e)=>return Err(e.into())}}
+ let mut entries=Vec::new();let mut truncated=false;for entry in std::fs::read_dir(&dir)?.take(257){let entry=entry?;if entries.len()>=256{truncated=true;break}let name=entry.file_name().to_string_lossy().into_owned();if name.ends_with(".json"){entries.push((entry.path(),name));}}entries.sort_by(|a,b|a.1.cmp(&b.1));let mut rows=Vec::new();let mut budget=16*1024*1024u64;let mut unknown=0;
+ for (path,_) in entries {let meta=std::fs::symlink_metadata(&path)?;if !meta.is_file()||meta.file_type().is_symlink()||meta.len()>budget||meta.len()>4*1024*1024{truncated=true;continue}budget-=meta.len();let record:Record=match serde_json::from_slice(&std::fs::read(path)?){Ok(record)=>record,Err(_)=>{unknown+=1;continue}};let matching:Vec<_>=sources.keys().filter(|path|record.identity.source_hashes.contains_key(*path)).cloned().collect();if matching.is_empty(){continue}let origin=match (record.workspace_identity_kind.as_deref(),record.workspace_id.as_deref()){(Some("physical-root-v1"),Some(id))if id==workspace=>"current-workspace",(Some("physical-root-v1"),Some(_))=>"foreign-workspace",_=>"unknown"};let bytes_current=matching.iter().all(|path|record.identity.source_hashes.get(path)==sources.get(path))&&!record.source_changed_during_run;
+ let manual=record.mode!="automated";let freshness=if origin!="current-workspace"{"origin-unknown"}else if !bytes_current{"stale"}else{"current-captured-bytes"};let reach:Vec<_>=record.evidence.as_ref().map(|evidence|evidence.report.files.iter().filter(|(path,_)|matching.contains(path)).map(|(path,file)|json!({"path":path,"observed_lines":file.lines.len(),"hit_lines":file.lines.values().filter(|hits|**hits>0).count(),"basis":if manual{"manual-or-imported-observation"}else{"observed-collector"}})).collect()).unwrap_or_default();
+ rows.push(json!({"id":record.id,"mode":record.mode,"status":record.status,"origin":origin,"freshness":freshness,"evidence_kind":if manual{"manual-or-imported"}else if record.evidence.is_some(){"automated-collector"}else{"process-record"},"manual_verdict":record.manual_verdict,"test_results":record.tests.iter().take(100).map(|test|json!({"id":test.id,"status":test.status,"path":test.path})).collect::<Vec<_>>(),"test_results_truncated":record.tests.len()>100,"collector":record.identity.collector,"collector_version":record.identity.version,"attribution":record.evidence.as_ref().map(|e|&e.attribution),"freshness_scope":"matching_inputs_only","uncompared_inputs":record.identity.source_hashes.len().saturating_sub(matching.len()),"scope":record.identity.scope,"configuration":record.identity.configuration,"matching_inputs":matching,"source_changed_during_run":record.source_changed_during_run,"reachability":reach,"exit_code":record.exit_code}));if rows.len()>=100{truncated=true;break}
+ }
+ Ok(json!({"status":if rows.is_empty(){"missing"}else{"retained"},"records":rows,"truncated":truncated,"unreadable_records":unknown,"notice":"Matching captured input hashes are not proof of frozen execution. Collector reachability is not a guarantee/test assertion relationship. Legacy and foreign origins remain unknown; manual/imported records are not automated verification."}))
+}
+</storycode:copy>
+
+### Test origin and evidence authority using an owned record store
+
+A source-hash match cannot supply a missing namespace or turn a manual verdict into an automated collector receipt. This test creates only disposable records and verifies that reading an empty evidence store does not create directories.
+
+<storycode:copy id="coverage-reading-evidence-tests">
+#[cfg(test)] mod reading_tests {
+ use super::*;
+ #[test] fn reading_evidence_separates_origin_manual_and_stale_inputs_without_creating_storage(){
+  use sha2::{Digest,Sha256};let temporary=tempfile::tempdir().unwrap();let root=temporary.path().canonicalize().unwrap();std::fs::write(root.join("a.py"),"value=41\n").unwrap();let workspace=crate::serve::resource_inputs::RootIdentity::fingerprint(&root).unwrap();let sources=BTreeMap::from([("a.py".to_string(),hex::encode(Sha256::digest(b"value=41\n")))]);
+  assert_eq!(reading_evidence(&root,&workspace,&sources).unwrap()["status"],"missing");assert!(!root.join(".hick-cache").exists());
+  let request=Request{action:"run".into(),path:".".into(),language:"python".into(),..Default::default()};
+  let mut current=store::new_record(&root,&root,&request).unwrap();current.status="finished".into();current.identity.source_hashes=sources.clone();store::save(&root,&current).unwrap();
+  let mut legacy=current.clone();legacy.id="11111111111111111111111111111111".into();legacy.workspace_id=Some(hex::encode(Sha256::digest(root.as_os_str().as_encoded_bytes())));legacy.workspace_identity_kind=None;store::save(&root,&legacy).unwrap();
+  let mut stale=current.clone();stale.id="22222222222222222222222222222222".into();stale.identity.source_hashes.insert("a.py".into(),"0".repeat(64));store::save(&root,&stale).unwrap();
+  let mut manual=current.clone();manual.id="33333333333333333333333333333333".into();manual.mode="manual".into();manual.manual_verdict=Some("pass".into());store::save(&root,&manual).unwrap();
+  let value=reading_evidence(&root,&workspace,&sources).unwrap();let rows=value["records"].as_array().unwrap();assert_eq!(rows.len(),4);assert!(rows.iter().any(|row|row["origin"]=="unknown"&&row["freshness"]=="origin-unknown"));assert!(rows.iter().any(|row|row["freshness"]=="stale"));assert!(rows.iter().any(|row|row["evidence_kind"]=="manual-or-imported"&&row["manual_verdict"]=="pass"));assert!(rows.iter().all(|row|row["evidence_kind"]!="automated-collector"));
+ }
+}
+</storycode:copy>
+
 ### Assemble `crates/hickory-cli/src/coverage/mod.rs`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/src/coverage/mod.rs"><storycode:paste select="#f-670d7c0cde38-commands"/><storycode:paste select="#f-670d7c0cde38-use_declaration"/><storycode:paste select="#f-670d7c0cde38-mapping"/><storycode:paste select="#f-670d7c0cde38-real_tests"/><storycode:paste select="#f-670d7c0cde38-results"/><storycode:paste select="#f-670d7c0cde38-runner"/><storycode:paste select="#f-670d7c0cde38-store"/><storycode:paste select="#f-670d7c0cde38-tests"/><storycode:paste select="#f-670d7c0cde38-use_declaration-2"/><storycode:paste select="#f-670d7c0cde38-use_declaration-3"/><storycode:paste select="#f-670d7c0cde38-use_declaration-4"/><storycode:paste select="#f-670d7c0cde38-use_declaration-5"/><storycode:paste select="#f-670d7c0cde38-use_declaration-6"/><storycode:paste select="#f-670d7c0cde38-use_declaration-7"/><storycode:paste select="#f-670d7c0cde38-Group"/><storycode:paste select="#f-670d7c0cde38-ManualProfile"/><storycode:paste select="#f-670d7c0cde38-Config"/><storycode:paste select="#f-670d7c0cde38-TestResult"/><storycode:paste select="#f-670d7c0cde38-Record"/><storycode:paste select="#f-670d7c0cde38-Request"/><storycode:paste select="#f-670d7c0cde38-config"/><storycode:paste select="#f-670d7c0cde38-project"/><storycode:paste select="#f-670d7c0cde38-id"/><storycode:paste select="#f-670d7c0cde38-dispatch"/><storycode:paste select="#f-670d7c0cde38-evidence"/><storycode:paste select="#f-670d7c0cde38-checkpoint"/><storycode:paste select="#f-670d7c0cde38-catalogue"/><storycode:paste select="#f-670d7c0cde38-locations"/></storycode:file>
+<storycode:file path="crates/hickory-cli/src/coverage/mod.rs"><storycode:paste select="#f-670d7c0cde38-commands"/><storycode:paste select="#f-670d7c0cde38-use_declaration"/><storycode:paste select="#f-670d7c0cde38-mapping"/><storycode:paste select="#f-670d7c0cde38-real_tests"/><storycode:paste select="#f-670d7c0cde38-results"/><storycode:paste select="#f-670d7c0cde38-runner"/><storycode:paste select="#f-670d7c0cde38-store"/><storycode:paste select="#f-670d7c0cde38-tests"/><storycode:paste select="#f-670d7c0cde38-use_declaration-2"/><storycode:paste select="#f-670d7c0cde38-use_declaration-3"/><storycode:paste select="#f-670d7c0cde38-use_declaration-4"/><storycode:paste select="#f-670d7c0cde38-use_declaration-5"/><storycode:paste select="#f-670d7c0cde38-use_declaration-6"/><storycode:paste select="#f-670d7c0cde38-use_declaration-7"/><storycode:paste select="#f-670d7c0cde38-Group"/><storycode:paste select="#f-670d7c0cde38-ManualProfile"/><storycode:paste select="#f-670d7c0cde38-Config"/><storycode:paste select="#f-670d7c0cde38-TestResult"/><storycode:paste select="#f-670d7c0cde38-Record"/><storycode:paste select="#f-670d7c0cde38-Request"/><storycode:paste select="#f-670d7c0cde38-config"/><storycode:paste select="#f-670d7c0cde38-project"/><storycode:paste select="#f-670d7c0cde38-id"/><storycode:paste select="#f-670d7c0cde38-dispatch"/><storycode:paste select="#f-670d7c0cde38-evidence"/><storycode:paste select="#f-670d7c0cde38-checkpoint"/><storycode:paste select="#f-670d7c0cde38-catalogue"/><storycode:paste select="#f-670d7c0cde38-locations"/><storycode:paste select="#coverage-reading-evidence"/><storycode:paste select="#coverage-reading-evidence-tests"/></storycode:file>
 
 </storycode:doc>

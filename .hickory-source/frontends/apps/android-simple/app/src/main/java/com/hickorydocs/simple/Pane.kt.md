@@ -1344,6 +1344,8 @@ fun debugLineOffset(source: String, line: Int): Int? {
                         Column(Modifier.width(300.dp).heightIn(max = 460.dp).verticalScroll(rememberScrollState()).padding(8.dp)) {
                             var variableInspection by remember(debug,line){mutableStateOf<String?>(null)}
                             DisposableEffect(debug,line,opened==line){val token=if(opened==line)debug.variableTree.open() else null;variableInspection=token;onDispose{token?.let{debug.variableTree.close(it)}}}
+                            var adapterInspection by remember(debug,line){mutableStateOf<String?>(null)}
+                            DisposableEffect(debug,line,opened==line){val token=if(opened==line)debug.adapterSources.open() else null;adapterInspection=token;onDispose{token?.let{debug.adapterSources.close(it)}}}
                             Text("Line ${line + 1} · ${debug.status}", fontSize = 12.sp)
                             if (buffer.inlineMarkup.source == buffer.text) buffer.inlineMarkup.equations.filter { it.line == line }.take(4).forEach { equation ->
                                 key(buffer.text, equation.from) {
@@ -1413,6 +1415,7 @@ fun debugLineOffset(source: String, line: Int): Int? {
                                 OutlinedTextField(value = condition, onValueChange = { condition = it }, label = { Text("Breakpoint condition") })
                                 TextButton(onClick = { debug.toggle(buffer, line, condition) }) { Text("✓ Apply condition") }
                             }
+                            NativeAdapterSourceView(debug,adapterInspection)
                             if (debug.status == "paused") {
                                 Text("Source positions use captured launch/mapping text when bound. Matching text does not establish execution coverage.",fontSize=12.sp)
                                 TextButton(enabled=!debug.threadBusy,onClick={debug.readThreads()}){Text("Read threads")}
@@ -1426,7 +1429,7 @@ fun debugLineOffset(source: String, line: Int): Int? {
                                 OutlinedTextField(value = expression, onValueChange = { expression = it }, label = { Text("Expression") })
                                 Row { TextButton(onClick = { debug.evaluate(expression) }) { Text("= Evaluate") }; TextButton(onClick = { debug.evaluate(expression, true) }) { Text("◉ Watch") } }
                                 if(debug.frameNotice.isNotEmpty())Text(debug.frameNotice,fontSize=12.sp)
-                                if(debug.adapterSourceRequired)Text("Adapter source is unavailable in this reader. This frame's positive source reference prevents a disk-source position; frame/thread inspection remains available.",fontSize=12.sp)
+                                if(debug.adapterSourceRequired)Text("This frame requires adapter-owned source. Workspace positions and breakpoint mutations are not inferred from its filename.",fontSize=12.sp)
                                 TextButton(enabled=debug.framesCurrent,onClick={debug.readFrameVariables()}){Text("Read frame locals")}
                                 var framePage by remember(debug.frames){mutableStateOf(0)}
                                 Text(if(debug.framesCurrent)"${debug.frames.size} reported frames" else "Previous stack · current stack unavailable",fontSize=12.sp)

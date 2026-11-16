@@ -113,12 +113,16 @@ pub async fn get_file(
     Query(q): Query<PlainFileQuery>,
 ) -> ApiResult<Json<Value>> {
     let (root, target) = editing_root(&state, &q.path)?;
-    let (content, hash) = read_plain(&root, &target)?;
+    let path=resolve_existing(&root,&target)?;
+    if path.extension().is_some_and(|ext|ext=="md"){return Err(ApiError::unprocessable("Open Markdown through its document surface."))}
+    let observed=super::source_history::read_for_api(&state,&path,&q.path).map_err(ApiError::internal)?;let content=observed.source;let hash=content_hash(content.as_bytes());
     Ok(Json(json!({
         "path": q.path,
         "language": super::api::language_of(&q.path),
         "content": content,
         "hash": hash,
+        "save_guard":observed.save_guard,
+        "save_guard_reason":observed.save_guard_reason,
     })))
 }
 
@@ -193,10 +197,16 @@ fn collect_just_recipes(module: &Value, prefix: &str, out: &mut Vec<Value>) {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize,serde::Serialize)]
 pub struct SavePlainFile {
+    #[serde(default)]
+    pub version:Option<u32>,
+    #[serde(default)]
+    pub save_guard:Option<String>,
     pub path: String,
     pub content: String,
+    #[serde(default)]
+    pub request_id: Option<String>,
     /// The hash of the content this edit was based on (from GET, or the
     /// previous save's answer). A mismatch means the file changed on disk
     /// underneath the buffer, and the save is refused with 409.
@@ -209,19 +219,21 @@ pub struct SavePlainFile {
 }
 
 /// `PUT /api/file` — write the file whole, unless it moved underneath us.
-pub async fn put_file(
-    State(state): State<LocalState>,
-    Json(body): Json<SavePlainFile>,
-) -> ApiResult<Json<Value>> {
-    let (root, target) = editing_root(&state, &body.path)?;
-    let hash = write_plain(
-        &root,
-        &target,
-        &body.content,
-        body.base_hash.as_deref(),
-        body.force,
-    )?;
-    Ok(Json(json!({ "path": body.path, "hash": hash })))
+pub async fn put_file(State(state):State<LocalState>,Json(body):Json<SavePlainFile>)->ApiResult<Json<Value>>{let writes=state.writes.clone();crate::engine::writes::during(&writes,put_file_inner(state,body,false)).await}
+pub async fn put_file_guarded(State(state):State<LocalState>,Json(body):Json<SavePlainFile>)->ApiResult<Json<Value>>{let writes=state.writes.clone();crate::engine::writes::during(&writes,put_file_inner(state,body,true)).await}
+async fn put_file_inner(state:LocalState,body:SavePlainFile,strict:bool)->ApiResult<Json<Value>>{
+ state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?;
+ if strict&&(body.version!=Some(1)||body.request_id.is_none()||body.save_guard.is_none()||body.base_hash.is_none()){return Err(ApiError::conflict("Guarded saves require protocol 1, a captured physical save guard, baseline hash and request identity."))}
+ let(root,target)=editing_root(&state,&body.path)?;let full=resolve_existing(&root,&target)?;
+ if strict{super::source_history::writable_source(&state,&full,&body.path).map_err(ApiError::conflict)?}
+ let endpoint=if strict{"/api/source-history/file"}else{"/api/file"};
+ let intent=super::workspace_fs::view::hash(&serde_json::to_vec(&("PUT",endpoint,&body)).map_err(|e|ApiError::internal(e.to_string()))?);
+ let hash=write_plain_request(&root,&target,&body.content,body.base_hash.as_deref(),body.force,body.request_id.as_deref(),body.request_id.as_ref().map(|_|intent.as_str()),Some(WriteContext{state:&state,declared:&body.path,guard:body.save_guard.as_deref(),strict}))?;
+ if strict{
+  let id=body.request_id.as_deref().unwrap();let token=super::source_history::guard_for_result(&state,&full,&body.path,&body.content,id,&intent).map_err(ApiError::conflict)?;
+  return Ok(Json(json!({"version":1,"history_protocol":1,"path":body.path,"hash":hash,"request_id":id,"source_hash":super::workspace_fs::view::hash(body.content.as_bytes()),"save_guard":token,"history":{"available":true,"outcome":"published","id":id}})))
+ }
+ let token=super::source_history::issue_guard(&state,&full,&body.content).ok();Ok(Json(json!({"path":body.path,"hash":hash,"save_guard":token})))
 }
 
 /// FNV-1a over the content bytes, as hex — the same cheap fingerprint the
@@ -238,7 +250,6 @@ pub(in crate::serve) fn content_hash(bytes: &[u8]) -> String {
 /// The absolute path `rel` names inside `root`, or the refusal that says why
 /// it names nothing this surface will touch.
 fn resolve(root: &FsPath, rel: &str) -> Result<PathBuf, ApiError> {
-    let rel = rel.trim();
     if rel.is_empty() {
         return Err(ApiError::bad_request(
             "path must name a file inside this folder — it cannot be empty",
@@ -322,6 +333,10 @@ fn write_plain(
     base_hash: Option<&str>,
     force: bool,
 ) -> Result<String, ApiError> {
+    write_plain_request(root,rel,content,base_hash,force,None,None,None)
+}
+struct WriteContext<'a>{state:&'a LocalState,declared:&'a str,guard:Option<&'a str>,strict:bool}
+fn write_plain_request(root:&FsPath,rel:&str,content:&str,base_hash:Option<&str>,force:bool,request:Option<&str>,intent:Option<&str>,context:Option<WriteContext<'_>>)->Result<String,ApiError>{
     let path = resolve_existing(root, rel)?;
     let meta = std::fs::metadata(&path)
         .map_err(|e| ApiError::internal(format!("cannot stat {rel}: {e}")))?;
@@ -344,6 +359,8 @@ fn write_plain(
         )));
     }
     let current = content_hash(&on_disk);
+    let history_root=context.as_ref().map(|context|context.state.index.root()).unwrap_or(root);
+    if super::source_history::replay(history_root,&path,content,request,intent).map_err(ApiError::conflict)?{return Ok(content_hash(content.as_bytes()))}
     if let Some(base) = base_hash
         && base != current
         && !force
@@ -355,12 +372,12 @@ fn write_plain(
         ))
         .with_detail(json!({ "hash": current })));
     }
-    std::fs::write(&path, content).map_err(|e| {
-        ApiError::internal(format!(
-            "could not write {rel}: {e}. Check that the file and its \
-             directory are writable and the disk is not full."
-        ))
-    })?;
+    if let Some(context)=&context{if let Some(guard)=context.guard{super::source_history::validate_guard(context.state,&path,context.declared,guard).map_err(ApiError::conflict)?}else if context.strict{return Err(ApiError::conflict("Physical save guard is required."))}}
+    super::source_history::write_observed(history_root,&path,content,request,intent,||{
+        if let Some(context)=&context{context.state.resource_root.check(context.state.index.root())?;if let Some(guard)=context.guard{super::source_history::validate_guard(context.state,&path,context.declared,guard)?}}
+        if std::fs::read(&path).map_err(|e|e.to_string())?!=on_disk{return Err("Source changed after save admission; newer disk bytes were retained.".into())}
+        super::store::write_atomic_observed(&path,content.as_bytes()).map_err(|e|e.to_string())
+    }).map_err(ApiError::conflict)?;
     Ok(content_hash(content.as_bytes()))
 }
 
@@ -400,6 +417,12 @@ mod tests {
             std::fs::write(path, bytes).unwrap();
         }
         dir
+    }
+    #[test]
+    fn literal_outer_spaces_never_borrow_a_trimmed_siblings_bytes(){
+        let root=root_with(&[(" a.txt ",b"literal spaces\n"),("a.txt",b"other source\n")]);
+        assert_eq!(read_plain(root.path()," a.txt ").unwrap().0,"literal spaces\n");
+        assert_eq!(read_plain(root.path(),"a.txt").unwrap().0,"other source\n");
     }
 
     #[test]

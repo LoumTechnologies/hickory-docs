@@ -668,6 +668,7 @@ pub async fn stage(
     Json(body): Json<PathsBody>,
 ) -> ApiResult<Json<Value>> {
     on_repo(state, move |root| {
+        if legacy_unmerged(root, &body.paths, body.all)? { return Err(ApiError::conflict("Unmerged paths require a complete guarded conflict-group review. Inspect conflicts and stage the confirmed group; individual stage/unstage will not resolve it partially.")); }
         if body.all {
             git_ok(root, &["add", "-A"])?;
         } else {
@@ -696,6 +697,7 @@ pub async fn unstage(
     Json(body): Json<PathsBody>,
 ) -> ApiResult<Json<Value>> {
     on_repo(state, move |root| {
+        if legacy_unmerged(root, &body.paths, body.all)? { return Err(ApiError::conflict("Unmerged paths require a complete guarded conflict-group review. Inspect conflicts and stage the confirmed group; individual stage/unstage will not resolve it partially.")); }
         let mut args = vec!["reset", "-q", "--"];
         let paths;
         if !body.all {
@@ -1143,19 +1145,30 @@ The selections below preserve the original byte order. Narrative reading order d
 An unresolved index records up to three immutable objects: base at stage 1, stage 2 and stage 3. Keep those Git labels during merge and rebase rather than guessing which branch is local. Read literal NUL-delimited paths, validate full object identities, bound regular text before acquiring blobs, and report binary or special-file stages as unavailable text. Re-read the index after blob acquisition so a changed conflict cannot mix stages. The root-bound fingerprint identifies this observed stage set, not current source bytes or authorization to save a resolution.
 
 <storycode:copy id="git-conflict-observation">
+/// Ordinary per-path actions cannot silently act as a partial merge resolver.
+fn legacy_unmerged(root:&Path,paths:&[String],all:bool)->ApiResult<bool>{
+    if all {let mut raw=git(root,&["rev-parse","--show-toplevel"])?.stdout;if raw.last()==Some(&b'\n'){raw.pop();}let repository=String::from_utf8(raw).map_err(|_|ApiError::conflict("Git root is not representable by this provider"))?;return Ok(!git(Path::new(&repository),&["ls-files","--unmerged","--stage","-z"])?.stdout.is_empty());}
+    let mut args=vec!["ls-files","--unmerged","--stage","-z","--"];args.extend(paths.iter().map(String::as_str));if !git(root,&args)?.stdout.is_empty(){return Ok(true);}
+    let unmerged=git(root,&["ls-files","--unmerged","--stage","-z"])?.stdout;if unmerged.is_empty(){return Ok(false);}
+    fn names(raw:&[u8])->Vec<String>{raw.split(|b|*b==0).filter_map(|row|row.iter().position(|b|*b==b'\t').and_then(|tab|String::from_utf8(row[tab+1..].to_vec()).ok())).collect()}
+    let known=names(&git(root,&["ls-files","--stage","-z"])?.stdout);let conflicts=names(&unmerged);
+    for path in paths {if path.split('/').any(|p|p.is_empty()||p=="."||p=="..")||Path::new(path).is_absolute(){return Err(ApiError::conflict("Use exact listed Git paths; aliases cannot bypass conflict-group review."));}if !known.contains(path)&&conflicts.iter().any(|other|same_file::is_same_file(root.join(path),root.join(other)).unwrap_or(false)){return Ok(true);}}
+    Ok(false)
+}
+
 #[derive(Deserialize)]
 pub struct ConflictParams {
     pub path: String,
 }
 /// Read Git's exact unmerged stages. Stage 2/3 labels retain Git's semantics,
 /// including during rebase; they are not relabeled as a guessed branch direction.
-fn conflict_snapshot(root: &Path, path: &str) -> ApiResult<Value> {
+pub(super) fn conflict_snapshot(root: &Path, path: &str) -> ApiResult<Value> {
     checked_path(path)?;
     if path.len() > 4096
         || path
             .split('/')
             .any(|part| part.is_empty() || part == "." || part == ".git")
-        || path.contains('\\')
+        || path.contains('\0')
     {
         return Err(ApiError::bad_request(
             "Choose a literal source path inside the workspace.",

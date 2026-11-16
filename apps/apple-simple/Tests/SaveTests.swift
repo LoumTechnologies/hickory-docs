@@ -7,7 +7,9 @@ final class ResponseProtocol: URLProtocol {
     static var beforeResponse: ((URLRequest) -> Void)?
     private static let requestLock = NSLock()
     private static var requests: [URL] = []
-    static func resetRequests() { requestLock.lock(); defer { requestLock.unlock() }; requests = [] }
+    private static var bodies:[String:[[String:Any]]]=[:]
+    static func requestBodies(_ path:String)->[[String:Any]]{requestLock.lock();defer{requestLock.unlock()};return bodies[path] ?? []}
+    static func resetRequests() { requestLock.lock(); defer { requestLock.unlock() }; requests = [];bodies=[:] }
     static func requestCount(_ path: String) -> Int { requestLock.lock(); defer { requestLock.unlock() }; return requests.filter { $0.path == path }.count }
     static var status = 200
     static var response = Data()
@@ -29,7 +31,8 @@ final class ResponseProtocol: URLProtocol {
                 body.append(contentsOf: bytes.prefix(count))
             }
         }
-        Self.captured = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
+        let parsed=(try? JSONSerialization.jsonObject(with:body)) as? [String:Any] ?? [:];Self.captured=parsed
+        if let path=request.url?.path{Self.requestLock.lock();Self.bodies[path,default:[]].append(parsed);Self.requestLock.unlock()}
         let response = HTTPURLResponse(url: request.url!, statusCode: Self.status, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Self.responsesByPath[request.url!.path] ?? Self.response)
@@ -147,7 +150,7 @@ final class SaveTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [ResponseProtocol.self]
         let engine = try Engine(address: "http://fixture.invalid", session: URLSession(configuration: configuration))
         let file = FileNode(name: "notes.txt", path: "notes.txt", dir: false, doc_id: doc, generated_by: generated)
-        return (engine, DocumentBuffer(file: file, text: FileText(path: file.path, content: "before", hash: "hash-before")))
+        return (engine, DocumentBuffer(file: file, text: FileText(path: file.path, content: "before", hash: "hash-before",save_guard:"captured-before")))
     }
     @MainActor func testManagedMarkdownOpensThroughDocumentSource() async throws {
         let (engine, buffer) = try fixture(doc: "managed")
@@ -174,11 +177,13 @@ final class SaveTests: XCTestCase {
         XCTAssertTrue(buffer.error.contains("edits are retained"))
     }
     @MainActor func testLiterateSaveUsesBothExpectations() async throws {
-        let (engine, buffer) = try fixture(doc: "doc")
-        ResponseProtocol.status = 200; ResponseProtocol.response = Data(#"{"source":"next"}"#.utf8)
-        buffer.text = "next"; await buffer.save(using: engine)
-        let expected = ResponseProtocol.captured["expected"] as? [String: String]
-        XCTAssertEqual(expected, ["source": "before", "disk": "before"]); XCTAssertFalse(buffer.dirty)
+        let (engine,buffer)=try fixture(doc:"doc");buffer.text="next"
+        let id=String(repeating:"1",count:32);buffer.saveHistoryAttempt=SourceSaveAttempt(id:id,source:"next",base:"before",hash:"hash-before",guardToken:"captured-before",revision:buffer.sourceEditIdentity)
+        ResponseProtocol.status=200;ResponseProtocol.responsesByPath=[:];ResponseProtocol.beforeResponse=nil
+        ResponseProtocol.response=try JSONSerialization.data(withJSONObject:["version":1,"history_protocol":1,"path":"notes.txt","request_id":id,"source_hash":nativeSourceHash("next"),"save_guard":"after","history":["available":true,"outcome":"published"]])
+        await buffer.save(using:engine)
+        let expected=ResponseProtocol.captured["expected"] as? [String:String]
+        XCTAssertEqual(expected,["source":"before","disk":"before"]);XCTAssertFalse(buffer.dirty);XCTAssertEqual(buffer.savedGuard,"after");XCTAssertEqual(ResponseProtocol.requestedURL?.path,"/api/source-history/docs/doc")
     }
     @MainActor func testGeneratedOutputDoesNotDispatchSave() async throws {
         let (engine, buffer) = try fixture(generated: "owner")

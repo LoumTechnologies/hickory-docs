@@ -22,7 +22,7 @@ vi.mock("../debug/launchProfiles", () => ({ launchWithProfiles: vi.fn(async (_qu
 import { launchWithProfiles } from "../debug/launchProfiles";
 import { IDLE_SESSION } from "../debug/useDebugger";
 import { useFollowingDebugSession } from "../debug/plainDebugHosts";
-vi.mock("../debug/plainDebugHosts", () => ({ useFollowingDebugSession: vi.fn(() => null), PlainDebugHosts: () => null }));
+vi.mock("../debug/plainDebugHosts", async importOriginal => ({ ...await importOriginal<typeof import("../debug/plainDebugHosts")>(), useFollowingDebugSession: vi.fn(() => null), PlainDebugHosts: () => null }));
 import { Agent, AgentSession, MarkdownMessage } from "./Agent";
 import { App } from "./App";
 import { applyWorkspacePlan } from "./WorkspaceChanges";
@@ -36,13 +36,16 @@ import { useWorkspaceLsp } from "../lsp/useLsp";
 import { LspClient } from "../lsp/client";
 import { createLspChannel, decodeLspFrame, encodeLspFrame } from "../lsp/channel";
 vi.mock("../lsp/useLsp", () => ({ useWorkspaceLsp: vi.fn(() => ({ client: null, uri: "hick:///sample.ts", ready: false, diagnostics: [] })) }));
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll,describe, expect, it, vi } from "vitest";
 import fixture from "../../../simple-contract/layout-cases.json";
 import { activate, groups, initialLayout, move, remove, split, dock, dropEdge, isGroup, type Edge, type Layout } from "./layout";
 import { TerminalSession } from "./Terminal";
-import { Buffer, Buffers } from "./buffers";
-import { api } from "../api/client";
-vi.mock("../api/client", () => ({ api: { find: vi.fn(), formulaLanguages: vi.fn().mockResolvedValue({ languages: ["python"] }), files: vi.fn(), doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), fileOp: vi.fn(), openFile: vi.fn(), createDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agentTurns: vi.fn().mockResolvedValue({ turns: [] }), agentStop: vi.fn(), agent: vi.fn() } }));
+import { Buffer, Buffers,createSourceCopy } from "./buffers";
+import { api,request } from "../api/client";
+import {historySourceHash} from "./SourceHistory";
+vi.mock("../api/client", () => ({ request:vi.fn(),api: { find: vi.fn(), formulaLanguages: vi.fn().mockResolvedValue({ languages: ["python"] }), files: vi.fn(), doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), fileOp: vi.fn(), openFile: vi.fn(), createDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agentTurns: vi.fn().mockResolvedValue({ turns: [] }), agentStop: vi.fn(), agent: vi.fn() } }));
+beforeAll(async()=>{const name='node:'+'crypto';const {webcrypto}=await import(name);Object.defineProperty(globalThis,'crypto',{value:webcrypto,configurable:true});});
+async function saveReceipt(path:string,body:unknown,hash='confirmed-hash') {const value=body as {request_id:string;source?:string;content?:string};return {version:1,history_protocol:1,path,request_id:value.request_id,source_hash:await historySourceHash(value.source??value.content??''),save_guard:'confirmed-physical',hash,history:{available:true,outcome:'published'}};}
 describe("shared frontend layout contract", () => {
   it("constructs patch fences and offers source-mapped patch debugging in Simple", async () => {
     // Contract: .hickory-source/frontends/contract.md
@@ -991,15 +994,16 @@ describe("simple file commands", () => {
   });
   it("exposes the complete File menu and saves a new tab with a guarded destination", async () => {
     // Contract: .hickory-source/frontends/contract.md
-    vi.mocked(api.files).mockResolvedValue({ root: "workspace", tree: [] });
-    vi.mocked(api.fileOp).mockResolvedValue({ op: "create", path: "new.py" });
+    vi.mocked(api.files).mockResolvedValue({ root: "workspace",root_path:"/owned",workspace_id:"a".repeat(32), tree: [] });
+    vi.mocked(api.fileOp).mockClear();
     vi.mocked(api.openFile).mockResolvedValue({ path: "new.py" });
     let saved = "";
     vi.mocked(api.file).mockImplementation(async () => ({ path: "new.py", content: saved, language: "python", hash: "empty-hash" }));
-    vi.mocked(api.saveFile).mockImplementation(async (_path, content) => { saved = content; return { path: "new.py", hash: "saved-hash" }; });
+    vi.mocked(request).mockImplementation(async(_method,_path,body)=>{const b=body as {source:string;workspace:string;request_id:string};saved=b.source;let hash=0xcbf29ce484222325n;for(const byte of new TextEncoder().encode(saved))hash=BigInt.asUintN(64,(hash^BigInt(byte))*0x100000001b3n);return {version:1,history_protocol:1,workspace:b.workspace,namespace:"/owned",path:"new.py",source:saved,source_hash:await historySourceHash(saved),hash:hash.toString(16).padStart(16,"0"),request_id:b.request_id,save_guard:"created",history:{available:true,outcome:"published",id:b.request_id}};});
     const prompt = vi.spyOn(window, "prompt").mockReturnValue("new.py");
     const screen = render(createElement(App));
     try {
+      await waitFor(()=>expect(screen.container.querySelector("footer")?.textContent).toContain("workspace"));
       const menu = screen.container.querySelector("nav details .menu")!;
       expect([...menu.querySelectorAll("button")].map(item => item.textContent)).toEqual([
         "Open File", "Open Directory", "New Tab", "New Window", "Save", "Save As", "Save All", "Refresh", "Close tab",
@@ -1010,17 +1014,18 @@ describe("simple file commands", () => {
       fireEvent.click(within(menu as HTMLElement).getByRole("button", { name: "Save All" }));
       await waitFor(() => expect(saved).toBe("print(1)"));
       await waitFor(() => expect(screen.getByRole("tab", { name: "new.py" })).toBeTruthy());
-      expect(api.saveFile).toHaveBeenLastCalledWith("new.py", "print(1)", "empty-hash");
+      expect(request).toHaveBeenLastCalledWith("POST","/api/source-history/create",expect.objectContaining({source:"print(1)",path:"new.py"}));expect(api.fileOp).not.toHaveBeenCalled();
       expect(screen.queryByRole("tab", { name: /Untitled/ })).toBeNull();
     } finally { screen.unmount(); prompt.mockRestore(); }
   });
   it("retains a draft when Save As refuses an existing destination", async () => {
     // Contract: .hickory-source/frontends/contract.md
-    vi.mocked(api.files).mockResolvedValue({ root: "workspace", tree: [] });
-    vi.mocked(api.fileOp).mockRejectedValueOnce(new Error("already exists"));
+    vi.mocked(api.files).mockResolvedValue({ root: "workspace",root_path:"/owned",workspace_id:"a".repeat(32), tree: [] });
+    vi.mocked(request).mockRejectedValueOnce(new Error("already exists"));
     const prompt = vi.spyOn(window, "prompt").mockReturnValue("existing.py");
     const screen = render(createElement(App));
     try {
+      await waitFor(()=>expect(screen.container.querySelector("footer")?.textContent).toContain("workspace"));
       const menu = screen.container.querySelector("nav details .menu")! as HTMLElement;
       fireEvent.click(within(menu).getByRole("button", { name: "New Tab" }));
       const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
@@ -1035,14 +1040,15 @@ describe("simple file commands", () => {
 describe("simple frontend text opening", () => {
   it.each(["notes.md", "cards.md"])("opens managed %s through its document source", async path => {
     vi.mocked(api.file).mockClear();
-    vi.mocked(api.doc).mockResolvedValueOnce({ id: "managed", path, source: "# Readable source", updated_at: "" });
+    vi.mocked(api.doc).mockResolvedValueOnce({ id: "managed", path, source: "# Readable source", updated_at: "",save_guard:"managed-physical" });
     const buffer = await new Buffers(() => {}).open({ name: path, path, dir: false, doc_id: "managed" });
     expect(api.doc).toHaveBeenLastCalledWith("managed");
     expect(api.file).not.toHaveBeenCalled();
     expect(buffer.text).toBe("# Readable source"); expect(buffer.base).toBe(buffer.text);
-    buffer.edit("# Edited"); vi.mocked(api.saveDoc).mockResolvedValueOnce({ id: "managed", path, source: "# Edited", updated_at: "" });
+    buffer.edit("# Edited");vi.mocked(request).mockImplementationOnce(async(_method,_route,body)=>saveReceipt(path,body));
     await buffer.save();
-    expect(api.saveDoc).toHaveBeenLastCalledWith("managed", "# Edited", { source: "# Readable source", disk: "# Readable source" });
+    expect(request).toHaveBeenLastCalledWith("PUT","/api/source-history/docs/managed",expect.objectContaining({version:1,source:"# Edited",save_guard:"managed-physical",expected:{source:"# Readable source",disk:"# Readable source"}}));
+    expect(buffer.base).toBe("# Edited");
   });
   it("opens plain text with its file hash", async () => {
     vi.mocked(api.doc).mockClear();
@@ -1055,26 +1061,26 @@ describe("simple frontend text opening", () => {
 describe("simple frontend save safety", () => {
   const plain = { name: "notes.txt", path: "notes.txt", dir: false };
   it("retains edits after a conflict and sends the original hash", async () => {
-    vi.mocked(api.saveFile).mockRejectedValueOnce(new Error("changed on disk"));
-    const buffer = new Buffer(plain, "before", "hash-before", () => {});
+    vi.mocked(request).mockRejectedValueOnce(new Error("changed on disk"));
+    const buffer = new Buffer(plain, "before", "hash-before", () => {});buffer.saveGuard="original-physical";
     buffer.edit("mine"); await buffer.save();
-    expect(api.saveFile).toHaveBeenLastCalledWith("notes.txt", "mine", "hash-before");
+    expect(request).toHaveBeenLastCalledWith("PUT","/api/source-history/file",expect.objectContaining({path:"notes.txt",content:"mine",base_hash:"hash-before",save_guard:"original-physical"}));
     expect(buffer.text).toBe("mine"); expect(buffer.base).toBe("before"); expect(buffer.dirty).toBe(true);
     expect(buffer.error).toContain("edits are retained");
   });
   it("does not mark later keystrokes as saved", async () => {
-    let finish!: (value: { path: string; hash: string }) => void;
-    vi.mocked(api.saveFile).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    const buffer = new Buffer(plain, "before", "hash-before", () => {});
-    buffer.edit("submitted"); const saving = buffer.save(); buffer.edit("typed later");
-    finish({ path: plain.path, hash: "hash-submitted" }); await saving;
+    let finish!: (value: unknown) => void,body:unknown;
+    vi.mocked(request).mockImplementationOnce(async(_method,_route,value)=>{body=value;return new Promise(resolve => { finish = resolve; });});
+    const buffer = new Buffer(plain, "before", "hash-before", () => {});buffer.saveGuard="original-physical";
+    buffer.edit("submitted"); const saving = buffer.save();buffer.edit("typed later");
+    await waitFor(()=>expect(finish).toBeTypeOf("function"));finish(await saveReceipt(plain.path,body,"hash-submitted"));await saving;
     expect(buffer.base).toBe("submitted"); expect(buffer.text).toBe("typed later"); expect(buffer.dirty).toBe(true);
   });
   it("uses source and disk expectations for literate source", async () => {
-    vi.mocked(api.saveDoc).mockResolvedValueOnce({ id: "doc", path: "source.md", source: "next", updated_at: "" });
-    const buffer = new Buffer({ ...plain, doc_id: "doc" }, "before", "hash", () => {});
+    vi.mocked(request).mockImplementationOnce(async(_method,_route,body)=>saveReceipt(plain.path,body));
+    const buffer = new Buffer({ ...plain, doc_id: "doc" }, "before", "hash", () => {});buffer.saveGuard="original-physical";
     buffer.edit("next"); await buffer.save();
-    expect(api.saveDoc).toHaveBeenLastCalledWith("doc", "next", { source: "before", disk: "before" });
+    expect(request).toHaveBeenLastCalledWith("PUT","/api/source-history/docs/doc",expect.objectContaining({source:"next",save_guard:"original-physical",expected:{source:"before",disk:"before"}}));expect(buffer.base).toBe("next");
   });
   it("does not edit or save generated outputs", async () => {
     const buffer = new Buffer({ ...plain, generated_by: "owner" }, "generated", "hash", () => {});
@@ -1150,4 +1156,13 @@ describe("simple literate subscription agent", () => {
       expect(vi.mocked(useWorkspaceLsp).mock.calls.some(([path]) => path === "conversation/draft.md")).toBe(false);
     } finally { screen.unmount(); }
   });
+});
+describe('strict Save As copies',()=>{
+ function setup(){const buffers=new Buffers(()=>{});buffers.workspace='/owned';buffers.workspaceId='a'.repeat(32);const source=new Buffer({path:'original.py',name:'original.py',dir:false},'before','base-hash',()=>{},false,buffers.workspace);source.saveGuard='loaded-guard';source.edit('draft λ');buffers.values.set(source.file.path,source);return {buffers,source};}
+ async function receipt(body:unknown){const b=body as {source:string;path:string;request_id:string;workspace:string};let hash=0xcbf29ce484222325n;for(const byte of new TextEncoder().encode(b.source))hash=BigInt.asUintN(64,(hash^BigInt(byte))*0x100000001b3n);return {version:1,history_protocol:1,workspace:b.workspace,namespace:'/owned',path:b.path,source:b.source,source_hash:await historySourceHash(b.source),hash:hash.toString(16).padStart(16,'0'),request_id:b.request_id,save_guard:'new-guard',doc_id:null,history:{available:true,outcome:'published',id:b.request_id}};}
+ it('captures every guarded authored draft and adopts direct confirmed bytes without replacing the original',async()=>{const {buffers,source}=setup();const other=new Buffer({path:'construction.md',name:'construction.md',dir:false},'<h:doc/>','other',()=>{},false,buffers.workspace);other.saveGuard='other-guard';other.edit('retained construction');buffers.values.set(other.file.path,other);const loose=new Buffer({path:'Untitled-other',name:'other',dir:false},'unnamed note','',()=>{});buffers.values.set(loose.file.path,loose);const send=vi.fn(async(_method,_path,body)=>receipt(body));const copy=await createSourceCopy(buffers,source,'copy.py',send as typeof request);expect(send).toHaveBeenCalledOnce();expect(send.mock.calls[0][1]).toBe('/api/source-history/create');const body=send.mock.calls[0][2] as any;expect(body.ownership.ownership_sources).toEqual({'original.py':'draft λ','construction.md':'retained construction'});expect(body.saved_guards).toEqual({'original.py':'loaded-guard','construction.md':'other-guard'});expect(Object.values(body.unaddressed_sources)).toEqual(['unnamed note']);expect(copy.text).toBe('draft λ');expect(copy.base).toBe(copy.text);expect(copy.saveGuard).toBe('new-guard');expect(buffers.values.get('original.py')).toBe(source);expect(source.base).toBe('before');expect(source.dirty).toBe(true);});
+ it('replays the exact consumed request after a lost reply and refuses changed rosters',async()=>{const {buffers,source}=setup();let first:unknown;const send=vi.fn(async(_m,_p,body)=>{first??=body;if(send.mock.calls.length===1)throw Error('lost reply');expect(body).toBe(first);return receipt(body);});await expect(createSourceCopy(buffers,source,'copy.py',send as typeof request)).rejects.toThrow('lost reply');await createSourceCopy(buffers,source,'copy.py',send as typeof request);const next=setup();const fail=vi.fn(async()=>{throw Error('lost reply');});await expect(createSourceCopy(next.buffers,next.source,'copy.py',fail as typeof request)).rejects.toThrow();next.buffers.values.set('new.py',new Buffer({path:'new.py',name:'new.py',dir:false},'new','',()=>{}));await expect(createSourceCopy(next.buffers,next.source,'copy.py',fail as typeof request)).rejects.toThrow('context changed');expect(fail).toHaveBeenCalledOnce();});
+ it.each(['path','source_hash','hash','workspace','namespace','request_id','save_guard'])('refuses an unconfirmed %s without adopting or retiring any editor',async field=>{const {buffers,source}=setup();const send=vi.fn(async(_m,_p,body)=>({...await receipt(body),[field]:field==='save_guard'?'':'foreign'}));await expect(createSourceCopy(buffers,source,'copy.py',send as typeof request)).rejects.toThrow('not confirmed');expect([...buffers.values.values()]).toEqual([source]);expect(source.text).toBe('draft λ');expect(source.base).toBe('before');});
+ it('keeps a retired caller lease from adopting or fresh-retrying a confirmed copy',async()=>{const {buffers,source}=setup();let current=true;const send=vi.fn(async(_m,_p,body)=>{current=false;return receipt(body);});await expect(createSourceCopy(buffers,source,'copy.py',send as typeof request,()=>current)).rejects.toThrow('not confirmed');await expect(createSourceCopy(buffers,source,'copy.py',send as typeof request,()=>true)).rejects.toThrow('context changed');expect(send).toHaveBeenCalledOnce();expect(buffers.values.has('copy.py')).toBe(false);});
+ it('rejects same-object address mutation and a newly retained draft while a reply is held',async()=>{for(const change of [(_buffers:Buffers,source:Buffer)=>{source.file.path='moved.py';},(buffers:Buffers)=>{buffers.retainedResources.set('retained',new Buffer({path:'gone.py',name:'gone.py',dir:false},'draft','',()=>{}));}]){const {buffers,source}=setup();let resolve!:(value:unknown)=>void;const pending=new Promise(resolveValue=>{resolve=resolveValue;});let body:unknown;const send=vi.fn(async(_m,_p,value)=>{body=value;return pending;});const result=createSourceCopy(buffers,source,'copy.py',send as typeof request);await waitFor(()=>expect(send).toHaveBeenCalledOnce());change(buffers,source);resolve(await receipt(body));await expect(result).rejects.toThrow('not confirmed');expect(buffers.values.has('copy.py')).toBe(false);}});
 });

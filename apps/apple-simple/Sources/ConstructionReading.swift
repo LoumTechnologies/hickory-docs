@@ -16,7 +16,7 @@ struct ConstructionReading:Decodable {var version:Int;var entry:String;var focus
  }
 }
 struct ConstructionReadingView:View {
- var workspace:Workspace;@State private var model=ConstructionReadingModel()
+ var workspace:Workspace;@State private var model=ConstructionReadingModel();@State private var connected=ConnectedBehaviorModel()
  private func read()async {guard let engine=workspace.engine else{model.notice="Connect to a workspace server first.";return};let sources=Dictionary(uniqueKeysWithValues:workspace.buffers.values.filter{!$0.readOnly}.map{($0.file.path,$0.text)})
   await model.read{entry,focus in try await engine.request("POST","/api/construction/reading",body:["entry":entry,"sources":sources,"focus":focus as Any? ?? NSNull()])}
  }
@@ -36,6 +36,7 @@ struct ConstructionReadingView:View {
  var body:some View {VStack(alignment:.leading,spacing:8){
   HStack{Text("Construction reading").font(.headline);Spacer();Button("Close"){workspace.showConstruction=false;workspace.currentBuffer?.focusSource?()}}
   TextField("Construction entry",text:$model.entry);TextField("Contributor or output (optional)",text:$model.focus);Button("Read captured drafts"){Task{await read()}}.disabled(model.loading||model.entry.isEmpty)
+  Button("Read connected behavior and relevant verification"){Task{await connected.read(workspace,entry:model.entry,focus:model.focus.isEmpty ? nil:model.focus)}}.disabled(connected.busy||model.entry.isEmpty)
   Text(model.notice).font(.caption).textSelection(.enabled)
   ScrollView{VStack(alignment:.leading,spacing:8){if let value=model.value{
    Text("Captured entry: \(value.entry) · focus: \(value.focus ?? "all")").font(.caption)
@@ -50,8 +51,10 @@ struct ConstructionReadingView:View {
     DisclosureGroup("Compiler contribution ranges"){ForEach(Array(output.origins.enumerated()),id:\.offset){_,origin in Text("\(origin.phase) · \(origin.path) bytes \(origin.source_bytes.map(String.init).joined(separator:"–")) → output bytes \(origin.output_bytes.map(String.init).joined(separator:"–")) · \(origin.exact ? "equal byte slices":"reported origin; exact bytes unconfirmed")").font(.caption);if let fragment=origin.fragment{Text("Declared \(fragment.kind) #\(fragment.name)").font(.caption)};if let point=origin.source_point{Button("Open contributor"){Task{await openPoint(point)}}.accessibilityLabel("Open \(origin.phase) contributor \(origin.path)")}};if output.origins_truncated{Text("First 100 origins shown.").font(.caption)}}
    }
    DisclosureGroup("Detected test declarations"){ForEach(value.tests,id:\.id){test in Text("\(test.name) · \(test.source?.path ?? test.target.path):\(test.source?.line ?? test.target.line)").font(.caption)}}
-  }}}
- }.padding().frame(idealWidth:680,idealHeight:600).onDisappear{model.close()}}
+  }
+   ConnectedBehaviorView(workspace:workspace,model:connected)
+  }}
+ }.padding().frame(idealWidth:680,idealHeight:600).onDisappear{model.close();connected.close()}}
 }
 func constructionPointOffset(_ source:String,_ point:TestSourcePoint,actualHash:String)->Int? {
  guard point.hash.range(of:"^[0-9a-f]{64}$",options:.regularExpression) != nil,point.hash==actualHash,point.line>0,point.character>=0,let offset=languageOffset(source,["line":point.line-1,"character":point.character]) else{return nil}

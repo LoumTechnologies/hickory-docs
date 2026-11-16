@@ -177,12 +177,13 @@ fn candidate(
         target,
     })
 }
-fn base_scan(request: &Request, path: &str, root: &Path) -> Scan {
+fn base_scan(request: &Request, path: &str, root: &Path) -> Result<Scan,String> {
     let hash = digest(request.source.as_bytes());
-    Scan {
+    let (workspace_id,notices)=match super::resource_inputs::RootIdentity::fingerprint(root){Ok(id)=>(id,vec![]),Err(error)=>(String::new(),vec![format!("Physical workspace identity is unavailable; captured discovery remains readable but saved execution is unavailable: {error}")])};
+    Ok(Scan {
         version: 1,
         workspace: root.to_string_lossy().into_owned(),
-        workspace_id: digest(root.as_os_str().as_encoded_bytes()),
+        workspace_id,
         input_path: path.into(),
         input_hash: hash.clone(),
         scope: "plain".into(),
@@ -191,7 +192,7 @@ fn base_scan(request: &Request, path: &str, root: &Path) -> Scan {
         source_hashes: BTreeMap::from([(path.into(), hash)]),
         candidates: vec![],
         syntax_complete: true,
-        notices: vec![],
+        notices,
         unsupported_languages: vec![],
         unclassified_outputs: vec![],
         scanned_files: 0,
@@ -200,7 +201,7 @@ fn base_scan(request: &Request, path: &str, root: &Path) -> Scan {
         tree: None,
         source_texts: BTreeMap::new(),
         debug_state: None,
-    }
+    })
 }
 fn seal(mut scan: Scan) -> Scan {
     scan.candidates.sort_by(|a, b| {
@@ -327,7 +328,7 @@ fn scan_captured(
         );
     }
     let language=hick_plugins::routing::language_id(&path).ok_or_else(||format!("No source language for {path}. Save with a supported extension or use project runner discovery."))?;
-    let mut result = base_scan(request, &path, &root);
+    let mut result = base_scan(request, &path, &root)?;
     if language != "markdown" && request.project_entry.is_none() {
         let found = candidates::detect(language, &request.source)?;
         result.syntax_complete = found.syntax_complete;
@@ -524,6 +525,8 @@ pub(crate) fn select_saved_candidate<'a>(
     scan: &'a Scan,
     request: &RunRequest,
 ) -> ApiResult<(&'a Candidate, String)> {
+    if scan.workspace_id.is_empty(){return Err(ApiError::unprocessable("Physical workspace identity is unavailable. Captured declarations remain readable; no saved test was started."));}
+
     if !scan.fingerprint.eq_ignore_ascii_case(&request.fingerprint) {
         return Err(ApiError::conflict(
             "The analyzed source set changed. Refresh test candidates before running.",
@@ -555,6 +558,7 @@ pub async fn run(
     match request.input {
         RunInput::Saved {} => {}
     }
+    let root_lease=state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?;
     let root = state.index.root().to_path_buf();
     let (scan, request) = tokio::task::spawn_blocking(move || {
         let scan = scan(&root, &request.analysis)?;
@@ -567,6 +571,7 @@ pub async fn run(
         ))
     })?
     .map_err(ApiError::unprocessable)?;
+    if state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?!=root_lease{return Err(ApiError::conflict("Workspace changed during source-test acquisition; no process was started."));}
     let (candidate, name) = select_saved_candidate(&scan, &request)?;
     let body = super::test_run::RunBody {
         path: candidate.target.path.clone(),
@@ -575,6 +580,7 @@ pub async fn run(
         expected_source_hash: Some(candidate.target.hash.clone()),
         expected_sources: scan.source_hashes.clone(),
     };
+    if state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?!=root_lease{return Err(ApiError::conflict("Workspace changed before source-test dispatch; no process was started."));}
     let mut result = super::test_run::run(State(state), Json(body)).await?.0;
     result["version"] = json!(1);
     result["analysis_fingerprint"] = json!(scan.fingerprint);
@@ -587,6 +593,7 @@ pub async fn inspect(
     State(state): State<LocalState>,
     Json(request): Json<Request>,
 ) -> ApiResult<Json<Scan>> {
+    let root_lease=state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?;
     let root = state.index.root().to_path_buf();
     let capture = request.capture;
     let mut scan = tokio::task::spawn_blocking(move || scan(&root, &request))
@@ -597,6 +604,7 @@ pub async fn inspect(
             ))
         })?
         .map_err(ApiError::unprocessable)?;
+    if state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?!=root_lease{return Err(ApiError::conflict("Workspace changed during source-test observation."));}
     if capture {
         let tree=scan.tree.take().filter(|tree|!tree.entries().is_empty()).ok_or_else(||ApiError::unprocessable("Choose a construction entry with executable outputs before capturing a test project."))?;
         let id = format!("{:016x}", super::rand_id());
@@ -610,6 +618,7 @@ pub async fn inspect(
     } else {
         scan.tree = None;
     }
+    if state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?!=root_lease{return Err(ApiError::conflict("Workspace changed before source-test observation was returned."));}
     Ok(Json(scan))
 }
 #[cfg(test)]
@@ -725,6 +734,10 @@ mod tests {
             .is_err()
         );
     }
+#[cfg(test)]
+#[test]
+fn saved_scan_identity_retires_identical_bytes_at_a_reincarnated_root(){let temporary=tempfile::tempdir().unwrap();let root=temporary.path().join("workspace");std::fs::create_dir(&root).unwrap();let source="def test_selected():\n    assert 41 == 41\n";std::fs::write(root.join("test_choice.py"),source).unwrap();let request=Request{path:"test_choice.py".into(),source:source.into(),project_entry:None,sources:BTreeMap::new(),capture:false};let before=scan(&root,&request).unwrap();let intent=RunRequest{version:1,input:RunInput::Saved{},analysis:request.clone(),fingerprint:before.fingerprint.clone(),candidate_id:before.candidates[0].id.clone(),selection:Selection::NameFilter{}};std::fs::rename(&root,temporary.path().join("retained")).unwrap();std::fs::create_dir(&root).unwrap();std::fs::write(root.join("test_choice.py"),source).unwrap();let after=scan(&root,&request).unwrap();if before.workspace_id.is_empty(){assert!(select_saved_candidate(&before,&intent).is_err());return;}assert_eq!(before.input_hash,after.input_hash);assert_ne!(before.workspace_id,after.workspace_id);assert_ne!(before.fingerprint,after.fingerprint);assert!(select_saved_candidate(&after,&intent).is_err());}
+
 }
 #[cfg(test)]
 #[test]
@@ -794,7 +807,7 @@ pub struct ConstructionRequest {
     pub focus: Option<String>,
 }
 /// Read compiler relationships and changed outputs, without invoking execution or writes.
-fn construction_reading(root: &Path, request: ConstructionRequest) -> Result<Value, String> {
+pub(crate) fn construction_reading(root: &Path, request: ConstructionRequest) -> Result<Value, String> {
     let canonical_root = root
         .canonicalize()
         .map_err(|error| format!("Workspace unavailable: {error}. Reconnect and retry."))?;
@@ -967,8 +980,9 @@ pub async fn inspect_construction(
     State(state): State<LocalState>,
     Json(request): Json<ConstructionRequest>,
 ) -> ApiResult<Json<Value>> {
+    let root_lease=state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?;
     let root = state.index.root().to_path_buf();
-    tokio::task::spawn_blocking(move || construction_reading(&root, request))
+    let value=tokio::task::spawn_blocking(move || construction_reading(&root, request))
         .await
         .map_err(|error| {
             ApiError::internal(format!(
@@ -976,7 +990,9 @@ pub async fn inspect_construction(
             ))
         })?
         .map(Json)
-        .map_err(ApiError::unprocessable)
+        .map_err(ApiError::unprocessable)?;
+    if state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?!=root_lease{return Err(ApiError::conflict("Workspace changed during construction observation."));}
+    Ok(value)
 }
 #[cfg(test)]
 #[test]

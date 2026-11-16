@@ -134,7 +134,8 @@ use super::{ApiError, ApiResult};
 
 /// Naming a new document never grants permission to truncate an existing file.
 /// create_new closes the gap between target inspection and the actual write.
-pub(super) fn write(path: &Path, source: &str) -> ApiResult<()> {
+pub(super) fn write(path:&Path,source:&str)->ApiResult<()>{write_observed(path,source).map(|_|())}
+pub(super) fn write_observed(path: &Path, source: &str) -> ApiResult<String> {
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -149,12 +150,17 @@ pub(super) fn write(path: &Path, source: &str) -> ApiResult<()> {
                 ApiError::internal(format!("could not create {}: {error}", path.display()))
             }
         })?;
-    file.write_all(source.as_bytes()).map_err(|error| {
+    file.write_all(source.as_bytes()).and_then(|_|file.sync_all()).map_err(|error| {
         ApiError::internal(format!(
             "created {} but could not finish writing it: {error}. The new file may contain partial bytes; inspect it before retrying.",
             path.display()
         ))
-    })
+    })?;
+    #[cfg(unix)]std::fs::File::open(path.parent().ok_or_else(||ApiError::internal("New source has no parent"))?).and_then(|directory|directory.sync_all()).map_err(|e|ApiError::internal(e.to_string()))?;
+    let identity=super::super::source_history::identity_for_metadata(&file.metadata().map_err(|e|ApiError::internal(e.to_string()))?).map_err(ApiError::internal)?;
+    let held=same_file::Handle::from_file(file).map_err(|e|ApiError::internal(e.to_string()))?;
+    if same_file::Handle::from_path(path).map_err(|e|ApiError::internal(e.to_string()))?!=held{return Err(ApiError::conflict("Created source name was independently replaced; inspect it before retrying."))}
+    Ok(identity)
 }
 
 </storycode:copy>

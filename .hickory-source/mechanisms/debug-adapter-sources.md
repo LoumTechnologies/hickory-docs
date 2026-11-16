@@ -113,7 +113,7 @@ The serve-only mode supports bounded native-host acceptance on the same provider
 <ui:copy id="debug-adapter-source-real-browser-witness">
 #!/usr/bin/env python3
 """Owned stdio-provider/browser adapter-source flow, including held IO and late receipts."""
-import argparse, importlib.util, json, os, socket, sys, tempfile, time
+import argparse, importlib.util, json, os, signal, socket, sys, tempfile, time
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 RUNTIME_SOURCE='<b>adapter-owned literal source</b>\nmarker = 41\n'
@@ -195,7 +195,10 @@ def browser_flow(fixture,origin,root,environment,port,processes):
   print("Owned source fixture wire:",json.dumps(driver.act("debug-wire")),flush=True)
   raise
  finally:driver.close()
+def stop_signal(signum,_frame):
+ raise SystemExit(128+signum)
 def main():
+ signal.signal(signal.SIGTERM,stop_signal)
  parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--serve-only',action='store_true');args=parser.parse_args()
  spec=importlib.util.spec_from_file_location('fixture',ROOT/'scripts/test-simple-browser.py');fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
  with tempfile.TemporaryDirectory(prefix='hickory-adapter-source-') as folder:

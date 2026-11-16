@@ -27,6 +27,9 @@ pub fn prepare(
     current: &Inputs,
     fresh: &Inputs,
 ) -> Result<Restoration, String> {
+    if recovery.unrecognized_files.iter().any(|name|matches!(name.as_str(),"source-save.json"|"source-lineage.json")) || serde_json::from_str::<serde_json::Value>(&recovery.manifest.context).ok().and_then(|value|value.get("kind").and_then(|kind|kind.as_str()).map(str::to_owned)).as_deref() .is_some_and(|kind|matches!(kind,"ordinary-source-save-v1"|"ordinary-source-resource-lineage-v1")) {
+        return Err("Ordinary save history restores only to a guarded source draft. Read Local history; no saved resource inverse was prepared.".into());
+    }
     if current.context.is_empty()
         || current.workspace.is_empty()
         || !current.refusals.is_empty()
@@ -87,6 +90,23 @@ impl Restoration {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ordinary_save_history_never_enters_saved_resource_restoration(){
+        let(root,_,inputs)=fixture();let path=root.path().join("history.txt");std::fs::write(&path,"old").unwrap();
+        let id="66666666666666666666666666666666";let intent=super::super::workspace_fs::view::hash(b"ordinary save");
+        super::super::source_history::write_observed(root.path(),&path,"new",Some(id),Some(&intent),||super::super::store::write_atomic_observed(&path,b"new").map_err(|e|e.to_string())).unwrap();
+        assert!(super::super::resource_journal::read_recovery(root.path(),id).is_err(),"Generic recovery cannot discover private ordinary-save records");
+        let storage=super::super::source_history::storage(root.path()).unwrap();let mut recovery=super::super::resource_journal::read_recovery(&storage,id).unwrap();
+        assert!(prepare(&recovery,&inputs,&inputs).err().unwrap().contains("guarded source draft"));
+        recovery.manifest.context="reviewed-context".into();
+        assert!(recovery.unrecognized_files.iter().any(|name|matches!(name.as_str(),"source-save.json"|"source-lineage.json")));
+        assert!(prepare(&recovery,&inputs,&inputs).err().unwrap().contains("guarded source draft"));
+        recovery.unrecognized_files.clear();recovery.manifest.context=r#"{"kind":"ordinary-source-resource-lineage-v1"}"#.into();
+        assert!(prepare(&recovery,&inputs,&inputs).err().unwrap().contains("guarded source draft"));
+        recovery.manifest.context="reviewed-context".into();recovery.unrecognized_files.push("source-lineage.json".into());
+        assert!(prepare(&recovery,&inputs,&inputs).err().unwrap().contains("guarded source draft"));
+        assert_eq!(std::fs::read_to_string(path).unwrap(),"new");assert!(!root.path().join("a.py").exists());
+    }
     use super::super::{
         resource_changes,
         resource_inputs::{Ownership, RootIdentity},
@@ -135,6 +155,7 @@ mod tests {
                 })
                 .collect(),
             refusals: BTreeMap::new(),
+            saved_guards:BTreeMap::new(),
             source_files_modified: false,
         };
         let plan = resource_changes::prepare(resource_changes::Request { context: inputs.context.clone(), title: "Move draft".into(), edit: serde_json::json!({"documentChanges":[{"kind":"rename","oldUri":"hick:///a.py","newUri":"hick:///b.py"}]}), sources }).unwrap();
@@ -162,6 +183,7 @@ mod tests {
                 .collect(),
             saved_sources: manifest.after,
             refusals: BTreeMap::new(),
+            saved_guards:BTreeMap::new(),
             source_files_modified: false,
         };
         if let SourceState::File {
@@ -221,11 +243,13 @@ mod tests {
                 .is_none()
         );
         let capture = super::super::resource_inputs::Request {
+            unaddressed_sources:BTreeMap::new(),
             context: current.context.clone(),
             edit: serde_json::json!({"changes":{"hick:///a.py":[],"hick:///b.py":[]}}),
             drafts: BTreeMap::new(),
             project_entry: None,
             ownership_sources: BTreeMap::new(),
+            saved_guards: BTreeMap::new(),
         };
         let facts = restoration.analyze(root.path(), &fresh, &capture).unwrap();
         assert!(facts.protected_targets.is_empty());

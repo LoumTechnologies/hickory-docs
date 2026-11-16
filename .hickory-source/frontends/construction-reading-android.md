@@ -48,7 +48,7 @@ Use the existing floating surface and menus. Capture retained authored drafts on
 
 <ui:copy id="construction-reading-android-view">
 @Composable fun ConstructionReadingView(workspace:Workspace){
- val model=remember{ConstructionReadingModel()};val scope=rememberCoroutineScope();DisposableEffect(model){onDispose{model.close()}}
+ val model=remember{ConstructionReadingModel()};val scope=rememberCoroutineScope();DisposableEffect(model){onDispose{model.close();workspace.behaviorReading.close()}}
  suspend fun openPoint(point:TestSourcePoint){
   val current=model.sourceLink();val epoch=workspace.sourceNavigationEpoch
   fun valid()=current()&&workspace.showConstruction&&workspace.sourceNavigationEpoch==epoch
@@ -64,6 +64,8 @@ Use the existing floating surface and menus. Capture retained authored drafts on
  }
  suspend fun read(){val engine=workspace.engine ?: run{model.notice="Connect to a workspace server first.";return};val sources=JSONObject(workspace.buffers.values.filter{!it.readOnly}.associate{it.file.path to it.text});model.read{entry,focus->constructionReading(engine.request("POST","/api/construction/reading",JSONObject().put("entry",entry).put("focus",focus ?: JSONObject.NULL).put("sources",sources)),entry,focus)}}
  Column(Modifier.widthIn(max=680.dp).heightIn(max=680.dp).padding(16.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){
+ TextButton(enabled=!workspace.behaviorReading.loading&&model.entry.isNotBlank(),onClick={scope.launch{workspace.behaviorReading.read(workspace,model.entry.trim(),model.focus.trim().takeIf{it.isNotEmpty()})}}){Text("Read connected behavior and change impact")}
+ BehaviorReadingView(workspace)
  Text("Construction reading",style=MaterialTheme.typography.titleMedium);TextButton(onClick={workspace.showConstruction=false;workspace.currentBuffer?.focusSource?.invoke()}){Text("Close")}
  OutlinedTextField(value=model.entry,onValueChange={model.entry=it},label={Text("Construction entry")});OutlinedTextField(value=model.focus,onValueChange={model.focus=it},label={Text("Contributor or output (optional)")});TextButton(enabled=!model.loading&&model.entry.isNotBlank(),onClick={scope.launch{read()}}){Text("Read captured drafts")};Text(model.notice,fontSize=12.sp)
  model.value?.let{value->Text("Captured entry: ${value.entry} · focus: ${value.focus ?: "all"}",fontSize=12.sp);Text("${value.count} related outputs${if(value.truncated)" · first 300 shown" else ""}. ${value.testCount} detected tests${if(value.testsTruncated)" · test list truncated" else ""}. Evidence: ${value.evidence}. Outputs have not been written.",fontSize=12.sp);Text(value.relationship,fontSize=12.sp);value.notices.forEach{Text(it,fontSize=12.sp)};if(value.unused>0)Text("${value.unused} supplied drafts did not contribute to this entry.",fontSize=12.sp)

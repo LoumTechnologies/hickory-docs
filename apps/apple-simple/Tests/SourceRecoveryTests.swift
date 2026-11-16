@@ -39,7 +39,7 @@ import XCTest
    }
    if method=="POST",route=="/api/changes/restore-resources" {writes+=1;request=body!["request_id"] as! String;if failWrite{throw EngineError(message:"Lost response")}}
    guard route=="/api/changes/restore-resources" || route=="/api/changes/resource-save?request_id="+request else{throw EngineError(message:"Unexpected resource request")}
-   return try self.json(["version":1,"request_id":request,"workspace":self.workspace,"context":context,"outcome":["complete":true,"recovery":".hick-cache/resource-changes/"+String(repeating:"e",count:32)+"/manifest.json","applied":["a.py","b.py"]],"saved_sources":["a.py":saved("saved"),"b.py":missing],"source_files":[["file":["name":"a.py","path":"a.py","dir":false],"saved":saved("saved"),"hash":"new"]]])
+   return try self.json(["version":2,"adoption_current":true,"request_id":request,"workspace":self.workspace,"context":context,"outcome":["complete":true,"recovery":".hick-cache/resource-changes/"+String(repeating:"e",count:32)+"/manifest.json","applied":["a.py","b.py"]],"saved_sources":["a.py":saved("saved"),"b.py":missing],"source_files":[["file":["name":"a.py","path":"a.py","dir":false],"saved":saved("saved"),"hash":"new"]]])
   }
   return (space,model,recordValue,{writes})
  }
@@ -74,7 +74,7 @@ import XCTest
    if route=="/api/changes/resource-save",method=="POST" {
     writes+=1;let proposal=body!["proposal"] as! [String:Any],capture=proposal["capture"] as! [String:Any]
     XCTAssertNil(body!["reviewed_recovery_fingerprint"])
-    return try self.json(["version":1,"request_id":body!["request_id"]!,"workspace":self.workspace,"context":capture["context"]!,"outcome":["complete":true,"recovery":".hick-cache/resource-changes/"+String(repeating:"f",count:32)+"/manifest.json","applied":["a.py","b.py"]],"saved_sources":["a.py":saved("dirty"),"b.py":["kind":"missing"]],"source_files":[["file":["name":"a.py","path":"a.py","dir":false],"saved":saved("dirty"),"hash":"new"]]])
+    return try self.json(["version":2,"adoption_current":true,"request_id":body!["request_id"]!,"workspace":self.workspace,"context":capture["context"]!,"outcome":["complete":true,"recovery":".hick-cache/resource-changes/"+String(repeating:"f",count:32)+"/manifest.json","applied":["a.py","b.py"]],"saved_sources":["a.py":saved("dirty"),"b.py":["kind":"missing"]],"source_files":[["file":["name":"a.py","path":"a.py","dir":false],"saved":saved("dirty"),"hash":"new"]]])
    }
    return try await initial(method,route,body)
   }
@@ -164,19 +164,15 @@ import XCTest
   space.buffers["reused.py"]=occupant;space.retainedResourceEditors["deleted"]=source
   let retainedTab=space.retainedResourceTab(source);space.layout.activate("reused.py",in:"document-group");space.layout.activate(retainedTab,in:"document-group")
   let submitted=source.text
-  var refuse=true,reads=0
+  space.sourceRootAddress="/fixture";space.sourceWorkspaceID="runtime-workspace"
+  var refuse=true
   ResponseProtocol.beforeResponse={request in
-   ResponseProtocol.status=200
+   ResponseProtocol.status=refuse ? 409:200
    let value:[String:Any]
-   switch (request.httpMethod ?? "GET",request.url?.path ?? "") {
-   case ("POST","/api/files/op"):
-    ResponseProtocol.status=refuse ? 409:200;value=refuse ? ["error":"Destination unavailable"]:["path":"copy.py"]
-   case ("GET","/api/file"):
-    reads+=1;value=["path":"copy.py","content":reads==1 ? "":submitted,"hash":reads==1 ? "empty":"saved"]
-   case ("PUT","/api/file"):value=["path":"copy.py","hash":"saved"]
-   case ("GET","/api/files"):value=["root":"/fixture","tree":[]]
-   default:value=[:]
-   }
+   if request.url?.path=="/api/files" {ResponseProtocol.status=200;value=["root":"fixture","root_path":"/fixture","workspace_id":"runtime-workspace","tree":[]]}
+   else if request.url?.path != "/api/source-history/create" {ResponseProtocol.status=200;value=[:]}
+   else if refuse{value=["error":"Destination unavailable"]}
+   else{value=["version":1,"history_protocol":1,"workspace":"runtime-workspace","namespace":"/fixture","path":"copy.py","source":submitted,"source_hash":nativeSourceHash(submitted),"hash":"saved","request_id":source.creationAttempt?.id ?? "missing-attempt","save_guard":"confirmed-copy","history":["available":true,"outcome":"published"]]}
    ResponseProtocol.response=try! JSONSerialization.data(withJSONObject:value)
   }
   defer{ResponseProtocol.beforeResponse=nil;ResponseProtocol.responsesByPath=[:];space.currentBuffer?.language?.close()}

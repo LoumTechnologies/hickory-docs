@@ -29,7 +29,7 @@ use std::{
 
 ## Load root identity independently of readable text
 
-Hold the original directory handle and compare it with the current path before and after acquisition. A replaced directory at the same path is not the captured resource scope. Binding runs on a blocking worker; only this optional capability waits for readiness. Failure does not prevent bootstrap or raw file opening. Handle equality follows the host filesystem’s identity semantics; it is not a cryptographic filesystem attestation.
+Hold the original directory handle and compare it with the current path before and after acquisition. A replaced directory at the same path is not the captured resource scope. Binding runs on a blocking worker; only this optional capability waits for readiness. Failure does not prevent bootstrap or raw file opening. Handle equality follows the host filesystem’s identity semantics; it is not a cryptographic filesystem attestation. Persistent reading fingerprints use the canonical path bytes, physical directory identity and filesystem creation time, separately from the random per-engine mutation epoch. This rejects a same-path recreated root across restart without invalidating identity for ordinary child edits. A filesystem without persistent creation identity reports guarded execution unavailable instead of borrowing a path-only identity.
 
 <ui:copy id="resource-input-root-identity">
 /// Root identity is an independent capability; ordinary text opening never waits for it.
@@ -38,6 +38,21 @@ pub struct RootIdentity {
     ready: tokio::sync::Notify,
 }
 impl RootIdentity {
+    /// Read-only retained outcomes remain addressable after a root is replaced.
+    /// This does not establish present mutation authority; writers always call check.
+    pub(super) fn retained_epoch(&self)->Result<&str,String>{match self.bound.get(){Some(Ok((_,_,epoch)))=>Ok(epoch.as_str()),Some(Err(error))=>Err(error.clone()),None=>Err("Original workspace epoch is not available yet.".into())}}
+    /// Persistent reading identity is separate from this engine's random mutation epoch.
+    /// Unsupported physical birth identity leaves guarded execution unavailable.
+    pub fn fingerprint(root:&Path)->Result<String,String>{
+        let canonical=root.canonicalize().map_err(|error|error.to_string())?;
+        let held=same_file::Handle::from_path(&canonical).map_err(|error|error.to_string())?;
+        let metadata=held.as_file().metadata().map_err(|error|error.to_string())?;
+        if !metadata.is_dir(){return Err("Workspace identity requires an ordinary directory.".into())}
+        let current=same_file::Handle::from_path(root).map_err(|error|error.to_string())?;
+        if current!=held||root.canonicalize().map_err(|error|error.to_string())?!=canonical{return Err("Workspace changed while reading its physical identity.".into())}
+        #[cfg(unix)] {let birth=metadata.created().map_err(|_|"Persistent workspace creation identity is unavailable on this filesystem; source remains readable but guarded execution needs a supported root identity.")?.duration_since(std::time::UNIX_EPOCH).map_err(|error|error.to_string())?.as_nanos().to_string();let bytes=serde_json::to_vec(&(canonical.as_os_str().as_encoded_bytes(),held.dev(),held.ino(),birth)).map_err(|error|error.to_string())?;Ok(sha(&bytes))}
+        #[cfg(not(unix))] {let _=(held,metadata);Err("Persistent workspace reading identity is unavailable on this engine platform. Readable text remains available.".into())}
+    }
     fn binding(root: &Path) -> Result<(same_file::Handle, PathBuf, String), String> {
         let path = root.canonicalize().map_err(|error| error.to_string())?;
         let handle = same_file::Handle::from_path(&path).map_err(|error| error.to_string())?;
@@ -101,6 +116,8 @@ The response binds observations to the supplied context and held root identity. 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Draft {
+    #[serde(default)]
+    pub save_guard:Option<String>,
     pub text: String,
     pub base_sha256: String,
     pub version: Option<i32>,
@@ -116,6 +133,10 @@ pub struct Request {
     pub project_entry: Option<String>,
     #[serde(default)]
     pub ownership_sources: BTreeMap<String, String>,
+    #[serde(default)]
+    pub unaddressed_sources: BTreeMap<String,String>,
+    #[serde(default)]
+    pub saved_guards:BTreeMap<String,String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -137,6 +158,8 @@ pub struct Inputs {
     pub ownership: Ownership,
     pub sources: BTreeMap<String, SourceState>,
     pub saved_sources: BTreeMap<String, SavedSource>,
+    #[serde(default)]
+    pub saved_guards:BTreeMap<String,String>,
     pub refusals: BTreeMap<String, String>,
     pub source_files_modified: bool,
 }
@@ -306,6 +329,9 @@ pub struct Ownership {
     pub saved_sources: BTreeMap<String, String>,
     pub draft_sources: BTreeMap<String, String>,
 }
+/// Includes and reusable fragments can introduce generated ownership too.
+/// Unknown parsing remains a refusal, never evidence that a draft is ordinary.
+pub(crate) fn contains_construction(source:&str)->Result<bool,String>{let document=hick_lang::parse(source).map_err(|error|format!("Retained ownership cannot be analyzed: {error}. Preserve the source and select its construction context."))?;Ok(document.all_tags().iter().any(|tag|matches!(tag.name.as_str(),"project"|"file"|"entry"|"patch"|"scope"|"exec"|"volume"|"include"|"upstream"|"copy"|"paste")))}
 fn ownership(
     root: &Path,
     index: &super::store::DocIndex,
@@ -320,14 +346,7 @@ fn ownership(
     };
     let Some(entry) = entry else {
         for source in request.ownership_sources.values() {
-            let document = hick_lang::parse(source).map_err(|error| {
-                format!("Draft ownership cannot be analyzed: {error}. Choose a construction entry.")
-            })?;
-            if document
-                .all_tags()
-                .iter()
-                .any(|tag| matches!(tag.name.as_str(), "project" | "file" | "entry" | "volume"))
-            {
+            if contains_construction(source)?            {
                 return Err("A draft contains construction declarations without a selected entry. Choose its construction entry before resource changes.".into());
             }
         }
@@ -391,12 +410,13 @@ fn ownership(
         && canonical_entry.as_deref().is_some_and(|root| root != entry)
     {
         // A selected reading context cannot remove the main project's ownership.
-        let canonical_request = Request {
+        let canonical_request = Request {unaddressed_sources:request.unaddressed_sources.clone(),
             context: request.context.clone(),
             edit: request.edit.clone(),
             drafts: request.drafts.clone(),
             project_entry: None,
             ownership_sources: request.ownership_sources.clone(),
+            saved_guards: request.saved_guards.clone(),
         };
         let (canonical, protected) = ownership(root, index, &canonical_request)?;
         generated.extend(protected);
@@ -433,20 +453,71 @@ fn ownership(
 
 Discover every source and destination before reading. Reject unrelated supplied drafts, stale editor bases, oversized inputs and unavailable targets as one acquisition. The resulting source capabilities intersect saved permissions, parent availability, generated ownership and the editor’s own availability flag. Return concrete refusal reasons with readable source facts; no file or directory is created.
 
+### Keep every retained construction draft inside proven ownership
+
+An unnamed or retained deleted editor is still authored text. Its declarations
+cannot disappear from ownership merely because its label lacks a Markdown suffix.
+Adapters include every named retained source in `ownership_sources` and keep
+unaddressed text in the separate `unaddressed_sources` map keyed by opaque editor
+identity. An opaque editor identity never names a filesystem path, including when
+a same-spelled real path exists.
+Plain unnamed notes do not create output claims. A declaration-bearing source must
+have both a real saved baseline and an exact source hash in the selected compiler
+context; otherwise refuse the complete proposal before any recovery or source IO.
+This validation runs after selected/canonical ownership scopes have been merged.
+A named new contributor is different from anonymous text: it may participate only
+when the same complete ordered plan explicitly creates that exact source text and
+the selected construction already proves its draft hash. Reuse the resource plan
+builder to prove this case instead of recognizing a second edit syntax.
+
+<ui:copy id="resource-input-retained-ownership">
+fn retained_ownership(root:&Path,request:&Request,ownership:&Ownership,sources:&BTreeMap<String,SourceState>)->Result<(),String>{
+ let mut candidate=None;
+ for text in request.unaddressed_sources.values(){if contains_construction(text)?{return Err("An unaddressed retained construction draft has no saved namespace authority. Preserve it, assign its authored source and select its construction before changing the namespace.".into())}}
+ for(path,text)in &request.ownership_sources{
+  if !contains_construction(text)?{continue}
+  resource_changes::validate_path(path)?;
+  if ownership.draft_sources.get(path)!=Some(&sha(text.as_bytes())){return Err(format!("Retained construction source {path} is outside the proven selected context. Preserve its draft and select its construction before changing the namespace."))}
+  let(_,saved)=saved_target(root,path)?;
+  match saved{
+   SavedSource::File{text:saved,..}=>{if ownership.saved_sources.get(path)!=Some(&sha(saved.as_bytes())){return Err("Saved construction source changed outside its proven ownership context.".into())}},
+   SavedSource::Missing=>{
+    if candidate.is_none(){candidate=Some(resource_changes::prepare(resource_changes::Request{context:request.context.clone(),title:"Check new construction ownership".into(),edit:request.edit.clone(),sources:sources.clone()})?)}
+    if !candidate.as_ref().unwrap().patches.iter().any(|patch|patch.path==*path&&matches!(&patch.before,SourceState::Missing{..})&&matches!(&patch.after,SourceState::File{text:after,..} if after==text)){return Err("A missing named construction must be created with exactly that text in the same complete selected proposal. No implicit file identity was supplied.".into())}
+   }
+  }
+ }
+ Ok(())
+}
+</ui:copy>
+
 <ui:copy id="resource-input-capture">
+fn captured_file_guard(root:&Path,path:&str,saved:&SavedSource)->Result<String,String>{
+ let(full,current)=saved_target(root,path)?;if &current!=saved{return Err(format!("Saved source changed while capturing its physical guard: {path}"))}
+ let observed=super::source_history::read_observed(root,&full,path)?;let SavedSource::File{text,..}=saved else{return Err("Missing sources do not inherit an existing-file save guard.".into())};
+ if &observed.source!=text{return Err(format!("Source changed while acquiring its exact physical observation: {path}"))}
+ let guard=observed.save_guard.ok_or_else(||observed.save_guard_reason.unwrap_or("Physical source observation is unavailable.".into()))?;
+ super::source_history::validate_observed_guard(root,&full,path,&guard)?;if read_saved(&full)?!=*saved{return Err(format!("Source permissions or bytes changed while capturing: {path}"))}Ok(guard)
+}
+pub(super) fn validate_guard_map(root:&Path,guards:&BTreeMap<String,String>,published:&BTreeSet<String>)->Result<(),String>{
+ for(path,guard)in guards{if !published.contains(path){super::resource_changes::validate_path(path)?;super::source_history::validate_observed_guard(root,&root.join(path),path,guard)?}}Ok(())
+}
 fn capture(
     root: &Path,
     index: &super::store::DocIndex,
     identity: &RootIdentity,
     request: Request,
 ) -> Result<Inputs, String> {
+    if request.saved_guards.len()>4096||request.saved_guards.values().any(|guard|guard.len()>16*1024)||request.saved_guards.values().map(String::len).sum::<usize>()>4*1024*1024{return Err("Captured physical source metadata exceeds its bounded capacity.".into())}
     if request.context.is_empty() || request.context.len() > 4096 {
         return Err(
             "Capture the current workspace/provider context before acquiring resource inputs."
                 .into(),
         );
     }
-    if request.ownership_sources.len() > 4096
+    if request.ownership_sources.len().saturating_add(request.unaddressed_sources.len()) > 4096
+        || request.unaddressed_sources.values().any(|source|source.len()>MAX_SOURCE)
+        || request.unaddressed_sources.values().map(String::len).sum::<usize>().saturating_add(request.ownership_sources.values().map(String::len).sum::<usize>())>MAX_INPUT
         || request
             .ownership_sources
             .values()
@@ -475,7 +546,7 @@ fn capture(
         count: 0,
         bytes: 0,
     };
-    let (mut sources, mut saved) = (BTreeMap::new(), BTreeMap::new());
+    let (mut sources, mut saved) = (BTreeMap::new(), BTreeMap::new());let mut saved_guards=BTreeMap::new();
     let mut refusals = BTreeMap::new();
     let mut size = 0usize;
     for path in paths {
@@ -508,7 +579,11 @@ fn capture(
                 readonly,
                 ..
             } => {
+                let guard=captured_file_guard(&root,&path,&observed)?;
                 let draft = request.drafts.get(&path);
+                if let Some(draft)=draft {if draft.save_guard.as_deref()!=Some(guard.as_str()){return Err(format!("The editor has no matching originally loaded physical source guard: {path}. Preserve its draft, compare or reopen the exact source, then prepare again."))}}
+                if let Some(provided)=request.saved_guards.get(&path){if provided!=&guard{return Err(format!("Retained source physical identity changed: {path}. No equal-byte replacement was adopted."))}}
+                saved_guards.insert(path.clone(),guard);
                 if let Some(draft) = draft {
                     if draft.text.len() > MAX_SOURCE || draft.base_sha256 != *sha256 {
                         return Err(format!(
@@ -561,6 +636,15 @@ fn capture(
         saved.insert(path, observed);
     }
     identity.check(&root)?;
+    retained_ownership(&root,&request,&ownership,&sources)?;
+    for(path,expected_hash)in &ownership.saved_sources{
+        let(_,saved)=saved_target(&root,path)?;let SavedSource::File{sha256,..}=&saved else{return Err(format!("Saved construction input disappeared: {path}"))};if sha256!=expected_hash{return Err(format!("Saved construction bytes changed: {path}"))}
+        let guard=if let Some(guard)=saved_guards.get(path){guard.clone()}else{captured_file_guard(&root,path,&saved)?};
+        let provided=request.saved_guards.get(path).or_else(||request.drafts.get(path).and_then(|draft|draft.save_guard.as_ref()));
+        if provided.is_some_and(|provided|provided!=&guard)||request.ownership_sources.contains_key(path)&&provided.is_none(){return Err(format!("Construction input has no matching captured physical source guard: {path}. Retain its draft and compare the exact saved source."))}
+        saved_guards.insert(path.clone(),guard);
+    }
+    identity.check(&root)?;
     let result = Inputs {
         version: 1,
         context: request.context,
@@ -568,6 +652,7 @@ fn capture(
         ownership,
         sources,
         saved_sources: saved,
+        saved_guards,
         refusals,
         source_files_modified: false,
     };
@@ -659,12 +744,13 @@ Capture a dirty source without changing saved bytes or creating a destination. C
 mod tests {
     use super::*;
     fn fixture(edit: Value) -> Request {
-        Request {
+        Request {unaddressed_sources:BTreeMap::new(),
             context: "fixture".into(),
             edit,
             drafts: BTreeMap::new(),
             project_entry: None,
             ownership_sources: BTreeMap::new(),
+            saved_guards: BTreeMap::new(),
         }
     }
     fn capture_at(root: &Path, request: Request) -> Result<Inputs, String> {
@@ -683,6 +769,7 @@ mod tests {
         request.drafts.insert(
             "a.py".into(),
             Draft {
+                save_guard:super::super::source_history::read_observed(root,&root.join("a.py"),"a.py").unwrap().save_guard,
                 text: "saved\n# draft\n".into(),
                 base_sha256: sha(b"saved\n"),
                 version: Some(7),
@@ -706,6 +793,17 @@ mod tests {
         assert!(!root.join("b.py").exists());
     }
     #[test]
+    fn originally_loaded_physical_guard_refuses_equal_byte_recreation_and_old_inputs(){
+        let temp=tempfile::tempdir().unwrap();let root=temp.path();std::fs::write(root.join("a.py"),"same").unwrap();
+        let loaded=super::super::source_history::read_observed(root,&root.join("a.py"),"a.py").unwrap().save_guard.unwrap();
+        let mut request=fixture(json!({"changes":{"hick:///a.py":[]}}));request.drafts.insert("a.py".into(),Draft{text:"same".into(),base_sha256:sha(b"same"),version:None,writable:true,save_guard:None});
+        assert!(capture_at(root,request.clone()).unwrap_err().contains("originally loaded"));request.drafts.get_mut("a.py").unwrap().save_guard=Some(loaded);
+        let before=capture_at(root,request.clone()).unwrap();let unchanged=capture_at(root,request.clone()).unwrap();assert_eq!(before.saved_guards,unchanged.saved_guards);
+        std::fs::rename(root.join("a.py"),root.join("original.py")).unwrap();std::fs::write(root.join("a.py"),"same").unwrap();assert!(capture_at(root,request.clone()).unwrap_err().contains("originally loaded"));
+        request.drafts.clear();let independent=capture_at(root,request).unwrap();assert_eq!(before.saved_sources,independent.saved_sources);assert_ne!(before.saved_guards,independent.saved_guards);
+        let plan=super::super::resource_changes::ResourcePlan{version:1,context:before.context.clone(),title:"Inspect physical revision".into(),patches:vec![],annotations:vec![]};assert!(validate_candidate(&before,&independent,&plan).is_err());assert_eq!(std::fs::read_to_string(root.join("a.py")).unwrap(),"same");assert!(!root.join(".hick-cache").exists());
+    }
+    #[test]
     fn stale_bases_and_unknown_drafts_refuse_instead_of_overwriting_external_changes() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path();
@@ -715,6 +813,7 @@ mod tests {
         request.drafts.insert(
             "a.py".into(),
             Draft {
+                save_guard:super::super::source_history::read_observed(root,&root.join("a.py"),"a.py").unwrap().save_guard,
                 text: "my draft".into(),
                 base_sha256: sha(b"old"),
                 version: None,
@@ -730,6 +829,7 @@ mod tests {
         request.drafts.insert(
             "unrelated.py".into(),
             Draft {
+                save_guard:super::super::source_history::read_observed(root,&root.join("a.py"),"a.py").unwrap().save_guard,
                 text: "draft".into(),
                 base_sha256: sha(b"old"),
                 version: None,
@@ -754,6 +854,7 @@ mod tests {
         let mut request = fixture(
             json!({"documentChanges":[{"kind":"create","uri":"hick:///generated.py"},{"kind":"create","uri":"hick:///draft-generated.py"}]}),
         );
+        request.saved_guards.insert("part.md".into(),super::super::source_history::read_observed(root,&root.join("part.md"),"part.md").unwrap().save_guard.unwrap());
         request.ownership_sources.insert(
             "part.md".into(),
             part.replace("generated.py", "draft-generated.py"),
@@ -795,6 +896,7 @@ mod tests {
             {"kind":"create","uri":"hick:///draft-generated.py"},
             {"kind":"create","uri":"hick:///other-generated.py"}
         ]}));
+        request.saved_guards.insert("part.md".into(),super::super::source_history::read_observed(root,&root.join("part.md"),"part.md").unwrap().save_guard.unwrap());
         request.project_entry = Some("other.md".into());
         request.ownership_sources.insert(
             "part.md".into(),
@@ -918,6 +1020,7 @@ pub(crate) fn validate_candidate(
         || captured.workspace != fresh.workspace
         || captured.context != fresh.context
         || captured.saved_sources != fresh.saved_sources
+        || captured.saved_guards != fresh.saved_guards
         || captured.ownership != fresh.ownership
         || captured.sources.len() != fresh.sources.len()
         || !captured.sources.iter().all(|(path, state)| {
@@ -963,12 +1066,13 @@ mod candidate_tests {
         (entry, part)
     }
     fn request(edit: Value) -> Request {
-        Request {
+        Request {unaddressed_sources:BTreeMap::new(),
             context: "candidate".into(),
             edit,
             drafts: BTreeMap::new(),
             project_entry: None,
             ownership_sources: BTreeMap::new(),
+            saved_guards: BTreeMap::new(),
         }
     }
     fn text(path: &str, before: &str, after: &str) -> Value {
@@ -1081,6 +1185,7 @@ mod candidate_tests {
                 .unwrap_err()
                 .contains("no selected project context")
         );
+        request.saved_guards.insert("project.md".into(),super::super::source_history::read_observed(root,&root.join("project.md"),"project.md").unwrap().save_guard.unwrap());
         request
             .ownership_sources
             .insert("project.md".into(), entry.replace("part.md", "new.md"));
@@ -1215,12 +1320,13 @@ mod restored_saved_candidate_tests {
             {"kind":"create","uri":"hick:///saved-output.py"},
             {"kind":"create","uri":"hick:///draft-output.py"}
         ]});
-        let request = Request {
+        let request = Request {unaddressed_sources:BTreeMap::new(),
             context: "restore-layers".into(),
             edit: edit.clone(),
             drafts: BTreeMap::new(),
             project_entry: None,
             ownership_sources: BTreeMap::new(),
+            saved_guards: BTreeMap::new(),
         };
         let identity = RootIdentity::bind(root);
         let index = super::super::store::DocIndex::scan(root).unwrap();
@@ -1358,7 +1464,35 @@ mod restored_saved_candidate_tests {
 }
 </ui:copy>
 
-<ui:file path="crates/hickory-cli/src/serve/resource_inputs.rs"><ui:paste select="#resource-input-imports"/><ui:paste select="#resource-input-root-identity"/><ui:paste select="#resource-input-snapshots"/><ui:paste select="#resource-input-path-identity"/><ui:paste select="#resource-input-saved-bytes"/><ui:paste select="#resource-input-ownership-model"/><ui:paste select="#resource-input-capture"/><ui:paste select="#resource-input-independent-handler"/><ui:paste select="#resource-input-read-witnesses"/><ui:paste select="#resource-input-fresh-candidate"/><ui:paste select="#resource-candidate-ownership-tests"/><ui:paste select="#restored-saved-draft-candidate-test"/></ui:file>
+### Check ordinary and declaration-bearing unaddressed text separately
+
+The focused filesystem case admits an unrelated unnamed note, refuses an unnamed
+construction and an unselected declaration-bearing non-Markdown source, and admits
+the exact selected contributor. All cases leave saved source bytes unchanged.
+
+<ui:copy id="resource-input-retained-ownership-tests">
+#[cfg(test)] mod retained_ownership_tests{
+ use super::*;
+ #[cfg(unix)] #[test] fn persistent_root_fingerprint_survives_child_edits_but_not_same_path_recreation(){
+  let parent=tempfile::tempdir().unwrap();let root=parent.path().join("workspace");std::fs::create_dir(&root).unwrap();std::fs::write(root.join("a.py"),"same bytes").unwrap();let original=RootIdentity::bind(&root);let before=RootIdentity::fingerprint(&root).unwrap();std::fs::write(root.join("b.py"),"child change").unwrap();assert_eq!(RootIdentity::fingerprint(&root).unwrap(),before);std::fs::rename(&root,parent.path().join("original")).unwrap();std::fs::create_dir(&root).unwrap();std::fs::write(root.join("a.py"),"same bytes").unwrap();std::fs::write(root.join("b.py"),"child change").unwrap();assert!(original.check(&root).is_err());let restarted=RootIdentity::bind(&root);restarted.check(&root).unwrap();assert_ne!(RootIdentity::fingerprint(&root).unwrap(),before);
+ }
+
+ #[test] fn complete_retained_roster_cannot_hide_construction_in_an_opaque_or_non_markdown_name(){
+  let temporary=tempfile::tempdir().unwrap();let root=temporary.path();let entry="<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"part.md\"/></h:doc>";let part="<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:file path=\"generated.py\">value = 1</h:file></h:doc>";
+  for(path,text)in [("project.md",entry),("part.md",part),("a.py","saved"),("unselected.txt",part)]{std::fs::write(root.join(path),text).unwrap();}
+  let index=super::super::store::DocIndex::scan(root).unwrap();let identity=RootIdentity::bind(root);
+  let base=Request{unaddressed_sources:BTreeMap::from([("opaque-editor".into(),"Ordinary unnamed note".into())]),context:"retained-test".into(),edit:json!({"documentChanges":[{"kind":"rename","oldUri":"hick:///a.py","newUri":"hick:///b.py"}]}),drafts:BTreeMap::new(),project_entry:Some("project.md".into()),ownership_sources:BTreeMap::new(),saved_guards:BTreeMap::new()};
+  assert!(capture(root,&index,&identity,base.clone()).is_ok());
+  let mut unknown=base.clone();unknown.unaddressed_sources.insert("opaque-editor".into(),part.into());assert!(capture(root,&index,&identity,unknown).is_err());
+  let mut include_only=base.clone();include_only.unaddressed_sources.insert("opaque-editor".into(),"<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:include from=\"part.md\"/></h:doc>".into());assert!(capture(root,&index,&identity,include_only).unwrap_err().contains("unaddressed"));
+  for tag in ["include","upstream","copy","paste"]{assert!(contains_construction(&format!("<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:{tag}/></h:doc>")).unwrap())}
+  let mut unselected=base.clone();unselected.ownership_sources.insert("unselected.txt".into(),part.into());assert!(capture(root,&index,&identity,unselected).is_err());
+  let mut selected=base;selected.ownership_sources.insert("part.md".into(),part.into());selected.saved_guards.insert("part.md".into(),super::super::source_history::read_observed(root,&root.join("part.md"),"part.md").unwrap().save_guard.unwrap());assert!(capture(root,&index,&identity,selected).is_ok());assert_eq!(std::fs::read_to_string(root.join("a.py")).unwrap(),"saved");assert!(!root.join("b.py").exists());
+ }
+}
+</ui:copy>
+
+<ui:file path="crates/hickory-cli/src/serve/resource_inputs.rs"><ui:paste select="#resource-input-imports"/><ui:paste select="#resource-input-root-identity"/><ui:paste select="#resource-input-snapshots"/><ui:paste select="#resource-input-path-identity"/><ui:paste select="#resource-input-saved-bytes"/><ui:paste select="#resource-input-ownership-model"/><ui:paste select="#resource-input-retained-ownership"/><ui:paste select="#resource-input-capture"/><ui:paste select="#resource-input-independent-handler"/><ui:paste select="#resource-input-read-witnesses"/><ui:paste select="#resource-input-fresh-candidate"/><ui:paste select="#resource-candidate-ownership-tests"/><ui:paste select="#restored-saved-draft-candidate-test"/><ui:paste select="#resource-input-retained-ownership-tests"/></ui:file>
 ## Exercise the actual acquisition and planning routes
 
 Start a temporary real engine with one saved source and supply a separate dirty draft. Discover both move endpoints, acquire their saved/draft states, and prepare the ordered move/text proposal. Check the unchanged saved file and absent destination, then require an HTTP refusal for a stale editor base. After those read-only assertions, explicitly save the reviewed move and check exact saved/draft recovery, duplicate request identity, read-only status, generated-destination and stale-source refusal, and authored-document retirement. The witness exercises source publication through the real engine; it does not establish frontend namespace application or saved/draft undo.

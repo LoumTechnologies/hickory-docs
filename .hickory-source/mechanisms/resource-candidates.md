@@ -384,9 +384,9 @@ pub(crate) fn analyze_with_saved(
         source_files_modified: false,
     };
     let bytes = if let Some(saved_after) = saved_after {
-        serde_json::to_vec(&(plan, saved_after, &facts))
+        serde_json::to_vec(&(plan, saved_after, &fresh.saved_guards, &facts))
     } else {
-        serde_json::to_vec(&(plan, &facts))
+        serde_json::to_vec(&(plan, &fresh.saved_guards, &facts))
     }
     .map_err(|error| error.to_string())?;
     if bytes.len() > 16 * 1024 * 1024 {

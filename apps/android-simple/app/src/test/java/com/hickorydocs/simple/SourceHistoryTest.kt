@@ -1,0 +1,52 @@
+package com.hickorydocs.simple
+import org.junit.Test
+import org.junit.Assert.*
+import org.json.JSONObject
+import org.json.JSONArray
+import kotlinx.coroutines.*
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+class SourceHistoryTest {
+ private fun saved(text:String)=JSONObject().put("kind","file").put("text",text).put("sha256",debugHash(text)).put("readonly",false).put("executable",false).put("mode",420)
+ private fun reading()=JSONObject().put("version",1).put("history_protocol",1).put("namespace","/fixture").put("workspace","physical-root").put("path","a.txt").put("current",saved("saved")).put("current_identity","source-inode").put("notices",JSONArray()).put("entries",JSONArray().put(JSONObject().put("id","a".repeat(32)).put("fingerprint","b".repeat(64)).put("at",1).put("outcome","published").put("before",saved("old")).put("after",saved("saved")).put("available",true).put("reason",JSONObject.NULL)))
+ private suspend fun host(block:suspend(Workspace,DocumentBuffer,java.util.concurrent.atomic.AtomicReference<String>,MutableList<JSONObject>)->Unit)=coroutineScope{
+  val mode=java.util.concurrent.atomic.AtomicReference("normal");val saves=java.util.Collections.synchronizedList(mutableListOf<JSONObject>());val server=com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1",0),0)
+  server.createContext("/api"){exchange->var status=200;val route=exchange.requestURI.path;val request=exchange.requestBody.bufferedReader().readText().takeIf{it.isNotEmpty()}?.let{JSONObject(it)}
+   val response=when{
+    route=="/api/files"->JSONObject().put("root","Display only").put("root_path","/fixture").put("tree",JSONArray())
+    route=="/api/source-history/file"->{val body=request!!;saves.add(body);if(mode.get()=="lost"){status=409;JSONObject().put("error","Unconfirmed network publication")}else{val source=body.getString("content");JSONObject().put("version",1).put("history_protocol",1).put("path",if(mode.get()=="foreign")"other.txt" else "a.txt").put("request_id",body.getString("request_id")).put("source_hash",debugHash(source)).put("hash",debugHash(source)).put("save_guard","new-physical-token").put("history",JSONObject().put("available",mode.get() !in listOf("failed","prepared","unknown","unavailable")).put("outcome",if(mode.get() in listOf("failed","prepared","unknown"))mode.get() else "published"))}}
+    route=="/api/source-history/restore-draft"->{val body=request!!;JSONObject(body.toString()).put("history_protocol",1).put("source",if(mode.get()=="tampered")"foreign" else "old").put("consequences","unknown").put("notice","Restored source draft; consequences unknown.")}
+    route=="/api/source-history"->reading()
+    else->{status=400;JSONObject().put("error","Unexpected route: $route")}
+   };val bytes=response.toString().toByteArray();exchange.sendResponseHeaders(status,bytes.size.toLong());exchange.responseBody.use{it.write(bytes)}
+  };server.start();val w=Workspace(this);w.engine=Engine("http://127.0.0.1:${server.address.port}");w.engine!!.files();val file=FileNode("a.txt","a.txt",false,emptyList(),null,null);val b=DocumentBuffer(file,FileText("saved",debugHash("saved"),"original-physical-token"));w.buffers[file.path]=b;w.show(file.path)
+  try{block(w,b,mode,saves)}finally{server.stop(0)}
+ }
+ @Test fun readingsBindNamespaceBytesAndConfirmedEvidence(){val raw=reading();val value=sourceHistoryReading(raw,"a.txt","/fixture");assertEquals("old",value.entries.single().before.text);assertEquals(1L,value.entries.single().at);raw.getJSONArray("entries").getJSONObject(0).getJSONObject("before").put("text","tampered");assertEquals("old",value.entries.single().before.text)
+  for((key,bad) in listOf("version" to true,"history_protocol" to 1.5,"path" to "other.txt","namespace" to "/elsewhere"))assertTrue(runCatching{sourceHistoryReading(reading().put(key,bad),"a.txt","/fixture")}.isFailure)
+  val created=reading();created.getJSONArray("entries").getJSONObject(0).put("before",JSONObject().put("kind","missing"));val creation=sourceHistoryReading(created,"a.txt","/fixture");assertEquals("missing",creation.entries.single().before.kind);assertNull(creation.entries.single().before.text);assertEquals("saved",creation.entries.single().after.text)
+  val badTime=reading();badTime.getJSONArray("entries").getJSONObject(0).put("at",1.5);assertTrue(runCatching{sourceHistoryReading(badTime,"a.txt","/fixture")}.isFailure)
+  val prepared=reading();prepared.getJSONArray("entries").getJSONObject(0).put("outcome","prepared");assertTrue(runCatching{sourceHistoryReading(prepared,"a.txt","/fixture")}.isFailure)
+ }
+ @Test fun strictSaveRetainsExactRequestGuardAndDraftAfterLostOrForeignReply()=runBlocking{host{w,b,mode,saves->
+  b.applySourceEdits(listOf(NativeSourceEdit(0,b.text.length,"draft")),b.text);mode.set("lost");b.save(w.engine!!);assertEquals("saved",b.base);assertEquals("draft",b.text);assertEquals("original-physical-token",b.saveGuard)
+  for(refused in listOf("foreign","failed","prepared","unknown")){mode.set(refused);b.save(w.engine!!);assertEquals("saved",b.base);assertEquals("original-physical-token",b.saveGuard);assertEquals(saves.first().getString("request_id"),saves.last().getString("request_id"));assertEquals("original-physical-token",saves.last().getString("save_guard"))}
+  mode.set("normal");b.save(w.engine!!);assertEquals("draft",b.base);assertEquals("new-physical-token",b.saveGuard);assertEquals(saves.first().getString("request_id"),saves.last().getString("request_id"));assertEquals("draft",b.text)
+  b.applySourceEdits(listOf(NativeSourceEdit(0,b.text.length,"later")),b.text);mode.set("unavailable");b.save(w.engine!!);assertEquals("later",b.base);assertFalse(b.dirty);assertTrue(b.error.contains("unavailable"))
+ }}
+ @Test fun missingGuardNeverUsesLegacySaveRoute()=runBlocking{host{w,b,_,saves->b.applySourceEdits(listOf(NativeSourceEdit(0,b.text.length,"draft")),b.text);b.saveGuard=null;b.save(w.engine!!);assertEquals(0,saves.size);assertEquals("saved",b.base);assertEquals("draft",b.text);assertTrue(b.error.contains("authority"))}}
+ @Test fun historicalDraftRestoresThroughNativeUndoWithoutChangingSavedBaseline()=runBlocking{host{w,b,_,_->b.applySourceEdits(listOf(NativeSourceEdit(0,b.text.length,"unsaved")),b.text);val state=b.state;val scroll=b.sourceScroll.value;val m=w.sourceHistory;m.open(w);assertNotNull(m.notice,m.reading);m.choose(m.reading!!.entries.single(),"before");assertEquals("unsaved",b.text);assertTrue(m.notice,m.restore());assertEquals("old",b.text);assertEquals("saved",b.base);assertEquals("original-physical-token",b.saveGuard);assertTrue(b.snippets.undoSource());assertEquals("unsaved",b.text);assertTrue(b.snippets.redoSource());assertEquals("old",b.text);assertSame(state,b.state);assertSame(b,w.currentBuffer);assertEquals(scroll,b.sourceScroll.value)}}
+ @Test fun editUndoSameSpellingAndTamperedRestorationCannotApply()=runBlocking{for(change in listOf("revision","replacement","tampered"))host{w,b,mode,_->val m=w.sourceHistory;m.open(w);m.choose(m.reading!!.entries.single(),"before");if(change=="revision")b.advanceSourceRevision() else if(change=="replacement")w.buffers["a.txt"]=DocumentBuffer(b.file,FileText(b.text,b.hash,b.saveGuard)) else mode.set("tampered");assertFalse(m.restore());assertEquals("saved",b.text)}}
+ @Test(timeout=90000) fun liveNativeOrdinarySaveHistoryRestoreAndUndo()=runBlocking{
+  val origin=System.getenv("HICKORY_NATIVE_HISTORY_ORIGIN");org.junit.Assume.assumeNotNull(origin);val root=java.io.File(System.getenv("HICKORY_NATIVE_HISTORY_WORKSPACE") ?: error("Use the maintained source-history fixture"));check(root.resolve(".hickory-native-history-fixture").readText()=="owned-native-history-v1\n"){"Refuse non-owned ordinary-history fixture"}
+  val background=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined);val w=Workspace(background)
+  try{
+  val engine=Engine(origin!!);w.engine=engine;val (_,tree)=engine.files();assertEquals(root.toPath().toRealPath().toString(),engine.sourceRootAddress);w.rootFiles=tree
+  fun find(nodes:List<FileNode>):FileNode? {for(node in nodes){if(node.path=="history.txt")return node;find(node.children)?.let{return it}};return null}
+  val file=find(tree) ?: error("History source not listed");val b=w.loadBuffer(file);w.show(file.path);val initial=b.text;val state=b.state;val scroll=b.sourceScroll.value;assertFalse(b.readOnly);assertNotNull(b.saveGuard)
+  assertTrue(b.applySourceEdits(listOf(NativeSourceEdit(0,b.text.length,"saved-after\n")),b.text));b.save(engine);assertTrue(b.error,b.error.isEmpty());assertFalse(b.dirty);assertNotNull(b.saveGuard)
+  assertTrue(b.applySourceEdits(listOf(NativeSourceEdit(b.text.length,b.text.length,"unsaved")),b.text));val draft=b.text;val selection=b.state.selection;val m=w.sourceHistory
+  val commands=commandDescriptors(javaClass.classLoader!!.getResourceAsStream("commands.json")!!.bufferedReader().use{it.readText()});val action=w.commands(commands).first{it.id=="source.history"};assertNull(action.reason);action.run();withTimeout(5000){while(m.busy||m.reading==null){delay(10)}}
+  val entry=m.reading!!.entries.first();assertEquals("published",entry.outcome);assertTrue(entry.available);assertEquals(initial,entry.before.text);m.choose(entry,"before");assertEquals(draft,b.text);assertTrue(m.notice,m.restore());assertEquals(initial,b.text);assertEquals("saved-after\n",b.base);assertEquals("saved-after\n",root.resolve("history.txt").readText());assertTrue(b.snippets.undoSource());assertEquals(draft,b.text);assertEquals(selection,state.selection);assertTrue(b.snippets.redoSource());assertEquals(initial,b.text);assertSame(state,b.state);assertSame(b,w.currentBuffer);assertEquals(scroll,b.sourceScroll.value)
+  }finally{w.buffers.values.forEach{it.language?.close()};background.cancel()}
+ }
+}

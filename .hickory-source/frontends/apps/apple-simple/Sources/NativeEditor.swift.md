@@ -2256,6 +2256,7 @@ struct NativeDebugRail: View {
     var debug: NativeDebugger
     @State private var opened: Int?
     @State private var details: Int?
+    @State private var adapterInspection:UUID?
     @State private var expression = ""
     @State private var condition = ""
     private var paused: Int? { debug.sourceMatches(buffer) ? debug.line(in: buffer.file.path) : nil }
@@ -2349,7 +2350,7 @@ struct NativeDebugRail: View {
             }
         }.background(.quaternary.opacity(0.2))
         .popover(isPresented: Binding(get: { details != nil }, set: { if !$0 { details = nil } })) {
-            if let details { ScrollView { controls(details).padding(10) }.frame(width: 330).frame(maxHeight: 460) }
+            if let details { ScrollView { controls(details).padding(10) }.frame(width: 330).frame(maxHeight: 460).onAppear{adapterInspection=debug.adapterSources.open()}.onDisappear{if let token=adapterInspection{debug.adapterSources.close(token)};adapterInspection=nil} }
         }.onChange(of:buffer.debugInspection){_,_ in if debug.hasSessionReading{details=0}}
         .task(id: buffer.base) { await buffer.refreshReceipts() }
     }
@@ -2398,6 +2399,7 @@ struct NativeDebugRail: View {
                 TextField("Breakpoint condition", text: $condition)
                 Button("Apply condition", systemImage: "checkmark") { debug.toggle(buffer, line: line, condition: condition) }
             }
+            NativeAdapterSourceView(debug:debug,inspection:adapterInspection)
             if debug.status == "paused" {
                 threadControls
                 HStack {Button("Run to this source line"){debug.moveToSource(buffer,line:line,how:"run_to")}.disabled(!debug.canMoveToSource(buffer,how:"run_to"));Button("Move instruction pointer here"){debug.moveToSource(buffer,line:line,how:"jump")}.disabled(!debug.canMoveToSource(buffer,how:"jump"))}

@@ -82,6 +82,7 @@ pub struct RestoreRequest {
     pub proposal: PrepareRequest,
 }
 async fn execute(state: LocalState, request: RestoreRequest) -> Result<Value, String> {
+    let saved_guards=request.proposal.inputs.saved_guards.clone();
     let prepared = prepare_inner(state.clone(), request.proposal).await?;
     if prepared.restoration.recovery_fingerprint != request.reviewed_recovery_fingerprint
         || prepared.consequences.fingerprint != request.reviewed_fingerprint
@@ -107,6 +108,7 @@ async fn execute(state: LocalState, request: RestoreRequest) -> Result<Value, St
         manifest,
         prepared.consequences,
         request.request_id,
+        saved_guards,
         prepared.protected_entries,
         super::resource_saves::EntryTransition::Historical,
     )
@@ -149,7 +151,7 @@ pub async fn restore(
     )
     .map_err(ApiError::conflict)?
     {
-        return result.map(Json).map_err(ApiError::conflict);
+        return match result{Ok(value)=>super::resource_saves::checked_retained(&state,value).await.map(Json).map_err(ApiError::conflict),Err(error)=>Err(ApiError::conflict(error))};
     }
     let id = request.request_id.clone();
     let result = execute(state, request).await;

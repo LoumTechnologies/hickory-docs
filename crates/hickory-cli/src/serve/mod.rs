@@ -350,14 +350,55 @@ impl LocalState {
             .map_err(|e| ApiError::internal(format!("reading {}: {e}", path.display())))
     }
 
-    /// Write a document's source, leaving a local-history stop.
-    ///
-    /// Everything the server writes to a `.md` file goes through here, so
-    /// this is the one place that has to remember to record — which is why
-    /// the KIND is a parameter rather than a guess. "A person saved this" and
-    /// "the agent rewrote this at a hashline anchor" are the two facts a
-    /// person scanning their history needs told apart, and only the caller
-    /// knows which it is.
+    /// Keep historical intentions distinct from confirmed ordinary source saves.
+    /// The existing writer remains authoritative; ordinary save evidence fences
+    /// that single publication. Replays never invoke the writer or legacy cache.
+    fn write_source_record(
+        &self,
+        id: &str,
+        source: &str,
+        kind: hickory_workspace::history::ActKind,
+        detail: Option<String>,
+        request: Option<&str>,
+        fingerprint: Option<&str>,
+    ) -> ApiResult<()> {
+        self.resource_root
+            .check(self.index.root())
+            .map_err(ApiError::conflict)?;
+        let path = self
+            .index
+            .absolute(id)
+            .ok_or_else(|| ApiError::not_found(format!("no document {id} in this session")))?;
+        let writer = || {
+            self.resource_root.check(self.index.root())?;
+            crate::history::record(
+                self.index.root(),
+                kind,
+                detail,
+                &[(path.clone(), source.as_bytes().to_vec())],
+            );
+            store::write_document_observed(&path, source)
+                .map_err(|error| format!("writing {}: {error:#}", path.display()))
+        };
+        if kind == hickory_workspace::history::ActKind::Saved {
+            source_history::write_observed(
+                self.index.root(),
+                &path,
+                source,
+                request,
+                fingerprint,
+                writer,
+            )
+            .map_err(ApiError::internal)
+        } else {
+            if request.is_some() || fingerprint.is_some() {
+                return Err(ApiError::internal(
+                    "Only ordinary source saves accept save request identities",
+                ));
+            }
+            writer().map(|_| ()).map_err(ApiError::internal)
+        }
+    }
     pub fn write_source_as(
         &self,
         id: &str,
@@ -365,22 +406,26 @@ impl LocalState {
         kind: hickory_workspace::history::ActKind,
         detail: Option<String>,
     ) -> ApiResult<()> {
-        let path = self
-            .index
-            .absolute(id)
-            .ok_or_else(|| ApiError::not_found(format!("no document {id} in this session")))?;
-        crate::history::record(
-            self.index.root(),
-            kind,
-            detail,
-            &[(path.clone(), source.as_bytes().to_vec())],
-        );
-        store::write_document(&path, source)
-            .map_err(|e| ApiError::internal(format!("writing {}: {e:#}", path.display())))
+        self.write_source_record(id, source, kind, detail, None, None)
     }
-
+    pub fn write_source_request(
+        &self,
+        id: &str,
+        source: &str,
+        request: Option<&str>,
+        fingerprint: Option<&str>,
+    ) -> ApiResult<()> {
+        self.write_source_record(
+            id,
+            source,
+            hickory_workspace::history::ActKind::Saved,
+            None,
+            request,
+            fingerprint,
+        )
+    }
     pub fn write_source(&self, id: &str, source: &str) -> ApiResult<()> {
-        self.write_source_as(id, source, hickory_workspace::history::ActKind::Saved, None)
+        self.write_source_request(id, source, None, None)
     }
 
     /// Resolve a document path as provenance names it.
@@ -845,6 +890,45 @@ pub(crate) fn router(state: LocalState) -> Router {
             post(resource_inputs::inspect)
                 .layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)),
         )
+        .route("/git/conflict-resolution/read", post(git_resolutions::read).layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)))
+        .route("/git/conflict-resolution/prepare", post(git_resolutions::prepare).layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)))
+        .route("/git/conflict-resolution/validate", post(git_resolutions::validate).layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)))
+        .route("/git/conflict-resolution/save", post(git_resolutions::save).layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)))
+        .route("/git/conflict-resolution/stage", post(git_resolutions::stage).layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)))
+        .route("/git/conflict-resolution/status", get(git_resolutions::status).layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)))
+        .route("/agent-proposals", get(agent_proposals::list))
+        .route("/agent-proposals/{token}", get(agent_proposals::read))
+        .route("/agent-proposals/report", post(agent_proposals::report).layer(axum::extract::DefaultBodyLimit::max(1024 * 1024)))
+        .route("/agent-proposals/prepare", post(agent_proposals::prepare).layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)))
+        .route("/agent-proposals/validate", post(agent_proposals::validate).layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)))
+        .route("/source-history/create", post(source_history::create).layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)))
+        .route("/source-history/file", put(plain_file::put_file_guarded))
+        .route("/source-history/docs/{id}", put(api::put_doc_guarded))
+        .route("/source-history", get(source_history::list))
+        .route(
+            "/source-history/restore-draft",
+            post(source_history::restore_draft),
+        )
+        .route("/behavior/source", post(behavior_readings::source).layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)))
+        .route(
+            "/behavior/reading",
+            post(behavior_readings::reading)
+                .layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)),
+        )
+        .route(
+            "/behavior/profiles",
+            post(behavior_readings::profiles)
+                .layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)),
+        )
+        .route(
+            "/behavior/verify",
+            post(behavior_readings::verify)
+                .layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)),
+        )
+        .route(
+            "/behavior/verification",
+            get(behavior_readings::verification),
+        )
         .route(
             "/templates/catalog",
             post(source_templates::catalog)
@@ -956,3 +1040,7 @@ pub(crate) fn rand_id() -> u64 {
 }
 pub mod test_debug;
 pub mod source_templates;
+pub mod source_history;
+pub mod behavior_readings;
+pub mod git_resolutions;
+mod agent_proposals;

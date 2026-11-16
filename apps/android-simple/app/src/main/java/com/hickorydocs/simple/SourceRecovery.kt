@@ -33,24 +33,32 @@ class ResourceChangeReview(private val transport:(suspend(String,String,JSONObje
  fun reset(){ticket++;review=null;pending=null;publishedWorkspace=null;lastRecovery=null;lastWorkspace=null;busy=false;notice=""}
  private suspend fun capture(workspace:Workspace,paths:List<String>,edit:JSONObject,valid:()->Boolean):Pair<JSONObject,()->Boolean> {
   check(paths.isNotEmpty()&&paths.size<=1000&&paths.distinct().size==paths.size){"Choose a bounded complete source proposal."}
-  val epoch=workspace.sourceNavigationEpoch
+  val epoch=workspace.sourceNavigationEpoch;val server=workspace.engine
   fun find(nodes:List<FileNode>,path:String):FileNode?=nodes.firstNotNullOfOrNull{if(it.path==path)it else find(it.children,path)}
   for(path in paths){check(valid()&&workspace.sourceNavigationEpoch==epoch){"Source or workspace changed. Prepare again."};find(workspace.rootFiles,path)?.takeUnless{it.dir}?.let{workspace.loadBuffer(it)}}
-  fun authored()=workspace.buffers.filter{(path,buffer)->!path.startsWith("Untitled-")&&!buffer.resourceDeleted&&buffer.file.generatedBy==null}
-  val namespace=authored().toMap();val captured=paths.associateWith{workspace.buffers[it]}
-  data class Snapshot(val buffer:DocumentBuffer,val text:String,val base:String,val hash:String,val file:FileNode)
-  val snapshots=namespace.values.map{check(!it.saving&&!it.readOnly&&it.state.composition==null){"Finish source input and saves before preparing resources."};Snapshot(it,it.text,it.base,it.hash,it.file)}
-  val current={valid()&&workspace.sourceNavigationEpoch==epoch&&authored().let{it.keys==namespace.keys&&it.all{(path,buffer)->namespace[path]===buffer}}&&captured.all{(path,buffer)->workspace.buffers[path]===buffer}&&snapshots.all{it.buffer.text==it.text&&it.buffer.base==it.base&&it.buffer.hash==it.hash&&it.buffer.file===it.file&&!it.buffer.saving&&it.buffer.state.composition==null}}
+  val addresses=workspace.buffers.toMap();val retained=workspace.retainedResourceEditors.toMap();val tabs=workspace.retainedResourceTabs.toMap()
+  fun roster()=(workspace.buffers.values+workspace.retainedResourceEditors.values+workspace.retainedResourceTabs.values).distinct().filter{it.file.generatedBy==null}
+  data class Snapshot(val buffer:DocumentBuffer,val text:String,val base:String,val hash:String,val guard:String?,val file:FileNode,val revision:Long,val deleted:Boolean,val readonly:Boolean,val selection:androidx.compose.ui.text.TextRange)
+  val snapshots=roster().map{check(!it.saving&&it.state.composition==null){"Finish source input and saves before preparing resources."};Snapshot(it,it.text,it.base,it.hash,it.saveGuard,it.file,it.sourceRevision,it.resourceDeleted,it.readOnly,it.state.selection)}
+  check(snapshots.size<=4096){"Retained source roster exceeds its bounded capture."}
+  fun same(live:Map<String,DocumentBuffer>,before:Map<String,DocumentBuffer>)=live.size==before.size&&before.all{(path,b)->live[path]===b}
+  val current={valid()&&workspace.engine===server&&workspace.sourceNavigationEpoch==epoch&&same(workspace.buffers,addresses)&&same(workspace.retainedResourceEditors,retained)&&same(workspace.retainedResourceTabs,tabs)&&roster().toSet()==snapshots.map{it.buffer}.toSet()&&snapshots.all{val b=it.buffer;b.sourceRevision==it.revision&&b.text==it.text&&b.base==it.base&&b.hash==it.hash&&b.saveGuard==it.guard&&b.file===it.file&&b.resourceDeleted==it.deleted&&b.readOnly==it.readonly&&b.state.selection==it.selection&&!b.saving&&b.state.composition==null}}
   check(current()){"Source changed. Prepare again."}
-  val drafts=JSONObject();snapshots.filter{it.file.path in paths}.forEach{drafts.put(it.file.path,JSONObject().put("text",it.text).put("base_sha256",hash(it.base)).put("version",JSONObject.NULL).put("writable",true))}
-  val ownership=JSONObject();snapshots.filter{it.file.path.endsWith(".md",true)||it.file.path.endsWith(".markdown",true)}.forEach{ownership.put(it.file.path,it.text)}
-  val capture=JSONObject().put("context",nonce()).put("edit",edit).put("drafts",drafts).put("project_entry",JSONObject.NULL).put("ownership_sources",ownership)
+  val drafts=JSONObject();val ownership=JSONObject();val unaddressed=JSONObject();val guards=JSONObject();var bytes=0L
+  for(s in snapshots){val named=!s.deleted&&!s.file.path.startsWith("Untitled-")&&!s.file.path.startsWith('/')&&addresses[s.file.path]===s.buffer
+   val key=if(named)s.file.path else s.buffer.debugIdentity;check(s.text.length<=8*1024*1024&&key.length<=8192){"Retained source input exceeds its bounded capture."};bytes+=key.toByteArray(Charsets.UTF_8).size.toLong()+s.text.toByteArray(Charsets.UTF_8).size;check(bytes<=32L*1024*1024){"Retained resource ownership capture exceeds 32 MiB."}
+   if(named){check(!ownership.has(key)){"Retained authored source addresses are ambiguous."};ownership.put(key,s.text);s.guard?.takeIf{it.isNotEmpty()}?.let{guards.put(key,it)}}else unaddressed.put(key,s.text)
+   if(named&&key in paths){check(!s.readonly){"A selected source is not writable."};check(!s.guard.isNullOrEmpty()){"A selected source has no captured physical save guard. Reopen its saved baseline before preparing resources."};drafts.put(key,JSONObject().put("save_guard",s.guard).put("text",s.text).put("base_sha256",hash(s.base)).put("version",JSONObject.NULL).put("writable",true))}
+  }
+  val capture=JSONObject().put("context",nonce()).put("edit",edit).put("drafts",drafts).put("project_entry",JSONObject.NULL).put("ownership_sources",ownership).put("unaddressed_sources",unaddressed).put("saved_guards",guards)
   return capture to current
  }
- private suspend fun acquire(workspace:Workspace,paths:List<String>,edit:JSONObject,valid:()->Boolean):Triple<JSONObject,JSONObject,()->Boolean> {
+ internal suspend fun acquire(workspace:Workspace,paths:List<String>,edit:JSONObject,valid:()->Boolean):Triple<JSONObject,JSONObject,()->Boolean> {
   var (captured,current)=capture(workspace,paths,edit,valid)
   var inputs=call(workspace,"POST","/api/changes/resource-inputs",captured)
   check(current()){"Source changed during acquisition. Prepare again."}
+  fun requireSavedGuards(raw:JSONObject){val guards=raw.getJSONObject("saved_guards");check(guards.keys().asSequence().all{guards.get(it) is String&&guards.getString(it).isNotEmpty()}){"Resource inputs contain malformed physical save guards."}}
+  requireSavedGuards(inputs)
   val sources=inputs.getJSONObject("sources")
   val missing=paths.filter{sources.getJSONObject(it).getString("kind")=="file"&&workspace.buffers[it]==null}
   if(missing.isNotEmpty()){
@@ -60,7 +68,7 @@ class ResourceChangeReview(private val transport:(suspend(String,String,JSONObje
    workspace.refresh();check(current()){"Workspace changed during source discovery. Prepare again."}
    val next=capture(workspace,paths,edit,valid);captured=next.first;current=next.second
    check(missing.all{workspace.buffers[it]!=null}){"Current source is not available in the file index: ${missing.joinToString()}. Refresh files and prepare again."}
-   inputs=call(workspace,"POST","/api/changes/resource-inputs",captured)
+   inputs=call(workspace,"POST","/api/changes/resource-inputs",captured);requireSavedGuards(inputs)
    check(current()){"Source changed after discovery. Prepare again."}
   }
   return Triple(captured,inputs,current)
@@ -143,7 +151,7 @@ fun resourcePatches(plan:JSONObject):List<ResourceEditorPatch>{
  return (0 until rows.length()).map{val row=rows.getJSONObject(it);ResourceEditorPatch(row.getString("path"),side(row.getJSONObject("before")),side(row.getJSONObject("after")))}
 }
 fun resourceSavedMap(raw:JSONObject)=raw.keys().asSequence().associateWith{key->val value=raw.getJSONObject(key);if(value.getString("kind")=="missing")ResourceSaved("missing") else ResourceSaved("file",value.getString("text"),value.getString("sha256"),value.getBoolean("readonly"),value.getBoolean("executable"),if(value.isNull("mode"))null else value.getInt("mode"))}
-fun resourcePublication(raw:JSONObject):ResourcePublication<FileNode>{val outcome=raw.getJSONObject("outcome");val rows=raw.getJSONArray("source_files");val applied=outcome.getJSONArray("applied");return ResourcePublication(raw.getInt("version"),raw.getString("request_id"),raw.getString("workspace"),raw.getString("context"),outcome.getBoolean("complete"),outcome.getString("recovery"),(0 until applied.length()).map{applied.getString(it)},if(raw.isNull("saved_sources"))null else resourceSavedMap(raw.getJSONObject("saved_sources")),(0 until rows.length()).map{val row=rows.getJSONObject(it);val file=row.getJSONObject("file");ResourcePublishedFile(FileNode(file.getString("name"),file.getString("path"),file.getBoolean("dir"),emptyList(),if(file.isNull("doc_id"))null else file.getString("doc_id"),if(file.isNull("generated_by"))null else file.getString("generated_by"),if(file.isNull("language"))null else file.getString("language")),resourceSavedMap(JSONObject().put("entry",row.getJSONObject("saved"))).getValue("entry"),row.getString("hash"))})}
+fun resourcePublication(raw:JSONObject):ResourcePublication<FileNode>{check(raw.get("version")==2){"Resource publication protocol2 is required for current editor adoption."};val outcome=raw.getJSONObject("outcome");val rows=raw.getJSONArray("source_files");val applied=outcome.getJSONArray("applied");return ResourcePublication(raw.getInt("version"),raw.getString("request_id"),raw.getString("workspace"),raw.getString("context"),outcome.getBoolean("complete"),outcome.getString("recovery"),(0 until applied.length()).map{applied.getString(it)},if(raw.isNull("saved_sources"))null else resourceSavedMap(raw.getJSONObject("saved_sources")),(0 until rows.length()).map{val row=rows.getJSONObject(it);val file=row.getJSONObject("file");ResourcePublishedFile(FileNode(file.getString("name"),file.getString("path"),file.getBoolean("dir"),emptyList(),if(file.isNull("doc_id"))null else file.getString("doc_id"),if(file.isNull("generated_by"))null else file.getString("generated_by"),if(file.isNull("language"))null else file.getString("language")),resourceSavedMap(JSONObject().put("entry",row.getJSONObject("saved"))).getValue("entry"),row.getString("hash"),if(row.isNull("save_guard"))null else row.getString("save_guard").also{check(it.isNotEmpty()){"Malformed source save guard."}})},raw.get("adoption_current") as? Boolean ?: error("Resource publication adoption authority is unavailable or malformed."),if(raw.isNull("adoption_reason"))null else raw.getString("adoption_reason"))}
 
 data class RecoveryPage(val version:Int,val workspace:String,val ids:List<String>,val next:String?,val ignored:Int)
 data class RecoverySummary(val kind:String,val bytes:Int?,val sha256:String?)

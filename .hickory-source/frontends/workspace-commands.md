@@ -104,6 +104,12 @@ Menus and action search need one vocabulary and one availability decision. The s
     "requires": "writable"
   },
   {
+    "id": "source.history",
+    "label": "Local source history…",
+    "group": "View",
+    "requires": "editor"
+  },
+  {
     "id": "source.templates",
     "label": "Insert reusable template…",
     "group": "Edit",

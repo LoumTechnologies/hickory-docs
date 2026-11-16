@@ -7,7 +7,7 @@ For maintainers iterating on the equivalent Apple, Android and browser editor fr
 
 Each document owns a TextFieldState, including selection and undo, while the ViewModel owns connections and layout. Background requests retain a workspace generation so stale replies cannot populate a newly connected workspace.
 
-File commands act on the connected workspace: path entry opens a file or directory, New Tab keeps an unnamed buffer, and Save As exclusively creates a new destination before a hash-checked write. Existing destinations are never overwritten by Save As. Save All visits each named buffer; unnamed drafts ask for a path and failed saves retain their original edits. Refresh observes the tree without replacing open buffers.
+File commands act on the connected workspace: path entry opens a file or directory, New Tab keeps an unnamed buffer, and Save As sends one strict, no-clobber complete-source request with captured construction ownership and physical guards. A confirmed receipt initializes its copy directly; no empty-create/read/legacy-write sequence remains. Existing destinations are never overwritten by Save As. Save All visits each named buffer; unnamed drafts ask for a path and failed saves retain their original edits. Refresh observes the tree without replacing open buffers.
 
 Reconnect clears the terminal session identity; the current terminal renderer owns its replay and has no workspace `screen` buffer to reset.
 
@@ -208,6 +208,10 @@ class DocumentBuffer(file: FileNode, loaded: FileText) {
     }
     var base by mutableStateOf(loaded.content)
     var hash = loaded.hash
+    var saveGuard=loaded.saveGuard
+    var saveGuardReason=loaded.saveGuardReason
+    private var saveHistoryAttempt:SourceSaveAttempt?=null
+    internal var creationAttempt:SourceCreationAttempt?=null
     var debugReveal by mutableStateOf<Pair<Int, Int>?>(null)
     var debugRevealSource:String?=null
     var debugRevealCurrent:()->Boolean={true}
@@ -219,8 +223,10 @@ class DocumentBuffer(file: FileNode, loaded: FileText) {
     suspend fun save(engine: Engine) {
         if (resourceDeleted || !dirty || saving || readOnly) return
         val submitted = text; val previous = base; val previousHash = hash
+        val guard=saveGuard ?: run{error=saveGuardReason ?: "This source has no physical save authority. Reopen or compare it before saving; the draft is retained.";return}
+        val attempt=saveHistoryAttempt?.takeIf{it.matches(engine,file.path,submitted,previous,previousHash,guard)} ?: SourceSaveAttempt(engine,file.path,submitted,previous,previousHash,guard).also{saveHistoryAttempt=it}
         saving = true; error = ""
-        try { hash = engine.save(file, submitted, previous, previousHash); base = submitted }
+        try { val result=engine.saveSourceWithHistory(file,attempt);check(file.path==attempt.path&&saveGuard==guard&&base==previous&&hash==previousHash){"Source address or saved baseline changed during Save. Inspect history before adoption."};hash=result.hash;base=submitted;saveGuard=result.guard;saveGuardReason=null;saveHistoryAttempt=null;error=result.notice }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { error = "${failure.message} Your edits are retained. Copy them before closing; compare with disk before retrying." }
         finally { saving = false }
@@ -319,6 +325,10 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     val buffers = mutableStateMapOf<String, DocumentBuffer>()
 </ui:copy>
 
+## Capture a value namespace independently of a Compose key view
+
+The post-publication staging lease and connected-reading execution lease share a retained source namespace capture. Bind buffer identity, text, revision, selection, baseline, metadata and deletion state. Compare a materialized key set: Compose SnapshotStateMap key views have identity equality, so comparing that view directly with ordinary Map keys falsely retires an unchanged namespace. This closure remains a guard, never permission to skip the engine's source/index checks.
+
 ## Adopt confirmed sources without replacing native editors
 
 Capture drafts, saved baselines and the workspace lifetime before publication.
@@ -333,6 +343,9 @@ normal capability setup. Deleted dirty buffers still guard workspace switching.
     // replace the old editor or silently redirect its unsaved text.
     val retainedResourceTabs=mutableStateMapOf<String,DocumentBuffer>()
     val resourceChanges=ResourceChangeReview()
+    val gitResolution=GitResolutionModel()
+    val sourceHistory=SourceHistoryModel()
+    val behaviorReading=BehaviorReadingModel()
     fun reviewResourceHistory(record:String,workspace:String,current:()->Boolean,published:(String,String)->Unit){
         showRecovery=true
         workspaceScope.launch{resourceChanges.openHistory(this@Workspace,record,workspace,current,published)}
@@ -358,6 +371,14 @@ normal capability setup. Deleted dirty buffers still guard workspace switching.
         for(entry in published)tree=insert(tree,entry.file,entry.file.path.split('/'),0)
         return tree
     }
+    internal fun captureRetainedSourceNamespace():()->Boolean {
+        val epoch=generation;val server=engine;val namespace=buffers.toMap()
+        data class Captured(val buffer:DocumentBuffer,val revision:Long,val source:String,val base:String,val hash:String,val file:FileNode,val deleted:Boolean,val selection:TextRange)
+        val snapshots=namespace.mapValues{(_,b)->Captured(b,b.sourceRevision,b.text,b.base,b.hash,b.file,b.resourceDeleted,b.state.selection)}
+        // SnapshotStateMap key views use identity equality. Materialize their
+        // values before comparing with the retained ordinary Map key set.
+        return {generation==epoch&&engine===server&&buffers.keys.toSet()==namespace.keys&&snapshots.all{(path,s)->val b=s.buffer;buffers[path]===b&&b.sourceRevision==s.revision&&b.text==s.source&&b.base==s.base&&b.hash==s.hash&&b.file===s.file&&b.resourceDeleted==s.deleted&&b.state.selection==s.selection&&!b.saving&&b.state.composition==null}}
+    }
     fun captureResourceEditors(patches:List<ResourceEditorPatch>,restoring:Map<String,DocumentBuffer> = emptyMap()):()->Boolean {
         val paths=patches.associate{it.path to buffers[it.path]}
         data class Capture(val buffer:DocumentBuffer,val text:String,val base:String,val hash:String,val file:FileNode)
@@ -373,7 +394,7 @@ normal capability setup. Deleted dirty buffers still guard workspace switching.
         val live=patches.mapNotNull{patch->patch.before?.let{before->val buffer=buffers[patch.path] ?: error("Source editor unavailable. Inspect recovery.");check(!buffer.saving&&!buffer.readOnly){"Source editor is saving or read-only. Inspect recovery."};before.identity to ResourceEditorCapture(buffer,buffer.text)}}.toMap()
         check(restoring.values.all{buffer->buffer.resourceDeleted&&retainedResourceEditors.values.any{it===buffer}&&buffers.values.none{it===buffer}}){"Restoration must select a retained deleted editor. Inspect Source recovery."}
         val routes=routeResourceEditors(patches,live,restoring.mapValues{ResourceEditorCapture(it.value,it.value.text)})
-        val targets=routes.map{route->val entry=route.to?.let{files.getValue(it)};route to (route.editor ?: DocumentBuffer(entry!!.file,FileText(route.after!!,entry.hash)))}
+        val targets=routes.map{route->val entry=route.to?.let{files.getValue(it)};route to (route.editor ?: DocumentBuffer(entry!!.file,FileText(route.after!!,entry.hash,entry.saveGuard)))}
         for((route,buffer) in targets){
             check(buffer.state.composition==null){"Finish composition before adopting source editors. Inspect recovery."}
             check(route.to==null||patches.any{it.path==route.to&&it.before!=null}||!buffers.containsKey(route.to)){"A destination editor appeared after review. Inspect recovery."}
@@ -386,7 +407,7 @@ normal capability setup. Deleted dirty buffers still guard workspace switching.
         }
         val nextLayout=layout.copy(nodes=layout.nodes.mapValues{(_,node)->node.copy(tabs=node.tabs.map{addresses[it] ?: it},active=node.active?.let{addresses[it] ?: it})})
         debugger?.resourceSourcesChanged(targets.map{(route,buffer)->NativeSourceRoute(buffer.debugIdentity,route.from,route.to,route.after,route.to?.let{path->files.getValue(path).saved.text==route.after}==true)})
-        sourceTemplates.close()
+        sourceTemplates.close();sourceHistory.close()
         targets.forEach{(_,buffer)->buffer.advanceSourceRevision()}
         generation=UUID.randomUUID();loading.values.forEach{it.cancel()};loading.clear();newestOpen.clear()
         // Retire the whole URI namespace before attaching destinations, including swaps.
@@ -397,10 +418,10 @@ normal capability setup. Deleted dirty buffers still guard workspace switching.
             if(path==null){buffer.resourceDeleted=true;retainedResourceEditors[route.identity]=buffer;route.from?.let{retainedResourceTabs[addresses.getValue(it)]=buffer};continue}
             val entry=files.getValue(path)
             if(buffer.text!=route.after){buffer.state.edit{replace(0,length,route.after!!)}}
-            buffer.file=entry.file;buffer.base=entry.saved.text!!;buffer.hash=entry.hash;buffer.resourceDeleted=false;buffer.error=""
+            buffer.file=entry.file;buffer.base=entry.saved.text!!;buffer.hash=entry.hash;buffer.saveGuard=entry.saveGuard;buffer.saveGuardReason=if(entry.saveGuard==null)"Resource receipt lacks physical save authority. Reopen or compare before ordinary Save." else null;buffer.resourceDeleted=false;buffer.error=""
             buffers[path]=buffer;retainedResourceEditors.entries.removeAll{it.value===buffer}
             retainedResourceTabs.entries.removeAll{it.value===buffer}
-            retainBuffer(entry.file,FileText(route.after!!,entry.hash),server,buffer)
+            retainBuffer(entry.file,FileText(route.after!!,entry.hash,entry.saveGuard),server,buffer)
         }
         layout=nextLayout
         rootFiles=nextTree;this.files=scopedFiles(nextTree)
@@ -425,7 +446,7 @@ The remaining workspace operations reuse the adopted buffers and current namespa
     val terminal = TerminalSession()
     val active get() = layout.nodes[focused]?.active
     val currentBuffer get() = bufferForTab(active)
-    val hasUnsavedChanges get() = agent.prompt.isNotEmpty() || agent.running || resourceChanges.busy || resourceChanges.hasPending || (buffers.values+retainedResourceEditors.values).any { it.dirty || it.saving } || debugger?.active == true
+    val hasUnsavedChanges get() = agent.prompt.isNotEmpty() || agent.running || resourceChanges.busy || resourceChanges.hasPending || gitResolution.hasPending || (buffers.values+retainedResourceEditors.values).any { it.dirty || it.saving } || debugger?.active == true
     suspend fun connect(): Boolean {
         if (connecting) return false
         if (hasUnsavedChanges) { status = "Save documents and send or clear draft messages before changing workspace servers."; return false }
@@ -433,7 +454,7 @@ The remaining workspace operations reuse the adopted buffers and current namespa
         try {
             val next = Engine(address); val (root, tree) = next.files()
             directoryScope=""
-            resourceChanges.reset();retainedResourceTabs.clear()
+            resourceChanges.reset();gitResolution.reset();sourceHistory.close();behaviorReading.close();retainedResourceTabs.clear()
             agent.turns = emptyList(); agent.error = ""; terminal.id = null; terminal.error = ""
             debugger?.close(); debugger = NativeDebugger(next, workspaceScope)
             debugger?.onLocation = { path, line -> workspaceScope.launch { revealDebug(path, line) } }
@@ -474,7 +495,23 @@ Foreground file opening and background intelligence share one acquisition path. 
         try { return pending.await() }
         finally { if(generation == current) loading.remove(file.path) }
     }
-    private fun retainBuffer(file: FileNode, text: FileText, server: Engine, existing:DocumentBuffer?=null): DocumentBuffer {
+    internal fun adoptCreatedSource(source:DocumentBuffer,file:FileNode,text:FileText,server:Engine):DocumentBuffer {
+        check(engine===server&&buffers[file.path]==null&&source.text==text.content){"Creation namespace or source changed before adoption."}
+        val old=source.file.path
+        val addresses=(buffers.filterValues{it===source}.keys+retainedResourceTabs.filterValues{it===source}.keys).toSet()
+        check(addresses.isNotEmpty()){"The source editor no longer owns its captured address."}
+        val adopted=layout.copy(nodes=layout.nodes.mapValues{(_,node)->node.copy(tabs=node.tabs.map{if(it in addresses)file.path else it}.distinct(),active=node.active?.let{if(it in addresses)file.path else it})})
+        sourceTemplates.close();sourceHistory.close();behaviorReading.close()
+        generation=UUID.randomUUID();loading.values.forEach{it.cancel()};loading.clear();newestOpen.clear()
+        debugger?.resourceSourcesChanged(listOf(NativeSourceRoute(source.debugIdentity,if(source.resourceDeleted)null else old,file.path,text.content,true)))
+        source.language?.close();source.language=null
+        buffers.entries.filter{it.value===source}.map{it.key}.forEach{buffers.remove(it)}
+        retainedResourceTabs.entries.removeAll{it.value===source};retainedResourceEditors.entries.removeAll{it.value===source}
+        source.file=file;source.base=text.content;source.hash=text.hash;source.saveGuard=text.saveGuard;source.saveGuardReason=null;source.resourceDeleted=false;source.creationAttempt=null;source.error="";source.advanceSourceRevision()
+        retainBuffer(file,text,server,source);layout=adopted
+        return source
+    }
+    internal fun retainBuffer(file: FileNode, text: FileText, server: Engine, existing:DocumentBuffer?=null): DocumentBuffer {
         val buffer = existing ?: DocumentBuffer(file, text)
         buffers[file.path] = buffer
         buffer.rememberNavigation = { from, to -> navigationTrail = navigationTrail.record(from, to) }
@@ -605,35 +642,15 @@ Foreground file opening and background intelligence share one acquisition path. 
                 if(source.resourceDeleted){status="The original source is deleted. Choose a different unused path to save its retained text as a copy.";return}
                 source.save(server); return
             }
-            val submitted = source.text
             source.saving = true
-            fun finish() {
-                if (source.text == submitted&&sourceTab!=null&&bufferForTab(sourceTab)===source) {
-                    layout=layout.remove(sourceTab)
-                    if(buffers[source.file.path]===source)buffers.remove(source.file.path)
-                    retainedResourceTabs.remove(sourceTab)
-                    if(source.resourceDeleted&&retainedResourceTabs.values.none{it===source}&&buffers.values.none{it===source})retainedResourceEditors.entries.removeAll{it.value===source}
-                }
-            }
             try {
-                if (path.endsWith(".md", ignoreCase = true)) {
-                    server.request("POST", "/api/projects/local/docs", org.json.JSONObject().put("path", path).put("source", submitted))
-                    refresh(); find(files)?.let { open(it); finish() }
-                    source.saving = false
-                    if (savingAll) saveAll(); return
-                }
-                server.request("POST", "/api/files/op", org.json.JSONObject().put("op", "create").put("path", path))
-                val file = FileNode(path.substringAfterLast('/'), path, false, emptyList(), null, null)
-                val empty = server.file(file)
-                if (empty.content.isNotEmpty()) { status = "Destination changed after creation. Original edits retained."; return }
-                val copy = DocumentBuffer(file, empty); copy.state.edit { replace(0, length, submitted) }
-                copy.save(server)
-                if (copy.error.isNotEmpty()) { status = copy.error; return }
-                open(file); finish(); refresh()
-                source.saving = false
-                if (savingAll) saveAll()
+                val copy=createSourceCopy(source,path)
+                show(copy.file.path);refresh()
+                status=copy.error.ifEmpty{"Created source confirmed. The original saved file was not overwritten."}
+                source.saving=false
+                if(savingAll)saveAll()
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Exception) { status = "${failure.message} Original edits are retained. Choose an unused path and retry Save As." }
+            catch (failure: Exception) { status = "${failure.message} Original edits are retained. Inspect the destination and Local history before another Save As; an uncertain request is not automatically retried." }
             finally { source.saving = false }
         } else if (command == "Open Directory" && path.isEmpty()) { directoryScope="";refresh(); show("files") }
         else {

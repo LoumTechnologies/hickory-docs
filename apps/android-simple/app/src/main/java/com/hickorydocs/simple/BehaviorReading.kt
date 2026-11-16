@@ -1,0 +1,131 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+package com.hickorydocs.simple
+import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import org.json.JSONObject
+import org.json.JSONArray
+fun behaviorCanonical(value:Any?):String=when(value){null,JSONObject.NULL->"null";is JSONObject->value.keys().asSequence().sorted().joinToString(",","{","}"){JSONObject.quote(it)+":"+behaviorCanonical(value.get(it))};is JSONArray->(0 until value.length()).joinToString(",","[","]"){behaviorCanonical(value.get(it))};is String->JSONObject.quote(value);else->value.toString()}
+private fun behaviorDigest(value:String)=value.matches(Regex("[a-f0-9]{64}"))
+data class BehaviorCheck(val id:String,val label:String,val path:String,val available:Boolean,val reason:String)
+data class BehaviorProfile(val id:String,val name:String,val fingerprint:String)
+data class BehaviorSnapshot(val workspace:String,val fingerprint:String,val context:String,val raw:String,val checks:List<BehaviorCheck>,val verification:Boolean,val namespace:String,val engineWorkspace:String)
+data class BehaviorReceipt(val id:String,val workspace:String,val fingerprint:String,val check:String,val profile:BehaviorProfile?,val status:String,val outcome:String,val raw:String,val engine:Engine,val runtime:String?,val origin:String?)
+fun behaviorSnapshot(raw:JSONObject,context:JSONObject,address:String,runtime:String):BehaviorSnapshot {
+ check(raw.get("version")==1&&raw.get("behavior_protocol")==1&&runtime.matches(Regex("[a-f0-9]{32}"))&&raw.getString("namespace")==address&&raw.getString("engine_workspace_id")==runtime&&(behaviorDigest(raw.getString("workspace_id"))||(raw.opt("verification_available")==false&&raw.getString("workspace_id").isEmpty()))&&behaviorDigest(raw.getString("reading_fingerprint"))&&behaviorCanonical(raw.getJSONObject("context"))==behaviorCanonical(context)){"Foreign or unsupported connected behavior reading. No check was started."}
+ check(!raw.has("verification_available")||raw.get("verification_available") is Boolean){"Malformed verification availability."}
+ val graph=raw.getJSONObject("graph");graph.getJSONObject("nodes");graph.getJSONArray("edges");val checks=graph.getJSONArray("checks");check(checks.length()<=10000){"Check reading exceeds bounded capacity."};val seen=mutableSetOf<String>()
+ return BehaviorSnapshot(raw.getString("workspace_id"),raw.getString("reading_fingerprint"),context.toString(),raw.toString(),(0 until checks.length()).map{val item=checks.getJSONObject(it);val id=item.getString("id");check(id.isNotEmpty()&&seen.add(id)){"Ambiguous check identity."};BehaviorCheck(id,item.getString("label"),item.getString("path"),item.get("available") as? Boolean ?: error("Malformed check availability."),item.getString("reason"))},raw.opt("verification_available")==true,address,runtime)
+}
+class BehaviorReadingModel(private val transport:(suspend(Engine,String,JSONObject?)->JSONObject)?=null){
+ var value by mutableStateOf<BehaviorSnapshot?>(null);private set
+ var notice by mutableStateOf("");private set
+ var loading by mutableStateOf(false);private set
+ var profiles by mutableStateOf<List<BehaviorProfile>>(emptyList());private set
+ var receipts by mutableStateOf<List<BehaviorReceipt>>(emptyList());private set
+ var sourcePage by mutableStateOf<BehaviorSourcePage?>(null);private set
+ var sourceLoading by mutableStateOf(false);private set
+ private var sourcePageTicket=-1L
+ private var sourceTicket=0L
+ private var ticket=0L;private var current:()->Boolean={false};private var engine:Engine?=null
+ private data class Consumed(val id:String,val ticket:Long)
+ private val consumed=linkedMapOf<String,Consumed>()
+ private suspend fun call(engine:Engine,path:String,body:JSONObject?=null)=transport?.invoke(engine,path,body) ?: engine.request(if(body==null)"GET" else "POST",path,body)
+ val currentReading get()=value!=null&&current()
+ fun close(){ticket++;sourceTicket++;sourceLoading=false;current={false};loading=false;profiles=emptyList()}
+ suspend fun read(w:Workspace,entry:String,focus:String?){val engine=w.engine ?: run{notice="Connect to a workspace server.";return};val address=engine.sourceRootAddress ?: run{notice="Refresh Files to bind the exact workspace address.";return};val runtime=engine.sourceWorkspaceID ?: run{notice="Refresh Files to bind this engine workspace lifetime.";return};val rows=w.buffers.toMap();val namespace=w.captureRetainedSourceNamespace()
+  val valid={namespace()&&engine.sourceRootAddress==address&&engine.sourceWorkspaceID==runtime&&w.showConstruction}
+  val sources=JSONObject();val missing=JSONArray();rows.forEach{(path,b)->if(b.file.generatedBy==null&&(path.endsWith(".md",true)||path.endsWith(".markdown",true))){if(b.resourceDeleted)missing.put(path) else sources.put(path,b.text)}}
+  read(engine,address,JSONObject().put("version",1).put("entry",entry).put("sources",sources).put("focus",focus ?: JSONObject.NULL).put("missing_sources",missing),runtime,valid)
+ }
+ suspend fun read(engine:Engine,address:String,context:JSONObject,runtime:String,current:()->Boolean){val input=JSONObject(context.toString());val id=++ticket;sourceTicket++;sourceLoading=false;this.current={false};loading=true;profiles=emptyList();notice="Reading connected behavior…"
+  try{val raw=call(engine,"/api/behavior/reading",input);if(id!=ticket)return;val next=behaviorSnapshot(raw,input,address,runtime);value=next;this.engine=engine;this.current=current
+   val retained=raw.optJSONObject("receipts")?.optJSONArray("records");if(retained!=null)for(index in retained.length()-1 downTo 0){val row=retained.getJSONObject(index);row.put("freshness",if(row.optString("reading_fingerprint")==next.fingerprint)"current-reading" else "historical-reading");runCatching{decode(row,null,engine,row.getString("workspace_id"))}.onSuccess{receipt->retain(receipt);if(receipt.workspace==next.workspace&&receipt.runtime==next.engineWorkspace&&receipt.origin!="unknown"&&receipt.status in listOf("admitting","process-running","request-pending")){val key=key(receipt.fingerprint,receipt.check,receipt.profile);if(consumed.size<256)consumed[key]=Consumed(receipt.id,ticket)}}}
+   notice=if(current())"Captured declared relationships, observed construction and explicitly qualified evidence." else "Captured reading is historical: editor, ownership or workspace changed."
+  }catch(e:CancellationException){throw e}catch(e:Exception){if(id==ticket)notice=e.message.orEmpty()}finally{if(id==ticket)loading=false}
+ }
+ private fun readingAuthority(value:BehaviorSnapshot){check(this.value===value&&current()){"Source/editor ownership or workspace changed. Refresh the reading."}}
+ private fun admission(value:BehaviorSnapshot):JSONObject{readingAuthority(value);check(value.verification){"Construction input authority is unavailable. Repair it before verification."};return JSONObject().put("engine_workspace_id",value.engineWorkspace).put("workspace_id",value.workspace).put("reading_fingerprint",value.fingerprint).put("context",JSONObject(value.context))}
+ val currentSourcePage get()=sourcePageTicket==ticket&&sourcePage?.let{it.workspace==value?.workspace&&it.fingerprint==value?.fingerprint&&current()}==true
+ suspend fun readSource(nodeID:String,offset:Int?=null){val value=value ?: return;val engine=engine ?: return;val scope=ticket;val request=++sourceTicket;sourceLoading=true
+  try{readingAuthority(value);check(offset==null||offset>=0){"Choose a nonnegative Unicode scalar offset."};val node=JSONObject(value.raw).getJSONObject("graph").getJSONObject("nodes").getJSONObject(nodeID);check(node.getString("id")==nodeID&&node.optString("hash").matches(Regex("[a-f0-9]{64}"))){"Full captured text is unavailable for this node; its preview remains readable."}
+   val body=JSONObject().put("version",1).put("workspace_id",value.workspace).put("reading_fingerprint",value.fingerprint).put("node_id",nodeID).put("source_hash",node.getString("hash")).put("context",JSONObject(value.context));if(offset!=null)body.put("offset",offset)
+   val raw=call(engine,"/api/behavior/source",body);if(scope!=ticket||request!=sourceTicket)return;readingAuthority(value);sourcePage=behaviorSourcePage(raw,value,nodeID,node,offset,sourcePage);sourcePageTicket=ticket;notice="Captured full text · ${sourcePage!!.origin} · ${sourcePage!!.target}. Current editor and later disk bytes were not substituted."
+  }catch(e:CancellationException){throw e}catch(e:Exception){if(scope==ticket&&request==sourceTicket)notice=e.message.orEmpty()}finally{if(scope==ticket&&request==sourceTicket)sourceLoading=false}
+ }
+ suspend fun continueSource(page:BehaviorSourcePage,offset:Int){if(sourcePage!==page||!currentSourcePage){notice="Captured page belongs to a retired reading. Select full captured text in the current reading; prior text remains readable.";return};readSource(page.node,offset)}
+ suspend fun openCurrentSource(w:Workspace,path:String){try{check(w.engine===engine&&value?.namespace==w.engine?.sourceRootAddress&&value?.engineWorkspace==w.engine?.sourceWorkspaceID){"This reading belongs to the original workspace connection."}
+  fun find(rows:List<FileNode>):FileNode?{for(file in rows){if(file.path==path)return file;find(file.children)?.let{return it}};return null}
+  val file=find(w.rootFiles)?.takeUnless{it.dir} ?: error("Current source is not listed. Captured text remains readable; no path fallback was attempted.")
+  w.open(file);notice="Opened current readable source. Captured text remains a separate reading; no captured position was inferred."
+ }catch(e:CancellationException){throw e}catch(e:Exception){notice=e.message.orEmpty()}}
+ suspend fun chooseProfiles(){val value=value ?: return;val engine=engine ?: return;val id=ticket
+  try{val raw=call(engine,"/api/behavior/profiles",admission(value));if(id!=ticket)return;admission(value);val fp=raw.getString("fingerprint");check(behaviorDigest(fp)){"Profile inventory changed or unavailable."};val rows=raw.getJSONArray("profiles");val seen=mutableSetOf<String>();profiles=(0 until rows.length()).map{val row=rows.getJSONObject(it);val choice=row.getString("id");check(choice.isNotEmpty()&&seen.add(choice)){"Ambiguous profile choice."};BehaviorProfile(choice,row.getString("name"),fp)};notice="Choose an existing engine-discovered profile explicitly. Its relationship to this check is user-declared."
+  }catch(e:CancellationException){throw e}catch(e:Exception){notice=e.message.orEmpty()}
+ }
+ private fun key(fp:String,check:String,profile:BehaviorProfile?)=behaviorCanonical(JSONArray().put(fp).put(check).put(profile?.id ?: JSONObject.NULL).put(profile?.fingerprint ?: JSONObject.NULL))
+ suspend fun run(checkID:String,profile:BehaviorProfile?=null){val value=value ?: return;val engine=engine ?: return;var request:String?=null
+  try{val body=admission(value);val selectedCheck=value.checks.firstOrNull{it.id==checkID} ?: error("Choose a captured related check.");check(selectedCheck.available||profile!=null){selectedCheck.reason};if(profile!=null)check(profile in profiles){"Profile choice changed. Choose again."}
+   val key=key(value.fingerprint,checkID,profile);val prior=consumed[key];check(prior==null||(prior.ticket!=ticket&&receipts.any{it.id==prior.id&&it.status in listOf("process-finished","admission-refused","request-refused")})){"Verification request already consumed. Refresh its retained outcome; no replacement process was started."};check(consumed.size<256||prior!=null){"Retained verification capacity reached. Inspect uncertain requests."}
+   val id=java.util.UUID.randomUUID().toString().replace("-","");request=id;consumed[key]=Consumed(id,ticket)
+   val profileJSON=profile?.let{JSONObject().put("id",it.id).put("fingerprint",it.fingerprint)} ?: JSONObject.NULL
+   val pending=JSONObject().put("version",1).put("request_id",id).put("engine_workspace_id",value.engineWorkspace).put("workspace_id",value.workspace).put("reading_fingerprint",value.fingerprint).put("check_id",checkID).put("label",selectedCheck.label).put("profile",profileJSON).put("status","request-pending").put("outcome","unknown").put("notice","Uncertain response never permits automatic retry.")
+   val held=decode(pending,null,engine,value.workspace);retain(held);val raw=call(engine,"/api/behavior/verify",body.put("version",1).put("check_id",checkID).put("request_id",id).put("profile",profileJSON));retain(decode(raw,held,engine,value.workspace));notice="Verification receipt retained. A process exit is not a collected test verdict."
+  }catch(e:CancellationException){if(request!=null)notice="Verification may have started. Inspect original request; never retry automatically.";throw e}catch(e:Exception){notice=e.message.orEmpty()+if(request!=null)" Inspect the original retained request; uncertain responses never authorize replacement." else ""}
+ }
+ private fun decode(raw:JSONObject,pending:BehaviorReceipt?,engine:Engine,workspace:String):BehaviorReceipt{
+  val id=raw.getString("request_id");val fp=raw.getString("reading_fingerprint");val checkedID=raw.getString("check_id");check(raw.get("version")==1&&id.matches(Regex("[a-f0-9]{32}"))&&raw.getString("workspace_id")==workspace&&behaviorDigest(fp)&&checkedID.isNotEmpty()){ "Foreign verification receipt refused; keep the original request." }
+  val runtime=if(raw.has("engine_workspace_id"))raw.getString("engine_workspace_id").also{check(it.matches(Regex("[a-f0-9]{32}"))){"Malformed verification engine lifetime."}}else null;val origin=if(raw.isNull("origin"))null else raw.getString("origin")
+  val profile=raw.optJSONObject("profile")?.let{BehaviorProfile(it.getString("id"),"",it.getString("fingerprint"))};if(pending!=null)check(runtime==pending.runtime&&id==pending.id&&fp==pending.fingerprint&&checkedID==pending.check&&profile?.id==pending.profile?.id&&profile?.fingerprint==pending.profile?.fingerprint){"Verification receipt belongs to another source/check/profile."}
+  return BehaviorReceipt(id,workspace,fp,checkedID,profile,raw.getString("status"),raw.getString("outcome"),raw.toString(),engine,runtime,origin)
+ }
+ private fun retain(value:BehaviorReceipt){receipts=(listOf(value)+receipts.filter{it.id!=value.id}).take(50)}
+ suspend fun refresh(receipt:BehaviorReceipt){try{retain(decode(call(receipt.engine,"/api/behavior/verification?id=${receipt.id}"),receipt,receipt.engine,receipt.workspace));notice="Retained process outcome refreshed; no check was restarted."}catch(e:CancellationException){throw e}catch(e:Exception){notice=e.message.orEmpty()}}
+ suspend fun openProcess(w:Workspace,receipt:BehaviorReceipt){try{check(w.engine===receipt.engine&&receipt.runtime!=null&&receipt.runtime==w.engine?.sourceWorkspaceID&&receipt.origin=="current-workspace"){"Process belongs to the original connection; inspect its retained output."};val fresh=decode(call(receipt.engine,"/api/behavior/verification?id=${receipt.id}"),receipt,receipt.engine,receipt.workspace);retain(fresh);check(fresh.runtime==w.engine?.sourceWorkspaceID&&fresh.origin=="current-workspace"){"Retained process is historical or belongs to another engine lifetime."};val terminal=JSONObject(fresh.raw).optJSONObject("terminal")?.getString("id") ?: error("Retained process no longer exists in this engine. No replacement was adopted.");check(terminal.isNotEmpty()){ "Invalid retained process identity." };w.terminal.id=terminal;w.show("terminal")}catch(e:CancellationException){throw e}catch(e:Exception){notice=e.message.orEmpty()}}
+}
+
+@Composable fun BehaviorReadingView(w:Workspace){
+ val m=w.behaviorReading;val scope=rememberCoroutineScope();var nodeID by remember{mutableStateOf("")};var checkID by remember{mutableStateOf("")};var profileID by remember{mutableStateOf("")};var page by remember{mutableIntStateOf(0)}
+ Column(verticalArrangement=Arrangement.spacedBy(androidx.compose.ui.unit.Dp(6f))){
+  Text("Connected behavior and relevant verification");Text(m.notice,fontSize=12.sp);if(m.value!=null&&!m.currentReading)Text("Historical reading: editor/namespace authority changed. Refresh before verification.",fontSize=12.sp)
+  m.value?.let{value->val raw=JSONObject(value.raw);val graph=raw.getJSONObject("graph");Text(raw.optString("evidence_limit"),fontSize=12.sp);val notices=graph.getJSONArray("notices");for(i in 0 until notices.length())Text(notices.getString(i),fontSize=12.sp);if(graph.optBoolean("truncated"))Text("Relationship reading truncated; omitted relationships remain unknown.",fontSize=12.sp)
+   val nodes=graph.getJSONObject("nodes");val keys=nodes.keys().asSequence().toList();keys.forEach{id->val node=nodes.getJSONObject(id);TextButton(onClick={nodeID=id;page=0}){Text("${node.getString("kind")} · ${node.getString("label")} · ${node.getString("status")}")}}
+   (nodeID.takeIf{nodes.has(it)} ?: keys.firstOrNull())?.let{id->val node=nodes.getJSONObject(id);Text(node.getString("path"),fontSize=12.sp);Text("${node.getString("status")} · captured hash ${node.opt("hash")}",fontSize=12.sp);val preview=if(node.isNull("preview"))"Readable captured preview unavailable; missing content is not inferred." else node.getString("preview");val count=((preview.length+7999)/8000).coerceAtLeast(1);val current=page.coerceIn(0,count-1);Text(preview.substring(current*8000,((current+1)*8000).coerceAtMost(preview.length)),fontSize=12.sp);Text("Captured previews may be abbreviated by the provider.",fontSize=12.sp);Row{TextButton(enabled=current>0,onClick={page=current-1}){Text("Previous preview")};TextButton(enabled=current<count-1,onClick={page=current+1}){Text("Next preview")}}
+    val path=if(node.isNull("source_path"))node.getString("path") else node.getString("source_path");TextButton(onClick={scope.launch{m.openCurrentSource(w,path)}}){Text("Open current readable source · ${JSONObject.quote(path)}")}
+    TextButton(enabled=!m.sourceLoading&&m.currentReading,onClick={scope.launch{m.readSource(id)}}){Text("Read full captured text") }
+    val edges=graph.getJSONArray("edges");for(i in 0 until edges.length()){val edge=edges.getJSONObject(i);if(edge.getString("from")==id||edge.getString("to")==id)Text("${edge.getString("relationship")} · ${edge.getString("basis")}: ${edge.getString("reason")} Authority: ${edge.getString("authority")}",fontSize=12.sp)}
+   }
+   raw.optJSONObject("impact")?.let{impact->Text("Change impact · ${impact.getString("basis")}: ${impact.getString("reason")}",fontSize=12.sp);if(impact.optBoolean("truncated"))Text("Impact traversal truncated; more relationships may be unknown.",fontSize=12.sp);val via=impact.getJSONArray("via");for(i in 0 until via.length())Text(via.getJSONObject(i).getString("reason"),fontSize=12.sp)}
+   val evidence=raw.getJSONObject("evidence");Text("Retained evidence · ${evidence.getString("status")}",fontSize=12.sp);if(evidence.has("notice"))Text(evidence.getString("notice"),fontSize=12.sp);val records=evidence.getJSONArray("records");for(i in 0 until records.length())Text(records.getJSONObject(i).toString(2),fontSize=11.sp);if(evidence.optBoolean("truncated"))Text("Evidence projection truncated; omitted records remain unknown.",fontSize=12.sp)
+   value.checks.forEach{check->TextButton(onClick={checkID=check.id;profileID=""}){Text("Related check · ${check.label} · ${if(check.available)"source candidate" else "unsupported automatic provider"}")}}
+   value.checks.firstOrNull{it.id==checkID}?.let{check->Text(check.reason,fontSize=12.sp);TextButton(enabled=check.available&&value.verification,onClick={scope.launch{m.run(check.id)}}){Text("Run selected relevant test")};TextButton(enabled=value.verification,onClick={scope.launch{m.chooseProfiles()}}){Text("Choose profile for selected check")};m.profiles.forEach{profile->TextButton(onClick={profileID=profile.id}){Text("Verification profile · ${profile.name}")}};m.profiles.firstOrNull{it.id==profileID}?.let{profile->TextButton(onClick={scope.launch{m.run(check.id,profile)}}){Text("Run user-declared profile for selected check")}}}
+   if(value.checks.isEmpty())Text("No explicitly related checks. Undeclared test filenames are not relevance evidence.",fontSize=12.sp)
+  }
+  m.sourcePage?.let{page->
+   Text("Captured full reading · ${page.origin} · ${page.state}${if(!m.currentSourcePage)" · historical context" else ""}",fontSize=12.sp)
+   Text("${page.path ?: "Retained summary"}${page.fragment?.let{" · declared fragment #$it"} ?: ""} · ${page.target}",fontSize=12.sp)
+   Text("Unicode scalars ${page.offset}–${page.offset+page.text.codePointCount(0,page.text.length)} / ${page.total} · source hash ${page.sourceHash}",fontSize=11.sp)
+   androidx.compose.foundation.text.selection.SelectionContainer{Text(page.text,fontSize=12.sp)};Text(page.notice,fontSize=12.sp)
+   Row{TextButton(enabled=m.currentSourcePage&&!m.sourceLoading&&page.offset>0,onClick={scope.launch{m.continueSource(page,0)}}){Text("Captured source start")};TextButton(enabled=m.currentSourcePage&&!m.sourceLoading&&page.offset>0,onClick={scope.launch{m.continueSource(page,(page.offset-4000).coerceAtLeast(0))}}){Text("Previous captured page")};TextButton(enabled=m.currentSourcePage&&!m.sourceLoading&&page.next!=null,onClick={scope.launch{page.next?.let{m.continueSource(page,it)}}}){Text("Next captured page")}}
+  }
+  m.receipts.forEach{receipt->val raw=JSONObject(receipt.raw);Text("${raw.optString("label")} · ${receipt.status} · ${receipt.outcome}${if(raw.has("exit_code"))" · process exit ${raw.get("exit_code")}" else ""}",fontSize=12.sp);Text("${raw.optString("relationship")} · ${raw.optString("freshness","captured request")} · ${raw.optString("notice")} ${raw.optString("error","")}",fontSize=12.sp);Text(receipt.id,fontSize=11.sp);TextButton(onClick={scope.launch{m.refresh(receipt)}}){Text("Refresh retained outcome")};if(raw.optJSONObject("terminal")!=null)TextButton(onClick={scope.launch{m.openProcess(w,receipt)}}){Text("Open verification process")};if(raw.has("output"))Text(raw.getString("output"),fontSize=11.sp);if(raw.optBoolean("output_truncated"))Text("Process output abbreviated.",fontSize=12.sp)}
+ }
+}
+data class BehaviorSourcePage(val workspace:String,val fingerprint:String,val node:String,val sourceHash:String,val path:String?,val fragment:String?,val origin:String,val state:String,val target:String,val offset:Int,val total:Int,val next:Int?,val text:String,val notice:String)
+fun behaviorSourcePage(raw:JSONObject,value:BehaviorSnapshot,nodeID:String,node:JSONObject,requested:Int?,previous:BehaviorSourcePage?=null):BehaviorSourcePage{
+ fun nullable(value:JSONObject,key:String):String?=if(value.isNull(key))null else value.getString(key)
+ fun scalarCount(text:String):Int{check(text.length<=8000){"Captured page exceeds 4000 Unicode scalars."};var index=0;var count=0;while(index<text.length){val char=text[index];if(char.isHighSurrogate()){check(index+1<text.length&&text[index+1].isLowSurrogate()){"Unpaired captured source surrogate."};index+=2}else{check(!char.isLowSurrogate()){"Unpaired captured source surrogate."};index++};count++};check(count<=4000){"Captured page exceeds 4000 Unicode scalars."};return count}
+ val hash=node.getString("hash");val path=nullable(node,"source_path");val fragment=nullable(node,"fragment_id")
+ check(hash.matches(Regex("[a-f0-9]{64}"))&&raw.has("next")&&raw.get("version")==1&&raw.get("behavior_protocol")==1&&raw.getString("workspace_id")==value.workspace&&raw.getString("reading_fingerprint")==value.fingerprint&&raw.getString("node_id")==nodeID&&raw.getString("source_hash")==hash&&raw.has("source_path")&&raw.has("fragment_id")&&nullable(raw,"source_path")==path&&nullable(raw,"fragment_id")==fragment&&raw.getString("units")=="unicode-scalars"){"Foreign or unsupported captured source page. Prior readable text retained."}
+ val offset=raw.get("offset") as? Int ?: error("Malformed scalar offset.");val total=raw.get("total") as? Int ?: error("Malformed scalar total.");val next=if(raw.isNull("next"))null else raw.get("next") as? Int ?: error("Malformed next scalar offset.");val text=raw.getString("text");val count=scalarCount(text);val end=offset.toLong()+count
+ check(offset>=0&&total>=0&&offset<=total&&(requested==null||offset==requested)&&end<=total&&if(end==total.toLong())next==null else next!=null&&next.toLong()==end&&next>offset){"Captured source page bounds changed. Prior readable text retained."}
+ val pageHash=raw.getString("page_hash");check(pageHash.matches(Regex("[a-f0-9]{64}"))&&debugHash(text)==pageHash){"Captured page bytes do not match their hash."}
+ val origin=raw.getString("origin");val state=raw.getString("state");val target=raw.getString("target_status")
+ check((path==null)==(origin=="retained-summary")&&(node.optString("status")=="saved-baseline-absent-from-draft")== (origin=="saved-baseline")){"Captured source origin contradicts its observed node."}
+ check(origin in listOf("constructed","captured-draft","saved-source","saved-baseline","retained-summary")&&state==(if(origin=="saved-baseline")"historical-deleted-baseline" else "captured")&&if(fragment==null)target=="whole-source" else target in listOf("observed-fragment-context","missing-declared-fragment","ambiguous-declared-fragment")){"Captured source origin or fragment status is unsupported."}
+ if(previous!=null&&previous.fingerprint==value.fingerprint&&previous.node==nodeID&&previous.sourceHash==hash)check(previous.total==total&&previous.path==path&&previous.fragment==fragment&&previous.origin==origin&&previous.state==state&&previous.target==target){"Captured source paging changed its immutable reading."}
+ return BehaviorSourcePage(value.workspace,value.fingerprint,nodeID,hash,path,fragment,origin,state,target,offset,total,next,text,raw.getString("notice"))
+}

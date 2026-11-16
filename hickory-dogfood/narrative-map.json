@@ -154974,10 +154974,381 @@
       "basis": "explained-behavior"
     },
     {
+      "id": "source-save-history-model",
+      "output": "crates/hickory-cli/src/serve/source_history.rs",
+      "page": ".hickory-source/mechanisms/source-save-history.md",
+      "symbol": "source save history model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-save-history-publication",
+      "output": "crates/hickory-cli/src/serve/source_history.rs",
+      "page": ".hickory-source/mechanisms/source-save-history.md",
+      "symbol": "source save history publication",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-save-history-reading",
+      "output": "crates/hickory-cli/src/serve/source_history.rs",
+      "page": ".hickory-source/mechanisms/source-save-history.md",
+      "symbol": "source save history reading",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-save-history-tests",
+      "output": "crates/hickory-cli/src/serve/source_history.rs",
+      "page": ".hickory-source/mechanisms/source-save-history.md",
+      "symbol": "source save history tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-model",
+      "output": "crates/hickory-cli/src/serve/behavior_readings/model.rs",
+      "page": ".hickory-source/mechanisms/behavior-readings.md",
+      "symbol": "behavior readings model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-service",
+      "output": "crates/hickory-cli/src/serve/behavior_readings.rs",
+      "page": ".hickory-source/mechanisms/behavior-readings.md",
+      "symbol": "behavior readings service",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-failure-tests",
+      "output": "crates/hickory-cli/src/serve/behavior_readings.rs",
+      "page": ".hickory-source/mechanisms/behavior-readings.md",
+      "symbol": "behavior readings failure tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-store",
+      "output": "crates/hickory-cli/src/serve/behavior_readings/store.rs",
+      "page": ".hickory-source/mechanisms/behavior-readings.md",
+      "symbol": "behavior readings store",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-resolution-index",
+      "output": "crates/hickory-cli/src/serve/git_resolutions.rs",
+      "page": ".hickory-source/mechanisms/git-conflict-resolution.md",
+      "symbol": "git resolution index",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-resolution-plan",
+      "output": "crates/hickory-cli/src/serve/git_resolutions.rs",
+      "page": ".hickory-source/mechanisms/git-conflict-resolution.md",
+      "symbol": "git resolution plan",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-resolution-service",
+      "output": "crates/hickory-cli/src/serve/git_resolutions.rs",
+      "page": ".hickory-source/mechanisms/git-conflict-resolution.md",
+      "symbol": "git resolution service",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-resolution-tests",
+      "output": "crates/hickory-cli/src/serve/git_resolutions.rs",
+      "page": ".hickory-source/mechanisms/git-conflict-resolution.md",
+      "symbol": "git resolution tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-history-server-module",
+      "output": "crates/hickory-cli/src/serve/mod.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/mod.rs.md",
+      "symbol": "source history server module",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-reading-server-module",
+      "output": "crates/hickory-cli/src/serve/mod.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/mod.rs.md",
+      "symbol": "behavior reading server module",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "coverage-reading-evidence",
+      "output": "crates/hickory-cli/src/coverage/mod.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/coverage/mod.rs.md",
+      "symbol": "coverage reading evidence",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "coverage-reading-evidence-tests",
+      "output": "crates/hickory-cli/src/coverage/mod.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/coverage/mod.rs.md",
+      "symbol": "coverage reading evidence tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-history-apple-tests",
+      "output": "apps/apple-simple/Tests/SourceHistoryTests.swift",
+      "page": ".hickory-source/frontends/source-history-apple.md",
+      "symbol": "source history apple tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-history-apple-values",
+      "output": "apps/apple-simple/Sources/SourceHistory.swift",
+      "page": ".hickory-source/frontends/source-history-apple.md",
+      "symbol": "source history apple values",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-history-apple-controller",
+      "output": "apps/apple-simple/Sources/SourceHistory.swift",
+      "page": ".hickory-source/frontends/source-history-apple.md",
+      "symbol": "source history apple controller",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-history-apple-view",
+      "output": "apps/apple-simple/Sources/SourceHistory.swift",
+      "page": ".hickory-source/frontends/source-history-apple.md",
+      "symbol": "source history apple view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-reading-browser-model",
+      "output": "apps/web/src/simple/BehaviorReading.ts",
+      "page": ".hickory-source/frontends/construction-reading-browser.md",
+      "symbol": "behavior reading browser model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-reading-browser-view",
+      "output": "apps/web/src/simple/BehaviorReadingView.tsx",
+      "page": ".hickory-source/frontends/construction-reading-browser.md",
+      "symbol": "behavior reading browser view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-reading-browser-tests",
+      "output": "apps/web/src/simple/BehaviorReading.test.ts",
+      "page": ".hickory-source/frontends/construction-reading-browser.md",
+      "symbol": "behavior reading browser tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-reading-browser-real-engine",
+      "output": "scripts/test-behavior-readings-browser.py",
+      "page": ".hickory-source/frontends/construction-reading-browser.md",
+      "symbol": "behavior reading browser real engine",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-metadata",
+      "output": "crates/hickory-cli/src/serve/behavior_readings/model.rs",
+      "page": ".hickory-source/mechanisms/behavior-readings.md",
+      "symbol": "behavior readings metadata",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-impact",
+      "output": "crates/hickory-cli/src/serve/behavior_readings/model.rs",
+      "page": ".hickory-source/mechanisms/behavior-readings.md",
+      "symbol": "behavior readings impact",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-observation-links",
+      "output": "crates/hickory-cli/src/serve/behavior_readings/model.rs",
+      "page": ".hickory-source/mechanisms/behavior-readings.md",
+      "symbol": "behavior readings observation links",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-model-tests",
+      "output": "crates/hickory-cli/src/serve/behavior_readings/model.rs",
+      "page": ".hickory-source/mechanisms/behavior-readings.md",
+      "symbol": "behavior readings model tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-profiles",
+      "output": "crates/hickory-cli/src/serve/behavior_readings.rs",
+      "page": ".hickory-source/mechanisms/behavior-readings.md",
+      "symbol": "behavior readings profiles",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-acquisition",
+      "output": "crates/hickory-cli/src/serve/behavior_readings.rs",
+      "page": ".hickory-source/mechanisms/behavior-readings.md",
+      "symbol": "behavior readings acquisition",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-unavailable",
+      "output": "crates/hickory-cli/src/serve/behavior_readings.rs",
+      "page": ".hickory-source/mechanisms/behavior-readings.md",
+      "symbol": "behavior readings unavailable",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-execution",
+      "output": "crates/hickory-cli/src/serve/behavior_readings.rs",
+      "page": ".hickory-source/mechanisms/behavior-readings.md",
+      "symbol": "behavior readings execution",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-observation",
+      "output": "crates/hickory-cli/src/serve/behavior_readings.rs",
+      "page": ".hickory-source/mechanisms/behavior-readings.md",
+      "symbol": "behavior readings observation",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-store-tests",
+      "output": "crates/hickory-cli/src/serve/behavior_readings/store.rs",
+      "page": ".hickory-source/mechanisms/behavior-readings.md",
+      "symbol": "behavior readings store tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-resolution-server-module",
+      "output": "crates/hickory-cli/src/serve/mod.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/mod.rs.md",
+      "symbol": "git resolution server module",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-history-browser-tests",
+      "output": "apps/web/src/simple/SourceHistory.test.ts",
+      "page": ".hickory-source/frontends/source-history-browser.md",
+      "symbol": "source history browser tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-history-browser-model",
+      "output": "apps/web/src/simple/SourceHistory.ts",
+      "page": ".hickory-source/frontends/source-history-browser.md",
+      "symbol": "source history browser model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-history-browser-view",
+      "output": "apps/web/src/simple/SourceHistoryView.tsx",
+      "page": ".hickory-source/frontends/source-history-browser.md",
+      "symbol": "source history browser view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-history-browser-save-tests",
+      "output": "apps/web/src/simple/SourceHistorySave.test.ts",
+      "page": ".hickory-source/frontends/source-history-browser.md",
+      "symbol": "source history browser save tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-resolution-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/GitConflictResolution.kt",
+      "page": ".hickory-source/frontends/git-conflict-resolution-android.md",
+      "symbol": "git resolution android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-resolution-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/GitConflictResolutionTest.kt",
+      "page": ".hickory-source/frontends/git-conflict-resolution-android.md",
+      "symbol": "git resolution android tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-save-history-guards",
+      "output": "crates/hickory-cli/src/serve/source_history.rs",
+      "page": ".hickory-source/mechanisms/source-save-history.md",
+      "symbol": "source save history guards",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-resolution-service-runner",
+      "output": "scripts/test-git-conflict-resolutions.py",
+      "page": ".hickory-source/mechanisms/git-conflict-resolution.md",
+      "symbol": "git resolution service runner",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-resolution-browser-adapter",
+      "output": "apps/web/src/simple/GitConflictResolutionAdapter.ts",
+      "page": ".hickory-source/frontends/git-conflict-resolution-browser.md",
+      "symbol": "git resolution browser adapter",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-resolution-browser-view",
+      "output": "apps/web/src/simple/GitConflictResolutionView.tsx",
+      "page": ".hickory-source/frontends/git-conflict-resolution-browser.md",
+      "symbol": "git resolution browser view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-resolution-browser-tests",
+      "output": "apps/web/src/simple/GitConflictResolution.test.ts",
+      "page": ".hickory-source/frontends/git-conflict-resolution-browser.md",
+      "symbol": "git resolution browser tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-resolution-browser-model",
+      "output": "apps/web/src/simple/GitConflictResolution.ts",
+      "page": ".hickory-source/frontends/git-conflict-resolution-browser.md",
+      "symbol": "git resolution browser model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-history-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceHistory.kt",
+      "page": ".hickory-source/frontends/source-history-android.md",
+      "symbol": "source history android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-history-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SourceHistoryTest.kt",
+      "page": ".hickory-source/frontends/source-history-android.md",
+      "symbol": "source history android tests",
+      "basis": "explained-behavior"
+    },
+    {
       "id": "debug-adapter-source-admission",
       "output": "crates/hickory-cli/src/serve/debug_adapter_sources.rs",
       "page": ".hickory-source/mechanisms/debug-adapter-sources.md",
       "symbol": "debug adapter source admission",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/BehaviorReading.kt",
+      "page": ".hickory-source/frontends/behavior-readings-android.md",
+      "symbol": "behavior readings android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/BehaviorReadingTest.kt",
+      "page": ".hickory-source/frontends/behavior-readings-android.md",
+      "symbol": "behavior readings android tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-history-service-witness",
+      "output": "scripts/test-source-save-history.py",
+      "page": ".hickory-source/mechanisms/source-save-history-verification.md",
+      "symbol": "source history service witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-history-native-runner",
+      "output": "scripts/test-native-source-history.py",
+      "page": ".hickory-source/frontends/source-history-android.md",
+      "symbol": "source history native runner",
       "basis": "explained-behavior"
     },
     {
@@ -154992,6 +155363,13 @@
       "output": "crates/hick-dap/src/session.rs",
       "page": ".hickory-source/mechanisms/crates/hick-dap/src/session.rs.md",
       "symbol": "debug adapter source content",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-source",
+      "output": "crates/hickory-cli/src/serve/behavior_readings.rs",
+      "page": ".hickory-source/mechanisms/behavior-readings.md",
+      "symbol": "behavior readings source",
       "basis": "explained-behavior"
     },
     {
@@ -155023,6 +155401,27 @@
       "basis": "explained-behavior"
     },
     {
+      "id": "behavior-source-reading-browser-model",
+      "output": "apps/web/src/simple/BehaviorSourceReading.ts",
+      "page": ".hickory-source/frontends/construction-reading-browser.md",
+      "symbol": "behavior source reading browser model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-source-reading-browser-tests",
+      "output": "apps/web/src/simple/BehaviorSourceReading.test.ts",
+      "page": ".hickory-source/frontends/construction-reading-browser.md",
+      "symbol": "behavior source reading browser tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-save-history-create",
+      "output": "crates/hickory-cli/src/serve/source_history.rs",
+      "page": ".hickory-source/mechanisms/source-save-history.md",
+      "symbol": "source save history create",
+      "basis": "explained-behavior"
+    },
+    {
       "id": "debug-adapter-source-real-browser-witness",
       "output": "scripts/test-debug-adapter-sources.py",
       "page": ".hickory-source/mechanisms/debug-adapter-sources.md",
@@ -155034,6 +155433,216 @@
       "output": "apps/web/src/debug/useDebugger.test.ts",
       "page": ".hickory-source/mechanisms/apps/web/src/debug/useDebugger.ts.md",
       "symbol": "debug adapter source hook tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-snapshots",
+      "output": "crates/hickory-cli/src/serve/behavior_readings.rs",
+      "page": ".hickory-source/mechanisms/behavior-readings.md",
+      "symbol": "behavior readings snapshots",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-execution-inputs",
+      "output": "crates/hickory-cli/src/serve/behavior_readings.rs",
+      "page": ".hickory-source/mechanisms/behavior-readings.md",
+      "symbol": "behavior readings execution inputs",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-source-tests",
+      "output": "crates/hickory-cli/src/serve/behavior_readings.rs",
+      "page": ".hickory-source/mechanisms/behavior-readings.md",
+      "symbol": "behavior readings source tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-history-apple-create",
+      "output": "apps/apple-simple/Sources/SourceHistory.swift",
+      "page": ".hickory-source/frontends/source-history-apple.md",
+      "symbol": "source history apple create",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-source-page-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/BehaviorReading.kt",
+      "page": ".hickory-source/frontends/behavior-readings-android.md",
+      "symbol": "behavior source page android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-source-page-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/BehaviorReadingTest.kt",
+      "page": ".hickory-source/frontends/behavior-readings-android.md",
+      "symbol": "behavior source page android tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-save-history-lineage",
+      "output": "crates/hickory-cli/src/serve/source_history.rs",
+      "page": ".hickory-source/mechanisms/source-save-history.md",
+      "symbol": "source save history lineage",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-adapter-sources-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/DebugAdapterSources.kt",
+      "page": ".hickory-source/frontends/debug-adapter-sources-android.md",
+      "symbol": "debug adapter sources android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-adapter-sources-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/DebugAdapterSourcesTest.kt",
+      "page": ".hickory-source/frontends/debug-adapter-sources-android.md",
+      "symbol": "debug adapter sources android tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-history-browser-real-engine",
+      "output": "scripts/test-source-history-browser.py",
+      "page": ".hickory-source/frontends/source-history-browser-witness.md",
+      "symbol": "source history browser real engine",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposal-model",
+      "output": "crates/hickory-cli/src/serve/agent_proposals.rs",
+      "page": ".hickory-source/mechanisms/agent-proposals.md",
+      "symbol": "agent proposal model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposal-analysis",
+      "output": "crates/hickory-cli/src/serve/agent_proposals.rs",
+      "page": ".hickory-source/mechanisms/agent-proposals.md",
+      "symbol": "agent proposal analysis",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposal-routes",
+      "output": "crates/hickory-cli/src/serve/agent_proposals.rs",
+      "page": ".hickory-source/mechanisms/agent-proposals.md",
+      "symbol": "agent proposal routes",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposal-tests",
+      "output": "crates/hickory-cli/src/serve/agent_proposals.rs",
+      "page": ".hickory-source/mechanisms/agent-proposals.md",
+      "symbol": "agent proposal tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposal-server-module",
+      "output": "crates/hickory-cli/src/serve/mod.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/mod.rs.md",
+      "symbol": "agent proposal server module",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-adapter-sources-apple-model",
+      "output": "apps/apple-simple/Sources/DebugAdapterSources.swift",
+      "page": ".hickory-source/frontends/debug-adapter-sources-apple.md",
+      "symbol": "debug adapter sources apple model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-adapter-sources-apple-view",
+      "output": "apps/apple-simple/Sources/DebugAdapterSources.swift",
+      "page": ".hickory-source/frontends/debug-adapter-sources-apple.md",
+      "symbol": "debug adapter sources apple view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-input-retained-ownership",
+      "output": "crates/hickory-cli/src/serve/resource_inputs.rs",
+      "page": ".hickory-source/mechanisms/resource-inputs.md",
+      "symbol": "resource input retained ownership",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-input-retained-ownership-tests",
+      "output": "crates/hickory-cli/src/serve/resource_inputs.rs",
+      "page": ".hickory-source/mechanisms/resource-inputs.md",
+      "symbol": "resource input retained ownership tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposal-http-witness",
+      "output": "scripts/test-agent-proposals.py",
+      "page": ".hickory-source/mechanisms/agent-proposals.md",
+      "symbol": "agent proposal http witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposal-tool-discovery",
+      "output": "crates/hickory-cli/src/serve/agent_proposals.rs",
+      "page": ".hickory-source/mechanisms/agent-proposals.md",
+      "symbol": "agent proposal tool discovery",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-adapter-sources-apple-tests",
+      "output": "apps/apple-simple/Tests/DebugAdapterSourceTests.swift",
+      "page": ".hickory-source/frontends/debug-adapter-sources-apple.md",
+      "symbol": "debug adapter sources apple tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-resolution-browser-real-engine",
+      "output": "scripts/test-git-resolution-browser.py",
+      "page": ".hickory-source/frontends/git-resolution-browser-witness.md",
+      "symbol": "git resolution browser real engine",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-create-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceCreation.kt",
+      "page": ".hickory-source/frontends/source-create-android.md",
+      "symbol": "source create android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-create-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SourceCreationTest.kt",
+      "page": ".hickory-source/frontends/source-create-android.md",
+      "symbol": "source create android tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposal-host-report",
+      "output": "crates/hickory-cli/src/serve/agent_proposals.rs",
+      "page": ".hickory-source/mechanisms/agent-proposals.md",
+      "symbol": "agent proposal host report",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposal-private-witness",
+      "output": "crates/hickory-cli/src/serve/agent_proposals.rs",
+      "page": ".hickory-source/mechanisms/agent-proposals.md",
+      "symbol": "agent proposal private witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-apple-core",
+      "output": "apps/apple-simple/Sources/BehaviorReading.swift",
+      "page": ".hickory-source/frontends/behavior-readings-apple.md",
+      "symbol": "behavior readings apple core",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-apple-view",
+      "output": "apps/apple-simple/Sources/BehaviorReading.swift",
+      "page": ".hickory-source/frontends/behavior-readings-apple.md",
+      "symbol": "behavior readings apple view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "behavior-readings-apple-tests",
+      "output": "apps/apple-simple/Tests/BehaviorReadingTests.swift",
+      "page": ".hickory-source/frontends/behavior-readings-apple.md",
+      "symbol": "behavior readings apple tests",
       "basis": "explained-behavior"
     }
   ],

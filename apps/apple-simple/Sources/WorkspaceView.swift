@@ -50,6 +50,7 @@ struct WorkspaceView: View {
         .popover(isPresented:$workspace.showHistory) {GitHistoryView(workspace:workspace,model:workspace.gitHistory).onKeyPress(.escape){workspace.showHistory=false;workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:$workspace.showReview) {GitReviewView(workspace:workspace).onKeyPress(.escape){workspace.showReview=false;workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:Binding(get:{workspace.sourceTemplates.showing},set:{if !$0{workspace.sourceTemplates.close()}})) {SourceTemplatesView(workspace:workspace).onKeyPress(.escape){workspace.sourceTemplates.close();workspace.currentBuffer?.focusSource?();return .handled}}
+        .popover(isPresented:Binding(get:{workspace.sourceHistory.showing},set:{if !$0{workspace.sourceHistory.close()}})) {SourceHistoryView(workspace:workspace).onKeyPress(.escape){workspace.sourceHistory.close();workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:$workspace.showTests) {TestSourcesView(workspace:workspace).onKeyPress(.escape){workspace.showTests=false;workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:$workspace.showEverywhere) {SearchEverywhereView(workspace:workspace,commands:menuCommands)}
         .sheet(isPresented: Binding(get: { workspace.fileCommand != nil }, set: { if !$0 { workspace.fileCommand = nil; workspace.savingAll = false } })) {

@@ -50270,7 +50270,9 @@
         "f-670d7c0cde38-evidence",
         "f-670d7c0cde38-checkpoint",
         "f-670d7c0cde38-catalogue",
-        "f-670d7c0cde38-locations"
+        "f-670d7c0cde38-locations",
+        "coverage-reading-evidence",
+        "coverage-reading-evidence-tests"
       ],
       "anchor": "output-670d7c0cde38",
       "narrative_owner": "mechanism:crates/hickory-cli"
@@ -53922,7 +53924,11 @@
         "f-09ea558208cd-now_rfc3339",
         "f-09ea558208cd-rand_id",
         "source-test-debug-http-module",
-        "source-template-http-module"
+        "source-template-http-module",
+        "source-history-server-module",
+        "behavior-reading-server-module",
+        "git-resolution-server-module",
+        "agent-proposal-server-module"
       ],
       "anchor": "output-09ea558208cd",
       "narrative_owner": "mechanism:crates/hickory-cli"
@@ -70512,12 +70518,14 @@
         "resource-input-path-identity",
         "resource-input-saved-bytes",
         "resource-input-ownership-model",
+        "resource-input-retained-ownership",
         "resource-input-capture",
         "resource-input-independent-handler",
         "resource-input-read-witnesses",
         "resource-input-fresh-candidate",
         "resource-candidate-ownership-tests",
-        "restored-saved-draft-candidate-test"
+        "restored-saved-draft-candidate-test",
+        "resource-input-retained-ownership-tests"
       ]
     },
     "scripts/test-resource-proposal-service.py": {
@@ -71246,17 +71254,302 @@
       ],
       "narrative_owner": "mechanism:source-completion-acceptance"
     },
-    "scripts/test-debug-adapter-sources.py": {
-      "source": ".hickory-source/mechanisms/debug-adapter-sources.md",
+    "crates/hickory-cli/src/serve/source_history.rs": {
+      "source": ".hickory-source/mechanisms/source-save-history.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "034d7707dcaba7d4c5388b99062a624a795d449abefc89bb69888b79de755e8e",
+      "construction": "fragments",
+      "fragments": [
+        "source-save-history-model",
+        "source-save-history-guards",
+        "source-save-history-publication",
+        "source-save-history-create",
+        "source-save-history-lineage",
+        "source-save-history-reading",
+        "source-save-history-tests"
+      ],
+      "narrative_owner": "mechanism:source-save-history"
+    },
+    "crates/hickory-cli/src/serve/behavior_readings/model.rs": {
+      "source": ".hickory-source/mechanisms/behavior-readings.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "e5578c68c21b5b86cb342103bf848d87fc4e883d00beed1da462b9f04176677d",
+      "construction": "fragments",
+      "fragments": [
+        "behavior-readings-model",
+        "behavior-readings-metadata",
+        "behavior-readings-impact",
+        "behavior-readings-observation-links",
+        "behavior-readings-model-tests"
+      ],
+      "narrative_owner": "mechanism:behavior-readings"
+    },
+    "crates/hickory-cli/src/serve/behavior_readings.rs": {
+      "source": ".hickory-source/mechanisms/behavior-readings.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "1b1c5aee20d5ce4f08b2385a86e249d71a4893d1b54dd5298c5bf77c20b95076",
+      "construction": "fragments",
+      "fragments": [
+        "behavior-readings-service",
+        "behavior-readings-profiles",
+        "behavior-readings-snapshots",
+        "behavior-readings-acquisition",
+        "behavior-readings-unavailable",
+        "behavior-readings-execution-inputs",
+        "behavior-readings-execution",
+        "behavior-readings-observation",
+        "behavior-readings-source",
+        "behavior-readings-failure-tests",
+        "behavior-readings-source-tests"
+      ],
+      "narrative_owner": "mechanism:behavior-readings"
+    },
+    "crates/hickory-cli/src/serve/behavior_readings/store.rs": {
+      "source": ".hickory-source/mechanisms/behavior-readings.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "b8938cfc0abff0253c6b623612804ec19b718218ad22af3d3f4bf265d6904f71",
+      "construction": "fragments",
+      "fragments": [
+        "behavior-readings-store",
+        "behavior-readings-store-tests"
+      ],
+      "narrative_owner": "mechanism:behavior-readings"
+    },
+    "crates/hickory-cli/src/serve/git_resolutions.rs": {
+      "source": ".hickory-source/mechanisms/git-conflict-resolution.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "22d29915ab2526e9e6534368ed090f26b95c09e0c390434b8143c778a2c45b28",
+      "construction": "fragments",
+      "fragments": [
+        "git-resolution-index",
+        "git-resolution-plan",
+        "git-resolution-service",
+        "git-resolution-tests"
+      ],
+      "narrative_owner": "mechanism:git-conflict-resolution"
+    },
+    "apps/apple-simple/Tests/SourceHistoryTests.swift": {
+      "source": ".hickory-source/frontends/source-history-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "b5f83d52c3e500032e5a0cb65bd52d28055a13511113178dc5e513598f7ed74d",
+      "construction": "fragments",
+      "fragments": [
+        "source-history-apple-tests"
+      ]
+    },
+    "apps/apple-simple/Sources/SourceHistory.swift": {
+      "source": ".hickory-source/frontends/source-history-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "765de813cc632eaf93ca3c707dc316e19bd4dfcb1270ff8a735882c719845bd8",
+      "construction": "fragments",
+      "fragments": [
+        "source-history-apple-values",
+        "source-history-apple-controller",
+        "source-history-apple-create",
+        "source-history-apple-view"
+      ]
+    },
+    "apps/web/src/simple/BehaviorReading.ts": {
+      "source": ".hickory-source/frontends/construction-reading-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "37638b34a646bef24881ba10dc3a1390f82970b2c08f2f3e10dece8876508e6c",
+      "construction": "fragments",
+      "fragments": [
+        "behavior-reading-browser-model"
+      ]
+    },
+    "apps/web/src/simple/BehaviorReadingView.tsx": {
+      "source": ".hickory-source/frontends/construction-reading-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "0340036aa12778488ab1517ce4e39dae1547f18011d9c33d7f18dc2fa1dcb3c0",
+      "construction": "fragments",
+      "fragments": [
+        "behavior-reading-browser-view"
+      ]
+    },
+    "apps/web/src/simple/BehaviorReading.test.ts": {
+      "source": ".hickory-source/frontends/construction-reading-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "11da9056ab0bffee7d727462d513bdf43c8acb9dd717aebcbec7ce6d328daf33",
+      "construction": "fragments",
+      "fragments": [
+        "behavior-reading-browser-tests"
+      ]
+    },
+    "scripts/test-behavior-readings-browser.py": {
+      "source": ".hickory-source/frontends/construction-reading-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "85c1e1bfcbbd0b211bbf895d5152a3c3ae36a1c2bb7e76e9677e3a63174f8bca",
+      "construction": "fragments",
+      "fragments": [
+        "behavior-reading-browser-real-engine"
+      ]
+    },
+    "apps/web/src/simple/SourceHistory.test.ts": {
+      "source": ".hickory-source/frontends/source-history-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "71982e35e13e194a44f080831812eee1a5a2abec247ecede8a14823740c87f34",
+      "construction": "fragments",
+      "fragments": [
+        "source-history-browser-tests"
+      ]
+    },
+    "apps/web/src/simple/SourceHistory.ts": {
+      "source": ".hickory-source/frontends/source-history-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "2357f0943290eff2fc4007e145d3a855f70aeb9c612b6502894cf9f0f5fa9b2a",
+      "construction": "fragments",
+      "fragments": [
+        "source-history-browser-model"
+      ]
+    },
+    "apps/web/src/simple/SourceHistoryView.tsx": {
+      "source": ".hickory-source/frontends/source-history-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "6902788ab20bf51b5bc4f3dd0bc8a61da49ba05ae867de4cf67c42b361996f46",
+      "construction": "fragments",
+      "fragments": [
+        "source-history-browser-view"
+      ]
+    },
+    "apps/web/src/simple/SourceHistorySave.test.ts": {
+      "source": ".hickory-source/frontends/source-history-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "745271fc57b7932163e4dc16c57394652f22f396fb62835968fab1cc0c9fe154",
+      "construction": "fragments",
+      "fragments": [
+        "source-history-browser-save-tests"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/GitConflictResolution.kt": {
+      "source": ".hickory-source/frontends/git-conflict-resolution-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "ff686d4ba9d1460c26f549da1d65839cde7696714c8234d243270ede275e2588",
+      "construction": "fragments",
+      "fragments": [
+        "git-resolution-android"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/GitConflictResolutionTest.kt": {
+      "source": ".hickory-source/frontends/git-conflict-resolution-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "e38cf5b4a3caa0b3ea3e32b1eb8bb88620dc5e3a1b3d4d869de67bfcc794c720",
+      "construction": "fragments",
+      "fragments": [
+        "git-resolution-android-tests"
+      ]
+    },
+    "scripts/test-git-conflict-resolutions.py": {
+      "source": ".hickory-source/mechanisms/git-conflict-resolution.md",
       "owner": "shared",
       "used_by": [],
       "role": "test",
-      "sha256": "6e880c08e60587cba34e67409f6528397da277ad656c292cdd4a5881073c3fed",
+      "sha256": "5091a97b525239a1f0618c86cafbd8bb644f290450c61848d000fe7bf4f9cc61",
       "construction": "fragments",
       "fragments": [
-        "debug-adapter-source-real-browser-witness"
+        "git-resolution-service-runner"
       ],
-      "narrative_owner": "mechanism:debug-adapter-sources"
+      "narrative_owner": "mechanism:git-conflict-resolution"
+    },
+    "apps/web/src/simple/GitConflictResolutionAdapter.ts": {
+      "source": ".hickory-source/frontends/git-conflict-resolution-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "33d3ba358aac8793cda9a97b49fcf032b29534cd3baaa2f6b6932203e9043b9e",
+      "construction": "fragments",
+      "fragments": [
+        "git-resolution-browser-adapter"
+      ]
+    },
+    "apps/web/src/simple/GitConflictResolutionView.tsx": {
+      "source": ".hickory-source/frontends/git-conflict-resolution-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "b3ca0e02acf18dffef87184873cd92941f2b748994e444e2386642d27b7c7b6f",
+      "construction": "fragments",
+      "fragments": [
+        "git-resolution-browser-view"
+      ]
+    },
+    "apps/web/src/simple/GitConflictResolution.test.ts": {
+      "source": ".hickory-source/frontends/git-conflict-resolution-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "f70dc4ebc9dd2e7ef9d1b7e06301ac1e3bd76cf11ac77ebe6b55c44fbb80896b",
+      "construction": "fragments",
+      "fragments": [
+        "git-resolution-browser-tests"
+      ]
+    },
+    "apps/web/src/simple/GitConflictResolution.ts": {
+      "source": ".hickory-source/frontends/git-conflict-resolution-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "d9dbd13b9132b35c605caa9f3378eed018c5e2b16e4a839a6ec4f27c858c6034",
+      "construction": "fragments",
+      "fragments": [
+        "git-resolution-browser-model"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceHistory.kt": {
+      "source": ".hickory-source/frontends/source-history-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "479c66e051c53a9f0a761a185cc574241e28d6e4617622abfb615146eaff8f60",
+      "construction": "fragments",
+      "fragments": [
+        "source-history-android"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SourceHistoryTest.kt": {
+      "source": ".hickory-source/frontends/source-history-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "5038b27e7e9a30b68dd26aa2a2f7e9ca0ef21ccfe6c039be4841f5d8007d65b1",
+      "construction": "fragments",
+      "fragments": [
+        "source-history-android-tests"
+      ]
     },
     "crates/hickory-cli/src/serve/debug_adapter_sources.rs": {
       "source": ".hickory-source/mechanisms/debug-adapter-sources.md",
@@ -71270,6 +71563,53 @@
         "debug-adapter-source-tests"
       ],
       "narrative_owner": "mechanism:debug-adapter-sources"
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/BehaviorReading.kt": {
+      "source": ".hickory-source/frontends/behavior-readings-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "092b49d522e669009d0fc002fa2a78835a448ff0c303f6b8ef66e1a4f5a4b615",
+      "construction": "fragments",
+      "fragments": [
+        "behavior-readings-android",
+        "behavior-source-page-android"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/BehaviorReadingTest.kt": {
+      "source": ".hickory-source/frontends/behavior-readings-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "859eda8c0893434d7bb3e984d96e392c3001f2f12e10c4e54df778d98616d589",
+      "construction": "fragments",
+      "fragments": [
+        "behavior-readings-android-tests",
+        "behavior-source-page-android-tests"
+      ]
+    },
+    "scripts/test-source-save-history.py": {
+      "source": ".hickory-source/mechanisms/source-save-history-verification.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "ca94aa994b05b8be9e9aa70e74e254eb90f725ffbebfb4280a6e4172477b247c",
+      "construction": "fragments",
+      "fragments": [
+        "source-history-service-witness"
+      ],
+      "narrative_owner": "mechanism:source-save-history-verification"
+    },
+    "scripts/test-native-source-history.py": {
+      "source": ".hickory-source/frontends/source-history-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "40a9865ec32c6404f4265913a1b08bc6d67525f60988d7a4ea9d07b71ff9e4c4",
+      "construction": "fragments",
+      "fragments": [
+        "source-history-native-runner"
+      ]
     },
     "apps/web/src/debug/AdapterSourceReading.test.ts": {
       "source": ".hickory-source/frontends/debug-adapter-sources-browser.md",
@@ -71313,6 +71653,182 @@
       "construction": "fragments",
       "fragments": [
         "debug-adapter-source-browser-view"
+      ]
+    },
+    "apps/web/src/simple/BehaviorSourceReading.ts": {
+      "source": ".hickory-source/frontends/construction-reading-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "c9ceb3306882340b367eb4e2b925d4f1b54632409ab87191b2bad0c8afaae242",
+      "construction": "fragments",
+      "fragments": [
+        "behavior-source-reading-browser-model"
+      ]
+    },
+    "apps/web/src/simple/BehaviorSourceReading.test.ts": {
+      "source": ".hickory-source/frontends/construction-reading-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "afff2fafd3017f6cbabc5bf806ed85e76264672a2eec39c1d540dd431e9b1f1f",
+      "construction": "fragments",
+      "fragments": [
+        "behavior-source-reading-browser-tests"
+      ]
+    },
+    "scripts/test-debug-adapter-sources.py": {
+      "source": ".hickory-source/mechanisms/debug-adapter-sources.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "6e880c08e60587cba34e67409f6528397da277ad656c292cdd4a5881073c3fed",
+      "construction": "fragments",
+      "fragments": [
+        "debug-adapter-source-real-browser-witness"
+      ],
+      "narrative_owner": "mechanism:debug-adapter-sources"
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/DebugAdapterSources.kt": {
+      "source": ".hickory-source/frontends/debug-adapter-sources-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "d9d7ad28ecd6e7ab8c9676436f8daad8b0cdaaf03809d9a28f2cd9b409378e84",
+      "construction": "fragments",
+      "fragments": [
+        "debug-adapter-sources-android"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/DebugAdapterSourcesTest.kt": {
+      "source": ".hickory-source/frontends/debug-adapter-sources-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "a6748b46eda7817b2c581afa9c3a22c1c333ee9e3850846520d7a035171249db",
+      "construction": "fragments",
+      "fragments": [
+        "debug-adapter-sources-android-tests"
+      ]
+    },
+    "scripts/test-source-history-browser.py": {
+      "source": ".hickory-source/frontends/source-history-browser-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "bba041c83e811c2d2b0605be3b473f59bc38ae0d62fb7b56e80846b5c7218624",
+      "construction": "fragments",
+      "fragments": [
+        "source-history-browser-real-engine"
+      ]
+    },
+    "crates/hickory-cli/src/serve/agent_proposals.rs": {
+      "source": ".hickory-source/mechanisms/agent-proposals.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "d2254ebd1226e4a0d157c7cf8cf7f084ca6ad2cdfeacfc0540bf1d8c52e1f446",
+      "construction": "fragments",
+      "fragments": [
+        "agent-proposal-model",
+        "agent-proposal-analysis",
+        "agent-proposal-routes",
+        "agent-proposal-tool-discovery",
+        "agent-proposal-host-report",
+        "agent-proposal-tests",
+        "agent-proposal-private-witness"
+      ],
+      "narrative_owner": "mechanism:agent-proposals"
+    },
+    "apps/apple-simple/Sources/DebugAdapterSources.swift": {
+      "source": ".hickory-source/frontends/debug-adapter-sources-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "0612364107bd6dcd9e3be5cfeebee6dd170b706b4196cff4ac17c555d6b53a66",
+      "construction": "fragments",
+      "fragments": [
+        "debug-adapter-sources-apple-model",
+        "debug-adapter-sources-apple-view"
+      ]
+    },
+    "scripts/test-agent-proposals.py": {
+      "source": ".hickory-source/mechanisms/agent-proposals.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "3275a4ed8480507fef98a78b340a5e8831601a53ff683f181661be3b48562fec",
+      "construction": "fragments",
+      "fragments": [
+        "agent-proposal-http-witness"
+      ],
+      "narrative_owner": "mechanism:agent-proposals"
+    },
+    "apps/apple-simple/Tests/DebugAdapterSourceTests.swift": {
+      "source": ".hickory-source/frontends/debug-adapter-sources-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "9aeb8e39705f491cfca1e33ea1ac7e2571132111cea3124a3e697633dbe1c722",
+      "construction": "fragments",
+      "fragments": [
+        "debug-adapter-sources-apple-tests"
+      ]
+    },
+    "scripts/test-git-resolution-browser.py": {
+      "source": ".hickory-source/frontends/git-resolution-browser-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "d8348e7e2660bbd0e72eba223a88920b05a9d97772955cd95d783332e00822e2",
+      "construction": "fragments",
+      "fragments": [
+        "git-resolution-browser-real-engine"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceCreation.kt": {
+      "source": ".hickory-source/frontends/source-create-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "3413a521c997b11e569816232212ee96cd8ab6bcb42a96451b63be2555ccc9e2",
+      "construction": "fragments",
+      "fragments": [
+        "source-create-android"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SourceCreationTest.kt": {
+      "source": ".hickory-source/frontends/source-create-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "03c11cd6514bc28315787b855655419c1e36d59c32093aaef21088e28612519f",
+      "construction": "fragments",
+      "fragments": [
+        "source-create-android-tests"
+      ]
+    },
+    "apps/apple-simple/Sources/BehaviorReading.swift": {
+      "source": ".hickory-source/frontends/behavior-readings-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "6f9aaca35e7aa720b4b8201a9cad32139049ef6cfa891f9e012ae3347dc9f845",
+      "construction": "fragments",
+      "fragments": [
+        "behavior-readings-apple-core",
+        "behavior-readings-apple-view"
+      ]
+    },
+    "apps/apple-simple/Tests/BehaviorReadingTests.swift": {
+      "source": ".hickory-source/frontends/behavior-readings-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "a760081c99c6a5afabe5261c553c966dbe4e42e30039e15404f41a46ff207c26",
+      "construction": "fragments",
+      "fragments": [
+        "behavior-readings-apple-tests"
       ]
     }
   },

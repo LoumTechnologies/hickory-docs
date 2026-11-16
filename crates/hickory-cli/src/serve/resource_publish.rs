@@ -4,7 +4,7 @@ use super::{
     resource_journal::{Batch, Manifest, Receipt},
 };
 use serde::Serialize;
-use std::{collections::BTreeSet, path::Path};
+use std::{collections::{BTreeMap,BTreeSet}, path::Path};
 #[derive(Debug, Serialize)]
 pub struct Outcome {
     pub complete: bool,
@@ -13,6 +13,29 @@ pub struct Outcome {
     pub recovery: String,
     pub applied: BTreeSet<String>,
     pub error: Option<String>,
+    #[serde(skip)]
+    pub observed:Option<BTreeMap<String,ObservedSource>>,
+}
+
+/// A producer-held file, not a name that can silently acquire another occupant.
+#[derive(Debug)]
+pub struct ObservedSource{file:std::fs::File,identity:String}
+#[derive(Debug)]
+pub(super) struct ObservedWrite{pub changed:bool,pub source:Option<ObservedSource>,pub proven:bool}
+impl ObservedSource{
+ fn from_file(file:std::fs::File)->Result<Self,String>{let identity=super::source_history::identity_for_metadata(&file.metadata().map_err(|e|e.to_string())?)?;Ok(Self{file,identity})}
+ pub(super) fn verify(&self,root:&Path,path:&str,saved:&SavedSource)->Result<(),String>{
+  let full=root.join(path);let held=same_file::Handle::from_file(self.file.try_clone().map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
+  if same_file::Handle::from_path(&full).map_err(|e|e.to_string())?!=held||super::source_history::identity_for_metadata(&self.file.metadata().map_err(|e|e.to_string())?)?!=self.identity{return Err(format!("Published source identity changed: {path}. No editor guard or history connection was adopted."))}
+  let(_,current)=super::resource_inputs::saved_target(root,path)?;if &current!=saved{return Err(format!("Published source bytes or permissions changed: {path}"))}
+  if same_file::Handle::from_path(&full).map_err(|e|e.to_string())?!=held||super::source_history::identity_for_metadata(&self.file.metadata().map_err(|e|e.to_string())?)?!=self.identity{return Err(format!("Published source changed during confirmation: {path}"))}Ok(())
+ }
+}
+fn capture_source(root:&Path,path:&str,saved:&SavedSource)->Result<Option<ObservedSource>,String>{
+ if matches!(saved,SavedSource::Missing){return Ok(None)}
+ let full=root.join(path);let mut options=std::fs::OpenOptions::new();options.read(true);
+ #[cfg(unix)]{use std::os::unix::fs::OpenOptionsExt;options.custom_flags(libc::O_NOFOLLOW);}
+ let held=ObservedSource::from_file(options.open(&full).map_err(|e|e.to_string())?)?;held.verify(root,path,saved)?;Ok(Some(held))
 }
 fn root_matches(root: &Path, identity: &RootIdentity, expected: &str) -> Result<(), String> {
     if identity.check(root)? != expected {
@@ -57,16 +80,15 @@ fn synchronize_parent(path: &Path) -> Result<(), String> {
         .map_err(|error| format!("Source directory synchronization was not confirmed: {error}"))?;
     Ok(())
 }
-pub(super) fn replace(
+pub(super) fn replace_observed(
     root: &Path,
     path: &str,
     before: &SavedSource,
     after: &SavedSource,
-) -> Result<bool, String> {
+) -> Result<ObservedWrite, String> {
     let full = check(root, path, before, after)?;
-    if before == after {
-        return Ok(false);
-    }
+    if before == after {return Ok(ObservedWrite{changed:false,source:capture_source(root,path,after)?,proven:true})}
+    let mut published=None;
     match after {
         SavedSource::Missing => std::fs::remove_file(&full)
             .map_err(|error| format!("Source deletion was not confirmed: {path}: {error}"))?,
@@ -111,18 +133,19 @@ pub(super) fn replace(
                 .sync_all()
                 .map_err(|error| error.to_string())?;
             check(root, path, before, after)?;
-            match before {
+            let file=match before {
                 SavedSource::Missing => {
                     temporary.persist_noclobber(&full).map_err(|error| {
                         format!("New source destination was not confirmed: {path}: {error}")
-                    })?;
+                    })?
                 }
                 SavedSource::File { .. } => {
                     temporary.persist(&full).map_err(|error| {
                         format!("Source replacement was not confirmed: {path}: {error}")
-                    })?;
+                    })?
                 }
-            }
+            };
+            published=Some(ObservedSource::from_file(file)?);
         }
     }
     synchronize_parent(&full)?;
@@ -132,8 +155,10 @@ pub(super) fn replace(
             "Published source differs from its reviewed state: {path}. Inspect the retained recovery record."
         ));
     }
-    Ok(true)
+    if let Some(source)=&published{source.verify(root,path,after)?}
+    Ok(ObservedWrite{changed:true,source:published,proven:true})
 }
+pub(super) fn replace(root:&Path,path:&str,before:&SavedSource,after:&SavedSource)->Result<bool,String>{replace_observed(root,path,before,after).map(|write|write.changed)}
 /// Caller holds the mutation gate and owns current editor/room/construction admission.
 /// The authority callback receives already published paths so it can distinguish
 /// this batch's source changes from independent changes to compiler dependencies.
@@ -143,20 +168,39 @@ pub fn publish(
     manifest: &Manifest,
     authority: impl FnMut(&BTreeSet<String>) -> Result<(), String>,
 ) -> Result<Outcome, String> {
-    publish_with(
-        root,
-        identity,
-        manifest,
-        authority,
-        |path, before, after| replace(root, path, before, after),
-    )
+    publish_observed_guarded_with(root,identity,manifest,authority,|_|Ok(()),|path,before,after|replace_observed(root,path,before,after),false)
 }
+
 pub(super) fn publish_with(
     root: &Path,
     identity: &RootIdentity,
     manifest: &Manifest,
-    mut authority: impl FnMut(&BTreeSet<String>) -> Result<(), String>,
+    authority: impl FnMut(&BTreeSet<String>) -> Result<(), String>,
+    write: impl FnMut(&str, &SavedSource, &SavedSource) -> Result<bool, String>,
+) -> Result<Outcome, String> {
+    publish_guarded_with(root, identity, manifest, authority, |_| Ok(()), write, false)
+}
+/// Conflict resolution retains its index lease through both forward publication
+/// and rollback. Ordinary resource saves keep their existing partial-save policy.
+pub(super) fn publish_guarded_with(
+    root: &Path,
+    identity: &RootIdentity,
+    manifest: &Manifest,
+    authority: impl FnMut(&BTreeSet<String>) -> Result<(), String>,
+    rollback_authority: impl FnMut(&BTreeSet<String>) -> Result<(), String>,
     mut write: impl FnMut(&str, &SavedSource, &SavedSource) -> Result<bool, String>,
+    rollback: bool,
+) -> Result<Outcome, String> {
+    publish_observed_guarded_with(root,identity,manifest,authority,rollback_authority,|path,before,after|write(path,before,after).map(|changed|ObservedWrite{changed,source:None,proven:false}),rollback)
+}
+pub(super) fn publish_observed_guarded_with(
+    root: &Path,
+    identity: &RootIdentity,
+    manifest: &Manifest,
+    mut authority: impl FnMut(&BTreeSet<String>) -> Result<(), String>,
+    mut rollback_authority: impl FnMut(&BTreeSet<String>) -> Result<(), String>,
+    mut write: impl FnMut(&str, &SavedSource, &SavedSource) -> Result<ObservedWrite, String>,
+    rollback: bool,
 ) -> Result<Outcome, String> {
     root_matches(root, identity, &manifest.workspace)?;
     authority(&BTreeSet::new())?;
@@ -171,7 +215,11 @@ pub(super) fn publish_with(
                 .ok_or("Incomplete resource namespace.")?,
         )?;
     }
+    let mut before_sources=BTreeMap::new();for(path,saved)in &manifest.before{if let Some(source)=capture_source(root,path,saved)?{before_sources.insert(path.clone(),source);}}
+    let before_identities=before_sources.iter().map(|(path,source)|(path.clone(),source.identity.clone())).collect();
     let batch = Batch::begin(root, manifest)?;
+    let lineage=super::source_history::prepare_resource_lineage(root,&batch.id,manifest,&before_identities)?;
+    let mut all_proven=true;let mut after_sources=BTreeMap::new();
     let mut outcome = Outcome {
         complete: false,
         source_files_modified: false,
@@ -179,20 +227,25 @@ pub(super) fn publish_with(
         recovery: batch.relative_path(),
         applied: BTreeSet::new(),
         error: None,
+        observed:None,
     };
     // Install candidate files before deleting displaced originals. Recovery retains
     // every original even for overwrites and swaps; no automatic rollback occurs.
     let mut paths: Vec<_> = manifest.before.keys().collect();
     paths.sort_by_key(|path| (matches!(manifest.after[*path], SavedSource::Missing), *path));
+    let mut attempted_paths = Vec::new();
     for (sequence, path) in paths.into_iter().enumerate() {
         let mut attempted = false;
         let result = (|| {
             root_matches(root, identity, &manifest.workspace)?;
             authority(&outcome.applied)?;
             check(root, path, &manifest.before[path], &manifest.after[path])?;
+            if let Some(source)=before_sources.get(path){source.verify(root,path,&manifest.before[path])?}
             attempted = manifest.before[path] != manifest.after[path];
-            let changed = write(path, &manifest.before[path], &manifest.after[path])?;
-            outcome.source_files_modified |= changed;
+            if attempted { attempted_paths.push(path.clone()); }
+            let written = write(path, &manifest.before[path], &manifest.after[path])?;
+            outcome.source_files_modified |= written.changed;all_proven &= written.proven;
+            if let Some(source)=written.source{source.verify(root,path,&manifest.after[path])?;if manifest.before[path]==manifest.after[path]&&before_sources.get(path).is_some_and(|before|before.identity!=source.identity){return Err(format!("Unchanged source was independently replaced: {path}"))}after_sources.insert(path.clone(),source);}
             root_matches(root, identity, &manifest.workspace)?;
             Ok::<_, String>(())
         })();
@@ -208,6 +261,7 @@ pub(super) fn publish_with(
                     outcome.error = Some(format!(
                         "Source was observed saved at {path}, but its recovery receipt was not confirmed: {error}"
                     ));
+                    if rollback { rollback_attempt(root, identity, manifest, &batch, &attempted_paths, &mut rollback_authority, &mut write, &mut outcome); }
                     return Ok(outcome);
                 }
             }
@@ -225,12 +279,67 @@ pub(super) fn publish_with(
                         format!("{error} Recovery receipt was also not confirmed: {record_error}")
                     }
                 });
+                if rollback { rollback_attempt(root, identity, manifest, &batch, &attempted_paths, &mut rollback_authority, &mut write, &mut outcome); }
                 return Ok(outcome);
             }
         }
     }
+    if all_proven{
+        let confirmation=(||->Result<(),String>{root_matches(root,identity,&manifest.workspace)?;authority(&outcome.applied)?;
+            for(path,saved)in &manifest.after{match saved{SavedSource::File{..}=>after_sources.get(path).ok_or_else(||format!("Published source has no held identity: {path}"))?.verify(root,path,saved)?,SavedSource::Missing=>{let(_,current)=super::resource_inputs::saved_target(root,path)?;if &current!=saved{return Err(format!("Deleted source name was independently recreated: {path}"))}}}}
+            let identities=after_sources.iter().map(|(path,source)|(path.clone(),source.identity.clone())).collect();super::source_history::finish_resource_lineage(root,manifest,lineage,&identities)
+        })();if let Err(error)=confirmation{outcome.error=Some(format!("Source publication completed, but its namespace/history confirmation was refused: {error}"));return Ok(outcome)}
+        outcome.observed=Some(after_sources);
+    }
     outcome.complete = true;
     Ok(outcome)
+}
+/// Rollback never adopts a foreign edit. The original receipts remain immutable
+/// history; this separate report describes what was actually reobserved afterward.
+fn rollback_attempt(
+    root: &Path, identity: &RootIdentity, manifest: &Manifest, batch: &Batch,
+    attempted: &[String], authority: &mut impl FnMut(&BTreeSet<String>) -> Result<(), String>,
+    write: &mut impl FnMut(&str, &SavedSource, &SavedSource) -> Result<ObservedWrite, String>,
+    outcome: &mut Outcome,
+) {
+    let mut remaining: BTreeSet<String> = attempted.iter().cloned().collect();
+    let mut confirmed = Vec::new();
+    let mut errors = Vec::new();
+    for path in attempted.iter().rev() {
+        let result = (|| {
+            root_matches(root, identity, &manifest.workspace)?;
+            authority(&remaining)?;
+            let (_, current) = super::resource_inputs::saved_target(root, path)?;
+            if current != manifest.before[path] {
+                if current != manifest.after[path] {
+                    return Err(format!("Rollback preserved an independently changed source: {path}"));
+                }
+                outcome.source_files_modified = true;
+                write(path, &manifest.after[path], &manifest.before[path])?;
+            }
+            root_matches(root, identity, &manifest.workspace)?;
+            let (_, restored) = super::resource_inputs::saved_target(root, path)?;
+            if restored != manifest.before[path] {
+                return Err(format!("Rollback was not confirmed: {path}"));
+            }
+            Ok::<(), String>(())
+        })();
+        match result {
+            Ok(()) => { remaining.remove(path); confirmed.push(path.clone()); }
+            Err(error) => errors.push(error),
+        }
+    }
+    let report = serde_json::json!({"version":1,"confirmed":confirmed,"errors":errors});
+    if let Err(error) = batch.record_rollback(&report) {
+        errors.push(format!("Rollback report was not retained: {error}"));
+    }
+    outcome.source_files_uncertain = !errors.is_empty();
+    let prior = outcome.error.take().unwrap_or_else(|| "Publication did not complete.".into());
+    outcome.error = Some(if errors.is_empty() {
+        format!("{prior} This attempt's source writes were observed restored; its save remains incomplete. Inspect the retained rollback report before preparing another review.")
+    } else {
+        format!("{prior} Rollback is incomplete or uncertain: {}. Inspect retained recovery before further changes.", errors.join("; "))
+    });
 }
 #[cfg(test)]
 mod tests {
@@ -285,6 +394,7 @@ mod tests {
             sources,
             saved_sources,
             refusals: BTreeMap::new(),
+            saved_guards:BTreeMap::new(),
             source_files_modified: false,
         };
         let plan = resource_changes::prepare(resource_changes::Request {
@@ -348,6 +458,20 @@ mod tests {
             serde_json::to_value(record.reviewed_plan).unwrap(),
             serde_json::to_value(manifest.reviewed_plan).unwrap()
         );
+    }
+    #[test]
+    fn same_byte_replacement_after_writer_retires_namespace_confirmation(){
+        let root=root();let identity=RootIdentity::bind(root.path());
+        let manifest=fixture(root.path(),&identity,serde_json::json!({"changes":{"hick:///a.py":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":"new "}]}}));
+        let outcome=publish(root.path(),&identity,&manifest,|applied|{if applied.len()==manifest.after.len(){let path=root.path().join("a.py");let bytes=std::fs::read(&path).unwrap();std::fs::remove_file(&path).unwrap();std::fs::write(path,bytes).unwrap()}Ok(())}).unwrap();
+        assert!(!outcome.complete);assert!(outcome.observed.is_none());assert!(outcome.error.unwrap().contains("identity changed"));
+    }
+    #[test]
+    fn retained_producer_identity_refuses_equal_text_recreation_before_editor_guard(){
+        let root=root();let identity=RootIdentity::bind(root.path());
+        let manifest=fixture(root.path(),&identity,serde_json::json!({"changes":{"hick:///a.py":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":"new "}]}}));
+        let outcome=publish(root.path(),&identity,&manifest,|_|Ok(())).unwrap();assert!(outcome.complete,"{:?}",outcome.error);
+        let held=&outcome.observed.as_ref().unwrap()["a.py"];held.verify(root.path(),"a.py",&manifest.after["a.py"]).unwrap();let path=root.path().join("a.py");let bytes=std::fs::read(&path).unwrap();std::fs::remove_file(&path).unwrap();std::fs::write(path,bytes).unwrap();assert!(held.verify(root.path(),"a.py",&manifest.after["a.py"]).is_err());
     }
     #[test]
     fn stale_later_path_reports_partial_publication_and_keeps_independent_edit() {
@@ -447,6 +571,50 @@ mod tests {
             "independent destination\n"
         );
         assert!(root.path().join(outcome.recovery).is_file());
+    }
+
+    #[test]
+    fn guarded_failure_restores_only_its_own_writes_and_retains_rollback_evidence() {
+        for foreign in [false, true] {
+            let root = root();
+            let identity = RootIdentity::bind(root.path());
+            let manifest = fixture(root.path(), &identity, serde_json::json!({"changes":{
+                "hick:///a.py":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":"first "}],
+                "hick:///b.py":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":"second "}]
+            }}));
+            let outcome = publish_guarded_with(root.path(), &identity, &manifest,
+                |applied| {
+                    if applied.contains("a.py") {
+                        if foreign { std::fs::write(root.path().join("a.py"), "foreign\n").unwrap(); }
+                        return Err("Index authority changed before second write".into());
+                    }
+                    Ok(())
+                }, |_| Ok(()),
+                |path, before, after| replace(root.path(), path, before, after), true).unwrap();
+            assert!(!outcome.complete && outcome.source_files_modified);
+            assert_eq!(outcome.source_files_uncertain, foreign);
+            assert_eq!(std::fs::read_to_string(root.path().join("a.py")).unwrap(), if foreign { "foreign\n" } else { "saved a\n" });
+            assert_eq!(std::fs::read_to_string(root.path().join("b.py")).unwrap(), "saved b\n");
+            let report: serde_json::Value = serde_json::from_slice(&std::fs::read(root.path().join(&outcome.recovery).parent().unwrap().join("rollback.json")).unwrap()).unwrap();
+            assert_eq!(report["confirmed"].as_array().unwrap().len(), usize::from(!foreign));
+            assert_eq!(report["errors"].as_array().unwrap().len(), usize::from(foreign));
+        }
+    }
+    #[test]
+    fn rollback_authority_failure_never_rewrites_sources() {
+        let root = root();
+        let identity = RootIdentity::bind(root.path());
+        let manifest = fixture(root.path(), &identity, serde_json::json!({"changes":{
+            "hick:///a.py":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":"first "}],
+            "hick:///b.py":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":"second "}]
+        }}));
+        let outcome = publish_guarded_with(root.path(), &identity, &manifest,
+            |applied| if applied.is_empty() { Ok(()) } else { Err("Stop publication".into()) },
+            |_| Err("Git index lease changed".into()),
+            |path, before, after| replace(root.path(), path, before, after), true).unwrap();
+        assert!(!outcome.complete && outcome.source_files_uncertain);
+        assert!(outcome.error.unwrap().contains("Git index lease changed"));
+        assert_eq!(std::fs::read_to_string(root.path().join("a.py")).unwrap(), "first dirty a\n");
     }
 
     #[test]

@@ -180,6 +180,7 @@ pub fn doc_id(rel_path: &str) -> String {
 /// Files on disk, standing in for Postgres.
 pub struct FileDocStore {
     index: Arc<DocIndex>,
+    root_identity:super::resource_inputs::RootIdentity,
     paths: std::sync::RwLock<HashMap<String, PathBuf>>,
     /// The exact source text this store last persisted, per document. The
     /// in-app up-loop's echo test: a watcher event whose file still holds
@@ -191,6 +192,7 @@ pub struct FileDocStore {
 impl FileDocStore {
     pub fn new(index: Arc<DocIndex>) -> Arc<Self> {
         Arc::new(Self {
+            root_identity:super::resource_inputs::RootIdentity::bind(index.root()),
             index,
             paths: std::sync::RwLock::new(HashMap::new()),
             last_saved: std::sync::Mutex::new(std::collections::HashMap::new()),
@@ -262,6 +264,7 @@ impl DocStore for FileDocStore {
 
     async fn save(&self, key: &DocKey, source: &str, crdt: &[u8]) -> Result<()> {
         let path = self.source_path(key)?;
+        self.root_identity.check(self.index.root()).map_err(anyhow::Error::msg)?;
         // A pending room persist is not permission to overwrite external work.
         // Explicit Save/reload/merge writes reconcile their own source first.
         let disk = std::fs::read_to_string(&path)?;
@@ -275,7 +278,7 @@ impl DocStore for FileDocStore {
         // rename: a host whose editor is watching this file must never see a
         // half-written document, and a crash mid-save must not truncate their
         // work to nothing.
-        write_document(&path, source).with_context(|| format!("writing {}", path.display()))?;
+        if disk!=source{super::source_history::write_observed(self.index.root(),&path,source,None,None,||{self.root_identity.check(self.index.root())?;write_document_observed(&path,source).map_err(|e|e.to_string())}).map_err(anyhow::Error::msg).with_context(||format!("writing {}",path.display()))?;}
         if let Ok(mut m) = self.last_saved.lock() {
             m.insert(key.clone(), source.to_string());
         }
@@ -293,26 +296,18 @@ impl DocStore for FileDocStore {
     }
 }
 /// Write `bytes` to `path` via a sibling temp file and a rename.
-pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    use std::io::Write as _;
-
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let tmp = path.with_extension(format!(
-        "{}.tmp",
-        path.extension().and_then(|e| e.to_str()).unwrap_or("part")
-    ));
-    {
-        let mut file = std::fs::File::create(&tmp)?;
-        file.write_all(bytes)?;
-        if let Ok(metadata) = std::fs::metadata(path) {
-            file.set_permissions(metadata.permissions())?;
-        }
-        file.sync_all()?;
-    }
-    std::fs::rename(&tmp, path)?;
-    Ok(())
+pub fn write_atomic(path:&Path,bytes:&[u8])->Result<()>{write_atomic_observed(path,bytes).map(|_|())}
+/// Retain the published inode through rename; equal bytes at a replacement name
+/// cannot impersonate the exact file this writer installed.
+pub fn write_atomic_observed(path:&Path,bytes:&[u8])->Result<String>{
+ use std::io::Write;
+ let parent=path.parent().context("source has no parent")?;std::fs::create_dir_all(parent)?;
+ let before=std::fs::symlink_metadata(path).ok();let mut temporary=tempfile::NamedTempFile::new_in(parent)?;
+ temporary.write_all(bytes)?;if let Some(metadata)=&before{temporary.as_file().set_permissions(metadata.permissions())?}temporary.as_file().sync_all()?;
+ let file=if before.is_none(){temporary.persist_noclobber(path).map_err(|e|e.error)?}else{temporary.persist(path).map_err(|e|e.error)?};
+ #[cfg(unix)]std::fs::File::open(parent)?.sync_all()?;
+ let identity=super::source_history::identity_for_metadata(&file.metadata()?).map_err(anyhow::Error::msg)?;
+ let held=same_file::Handle::from_file(file)?;anyhow::ensure!(same_file::Handle::from_path(path)?==held,"published source name was independently replaced");Ok(identity)
 }
 
 #[cfg(test)]
@@ -450,13 +445,17 @@ mod tests {
     }
 }
 pub fn write_document(path: &Path, source: &str) -> Result<()> {
+    write_document_observed(path,source).map(|_|())
+}
+/// Keep scaffold authority while returning the exact physical file published.
+pub fn write_document_observed(path:&Path,source:&str)->Result<String>{
     let previous = match std::fs::read_to_string(path) {
         Ok(previous) => previous,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(error) => return Err(error.into()),
     };
     hick_lang::preserve_scaffolds(&previous, source).map_err(anyhow::Error::msg)?;
-    write_atomic(path, source.as_bytes())
+    write_atomic_observed(path, source.as_bytes())
 }
 
 #[cfg(test)]

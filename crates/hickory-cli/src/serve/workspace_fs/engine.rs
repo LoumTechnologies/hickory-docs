@@ -244,10 +244,10 @@ impl Engine {
                 if p["directory"] == true {
                     std::fs::create_dir(&path)?;
                 } else {
-                    std::fs::OpenOptions::new()
-                        .write(true)
-                        .create_new(true)
-                        .open(&path)?;
+                    super::super::source_history::write_observed(&root,&path,"",None,None,||{
+                        self.state.resource_root.check(&root)?;
+                        super::super::api::create_source_observed(&path,"").map_err(|error|error.detail().to_string())
+                    }).map_err(anyhow::Error::msg)?;
                 }
                 Ok(serde_json::to_value(
                     self.view().await?.entry(&self.state, rel)?,

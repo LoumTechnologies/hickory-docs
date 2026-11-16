@@ -16,13 +16,17 @@ not require the rest of the document to compile.
 <a id="immutable-scaffold-write-document"></a>
 <book:copy id="immutable-scaffold-write-document">
 pub fn write_document(path: &Path, source: &str) -> Result<()> {
+    write_document_observed(path,source).map(|_|())
+}
+/// Keep scaffold authority while returning the exact physical file published.
+pub fn write_document_observed(path:&Path,source:&str)->Result<String>{
     let previous = match std::fs::read_to_string(path) {
         Ok(previous) => previous,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(error) => return Err(error.into()),
     };
     hick_lang::preserve_scaffolds(&previous, source).map_err(anyhow::Error::msg)?;
-    write_atomic(path, source.as_bytes())
+    write_atomic_observed(path, source.as_bytes())
 }
 
 #[cfg(test)]

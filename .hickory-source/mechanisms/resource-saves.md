@@ -119,9 +119,9 @@ fn room_write(
     path: &str,
     before: &SavedSource,
     after: &SavedSource,
-) -> Result<bool, String> {
+) -> Result<super::resource_publish::ObservedWrite, String> {
     if !path.ends_with(".md") {
-        return super::resource_publish::replace(root, path, before, after);
+        return super::resource_publish::replace_observed(root, path, before, after);
     }
     let id = if matches!(before, SavedSource::File { .. }) {
         state.store.register_source(&state.index, path)
@@ -129,9 +129,9 @@ fn room_write(
         state.index.id_for_path(path)
     };
     runtime.block_on(async {
-        let mut changed = false;
+        let mut written = None;
         let mut persist = || -> anyhow::Result<()> {
-            changed = super::resource_publish::replace(root, path, before, after).map_err(anyhow::Error::msg)?;
+            written = Some(super::resource_publish::replace_observed(root, path, before, after).map_err(anyhow::Error::msg)?);
             Ok(())
         };
         let accepted = match (before, after) {
@@ -145,7 +145,7 @@ fn room_write(
         };
         if !accepted { return Err(format!("A live document changed after review: {path}. Save or reconcile it before resource changes.")); }
         if matches!(after, SavedSource::File { .. }) { state.store.register_source(&state.index, path); }
-        Ok(changed)
+        written.ok_or_else(||format!("Source publication callback did not confirm an observed writer: {path}"))
     })
 }
 </ui:copy>
@@ -216,6 +216,7 @@ async fn execute(state: LocalState, request: Request) -> Result<Value, String> {
         manifest,
         facts,
         request.request_id,
+        request.proposal.inputs.saved_guards.clone(),
         entries,
         EntryTransition::Stable,
     )
@@ -242,12 +243,28 @@ pub(super) enum EntryTransition {
 }
 pub(super) async fn publish(
     state: LocalState,
-    mut manifest: Manifest,
+    manifest: Manifest,
     facts: super::resource_candidates::Facts,
     request_id: String,
+    saved_guards:BTreeMap<String,String>,
     protected_entries: Vec<String>,
     entry_policy: EntryTransition,
 ) -> Result<Value, String> {
+    publish_guarded(state,manifest,facts,request_id,saved_guards,protected_entries,entry_policy,Box::new(|_|Ok(())),false).await
+}
+/// A conflict wrapper adds its independent index lease without weakening any
+/// existing room, saved-source, canonical-entry or compiler dependency guard.
+pub(super) async fn publish_guarded(
+    state: LocalState,
+    mut manifest: Manifest,
+    facts: super::resource_candidates::Facts,
+    request_id: String,
+    saved_guards:BTreeMap<String,String>,
+    protected_entries: Vec<String>,
+    entry_policy: EntryTransition,
+    admission: Box<dyn Fn(&std::path::Path)->Result<(),String>+Send>,
+    transactional_rollback: bool,
+) -> Result<Value,String> {
     // The durable record can be found by the original request after a lost reply
     // or process restart. It is evidence, never permission to repeat publication.
     manifest.request_id = Some(request_id.to_ascii_lowercase());
@@ -280,9 +297,10 @@ pub(super) async fn publish(
             }
         }
         let dependencies: BTreeMap<_, _> = facts.checked_saved_sources.into_iter().filter(|(path, _)| !paths.contains(path)).collect();
-        let mut outcome = super::resource_publish::publish_with(root, &state.resource_root, &manifest,
-            |_| { super::source_tests::check_saved_sources(root, &dependencies).map(|_| ()).map_err(|error|error.detail().to_string()) },
-            |path, before, after| room_write(&state, &runtime, root, path, before, after))?;
+        let mut outcome = super::resource_publish::publish_observed_guarded_with(root, &state.resource_root, &manifest,
+            |published| { admission(root)?;super::resource_inputs::validate_guard_map(root,&saved_guards,published)?; super::source_tests::check_saved_sources(root, &dependencies).map(|_| ()).map_err(|error|error.detail().to_string()) },
+            |published| { admission(root)?;super::resource_inputs::validate_guard_map(root,&saved_guards,published)?; super::source_tests::check_saved_sources(root, &dependencies).map(|_| ()).map_err(|error|error.detail().to_string()) },
+            |path, before, after| room_write(&state, &runtime, root, path, before, after), transactional_rollback)?;
         if outcome.complete {
             for (path, expected) in &manifest.after {
                 match super::resource_inputs::saved_target(root, path) {
@@ -292,7 +310,7 @@ pub(super) async fn publish(
             }
         }
         let files = if outcome.complete {
-            match source_receipts(&state, &manifest.after) {
+            match source_receipts(&state, &manifest.after, &outcome) {
                 Ok(files) => files,
                 Err(error) => { outcome.complete = false; outcome.error = Some(format!("Source publication was observed, but editor metadata is unavailable: {error}. Inspect recovery before adopting the namespace.")); Vec::new() }
             }
@@ -308,8 +326,8 @@ fn publication_reply(
     after: BTreeMap<String, SavedSource>,
     files: Vec<Value>,
 ) -> Result<Value, String> {
-    let confirmed = outcome.complete;
-    let mut reply = json!({"version":1,"request_id":request_id,"workspace":workspace,"context":context,"outcome":outcome,"saved_sources":null});
+    let confirmed = outcome.complete;let adoption_current=confirmed && outcome.observed.is_some();
+    let mut reply = json!({"version":2,"request_id":request_id,"workspace":workspace,"context":context,"outcome":outcome,"adoption_current":adoption_current,"adoption_reason":null,"saved_sources":null});
     let key = if confirmed {
         "saved_sources"
     } else {
@@ -355,7 +373,7 @@ pub async fn save(
     )
     .map_err(ApiError::conflict)?
     {
-        return result.map(Json).map_err(ApiError::conflict);
+        return match result{Ok(value)=>checked_retained(&state,value).await.map(Json).map_err(ApiError::conflict),Err(error)=>Err(ApiError::conflict(error))};
     }
     let id = request.request_id.clone();
     let result = execute(state, request).await;
@@ -369,10 +387,51 @@ pub async fn save(
 The status query is read-only and bound to the current held root. Missing, pending or uncertain outcomes require inspecting recovery; none is permission to create a replacement request automatically.
 
 <ui:copy id="resource-save-status">
+/// Retained completion describes a past publication. Revalidate the exact physical
+/// saved namespace before granting a new editor adoption; never execute a writer.
+fn current_receipt(state:&LocalState,value:&Value)->Result<(),String>{
+ let root=state.index.root();let workspace=state.resource_root.check(root)?;
+ if value["workspace"].as_str()!=Some(workspace)||value["version"].as_u64()!=Some(2)||(value["outcome"]["complete"].as_bool()!=Some(true)||value["adoption_current"].as_bool()!=Some(true)){return Err("This retained outcome does not confirm a complete current source namespace.".into())}
+ let saved:BTreeMap<String,SavedSource>=serde_json::from_value(value["saved_sources"].clone()).map_err(|_|"Retained publication has no complete saved namespace.")?;
+ if saved.is_empty()||saved.len()>10000{return Err("Retained source namespace is empty or exceeds its bounded reading.".into())}
+ let rows=value["source_files"].as_array().ok_or("Retained publication has no source metadata.")?;let mut guards=BTreeMap::new();
+ for row in rows{let path=row["file"]["path"].as_str().ok_or("Retained source metadata has no exact path.")?;let guard=row["save_guard"].as_str().ok_or("Retained source has no captured physical guard.")?;let metadata:SavedSource=serde_json::from_value(row["saved"].clone()).map_err(|_|"Retained source metadata is malformed.")?;
+  if !matches!(metadata,SavedSource::File{..})||saved.get(path)!=Some(&metadata)||guard.len()>16*1024||guards.insert(path.to_owned(),guard.to_owned()).is_some(){return Err("Retained source metadata is ambiguous or differs from its saved namespace.".into())}
+ }
+ let files=saved.iter().filter(|(_,value)|matches!(value,SavedSource::File{..})).count();if files!=guards.len(){return Err("Retained source metadata does not cover every saved file.".into())}
+ let claims=super::api::generated_outputs(root,&state.index);
+ for(path,expected)in &saved{let(full,current)=super::resource_inputs::saved_target(root,path)?;if &current!=expected{return Err(format!("Saved namespace changed after publication: {path}. Its old completion remains historical."))}
+  if let Some(guard)=guards.get(path){if super::api::generated_by(&claims,path).is_some()||claims.keys().any(|claim|same_file::is_same_file(&full,root.join(claim)).unwrap_or(false)){return Err(format!("Current generated ownership changed at {path}. Inspect its authored source before editor adoption."))}
+   let observed=super::source_history::read_for_api(state,&full,path)?;if observed.save_guard.as_deref()!=Some(guard){return Err(format!("Saved physical identity changed after publication: {path}. No old editor identity was attached to its new occupant."))}
+  }
+ }
+ state.resource_root.check(root)?;Ok(())
+}
+pub(super) async fn checked_retained(state:&LocalState,mut value:Value)->Result<Value,String>{
+ if value.get("saved_sources").is_none(){return Ok(value)} // Stage-only receipts have separate index authority.
+ let state=state.clone();tokio::task::spawn_blocking(move||{let legacy=value["version"].as_u64()!=Some(2);if legacy{value["version"]=json!(2);value["adoption_current"]=json!(false)}match current_receipt(&state,&value){Ok(())=>{value["adoption_current"]=json!(true);value["adoption_reason"]=Value::Null},Err(error)=>{value["adoption_current"]=json!(false);value["adoption_reason"]=json!(error)}}value}).await.map_err(|error|format!("Current source adoption could not be checked: {error}. The original historical receipt remains retained."))
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Status {
     pub request_id: String,
+}
+/// Conflict recovery distinguishes an observed refusal from a missing or in-flight outcome.
+/// Only this engine's retained, root-scoped result can establish completion.
+pub(super) async fn retained_status(state: &LocalState, request_id: &str) -> Result<Value,String> {
+    if !hex(request_id,32) { return Err("Use the original publication request identity.".into()); }
+    state.resource_root.ready().await?;
+    let workspace=state.resource_root.retained_epoch()?;
+    let (status,mut outcome,error)={let attempts=ATTEMPTS.lock().map_err(|_|"Publication status is unavailable; inspect retained recovery.".to_string())?;
+    let attempt=attempts.records.get(&format!("{workspace}:{request_id}"));
+    match attempt.and_then(|v|v.result.as_ref()) {
+        Some(Ok(value)) => ("completed",value.clone(),Value::Null),
+        Some(Err(error)) => ("completed",Value::Null,json!(error)),
+        None if attempt.is_some() => ("pending",Value::Null,Value::Null),
+        None => ("unknown",Value::Null,Value::Null),
+    }};
+    if !outcome.is_null(){outcome=checked_retained(state,outcome).await?}
+    Ok(json!({"version":1,"request_id":request_id,"state":status,"outcome":outcome,"error":error}))
 }
 pub async fn status(
     State(state): State<LocalState>,
@@ -390,26 +449,15 @@ pub async fn status(
         .map_err(ApiError::unavailable)?;
     let workspace = state
         .resource_root
-        .check(state.index.root())
+        .retained_epoch()
         .map_err(ApiError::conflict)?;
-    let attempts = ATTEMPTS.lock().map_err(|_| {
-        ApiError::unavailable(
-            "Resource save outcomes are unavailable. Inspect retained recovery records.",
-        )
-    })?;
-    let attempt = attempts.records.get(&format!("{workspace}:{}",query.request_id)).ok_or_else(||ApiError::not_found("No retained save outcome in this engine session. Inspect recovery records before retrying a request from an earlier session."))?;
-    attempt
-        .result
-        .clone()
-        .ok_or_else(|| {
-            ApiError::conflict(
-                "Save outcome is pending or uncertain. Inspect recovery records before retrying.",
-            )
-        })?
-        .map(Json)
-        .map_err(ApiError::conflict)
+    let retained={let attempts=ATTEMPTS.lock().map_err(|_|ApiError::unavailable("Resource save outcomes are unavailable. Inspect retained recovery records."))?;
+        attempts.records.get(&format!("{workspace}:{}",query.request_id)).ok_or_else(||ApiError::not_found("No retained save outcome in this engine session. Inspect recovery records before retrying a request from an earlier session."))?.result.clone().ok_or_else(||ApiError::conflict("Save outcome is pending or uncertain. Inspect recovery records before retrying."))?};
+    match retained{Ok(value)=>checked_retained(&state,value).await.map(Json).map_err(ApiError::conflict),Err(error)=>Err(ApiError::conflict(error))}
 }
 </ui:copy>
+
+The conflict-specific retained status reader exposes completed refusal, pending and unknown as typed states. A refusal is not proof of rollback: callers must additionally revalidate the complete original source and index before retiring a refused attempt. An unknown record never permits replay. The ordinary save endpoint retains its existing API.
 
 ## Do not adopt partial plans as saved baselines
 
@@ -427,6 +475,7 @@ mod outcome_contract_tests {
             recovery: ".hick-cache/resource-changes/record/manifest.json".into(),
             applied: BTreeSet::from(["a.py".into()]),
             error: (!complete).then(|| "b.py was not confirmed".into()),
+            observed:None,
         }
     }
     #[test]
@@ -496,7 +545,9 @@ A successful namespace action already observed its exact final saved states. Ret
 fn source_receipts(
     state: &LocalState,
     after: &BTreeMap<String, SavedSource>,
+    outcome:&super::resource_publish::Outcome,
 ) -> Result<Vec<Value>, String> {
+    let observed=outcome.observed.as_ref().ok_or("Resource publication has no producer-held source identity. Retain readable recovery; no editor guards were issued.")?;
     let document_ids: BTreeMap<_, _> = state
         .index
         .entries()
@@ -518,7 +569,12 @@ fn source_receipts(
         } else {
             super::plain_file::content_hash(text.as_bytes())
         };
-        files.push(json!({"file":file,"saved":saved,"hash":hash}));
+        let proven=observed.get(path).ok_or_else(||format!("Saved source has no held producer identity: {path}"))?;proven.verify(state.index.root(),path,saved)?;
+        let (full, current) = super::resource_inputs::saved_target(state.index.root(), path)?;
+        if &current != saved { return Err(format!("Saved source changed before issuing its editor guard: {path}")); }
+        let guard = super::source_history::issue_guard(state, &full, text)?;
+        proven.verify(state.index.root(),path,saved)?;
+        files.push(json!({"file":file,"saved":saved,"hash":hash,"save_guard":guard}));
     }
     Ok(files)
 }

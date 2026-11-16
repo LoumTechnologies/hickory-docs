@@ -48,6 +48,11 @@ pub struct EditorContext {
 <a id="f-792dad4f8311-EditorBuffer"></a>
 ### `EditorBuffer`
 
+An agent's current text and its loaded physical baseline are separate observations.
+Keep the opaque original `save_guard` alongside the buffer so proposal acquisition
+can refuse a replaced source rather than invent authority from a later equal-text
+read. Missing baseline capability keeps text readable and proposal effects unavailable.
+
 Chat attachments carry explicit user-selected bytes, never a path to read. Bound
 the name and encoded size before decoding, then check PNG structure and dimensions
 for image material. File names remain labels and cannot authorize filesystem I/O.
@@ -85,6 +90,9 @@ impl ChatAttachment {
 }
 #[derive(Clone, Deserialize, Serialize)]
 pub struct EditorBuffer {
+    /// Physical baseline from this editor's original source read; never a later recapture.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub save_guard: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub observations: Vec<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

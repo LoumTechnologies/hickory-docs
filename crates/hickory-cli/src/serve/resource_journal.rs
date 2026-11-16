@@ -43,7 +43,7 @@ pub struct Batch {
     paths: std::collections::BTreeSet<String>,
     pub id: String,
 }
-fn regular_directory(path: &Path) -> Result<(), String> {
+pub(super) fn regular_directory(path: &Path) -> Result<(), String> {
     match std::fs::symlink_metadata(path){
   Ok(meta) if meta.is_dir()&&!meta.file_type().is_symlink()=>Ok(()),
   Ok(_)=>Err("Resource recovery directory is not an ordinary folder. Restore it before saving resource changes.".into()),
@@ -254,6 +254,29 @@ impl Batch {
     }
     pub fn relative_path(&self) -> String {
         format!(".hick-cache/resource-changes/{}/manifest.json", self.id)
+    }
+    /// Ordinary saves append one bounded observed outcome to this same held batch.
+    /// The extra file is deliberately not a generic resource restoration receipt.
+    pub(super) fn append_source_evidence(&self,bytes:&[u8])->Result<(),String>{
+        self.append_evidence("source-save.json",bytes)
+    }
+    /// A rollback report is separate immutable evidence; an applied receipt is
+    /// never rewritten to claim the inverse was also confirmed.
+    pub(super) fn record_rollback(&self,value:&impl Serialize)->Result<(),String>{
+        self.append_evidence("rollback.json",&serde_json::to_vec(value).map_err(|e|e.to_string())?)
+    }
+    pub(super) fn append_resource_lineage(&self,bytes:&[u8])->Result<(),String>{
+        self.append_evidence_bounded("source-lineage.json",bytes,2*1024*1024)
+    }
+    fn append_evidence(&self,name:&str,bytes:&[u8])->Result<(),String>{self.append_evidence_bounded(name,bytes,64*1024)}
+    fn append_evidence_bounded(&self,name:&str,bytes:&[u8],limit:usize)->Result<(),String>{
+        if bytes.len()>limit{return Err("Publication evidence exceeds its bounded record size.".into())}
+        for path in [&self.directory,self.directory.parent().unwrap(),self.directory.parent().unwrap().parent().unwrap()]{
+            let metadata=std::fs::symlink_metadata(path).map_err(|e|e.to_string())?;
+            if !metadata.is_dir()||metadata.file_type().is_symlink(){return Err("Source history folder changed before its outcome was recorded.".into())}
+        }
+        if same_file::Handle::from_path(&self.directory).map_err(|e|e.to_string())?!=self.handle{return Err("Source history batch identity changed.".into())}
+        write_new(&self.directory,name,bytes)
     }
 }
 #[cfg(test)]
@@ -580,7 +603,8 @@ fn reviewed_resource_record_follows_identity_permissions_and_keeps_dirty_baselin
             .collect(),
         saved_sources: expected.before.clone(),
         refusals: BTreeMap::new(),
-        source_files_modified: false,
+        saved_guards:BTreeMap::new(),
+            source_files_modified: false,
     };
     let record = Manifest::from_review(&inputs, &expected.reviewed_plan).unwrap();
     assert_eq!(record.before, expected.before);
@@ -604,7 +628,7 @@ pub struct Recovery {
     /// Literal recorded outcomes, not current filesystem state or replay authority.
     pub all_paths_recorded_applied: bool,
 }
-fn read_regular(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
+pub(super) fn read_regular(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
     use std::io::Read;
     let metadata = std::fs::symlink_metadata(path)
         .map_err(|error| format!("Recovery record is unavailable: {error}"))?;

@@ -28,14 +28,14 @@ class ResourceReviewTest {
   val background=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
   try{
    val workspace=Workspace(background);workspace.engine=Engine("http://127.0.0.1:1")
-   val file=FileNode("a.py","a.py",false,emptyList(),null,null);val buffer=DocumentBuffer(file,FileText("saved","old-hash"));buffer.state.edit{replace(0,length,"dirty");selection=androidx.compose.ui.text.TextRange(2)};workspace.buffers[file.path]=buffer;workspace.show(file.path)
+   val file=FileNode("a.py","a.py",false,emptyList(),null,null);val buffer=DocumentBuffer(file,FileText("saved","old-hash","old-guard"));buffer.state.edit{replace(0,length,"dirty");selection=androidx.compose.ui.text.TextRange(2)};workspace.buffers[file.path]=buffer;workspace.show(file.path)
    var context="";var post=0;var published:JSONObject?=null
    val review=ResourceChangeReview{method,path,body->when(path){
     "/api/changes/resource-targets"->JSONObject().put("paths",JSONArray().put("a.py").put("b.py"))
-    "/api/changes/resource-inputs"->{context=body!!.getString("context");assertEquals("dirty",body.getJSONObject("drafts").getJSONObject("a.py").getString("text"));assertEquals(digest("saved"),body.getJSONObject("drafts").getJSONObject("a.py").getString("base_sha256"));JSONObject().put("context",context).put("sources",JSONObject().put("a.py",source("dirty")).put("b.py",missing())).put("saved_sources",JSONObject())}
+    "/api/changes/resource-inputs"->{context=body!!.getString("context");assertEquals("dirty",body.getJSONObject("drafts").getJSONObject("a.py").getString("text"));assertEquals("old-guard",body.getJSONObject("drafts").getJSONObject("a.py").getString("save_guard"));assertEquals("old-guard",body.getJSONObject("saved_guards").getString("a.py"));assertEquals(digest("saved"),body.getJSONObject("drafts").getJSONObject("a.py").getString("base_sha256"));JSONObject().put("context",context).put("sources",JSONObject().put("a.py",source("dirty")).put("b.py",missing())).put("saved_guards",JSONObject().put("a.py","old-guard")).put("saved_sources",JSONObject())}
     "/api/changes/plan-resources"->JSONObject().put("plan",plan(context,"a.py","b.py","dirty"))
     "/api/changes/resource-consequences"->JSONObject().put("context",context).put("workspace","b".repeat(32)).put("fingerprint","c".repeat(64)).put("protected_targets",JSONArray()).put("saved_sources",JSONObject().put("a.py",missing()).put("b.py",saved("dirty")))
-    "/api/changes/resource-save"->{assertEquals("POST",method);post++;val request=body!!.getString("request_id");JSONObject().put("version",1).put("request_id",request).put("workspace","b".repeat(32)).put("context",context).put("outcome",JSONObject().put("complete",true).put("applied",JSONArray().put("a.py").put("b.py")).put("recovery",".hick-cache/resource-changes/$request/manifest.json")).put("saved_sources",JSONObject().put("a.py",missing()).put("b.py",saved("dirty"))).put("source_files",JSONArray().put(JSONObject().put("file",JSONObject().put("name","b.py").put("path","b.py").put("dir",false)).put("saved",saved("dirty")).put("hash","fresh"))).also{published=it}}
+    "/api/changes/resource-save"->{assertEquals("POST",method);post++;val request=body!!.getString("request_id");JSONObject().put("version",2).put("request_id",request).put("adoption_current",true).put("workspace","b".repeat(32)).put("context",context).put("outcome",JSONObject().put("complete",true).put("applied",JSONArray().put("a.py").put("b.py")).put("recovery",".hick-cache/resource-changes/$request/manifest.json")).put("saved_sources",JSONObject().put("a.py",missing()).put("b.py",saved("dirty"))).put("source_files",JSONArray().put(JSONObject().put("file",JSONObject().put("name","b.py").put("path","b.py").put("dir",false)).put("saved",saved("dirty")).put("hash","fresh"))).also{published=it}}
     else->error("Unexpected $method $path")
    }}
    review.prepare(workspace,"Move",JSONObject().put("documentChanges",JSONArray()))
@@ -44,16 +44,38 @@ class ResourceReviewTest {
    buffer.state.undoState.undo();assertEquals("saved",buffer.text)
   }finally{background.cancel()}
  }
+ @Test fun fullRetainedRosterUsesTypedUnaddressedInputsAndRetiresOnChanges()=runBlocking{
+  val w=Workspace(this);w.engine=Engine("http://127.0.0.1:1")
+  fun buffer(path:String,text:String)=DocumentBuffer(FileNode(path,path,false,emptyList(),null,null),FileText(text,"old","guard"))
+  val named=buffer("owner.txt","named construction draft");val note=buffer("Untitled-note","ordinary unnamed note");val deleted=buffer("gone.md","retained deleted draft");deleted.resourceDeleted=true;w.buffers[named.file.path]=named;w.buffers[note.file.path]=note;w.retainedResourceEditors["deleted"]=deleted
+  val review=ResourceChangeReview{_,_,body->assertEquals("named construction draft",body!!.getJSONObject("ownership_sources").getString("owner.txt"));assertEquals(1,body.getJSONObject("ownership_sources").length());assertEquals(note.text,body.getJSONObject("unaddressed_sources").getString(note.debugIdentity));assertEquals(deleted.text,body.getJSONObject("unaddressed_sources").getString(deleted.debugIdentity));JSONObject().put("saved_guards",JSONObject().put("owner.txt",named.saveGuard)).put("sources",JSONObject().put("owner.txt",source(named.text)))}
+  val first=review.acquire(w,listOf("owner.txt"),JSONObject().put("changes",JSONObject())){true};assertTrue(first.third());deleted.advanceSourceRevision();assertFalse(first.third())
+  val second=review.acquire(w,listOf("owner.txt"),JSONObject().put("changes",JSONObject())){true};assertTrue(second.third());named.saveGuard="replacement";assertFalse(second.third())
+  val third=review.acquire(w,listOf("owner.txt"),JSONObject().put("changes",JSONObject())){true};assertTrue(third.third());w.retainedResourceEditors["added"]=buffer("Untitled-other","new retained text");assertFalse(third.third())
+ }
+ @Test fun missingPhysicalDraftOrProviderGuardMapRefusesBeforePublication()=runBlocking{
+  val w=Workspace(this);w.engine=Engine("http://127.0.0.1:1");val file=FileNode("a.py","a.py",false,emptyList(),null,null);val buffer=DocumentBuffer(file,FileText("source","old"));w.buffers[file.path]=buffer;var calls=0
+  val review=ResourceChangeReview{_,_,_->calls++;JSONObject().put("sources",JSONObject().put("a.py",source("source")))}
+  assertTrue(runCatching{review.acquire(w,listOf("a.py"),JSONObject()){true}}.isFailure);assertEquals(0,calls)
+  buffer.saveGuard="original-guard";assertTrue(runCatching{review.acquire(w,listOf("a.py"),JSONObject()){true}}.isFailure);assertEquals(1,calls);assertSame(buffer,w.buffers[file.path]);assertEquals("source",buffer.text)
+ }
+ @Test fun completedHistoricalReceiptIsReadableButCannotAdoptAndTypesAreStrict(){
+  val raw=JSONObject().put("version",2).put("request_id","request").put("workspace","workspace").put("context","context").put("adoption_current",false).put("adoption_reason","Source was replaced after publication").put("outcome",JSONObject().put("complete",true).put("recovery","record").put("applied",JSONArray().put("a.py"))).put("saved_sources",JSONObject().put("a.py",missing())).put("source_files",JSONArray())
+  val receipt=resourcePublication(raw);assertTrue(receipt.complete);assertFalse(receipt.adoptionCurrent);assertNotNull(receipt.adoptionReason)
+  val patch=ResourceEditorPatch("a.py",ResourceSource("source","old"),null);assertTrue(runCatching{confirmedResourceFiles(listOf(patch),receipt,"request","workspace","context",mapOf("a.py" to ResourceSaved("missing"))){it.path to true}}.isFailure)
+  for(version in listOf<Any>(1,"2",true)){raw.put("version",version);assertTrue(runCatching{resourcePublication(raw)}.isFailure)};raw.put("version",2)
+  for(value in listOf<Any>("true",JSONObject.NULL)){raw.put("adoption_current",value);assertTrue(runCatching{resourcePublication(raw)}.isFailure)};raw.remove("adoption_current");assertTrue(runCatching{resourcePublication(raw)}.isFailure)
+ }
  @Test fun deletionRetainsReadableEditorAndPathReuseNeverClaimsItsIdentity()=runBlocking{
   val workspace=Workspace(this);workspace.engine=Engine("http://127.0.0.1:1");val file=FileNode("a.py","a.py",false,emptyList(),null,null);val buffer=DocumentBuffer(file,FileText("dirty","old"));workspace.buffers[file.path]=buffer;workspace.show(file.path)
-  val patches=listOf(ResourceEditorPatch("a.py",ResourceSource("identity","dirty"),null));val state=ResourceSaved("missing");val receipt=ResourcePublication<FileNode>(1,"request","workspace","context",true,"record",listOf("a.py"),mapOf("a.py" to state),emptyList());val capture=workspace.captureResourceEditors(patches)
+  val patches=listOf(ResourceEditorPatch("a.py",ResourceSource("identity","dirty"),null));val state=ResourceSaved("missing");val receipt=ResourcePublication<FileNode>(2,"request","workspace","context",true,"record",listOf("a.py"),mapOf("a.py" to state),emptyList(),adoptionCurrent=true);val capture=workspace.captureResourceEditors(patches)
   workspace.adoptResourceReceipt(patches,receipt,"request","workspace","context",mapOf("a.py" to state),capture)
   assertSame(buffer,workspace.currentBuffer);assertTrue(buffer.resourceDeleted);assertTrue(buffer.readOnly);assertTrue(workspace.active!!.startsWith("deleted-resource:"));assertNull(workspace.buffers["a.py"])
   val reused=DocumentBuffer(file,FileText("different","new"));workspace.buffers["a.py"]=reused;assertSame(buffer,workspace.currentBuffer);assertNotSame(workspace.buffers["a.py"],workspace.currentBuffer)
  }
  @Test fun partialReceiptRefusesBeforeTabOrEditorMutation()=runBlocking{
   val workspace=Workspace(this);workspace.engine=Engine("http://127.0.0.1:1");val file=FileNode("a.py","a.py",false,emptyList(),null,null);val buffer=DocumentBuffer(file,FileText("text","old"));workspace.buffers[file.path]=buffer;workspace.show(file.path)
-  val patches=listOf(ResourceEditorPatch("a.py",ResourceSource("id","text"),null));val state=ResourceSaved("missing");val receipt=ResourcePublication<FileNode>(1,"request","workspace","context",false,"record",emptyList(),null,emptyList());val layout=workspace.layout
+  val patches=listOf(ResourceEditorPatch("a.py",ResourceSource("id","text"),null));val state=ResourceSaved("missing");val receipt=ResourcePublication<FileNode>(2,"request","workspace","context",false,"record",emptyList(),null,emptyList());val layout=workspace.layout
   assertTrue(runCatching{workspace.adoptResourceReceipt(patches,receipt,"request","workspace","context",mapOf("a.py" to state),workspace.captureResourceEditors(patches))}.isFailure)
   assertEquals(layout,workspace.layout);assertSame(buffer,workspace.currentBuffer);assertFalse(buffer.resourceDeleted);assertEquals("text",buffer.text)
  }
@@ -101,7 +123,7 @@ class ResourceEngineIntegrationTest {
    val deletion=JSONObject().put("documentChanges",JSONArray().put(JSONObject().put("kind","delete").put("uri",languageURI("src/c.py"))))
    resources.prepare(current,"Delete while retaining draft",deletion);assertNotNull(resources.notice,resources.review);resources.apply(current);assertFalse(resources.notice,resources.hasPending);assertSame(buffer,current.currentBuffer);assertTrue(buffer.resourceDeleted);assertTrue(buffer.dirty);assertTrue(current.hasUnsavedChanges)
    engine.request("POST","/api/files/op",JSONObject().put("op","create").put("path","src/c.py"))
-   val reusedFile=FileNode("c.py","src/c.py",false,emptyList(),null,null);val empty=engine.file(reusedFile);val reusedHash=engine.save(reusedFile,"independent",empty.content,empty.hash);val reused=DocumentBuffer(reusedFile,FileText("independent",reusedHash));current.buffers["src/c.py"]=reused;current.refresh()
+   val reusedFile=FileNode("c.py","src/c.py",false,emptyList(),null,null);val empty=engine.file(reusedFile);engine.save(reusedFile,"independent",empty.content,empty.hash);val reused=DocumentBuffer(reusedFile,engine.file(reusedFile));current.buffers["src/c.py"]=reused;current.refresh()
    val deletedTab=current.active
    current.fileCommand="Save As";current.filePath="src/c.py";current.performFileCommand()
    assertTrue(current.status.contains("different unused path"));assertEquals(deletedTab,current.active);assertSame(buffer,current.currentBuffer);assertSame(reused,current.buffers["src/c.py"]);assertTrue(current.retainedResourceEditors.values.any{it===buffer});assertEquals("independent",folder.resolve("c.py").readText())

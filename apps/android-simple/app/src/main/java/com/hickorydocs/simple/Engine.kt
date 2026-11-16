@@ -23,7 +23,7 @@ import java.net.URI
 import java.net.URLEncoder
 
 data class FileNode(val name: String, val path: String, val dir: Boolean, val children: List<FileNode>, val docID: String?, val generatedBy: String?, val language: String? = null)
-data class FileText(val content: String, val hash: String)
+data class FileText(val content: String, val hash: String, val saveGuard:String?=null, val saveGuardReason:String?=null)
 data class AgentTurn(val id: String, val prompt: String, val answer: String?, val error: String?, val status: String)
 private fun JSONObject.optional(key: String) = if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
 private fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }
@@ -33,6 +33,8 @@ class Engine(address: String) {
             "Enter the workspace server's http:// or https:// address, without a path or password."
         }
     }
+    var sourceRootAddress:String?=null;private set
+    var sourceWorkspaceID:String?=null;private set
     val debugURL get() = origin.resolve("/api/ws?doc=workspace").toString().replaceFirst("http", "ws")
     suspend fun request(method: String, path: String, body: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {
         val connection = origin.resolve(path).toURL().openConnection() as HttpURLConnection
@@ -64,15 +66,17 @@ class Engine(address: String) {
         fun decode(array: JSONArray): List<FileNode> = array.objects().map {
             FileNode(it.getString("name"), it.getString("path"), it.getBoolean("dir"), decode(it.optJSONArray("children") ?: JSONArray()), it.optional("doc_id"), it.optional("generated_by"), it.optional("language"))
         }
+        sourceRootAddress=response.optional("root_path")
+        sourceWorkspaceID=response.optional("workspace_id")?.takeIf{it.matches(Regex("[a-f0-9]{32}"))}
         return response.getString("root") to decode(response.getJSONArray("tree"))
     }
     suspend fun file(file: FileNode): FileText {
         if (file.docID != null) {
             val document = request("GET", "/api/docs/${file.docID}")
-            return FileText(document.getString("source"), "")
+            return FileText(document.getString("source"), "",document.optional("save_guard"),document.optional("save_guard_reason"))
         }
         val response = request("GET", "/api/file?path=" + URLEncoder.encode(file.path, "UTF-8"))
-        return FileText(response.getString("content"), response.getString("hash"))
+        return FileText(response.getString("content"), response.getString("hash"),response.optional("save_guard"),response.optional("save_guard_reason"))
     }
     suspend fun save(file: FileNode, text: String, base: String, hash: String): String {
         if (file.docID != null) {
@@ -148,6 +152,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
     var catalogNotices by mutableStateOf<List<String>>(emptyList());private set
     val breakpointModel=NativeBreakpointModel()
     val variableTree=NativeVariableTree()
+    val adapterSources=NativeAdapterSourceModel()
     val sourceLineage=NativeSourceLineage()
     private val breakpointBuffers=mutableMapOf<String,java.lang.ref.WeakReference<DocumentBuffer>>()
     private val breakpointPaths=mutableMapOf<String,String>()
@@ -177,7 +182,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
     var emitForTest: ((JSONObject) -> Unit)? = null
     val active get() = status in listOf("starting", "running", "paused", "stopping")
     val hasInspection get()=active||owner.isNotEmpty()&&(status!="idle"||message.isNotBlank()||profiles.isNotEmpty()||offer!=null||output.isNotEmpty())
-        ||breakpointModel.intents.isNotEmpty()
+        ||breakpointModel.intents.isNotEmpty()||adapterSources.reading!=null
     private fun sourceSnapshot(buffer:DocumentBuffer)=NativeSourceSnapshot(buffer.debugIdentity,buffer.file.path,buffer.text,!buffer.dirty&&!buffer.saving,!buffer.readOnly&&!buffer.saving)
     private fun currentBreakpointSource(identity:String)=breakpointBuffers[identity]?.get()?.let{sourceSnapshot(it)}
     fun registerSource(buffer:DocumentBuffer,confirmedAddressChange:Boolean=false){
@@ -194,6 +199,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
     fun line(path: String): Int? {
         if (status != "paused"||!framesCurrent) return null
         val frame = frames.firstOrNull { it.optLong("id") == selectedFrame } ?: frames.firstOrNull()
+        if((frame?.opt("source_reference") as? Number)?.toDouble()?.let{it>0}==true)return null
         if (path == owner && frame?.optBoolean("in_document") == true) return if (frame.isNull("line")) null else frame.getInt("line")
         if (frame?.optString("source") == path) return if (frame.isNull("source_line")) null else frame.getInt("source_line")
         return if (path == owner && selectedFrame == frames.firstOrNull()?.optLong("id")) pausedLine else null
@@ -335,7 +341,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         emitForTest?.let { it(request); return }
         if (socket?.send((byteArrayOf(3) + request.toString().toByteArray(Charsets.UTF_8)).toByteString()) != true) fail("Debugger command was not sent. Reconnect explicitly; it was not retried.")
     }
-    private fun retireThreads(forgetStop:Boolean=false){variableTree.clear();threadReading=null;threadNotice="";threadBusy=false;threadRequest=null;selectingThread=null;pendingValues.clear();frameRequest=null;frameNotice="";framesCurrent=false;if(forgetStop){stoppedGeneration=null;stoppedThread=null;selectedFrame=null}}
+    private fun retireThreads(forgetStop:Boolean=false){adapterSources.retire();variableTree.clear();threadReading=null;threadNotice="";threadBusy=false;threadRequest=null;selectingThread=null;pendingValues.clear();frameRequest=null;frameNotice="";framesCurrent=false;if(forgetStop){stoppedGeneration=null;stoppedThread=null;selectedFrame=null}}
     private fun retireLaunch(){val id=launchRequest;val doc=launchDocument;if(id!=null&&doc!=null){retiredLaunches[id]=doc;while(retiredLaunches.size>64)retiredLaunches.remove(retiredLaunches.keys.first())};launchRequest=null;launchDocument=null}
     private fun cleanupRetiredLaunch(event:JSONObject):Boolean {
         val request=event.optional("request_id") ?: return false
@@ -376,6 +382,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
                 if(status=="stopping")return
                 val stop=debugStop(event.opt("stop"));val thread=debugInteger(event.opt("thread"));val previous=stoppedGeneration
                 if(previous!=null&&(stop==null||java.math.BigInteger(stop)<java.math.BigInteger(previous)||(stop==previous&&status!="paused")))return
+                val previousAdapterSource=adapterSourceBinding()
                 val changed=stop!=previous||thread!=stoppedThread
                 val selectedReply=stop!=null&&thread!=null&&selectingThread==thread&&threadRequest!=null&&threadBusy
                 if(changed){message="";threadReading=null;values=emptyMap();pendingValues.clear();frameRequest=null;if(!selectedReply){threadRequest=null;selectingThread=null;threadBusy=false}}
@@ -390,9 +397,12 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
                 if(!framesCurrent)selectedFrame=null
                 variables=if(selectedFrame==frames.firstOrNull()?.let{debugInteger(it.opt("id"))})topVariables else emptyList()
                 syncVariableTree()
+                if(previousAdapterSource!=adapterSourceBinding())adapterSources.retire()
                 val top = frames.firstOrNull().takeIf{framesCurrent}; val path = top?.optional("source"); val line = top?.let { if (it.isNull("source_line")) null else it.getInt("source_line") }
-                if (path != null && line != null && !path.startsWith('/') && ':' !in path) onLocation?.invoke(path, line)
-                else if(framesCurrent)pausedLine?.let { onLocation?.invoke(owner, it) }
+                if(top?.let{(it.opt("source_reference") as? Number)?.toDouble()?.let{reference->reference>0}==true}!=true){
+                 if (path != null && line != null && !path.startsWith('/') && ':' !in path) onLocation?.invoke(path, line)
+                 else if(framesCurrent)pausedLine?.let { onLocation?.invoke(owner, it) }
+                }
                 watches.forEach { evaluate(it, true) }
                 if(stop==null||thread==null)threadNotice="Thread inspection requires a current engine pause observation. Reconnect with the updated engine; the paused stack remains readable."
                 else if(!selectedReply&&changed)readThreads()
@@ -409,6 +419,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
                 try{val rows=event.optJSONArray("variables");require(rows!=null&&rows.length()<=4096){"Frame locals exceed the supported reading. Choose another frame or evaluate a named value."};val next=(0 until rows!!.length()).map{rows.optJSONObject(it) ?: error("Malformed frame locals. Read this frame again.")};variables=next;syncVariableTree();frameNotice="${next.size} reported locals for this frame."}
                 catch(error:Exception){frameNotice=error.message.orEmpty()};frameRequest=null
             }
+            "adapter_source" -> scope.launch{adapterSources.receive(event){adapterSourceBinding().takeIf{capabilities.opt("source_content")==true}}}
             "children" -> variableTree.admit(event)
             "breakpoints" -> bind(event,owner)
             "source_breakpoints" -> event.optional("source")?.let{SemanticLocation(it,0,0).path}?.let{bind(event,it)}
@@ -420,7 +431,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
             }
             "finished", "ended" -> { sessionID?.let{sourceTestOutcome?.invoke(it,kind,if(event.isNull("exit_code"))null else event.optInt("exit_code"))};sourceTestOutcome=null;movement=null;retireThreads(true);status = "finished"; sessionID = null; pausedLine = null; frames = emptyList(); variables = emptyList(); values = emptyMap() }
             "failed" -> {
-                val request=event.optional("request_id");if(request!=null&&sessionID?.let{breakpointModel.refuse(it,request,event.optString("message"))}==true){message="Breakpoint update refused: "+event.optString("message")+" Review the current source before applying again.";return};if(request!=null&&variableTree.refuse(request,event.optString("message")+" Expand again explicitly; the paused stack is retained."))return;val expression=pendingValues.entries.firstOrNull{it.value==request}?.key
+                val request=event.optional("request_id");if(request!=null&&adapterSources.refuse(request,event.optString("message")))return;if(request!=null&&sessionID?.let{breakpointModel.refuse(it,request,event.optString("message"))}==true){message="Breakpoint update refused: "+event.optString("message")+" Review the current source before applying again.";return};if(request!=null&&variableTree.refuse(request,event.optString("message")+" Expand again explicitly; the paused stack is retained."))return;val expression=pendingValues.entries.firstOrNull{it.value==request}?.key
                 movement?.takeIf{request==it.request}?.let{old->if(event.optBoolean("scope_retired")){movement=null;retireThreads(true);status="running";variables=emptyList();values=emptyMap();message=event.optString("message")+" Movement resumed execution, but a new pause is not confirmed. Historical frames are readable; positions and evaluation are unavailable. Stop remains available.";return};movement=null;status="paused";stoppedGeneration=old.stop;stoppedThread=old.thread;selectedFrame=old.frame;framesCurrent=old.current;variables=old.variables;threadReading=old.reading;syncVariableTree();message=event.optString("message")+" The move was refused; the prior reported pause is retained. Inspect it before another move.";return}
                 if(request!=null&&request!=threadRequest&&request!=frameRequest&&request!=launchRequest&&expression==null)return
                 if(request!=null&&request==threadRequest){threadRequest=null;selectingThread=null;threadBusy=false;threadNotice=event.optString("message")+" Read threads again; the paused stack is retained.";return}
@@ -462,7 +473,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
     fun selectThread(reading:NativeThreadReading,thread:Long) {
         if(threadBusy||status!="paused"||threadReading!==reading||reading.session!=sessionID||reading.stop!=stoppedGeneration||reading.selected!=stoppedThread||reading.threads.none{it.id==thread}){threadNotice="Thread selection changed. Read the current thread list and choose again.";return}
         if(thread==reading.selected)return
-        variableTree.clear();val request=UUID.randomUUID().toString();threadRequest=request;selectingThread=thread;threadBusy=true;threadNotice="Reading the selected thread's paused stack…"
+        adapterSources.retire("Thread selection requested; captured adapter source is historical.");variableTree.clear();val request=UUID.randomUUID().toString();threadRequest=request;selectingThread=thread;threadBusy=true;threadNotice="Reading the selected thread's paused stack…"
         send(JSONObject().put("op","select_thread").put("session",reading.session).put("thread",thread).put("stop",java.math.BigInteger(reading.stop)).put("request_id",request))
     }
     fun step(how: String) {
@@ -498,15 +509,24 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
     fun select(frame: JSONObject) {
         if(selectingThread!=null){message="Wait for the selected thread's paused stack before choosing a frame.";return}
         if(status!="paused"||!framesCurrent||frames.none{it===frame}){message="Frame observation changed. Select a frame from the current paused stack.";return}
+        adapterSources.retire("Frame selection changed; captured adapter source is historical.")
         selectedFrame = debugInteger(frame.opt("id")) ?: return
         variableTree.clear()
         variables = if (selectedFrame == frames.firstOrNull()?.optLong("id")) topVariables else emptyList(); values = emptyMap();pendingValues.clear()
         watches.forEach { evaluate(it, true) }
         readFrameVariables()
+        if((frame.opt("source_reference") as? Number)?.toDouble()?.let{it>0}==true)return
         val path = frame.optional("source")
         if (path != null && !path.startsWith('/') && ':' !in path && !frame.isNull("source_line")) onLocation?.invoke(path, frame.getInt("source_line"))
         else if (!frame.isNull("line")) onLocation?.invoke(owner, frame.getInt("line"))
     }
+    fun adapterSourceBinding():NativeAdapterSourceBinding? {
+        val current=variableScope() ?: return null
+        val frame=frames.filter{debugInteger(it.opt("id"))==current.frame}.singleOrNull() ?: return null
+        val reference=debugInteger(frame.opt("source_reference"))?.takeIf{it>0} ?: return null
+        return NativeAdapterSourceBinding(current,reference)
+    }
+    fun readAdapterSource(inspection:String){adapterSources.begin(adapterSourceBinding(),capabilities.opt("source_content"),inspection)?.let{send(it)}}
     private fun variableScope():NativeDebugScope? {val session=sessionID ?: return null;val stop=stoppedGeneration ?: return null;val thread=stoppedThread ?: return null;val frame=selectedFrame ?: return null;return if(status=="paused"&&framesCurrent&&selectingThread==null)NativeDebugScope(session,stop,thread,frame) else null}
     private fun syncVariableTree(){variableTree.replace(variableScope(),"locals",variables)}
     fun expandVariable(node:NativeVariableNode,inspection:String){

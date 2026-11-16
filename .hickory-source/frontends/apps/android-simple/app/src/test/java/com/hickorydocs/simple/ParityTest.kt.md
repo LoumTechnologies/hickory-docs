@@ -827,7 +827,7 @@ class NativeDebugTest {
             fun adopt(patches:List<ResourceEditorPatch>,restoring:Map<String,DocumentBuffer> = emptyMap()){
                 val expected=patches.associate{patch->patch.path to (patch.after?.let{ResourceSaved("file",it.text,debugHash(it.text),false,false,null)} ?: ResourceSaved("missing"))}
                 val files=patches.mapNotNull{patch->patch.after?.let{ResourcePublishedFile(FileNode(patch.path,patch.path,false,emptyList(),null,null),expected.getValue(patch.path),"sha256:"+debugHash(it.text))}}
-                val receipt=ResourcePublication(1,"request","workspace","context",true,"record",patches.map{it.path},expected,files)
+                val receipt=ResourcePublication(2,"request","workspace","context",true,"record",patches.map{it.path},expected,files,adoptionCurrent=true)
                 workspace.adoptResourceReceipt(patches,receipt,"request","workspace","context",expected,workspace.captureResourceEditors(patches,restoring),restoring)
             }
             adopt(listOf(ResourceEditorPatch("main.py",source("a"),source("b")),ResourceEditorPatch("peer.py",source("b"),source("a"))))

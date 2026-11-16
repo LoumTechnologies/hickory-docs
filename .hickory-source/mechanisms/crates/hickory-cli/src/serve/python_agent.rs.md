@@ -401,17 +401,27 @@ struct Review {
 <a id="f-89d47ddc390d-impl-crate-python_agent-Review-for-Review"></a>
 ### `impl-crate::python_agent::Review for Review`
 
+The proposal tool refreshes live named editor context and uses the same engine
+review preparation as the private MCP bridge. Its recorded response is a pending
+review token, never an edit application or verification result. This observation
+does not require a UI window; actual UI actions retain their independent window
+requirement and hosts still need their complete current editor lease to Apply.
+
 <storycode:copy id="f-89d47ddc390d-impl-crate-python_agent-Review-for-Review">
 #[async_trait::async_trait]
 impl crate::python_agent::Review for Review {
     fn ui_tools(&self) -> Vec<Value> {
-        if self.ui_window.is_some() {
-            super::ui_actions::catalogue()
-        } else {
-            vec![]
-        }
+        let mut tools=super::agent_proposals::catalogue();
+        if self.ui_window.is_some(){tools.extend(super::ui_actions::catalogue());}
+        tools
     }
     async fn ui_call(&mut self, name: &str, arguments: Value) -> anyhow::Result<Value> {
+        if name=="propose_workspace_changes"{
+            let review=super::agent_proposals::from_agent(self.state.clone(),&self.queue.edits,format!("python-agent-turn:{}",self.turn),&arguments).await.map_err(|error|anyhow::anyhow!("{}",error.message()))?.0;
+            let summary=super::agent_proposals::summary(&review);
+            if let Some(session)=self.queue.session.lock().map_err(|_|anyhow::anyhow!("Agent recording unavailable"))?.clone(){super::acp::record::Record::existing(session).context("agent-proposal",&summary)?;}
+            return Ok(summary);
+        }
         let window = self
             .ui_window
             .as_deref()

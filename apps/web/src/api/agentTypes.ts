@@ -56,5 +56,5 @@ export interface AgentEditorContext {
   ui_window?: string;
   live?: boolean;
   projection?: import("../lib/contextProjection").ReadingProjection;
-  buffers: { observations?: (ReturnType<typeof import("../debug/observations").observationContext>[number] | ReturnType<typeof import("../debug/providerObservations").providerObservationContext>[number])[]; provenance_uri?: string; id?: string; kind?: string; document?: string; name: string; path: string | null; content: string; focused: boolean }[];
+  buffers: { save_guard?: string | null; observations?: (ReturnType<typeof import("../debug/observations").observationContext>[number] | ReturnType<typeof import("../debug/providerObservations").providerObservationContext>[number])[]; provenance_uri?: string; id?: string; kind?: string; document?: string; name: string; path: string | null; content: string; focused: boolean }[];
 }

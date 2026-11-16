@@ -20,7 +20,7 @@ final class ResourceEditorsTests:XCTestCase {
   workspace.buffers["a.py"]=buffer;workspace.layout.activate("a.py",in:"document-group")
   let geometry=workspace.layout.nodes["root"]
   func receipt(_ paths:[String],_ values:[String:ResourceSaved],_ path:String?)->ResourcePublication<FileNode> {
-   ResourcePublication(version:1,request_id:"request",workspace:"workspace",context:"context",outcome:.init(complete:true,recovery:"record",applied:paths),saved_sources:values,source_files:path.map{[.init(file:FileNode(name:$0,path:$0,dir:false),saved:saved,hash:"fresh")]} ?? [])
+   ResourcePublication(version:2,request_id:"request",workspace:"workspace",context:"context",outcome:.init(complete:true,recovery:"record",applied:paths),saved_sources:values,source_files:path.map{[.init(file:FileNode(name:$0,path:$0,dir:false),saved:saved,hash:"fresh")]} ?? [],adoption_current:true)
   }
   let move=[ResourceEditorPatch(path:"a.py",before:source,after:nil),ResourceEditorPatch(path:"b.py",before:nil,after:source)]
   let moving=workspace.captureResourceEditors(move)
@@ -53,9 +53,11 @@ final class ResourceEditorsTests:XCTestCase {
  func testConfirmedReceiptRequiresWholeNamespaceAndSeparateSavedBaseline() throws {
   let saved=ResourceSaved(kind:"file",text:"saved",sha256:String(repeating:"a",count:64),readonly:false,executable:false,mode:nil)
   let absent=ResourceSaved(kind:"missing"),patches=[ResourceEditorPatch(path:"old.py",before:ResourceSource(identity:"a",text:"dirty"),after:nil),ResourceEditorPatch(path:"new.py",before:nil,after:ResourceSource(identity:"a",text:"dirty"))]
-  var receipt=ResourcePublication<String>(version:1,request_id:"request",workspace:"workspace",context:"context",outcome:.init(complete:true,recovery:"record",applied:["old.py","new.py"]),saved_sources:["old.py":absent,"new.py":saved],source_files:[.init(file:"new.py",saved:saved,hash:"fresh")])
+  var receipt=ResourcePublication<String>(version:2,request_id:"request",workspace:"workspace",context:"context",outcome:.init(complete:true,recovery:"record",applied:["old.py","new.py"]),saved_sources:["old.py":absent,"new.py":saved],source_files:[.init(file:"new.py",saved:saved,hash:"fresh")],adoption_current:true)
   func confirm() throws->[Data:ResourcePublication<String>.Entry] {try confirmedResourceFiles(patches,receipt:receipt,request:"request",workspace:"workspace",context:"context",expected:["old.py":absent,"new.py":saved]){($0,true)}}
   XCTAssertEqual(try confirm()[Data("new.py".utf8)]?.saved.text,"saved")
+  receipt.version=1;XCTAssertThrowsError(try confirm());receipt.version=2
+  receipt.adoption_current=false;receipt.adoption_reason="Historical publication; source was replaced.";XCTAssertThrowsError(try confirm());receipt.adoption_current=true
   receipt.outcome.complete=false;XCTAssertThrowsError(try confirm());receipt.outcome.complete=true
   receipt.request_id="other";XCTAssertThrowsError(try confirm());receipt.request_id="request"
   receipt.source_files.append(receipt.source_files[0]);XCTAssertThrowsError(try confirm())

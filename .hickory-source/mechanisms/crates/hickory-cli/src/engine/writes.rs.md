@@ -54,7 +54,17 @@ pub(crate) fn post_observation(method: &axum::http::Method, path: &str) -> bool 
     *method == Method::POST
         && matches!(
             path,
-            "/api/templates/catalog"
+            "/api/agent-proposals/report"
+            | "/api/agent-proposals/prepare"
+            | "/api/agent-proposals/validate"
+            | "/api/source-history/restore-draft"
+                | "/api/behavior/reading"
+                | "/api/behavior/source"
+                | "/api/behavior/profiles"
+                | "/api/git/conflict-resolution/read"
+                | "/api/git/conflict-resolution/prepare"
+                | "/api/git/conflict-resolution/validate"
+                | "/api/templates/catalog"
                 | "/api/templates/plan"
                 | "/api/tests/debug-plan"
                 | "/api/tests/source-candidates"
@@ -77,6 +87,16 @@ mod observation_tests {
         let writes = std::sync::Arc::new(tokio::sync::Mutex::new(()));
         let held = writes.lock().await;
         for path in [
+            "/api/agent-proposals/report",
+            "/api/agent-proposals/prepare",
+            "/api/agent-proposals/validate",
+            "/api/source-history/restore-draft",
+            "/api/behavior/reading",
+            "/api/behavior/source",
+            "/api/behavior/profiles",
+            "/api/git/conflict-resolution/read",
+            "/api/git/conflict-resolution/prepare",
+            "/api/git/conflict-resolution/validate",
             "/api/templates/catalog",
             "/api/templates/plan",
             "/api/tests/source-candidates",
@@ -98,6 +118,7 @@ mod observation_tests {
             );
         }
         for path in [
+            "/api/source-history/create",
             "/api/tests/run-source",
             "/api/file",
             "/api/files/op",

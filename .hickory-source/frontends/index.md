@@ -244,5 +244,29 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="scripts/test-native-templates.py.md" />
 
+<ui:include file="source-history-apple.md" />
+<ui:include file="source-history-browser.md" />
+
+<ui:include file="git-conflict-resolution-android.md" />
+
+<ui:include file="git-conflict-resolution-browser.md" />
+
+<ui:include file="source-history-android.md" />
+
+<ui:include file="behavior-readings-android.md" />
+
 <ui:include file="debug-adapter-sources-browser.md" />
+
+<ui:include file="debug-adapter-sources-android.md" />
+
+<ui:include file="source-history-browser-witness.md" />
+
+<ui:include file="debug-adapter-sources-apple.md" />
+
+<ui:include file="git-resolution-browser-witness.md" />
+
+<ui:include file="source-create-android.md" />
+
+<ui:include file="behavior-readings-apple.md" />
+
 </ui:doc>

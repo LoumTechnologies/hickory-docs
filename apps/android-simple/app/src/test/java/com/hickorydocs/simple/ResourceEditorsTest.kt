@@ -16,10 +16,11 @@ class ResourceEditorsTest {
  @Test fun confirmedReceiptRequiresWholeNamespaceAndSeparateSavedBaseline(){
   val saved=ResourceSaved("file","saved","a".repeat(64),false,false,null);val absent=ResourceSaved("missing")
   val patches=listOf(ResourceEditorPatch("old.py",ResourceSource("a","dirty"),null),ResourceEditorPatch("new.py",null,ResourceSource("a","dirty")))
-  val receipt=ResourcePublication(1,"request","workspace","context",true,"record",listOf("old.py","new.py"),mapOf("old.py" to absent,"new.py" to saved),listOf(ResourcePublishedFile("new.py",saved,"fresh")))
+  val receipt=ResourcePublication(2,"request","workspace","context",true,"record",listOf("old.py","new.py"),mapOf("old.py" to absent,"new.py" to saved),listOf(ResourcePublishedFile("new.py",saved,"fresh")),adoptionCurrent=true)
   fun confirm(value:ResourcePublication<String>)=confirmedResourceFiles(patches,value,"request","workspace","context",mapOf("old.py" to absent,"new.py" to saved)){it to true}
   assertEquals("saved",confirm(receipt).getValue("new.py").saved.text)
-  for(value in listOf(receipt.copy(complete=false),receipt.copy(request="other"),receipt.copy(files=receipt.files+receipt.files),receipt.copy(applied=listOf("new.py")))){try{confirm(value);fail("Expected refusal")}catch(_:IllegalArgumentException){}}
+  assertTrue(runCatching{confirm(receipt.copy(files=listOf(ResourcePublishedFile("new.py",saved,"fresh",""))))}.isFailure)
+  for(value in listOf(receipt.copy(version=1),receipt.copy(complete=false),receipt.copy(adoptionCurrent=false,adoptionReason="Historical completed publication; source was replaced."),receipt.copy(request="other"),receipt.copy(files=receipt.files+receipt.files),receipt.copy(applied=listOf("new.py")))){try{confirm(value);fail("Expected refusal")}catch(_:IllegalArgumentException){}}
  }
  @Test fun completePreflightAndByteExactNamespaces(){
   val editor=Editor();val capture=ResourceEditorCapture(editor,"a");val a=ResourceSource("a","a");val patch=ResourceEditorPatch("a.py",a,null)

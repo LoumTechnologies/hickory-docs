@@ -82,20 +82,20 @@ baselines independently of draft text; restoration intentionally keeps them diff
 
 <ui:copy id="resource-editor-confirmation-browser">
 export type ResourceSaved = {kind:'missing'}|{kind:'file';text:string;sha256:string;readonly:boolean;executable:boolean;mode:number|null};
-export interface ResourceReceipt {version:number;request_id:string;workspace:string;context:string;outcome:{complete:boolean;recovery:string;applied:string[]};saved_sources:Record<string,ResourceSaved>|null;source_files:{file:FileNode;saved:ResourceSaved;hash:string}[]}
+export interface ResourceReceipt {version:number;adoption_current:boolean;adoption_reason?:string;request_id:string;workspace:string;context:string;outcome:{complete:boolean;recovery:string;applied:string[]};saved_sources:Record<string,ResourceSaved>|null;source_files:{file:FileNode;saved:ResourceSaved;hash:string;save_guard?:string}[]}
 export interface ResourceExpectation {request:string;workspace:string;context:string;saved:ReadonlyMap<string,ResourceSaved>}
 function sameSaved(a:ResourceSaved|undefined,b:ResourceSaved|undefined):boolean {
  if(!a||!b||a.kind!==b.kind)return false;
  return a.kind==='missing'||b.kind==='file'&&a.text===b.text&&a.sha256===b.sha256&&a.readonly===b.readonly&&a.executable===b.executable&&a.mode===b.mode;
 }
-export function confirmedResourceFiles(patches:readonly ResourceEditorPatch[],receipt:ResourceReceipt,expected:ResourceExpectation):Map<string,{file:FileNode;saved:Extract<ResourceSaved,{kind:'file'}>;hash:string}> {
- const refuse=()=>{throw new Error('Resource publication is not completely confirmed for this review. Inspect Source recovery before changing editors.');};
- if(receipt.version!==1||receipt.request_id!==expected.request||receipt.workspace!==expected.workspace||receipt.context!==expected.context||!receipt.outcome?.complete||!receipt.saved_sources||!receipt.outcome.recovery)refuse();
+export function confirmedResourceFiles(patches:readonly ResourceEditorPatch[],receipt:ResourceReceipt,expected:ResourceExpectation):Map<string,{file:FileNode;saved:Extract<ResourceSaved,{kind:'file'}>;hash:string;save_guard?:string}> {
+ const refuse=()=>{throw new Error('Resource publication is not completely confirmed for current editor adoption. '+(receipt.adoption_reason??'Inspect Source recovery before changing editors; historical completion remains separate.'));};
+ if(receipt.version!==2||receipt.adoption_current!==true||receipt.request_id!==expected.request||receipt.workspace!==expected.workspace||receipt.context!==expected.context||!receipt.outcome?.complete||!receipt.saved_sources||!receipt.outcome.recovery)refuse();
  const paths=new Set(patches.map(p=>p.path));
  if(paths.size!==patches.length||paths.size!==expected.saved.size||Object.keys(receipt.saved_sources!).length!==paths.size||receipt.outcome.applied.length!==paths.size||new Set(receipt.outcome.applied).size!==paths.size||receipt.outcome.applied.some(path=>!paths.has(path)))refuse();
- const files=new Map<string,{file:FileNode;saved:Extract<ResourceSaved,{kind:'file'}>;hash:string}>();
+ const files=new Map<string,{file:FileNode;saved:Extract<ResourceSaved,{kind:'file'}>;hash:string;save_guard?:string}>();
  for(const patch of patches){const saved=receipt.saved_sources![patch.path];if(!sameSaved(saved,expected.saved.get(patch.path))||(saved?.kind==='file')!==(patch.after!==null))refuse();}
- for(const entry of receipt.source_files){const saved=receipt.saved_sources![entry.file.path];if(!paths.has(entry.file.path)||files.has(entry.file.path)||entry.file.dir||entry.file.generated_by||saved?.kind!=='file'||!sameSaved(saved,entry.saved)||typeof entry.hash!=='string')refuse();else files.set(entry.file.path,{file:entry.file,saved,hash:entry.hash});}
+ for(const entry of receipt.source_files){const saved=receipt.saved_sources![entry.file.path];if(!paths.has(entry.file.path)||files.has(entry.file.path)||entry.file.dir||entry.file.generated_by||saved?.kind!=='file'||!sameSaved(saved,entry.saved)||typeof entry.hash!=='string'||entry.save_guard!==undefined&&(typeof entry.save_guard!=='string'||!entry.save_guard))refuse();else files.set(entry.file.path,{file:entry.file,saved,hash:entry.hash,save_guard:entry.save_guard});}
  if(files.size!==patches.filter(p=>p.after!==null).length)refuse();return files;
 }
 /** Adopt only an already confirmed publication; this function never writes files. */
@@ -108,6 +108,13 @@ every editor before removing addresses, retires delayed reads and retains delete
 objects outside the writable namespace. Ordinary Save cannot write those objects.
 
 A confirmed source deletion may leave a live debugger whose code still needs a readable control surface. Retain that exact buffer under a transient, NUL-prefixed tab alias; NUL cannot be a saved path, and the alias never enters engine requests or source ownership. Restoration replaces the alias with the newly confirmed real address. Save As retires only the original object after the copied text still matches; a different buffer reusing its old spelling survives.
+
+Resource acquisition captures both current and retained editor maps, deduplicating
+handles while preserving distinct owners at a reused pathname. Unmaterialized
+owners travel as typed opaque IDs and text; they never become guessed filesystem
+paths. The engine decides whether those drafts have an attributable construction
+context. Every await rechecks the complete roster, text, baseline, saved token,
+file metadata and workspace, including changes to retained deleted editors.
 
 <ui:copy id="resource-editor-adoption-browser">
 export function captureResourceEditors(buffers:Buffers,patches:readonly ResourceEditorPatch[],restoring:ReadonlyMap<string,Buffer>=new Map()):()=>boolean {
@@ -143,7 +150,7 @@ export function adoptResourceReceipt(buffers:Buffers,patches:readonly ResourceEd
   if(route.to===null){buffer.sourceRevision++;buffer.resourceDeleted=true;retained.set(route.identity,buffer);continue;}
   const entry=files.get(route.to)!;
   if(view&&transaction)view.update([transaction]);
-  buffer.sourceRevision++;buffer.file=entry.file;buffer.text=route.after!;buffer.base=entry.saved.text;buffer.hash=entry.hash;buffer.resourceDeleted=false;buffer.error='';
+  buffer.sourceRevision++;buffer.file=entry.file;buffer.text=route.after!;buffer.base=entry.saved.text;buffer.hash=entry.hash;buffer.saveGuard=entry.save_guard;buffer.saveGuardReason=entry.save_guard?undefined:"This resource receipt did not include a source identity guard.";buffer.resourceDeleted=false;buffer.error='';
   buffers.values.set(route.to,buffer);for(const [id,held] of retained)if(held===buffer)retained.delete(id);
  }
  for(const {buffer} of prepared)buffer.publish();buffers.changed();return routes;
@@ -171,13 +178,9 @@ export async function prepareResourceRestore(buffers:Buffers,record:{id:string;w
  for(const item of record.paths)if(item.saved_after.kind==='file')await acquire(item.path);
  if(!alive())throw new Error('Workspace or recovery selection changed. Prepare restoration again.');
  const paths=new Set(record.paths.map(item=>item.path));if(paths.size!==record.paths.length)throw new Error('Recovery paths are not unique.');
- const captures=[...buffers.values].map(([path,buffer])=>({path,buffer,text:buffer.text,base:buffer.base,hash:buffer.hash,version:buffer.version,file:buffer.file,metadata:JSON.stringify(buffer.file),readonly:buffer.readonly,transient:buffer.transient}));
- const current=()=>alive()&&buffers.values.size===captures.length&&captures.every(row=>buffers.values.get(row.path)===row.buffer&&row.buffer.text===row.text&&row.buffer.base===row.base&&row.buffer.hash===row.hash&&row.buffer.version===row.version&&row.buffer.file===row.file&&JSON.stringify(row.buffer.file)===row.metadata&&row.buffer.readonly===row.readonly&&row.buffer.transient===row.transient&&!row.buffer.saving)&&record.paths.every(item=>captures.some(row=>row.path===item.path)||!buffers.values.has(item.path));
- const drafts:Record<string,unknown>=Object.create(null);for(const row of captures){if(!paths.has(row.path))continue;if(row.buffer.readonly||row.buffer.transient||row.buffer.saving)throw new Error('Choose writable current source before restoration.');drafts[row.path]={text:row.text,base_sha256:await hash(row.base),version:row.version,writable:true};}
- if(!current())throw new Error('Source changed while preparing restoration.');
- const context=crypto.randomUUID().replaceAll('-',''),capture={context,edit:{changes:Object.fromEntries(record.paths.map(item=>['hick:///'+item.path.split('/').map(encodeURIComponent).join('/'),[]]))},drafts,ownership_sources:Object.fromEntries([...buffers.values].filter(([,buffer])=>!buffer.readonly&&!buffer.transient).map(([path,buffer])=>[path,buffer.text]))};
- const inputs=await load<{workspace:string;context:string;refusals:Record<string,string>}>('/api/changes/resource-inputs',capture);
- if(!current()||inputs.workspace!==record.workspace||inputs.context!==context||Object.keys(inputs.refusals).length)throw new Error('Current source acquisition refused or changed. Prepare restoration again.');
+ const context=crypto.randomUUID().replaceAll('-',''),edit={changes:Object.fromEntries(record.paths.map(item=>['hick:///'+item.path.split('/').map(encodeURIComponent).join('/'),[]]))};
+ const {inputs,capture,current}=await captureResourceInputs(buffers,[...paths],context,edit,load,alive,hash);
+ if(inputs.workspace!==record.workspace)throw new Error('Current source acquisition refused or changed. Prepare restoration again.');
  const proposal={recovery_id:record.id,inputs,capture};
  const prepared=await load<{version:number;restoration:{recovery_fingerprint:string;workspace:string;context:string;plan:ResourceWirePlan;saved_before:Record<string,ResourceSaved>;saved_after:Record<string,ResourceSaved>};consequences:ResourceConstructionFacts}>('/api/changes/prepare-restoration',proposal);
  if(!current()||prepared.version!==1||prepared.restoration.workspace!==record.workspace||prepared.restoration.context!==context||prepared.restoration.recovery_fingerprint!==record.fingerprint||!currentResourceFacts(prepared.consequences,record.workspace,context))throw new Error('Recovery evidence or source ownership changed. Read and prepare again.');
@@ -243,7 +246,8 @@ export async function prepareResourceSave(buffers:Buffers,title:string,edit:unkn
  const initial=await captureResourceInputs(buffers,targets.paths,context,edit,load,alive,hash);
  for(const path of targets.paths)if(initial.inputs.sources[path]?.kind==='file'){const buffer=await acquire(path);if(buffer.text!==initial.inputs.sources[path].text)throw new Error('Referenced source changed during acquisition. Prepare the provider action again.');}
  const captured=await captureResourceInputs(buffers,targets.paths,context,edit,load,alive,hash);
- for(const path of targets.paths){const before=initial.inputs.sources[path],after=captured.inputs.sources[path];if(before?.kind!==after?.kind||before?.text!==after?.text||JSON.stringify(initial.inputs.saved_sources[path])!==JSON.stringify(captured.inputs.saved_sources[path]))throw new Error('Saved or draft resource input changed during acquisition. Prepare the whole action again.');}
+ for(const path of targets.paths){const before=initial.inputs.sources[path],after=captured.inputs.sources[path];if(before?.kind!==after?.kind||before?.text!==after?.text||JSON.stringify(initial.inputs.saved_sources[path])!==JSON.stringify(captured.inputs.saved_sources[path])||initial.inputs.saved_guards[path]!==captured.inputs.saved_guards[path])throw new Error('Saved or draft resource input changed during acquisition. Prepare the whole action again.');}
+ if(JSON.stringify(initial.inputs.saved_guards)!==JSON.stringify(captured.inputs.saved_guards))throw Error('Physical construction dependencies changed during acquisition. Prepare the whole action again.');
  const plan=await load<{plan:ResourceWirePlan}>('/api/changes/plan-resources',{context,title,edit,sources:captured.inputs.sources});
  if(!captured.current())throw new Error('Source changed while planning resource operations.');
  const proposal={inputs:captured.inputs,capture:captured.capture,plan:plan.plan},facts=await load<ResourceConstructionFacts&{saved_sources:Record<string,ResourceSaved>}>('/api/changes/resource-consequences',proposal);
@@ -253,15 +257,27 @@ export async function prepareResourceSave(buffers:Buffers,title:string,edit:unkn
  return {operation:'save',facts,record:'',fingerprint:'',consequence:facts.fingerprint,workspace:captured.inputs.workspace,context,plan:plan.plan,patches,saved:facts.saved_sources,savedBefore:captured.inputs.saved_sources,proposal,current:()=>captured.current()&&editorCurrent(),restoring:new Map()};
 }
 const resourceHash=async(text:string)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text))),byte=>byte.toString(16).padStart(2,'0')).join('');
-interface ResourceInputs {workspace:string;context:string;refusals:Record<string,string>;sources:Record<string,ResourceWireState>;saved_sources:Record<string,ResourceSaved>}
-async function captureResourceInputs(buffers:Buffers,targetPaths:string[],context:string,edit:unknown,load:ResourceTransport,alive:()=>boolean,hash:(text:string)=>Promise<string>){
- const paths=new Set(targetPaths),captures=[...buffers.values].map(([path,buffer])=>({path,buffer,text:buffer.text,base:buffer.base,hash:buffer.hash,version:buffer.version,file:buffer.file,metadata:JSON.stringify(buffer.file),readonly:buffer.readonly,transient:buffer.transient}));
- const current=()=>alive()&&buffers.values.size===captures.length&&captures.every(row=>buffers.values.get(row.path)===row.buffer&&row.buffer.text===row.text&&row.buffer.base===row.base&&row.buffer.hash===row.hash&&row.buffer.version===row.version&&row.buffer.file===row.file&&JSON.stringify(row.buffer.file)===row.metadata&&row.buffer.readonly===row.readonly&&row.buffer.transient===row.transient&&!row.buffer.saving);
- const drafts:Record<string,unknown>=Object.create(null);for(const row of captures){if(!paths.has(row.path))continue;if(row.readonly||row.transient||row.buffer.saving)throw new Error('Choose writable current resource source.');drafts[row.path]={text:row.text,base_sha256:await hash(row.base),version:row.version,writable:true};}
+export interface ResourceInputs {source_files_modified:false;workspace:string;context:string;refusals:Record<string,string>;sources:Record<string,ResourceWireState>;saved_sources:Record<string,ResourceSaved>;saved_guards:Record<string,string>}
+const unaddressedResourceIds=new WeakMap<Buffer,string>();
+function unaddressedResourceKey(buffer:Buffer){let id=unaddressedResourceIds.get(buffer);if(!id){id=crypto.randomUUID().replaceAll('-','');unaddressedResourceIds.set(buffer,id);}return id;}
+/** Retained deleted editors and reused spellings remain distinct authored owners. */
+export function captureResourceRoster(buffers:Buffers){
+ const namespace=buffers.workspace,workspace=buffers.workspaceId,values=[...buffers.values],retained=[...buffers.retainedResources];
+ const captures=[...new Set([...values,...retained].map(([,buffer])=>buffer))].map(buffer=>({buffer,path:buffer.file.path,text:buffer.text,base:buffer.base,hash:buffer.hash,guard:buffer.saveGuard,version:buffer.version,revision:buffer.sourceRevision,file:buffer.file,metadata:JSON.stringify(buffer.file),readonly:buffer.readonly,transient:buffer.transient,deleted:buffer.resourceDeleted,namespace:buffer.namespace}));
+ const same=(map:Map<string,Buffer>,rows:[string,Buffer][])=>map.size===rows.length&&rows.every(([key,buffer])=>map.get(key)===buffer);
+ const current=()=>buffers.workspace===namespace&&buffers.workspaceId===workspace&&same(buffers.values,values)&&same(buffers.retainedResources,retained)&&captures.every(row=>row.buffer.file===row.file&&row.buffer.file.path===row.path&&row.buffer.text===row.text&&row.buffer.base===row.base&&row.buffer.hash===row.hash&&row.buffer.saveGuard===row.guard&&row.buffer.sourceRevision===row.revision&&JSON.stringify(row.buffer.file)===row.metadata&&row.buffer.readonly===row.readonly&&row.buffer.transient===row.transient&&row.buffer.resourceDeleted===row.deleted&&row.buffer.namespace===row.namespace&&!row.buffer.saving);
+ const ownership_sources:Record<string,string>=Object.create(null),unaddressed_sources:Record<string,string>=Object.create(null);
+ for(const row of captures){if(row.readonly||row.transient)continue;if(row.namespace&&row.namespace!==namespace)throw Error('A retained authored source belongs to another workspace. Preserve it before preparing resource changes.');const named=!row.deleted&&!row.path.startsWith('Untitled-')&&buffers.values.get(row.path)===row.buffer;if(named){if(Object.hasOwn(ownership_sources,row.path))throw Error('Authored resource identities are ambiguous.');ownership_sources[row.path]=row.text;}else unaddressed_sources[unaddressedResourceKey(row.buffer)]=row.text;}
+ return {captures,ownership_sources,unaddressed_sources,current};
+}
+export async function captureResourceInputs(buffers:Buffers,targetPaths:string[],context:string,edit:unknown,load:ResourceTransport,alive:()=>boolean,hash:(text:string)=>Promise<string>){
+ const paths=new Set(targetPaths),roster=captureResourceRoster(buffers),current=()=>alive()&&roster.current();
+ const drafts:Record<string,unknown>=Object.create(null);for(const row of roster.captures){if(!paths.has(row.path)||buffers.values.get(row.path)!==row.buffer||row.deleted)continue;if(row.readonly||row.transient||row.buffer.saving)throw new Error('Choose writable current resource source.');if(!row.guard)throw Error('The loaded source has no physical identity guard. Preserve its draft and reopen or compare the exact saved source before preparing resource changes.');drafts[row.path]={save_guard:row.guard,text:row.text,base_sha256:await hash(row.base),version:row.version,writable:true};}
  if(!current())throw new Error('Source changed while capturing resource inputs.');
- const capture={context,edit,drafts,ownership_sources:Object.fromEntries(captures.filter(row=>!row.readonly&&!row.transient).map(row=>[row.path,row.text]))};
+ const saved_guards:Record<string,string>=Object.create(null);for(const row of roster.captures)if(Object.hasOwn(roster.ownership_sources,row.path)&&row.guard)saved_guards[row.path]=row.guard;
+ const capture={context,edit,drafts,ownership_sources:roster.ownership_sources,unaddressed_sources:roster.unaddressed_sources,saved_guards};
  const inputs=await load<ResourceInputs>('/api/changes/resource-inputs',capture);
- if(!current()||inputs.context!==context||!inputs.workspace||Object.keys(inputs.refusals).length)throw new Error('Current source acquisition refused or changed. Prepare again.');
+ if(!current()||!inputs||inputs.context!==context||typeof inputs.workspace!=='string'||!inputs.workspace||inputs.source_files_modified!==false||!inputs.sources||typeof inputs.sources!=='object'||Array.isArray(inputs.sources)||!inputs.saved_sources||typeof inputs.saved_sources!=='object'||Array.isArray(inputs.saved_sources)||!inputs.refusals||typeof inputs.refusals!=='object'||Array.isArray(inputs.refusals)||!inputs.saved_guards||typeof inputs.saved_guards!=='object'||Array.isArray(inputs.saved_guards)||Object.entries(inputs.saved_guards).some(([path,guard])=>!path||typeof guard!=='string'||!guard||guard.length>16384)||Object.entries(inputs.sources).some(([path,source])=>source.kind==='file'&&!Object.hasOwn(inputs.saved_guards,path))||Object.keys(inputs.refusals).length)throw new Error('Current source acquisition refused or changed. Prepare again.');
  return {inputs,capture,current};
 }
 </ui:copy>
@@ -313,13 +329,13 @@ struct ResourceSaved:Codable {
 }
 struct ResourcePublication<File:Decodable>:Decodable {
  struct Outcome:Decodable {var complete:Bool;var recovery:String;var applied:[String]}
- struct Entry:Decodable {var file:File;var saved:ResourceSaved;var hash:String}
- var version:Int;var request_id:String;var workspace:String;var context:String;var outcome:Outcome;var saved_sources:[String:ResourceSaved]?;var source_files:[Entry]
+ struct Entry:Decodable {var file:File;var saved:ResourceSaved;var hash:String;var save_guard:String? = nil}
+ var version:Int;var request_id:String;var workspace:String;var context:String;var outcome:Outcome;var saved_sources:[String:ResourceSaved]?;var source_files:[Entry];var adoption_current:Bool=false;var adoption_reason:String?=nil
 }
 func confirmedResourceFiles<File>(_ patches:[ResourceEditorPatch],receipt:ResourcePublication<File>,request:String,workspace:String,context:String,expected:[String:ResourceSaved],address:(File)->(path:String,authored:Bool)) throws->[Data:ResourcePublication<File>.Entry] {
  func key(_ value:String)->Data {Data(value.utf8)}
- func refuse()->NSError {NSError(domain:"ResourceEditors",code:2,userInfo:[NSLocalizedDescriptionKey:"Resource publication is not completely confirmed for this review. Inspect Source recovery before changing editors."])}
- guard receipt.version==1,key(receipt.request_id)==key(request),key(receipt.workspace)==key(workspace),key(receipt.context)==key(context),receipt.outcome.complete,!receipt.outcome.recovery.isEmpty,let saved=receipt.saved_sources else{throw refuse()}
+ func refuse()->NSError {NSError(domain:"ResourceEditors",code:2,userInfo:[NSLocalizedDescriptionKey:receipt.adoption_reason ?? "Resource publication is not completely confirmed for this review. Inspect Source recovery before changing editors."])}
+ guard receipt.version==2,receipt.adoption_current,key(receipt.request_id)==key(request),key(receipt.workspace)==key(workspace),key(receipt.context)==key(context),receipt.outcome.complete,!receipt.outcome.recovery.isEmpty,let saved=receipt.saved_sources else{throw refuse()}
  let paths=Set(patches.map{key($0.path)}),savedByKey=Dictionary(uniqueKeysWithValues:saved.map{(key($0.key),$0.value)}),expectedByKey=Dictionary(uniqueKeysWithValues:expected.map{(key($0.key),$0.value)})
  guard paths.count==patches.count,Set(savedByKey.keys)==paths,Set(expectedByKey.keys)==paths,Set(receipt.outcome.applied.map{key($0)})==paths,receipt.outcome.applied.count==paths.count else{throw refuse()}
  for patch in patches {guard let state=savedByKey[key(patch.path)],let reviewed=expectedByKey[key(patch.path)],state.matches(reviewed),(state.kind=="file")==((patch.after) != nil) else{throw refuse()}}
@@ -368,16 +384,16 @@ file metadata. The caller receives every surviving file together or no authority
 
 <ui:copy id="resource-editor-confirmation-android">
 data class ResourceSaved(val kind:String,val text:String?=null,val sha256:String?=null,val readonly:Boolean?=null,val executable:Boolean?=null,val mode:Int?=null)
-data class ResourcePublishedFile<File>(val file:File,val saved:ResourceSaved,val hash:String)
-data class ResourcePublication<File>(val version:Int,val request:String,val workspace:String,val context:String,val complete:Boolean,val recovery:String,val applied:List<String>,val saved:Map<String,ResourceSaved>?,val files:List<ResourcePublishedFile<File>>)
+data class ResourcePublishedFile<File>(val file:File,val saved:ResourceSaved,val hash:String,val saveGuard:String?=null)
+data class ResourcePublication<File>(val version:Int,val request:String,val workspace:String,val context:String,val complete:Boolean,val recovery:String,val applied:List<String>,val saved:Map<String,ResourceSaved>?,val files:List<ResourcePublishedFile<File>>,val adoptionCurrent:Boolean=false,val adoptionReason:String?=null)
 fun <File> confirmedResourceFiles(patches:List<ResourceEditorPatch>,receipt:ResourcePublication<File>,request:String,workspace:String,context:String,expected:Map<String,ResourceSaved>,address:(File)->Pair<String,Boolean>):Map<String,ResourcePublishedFile<File>> {
  fun admit(ok:Boolean){require(ok){"Resource publication is not completely confirmed for this review. Inspect Source recovery before changing editors."}}
- admit(receipt.version==1&&receipt.request==request&&receipt.workspace==workspace&&receipt.context==context&&receipt.complete&&receipt.recovery.isNotEmpty())
+ admit(receipt.version==2&&receipt.request==request&&receipt.workspace==workspace&&receipt.context==context&&receipt.complete&&receipt.adoptionCurrent&&receipt.recovery.isNotEmpty())
  val paths=patches.map{it.path}.toSet();val saved=receipt.saved
  admit(paths.size==patches.size&&saved!=null&&saved.keys==paths&&expected.keys==paths&&receipt.applied.size==paths.size&&receipt.applied.toSet()==paths)
  for(patch in patches){val state=saved!!.getValue(patch.path);admit(state==expected[patch.path]&&(state.kind=="file")== (patch.after!=null)&&state.kind in listOf("file","missing"))}
  val files=linkedMapOf<String,ResourcePublishedFile<File>>()
- for(entry in receipt.files){val (path,authored)=address(entry.file);val state=saved!![path];admit(path in paths&&path !in files&&authored&&state?.kind=="file"&&state==entry.saved&&state.text!=null);files[path]=entry}
+ for(entry in receipt.files){val (path,authored)=address(entry.file);val state=saved!![path];admit(path in paths&&path !in files&&authored&&state?.kind=="file"&&state==entry.saved&&state.text!=null&&(entry.saveGuard==null||entry.saveGuard.isNotEmpty()));files[path]=entry}
  admit(files.size==patches.count{it.after!=null});return files
 }
 </ui:copy>
@@ -412,27 +428,40 @@ vi.mock('./Document',()=>({editorForBuffer:(buffer:Buffer)=>views.get(buffer)}))
 import {EditorState} from '@codemirror/state';
 import {history,undoDepth} from '@codemirror/commands';
 import {WorkspaceChangeHistory} from './ChangePlan';
-import {prepareResourceSave,prepareResourceRestore,publishResourceRestore,RetainedResourceTabs,retireCopiedBuffer,resourceLayout,routeResourceEditors,adoptResourceReceipt,captureResourceEditors,type ResourceEditorPatch,type ResourceReceipt,type ResourceSaved} from './ResourceEditors';
+import {captureResourceRoster,captureResourceInputs,prepareResourceSave,prepareResourceRestore,publishResourceRestore,RetainedResourceTabs,retireCopiedBuffer,resourceLayout,routeResourceEditors,adoptResourceReceipt,captureResourceEditors,type ResourceEditorPatch,type ResourceReceipt,type ResourceSaved} from './ResourceEditors';
 // Contract: .hickory-source/frontends/contract.md (resource namespace preservation).
 const source=(identity:string,text=identity)=>({identity,text});
 describe('resource editor identity routing',()=>{
+ it('captures distinct named and unaddressed retained owners without filename or prototype aliasing',()=>{
+  const buffers=new Buffers(()=>{});buffers.workspace='/owned';buffers.workspaceId='a'.repeat(32);
+  const live=new Buffer({path:'__proto__',name:'live',dir:false},'independent named text','',()=>{},false,buffers.workspace),deleted=new Buffer({path:'__proto__',name:'deleted',dir:false},'retained deleted text','',()=>{},false,buffers.workspace),loose=new Buffer({path:'Untitled-other',name:'loose',dir:false},'unnamed notes','',()=>{});deleted.resourceDeleted=true;buffers.values.set('__proto__',live);buffers.values.set('Untitled-other',loose);buffers.retainedResources.set('deleted',deleted);buffers.retainedResources.set('duplicate-handle',deleted);
+  const capture=captureResourceRoster(buffers),again=captureResourceRoster(buffers);expect(capture.captures.length).toBe(3);expect(Object.entries(capture.ownership_sources)).toEqual([['__proto__','independent named text']]);expect(Object.values(capture.unaddressed_sources).sort()).toEqual(['retained deleted text','unnamed notes']);expect(again.unaddressed_sources).toEqual(capture.unaddressed_sources);expect(Object.keys(capture.unaddressed_sources).every(id=>/^[a-f0-9]{32}$/.test(id))).toBe(true);expect(capture.current()).toBe(true);deleted.edit('new deleted text');expect(capture.current()).toBe(false);
+ });
+ it('retires held resource acquisition when a new retained author, token or file identity appears',async()=>{
+  for(const change of [(buffers:Buffers)=>buffers.retainedResources.set('new',new Buffer({path:'deleted.md',name:'deleted',dir:false},'retained','',()=>{})),(_buffers:Buffers,buffer:Buffer)=>{buffer.saveGuard='new-token';},(_buffers:Buffers,buffer:Buffer)=>{buffer.file.doc_id='different-document';}]){
+   const buffers=new Buffers(()=>{}),buffer=new Buffer({path:'a.py',name:'a.py',dir:false},'before','base',()=>{});buffer.saveGuard='loaded';buffers.values.set('a.py',buffer);let resolve!:(value:unknown)=>void,body:any;const load=<T>(_path:string,value:unknown)=>{body=value;return new Promise<T>(done=>{resolve=done as (value:unknown)=>void;});};const pending=captureResourceInputs(buffers,['a.py'],'capture',{changes:{}},load,()=>true,async()=> 'b'.repeat(64));await Promise.resolve();await Promise.resolve();change(buffers,buffer);resolve({context:'capture',workspace:'scope',source_files_modified:false,refusals:{},saved_guards:{},sources:{},saved_sources:{}});await expect(pending).rejects.toThrow('changed');expect(body.unaddressed_sources).toEqual({});expect(buffer.text).toBe('before');
+  }
+ });
+
+ it('requires the mandatory physical guard map and forwards only originally loaded identities',async()=>{for(const guards of [undefined,null,[],{}, {'a.py':''}]){const buffers=new Buffers(()=>{}),buffer=new Buffer({path:'a.py',name:'a.py',dir:false},'before','hash',()=>{});buffer.saveGuard='original-loaded';buffers.values.set('a.py',buffer);let body:any;const load=async<T>(_path:string,value:unknown)=>{body=value;return {context:'capture',workspace:'workspace',source_files_modified:false,refusals:{},sources:{'a.py':{kind:'file',identity:'source',text:'before'}},saved_sources:{},saved_guards:guards} as T;};await expect(captureResourceInputs(buffers,['a.py'],'capture',{changes:{}},load,()=>true,async()=> 'a'.repeat(64))).rejects.toThrow('acquisition');expect(body.drafts['a.py'].save_guard).toBe('original-loaded');expect(body.saved_guards['a.py']).toBe('original-loaded');expect(buffer.saveGuard).toBe('original-loaded');}});
+ it('keeps historical complete outcomes readable but refuses v1, missing or stale adoption authority',()=>{const buffers=new Buffers(()=>{}),buffer=new Buffer({path:'a.py',name:'a.py',dir:false},'a','hash',()=>{});buffers.values.set('a.py',buffer);const patches=[{path:'a.py',before:source('a'),after:null}],expected={request:'request',workspace:'workspace',context:'context',saved:new Map<string,ResourceSaved>([['a.py',{kind:'missing'}]])};const base={version:2,adoption_current:true,request_id:'request',workspace:'workspace',context:'context',outcome:{complete:true,recovery:'retained-history',applied:['a.py']},saved_sources:{'a.py':{kind:'missing'}},source_files:[]};for(const changed of [{version:1},{adoption_current:false,adoption_reason:'Same-byte independent source now owns the path.'},{adoption_current:undefined}]){const receipt={...base,...changed} as ResourceReceipt;expect(()=>adoptResourceReceipt(buffers,patches,receipt,expected,captureResourceEditors(buffers,patches))).toThrow();expect(receipt.outcome.complete).toBe(true);expect(buffers.values.get('a.py')).toBe(buffer);expect(buffers.retainedResources.size).toBe(0);}});
  it('captures prototype-looking source names literally and refuses mismatching restored source before publication',async()=>{
-  const buffers=new Buffers(()=>{}),buffer=new Buffer({path:'__proto__',name:'__proto__',dir:false},'base','',()=>{});buffer.edit('dirty');buffers.values.set('__proto__',buffer);let context='',reads=0;
+  const buffers=new Buffers(()=>{}),buffer=new Buffer({path:'__proto__',name:'__proto__',dir:false},'base','',()=>{});buffer.saveGuard='loaded';buffer.edit('dirty');buffers.values.set('__proto__',buffer);let context='',reads=0;
   const record={id:'a'.repeat(32),workspace:'scope',fingerprint:'b'.repeat(64),paths:[{path:'__proto__',saved_after:{kind:'file'}}]};
   const load=async<T>(route:string,body:unknown):Promise<T>=>{reads++;const request=body as Record<string,any>;
-   if(route.endsWith('resource-inputs')){context=request.context;expect(Object.hasOwn(request.drafts,'__proto__')).toBe(true);expect(Object.getPrototypeOf(request.drafts)).toBeNull();expect(request.drafts['__proto__'].text).toBe('dirty');return {workspace:'scope',context,refusals:{}} as T;}
+   if(route.endsWith('resource-inputs')){context=request.context;expect(Object.hasOwn(request.drafts,'__proto__')).toBe(true);expect(Object.getPrototypeOf(request.drafts)).toBeNull();expect(request.drafts['__proto__'].text).toBe('dirty');return {workspace:'scope',context,source_files_modified:false,refusals:{},saved_guards:Object.fromEntries([['__proto__','loaded']]),sources:Object.fromEntries([['__proto__',{kind:'file',identity:'source',text:'dirty'}]]),saved_sources:{}} as T;}
    expect(route).toBe('/api/changes/prepare-restoration');return {version:1,restoration:{workspace:'scope',context,recovery_fingerprint:record.fingerprint,saved_before:{},saved_after:{},plan:{version:1,context,title:'Refuse stale restoration',patches:[{path:'__proto__',before:{kind:'file',identity:'source',text:'base'},after:{kind:'file',identity:'source',text:'older'}}]}},consequences:{version:1,workspace:'scope',context,fingerprint:'c'.repeat(64),protected_targets:[],saved:{entries:[],removed_entries:[],output_paths:[]},draft:{entries:[],removed_entries:[],output_paths:[]}}} as T;
   };
   await expect(prepareResourceRestore(buffers,record,async()=>buffer,load,()=>true,async()=> 'd'.repeat(64))).rejects.toThrow('does not match');expect(reads).toBe(2);expect(buffer.text).toBe('dirty');expect(buffer.base).toBe('base');
  });
 
  it('previews whole resource publication, rejects expanded namespaces and consumes uncertain requests without retry',async()=>{
-  const buffers=new Buffers(()=>{}),buffer=new Buffer({path:'old.txt',name:'old.txt',dir:false},'source','old',()=>{});buffers.values.set('old.txt',buffer);
+  const buffers=new Buffers(()=>{}),buffer=new Buffer({path:'old.txt',name:'old.txt',dir:false},'source','old',()=>{});buffer.saveGuard='loaded';buffers.values.set('old.txt',buffer);
   const saved:ResourceSaved={kind:'file',text:'source',sha256:'a'.repeat(64),readonly:false,executable:false,mode:0o600},edit={documentChanges:[{kind:'rename',oldUri:'hick:///old.txt',newUri:'hick:///new.txt'}]};
   let context='',writes=0;const workspace='scope';
   const load=async<T>(route:string,body:unknown):Promise<T>=>{const request=body as Record<string,any>;context=request.context??context;
    if(route.endsWith('resource-targets'))return {paths:['old.txt','new.txt']} as T;
-   if(route.endsWith('resource-inputs'))return {workspace,context,refusals:{},sources:{'old.txt':{kind:'file',identity:'source',text:'source'},'new.txt':{kind:'missing'}},saved_sources:{'old.txt':saved,'new.txt':{kind:'missing'}}} as T;
+   if(route.endsWith('resource-inputs'))return {workspace,context,source_files_modified:false,refusals:{},saved_guards:{'old.txt':'loaded'},sources:{'old.txt':{kind:'file',identity:'source',text:'source'},'new.txt':{kind:'missing'}},saved_sources:{'old.txt':saved,'new.txt':{kind:'missing'}}} as T;
    if(route.endsWith('plan-resources'))return {plan:{version:1,context,title:'Move source',patches:[{path:'old.txt',before:{kind:'file',identity:'source',text:'source'},after:{kind:'missing'}},{path:'new.txt',before:{kind:'missing'},after:{kind:'file',identity:'source',text:'source'}}]}} as T;
    if(route.endsWith('resource-consequences'))return {version:1,workspace,context,saved:{entries:[],removed_entries:[],output_paths:[]},draft:{entries:[],removed_entries:[],output_paths:[]},fingerprint:'c'.repeat(64),protected_targets:[],saved_sources:{'old.txt':{kind:'missing'},'new.txt':saved}} as T;
    writes++;throw new Error('Transport result unavailable');
@@ -450,13 +479,13 @@ describe('resource editor identity routing',()=>{
  });
 
  it('prepares and publishes explicit restoration with separate baselines, identity-bound receipts and no stale retry',async()=>{
-  const buffers=new Buffers(()=>{}),buffer=new Buffer({path:'b.txt',name:'b.txt',dir:false},'dirty','old',()=>{});buffers.values.set('b.txt',buffer);
+  const buffers=new Buffers(()=>{}),buffer=new Buffer({path:'b.txt',name:'b.txt',dir:false},'dirty','old',()=>{});buffer.saveGuard='loaded';buffers.values.set('b.txt',buffer);
   const saved:ResourceSaved={kind:'file',text:'saved',sha256:'a'.repeat(64),readonly:false,executable:false,mode:null};
   const calls:string[]=[];let context='',workspace='workspace';
   const load=async<T>(route:string,body:unknown):Promise<T>=>{calls.push(route);const request=body as Record<string,any>;
-   if(route.endsWith('resource-inputs')){context=request.context;expect(request.drafts['b.txt'].text).toBe('dirty');return {workspace,context,refusals:{}} as T;}
+   if(route.endsWith('resource-inputs')){context=request.context;expect(request.drafts['b.txt'].text).toBe('dirty');return {workspace,context,source_files_modified:false,refusals:{},saved_guards:{'b.txt':'loaded'},sources:{'b.txt':{kind:'file',identity:'source',text:'dirty'},'a.txt':{kind:'missing'}},saved_sources:{}} as T;}
    if(route.endsWith('prepare-restoration'))return {version:1,restoration:{workspace,context,recovery_fingerprint:'c'.repeat(64),saved_before:{'b.txt':{...saved,text:'dirty'},'a.txt':{kind:'missing'}},saved_after:{'a.txt':saved,'b.txt':{kind:'missing'}},plan:{version:1,context,title:'Restore',patches:[{path:'b.txt',before:{kind:'file',identity:'source',text:'dirty'},after:{kind:'missing'}},{path:'a.txt',before:{kind:'missing'},after:{kind:'file',identity:'source',text:'dirty'}}]}},consequences:{version:1,workspace,context,saved:{entries:[],removed_entries:[],output_paths:[]},draft:{entries:[],removed_entries:[],output_paths:[]},fingerprint:'d'.repeat(64),protected_targets:[]}} as T;
-   expect(route).toBe('/api/changes/restore-resources');return {version:1,request_id:request.request_id,workspace,context,outcome:{complete:true,recovery:'.hick-cache/resource-changes/'+ 'e'.repeat(32)+'/manifest.json',applied:['a.txt','b.txt']},saved_sources:{'a.txt':saved,'b.txt':{kind:'missing'}},source_files:[{file:{path:'a.txt',name:'a.txt',dir:false},saved,hash:'new'}]} as T;
+   expect(route).toBe('/api/changes/restore-resources');return {version:2,adoption_current:true,request_id:request.request_id,workspace,context,outcome:{complete:true,recovery:'.hick-cache/resource-changes/'+ 'e'.repeat(32)+'/manifest.json',applied:['a.txt','b.txt']},saved_sources:{'a.txt':saved,'b.txt':{kind:'missing'}},source_files:[{file:{path:'a.txt',name:'a.txt',dir:false},saved,hash:'new'}]} as T;
   };
   const record={id:'b'.repeat(32),workspace,fingerprint:'c'.repeat(64),paths:[{path:'a.txt',saved_after:{kind:'missing'}},{path:'b.txt',saved_after:{kind:'file'}}]};
   const prepare=()=>prepareResourceRestore(buffers,record,async()=>buffer,load,()=>true,async()=> 'a'.repeat(64));
@@ -479,7 +508,7 @@ describe('resource editor identity routing',()=>{
   const retained=buffers.retainedResources,saved:ResourceSaved={kind:'file',text:'dirty',sha256:'a'.repeat(64),readonly:false,executable:false,mode:null};
   function adopt(patches:ResourceEditorPatch[],baseline:ResourceSaved,restoring=new Map<string,Buffer>()){
    const expected={request:'request',workspace:'workspace',context:'context',saved:new Map(patches.map(p=>[p.path,p.after?baseline:{kind:'missing'} as ResourceSaved]))};
-   const receipt:ResourceReceipt={version:1,request_id:'request',workspace:'workspace',context:'context',outcome:{complete:true,recovery:'recovery',applied:patches.map(p=>p.path)},saved_sources:Object.fromEntries(expected.saved),source_files:patches.filter(p=>p.after).map(p=>({file:{path:p.path,name:p.path,dir:false},saved:baseline,hash:'fresh'}))};
+   const receipt:ResourceReceipt={version:2,adoption_current:true,request_id:'request',workspace:'workspace',context:'context',outcome:{complete:true,recovery:'recovery',applied:patches.map(p=>p.path)},saved_sources:Object.fromEntries(expected.saved),source_files:patches.filter(p=>p.after).map(p=>({file:{path:p.path,name:p.path,dir:false},saved:baseline,hash:'fresh'}))};
    return adoptResourceReceipt(buffers,patches,receipt,expected,captureResourceEditors(buffers,patches,restoring),restoring);
   }
   const original=view.state;
@@ -495,7 +524,7 @@ describe('resource editor identity routing',()=>{
  it('refuses partial receipts and changed local baselines without changing any live address',()=>{
   const buffers=new Buffers(()=>{}),buffer=new Buffer({path:'a.py',name:'a.py',dir:false},'a','hash',()=>{});buffers.values.set('a.py',buffer);
   const patches=[{path:'a.py',before:source('a'),after:null}],expected={request:'r',workspace:'w',context:'c',saved:new Map<string,ResourceSaved>([['a.py',{kind:'missing'}]])};
-  const receipt:ResourceReceipt={version:1,request_id:'r',workspace:'w',context:'c',outcome:{complete:false,recovery:'recovery',applied:[]},saved_sources:null,source_files:[]},retained=buffers.retainedResources;
+  const receipt:ResourceReceipt={version:2,adoption_current:true,request_id:'r',workspace:'w',context:'c',outcome:{complete:false,recovery:'recovery',applied:[]},saved_sources:null,source_files:[]},retained=buffers.retainedResources;
   expect(()=>adoptResourceReceipt(buffers,patches,receipt,expected,captureResourceEditors(buffers,patches))).toThrow();
   const current=captureResourceEditors(buffers,patches);buffer.base='independent';
   expect(()=>adoptResourceReceipt(buffers,patches,{...receipt,outcome:{complete:true,recovery:'recovery',applied:['a.py']},saved_sources:{'a.py':{kind:'missing'}}},expected,current)).toThrow();
@@ -566,7 +595,7 @@ final class ResourceEditorsTests:XCTestCase {
   workspace.buffers["a.py"]=buffer;workspace.layout.activate("a.py",in:"document-group")
   let geometry=workspace.layout.nodes["root"]
   func receipt(_ paths:[String],_ values:[String:ResourceSaved],_ path:String?)->ResourcePublication<FileNode> {
-   ResourcePublication(version:1,request_id:"request",workspace:"workspace",context:"context",outcome:.init(complete:true,recovery:"record",applied:paths),saved_sources:values,source_files:path.map{[.init(file:FileNode(name:$0,path:$0,dir:false),saved:saved,hash:"fresh")]} ?? [])
+   ResourcePublication(version:2,request_id:"request",workspace:"workspace",context:"context",outcome:.init(complete:true,recovery:"record",applied:paths),saved_sources:values,source_files:path.map{[.init(file:FileNode(name:$0,path:$0,dir:false),saved:saved,hash:"fresh")]} ?? [],adoption_current:true)
   }
   let move=[ResourceEditorPatch(path:"a.py",before:source,after:nil),ResourceEditorPatch(path:"b.py",before:nil,after:source)]
   let moving=workspace.captureResourceEditors(move)
@@ -599,9 +628,11 @@ final class ResourceEditorsTests:XCTestCase {
  func testConfirmedReceiptRequiresWholeNamespaceAndSeparateSavedBaseline() throws {
   let saved=ResourceSaved(kind:"file",text:"saved",sha256:String(repeating:"a",count:64),readonly:false,executable:false,mode:nil)
   let absent=ResourceSaved(kind:"missing"),patches=[ResourceEditorPatch(path:"old.py",before:ResourceSource(identity:"a",text:"dirty"),after:nil),ResourceEditorPatch(path:"new.py",before:nil,after:ResourceSource(identity:"a",text:"dirty"))]
-  var receipt=ResourcePublication<String>(version:1,request_id:"request",workspace:"workspace",context:"context",outcome:.init(complete:true,recovery:"record",applied:["old.py","new.py"]),saved_sources:["old.py":absent,"new.py":saved],source_files:[.init(file:"new.py",saved:saved,hash:"fresh")])
+  var receipt=ResourcePublication<String>(version:2,request_id:"request",workspace:"workspace",context:"context",outcome:.init(complete:true,recovery:"record",applied:["old.py","new.py"]),saved_sources:["old.py":absent,"new.py":saved],source_files:[.init(file:"new.py",saved:saved,hash:"fresh")],adoption_current:true)
   func confirm() throws->[Data:ResourcePublication<String>.Entry] {try confirmedResourceFiles(patches,receipt:receipt,request:"request",workspace:"workspace",context:"context",expected:["old.py":absent,"new.py":saved]){($0,true)}}
   XCTAssertEqual(try confirm()[Data("new.py".utf8)]?.saved.text,"saved")
+  receipt.version=1;XCTAssertThrowsError(try confirm());receipt.version=2
+  receipt.adoption_current=false;receipt.adoption_reason="Historical publication; source was replaced.";XCTAssertThrowsError(try confirm());receipt.adoption_current=true
   receipt.outcome.complete=false;XCTAssertThrowsError(try confirm());receipt.outcome.complete=true
   receipt.request_id="other";XCTAssertThrowsError(try confirm());receipt.request_id="request"
   receipt.source_files.append(receipt.source_files[0]);XCTAssertThrowsError(try confirm())
@@ -642,10 +673,11 @@ class ResourceEditorsTest {
  @Test fun confirmedReceiptRequiresWholeNamespaceAndSeparateSavedBaseline(){
   val saved=ResourceSaved("file","saved","a".repeat(64),false,false,null);val absent=ResourceSaved("missing")
   val patches=listOf(ResourceEditorPatch("old.py",ResourceSource("a","dirty"),null),ResourceEditorPatch("new.py",null,ResourceSource("a","dirty")))
-  val receipt=ResourcePublication(1,"request","workspace","context",true,"record",listOf("old.py","new.py"),mapOf("old.py" to absent,"new.py" to saved),listOf(ResourcePublishedFile("new.py",saved,"fresh")))
+  val receipt=ResourcePublication(2,"request","workspace","context",true,"record",listOf("old.py","new.py"),mapOf("old.py" to absent,"new.py" to saved),listOf(ResourcePublishedFile("new.py",saved,"fresh")),adoptionCurrent=true)
   fun confirm(value:ResourcePublication<String>)=confirmedResourceFiles(patches,value,"request","workspace","context",mapOf("old.py" to absent,"new.py" to saved)){it to true}
   assertEquals("saved",confirm(receipt).getValue("new.py").saved.text)
-  for(value in listOf(receipt.copy(complete=false),receipt.copy(request="other"),receipt.copy(files=receipt.files+receipt.files),receipt.copy(applied=listOf("new.py")))){try{confirm(value);fail("Expected refusal")}catch(_:IllegalArgumentException){}}
+  assertTrue(runCatching{confirm(receipt.copy(files=listOf(ResourcePublishedFile("new.py",saved,"fresh",""))))}.isFailure)
+  for(value in listOf(receipt.copy(version=1),receipt.copy(complete=false),receipt.copy(adoptionCurrent=false,adoptionReason="Historical completed publication; source was replaced."),receipt.copy(request="other"),receipt.copy(files=receipt.files+receipt.files),receipt.copy(applied=listOf("new.py")))){try{confirm(value);fail("Expected refusal")}catch(_:IllegalArgumentException){}}
  }
  @Test fun completePreflightAndByteExactNamespaces(){
   val editor=Editor();val capture=ResourceEditorCapture(editor,"a");val a=ResourceSource("a","a");val patch=ResourceEditorPatch("a.py",a,null)

@@ -44,6 +44,8 @@ export interface DocSummary {
 
 <storycode:copy id="f-8a4c3188ff6c-Doc">
 export interface Doc {
+  save_guard?: string;
+  save_guard_reason?: string;
   id: string;
   path: string;
   source: string;
@@ -311,6 +313,8 @@ disk underneath the buffer is a 409, never a silent overwrite.
  * read served; the save passes it back as `base_hash` so a file rewritten on
  * disk underneath the buffer is a 409, never a silent overwrite. */
 export interface PlainFile {
+  save_guard?: string;
+  save_guard_reason?: string;
   path: string;
   language: string;
   content: string;
@@ -442,6 +446,8 @@ export interface FilesResponse {
    * spelling — what "copy absolute path" copies. Absent from older answers
    * and from the mock, so every reader must cope without it. */
   root_path?: string;
+  /** Captured mutation namespace; absent while the root capability is loading. */
+  workspace_id?: string | null;
   /** The separator that joins `root_path` to a node's (always forward-slashed)
    * path: `"/"` everywhere but Windows. */
   separator?: string;

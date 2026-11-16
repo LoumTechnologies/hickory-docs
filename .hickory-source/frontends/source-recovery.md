@@ -185,14 +185,29 @@ struct ResourceWirePlan:Codable {var version:Int;var context:String;var title:St
  }
 }
 struct ResourceWireOwnership:Codable {var mode:String;var entry:String?;var protected_entries:[String];var saved_sources:[String:String];var draft_sources:[String:String]}
-struct ResourceWireInputs:Codable {var version:Int;var context:String;var workspace:String;var ownership:ResourceWireOwnership;var sources:[String:ResourceWireSource];var saved_sources:[String:ResourceSaved];var refusals:[String:String];var source_files_modified:Bool}
-struct ResourceWireDraft:Codable {var text:String;var base_sha256:String;var version:Int?;var writable:Bool}
-struct ResourceWireCapture:Codable {var context:String;var edit:ResourceJSON;var drafts:[String:ResourceWireDraft];var project_entry:String?;var ownership_sources:[String:String]}
+struct ResourceWireInputs:Codable {var version:Int;var context:String;var workspace:String;var ownership:ResourceWireOwnership;var sources:[String:ResourceWireSource];var saved_sources:[String:ResourceSaved];var refusals:[String:String];var source_files_modified:Bool;var saved_guards:[String:String]?=nil}
+struct ResourceWireDraft:Codable {var text:String;var base_sha256:String;var version:Int?;var writable:Bool;var save_guard:String?=nil}
+struct ResourceWireCapture:Codable {var context:String;var edit:ResourceJSON;var drafts:[String:ResourceWireDraft];var project_entry:String?;var ownership_sources:[String:String];var unaddressed_sources:[String:String]=[:];var saved_guards:[String:String]=[:]}
 struct ResourceWireLayer:Decodable {var entries:[String];var removed_entries:[String];var source_hashes:[String:String];var output_paths:[String]}
 struct ResourceWireFacts:Decodable {var version:Int;var workspace:String;var context:String;var fingerprint:String;var saved:ResourceWireLayer;var draft:ResourceWireLayer;var protected_targets:[String];var source_files_modified:Bool;var saved_sources:[String:ResourceSaved]?}
 struct ResourceWireTargets:Decodable {var version:Int;var paths:[String]}
 struct ResourceWirePlanned:Decodable {var plan:ResourceWirePlan}
 struct ResourceWireProposal:Codable {var inputs:ResourceWireInputs;var capture:ResourceWireCapture;var plan:ResourceWirePlan}
+@MainActor func resourceOwnershipSnapshot(_ workspace:Workspace)throws->(named:[String:String],unaddressed:[String:String],guards:[String:String]) {
+ let all=Array(workspace.buffers.values)+Array(workspace.retainedResourceEditors.values),unique=Dictionary(grouping:all,by:{ObjectIdentifier($0)}).values.compactMap{$0.first};var named:[String:String]=[:],unaddressed:[String:String]=[:],guards:[String:String]=[:]
+ guard unique.count<=4096 else{throw EngineError(message:"Retained source roster exceeds the bounded resource review. Preserve sources and choose a smaller workspace scope.")};var cost=0
+ for buffer in unique where buffer.file.generated_by==nil {
+  let bytes=buffer.text.utf8.count;guard bytes<=8*1024*1024,bytes<=16*1024*1024-cost else{throw EngineError(message:"Retained sources exceed the bounded resource review text capacity. Preserve them and choose a smaller scope.")};cost+=bytes
+  if buffer.resourceDeleted||buffer.file.path.hasPrefix("Untitled-")||buffer.file.path.hasPrefix("/"){unaddressed[buffer.id.uuidString]=buffer.text;continue}
+  guard named[buffer.file.path]==nil else{throw EngineError(message:"Retained source names have ambiguous Unicode spellings; no source ownership was merged.")};named[buffer.file.path]=buffer.text;if let guardToken=buffer.savedGuard{guards[buffer.file.path]=guardToken}
+ }
+ return(named,unaddressed,guards)
+}
+@MainActor func captureRetainedSourceNamespace(_ workspace:Workspace)->()->Bool {
+ let epoch=workspace.sourceNavigationEpoch,engine=workspace.engine,all=Array(workspace.buffers.values)+Array(workspace.retainedResourceEditors.values),unique=Dictionary(grouping:all,by:{ObjectIdentifier($0)}).values.compactMap{$0.first}
+ let snapshots=unique.map{($0,ObjectIdentifier($0),$0.sourceEditIdentity,ExactSourceText($0.file.path),$0.sourceRevision,ExactSourceText($0.base),$0.savedGuard.map{ExactSourceText($0)},$0.readOnly,$0.resourceDeleted,$0.file.generated_by.map{ExactSourceText($0)})}
+ return{[weak workspace] in guard let workspace,workspace.sourceNavigationEpoch==epoch,workspace.engine?.origin==engine?.origin,workspace.engine?.session === engine?.session else{return false};let now=Set((Array(workspace.buffers.values)+Array(workspace.retainedResourceEditors.values)).map{ObjectIdentifier($0)});guard now==Set(snapshots.map{$0.1}) else{return false};return snapshots.allSatisfy{buffer,_,revision,path,text,base,guardToken,readonly,deleted,generated in buffer.sourceEditIdentity==revision&&ExactSourceText(buffer.file.path)==path&&buffer.sourceRevision==text&&ExactSourceText(buffer.base)==base&&buffer.savedGuard.map{ExactSourceText($0)}==guardToken&&buffer.readOnly==readonly&&buffer.resourceDeleted==deleted&&buffer.file.generated_by.map{ExactSourceText($0)}==generated && !buffer.saving}}
+}
 func isResourceWorkspaceEdit(_ raw:Any)->Bool {guard let value=raw as? [String:Any],let operations=value["documentChanges"] as? [[String:Any]] else{return false};return operations.contains{$0["kind"] != nil}}
 struct ResourceWireRestoreRequest:Codable {var recovery_id:String;var inputs:ResourceWireInputs;var capture:ResourceWireCapture}
 struct ResourceWireRestoration:Decodable {var version:Int;var recovery_id:String;var recovery_fingerprint:String;var workspace:String;var context:String;var plan:ResourceWirePlan;var saved_before:[String:ResourceSaved];var saved_after:[String:ResourceSaved]}
@@ -227,10 +242,7 @@ Retain a unique pending request before sending a write. A lost or partial result
   return try JSONDecoder().decode(T.self,from:JSONEncoder().encode(value))
  }
  func cancel(){guard !hasPending else{return};ticket=UUID();review=nil;busy=false;notice=""}
- private func currentWorkspace(_ workspace:Workspace)->()->Bool {
-  let epoch=workspace.sourceNavigationEpoch,engine=workspace.engine?.origin,sources=workspace.buffers.map{($0.key,$0.value,$0.value.text,$0.value.base,$0.value.hash,$0.value.readOnly)}
-  return { [weak workspace] in guard let workspace,workspace.sourceNavigationEpoch==epoch,workspace.engine?.origin==engine,workspace.buffers.count==sources.count else{return false};return sources.allSatisfy{path,buffer,text,base,hash,readOnly in workspace.buffers[path] === buffer && exactUTF8(buffer.text,text) && exactUTF8(buffer.base,base) && exactUTF8(buffer.hash,hash) && buffer.readOnly==readOnly && !buffer.saving}}
- }
+ private func currentWorkspace(_ workspace:Workspace)->()->Bool {captureRetainedSourceNamespace(workspace)}
  func prepare(_ workspace:Workspace,record:RecoveryReading,history:ResourceHistoryIntent?=nil)async {
   guard !busy,!hasPending else{notice="Inspect the pending publication before preparing another restoration.";return}
   let id=UUID();ticket=id;busy=true;review=nil;notice="Acquiring current sources and construction ownership…";defer{if ticket==id{busy=false}}
@@ -248,12 +260,12 @@ Retain a unique pending request before sending a write. A lost or partial result
    var edits:[String:ResourceJSON]=[:],drafts:[String:ResourceWireDraft]=[:]
    for item in record.paths {
     edits[languageURI(item.path)] = .array([])
-    if let buffer=workspace.buffers[item.path] {drafts[item.path]=ResourceWireDraft(text:buffer.text,base_sha256:nativeSourceHash(buffer.base),version:nil,writable:!buffer.readOnly && !buffer.saving)}
+    if let buffer=workspace.buffers[item.path] {drafts[item.path]=ResourceWireDraft(text:buffer.text,base_sha256:nativeSourceHash(buffer.base),version:nil,writable:!buffer.readOnly && !buffer.saving,save_guard:buffer.savedGuard)}
    }
-   let ownership=workspace.buffers.filter{!$0.value.readOnly && $0.key.lowercased().hasSuffix(".md")}.mapValues{$0.text}
-   let capture=ResourceWireCapture(context:context,edit:.object(["changes":.object(edits)]),drafts:drafts,project_entry:nil,ownership_sources:ownership)
+   let ownership=try resourceOwnershipSnapshot(workspace)
+   let capture=ResourceWireCapture(context:context,edit:.object(["changes":.object(edits)]),drafts:drafts,project_entry:nil,ownership_sources:ownership.named,unaddressed_sources:ownership.unaddressed,saved_guards:ownership.guards)
    let inputs:ResourceWireInputs=try await call(workspace,"POST","/api/changes/resource-inputs",resourceBody(capture))
-   guard ticket==id,captured(),inputs.version==1,inputs.context==context,inputs.workspace==record.workspace,inputs.refusals.isEmpty else{throw EngineError(message:"Current source, ownership or workspace changed. Refresh and prepare restoration again.")}
+   guard ticket==id,captured(),inputs.version==1,inputs.saved_guards != nil,inputs.context==context,inputs.workspace==record.workspace,inputs.refusals.isEmpty else{throw EngineError(message:"Current source, ownership or workspace changed. Refresh and prepare restoration again.")}
    let request=ResourceWireRestoreRequest(recovery_id:record.id,inputs:inputs,capture:capture)
    let result:ResourceWirePrepared=try await call(workspace,"POST","/api/changes/prepare-restoration",resourceBody(request))
    guard ticket==id,captured(),historyCurrent(),result.version==1,result.restoration.version==1,result.restoration.recovery_id==record.id,result.restoration.recovery_fingerprint==record.fingerprint,result.restoration.workspace==record.workspace,result.restoration.context==context,result.restoration.plan.context==context,result.consequences.version==1,result.consequences.context==context,result.consequences.workspace==record.workspace,result.consequences.fingerprint.range(of:"^[0-9a-f]{64}$",options:.regularExpression) != nil,result.consequences.protected_targets.isEmpty else{throw EngineError(message:"Recovery evidence, construction consequences or current source changed. Prepare again.")}
@@ -275,15 +287,15 @@ Retain a unique pending request before sending a write. A lost or partial result
    let discovered:ResourceWireTargets=try await call(workspace,"POST","/api/changes/resource-targets",["edit":edit])
    guard ticket==id,current(),discovered.version==1,!discovered.paths.isEmpty,discovered.paths.count<=1000,Set(discovered.paths).count==discovered.paths.count else{throw EngineError(message:"Resource targets or provider changed. Prepare the complete proposal again.")}
    let context=UUID().uuidString.replacingOccurrences(of:"-",with:"").lowercased()
-   func capture()->ResourceWireCapture {
+   func capture()throws->ResourceWireCapture {
     var drafts:[String:ResourceWireDraft]=[:]
-    for path in discovered.paths {if let buffer=workspace.buffers[path]{drafts[path]=ResourceWireDraft(text:buffer.text,base_sha256:nativeSourceHash(buffer.base),version:nil,writable:!buffer.readOnly && !buffer.saving)}}
-    let ownership=workspace.buffers.filter{!$0.value.readOnly && $0.key.lowercased().hasSuffix(".md")}.mapValues{$0.text}
-    return ResourceWireCapture(context:context,edit:raw,drafts:drafts,project_entry:nil,ownership_sources:ownership)
+    for path in discovered.paths {if let buffer=workspace.buffers[path]{drafts[path]=ResourceWireDraft(text:buffer.text,base_sha256:nativeSourceHash(buffer.base),version:nil,writable:!buffer.readOnly && !buffer.saving,save_guard:buffer.savedGuard)}}
+    let ownership=try resourceOwnershipSnapshot(workspace)
+    return ResourceWireCapture(context:context,edit:raw,drafts:drafts,project_entry:nil,ownership_sources:ownership.named,unaddressed_sources:ownership.unaddressed,saved_guards:ownership.guards)
    }
-   var sourceCapture=capture(),captured=currentWorkspace(workspace)
+   var sourceCapture=try capture(),captured=currentWorkspace(workspace)
    var inputs:ResourceWireInputs=try await call(workspace,"POST","/api/changes/resource-inputs",resourceBody(sourceCapture))
-   guard ticket==id,current(),captured(),inputs.version==1,inputs.context==context,inputs.refusals.isEmpty else{throw EngineError(message:"Resource acquisition changed or refused a source. Preserve drafts and prepare again.")}
+   guard ticket==id,current(),captured(),inputs.version==1,inputs.saved_guards != nil,inputs.context==context,inputs.refusals.isEmpty else{throw EngineError(message:"Resource acquisition changed or refused a source. Preserve drafts and prepare again.")}
    var loaded=false
    for (path,state) in inputs.sources where state.kind=="file" && workspace.buffers[path]==nil {
     _ = try await workspace.loadBuffer(FileNode(name:(path as NSString).lastPathComponent,path:path,dir:false));loaded=true
@@ -297,10 +309,10 @@ Retain a unique pending request before sending a write. A lost or partial result
      guard rediscovered.version==1,Set(rediscovered.paths)==Set(discovered.paths),ticket==id,current() else{throw EngineError(message:"Provider resource targets changed after acquisition. Prepare the complete action again.")}
      raw=try JSONDecoder().decode(ResourceJSON.self,from:JSONSerialization.data(withJSONObject:selectedEdit))
     }
-    sourceCapture=capture();captured=currentWorkspace(workspace)
+    sourceCapture=try capture();captured=currentWorkspace(workspace)
     inputs=try await call(workspace,"POST","/api/changes/resource-inputs",resourceBody(sourceCapture))
    }
-   guard ticket==id,current(),captured(),inputs.version==1,inputs.context==context,inputs.refusals.isEmpty,Set(inputs.sources.keys)==Set(discovered.paths) else{throw EngineError(message:"Complete resource sources changed. Prepare again.")}
+   guard ticket==id,current(),captured(),inputs.version==1,inputs.saved_guards != nil,inputs.context==context,inputs.refusals.isEmpty,Set(inputs.sources.keys)==Set(discovered.paths) else{throw EngineError(message:"Complete resource sources changed. Prepare again.")}
    let planned:ResourceWirePlanned=try await call(workspace,"POST","/api/changes/plan-resources",["context":context,"title":title,"edit":selectedEdit,"sources":try resourceBody(inputs)["sources"]!])
    let patches=try planned.plan.editors()
    let proposal=ResourceWireProposal(inputs:inputs,capture:sourceCapture,plan:planned.plan)
@@ -468,26 +480,35 @@ class ResourceChangeReview(private val transport:(suspend(String,String,JSONObje
 
 Resource coordinates and ownership depend on more than the selected paths. Keep
 every retained authored buffer's identity, draft, baseline and file metadata in
-the admission closure, and reject newly retained authored sources. Supply named
-Markdown drafts independently as compiler ownership inputs. Generated and absent
-editors cannot enter writable draft capture; unfinished composition or Save
+the admission closure, and reject newly retained authored sources. Supply every named authored draft, regardless of suffix, as an ownership input.
+Retained deleted, unnamed and outside-address drafts carry opaque identities in
+unaddressed_sources; the provider decides whether their declarations have a proven
+construction context. Complete live and retained address maps, physical baseline
+guards, selections and revisions remain part of the lease. Generated editors
+never enter writable draft capture; unfinished composition or Save
 refuses preparation before any publication request.
 
 <ui:copy id="source-resource-capture-android">
  private suspend fun capture(workspace:Workspace,paths:List<String>,edit:JSONObject,valid:()->Boolean):Pair<JSONObject,()->Boolean> {
   check(paths.isNotEmpty()&&paths.size<=1000&&paths.distinct().size==paths.size){"Choose a bounded complete source proposal."}
-  val epoch=workspace.sourceNavigationEpoch
+  val epoch=workspace.sourceNavigationEpoch;val server=workspace.engine
   fun find(nodes:List<FileNode>,path:String):FileNode?=nodes.firstNotNullOfOrNull{if(it.path==path)it else find(it.children,path)}
   for(path in paths){check(valid()&&workspace.sourceNavigationEpoch==epoch){"Source or workspace changed. Prepare again."};find(workspace.rootFiles,path)?.takeUnless{it.dir}?.let{workspace.loadBuffer(it)}}
-  fun authored()=workspace.buffers.filter{(path,buffer)->!path.startsWith("Untitled-")&&!buffer.resourceDeleted&&buffer.file.generatedBy==null}
-  val namespace=authored().toMap();val captured=paths.associateWith{workspace.buffers[it]}
-  data class Snapshot(val buffer:DocumentBuffer,val text:String,val base:String,val hash:String,val file:FileNode)
-  val snapshots=namespace.values.map{check(!it.saving&&!it.readOnly&&it.state.composition==null){"Finish source input and saves before preparing resources."};Snapshot(it,it.text,it.base,it.hash,it.file)}
-  val current={valid()&&workspace.sourceNavigationEpoch==epoch&&authored().let{it.keys==namespace.keys&&it.all{(path,buffer)->namespace[path]===buffer}}&&captured.all{(path,buffer)->workspace.buffers[path]===buffer}&&snapshots.all{it.buffer.text==it.text&&it.buffer.base==it.base&&it.buffer.hash==it.hash&&it.buffer.file===it.file&&!it.buffer.saving&&it.buffer.state.composition==null}}
+  val addresses=workspace.buffers.toMap();val retained=workspace.retainedResourceEditors.toMap();val tabs=workspace.retainedResourceTabs.toMap()
+  fun roster()=(workspace.buffers.values+workspace.retainedResourceEditors.values+workspace.retainedResourceTabs.values).distinct().filter{it.file.generatedBy==null}
+  data class Snapshot(val buffer:DocumentBuffer,val text:String,val base:String,val hash:String,val guard:String?,val file:FileNode,val revision:Long,val deleted:Boolean,val readonly:Boolean,val selection:androidx.compose.ui.text.TextRange)
+  val snapshots=roster().map{check(!it.saving&&it.state.composition==null){"Finish source input and saves before preparing resources."};Snapshot(it,it.text,it.base,it.hash,it.saveGuard,it.file,it.sourceRevision,it.resourceDeleted,it.readOnly,it.state.selection)}
+  check(snapshots.size<=4096){"Retained source roster exceeds its bounded capture."}
+  fun same(live:Map<String,DocumentBuffer>,before:Map<String,DocumentBuffer>)=live.size==before.size&&before.all{(path,b)->live[path]===b}
+  val current={valid()&&workspace.engine===server&&workspace.sourceNavigationEpoch==epoch&&same(workspace.buffers,addresses)&&same(workspace.retainedResourceEditors,retained)&&same(workspace.retainedResourceTabs,tabs)&&roster().toSet()==snapshots.map{it.buffer}.toSet()&&snapshots.all{val b=it.buffer;b.sourceRevision==it.revision&&b.text==it.text&&b.base==it.base&&b.hash==it.hash&&b.saveGuard==it.guard&&b.file===it.file&&b.resourceDeleted==it.deleted&&b.readOnly==it.readonly&&b.state.selection==it.selection&&!b.saving&&b.state.composition==null}}
   check(current()){"Source changed. Prepare again."}
-  val drafts=JSONObject();snapshots.filter{it.file.path in paths}.forEach{drafts.put(it.file.path,JSONObject().put("text",it.text).put("base_sha256",hash(it.base)).put("version",JSONObject.NULL).put("writable",true))}
-  val ownership=JSONObject();snapshots.filter{it.file.path.endsWith(".md",true)||it.file.path.endsWith(".markdown",true)}.forEach{ownership.put(it.file.path,it.text)}
-  val capture=JSONObject().put("context",nonce()).put("edit",edit).put("drafts",drafts).put("project_entry",JSONObject.NULL).put("ownership_sources",ownership)
+  val drafts=JSONObject();val ownership=JSONObject();val unaddressed=JSONObject();val guards=JSONObject();var bytes=0L
+  for(s in snapshots){val named=!s.deleted&&!s.file.path.startsWith("Untitled-")&&!s.file.path.startsWith('/')&&addresses[s.file.path]===s.buffer
+   val key=if(named)s.file.path else s.buffer.debugIdentity;check(s.text.length<=8*1024*1024&&key.length<=8192){"Retained source input exceeds its bounded capture."};bytes+=key.toByteArray(Charsets.UTF_8).size.toLong()+s.text.toByteArray(Charsets.UTF_8).size;check(bytes<=32L*1024*1024){"Retained resource ownership capture exceeds 32 MiB."}
+   if(named){check(!ownership.has(key)){"Retained authored source addresses are ambiguous."};ownership.put(key,s.text);s.guard?.takeIf{it.isNotEmpty()}?.let{guards.put(key,it)}}else unaddressed.put(key,s.text)
+   if(named&&key in paths){check(!s.readonly){"A selected source is not writable."};check(!s.guard.isNullOrEmpty()){"A selected source has no captured physical save guard. Reopen its saved baseline before preparing resources."};drafts.put(key,JSONObject().put("save_guard",s.guard).put("text",s.text).put("base_sha256",hash(s.base)).put("version",JSONObject.NULL).put("writable",true))}
+  }
+  val capture=JSONObject().put("context",nonce()).put("edit",edit).put("drafts",drafts).put("project_entry",JSONObject.NULL).put("ownership_sources",ownership).put("unaddressed_sources",unaddressed).put("saved_guards",guards)
   return capture to current
  }
 </ui:copy>
@@ -501,10 +522,12 @@ source identities or saved facts into the final reviewed plan. A missing source
 or a changed original editor refuses the whole acquisition.
 
 <ui:copy id="source-resource-acquisition-android">
- private suspend fun acquire(workspace:Workspace,paths:List<String>,edit:JSONObject,valid:()->Boolean):Triple<JSONObject,JSONObject,()->Boolean> {
+ internal suspend fun acquire(workspace:Workspace,paths:List<String>,edit:JSONObject,valid:()->Boolean):Triple<JSONObject,JSONObject,()->Boolean> {
   var (captured,current)=capture(workspace,paths,edit,valid)
   var inputs=call(workspace,"POST","/api/changes/resource-inputs",captured)
   check(current()){"Source changed during acquisition. Prepare again."}
+  fun requireSavedGuards(raw:JSONObject){val guards=raw.getJSONObject("saved_guards");check(guards.keys().asSequence().all{guards.get(it) is String&&guards.getString(it).isNotEmpty()}){"Resource inputs contain malformed physical save guards."}}
+  requireSavedGuards(inputs)
   val sources=inputs.getJSONObject("sources")
   val missing=paths.filter{sources.getJSONObject(it).getString("kind")=="file"&&workspace.buffers[it]==null}
   if(missing.isNotEmpty()){
@@ -514,7 +537,7 @@ or a changed original editor refuses the whole acquisition.
    workspace.refresh();check(current()){"Workspace changed during source discovery. Prepare again."}
    val next=capture(workspace,paths,edit,valid);captured=next.first;current=next.second
    check(missing.all{workspace.buffers[it]!=null}){"Current source is not available in the file index: ${missing.joinToString()}. Refresh files and prepare again."}
-   inputs=call(workspace,"POST","/api/changes/resource-inputs",captured)
+   inputs=call(workspace,"POST","/api/changes/resource-inputs",captured);requireSavedGuards(inputs)
    check(current()){"Source changed after discovery. Prepare again."}
   }
   return Triple(captured,inputs,current)
@@ -642,7 +665,7 @@ fun resourcePatches(plan:JSONObject):List<ResourceEditorPatch>{
  return (0 until rows.length()).map{val row=rows.getJSONObject(it);ResourceEditorPatch(row.getString("path"),side(row.getJSONObject("before")),side(row.getJSONObject("after")))}
 }
 fun resourceSavedMap(raw:JSONObject)=raw.keys().asSequence().associateWith{key->val value=raw.getJSONObject(key);if(value.getString("kind")=="missing")ResourceSaved("missing") else ResourceSaved("file",value.getString("text"),value.getString("sha256"),value.getBoolean("readonly"),value.getBoolean("executable"),if(value.isNull("mode"))null else value.getInt("mode"))}
-fun resourcePublication(raw:JSONObject):ResourcePublication<FileNode>{val outcome=raw.getJSONObject("outcome");val rows=raw.getJSONArray("source_files");val applied=outcome.getJSONArray("applied");return ResourcePublication(raw.getInt("version"),raw.getString("request_id"),raw.getString("workspace"),raw.getString("context"),outcome.getBoolean("complete"),outcome.getString("recovery"),(0 until applied.length()).map{applied.getString(it)},if(raw.isNull("saved_sources"))null else resourceSavedMap(raw.getJSONObject("saved_sources")),(0 until rows.length()).map{val row=rows.getJSONObject(it);val file=row.getJSONObject("file");ResourcePublishedFile(FileNode(file.getString("name"),file.getString("path"),file.getBoolean("dir"),emptyList(),if(file.isNull("doc_id"))null else file.getString("doc_id"),if(file.isNull("generated_by"))null else file.getString("generated_by"),if(file.isNull("language"))null else file.getString("language")),resourceSavedMap(JSONObject().put("entry",row.getJSONObject("saved"))).getValue("entry"),row.getString("hash"))})}
+fun resourcePublication(raw:JSONObject):ResourcePublication<FileNode>{check(raw.get("version")==2){"Resource publication protocol2 is required for current editor adoption."};val outcome=raw.getJSONObject("outcome");val rows=raw.getJSONArray("source_files");val applied=outcome.getJSONArray("applied");return ResourcePublication(raw.getInt("version"),raw.getString("request_id"),raw.getString("workspace"),raw.getString("context"),outcome.getBoolean("complete"),outcome.getString("recovery"),(0 until applied.length()).map{applied.getString(it)},if(raw.isNull("saved_sources"))null else resourceSavedMap(raw.getJSONObject("saved_sources")),(0 until rows.length()).map{val row=rows.getJSONObject(it);val file=row.getJSONObject("file");ResourcePublishedFile(FileNode(file.getString("name"),file.getString("path"),file.getBoolean("dir"),emptyList(),if(file.isNull("doc_id"))null else file.getString("doc_id"),if(file.isNull("generated_by"))null else file.getString("generated_by"),if(file.isNull("language"))null else file.getString("language")),resourceSavedMap(JSONObject().put("entry",row.getJSONObject("saved"))).getValue("entry"),row.getString("hash"),if(row.isNull("save_guard"))null else row.getString("save_guard").also{check(it.isNotEmpty()){"Malformed source save guard."}})},raw.get("adoption_current") as? Boolean ?: error("Resource publication adoption authority is unavailable or malformed."),if(raw.isNull("adoption_reason"))null else raw.getString("adoption_reason"))}
 
 data class RecoveryPage(val version:Int,val workspace:String,val ids:List<String>,val next:String?,val ignored:Int)
 data class RecoverySummary(val kind:String,val bytes:Int?,val sha256:String?)
@@ -781,7 +804,7 @@ import XCTest
    }
    if method=="POST",route=="/api/changes/restore-resources" {writes+=1;request=body!["request_id"] as! String;if failWrite{throw EngineError(message:"Lost response")}}
    guard route=="/api/changes/restore-resources" || route=="/api/changes/resource-save?request_id="+request else{throw EngineError(message:"Unexpected resource request")}
-   return try self.json(["version":1,"request_id":request,"workspace":self.workspace,"context":context,"outcome":["complete":true,"recovery":".hick-cache/resource-changes/"+String(repeating:"e",count:32)+"/manifest.json","applied":["a.py","b.py"]],"saved_sources":["a.py":saved("saved"),"b.py":missing],"source_files":[["file":["name":"a.py","path":"a.py","dir":false],"saved":saved("saved"),"hash":"new"]]])
+   return try self.json(["version":2,"adoption_current":true,"request_id":request,"workspace":self.workspace,"context":context,"outcome":["complete":true,"recovery":".hick-cache/resource-changes/"+String(repeating:"e",count:32)+"/manifest.json","applied":["a.py","b.py"]],"saved_sources":["a.py":saved("saved"),"b.py":missing],"source_files":[["file":["name":"a.py","path":"a.py","dir":false],"saved":saved("saved"),"hash":"new"]]])
   }
   return (space,model,recordValue,{writes})
  }
@@ -816,7 +839,7 @@ import XCTest
    if route=="/api/changes/resource-save",method=="POST" {
     writes+=1;let proposal=body!["proposal"] as! [String:Any],capture=proposal["capture"] as! [String:Any]
     XCTAssertNil(body!["reviewed_recovery_fingerprint"])
-    return try self.json(["version":1,"request_id":body!["request_id"]!,"workspace":self.workspace,"context":capture["context"]!,"outcome":["complete":true,"recovery":".hick-cache/resource-changes/"+String(repeating:"f",count:32)+"/manifest.json","applied":["a.py","b.py"]],"saved_sources":["a.py":saved("dirty"),"b.py":["kind":"missing"]],"source_files":[["file":["name":"a.py","path":"a.py","dir":false],"saved":saved("dirty"),"hash":"new"]]])
+    return try self.json(["version":2,"adoption_current":true,"request_id":body!["request_id"]!,"workspace":self.workspace,"context":capture["context"]!,"outcome":["complete":true,"recovery":".hick-cache/resource-changes/"+String(repeating:"f",count:32)+"/manifest.json","applied":["a.py","b.py"]],"saved_sources":["a.py":saved("dirty"),"b.py":["kind":"missing"]],"source_files":[["file":["name":"a.py","path":"a.py","dir":false],"saved":saved("dirty"),"hash":"new"]]])
    }
    return try await initial(method,route,body)
   }
@@ -906,19 +929,15 @@ import XCTest
   space.buffers["reused.py"]=occupant;space.retainedResourceEditors["deleted"]=source
   let retainedTab=space.retainedResourceTab(source);space.layout.activate("reused.py",in:"document-group");space.layout.activate(retainedTab,in:"document-group")
   let submitted=source.text
-  var refuse=true,reads=0
+  space.sourceRootAddress="/fixture";space.sourceWorkspaceID="runtime-workspace"
+  var refuse=true
   ResponseProtocol.beforeResponse={request in
-   ResponseProtocol.status=200
+   ResponseProtocol.status=refuse ? 409:200
    let value:[String:Any]
-   switch (request.httpMethod ?? "GET",request.url?.path ?? "") {
-   case ("POST","/api/files/op"):
-    ResponseProtocol.status=refuse ? 409:200;value=refuse ? ["error":"Destination unavailable"]:["path":"copy.py"]
-   case ("GET","/api/file"):
-    reads+=1;value=["path":"copy.py","content":reads==1 ? "":submitted,"hash":reads==1 ? "empty":"saved"]
-   case ("PUT","/api/file"):value=["path":"copy.py","hash":"saved"]
-   case ("GET","/api/files"):value=["root":"/fixture","tree":[]]
-   default:value=[:]
-   }
+   if request.url?.path=="/api/files" {ResponseProtocol.status=200;value=["root":"fixture","root_path":"/fixture","workspace_id":"runtime-workspace","tree":[]]}
+   else if request.url?.path != "/api/source-history/create" {ResponseProtocol.status=200;value=[:]}
+   else if refuse{value=["error":"Destination unavailable"]}
+   else{value=["version":1,"history_protocol":1,"workspace":"runtime-workspace","namespace":"/fixture","path":"copy.py","source":submitted,"source_hash":nativeSourceHash(submitted),"hash":"saved","request_id":source.creationAttempt?.id ?? "missing-attempt","save_guard":"confirmed-copy","history":["available":true,"outcome":"published"]]}
    ResponseProtocol.response=try! JSONSerialization.data(withJSONObject:value)
   }
   defer{ResponseProtocol.beforeResponse=nil;ResponseProtocol.responsesByPath=[:];space.currentBuffer?.language?.close()}
@@ -986,14 +1005,14 @@ class ResourceReviewTest {
   val background=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
   try{
    val workspace=Workspace(background);workspace.engine=Engine("http://127.0.0.1:1")
-   val file=FileNode("a.py","a.py",false,emptyList(),null,null);val buffer=DocumentBuffer(file,FileText("saved","old-hash"));buffer.state.edit{replace(0,length,"dirty");selection=androidx.compose.ui.text.TextRange(2)};workspace.buffers[file.path]=buffer;workspace.show(file.path)
+   val file=FileNode("a.py","a.py",false,emptyList(),null,null);val buffer=DocumentBuffer(file,FileText("saved","old-hash","old-guard"));buffer.state.edit{replace(0,length,"dirty");selection=androidx.compose.ui.text.TextRange(2)};workspace.buffers[file.path]=buffer;workspace.show(file.path)
    var context="";var post=0;var published:JSONObject?=null
    val review=ResourceChangeReview{method,path,body->when(path){
     "/api/changes/resource-targets"->JSONObject().put("paths",JSONArray().put("a.py").put("b.py"))
-    "/api/changes/resource-inputs"->{context=body!!.getString("context");assertEquals("dirty",body.getJSONObject("drafts").getJSONObject("a.py").getString("text"));assertEquals(digest("saved"),body.getJSONObject("drafts").getJSONObject("a.py").getString("base_sha256"));JSONObject().put("context",context).put("sources",JSONObject().put("a.py",source("dirty")).put("b.py",missing())).put("saved_sources",JSONObject())}
+    "/api/changes/resource-inputs"->{context=body!!.getString("context");assertEquals("dirty",body.getJSONObject("drafts").getJSONObject("a.py").getString("text"));assertEquals("old-guard",body.getJSONObject("drafts").getJSONObject("a.py").getString("save_guard"));assertEquals("old-guard",body.getJSONObject("saved_guards").getString("a.py"));assertEquals(digest("saved"),body.getJSONObject("drafts").getJSONObject("a.py").getString("base_sha256"));JSONObject().put("context",context).put("sources",JSONObject().put("a.py",source("dirty")).put("b.py",missing())).put("saved_guards",JSONObject().put("a.py","old-guard")).put("saved_sources",JSONObject())}
     "/api/changes/plan-resources"->JSONObject().put("plan",plan(context,"a.py","b.py","dirty"))
     "/api/changes/resource-consequences"->JSONObject().put("context",context).put("workspace","b".repeat(32)).put("fingerprint","c".repeat(64)).put("protected_targets",JSONArray()).put("saved_sources",JSONObject().put("a.py",missing()).put("b.py",saved("dirty")))
-    "/api/changes/resource-save"->{assertEquals("POST",method);post++;val request=body!!.getString("request_id");JSONObject().put("version",1).put("request_id",request).put("workspace","b".repeat(32)).put("context",context).put("outcome",JSONObject().put("complete",true).put("applied",JSONArray().put("a.py").put("b.py")).put("recovery",".hick-cache/resource-changes/$request/manifest.json")).put("saved_sources",JSONObject().put("a.py",missing()).put("b.py",saved("dirty"))).put("source_files",JSONArray().put(JSONObject().put("file",JSONObject().put("name","b.py").put("path","b.py").put("dir",false)).put("saved",saved("dirty")).put("hash","fresh"))).also{published=it}}
+    "/api/changes/resource-save"->{assertEquals("POST",method);post++;val request=body!!.getString("request_id");JSONObject().put("version",2).put("request_id",request).put("adoption_current",true).put("workspace","b".repeat(32)).put("context",context).put("outcome",JSONObject().put("complete",true).put("applied",JSONArray().put("a.py").put("b.py")).put("recovery",".hick-cache/resource-changes/$request/manifest.json")).put("saved_sources",JSONObject().put("a.py",missing()).put("b.py",saved("dirty"))).put("source_files",JSONArray().put(JSONObject().put("file",JSONObject().put("name","b.py").put("path","b.py").put("dir",false)).put("saved",saved("dirty")).put("hash","fresh"))).also{published=it}}
     else->error("Unexpected $method $path")
    }}
    review.prepare(workspace,"Move",JSONObject().put("documentChanges",JSONArray()))
@@ -1002,16 +1021,38 @@ class ResourceReviewTest {
    buffer.state.undoState.undo();assertEquals("saved",buffer.text)
   }finally{background.cancel()}
  }
+ @Test fun fullRetainedRosterUsesTypedUnaddressedInputsAndRetiresOnChanges()=runBlocking{
+  val w=Workspace(this);w.engine=Engine("http://127.0.0.1:1")
+  fun buffer(path:String,text:String)=DocumentBuffer(FileNode(path,path,false,emptyList(),null,null),FileText(text,"old","guard"))
+  val named=buffer("owner.txt","named construction draft");val note=buffer("Untitled-note","ordinary unnamed note");val deleted=buffer("gone.md","retained deleted draft");deleted.resourceDeleted=true;w.buffers[named.file.path]=named;w.buffers[note.file.path]=note;w.retainedResourceEditors["deleted"]=deleted
+  val review=ResourceChangeReview{_,_,body->assertEquals("named construction draft",body!!.getJSONObject("ownership_sources").getString("owner.txt"));assertEquals(1,body.getJSONObject("ownership_sources").length());assertEquals(note.text,body.getJSONObject("unaddressed_sources").getString(note.debugIdentity));assertEquals(deleted.text,body.getJSONObject("unaddressed_sources").getString(deleted.debugIdentity));JSONObject().put("saved_guards",JSONObject().put("owner.txt",named.saveGuard)).put("sources",JSONObject().put("owner.txt",source(named.text)))}
+  val first=review.acquire(w,listOf("owner.txt"),JSONObject().put("changes",JSONObject())){true};assertTrue(first.third());deleted.advanceSourceRevision();assertFalse(first.third())
+  val second=review.acquire(w,listOf("owner.txt"),JSONObject().put("changes",JSONObject())){true};assertTrue(second.third());named.saveGuard="replacement";assertFalse(second.third())
+  val third=review.acquire(w,listOf("owner.txt"),JSONObject().put("changes",JSONObject())){true};assertTrue(third.third());w.retainedResourceEditors["added"]=buffer("Untitled-other","new retained text");assertFalse(third.third())
+ }
+ @Test fun missingPhysicalDraftOrProviderGuardMapRefusesBeforePublication()=runBlocking{
+  val w=Workspace(this);w.engine=Engine("http://127.0.0.1:1");val file=FileNode("a.py","a.py",false,emptyList(),null,null);val buffer=DocumentBuffer(file,FileText("source","old"));w.buffers[file.path]=buffer;var calls=0
+  val review=ResourceChangeReview{_,_,_->calls++;JSONObject().put("sources",JSONObject().put("a.py",source("source")))}
+  assertTrue(runCatching{review.acquire(w,listOf("a.py"),JSONObject()){true}}.isFailure);assertEquals(0,calls)
+  buffer.saveGuard="original-guard";assertTrue(runCatching{review.acquire(w,listOf("a.py"),JSONObject()){true}}.isFailure);assertEquals(1,calls);assertSame(buffer,w.buffers[file.path]);assertEquals("source",buffer.text)
+ }
+ @Test fun completedHistoricalReceiptIsReadableButCannotAdoptAndTypesAreStrict(){
+  val raw=JSONObject().put("version",2).put("request_id","request").put("workspace","workspace").put("context","context").put("adoption_current",false).put("adoption_reason","Source was replaced after publication").put("outcome",JSONObject().put("complete",true).put("recovery","record").put("applied",JSONArray().put("a.py"))).put("saved_sources",JSONObject().put("a.py",missing())).put("source_files",JSONArray())
+  val receipt=resourcePublication(raw);assertTrue(receipt.complete);assertFalse(receipt.adoptionCurrent);assertNotNull(receipt.adoptionReason)
+  val patch=ResourceEditorPatch("a.py",ResourceSource("source","old"),null);assertTrue(runCatching{confirmedResourceFiles(listOf(patch),receipt,"request","workspace","context",mapOf("a.py" to ResourceSaved("missing"))){it.path to true}}.isFailure)
+  for(version in listOf<Any>(1,"2",true)){raw.put("version",version);assertTrue(runCatching{resourcePublication(raw)}.isFailure)};raw.put("version",2)
+  for(value in listOf<Any>("true",JSONObject.NULL)){raw.put("adoption_current",value);assertTrue(runCatching{resourcePublication(raw)}.isFailure)};raw.remove("adoption_current");assertTrue(runCatching{resourcePublication(raw)}.isFailure)
+ }
  @Test fun deletionRetainsReadableEditorAndPathReuseNeverClaimsItsIdentity()=runBlocking{
   val workspace=Workspace(this);workspace.engine=Engine("http://127.0.0.1:1");val file=FileNode("a.py","a.py",false,emptyList(),null,null);val buffer=DocumentBuffer(file,FileText("dirty","old"));workspace.buffers[file.path]=buffer;workspace.show(file.path)
-  val patches=listOf(ResourceEditorPatch("a.py",ResourceSource("identity","dirty"),null));val state=ResourceSaved("missing");val receipt=ResourcePublication<FileNode>(1,"request","workspace","context",true,"record",listOf("a.py"),mapOf("a.py" to state),emptyList());val capture=workspace.captureResourceEditors(patches)
+  val patches=listOf(ResourceEditorPatch("a.py",ResourceSource("identity","dirty"),null));val state=ResourceSaved("missing");val receipt=ResourcePublication<FileNode>(2,"request","workspace","context",true,"record",listOf("a.py"),mapOf("a.py" to state),emptyList(),adoptionCurrent=true);val capture=workspace.captureResourceEditors(patches)
   workspace.adoptResourceReceipt(patches,receipt,"request","workspace","context",mapOf("a.py" to state),capture)
   assertSame(buffer,workspace.currentBuffer);assertTrue(buffer.resourceDeleted);assertTrue(buffer.readOnly);assertTrue(workspace.active!!.startsWith("deleted-resource:"));assertNull(workspace.buffers["a.py"])
   val reused=DocumentBuffer(file,FileText("different","new"));workspace.buffers["a.py"]=reused;assertSame(buffer,workspace.currentBuffer);assertNotSame(workspace.buffers["a.py"],workspace.currentBuffer)
  }
  @Test fun partialReceiptRefusesBeforeTabOrEditorMutation()=runBlocking{
   val workspace=Workspace(this);workspace.engine=Engine("http://127.0.0.1:1");val file=FileNode("a.py","a.py",false,emptyList(),null,null);val buffer=DocumentBuffer(file,FileText("text","old"));workspace.buffers[file.path]=buffer;workspace.show(file.path)
-  val patches=listOf(ResourceEditorPatch("a.py",ResourceSource("id","text"),null));val state=ResourceSaved("missing");val receipt=ResourcePublication<FileNode>(1,"request","workspace","context",false,"record",emptyList(),null,emptyList());val layout=workspace.layout
+  val patches=listOf(ResourceEditorPatch("a.py",ResourceSource("id","text"),null));val state=ResourceSaved("missing");val receipt=ResourcePublication<FileNode>(2,"request","workspace","context",false,"record",emptyList(),null,emptyList());val layout=workspace.layout
   assertTrue(runCatching{workspace.adoptResourceReceipt(patches,receipt,"request","workspace","context",mapOf("a.py" to state),workspace.captureResourceEditors(patches))}.isFailure)
   assertEquals(layout,workspace.layout);assertSame(buffer,workspace.currentBuffer);assertFalse(buffer.resourceDeleted);assertEquals("text",buffer.text)
  }
@@ -1059,7 +1100,7 @@ class ResourceEngineIntegrationTest {
    val deletion=JSONObject().put("documentChanges",JSONArray().put(JSONObject().put("kind","delete").put("uri",languageURI("src/c.py"))))
    resources.prepare(current,"Delete while retaining draft",deletion);assertNotNull(resources.notice,resources.review);resources.apply(current);assertFalse(resources.notice,resources.hasPending);assertSame(buffer,current.currentBuffer);assertTrue(buffer.resourceDeleted);assertTrue(buffer.dirty);assertTrue(current.hasUnsavedChanges)
    engine.request("POST","/api/files/op",JSONObject().put("op","create").put("path","src/c.py"))
-   val reusedFile=FileNode("c.py","src/c.py",false,emptyList(),null,null);val empty=engine.file(reusedFile);val reusedHash=engine.save(reusedFile,"independent",empty.content,empty.hash);val reused=DocumentBuffer(reusedFile,FileText("independent",reusedHash));current.buffers["src/c.py"]=reused;current.refresh()
+   val reusedFile=FileNode("c.py","src/c.py",false,emptyList(),null,null);val empty=engine.file(reusedFile);engine.save(reusedFile,"independent",empty.content,empty.hash);val reused=DocumentBuffer(reusedFile,engine.file(reusedFile));current.buffers["src/c.py"]=reused;current.refresh()
    val deletedTab=current.active
    current.fileCommand="Save As";current.filePath="src/c.py";current.performFileCommand()
    assertTrue(current.status.contains("different unused path"));assertEquals(deletedTab,current.active);assertSame(buffer,current.currentBuffer);assertSame(reused,current.buffers["src/c.py"]);assertTrue(current.retainedResourceEditors.values.any{it===buffer});assertEquals("independent",folder.resolve("c.py").readText())

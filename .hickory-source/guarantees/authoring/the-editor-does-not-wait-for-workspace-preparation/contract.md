@@ -372,6 +372,9 @@ pub(super) fn editor_bootstrap(path: &str, method: &axum::http::Method) -> bool 
                     | "/api/files"
                     | "/api/projects"
                     | "/api/prediction/state"
+                    | "/api/source-history"
+                    | "/api/behavior/verification"
+                    | "/api/git/conflict-resolution/status"
                     | "/api/changes/resource-recovery"
                     | "/api/changes/resource-recoveries"
             ) | (
@@ -453,6 +456,9 @@ mod raw_source_tests {
             assert!(startup.result().is_none_or(|result| result.is_err()));
             for path in [
                 "/api/file",
+                "/api/source-history",
+                "/api/behavior/verification",
+                "/api/git/conflict-resolution/status",
                 "/api/changes/resource-recovery",
                 "/api/changes/resource-recoveries",
                 "/api/docs/source.md",
@@ -499,6 +505,13 @@ mod independent_capability_tests {
             assert!(startup.result().is_none_or(|result| result.is_err()));
             for path in [
                 "/api/tests/source-candidates",
+                "/api/source-history/restore-draft",
+                "/api/behavior/reading",
+                "/api/behavior/source",
+                "/api/behavior/profiles",
+                "/api/git/conflict-resolution/read",
+                "/api/git/conflict-resolution/prepare",
+                "/api/git/conflict-resolution/validate",
                 "/api/tests/debug-plan",
                 "/api/construction/reading",
                 "/api/changes/plan-resources",

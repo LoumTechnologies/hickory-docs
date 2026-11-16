@@ -354,6 +354,7 @@ pub async fn create_doc(
     State(state): State<LocalState>,
     Json(body): Json<NewDoc>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
+    state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?;
     if std::path::Path::new(&body.path).is_absolute() {
         let absolute = std::path::PathBuf::from(&body.path);
         if !absolute
@@ -368,7 +369,7 @@ pub async fn create_doc(
         std::fs::create_dir_all(parent).map_err(|e| {
             ApiError::internal(format!("could not create {}: {e}", parent.display()))
         })?;
-        create_new::write(&absolute, &body.source)?;
+        super::source_history::write_observed(state.index.root(),&absolute,&body.source,None,None,||{state.resource_root.check(state.index.root())?;create_new::write_observed(&absolute,&body.source).map_err(|error|error.detail().to_string())}).map_err(ApiError::conflict)?;
         // Naming an unnamed buffer keeps it in this window, including when
         // the Save dialog chooses a file outside the workspace.
         let rel = absolute
@@ -386,7 +387,7 @@ pub async fn create_doc(
         ));
     }
     let (rel, absolute) = new_doc_target(&state, &body.path)?;
-    create_new::write(&absolute, &body.source)?;
+    super::source_history::write_observed(state.index.root(),&absolute,&body.source,None,None,||{state.resource_root.check(state.index.root())?;create_new::write_observed(&absolute,&body.source).map_err(|error|error.detail().to_string())}).map_err(ApiError::conflict)?;
 
     let id = state.index.add(&rel);
     Ok((
@@ -400,6 +401,10 @@ pub async fn create_doc(
     ))
 }
 
+
+/// Preserve the original no-clobber creator for both document and plain-source
+/// history entrypoints; callers still own target, room and workspace admission.
+pub(super) fn create_source_observed(path:&std::path::Path,source:&str)->ApiResult<String>{create_new::write_observed(path,source)}
 </storycode:copy>
 <a id="f-e71b04ae5298-NewDoc"></a>
 ### `NewDoc`
@@ -486,11 +491,15 @@ fn doc_json(state: &LocalState, id: &str) -> ApiResult<Value> {
         .path_of(id)
         .ok_or_else(|| ApiError::not_found(format!("no document {id} under the served directory")))?
         .to_string();
-    let source = state.read_source(id)?;
+    let full=state.index.absolute(id).ok_or_else(||ApiError::not_found("Source document is unavailable."))?;
+    let observed=super::source_history::read_for_api(state,&full,&path).map_err(ApiError::internal)?;
+    let source=observed.source;
     Ok(json!({
         "id": id,
         "path": path,
         "source": source,
+        "save_guard":observed.save_guard,
+        "save_guard_reason":observed.save_guard_reason,
         "updated_at": modified_at(state, id),
     }))
 }
@@ -513,13 +522,19 @@ pub async fn get_doc(
 ### `SaveDoc`
 
 <storycode:copy id="f-e71b04ae5298-SaveDoc">
-#[derive(Deserialize)]
+#[derive(Deserialize,serde::Serialize)]
 pub struct SaveDoc {
+    #[serde(default)]
+    pub version:Option<u32>,
+    #[serde(default)]
+    pub save_guard:Option<String>,
     pub source: String,
     pub expected: Option<SaveDocExpected>,
+    #[serde(default)]
+    pub request_id: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize,serde::Serialize)]
 pub struct SaveDocExpected {
     pub source: String,
     pub disk: String,
@@ -545,6 +560,10 @@ pub async fn put_doc(
     Path(id): Path<String>,
     Json(body): Json<SaveDoc>,
 ) -> ApiResult<Json<Value>> {
+    state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?;
+    let intent=super::workspace_fs::view::hash(&serde_json::to_vec(&("PUT",format!("/api/docs/{id}"),&body)).map_err(|e|ApiError::internal(e.to_string()))?);
+    let path=state.index.absolute(&id).ok_or_else(||ApiError::not_found("Source document is no longer available."))?;
+    if super::source_history::replay(state.index.root(),&path,&body.source,body.request_id.as_deref(),body.request_id.as_ref().map(|_|intent.as_str())).map_err(ApiError::conflict)?{return Ok(Json(doc_json(&state,&id)?))}
     if let Some(expected) = body.expected {
         return crate::engine::writes::during(&state.writes, async {
             let replaced = state
@@ -558,7 +577,7 @@ pub async fn put_doc(
                         "The file changed again on disk; review it before reloading or merging"
                     );
                     state
-                        .write_source(&id, &body.source)
+                        .write_source_request(&id, &body.source,body.request_id.as_deref(),body.request_id.as_ref().map(|_|intent.as_str()))
                         .map_err(|error| anyhow::anyhow!(error.detail().to_string()))
                 })
                 .await
@@ -572,12 +591,42 @@ pub async fn put_doc(
         })
         .await;
     }
-    state.write_source(&id, &body.source)?;
+    state.write_source_request(&id, &body.source,body.request_id.as_deref(),body.request_id.as_ref().map(|_|intent.as_str()))?;
     // A room holding the pre-save text would write it straight back over this
     // on its next debounce.
     state.rooms.apply_external_source(&id, &body.source).await;
     Ok(Json(doc_json(&state, &id)?))
 }
+/// A protocol-specific route cannot be mistaken for an older unguarded daemon.
+pub async fn put_doc_guarded(State(state):State<LocalState>,Path(id):Path<String>,Json(body):Json<SaveDoc>)->ApiResult<Json<Value>>{
+ let writes=state.writes.clone();crate::engine::writes::during(&writes,async{
+ state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?;
+ if body.version!=Some(1)||body.request_id.is_none()||body.save_guard.is_none()||body.expected.is_none(){return Err(ApiError::conflict("Guarded document saves require protocol 1, captured source/disk baselines, a physical guard and request identity."))}
+ let path=state.index.absolute(&id).ok_or_else(||ApiError::not_found("Source document is unavailable."))?;
+ let declared=state.index.path_of(&id).ok_or_else(||ApiError::not_found("Source address is unavailable."))?;
+ super::source_history::writable_source(&state,&path,&declared).map_err(ApiError::conflict)?;
+ let intent=super::workspace_fs::view::hash(&serde_json::to_vec(&("PUT",format!("/api/source-history/docs/{id}"),&body)).map_err(|e|ApiError::internal(e.to_string()))?);
+ let request=body.request_id.as_deref().unwrap();let guard=body.save_guard.as_deref().unwrap();
+ if !super::source_history::replay(state.index.root(),&path,&body.source,Some(request),Some(&intent)).map_err(ApiError::conflict)?{
+  super::source_history::validate_guard(&state,&path,&declared,guard).map_err(ApiError::conflict)?;
+  let expected=body.expected.as_ref().unwrap();
+  let replaced=state.rooms.replace_source_if_current(&id,&expected.source,&body.source,||{
+   state.resource_root.check(state.index.root()).map_err(anyhow::Error::msg)?;
+   anyhow::ensure!(state.read_source(&id).map_err(|e|anyhow::anyhow!(e.detail().to_string()))?==expected.disk,"Disk source changed after its captured baseline");
+   super::source_history::write_observed(state.index.root(),&path,&body.source,Some(request),Some(&intent),||{
+    super::source_history::validate_guard(&state,&path,&declared,guard)?;
+    crate::history::record(state.index.root(),hickory_workspace::history::ActKind::Saved,None,&[(path.clone(),body.source.as_bytes().to_vec())]);
+    super::store::write_document_observed(&path,&body.source).map_err(|e|e.to_string())
+   }).map_err(anyhow::Error::msg)
+  }).await.map_err(ApiError::from)?;
+  if !replaced{return Err(ApiError::conflict("The live source changed; its newer edits were retained."))}
+ }
+ let token=super::source_history::guard_for_result(&state,&path,&declared,&body.source,request,&intent).map_err(ApiError::conflict)?;
+ let source_hash=super::workspace_fs::view::hash(body.source.as_bytes());
+ Ok(Json(json!({"version":1,"history_protocol":1,"id":id,"path":declared,"source":body.source,"request_id":request,"source_hash":source_hash,"save_guard":token,"history":{"available":true,"outcome":"published","id":request}})))
+ }).await
+}
+
 </storycode:copy>
 <a id="f-e71b04ae5298-elements"></a>
 ### `elements`
@@ -787,6 +836,7 @@ pub async fn files(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
         .unwrap_or_else(|| "hick".to_string());
     let root = state.index.root().to_path_buf();
     let root_path = root.canonicalize().unwrap_or_else(|_| root.clone());
+    let workspace_id=state.resource_root.check(&root).ok();
     let index = state.index.clone();
     // Walking a working tree is filesystem work; keep it off the runtime.
     let (mut tree, truncated) = if state.folder_open {
@@ -810,6 +860,7 @@ pub async fn files(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
         // context menu needs to say "copy the absolute path" and "reveal in
         // Finder" without guessing which machine it is running on.
         "root_path": root_path.to_string_lossy(),
+        "workspace_id":workspace_id,
         "separator": std::path::MAIN_SEPARATOR_STR,
         "file_manager": super::reveal::file_manager_name(),
         "tree": tree,

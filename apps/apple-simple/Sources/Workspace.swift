@@ -10,6 +10,11 @@ import Observation
     var resourceDeleted = false
     // Source equality alone must not revive a preview after edit/undo.
     var sourceEditIdentity=UUID()
+    @ObservationIgnored var saveHistoryAttempt:SourceSaveAttempt?
+    @ObservationIgnored var creationAttempt:SourceCreationAttempt?
+    var savedGuard:String?
+    var saveGuardReason:String?
+    var savedHistoryNotice=""
     private var sourceValue:ExactSourceText {
         didSet {let changed = !exactUTF8(text,base);if dirty != changed {dirty=changed};if sourceValue != oldValue {sourceEditIdentity=UUID();snippets.sourceChanged(text);language?.changed();refreshInline()}}
     }
@@ -173,14 +178,18 @@ import Observation
     private(set) var dirty = false
     var readOnly: Bool { resourceDeleted || file.generated_by != nil }
     init(file: FileNode, text: FileText) {
-        self.file = file; self.sourceValue = ExactSourceText(text.content); base = text.content; hash = text.hash; refreshInline()
+        self.file = file; self.sourceValue = ExactSourceText(text.content); base = text.content; hash = text.hash;savedGuard=text.save_guard;saveGuardReason=text.save_guard_reason; refreshInline()
     }
     func save(using engine: Engine) async {
         guard !resourceDeleted, dirty, !saving, !readOnly else { return }
+        if let editor=sourceEditorState?(),editor.composing || (editor.attached && !exactUTF8(editor.source,text)){error="Finish source composition before saving. Your draft is retained.";return}
+        guard let guardToken=savedGuard else{error=saveGuardReason ?? "This source has no captured physical save guard. Its text remains editable; reopen or compare the exact file before saving.";return}
         let submitted = text, previous = base, previousHash = hash
+        let attempt=saveHistoryAttempt.flatMap{$0.matches(source:submitted,base:previous,hash:previousHash,guardToken:guardToken,revision:sourceEditIdentity) ? $0:nil} ?? SourceSaveAttempt(source:submitted,base:previous,hash:previousHash,guardToken:guardToken,revision:sourceEditIdentity)
+        saveHistoryAttempt=attempt
         saving = true; error = ""
         defer { saving = false }
-        do { hash = try await engine.save(self, text: submitted, base: previous, hash: previousHash); base = submitted }
+        do { hash = try await engine.saveSourceWithHistory(self,text:submitted,base:previous,hash:previousHash,requestID:attempt.id,guardToken:guardToken);base=submitted;saveHistoryAttempt=nil }
         catch { self.error = "\(error.localizedDescription) Your edits are retained. Copy them before closing; compare with disk before retrying." }
     }
 }
@@ -209,6 +218,9 @@ import Observation
     var analysis = WorkspaceAnalysis()
     var sourceTestIndex:SourceTestIndex?
     var sourceTemplates=SourceTemplatesModel()
+    var sourceHistory=SourceHistoryModel()
+    var sourceRootAddress:String?
+    var sourceWorkspaceID:String?
     var testSources=TestSourcesModel()
     var coverage=SimpleCoverageState();var showCoverage=false
     var showTests=false {didSet{if !showTests{testSources.closeDebugPreparation(self)}}}
@@ -315,12 +327,25 @@ import Observation
             guard let path=route.to,let entry=files[Data(path.utf8)] else{buffer.resourceDeleted=true;retainedResourceEditors[route.identity]=buffer;continue}
             let before=buffer.text
             if !edits.isEmpty {buffer.text=route.after!;_ = buffer.reflectWorkspaceEdits?(edits,before,route.after!)}
-            buffer.file=entry.file;buffer.base=entry.saved.text!;buffer.hash=entry.hash;buffer.resourceDeleted=false;buffer.error=""
+            buffer.file=entry.file;buffer.base=entry.saved.text!;buffer.hash=entry.hash;buffer.savedGuard=entry.save_guard;buffer.saveGuardReason=entry.save_guard==nil ? "Resource publication did not provide a physical save guard. Preserve the draft and read the exact saved source before another ordinary Save.":nil;buffer.saveHistoryAttempt=nil;buffer.resourceDeleted=false;buffer.error=""
             buffers[path]=buffer;retainedResourceEditors = retainedResourceEditors.filter{$0.value !== buffer}
             _ = retainBuffer(entry.file,text:FileText(path:path,content:route.after!,hash:entry.hash),engine:engine,existing:buffer)
         }
         layout=adoptedLayout
         return routes
+    }
+    func adoptCreatedSource(_ source:DocumentBuffer,file:FileNode,text:FileText,engine:Engine)throws->DocumentBuffer {
+        guard buffers[file.path]==nil,exactUTF8(source.text,text.content) else{throw EngineError(message:"Creation editor changed before adoption. Preserve its source and inspect the confirmed destination.")}
+        let old=source.file.path,from=buffers[old] === source ? old:retainedResourceTab(source)
+        let adopted=try layout.remappingTabs([Data(from.utf8):file.path])
+        debugger?.resourceNamespaceChanged([ResourceEditorRoute(identity:source.id.uuidString,from:source.resourceDeleted ? nil:old,to:file.path,before:source.text,after:source.text,editor:source)])
+        sourceHistory.close();generation=UUID();loading.values.forEach{$0.cancel()};loading=[:]
+        source.language?.close();source.language=nil
+        if buffers[old] === source{buffers.removeValue(forKey:old)}
+        retainedResourceEditors=retainedResourceEditors.filter{$0.value !== source}
+        source.file=file;source.base=text.content;source.hash=text.hash;source.savedGuard=text.save_guard;source.saveGuardReason=nil;source.resourceDeleted=false;source.saveHistoryAttempt=nil;source.creationAttempt=nil;source.error=""
+        _ = retainBuffer(file,text:text,engine:engine,existing:source);layout=adopted
+        return source
     }
 
     var status = "Connect to a Hickory workspace server"
@@ -350,9 +375,9 @@ import Observation
             debugger?.close()
             for buffer in buffers.values { buffer.language?.close() }
             languageConnection?.close();languageConnection=nil
-            sourceTemplates.close();analysis.stop(); analysis=WorkspaceAnalysis(); showAnalysis=false; showEverywhere=false;showTests=false;showReview=false;showHistory=false;showAttribution=false;showConstruction=false;showRecovery=false;gitAttribution.close();gitAttribution=GitAttributionModel(path:"");gitHistory.close();gitHistory=GitHistoryModel();gitReview.close();gitReview=GitReviewModel();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=nil
+            sourceHistory.close();sourceRootAddress=nil;sourceWorkspaceID=nil;sourceTemplates.close();analysis.stop(); analysis=WorkspaceAnalysis(); showAnalysis=false; showEverywhere=false;showTests=false;showReview=false;showHistory=false;showAttribution=false;showConstruction=false;showRecovery=false;gitAttribution.close();gitAttribution=GitAttributionModel(path:"");gitHistory.close();gitHistory=GitHistoryModel();gitReview.close();gitReview=GitReviewModel();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=nil
             generation = UUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; debugger = NativeDebugger(engine: next)
-            if let debug=debugger {debug.sourceBuffers={ [weak self] in guard let self else{return []};return Array(self.buffers.values)+Array(self.retainedResourceEditors.values)};debug.onLocation={ [weak self,weak debug] location in guard let self,let debug else{return};let scope=self.generation;Task {[weak self,weak debug] in guard let self,let debug,self.generation==scope else{return};await self.revealDebug(location,debug:debug)}}}; files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); retainedResourceEditors = [:]; buffers = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
+            if let debug=debugger {debug.sourceBuffers={ [weak self] in guard let self else{return []};return Array(self.buffers.values)+Array(self.retainedResourceEditors.values)};debug.onLocation={ [weak self,weak debug] location in guard let self,let debug else{return};let scope=self.generation;Task {[weak self,weak debug] in guard let self,let debug,self.generation==scope else{return};await self.revealDebug(location,debug:debug)}}}; sourceRootAddress=tree.root_path;sourceWorkspaceID=tree.workspace_id;files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); retainedResourceEditors = [:]; buffers = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
             layout = PaneLayout(); focused = "document-group"; status = tree.root
             return true
         } catch { status = error.localizedDescription; return false }
@@ -360,7 +385,7 @@ import Observation
     func refresh() async {
         guard let engine else { return }
         let current = generation
-        do { let tree = try await engine.files(); if current == generation { files = tree.tree; rootFiles = tree.tree; status = tree.root } }
+        do { let tree = try await engine.files(); if current == generation { sourceRootAddress=tree.root_path;sourceWorkspaceID=tree.workspace_id;files = tree.tree; rootFiles = tree.tree; status = tree.root } }
         catch { if current == generation { status = error.localizedDescription } }
     }
     func loadBuffer(_ file: FileNode) async throws -> DocumentBuffer {
@@ -378,7 +403,7 @@ import Observation
         defer { if generation == current { loading.removeValue(forKey:file.path) } }
         return try await pending.value
     }
-    private func retainBuffer(_ file: FileNode, text: FileText, engine: Engine, existing:DocumentBuffer?=nil) -> DocumentBuffer {
+    func retainBuffer(_ file: FileNode, text: FileText, engine: Engine, existing:DocumentBuffer?=nil) -> DocumentBuffer {
         let buffer = existing ?? DocumentBuffer(file: file, text: text)
         buffers[file.path] = buffer
         buffer.openDiagramFile = { [weak self, weak buffer] href in
@@ -501,7 +526,7 @@ import Observation
         if let buffer = bufferForTab(tab), buffer.dirty || buffer.saving {
             status = "Unsaved edits retained. Save this document before closing its tab."; return
         }
-        if let buffer=bufferForTab(tab){sourceTemplates.sourceClosed(buffer);testSources.sourceClosed(buffer,workspace:self)}
+        if let buffer=bufferForTab(tab){sourceHistory.sourceClosed(buffer);sourceTemplates.sourceClosed(buffer);testSources.sourceClosed(buffer,workspace:self)}
         layout.remove(tab)
         if !layout.groups().contains(where: { $0.id == focused }) { focused = layout.groups()[0].id }
     }
@@ -540,32 +565,9 @@ import Observation
             if exactUTF8(path,source.file.path),!source.resourceDeleted { await source.save(using: engine); return }
             let submitted = source.text
             source.saving = true; defer { source.saving = false }
-            func finish() {
-                if exactUTF8(source.text,submitted) {
-                    if buffers[source.file.path] === source {layout.remove(source.file.path);buffers.removeValue(forKey:source.file.path)}
-                    else if source.resourceDeleted {layout.remove(retainedResourceTab(source));retainedResourceEditors=retainedResourceEditors.filter{$0.value !== source}}
-                }
-            }
             do {
-                struct Created: Decodable { var path: String }
-                if path.lowercased().hasSuffix(".md") {
-                    let _: SavedDocument = try await engine.request("POST", "/api/projects/local/docs", body: ["path": path, "source": submitted])
-                    await refresh()
-                    func created(_ nodes: [FileNode]) -> FileNode? {
-                        for node in nodes { if node.path == path { return node }; if let found = created(node.children ?? []) { return found } }; return nil
-                    }
-                    if let file = created(files) { await open(file); finish() }
-                    source.saving = false
-                    if savingAll { await saveAll() }; return
-                }
-                let _: Created = try await engine.request("POST", "/api/files/op", body: ["op": "create", "path": path])
-                let file = FileNode(name: (path as NSString).lastPathComponent, path: path, dir: false)
-                let empty = try await engine.file(file)
-                guard empty.content.isEmpty else { status = "Destination changed after creation. Original edits retained."; return }
-                let copy = DocumentBuffer(file: file, text: empty); copy.text = submitted
-                await copy.save(using: engine)
-                guard copy.error.isEmpty else { status = copy.error; return }
-                await open(file); finish(); await refresh()
+                let created=try await createSourceCopy(source,path:path)
+                show(created.file.path);await refresh()
                 source.saving = false
                 if savingAll { await saveAll() }
             } catch { status = "\(error.localizedDescription) Original edits are retained. Choose an unused path and retry Save As." }

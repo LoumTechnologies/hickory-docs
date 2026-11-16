@@ -31,8 +31,9 @@ import { WorkspaceChanges, requestWorkspaceChange } from "./WorkspaceChanges";
 import { WorkspaceAnalysisView, requestWorkspaceAnalysis } from "./WorkspaceAnalysisView";
 import { WorkspaceSearch } from "./WorkspaceSearch";
 import {SourceRecoveryView} from "./SourceRecovery";
+import {SourceHistoryView} from "./SourceHistoryView";
 import {WorkspaceChangeHistory} from "./ChangePlan";
-import {resourceLayout,RetainedResourceTabs,retireCopiedBuffer,type ResourceEditorRoute} from "./ResourceEditors";
+import {captureResourceRoster,resourceLayout,RetainedResourceTabs,retireCopiedBuffer,type ResourceEditorRoute} from "./ResourceEditors";
 import {ConstructionReadingView,constructionPointOffset} from "./ConstructionReading";
 import {GitAttributionView} from "./GitAttribution";
 import {GitHistoryView,type GitHistoryRequest} from "./GitHistory";
@@ -45,11 +46,11 @@ import { utf16ToPosition } from "../lsp/positions";
 import { editorForBuffer } from "./Document";
 import { TooltipLayer } from "../components/TooltipLayer";
 import { useEffect, useRef, useState } from "react";
-import { api } from "../api/client";
+import { api,request } from "../api/client";
 import { PlainDebugHosts,hasActivePlainDebugSession,retirePlainDebugIdentity } from "../debug/plainDebugHosts";
 import { onOpenLocation, openLocation, revealLine } from "../lib/revealLine";
 import type { FileNode } from "../api/types";
-import { Buffer, Buffers } from "./buffers";
+import { Buffer, Buffers, createSourceCopy } from "./buffers";
 import { RichOwners } from "./RichInline";
 import { enterMode, type EnterMode } from "./SmartEnter";
 import { Document, semanticQueries, openSemanticQuery, openFind, wordNavigationMode, type WordNavigationMode } from "./Document";
@@ -93,6 +94,7 @@ export function App() {
   const [showConstruction,setShowConstruction]=useState(false);
   const [showReview,setShowReview]=useState(false);
   const [attributionPath,setAttributionPath]=useState<string|null>(null);
+  const [showSourceHistory,setShowSourceHistory]=useState(false);
   const [showHistory,setShowHistory]=useState(false),[historyRequest,setHistoryRequest]=useState<GitHistoryRequest>({kind:'log',path:null});
   const [testInspection,setTestInspection]=useState<SourceTestInspection|null>(null);
   const [workspaceRoot,setWorkspaceRoot]=useState("");
@@ -131,24 +133,21 @@ export function App() {
     const path = window.prompt("Save As — new path in this workspace", source.file.path.startsWith("Untitled-") ? "" : source.file.path);
     if (!path) return;
     if (path === source.file.path) { if(source.resourceDeleted)setNotice("This source was deleted. Choose a new unused path to save its retained text.");else await source.save(); return; }
-    const text = source.text; source.saving = true; source.publish();
+    const text = source.text,editor=editorForBuffer(source),interaction=editor?.interaction,placement=liveLayout.current;
+    const current=()=>liveLayout.current===placement&&!!editor&&editorForBuffer(source)===editor&&editor.view.dom.isConnected&&!editor.view.composing&&editor.interaction===interaction&&editor.view.state.doc.toString()===text;
+    source.saving = true; source.publish();
     try {
-      if (/\.md$/i.test(path)) await api.createDoc("local", path, text);
-      else {
-        await api.fileOp({ op: "create", path });
-        const empty = await api.file(path);
-        if (empty.content !== "") throw new Error("Destination changed after creation");
-        await api.saveFile(path, text, empty.hash);
-      }
-      await loadFiles();
-      const opened = await api.openFile(path);
-      await open({ name: path.split("/").at(-1)!, path, dir: false, doc_id: opened.doc_id });
-      if (source.text === text) {
-        if(hasActivePlainDebugSession(source)){retainedTabs.noteCopy(source,text);setNotice("Copy saved. The original launch source remains readable until you stop or close its debugger tab.");}
+      const copy=await createSourceCopy(buffers,source,path,request,current);
+      await open(copy.file);
+      // Existing sources keep their editor, selection and undo. A deleted or
+      // unnamed tombstone can retire only after its exact text was copied.
+      if(source.resourceDeleted||source.file.path.startsWith("Untitled-")){
+        if(hasActivePlainDebugSession(source)){retainedTabs.noteCopy(source,text);setNotice("Copy saved. The original launch source remains readable until its debugger closes.");}
         else {const tabs=groups(liveLayout.current).flatMap(group=>group.tabs).filter(tab=>bufferForTab(tab)===source);if(retireCopiedBuffer(buffers,source,text)){retirePlainDebugIdentity(source);retainedTabs.retire(source);setLayout(current=>tabs.reduce((next,tab)=>remove(next,tab),current));}}
       }
+      void loadFiles();
 
-    } catch (error) { setNotice(`${String(error)} Original edits are retained. Choose a new unused path and retry Save As.`); }
+    } catch (error) { setNotice(`${String(error)} Original edits and the exact copy request are retained. Inspect local history before changing the destination; retry only while the captured editors remain current.`); }
     finally { source.saving = false; source.publish(); refresh(value => value + 1); }
   }
   async function saveCurrent() { if (buffer?.file.path.startsWith("Untitled-")) await saveAs(); else await buffer?.save(); }
@@ -159,7 +158,7 @@ export function App() {
     }
   }
   async function loadFiles() {
-    try { const response = await api.files(); buffers.workspace=response.root_path??"";setTree(response.tree); setWorkspaceFiles(response.tree); setWorkspaceRoot(response.root); setStatus(response.root); }
+    try { const response = await api.files(); buffers.workspace=response.root_path??"";buffers.workspaceId=response.workspace_id??"";setTree(response.tree); setWorkspaceFiles(response.tree); setWorkspaceRoot(response.root); setStatus(response.root); }
     catch (error) { setNotice(`${String(error)} Start the Hickory backend, then choose Refresh files.`); }
   }
   useEffect(() => { void loadFiles(); }, []);
@@ -323,7 +322,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
     "file.save":()=>{void saveCurrent();},"file.saveAs":()=>{void saveAs();},"file.saveAll":()=>{void saveAll();},"file.refresh":()=>{void loadFiles();},"file.close":()=>{if(active)close(active);},
     "shell.search":()=>setShowEverywhere(true),"edit.find":()=>{if(buffer)openFind(buffer);},"workspace.find":()=>setShowWorkspaceSearch(true),
     "symbol.rename":()=>requestWorkspaceChange("rename"),"symbol.actions":()=>requestWorkspaceChange("actions"),"document.format":()=>requestWorkspaceChange("format"),"document.cleanup":()=>requestWorkspaceChange("cleanup"),"workspace.undo":()=>requestWorkspaceChange("undo"),"workspace.redo":()=>requestWorkspaceChange("redo"),
-    "document.attribution":()=>{if(buffer){setShowReview(false);setShowHistory(false);setAttributionPath(buffer.file.path);}},"workspace.review":()=>{setAttributionPath(null);setShowHistory(false);setShowReview(true);},"workspace.history":()=>{setAttributionPath(null);setHistoryRequest({kind:'log',path:null});setShowReview(false);setShowHistory(true);},"document.history":()=>{setAttributionPath(null);setHistoryRequest({kind:'log',path:buffer?.file.path??null});setShowReview(false);setShowHistory(true);},"workspace.coverage":()=>setShowCoverage(true),"workspace.recovery":()=>setShowRecovery(true),"workspace.construction":()=>setShowConstruction(true),"workspace.tests":()=>setShowTests(true),"source.templates":()=>setShowTemplates(true),"workspace.problems":()=>setShowProblems(true),"workspace.analysis":requestWorkspaceAnalysis,"problem.next":()=>requestProblemNavigation(1),"problem.previous":()=>requestProblemNavigation(-1),"navigation.back":()=>navigateHistory(-1),"navigation.forward":()=>navigateHistory(1),
+    "document.attribution":()=>{if(buffer){setShowReview(false);setShowHistory(false);setAttributionPath(buffer.file.path);}},"workspace.review":()=>{setAttributionPath(null);setShowHistory(false);setShowReview(true);},"workspace.history":()=>{setAttributionPath(null);setHistoryRequest({kind:'log',path:null});setShowReview(false);setShowHistory(true);},"document.history":()=>{setAttributionPath(null);setHistoryRequest({kind:'log',path:buffer?.file.path??null});setShowReview(false);setShowHistory(true);},"workspace.coverage":()=>setShowCoverage(true),"workspace.recovery":()=>setShowRecovery(true),"workspace.construction":()=>setShowConstruction(true),"workspace.tests":()=>setShowTests(true),"source.templates":()=>setShowTemplates(true),"source.history":()=>setShowSourceHistory(true),"workspace.problems":()=>setShowProblems(true),"workspace.analysis":requestWorkspaceAnalysis,"problem.next":()=>requestProblemNavigation(1),"problem.previous":()=>requestProblemNavigation(-1),"navigation.back":()=>navigateHistory(-1),"navigation.forward":()=>navigateHistory(1),
     "view.files":()=>openTab("files"),"view.agent":()=>openTab("agent"),"view.terminal":()=>{void openTerminal();},"view.splitRight":()=>divide("horizontal"),"view.splitBelow":()=>divide("vertical"),"view.move":nextGroup,
   };
   for(const query of semanticQueries)handlers[`semantic.${query.kind}`]=()=>{if(buffer){const text=query.kind==="symbols"?window.prompt("Search workspace symbols",""):"";if(text!==null)openSemanticQuery(buffer,query.kind,text);}};
@@ -372,12 +371,13 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
     <SearchEverywhereView visible={showEverywhere} setVisible={setShowEverywhere} buffers={buffers} files={workspaceFiles} analysis={analysis} commands={commands} openFile={path=>{const file=buffers.values.get(path)?.file??findPath(path);if(file)void openFileVisit(file);else setNotice("File no longer listed. Refresh the workspace.");}} focusCurrent={()=>{if(buffer)editorForBuffer(buffer)?.view.focus();}} />
     <WorkspaceChanges history={changeHistory} adoptResources={routes=>{requested.current.clear();const next=resourceLayout(liveLayout.current,retainedTabs.routes(routes,hasActivePlainDebugSession),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();}} files={workspaceFiles} buffers={buffers} current={() => buffer} focus={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />
     <WorkspaceSearch visible={showWorkspaceSearch} close={() => { setShowWorkspaceSearch(false); if (buffer) editorForBuffer(buffer)?.view.focus(); }} buffers={buffers} files={workspaceFiles} />
+    {showSourceHistory&&buffer&&<SourceHistoryView key={buffers.workspace+":"+buffer.file.path} buffer={buffer} buffers={buffers} history={changeHistory} alive={()=>workspaceIdentity.current===workspaceRoot} close={()=>{setShowSourceHistory(false);editorForBuffer(buffer)?.view.focus();}} />}
     {showRecovery&&<SourceRecoveryView key={"recovery:"+workspaceRoot} buffers={buffers} epoch={()=>changeHistory.stamp()} alive={()=>workspaceIdentity.current===workspaceRoot} acquire={async path=>{
       const identity=workspaceIdentity.current,response=await api.files();if(workspaceIdentity.current!==identity||response.root!==identity)throw new Error("Workspace changed. Read recovery again.");
       const find=(nodes:FileNode[]):FileNode|undefined=>{for(const file of nodes){if(file.path===path&&!file.dir)return file;const nested=find(file.children??[]);if(nested)return nested;}};
       const file=buffers.values.get(path)?.file??find(response.tree);if(!file)throw new Error("Recovery source is not available in the current workspace: "+path);return await buffers.open(file);
     }} adopt={(routes:ResourceEditorRoute<Buffer>[],recovery:string)=>{changeHistory.record({kind:"resource",recovery});requested.current.clear();const next=resourceLayout(liveLayout.current,retainedTabs.routes(routes,hasActivePlainDebugSession),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();setNotice("Source restoration confirmed; saved baselines and drafts are retained separately.");}} close={()=>{setShowRecovery(false);if(buffer)editorForBuffer(buffer)?.view.focus();}}/>}
-    {showConstruction&&<ConstructionReadingView key={"construction:"+workspaceRoot} sources={()=>Object.fromEntries([...buffers.values].filter(([,item])=>!item.readonly).map(([path,item])=>[path,item.text]))} navigate={async(point,current)=>{
+    {showConstruction&&<ConstructionReadingView key={"construction:"+workspaceRoot} workspace={buffers.workspace} engineWorkspace={buffers.workspaceId} capture={()=>{const namespace=buffers.workspace,engine=buffers.workspaceId;try{const roster=captureResourceRoster(buffers);return ()=>!!namespace&&buffers.workspace===namespace&&buffers.workspaceId===engine&&workspaceIdentity.current===workspaceRoot&&roster.current();}catch{return ()=>false;}}} terminal={id=>{terminal.id=id;terminal.error="";terminal.publish();openTab("terminal");setShowConstruction(false);}} sources={()=>Object.fromEntries([...buffers.values].filter(([,item])=>!item.readonly).map(([path,item])=>[path,item.text]))} navigate={async(point,current)=>{
       const identity=workspaceIdentity.current,file=buffers.values.get(point.path)?.file??findPath(point.path);if(!file)throw new Error("Source no longer listed. Refresh the construction reading.");
       const target=await buffers.open(file),source=target.text;
       const hash=[...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(source)))].map(byte=>byte.toString(16).padStart(2,"0")).join("");
@@ -389,7 +389,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
     }} close={()=>{setShowConstruction(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />}
     {attributionPath!==null&&<GitAttributionView key={"attribution:"+workspaceRoot} workspace={workspaceRoot} path={attributionPath} close={()=>{setAttributionPath(null);if(buffer)editorForBuffer(buffer)?.view.focus();}} readCommit={(sha,title)=>{setAttributionPath(null);setShowReview(false);setHistoryRequest({kind:'commit',sha,title});setShowHistory(true);}} />}
     <GitHistoryView key={"history:"+workspaceRoot} workspace={workspaceRoot} visible={showHistory} request={historyRequest} close={()=>{setShowHistory(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
-    <GitReviewView key={workspaceRoot} workspace={workspaceRoot} acquire={async path=>{const scope=workspaceRoot;if(workspaceIdentity.current!==scope)throw new Error("Workspace changed. Prepare the conflict again.");const file=buffers.values.get(path)?.file??findPath(path);if(!file||file.dir)throw new Error("Conflict source is no longer listed. Refresh files and try again.");const target=await buffers.open(file);if(workspaceIdentity.current!==scope)throw new Error("Workspace changed. Prepare the conflict again.");return target;}} visible={showReview} close={()=>{setShowReview(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
+    <GitReviewView key={workspaceRoot} workspace={workspaceRoot} buffers={buffers} history={changeHistory} alive={()=>workspaceIdentity.current===workspaceRoot} adopt={routes=>{requested.current.clear();const next=resourceLayout(liveLayout.current,retainedTabs.routes(routes,hasActivePlainDebugSession),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();}} acquire={async path=>{const scope=workspaceRoot;if(workspaceIdentity.current!==scope)throw new Error("Workspace changed. Prepare the conflict again.");const file=buffers.values.get(path)?.file??findPath(path);if(!file||file.dir)throw new Error("Conflict source is no longer listed. Refresh files and try again.");const target=await buffers.open(file);if(workspaceIdentity.current!==scope)throw new Error("Workspace changed. Prepare the conflict again.");return target;}} visible={showReview} close={()=>{setShowReview(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
     <footer role="status" title={[notice,buffer?.completionNotice].filter(Boolean).join(" · ")}><WorkspaceAnalysisView buffers={buffers} files={workspaceFiles} model={analysis} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} /><WorkspaceProblems buffers={buffers} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{notice ? `${notice} · ` : ""}{buffer?.completionNotice?`${buffer.completionNotice} · `:""}{buffer ? `${buffer.file.name} · ${buffer.resourceDeleted?"Deleted source · retained snapshot":buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
   </main></SourceCoverageProvider></SourceTestGutterProvider></SimpleLanguages>;
 }

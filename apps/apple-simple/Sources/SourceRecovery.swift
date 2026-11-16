@@ -58,14 +58,29 @@ struct ResourceWirePlan:Codable {var version:Int;var context:String;var title:St
  }
 }
 struct ResourceWireOwnership:Codable {var mode:String;var entry:String?;var protected_entries:[String];var saved_sources:[String:String];var draft_sources:[String:String]}
-struct ResourceWireInputs:Codable {var version:Int;var context:String;var workspace:String;var ownership:ResourceWireOwnership;var sources:[String:ResourceWireSource];var saved_sources:[String:ResourceSaved];var refusals:[String:String];var source_files_modified:Bool}
-struct ResourceWireDraft:Codable {var text:String;var base_sha256:String;var version:Int?;var writable:Bool}
-struct ResourceWireCapture:Codable {var context:String;var edit:ResourceJSON;var drafts:[String:ResourceWireDraft];var project_entry:String?;var ownership_sources:[String:String]}
+struct ResourceWireInputs:Codable {var version:Int;var context:String;var workspace:String;var ownership:ResourceWireOwnership;var sources:[String:ResourceWireSource];var saved_sources:[String:ResourceSaved];var refusals:[String:String];var source_files_modified:Bool;var saved_guards:[String:String]?=nil}
+struct ResourceWireDraft:Codable {var text:String;var base_sha256:String;var version:Int?;var writable:Bool;var save_guard:String?=nil}
+struct ResourceWireCapture:Codable {var context:String;var edit:ResourceJSON;var drafts:[String:ResourceWireDraft];var project_entry:String?;var ownership_sources:[String:String];var unaddressed_sources:[String:String]=[:];var saved_guards:[String:String]=[:]}
 struct ResourceWireLayer:Decodable {var entries:[String];var removed_entries:[String];var source_hashes:[String:String];var output_paths:[String]}
 struct ResourceWireFacts:Decodable {var version:Int;var workspace:String;var context:String;var fingerprint:String;var saved:ResourceWireLayer;var draft:ResourceWireLayer;var protected_targets:[String];var source_files_modified:Bool;var saved_sources:[String:ResourceSaved]?}
 struct ResourceWireTargets:Decodable {var version:Int;var paths:[String]}
 struct ResourceWirePlanned:Decodable {var plan:ResourceWirePlan}
 struct ResourceWireProposal:Codable {var inputs:ResourceWireInputs;var capture:ResourceWireCapture;var plan:ResourceWirePlan}
+@MainActor func resourceOwnershipSnapshot(_ workspace:Workspace)throws->(named:[String:String],unaddressed:[String:String],guards:[String:String]) {
+ let all=Array(workspace.buffers.values)+Array(workspace.retainedResourceEditors.values),unique=Dictionary(grouping:all,by:{ObjectIdentifier($0)}).values.compactMap{$0.first};var named:[String:String]=[:],unaddressed:[String:String]=[:],guards:[String:String]=[:]
+ guard unique.count<=4096 else{throw EngineError(message:"Retained source roster exceeds the bounded resource review. Preserve sources and choose a smaller workspace scope.")};var cost=0
+ for buffer in unique where buffer.file.generated_by==nil {
+  let bytes=buffer.text.utf8.count;guard bytes<=8*1024*1024,bytes<=16*1024*1024-cost else{throw EngineError(message:"Retained sources exceed the bounded resource review text capacity. Preserve them and choose a smaller scope.")};cost+=bytes
+  if buffer.resourceDeleted||buffer.file.path.hasPrefix("Untitled-")||buffer.file.path.hasPrefix("/"){unaddressed[buffer.id.uuidString]=buffer.text;continue}
+  guard named[buffer.file.path]==nil else{throw EngineError(message:"Retained source names have ambiguous Unicode spellings; no source ownership was merged.")};named[buffer.file.path]=buffer.text;if let guardToken=buffer.savedGuard{guards[buffer.file.path]=guardToken}
+ }
+ return(named,unaddressed,guards)
+}
+@MainActor func captureRetainedSourceNamespace(_ workspace:Workspace)->()->Bool {
+ let epoch=workspace.sourceNavigationEpoch,engine=workspace.engine,all=Array(workspace.buffers.values)+Array(workspace.retainedResourceEditors.values),unique=Dictionary(grouping:all,by:{ObjectIdentifier($0)}).values.compactMap{$0.first}
+ let snapshots=unique.map{($0,ObjectIdentifier($0),$0.sourceEditIdentity,ExactSourceText($0.file.path),$0.sourceRevision,ExactSourceText($0.base),$0.savedGuard.map{ExactSourceText($0)},$0.readOnly,$0.resourceDeleted,$0.file.generated_by.map{ExactSourceText($0)})}
+ return{[weak workspace] in guard let workspace,workspace.sourceNavigationEpoch==epoch,workspace.engine?.origin==engine?.origin,workspace.engine?.session === engine?.session else{return false};let now=Set((Array(workspace.buffers.values)+Array(workspace.retainedResourceEditors.values)).map{ObjectIdentifier($0)});guard now==Set(snapshots.map{$0.1}) else{return false};return snapshots.allSatisfy{buffer,_,revision,path,text,base,guardToken,readonly,deleted,generated in buffer.sourceEditIdentity==revision&&ExactSourceText(buffer.file.path)==path&&buffer.sourceRevision==text&&ExactSourceText(buffer.base)==base&&buffer.savedGuard.map{ExactSourceText($0)}==guardToken&&buffer.readOnly==readonly&&buffer.resourceDeleted==deleted&&buffer.file.generated_by.map{ExactSourceText($0)}==generated && !buffer.saving}}
+}
 func isResourceWorkspaceEdit(_ raw:Any)->Bool {guard let value=raw as? [String:Any],let operations=value["documentChanges"] as? [[String:Any]] else{return false};return operations.contains{$0["kind"] != nil}}
 struct ResourceWireRestoreRequest:Codable {var recovery_id:String;var inputs:ResourceWireInputs;var capture:ResourceWireCapture}
 struct ResourceWireRestoration:Decodable {var version:Int;var recovery_id:String;var recovery_fingerprint:String;var workspace:String;var context:String;var plan:ResourceWirePlan;var saved_before:[String:ResourceSaved];var saved_after:[String:ResourceSaved]}
@@ -91,10 +106,7 @@ struct ResourceRestorationReview {
   return try JSONDecoder().decode(T.self,from:JSONEncoder().encode(value))
  }
  func cancel(){guard !hasPending else{return};ticket=UUID();review=nil;busy=false;notice=""}
- private func currentWorkspace(_ workspace:Workspace)->()->Bool {
-  let epoch=workspace.sourceNavigationEpoch,engine=workspace.engine?.origin,sources=workspace.buffers.map{($0.key,$0.value,$0.value.text,$0.value.base,$0.value.hash,$0.value.readOnly)}
-  return { [weak workspace] in guard let workspace,workspace.sourceNavigationEpoch==epoch,workspace.engine?.origin==engine,workspace.buffers.count==sources.count else{return false};return sources.allSatisfy{path,buffer,text,base,hash,readOnly in workspace.buffers[path] === buffer && exactUTF8(buffer.text,text) && exactUTF8(buffer.base,base) && exactUTF8(buffer.hash,hash) && buffer.readOnly==readOnly && !buffer.saving}}
- }
+ private func currentWorkspace(_ workspace:Workspace)->()->Bool {captureRetainedSourceNamespace(workspace)}
  func prepare(_ workspace:Workspace,record:RecoveryReading,history:ResourceHistoryIntent?=nil)async {
   guard !busy,!hasPending else{notice="Inspect the pending publication before preparing another restoration.";return}
   let id=UUID();ticket=id;busy=true;review=nil;notice="Acquiring current sources and construction ownership…";defer{if ticket==id{busy=false}}
@@ -112,12 +124,12 @@ struct ResourceRestorationReview {
    var edits:[String:ResourceJSON]=[:],drafts:[String:ResourceWireDraft]=[:]
    for item in record.paths {
     edits[languageURI(item.path)] = .array([])
-    if let buffer=workspace.buffers[item.path] {drafts[item.path]=ResourceWireDraft(text:buffer.text,base_sha256:nativeSourceHash(buffer.base),version:nil,writable:!buffer.readOnly && !buffer.saving)}
+    if let buffer=workspace.buffers[item.path] {drafts[item.path]=ResourceWireDraft(text:buffer.text,base_sha256:nativeSourceHash(buffer.base),version:nil,writable:!buffer.readOnly && !buffer.saving,save_guard:buffer.savedGuard)}
    }
-   let ownership=workspace.buffers.filter{!$0.value.readOnly && $0.key.lowercased().hasSuffix(".md")}.mapValues{$0.text}
-   let capture=ResourceWireCapture(context:context,edit:.object(["changes":.object(edits)]),drafts:drafts,project_entry:nil,ownership_sources:ownership)
+   let ownership=try resourceOwnershipSnapshot(workspace)
+   let capture=ResourceWireCapture(context:context,edit:.object(["changes":.object(edits)]),drafts:drafts,project_entry:nil,ownership_sources:ownership.named,unaddressed_sources:ownership.unaddressed,saved_guards:ownership.guards)
    let inputs:ResourceWireInputs=try await call(workspace,"POST","/api/changes/resource-inputs",resourceBody(capture))
-   guard ticket==id,captured(),inputs.version==1,inputs.context==context,inputs.workspace==record.workspace,inputs.refusals.isEmpty else{throw EngineError(message:"Current source, ownership or workspace changed. Refresh and prepare restoration again.")}
+   guard ticket==id,captured(),inputs.version==1,inputs.saved_guards != nil,inputs.context==context,inputs.workspace==record.workspace,inputs.refusals.isEmpty else{throw EngineError(message:"Current source, ownership or workspace changed. Refresh and prepare restoration again.")}
    let request=ResourceWireRestoreRequest(recovery_id:record.id,inputs:inputs,capture:capture)
    let result:ResourceWirePrepared=try await call(workspace,"POST","/api/changes/prepare-restoration",resourceBody(request))
    guard ticket==id,captured(),historyCurrent(),result.version==1,result.restoration.version==1,result.restoration.recovery_id==record.id,result.restoration.recovery_fingerprint==record.fingerprint,result.restoration.workspace==record.workspace,result.restoration.context==context,result.restoration.plan.context==context,result.consequences.version==1,result.consequences.context==context,result.consequences.workspace==record.workspace,result.consequences.fingerprint.range(of:"^[0-9a-f]{64}$",options:.regularExpression) != nil,result.consequences.protected_targets.isEmpty else{throw EngineError(message:"Recovery evidence, construction consequences or current source changed. Prepare again.")}
@@ -139,15 +151,15 @@ struct ResourceRestorationReview {
    let discovered:ResourceWireTargets=try await call(workspace,"POST","/api/changes/resource-targets",["edit":edit])
    guard ticket==id,current(),discovered.version==1,!discovered.paths.isEmpty,discovered.paths.count<=1000,Set(discovered.paths).count==discovered.paths.count else{throw EngineError(message:"Resource targets or provider changed. Prepare the complete proposal again.")}
    let context=UUID().uuidString.replacingOccurrences(of:"-",with:"").lowercased()
-   func capture()->ResourceWireCapture {
+   func capture()throws->ResourceWireCapture {
     var drafts:[String:ResourceWireDraft]=[:]
-    for path in discovered.paths {if let buffer=workspace.buffers[path]{drafts[path]=ResourceWireDraft(text:buffer.text,base_sha256:nativeSourceHash(buffer.base),version:nil,writable:!buffer.readOnly && !buffer.saving)}}
-    let ownership=workspace.buffers.filter{!$0.value.readOnly && $0.key.lowercased().hasSuffix(".md")}.mapValues{$0.text}
-    return ResourceWireCapture(context:context,edit:raw,drafts:drafts,project_entry:nil,ownership_sources:ownership)
+    for path in discovered.paths {if let buffer=workspace.buffers[path]{drafts[path]=ResourceWireDraft(text:buffer.text,base_sha256:nativeSourceHash(buffer.base),version:nil,writable:!buffer.readOnly && !buffer.saving,save_guard:buffer.savedGuard)}}
+    let ownership=try resourceOwnershipSnapshot(workspace)
+    return ResourceWireCapture(context:context,edit:raw,drafts:drafts,project_entry:nil,ownership_sources:ownership.named,unaddressed_sources:ownership.unaddressed,saved_guards:ownership.guards)
    }
-   var sourceCapture=capture(),captured=currentWorkspace(workspace)
+   var sourceCapture=try capture(),captured=currentWorkspace(workspace)
    var inputs:ResourceWireInputs=try await call(workspace,"POST","/api/changes/resource-inputs",resourceBody(sourceCapture))
-   guard ticket==id,current(),captured(),inputs.version==1,inputs.context==context,inputs.refusals.isEmpty else{throw EngineError(message:"Resource acquisition changed or refused a source. Preserve drafts and prepare again.")}
+   guard ticket==id,current(),captured(),inputs.version==1,inputs.saved_guards != nil,inputs.context==context,inputs.refusals.isEmpty else{throw EngineError(message:"Resource acquisition changed or refused a source. Preserve drafts and prepare again.")}
    var loaded=false
    for (path,state) in inputs.sources where state.kind=="file" && workspace.buffers[path]==nil {
     _ = try await workspace.loadBuffer(FileNode(name:(path as NSString).lastPathComponent,path:path,dir:false));loaded=true
@@ -161,10 +173,10 @@ struct ResourceRestorationReview {
      guard rediscovered.version==1,Set(rediscovered.paths)==Set(discovered.paths),ticket==id,current() else{throw EngineError(message:"Provider resource targets changed after acquisition. Prepare the complete action again.")}
      raw=try JSONDecoder().decode(ResourceJSON.self,from:JSONSerialization.data(withJSONObject:selectedEdit))
     }
-    sourceCapture=capture();captured=currentWorkspace(workspace)
+    sourceCapture=try capture();captured=currentWorkspace(workspace)
     inputs=try await call(workspace,"POST","/api/changes/resource-inputs",resourceBody(sourceCapture))
    }
-   guard ticket==id,current(),captured(),inputs.version==1,inputs.context==context,inputs.refusals.isEmpty,Set(inputs.sources.keys)==Set(discovered.paths) else{throw EngineError(message:"Complete resource sources changed. Prepare again.")}
+   guard ticket==id,current(),captured(),inputs.version==1,inputs.saved_guards != nil,inputs.context==context,inputs.refusals.isEmpty,Set(inputs.sources.keys)==Set(discovered.paths) else{throw EngineError(message:"Complete resource sources changed. Prepare again.")}
    let planned:ResourceWirePlanned=try await call(workspace,"POST","/api/changes/plan-resources",["context":context,"title":title,"edit":selectedEdit,"sources":try resourceBody(inputs)["sources"]!])
    let patches=try planned.plan.editors()
    let proposal=ResourceWireProposal(inputs:inputs,capture:sourceCapture,plan:planned.plan)

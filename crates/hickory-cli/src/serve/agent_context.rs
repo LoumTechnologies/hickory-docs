@@ -52,6 +52,9 @@ impl ChatAttachment {
 }
 #[derive(Clone, Deserialize, Serialize)]
 pub struct EditorBuffer {
+    /// Physical baseline from this editor's original source read; never a later recapture.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub save_guard: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub observations: Vec<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -131,6 +131,11 @@ async fn exchange(State(bridge): State<Bridge>, Json(message): Json<Value>) -> i
             Err(error) => tool_error(id, &format!("{error:#}")),
         };
     }
+    if method=="tools/call"&&name=="propose_workspace_changes"{
+        let origin=format!("agent-session:{}",super::super::workspace_fs::view::hash(bridge.record.lock().await.path.to_string_lossy().as_bytes()));
+        let result=super::super::agent_proposals::from_agent(bridge.state.clone(),&bridge.edits,origin,args).await;
+        return match result{Ok(Json(review))=>{let summary=super::super::agent_proposals::summary(&review);if let Err(error)=bridge.record.lock().await.context("agent-proposal",&summary){return tool_error(id,&format!("Proposal retained but recording failed: {error:#}. Nothing was applied."))}(StatusCode::OK,Json(json!({"jsonrpc":"2.0","id":id,"result":{"content":[{"type":"text","text":summary.to_string()}],"isError":false}})))},Err(error)=>tool_error(id,error.message())};
+    }
     if method == "tools/call"
         && matches!(
             name,
@@ -311,6 +316,7 @@ async fn exchange(State(bridge): State<Bridge>, Json(message): Json<Value>) -> i
         tools.retain(|tool| tool["name"] != "begin_changeset");
         tools.extend(super::super::representation_tools::catalogue());
         tools.extend(super::edits::catalogue());
+        tools.extend(super::super::agent_proposals::catalogue());
         tools.extend(super::super::ui_actions::catalogue());
         let disabled = bridge.disabled_tools.lock().await;
         tools.retain(|tool| {

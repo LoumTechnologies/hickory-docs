@@ -209,7 +209,10 @@ pub(super) fn new_record(root: &Path, project: &Path, request: &Request) -> Resu
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect();
+    let workspace=crate::serve::resource_inputs::RootIdentity::fingerprint(root).ok();
     Ok(Record {
+        workspace_id: workspace.clone(),
+        workspace_identity_kind: workspace.map(|_|"physical-root-v1".into()),
         id: fresh_id(),
         mode: if request.action == "manual-start" {
             "manual"

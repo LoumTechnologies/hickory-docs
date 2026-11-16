@@ -24,15 +24,15 @@ fun <T:Any> routeResourceEditors(patches:List<ResourceEditorPatch>,live:Map<Stri
 }
 
 data class ResourceSaved(val kind:String,val text:String?=null,val sha256:String?=null,val readonly:Boolean?=null,val executable:Boolean?=null,val mode:Int?=null)
-data class ResourcePublishedFile<File>(val file:File,val saved:ResourceSaved,val hash:String)
-data class ResourcePublication<File>(val version:Int,val request:String,val workspace:String,val context:String,val complete:Boolean,val recovery:String,val applied:List<String>,val saved:Map<String,ResourceSaved>?,val files:List<ResourcePublishedFile<File>>)
+data class ResourcePublishedFile<File>(val file:File,val saved:ResourceSaved,val hash:String,val saveGuard:String?=null)
+data class ResourcePublication<File>(val version:Int,val request:String,val workspace:String,val context:String,val complete:Boolean,val recovery:String,val applied:List<String>,val saved:Map<String,ResourceSaved>?,val files:List<ResourcePublishedFile<File>>,val adoptionCurrent:Boolean=false,val adoptionReason:String?=null)
 fun <File> confirmedResourceFiles(patches:List<ResourceEditorPatch>,receipt:ResourcePublication<File>,request:String,workspace:String,context:String,expected:Map<String,ResourceSaved>,address:(File)->Pair<String,Boolean>):Map<String,ResourcePublishedFile<File>> {
  fun admit(ok:Boolean){require(ok){"Resource publication is not completely confirmed for this review. Inspect Source recovery before changing editors."}}
- admit(receipt.version==1&&receipt.request==request&&receipt.workspace==workspace&&receipt.context==context&&receipt.complete&&receipt.recovery.isNotEmpty())
+ admit(receipt.version==2&&receipt.request==request&&receipt.workspace==workspace&&receipt.context==context&&receipt.complete&&receipt.adoptionCurrent&&receipt.recovery.isNotEmpty())
  val paths=patches.map{it.path}.toSet();val saved=receipt.saved
  admit(paths.size==patches.size&&saved!=null&&saved.keys==paths&&expected.keys==paths&&receipt.applied.size==paths.size&&receipt.applied.toSet()==paths)
  for(patch in patches){val state=saved!!.getValue(patch.path);admit(state==expected[patch.path]&&(state.kind=="file")== (patch.after!=null)&&state.kind in listOf("file","missing"))}
  val files=linkedMapOf<String,ResourcePublishedFile<File>>()
- for(entry in receipt.files){val (path,authored)=address(entry.file);val state=saved!![path];admit(path in paths&&path !in files&&authored&&state?.kind=="file"&&state==entry.saved&&state.text!=null);files[path]=entry}
+ for(entry in receipt.files){val (path,authored)=address(entry.file);val state=saved!![path];admit(path in paths&&path !in files&&authored&&state?.kind=="file"&&state==entry.saved&&state.text!=null&&(entry.saveGuard==null||entry.saveGuard.isNotEmpty()));files[path]=entry}
  admit(files.size==patches.count{it.after!=null});return files
 }

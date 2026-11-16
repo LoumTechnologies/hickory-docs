@@ -345,5 +345,16 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="source-template-service.md" />
 
+<storycode:include file="source-save-history.md" />
+
+<storycode:include file="behavior-readings.md" />
+
+<storycode:include file="git-conflict-resolution.md" />
+
 <storycode:include file="debug-adapter-sources.md" />
+
+<storycode:include file="source-save-history-verification.md" />
+
+<storycode:include file="agent-proposals.md" />
+
 </storycode:doc>
