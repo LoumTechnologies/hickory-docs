@@ -47890,7 +47890,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "520ada4ee73433f6b0834807481c481c91e7f82fc90e8ec169a57a923e4d295a",
       "construction": "fragments",
       "fragments": [
-        "f-c594be7b78fc-write_tree"
+        "f-c594be7b78fc-write_tree",
+        "preserve-unchanged-materialized-entry",
+        "stable-materialization-tests"
       ],
       "anchor": "output-c594be7b78fc",
       "narrative_owner": "mechanism:crates/hick-project-env"

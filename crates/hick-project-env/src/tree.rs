@@ -51,6 +51,10 @@ pub fn write_tree(root: &Path, tree: &ProjectTree) -> Result<Vec<PathBuf>, Strin
     let mut written = vec![];
     for (path, entry) in tree.entries() {
         let full = root.join(path);
+        if materialized_entry_matches(&full, entry) {
+            written.push(full);
+            continue;
+        }
         if let Some(parent) = full.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
@@ -81,4 +85,131 @@ pub fn write_tree(root: &Path, tree: &ProjectTree) -> Result<Vec<PathBuf>, Strin
         written.push(full);
     }
     Ok(written)
+}
+fn materialized_entry_matches(path: &Path, entry: &hick_lang::ProjectEntry) -> bool {
+    let Ok(metadata) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    match entry.kind {
+        EntryKind::File => {
+            if !metadata.is_file() {
+                return false;
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let expected = if entry.executable { 0o755 } else { 0o644 };
+                if metadata.permissions().mode() & 0o7777 != expected {
+                    return false;
+                }
+            }
+            std::fs::read(path).is_ok_and(|bytes| bytes.as_slice() == entry.bytes.as_ref())
+        }
+        EntryKind::Symlink => {
+            if !metadata.file_type().is_symlink() {
+                return false;
+            }
+            let Ok(expected) = std::str::from_utf8(&entry.bytes) else {
+                return false;
+            };
+            std::fs::read_link(path)
+                .is_ok_and(|target| target.as_os_str() == std::ffi::OsStr::new(expected))
+        }
+    }
+}
+#[cfg(test)]
+mod stable_materialization_tests {
+    use super::*;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    fn old_time(path: &Path) -> SystemTime {
+        let expected = UNIX_EPOCH + Duration::from_secs(1_234_567_890);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(expected))
+            .unwrap();
+        expected
+    }
+    #[test]
+    fn unchanged_tree_keeps_output_times_and_changed_bytes_still_publish() {
+        let root = tempfile::tempdir().unwrap();
+        let mut tree = ProjectTree::default();
+        tree.insert(
+            "source.txt",
+            hick_lang::ProjectEntry::file(b"first".to_vec()),
+        )
+        .unwrap();
+        let paths = write_tree(root.path(), &tree).unwrap();
+        let old = old_time(&paths[0]);
+        assert_eq!(write_tree(root.path(), &tree).unwrap(), paths);
+        assert_eq!(
+            std::fs::metadata(&paths[0]).unwrap().modified().unwrap(),
+            old
+        );
+        tree.insert(
+            "source.txt",
+            hick_lang::ProjectEntry::file(b"second".to_vec()),
+        )
+        .unwrap();
+        write_tree(root.path(), &tree).unwrap();
+        assert_eq!(std::fs::read(&paths[0]).unwrap(), b"second");
+        assert_ne!(
+            std::fs::metadata(&paths[0]).unwrap().modified().unwrap(),
+            old
+        );
+    }
+    #[cfg(unix)]
+    #[test]
+    fn equal_bytes_do_not_hide_a_wrong_mode_or_leaf_symlink() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let mut tree = ProjectTree::default();
+        let mut entry = hick_lang::ProjectEntry::file(b"same".to_vec());
+        entry.executable = true;
+        tree.insert("run", entry).unwrap();
+        write_tree(root.path(), &tree).unwrap();
+        std::fs::set_permissions(
+            root.path().join("run"),
+            std::fs::Permissions::from_mode(0o644),
+        )
+        .unwrap();
+        write_tree(root.path(), &tree).unwrap();
+        assert_eq!(
+            std::fs::metadata(root.path().join("run"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o7777,
+            0o755
+        );
+        let outside = tempfile::NamedTempFile::new().unwrap();
+        std::fs::remove_file(root.path().join("run")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join("run")).unwrap();
+        assert!(write_tree(root.path(), &tree).is_err());
+        assert_eq!(std::fs::read(outside.path()).unwrap(), b"");
+    }
+    #[test]
+    fn unchanged_fast_path_does_not_bypass_plan_validation() {
+        let root = tempfile::tempdir().unwrap();
+        let mut tree = ProjectTree::default();
+        tree.insert("a", hick_lang::ProjectEntry::file(b"same".to_vec()))
+            .unwrap();
+        write_tree(root.path(), &tree).unwrap();
+        let old = old_time(&root.path().join("a"));
+        let identity = format!("{}unsafe", hick_lang::EDITOR_BUFFER_PREFIX);
+        tree.insert(
+            &identity,
+            hick_lang::ProjectEntry::file(b"not a filesystem output".to_vec()),
+        )
+        .unwrap();
+        assert!(write_tree(root.path(), &tree).is_err());
+        assert_eq!(
+            std::fs::metadata(root.path().join("a"))
+                .unwrap()
+                .modified()
+                .unwrap(),
+            old
+        );
+    }
 }

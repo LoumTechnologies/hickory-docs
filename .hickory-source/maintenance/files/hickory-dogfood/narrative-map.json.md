@@ -154392,6 +154392,20 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/apps/apple-simple/Sources/Engine.swift.md",
       "symbol": "Apply explicit debugger commands and exact expression identity",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "preserve-unchanged-materialized-entry",
+      "output": "crates/hick-project-env/src/tree.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-project-env/src/tree.rs.md",
+      "symbol": "Keep matching materialized bytes and modes without rewriting timestamps",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "stable-materialization-tests",
+      "output": "crates/hick-project-env/src/tree.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-project-env/src/tree.rs.md",
+      "symbol": "Exercise unchanged publication and whole-plan safety refusals",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {
