@@ -389,6 +389,8 @@ pub struct Session {
     /// Set while a one-shot "run to" breakpoint is in the adapter, so the
     /// next stop can take it out again.
     running_to: tokio::sync::Mutex<Option<u32>>,
+    /// Serializes temporary breakpoint delivery with user replacements and stop cleanup.
+    breakpoint_transition: tokio::sync::Mutex<()>,
     /// Stops, queued from the moment the session exists.
     ///
     /// A caller subscribing only when it is ready to wait loses any stop that
@@ -740,6 +742,7 @@ impl Session {
             last_stopped: tokio::sync::Mutex::new(None),
             desired: tokio::sync::Mutex::new(Vec::new()),
             running_to: tokio::sync::Mutex::new(None),
+            breakpoint_transition: tokio::sync::Mutex::new(()),
             stops: tokio::sync::Mutex::new(stops),
             exit,
         };
@@ -883,7 +886,7 @@ impl Session {
                     stopped.thread_id_known = true;
                 }
                 *self.last_stopped.lock().await = Some(stopped.clone());
-                self.clear_run_to().await;
+                self.clear_run_to().await?;
                 Ok(Some(stopped))
             }
             // The program ended, or the adapter is gone: either way there
@@ -899,14 +902,14 @@ impl Session {
     /// somewhere the person is now looking at, and leaving an invisible
     /// breakpoint armed behind them is how a later `continue` stops for no
     /// reason anyone can see.
-    async fn clear_run_to(&self) {
-        let pending = self.running_to.lock().await.take();
-        if pending.is_some() {
+    async fn clear_run_to(&self) -> Result<()> {
+        let _transition = self.breakpoint_transition.lock().await;
+        if self.running_to.lock().await.is_some() {
             let desired = self.desired.lock().await.clone();
-            if let Err(error) = self.apply_breakpoints(&desired).await {
-                tracing::warn!("could not remove the run-to breakpoint: {error:#}");
-            }
+            self.apply_breakpoints(&desired).await.context("The temporary run-to breakpoint could not be removed; reconcile breakpoints before continuing")?;
+            *self.running_to.lock().await = None;
         }
+        Ok(())
     }
 
     /// Request threads independently of stack/locals, so a failed optional read
@@ -918,11 +921,40 @@ impl Session {
 
     /// The call stack, in document coordinates where it can be.
     pub async fn stack(&self, thread_id: i64) -> Result<Vec<Frame>> {
-        let body = self
-            .adapter
-            .request("stackTrace", json!({ "threadId": thread_id, "levels": 50 }))
-            .await?;
-        Frame::from_response(&self.mapping, &body)
+        let mut frames = Vec::new();
+        let mut identities = std::collections::HashSet::new();
+        let mut total = None;
+        loop {
+            let body = self.adapter.request("stackTrace", json!({
+                "threadId": thread_id, "startFrame": frames.len(), "levels": 50
+            })).await?;
+            if let Some(value) = body.get("totalFrames") {
+                let reported = value.as_u64().filter(|n| *n <= 4096)
+                    .context("Adapter stack total exceeds the 4096-frame interactive budget or is invalid")? as usize;
+                if let Some(previous) = total {
+                    if previous != reported { bail!("Adapter stack changed while its pages were being read; pause and read it again"); }
+                }
+                total = Some(reported);
+            }
+            let page = Frame::from_response(&self.mapping, &body)?;
+            let count = page.len();
+            if frames.len().saturating_add(count) > 4096 {
+                bail!("Adapter stack exceeds the 4096-frame interactive budget");
+            }
+            for frame in page {
+                if !identities.insert(frame.id) {
+                    bail!("Adapter stack paging repeated a frame identity; a complete stack was not confirmed");
+                }
+                frames.push(frame);
+            }
+            if let Some(expected) = total {
+                if frames.len() > expected { bail!("Adapter stack pages exceed their reported total"); }
+                if frames.len() == expected { return Ok(frames); }
+                if count == 0 { bail!("Adapter stack paging ended before its reported total"); }
+            } else if count < 50 {
+                return Ok(frames);
+            }
+        }
     }
 
     /// The variables visible in a frame, flattened across its scopes.
@@ -1075,6 +1107,10 @@ impl Session {
     /// hand (set breakpoint, continue, remove breakpoint) would race the
     /// program.
     pub async fn run_to(&self, line: u32, thread_id: i64) -> Result<()> {
+        let _transition = self.breakpoint_transition.lock().await;
+        if self.running_to.lock().await.is_some() {
+            bail!("A run-to breakpoint is still pending; wait for its stop or reconcile breakpoints");
+        }
         let (path, target) = self
             .mapping
             .to_generated(line)
@@ -1106,6 +1142,9 @@ impl Session {
                 log_message: None,
             });
         }
+        // Retain cleanup intent before the first await that may change adapter
+        // state, including partial delivery failure or task cancellation.
+        if !already_there { *self.running_to.lock().await = Some(line); }
         let statuses = self.apply_breakpoints(&set).await?;
         if statuses
             .iter()
@@ -1115,11 +1154,9 @@ impl Session {
             // Put back what was there before giving up, or the failure would
             // also have quietly changed the breakpoints.
             let desired = self.desired.lock().await.clone();
-            let _ = self.apply_breakpoints(&desired).await;
+            self.apply_breakpoints(&desired).await.context("The refused run-to breakpoint could not be cleared")?;
+            *self.running_to.lock().await = None;
             bail!("nothing to run to on that line — the adapter could not bind a breakpoint there");
-        }
-        if !already_there {
-            *self.running_to.lock().await = Some(line);
         }
         self.step(Step::Continue, thread_id, None).await
     }

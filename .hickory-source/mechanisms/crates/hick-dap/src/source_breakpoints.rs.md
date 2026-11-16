@@ -46,7 +46,10 @@ A failed adapter replacement must not become the accepted desired set and then
 silently retry at a later stop. Build a proposed set, retain all possibly touched
 file addresses for cleanup, and commit desired source/root wishes only after the
 whole delivery succeeds. Internal run-to replacements preserve the user's root
-wishes, so clearing the temporary breakpoint can restore the accepted set.
+wishes, so clearing the temporary breakpoint can restore the accepted set. User
+replacements share the session transition lock with temporary delivery and stop
+cleanup. While running to a cursor, deliver the temporary line alongside the new
+user set while retaining only the user's actual wishes for cleanup.
 Receipt authority is independently suspended by the
 engine while delivery can partially affect the adapter.
 
@@ -56,7 +59,16 @@ impl Session {
         &self,
         breakpoints: &[Breakpoint],
     ) -> Result<Vec<BreakpointStatus>> {
-        self.apply_for("", None, breakpoints, true).await
+        let _transition = self.breakpoint_transition.lock().await;
+        let mut delivered = breakpoints.to_vec();
+        if let Some(line) = *self.running_to.lock().await {
+            if !delivered.iter().any(|bp| bp.line == line) {
+                delivered.push(Breakpoint { line, condition: None, hit_condition: None, log_message: None });
+            }
+        }
+        let statuses = self.apply_for("", None, &delivered, false).await?;
+        *self.desired.lock().await = breakpoints.to_vec();
+        Ok(statuses.into_iter().filter(|status| breakpoints.iter().any(|bp| bp.line == status.line)).collect())
     }
 
     pub(super) async fn apply_breakpoints(
@@ -72,6 +84,7 @@ impl Session {
         document: &std::path::Path,
         breakpoints: &[Breakpoint],
     ) -> Result<Vec<BreakpointStatus>> {
+        let _transition = self.breakpoint_transition.lock().await;
         self.apply_for(source, Some(document.to_path_buf()), breakpoints, false)
             .await
     }
@@ -292,6 +305,13 @@ zero ignored. Each test exercised a new contributor and a root replacement.
 This is real Session-to-stdio-DAP fault injection, not a claim about the behavior
 of an installed third-party adapter.
 
+The two focused stdio-adapter cases passed after adding concurrent live root and
+contributor replacements during Run To, pending-target refusal and explicit stop
+cleanup. They also read all 123 reported stack frames and refuse repeated or
+prematurely exhausted pages. These are real protocol deliveries to an owned fake
+adapter; physical UI input, provider breadth and a deep live-debugpy stack are
+separate acceptance.
+
 <storycode:copy id="source-breakpoints-session-transaction-witness">
 #[cfg(all(test, unix))]
 mod session_transaction_faults {
@@ -358,6 +378,16 @@ while True:
             settled.write_text('partial replacement answered')
         else:
             respond(request, {'breakpoints':[{'id':identity+i,'verified':True,'line':mark['line']} for i,mark in enumerate(marks)]})
+    elif command == 'stackTrace':
+        start = request['arguments'].get('startFrame', 0)
+        levels = request['arguments'].get('levels', 50)
+        mode = fault.read_text() if fault.exists() else ''
+        if mode == 'stack-repeat' and start:
+            start = 0
+        end = min(start + levels, 123)
+        if mode == 'stack-short' and start:
+            end = start
+        respond(request, {'totalFrames':123, 'stackFrames':[{'id':i, 'name':'frame-%d' % i, 'line':1, 'column':1, 'source':{'path':str(trace.parent / 'root.py')}} for i in range(start, end)]})
     elif command == 'disconnect':
         respond(request)
         break
@@ -589,6 +619,33 @@ while True:
                 .to_string()
                 .contains("temporary-run-to")
         );
+        // Real stdio delivery exercises the session boundary, rather than a
+        // renderer flag: live root and contributor replacements preserve the
+        // one-shot target until explicit stop cleanup.
+        session.run_to(2, 1).await.unwrap();
+        assert_eq!(*session.running_to.lock().await, Some(2));
+        let replacement = vec![breakpoint(1, "live-root")];
+        let contributor = vec![breakpoint(1, "live-side")];
+        let (root_update, source_update) = tokio::join!(
+            session.set_breakpoints(&replacement),
+            session.set_source_breakpoints("side", &side, &contributor)
+        );
+        root_update.unwrap(); source_update.unwrap();
+        assert_eq!(serde_json::to_value(&*session.desired.lock().await).unwrap(), serde_json::to_value(&replacement).unwrap());
+        assert!(session.run_to(1, 1).await.unwrap_err().to_string().contains("still pending"));
+        assert!(session.sources.desired.lock().unwrap()[""].breakpoints.iter().any(|bp|bp.line == 2));
+        session.clear_run_to().await.unwrap();
+        let stack = session.stack(1).await.unwrap();
+        assert_eq!(stack.len(), 123);
+        assert_eq!(stack[122].name, "frame-122");
+        std::fs::write(&fault, "stack-repeat").unwrap();
+        assert!(session.stack(1).await.unwrap_err().to_string().contains("repeated a frame"));
+        std::fs::write(&fault, "stack-short").unwrap();
+        assert!(session.stack(1).await.unwrap_err().to_string().contains("before its reported total"));
+        std::fs::remove_file(&fault).unwrap();
+        assert_eq!(*session.running_to.lock().await, None);
+        assert!(!session.sources.desired.lock().unwrap()[""].breakpoints.iter().any(|bp|bp.line == 2));
+        assert_eq!(session.sources.desired.lock().unwrap()["side"].breakpoints[0].condition.as_deref(), Some("live-side"));
         assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
         assert_eq!(std::fs::read_to_string(&side).unwrap(), source);
         session.shutdown().await;
