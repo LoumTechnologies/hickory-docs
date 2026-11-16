@@ -19,7 +19,7 @@ try {
         case "launch":
           browser = await chromium.launch({ headless: true }); page = await browser.newPage({ viewport: { width: 1100, height: 750 } });
           page.on("pageerror", error => { pageErrors.push(String(error)); if (pageErrors.length > 8) pageErrors.shift(); });
-          page.on("websocket",socket=>{for(const direction of ["framesent","framereceived"])socket.on(direction,({payload})=>{try{if(typeof payload==='string'||payload[0]!==3)return;const value=JSON.parse(new TextDecoder().decode(payload.subarray(1)));debugWire.push({direction,op:value.op,event:value.event,session:value.session,doc:value.doc,stop:value.stop,thread:value.thread,frame:value.frame,request_id:value.request_id,reference:value.reference});if(debugWire.length>512)debugWire.shift();}catch{}});});
+          page.on("websocket",socket=>{for(const direction of ["framesent","framereceived"])socket.on(direction,({payload})=>{try{if(typeof payload==='string'||payload[0]!==3)return;const value=JSON.parse(new TextDecoder().decode(payload.subarray(1)));debugWire.push({direction,op:value.op,event:value.event,session:value.session,doc:value.doc,stop:value.stop,thread:value.thread,frame:value.frame,request_id:value.request_id,reference:value.reference,about:value.about,message:value.message,source_hash:value.source_hash,source_test:value.source_test?{candidate_id:value.source_test.candidate_id,selection:value.source_test.selection}:undefined});if(debugWire.length>512)debugWire.shift();}catch{}});});
           await page.goto(request.url); break;
         case "browser-surface":
           await page.close(); page = await browser.newPage({ viewport: { width: 1100, height: 750 } }); await page.goto(request.url); break;
@@ -150,6 +150,16 @@ try {
           await page.waitForFunction(()=>{const panel=document.querySelector('.simple-source-tests');return panel && [...panel.querySelectorAll('button')].some(button=>button.textContent==='Run name filter'&&!button.disabled) && !!panel.querySelector('[role="status"]')?.textContent;});
           value={text:await panel.innerText()};break;
         }
+        case "source-tests-debug": {
+          const panel=page.getByRole("dialog",{name:"Source tests",exact:true});
+          if(request.filter!==undefined)await panel.getByLabel("Filter source tests",{exact:true}).fill(request.filter);
+          const before=Number(/Retained test debug sessions \((\d+)\)/.exec(await panel.innerText())?.[1]??0);
+          await panel.getByRole("button",{name:"Debug name filter",exact:true}).first().click();
+          await page.waitForFunction(before=>Number(/Retained test debug sessions \((\d+)\)/.exec(document.querySelector('.simple-source-tests')?.textContent??'')?.[1]??0)>before,before);
+          value=await panel.innerText();break;
+        }
+        case "source-tests-debug-link":await page.getByRole("dialog",{name:"Source tests",exact:true}).getByRole("button",{name:"Open this debugger/source",exact:true}).first().click();await page.getByRole("dialog",{name:"Source tests",exact:true}).waitFor({state:"detached"});break;
+        case "source-tests-debug-records":value=await page.getByRole("dialog",{name:"Source tests",exact:true}).innerText();break;
         case "source-tests-refresh-run": {
           const panel=page.getByRole("dialog",{name:"Source tests",exact:true});await panel.getByRole("button",{name:"Refresh this run",exact:true}).click();
           await page.waitForTimeout(100);value={text:await panel.innerText()};break;
@@ -159,6 +169,7 @@ try {
         case "source-tests-revisions": {const panel=page.getByRole("dialog",{name:"Source tests",exact:true});await panel.getByText("Saved revisions checked at admission",{exact:true}).click();value=await panel.innerText();break;}
         case "source-tests-close": await page.getByRole("button",{name:"Close source tests",exact:true}).click();break;
         case "remember-editor": rememberedEditors.set(request.path, await editor(request.path).elementHandle()); break;
+        case "editor-write-state":value=await editor(request.path).evaluate(async node=>{const {EditorView}=await import("/node_modules/@codemirror/view/dist/index.js");const view=EditorView.findFromDOM(node);if(!view)throw Error('Source editor unavailable');return {readOnly:view.state.readOnly,editable:view.state.facet(EditorView.editable)};});break;
         case "editor-position":await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));value=await editor(request.path).evaluate(async(node,position)=>{const {EditorView}=await import("/node_modules/@codemirror/view/dist/index.js");const view=EditorView.findFromDOM(node);if(position.anchor!==undefined)view.dispatch({selection:{anchor:position.anchor}});if(position.y!==undefined)view.scrollDOM.scrollTop=position.y;await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));return {anchor:view.state.selection.main.anchor,head:view.state.selection.main.head,y:view.scrollDOM.scrollTop,x:view.scrollDOM.scrollLeft};},request);break;
         case "editor-is-retained": value = await editor(request.path).evaluate((node, previous) => node === previous, rememberedEditors.get(request.previous??request.path)); break;
         case "navigate-history":
@@ -593,6 +604,7 @@ try {
         }
         case "debug-start":
           await page.getByRole("button", { name: `Debug ${request.path}`, exact: true }).click(); break;
+        case "debug-continue":await page.getByRole("button",{name:"Continue",exact:true}).click();break;
         case "debug-step":
           await page.getByRole("button", { name: "Step over", exact: true }).click(); break;
         case "debug-stop":

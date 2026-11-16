@@ -24,6 +24,12 @@ class TestSourcesModel {
     var observation by mutableStateOf<Pair<TestSourceSnapshot,SourceTestScan>?>(null)
     data class Run(val id:String,val name:String,val scope:String,val state:String,val exit:Int?,val output:String="",val sourceHash:String,val fingerprint:String,val contributors:Map<String,String>)
     var runs by mutableStateOf<List<Run>>(emptyList());var selected by mutableStateOf<String?>(null)
+    private val debugChoices=TestDebugChoices()
+    private var debugTicket=UUID.randomUUID()
+    var debugging by mutableStateOf(false);private set
+    data class DebugRun(val id:String,val name:String,val candidateID:String,val inputPath:String,val inputHash:String,val framework:String,val selection:String,val fingerprint:String,val contributors:Map<String,String>,val state:String="running",val exit:Int?=null,val output:String="")
+    var debugRuns by mutableStateOf<List<DebugRun>>(emptyList());private set
+    fun closeDebugPreparation(){debugTicket=UUID.randomUUID();debugChoices.cancel();debugging=false}
     private var ticket=UUID.randomUUID();private val outputTickets=mutableMapOf<String,UUID>()
     fun snapshot(workspace:Workspace):TestSourceSnapshot? {
         val buffer=workspace.currentBuffer ?: return null;if(workspace.engine==null)return null
@@ -32,7 +38,7 @@ class TestSourcesModel {
     fun current(workspace:Workspace):Boolean {val (before,facts)=observation ?: return false;val now=snapshot(workspace) ?: return false;return testSourceCurrent(before,facts,now)}
     suspend fun refresh(workspace:Workspace) {
         val before=snapshot(workspace) ?: run {notice="Open a source file first.";return};val engine=workspace.engine ?: return
-        val id=UUID.randomUUID();ticket=id;reading=true;observation=null;notice=""
+        closeDebugPreparation();val id=UUID.randomUUID();ticket=id;reading=true;observation=null;notice=""
         try {val facts=SourceTestScan.decode(engine.request("POST","/api/tests/source-candidates",before.request.body()))
             if(ticket!=id||workspace.testSources!==this)return
             val now=snapshot(workspace);if(now==null||!testSourceCurrent(before,facts,now)){notice="Source changed during inspection. Refresh candidates.";return}
@@ -41,6 +47,8 @@ class TestSourcesModel {
         finally {if(ticket==id)reading=false}
     }
 </ui:copy>
+
+Test Debug retains an immutable saved choice across provider planning and rechecks editor identity, the entire retained source namespace, observation and namespace before its one-shot send. Dedicated `start_test` admission never becomes a profile or raw argument guess. Process receipts remain in the model after the floating reading closes; exit is not a collected case verdict.
 
 Execution requires the model to construct an explicit saved-source request. Prevent overlapping run clicks, retain the returned terminal identity, and refresh only a user-selected test run. Exit state and terminal output remain distinct from structured per-case results.
 
@@ -52,6 +60,35 @@ Execution requires the model to construct an explicit saved-source request. Prev
             val id=reply.getString("id");runs=listOf(Run(id,candidate.name,if(selection==TestSourceSelection.NAME_FILTER) "name filter" else candidate.runScope,reply.getString("state"),if(reply.isNull("exit_code")) null else reply.getInt("exit_code"),sourceHash=reply.getString("source_hash"),fingerprint=reply.getString("analysis_fingerprint"),contributors=reply.getJSONObject("checked_sources").let {hashes->hashes.keys().asSequence().associateWith {hashes.getString(it)}}))+runs;selected=id
             notice="Run admitted against saved bytes. Files remain mutable while it executes."
         }catch(error:Exception){notice=error.message.orEmpty()}finally{running=false}
+    }
+    suspend fun debug(candidate:SourceTestCandidate,selection:TestSourceSelection,workspace:Workspace) {
+        if(debugging)return
+        val observed=observation ?: return;val before=observed.first;val facts=observed.second
+        val buffer=workspace.currentBuffer ?: return;val engine=workspace.engine ?: return;val debugger=workspace.debugger ?: return
+        val namespace=debugger.sourceLineage.epoch
+        val context=TestDebugContext(workspace,engine,debugger,buffer,observed,namespace)
+        val choice=debugChoices.offer(context,before,facts,candidate.id,selection)
+        val id=UUID.randomUUID();debugTicket=id;debugging=true;notice="Checking saved test debug provider…"
+        fun current():Boolean {
+            val now=snapshot(workspace) ?: return false
+            return debugTicket==id&&workspace.testSources===this&&workspace.showTests&&workspace.engine===engine&&workspace.debugger===debugger&&workspace.currentBuffer===buffer&&observation===observed&&debugger.sourceLineage.epoch==namespace&&!buffer.dirty&&!buffer.saving&&!buffer.resourceDeleted&&testSourceCurrent(before,facts,now)&&before.request.sources==now.request.sources
+        }
+        try {
+            require(current()&&!debugger.active){"Save this source and inspect or stop the active debugger before choosing Test Debug."}
+            val request=sourceTestRun(before,facts,snapshot(workspace)!!,candidate.id,selection)
+            val plan=TestDebugPlan.decode(engine.request("POST","/api/tests/debug-plan",request),choice)
+            if(!current())return
+            require(plan.available){plan.reason}
+            // Only the dedicated plan's protocol admits start_test. Ordinary
+            // launch profiles may legitimately have no program for this source.
+            val body=debugChoices.take(choice,context,snapshot(workspace)!!,TestDebugHostState(!buffer.dirty,buffer.saving,buffer.resourceDeleted,debugger.active),JSONObject().put("test_debug_protocol",1))
+            debugger.launchSourceTest(buffer,body,plan,facts,::current,
+                admitted={session->debugging=false;notice="Saved test debug admitted. Process outcomes are retained separately from case verdicts.";debugRuns=listOf(DebugRun(session,candidate.name,candidate.id,facts.inputPath,facts.inputHash,plan.framework,selection.wire,facts.fingerprint,LinkedHashMap(facts.sourceHashes)))+debugRuns},
+                rejected={detail->if(debugTicket==id){debugging=false;notice=detail}},
+                outcome={session,state,exit->debugRuns=debugRuns.map{if(it.id==session)it.copy(state=state,exit=exit,output=debugger.output.joinToString(""){event->event.text})else it}})
+        }catch(cancelled:kotlinx.coroutines.CancellationException){throw cancelled}
+        catch(error:Exception){if(debugTicket==id)notice=error.message.orEmpty()}
+        finally{if(debugTicket==id&&debugger.status!="starting")debugging=false}
     }
     suspend fun refreshRun(id:String,workspace:Workspace) {
         val read=UUID.randomUUID();outputTickets[id]=read
@@ -91,7 +128,7 @@ Render paged candidates, explicit name-filter/containing-scope choices, partial/
     val candidates=(model.observation?.second?.candidates ?: emptyList()).filter {"${it.name} ${it.target.path}".contains(model.query,ignoreCase=true)}
     val last=maxOf(0,(candidates.size-1)/100);val page=minOf(model.page,last)
     Column(Modifier.widthIn(min=280.dp,max=760.dp).heightIn(min=240.dp,max=760.dp).verticalScroll(rememberScrollState()).padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-        Row {Text("Source tests",fontSize=16.sp);Spacer(Modifier.weight(1f));TextButton(onClick={workspace.showTests=false;workspace.currentBuffer?.focusSource?.invoke()}){Text("Close")}}
+        Row {Text("Source tests",fontSize=16.sp);Spacer(Modifier.weight(1f));TextButton(onClick={model.closeDebugPreparation();workspace.showTests=false;workspace.currentBuffer?.focusSource?.invoke()}){Text("Close")}}
         Text("Source declarations are candidates. Name filters may match several cases; parameterized cases need runner discovery. Terminal runs are separate from per-case verification.",fontSize=12.sp)
         Text(workspace.currentBuffer?.file?.path ?: "No source selected",fontSize=12.sp)
         OutlinedTextField(model.entry,{model.entry=it},label={Text("Construction entry (optional)")},singleLine=true)
@@ -107,9 +144,22 @@ Render paged candidates, explicit name-filter/containing-scope choices, partial/
             TextButton(enabled=valid,onClick={workspace.runCommand {workspace.navigateTestPoint(item.point)}}){Text("${if(item.source==null) "Open runtime source" else "Open authored source"} ${item.point.line}")}
             TextButton(enabled=valid&&!model.running&&item.nameFilter!=null,onClick={workspace.runCommand {model.run(item,TestSourceSelection.NAME_FILTER,workspace)}}){Text("Run name filter")}
             TextButton(enabled=valid&&!model.running,onClick={workspace.runCommand {model.run(item,TestSourceSelection.CONTAINING_SCOPE,workspace)}}){Text("Run ${item.runScope.replace('_',' ')} scope")}
+            TextButton(enabled=valid&&!model.debugging&&item.nameFilter!=null,onClick={workspace.runCommand {model.debug(item,TestSourceSelection.NAME_FILTER,workspace)}}){Text("Debug name filter")}
+            TextButton(enabled=valid&&!model.debugging,onClick={workspace.runCommand {model.debug(item,TestSourceSelection.CONTAINING_SCOPE,workspace)}}){Text("Debug ${item.runScope.replace('_',' ')} scope")}
         }
         if(model.observation!=null&&candidates.isEmpty())Text("No source candidates returned. This does not prove the project has no tests.",fontSize=12.sp)
         if(last>0)Row {TextButton(enabled=page>0,onClick={model.page=page-1}){Text("Previous")};Text("${page+1}/${last+1}");TextButton(enabled=page<last,onClick={model.page=page+1}){Text("Next")}}
+        if(model.debugging)Text("Preparing saved Test Debug… Close cancels admission; it does not retry.",fontSize=12.sp)
+        model.debugRuns.forEach {run->
+            Text("${run.name} · ${run.selection} · debugger ${run.state}${run.exit?.let {" · process exit $it"} ?: ""}",fontSize=12.sp)
+            var revisions by remember(run.id){mutableStateOf(false)}
+            TextButton(onClick={revisions=!revisions}){Text("Saved test debug identity and output")}
+            if(revisions){
+                Text("${run.framework} · ${run.inputPath} · ${run.inputHash}\nCandidate ${run.candidateID}\nProcess outcome only; no collected case verdict.\n${run.fingerprint}\n"+run.contributors.entries.joinToString("\n"){"${it.key}: ${it.value}"},fontSize=12.sp)
+                androidx.compose.foundation.text.selection.SelectionContainer{Text(run.output.ifEmpty{"No retained debugger process output."},fontSize=12.sp)}
+            }
+            TextButton(onClick={workspace.showTests=false;workspace.currentBuffer?.focusSource?.invoke()}){Text("Return to editor debugger controls")}
+        }
         HorizontalDivider();Text("Retained test runs (${model.runs.size})")
         model.runs.forEach {run->TextButton(onClick={model.selected=run.id;workspace.runCommand {model.refreshRun(run.id,workspace)}}){Text("${run.name} · ${run.scope} · ${run.state}${run.exit?.let {" · exit $it"} ?: ""}")}}
         model.runs.firstOrNull {it.id==model.selected}?.let {run->

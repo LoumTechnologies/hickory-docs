@@ -27,11 +27,11 @@
 //! Sharing is not a feature this product has — not disabled, not deferred.
 //! See `docs/specs/freeform/local-only.md`.
 
+pub mod acp;
 mod codex_subscription;
 mod grok_subscription;
 mod subscription;
 mod subscription_process;
-pub mod acp;
 pub mod agent;
 pub(crate) mod agent_context;
 mod agent_projects;
@@ -108,17 +108,17 @@ pub mod store;
 pub mod story;
 pub mod terminal;
 pub mod test_coverage;
-pub mod test_run;
-pub mod source_tests;
+pub mod resource_candidates;
 pub mod resource_changes;
-pub mod source_cleanup;
 pub mod resource_inputs;
 pub mod resource_journal;
 pub mod resource_publish;
-pub mod resource_saves;
-pub mod resource_restoration;
 pub mod resource_recovery_api;
-pub mod resource_candidates;
+pub mod resource_restoration;
+pub mod resource_saves;
+pub mod source_cleanup;
+pub mod source_tests;
+pub mod test_run;
 pub mod watch;
 pub mod workspace;
 pub mod workspace_fs;
@@ -126,19 +126,15 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-
 use anyhow::{Context as _, Result};
 use axum::Router;
 use axum::routing::{delete, get, post, put};
 use hickory_collab::RoomRegistry;
 use serde_json::{Value, json};
-
 use crate::{ExecutorChoice, RunMode};
 use api::{ApiError, ApiResult};
 use store::{DocIndex, FileDocStore};
-
 pub use shell::{OpenWhere, Shell, WindowOperation, WindowStatus};
-
 /// How a local session was asked to run.
 ///
 /// There is no `lan`, `scope`, `public`, or `web_dist` field, and there will
@@ -166,7 +162,6 @@ pub struct ServeOptions {
     /// routes still answer, with defaults.
     pub ui_settings_path: Option<PathBuf>,
 }
-
 /// One recorded run, in the shape `GET /api/runs/:id` returns.
 #[derive(Clone)]
 pub struct RunRecord {
@@ -179,7 +174,6 @@ pub struct RunRecord {
     pub started_at: String,
     pub blocks: Value,
 }
-
 /// Everything a request handler needs.
 #[derive(Clone)]
 pub struct LocalState {
@@ -258,7 +252,6 @@ pub struct LocalState {
     pub window_slot: Option<String>,
     pub engine_woven: Option<Arc<tokio::sync::Mutex<crate::up::state::WovenState>>>,
 }
-
 /// One diverged produced file, as the tree and the pane read it. Axis 3 of
 /// `docs/specs/freeform/three-axes.md`.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -272,7 +265,6 @@ pub struct DivergedOutput {
     /// What the document produces now; empty for `kept`.
     pub theirs: String,
 }
-
 /// The session's provider-key settings: the live store the agent route reads
 /// (so a key saved in Settings works on the very next turn, no restart), and
 /// the file it persists to (`None` = env-only, the CLI's mode).
@@ -280,7 +272,6 @@ pub struct KeySettings {
     pub store: std::sync::RwLock<hickory_agent::KeyStore>,
     pub path: Option<PathBuf>,
 }
-
 /// The session's UI settings — mirrors [`KeySettings`]: a live store the
 /// routes read and write, and the file it persists to (`None` = in-memory
 /// only, the CLI's mode).
@@ -288,7 +279,6 @@ pub struct UiSettings {
     pub store: std::sync::RwLock<UiStore>,
     pub path: Option<PathBuf>,
 }
-
 /// What `ui.json` holds: `{"window_title": string|null}`. The desktop shell
 /// reads this file directly at launch to name the native window before any
 /// page has loaded; the page reads it over `GET /api/settings/ui` for the
@@ -321,7 +311,6 @@ pub struct UiStore {
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub native_accelerators: std::collections::BTreeMap<String, String>,
 }
-
 impl UiStore {
     /// Read the file, tolerating its absence (a fresh install has none).
     /// A file that exists but does not parse is an error naming the file —
@@ -347,7 +336,6 @@ impl UiStore {
             .with_context(|| format!("writing {}", path.display()))
     }
 }
-
 impl LocalState {
     pub fn executor_kind(&self) -> &'static str {
         self.executor.as_str()
@@ -798,19 +786,73 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/environments/actions", post(environments::act))
         .route("/environments/manager", put(environments::choose))
         .route("/tests/run", post(test_run::run))
-        .route("/tests/source-candidates",post(source_tests::inspect).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
-        .route("/construction/reading",post(source_tests::inspect_construction).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
-        .route("/changes/plan-resources",post(resource_changes::inspect).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
-        .route("/changes/cleanup",post(source_cleanup::inspect).layer(axum::extract::DefaultBodyLimit::max(16*1024*1024)))
-        .route("/changes/resource-targets",post(resource_changes::inspect_targets).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
-        .route("/changes/resource-consequences",post(resource_candidates::inspect).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
-        .route("/changes/resource-save",get(resource_saves::status).post(resource_saves::save).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
-        .route("/changes/resource-recovery",get(resource_recovery_api::inspect))
-        .route("/changes/resource-recoveries",get(resource_recovery_api::list))
-        .route("/changes/prepare-restoration",post(resource_recovery_api::prepare).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
-        .route("/changes/restore-resources",post(resource_recovery_api::restore).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
-        .route("/changes/resource-inputs",post(resource_inputs::inspect).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
-        .route("/tests/run-source",post(source_tests::run).layer(axum::extract::DefaultBodyLimit::max(40*1024*1024)))
+        .route(
+            "/tests/source-candidates",
+            post(source_tests::inspect)
+                .layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)),
+        )
+        .route(
+            "/construction/reading",
+            post(source_tests::inspect_construction)
+                .layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)),
+        )
+        .route(
+            "/changes/plan-resources",
+            post(resource_changes::inspect)
+                .layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)),
+        )
+        .route(
+            "/changes/cleanup",
+            post(source_cleanup::inspect)
+                .layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024)),
+        )
+        .route(
+            "/changes/resource-targets",
+            post(resource_changes::inspect_targets)
+                .layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)),
+        )
+        .route(
+            "/changes/resource-consequences",
+            post(resource_candidates::inspect)
+                .layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)),
+        )
+        .route(
+            "/changes/resource-save",
+            get(resource_saves::status)
+                .post(resource_saves::save)
+                .layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)),
+        )
+        .route(
+            "/changes/resource-recovery",
+            get(resource_recovery_api::inspect),
+        )
+        .route(
+            "/changes/resource-recoveries",
+            get(resource_recovery_api::list),
+        )
+        .route(
+            "/changes/prepare-restoration",
+            post(resource_recovery_api::prepare)
+                .layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)),
+        )
+        .route(
+            "/changes/restore-resources",
+            post(resource_recovery_api::restore)
+                .layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)),
+        )
+        .route(
+            "/changes/resource-inputs",
+            post(resource_inputs::inspect)
+                .layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)),
+        )
+        .route(
+            "/tests/debug-plan",
+            post(test_debug::plan).layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)),
+        )
+        .route(
+            "/tests/run-source",
+            post(source_tests::run).layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)),
+        )
         .route(
             "/performance",
             post(performance::action).layer(axum::extract::DefaultBodyLimit::max(36 * 1024 * 1024)),
@@ -848,10 +890,8 @@ pub(crate) fn router(state: LocalState) -> Router {
         ))
         .with_state(state)
 }
-
 mod bootstrap;
 pub use bootstrap::{Prepared, prepare, prepare_with_prediction, prepare_without_folder, serve};
-
 // ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
@@ -874,12 +914,10 @@ pub(crate) fn git_head(root: &std::path::Path) -> Option<String> {
     let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
     (!sha.is_empty()).then_some(sha)
 }
-
 /// [`now_rfc3339`], for callers outside this module (the broker's log).
 pub fn now_rfc3339_public() -> String {
     now_rfc3339()
 }
-
 pub(crate) fn now_rfc3339() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -895,7 +933,6 @@ pub(crate) fn now_rfc3339() -> String {
         rest % 60
     )
 }
-
 /// A run id. Uniqueness within one process is all this needs.
 pub(crate) fn rand_id() -> u64 {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -907,3 +944,4 @@ pub(crate) fn rand_id() -> u64 {
         .unwrap_or(0);
     now.rotate_left(17) ^ n
 }
+pub mod test_debug;

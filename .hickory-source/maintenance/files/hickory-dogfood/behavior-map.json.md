@@ -41529,7 +41529,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-32f353d4cad8-impl-Mapping",
         "f-32f353d4cad8-canonical_with_missing_tail",
         "f-32f353d4cad8-same_file",
-        "f-32f353d4cad8-observation_tests"
+        "f-32f353d4cad8-observation_tests",
+        "test-debug-primary-source-mapping"
       ],
       "anchor": "output-32f353d4cad8",
       "narrative_owner": "mechanism:crates/hick-dap"
@@ -47079,7 +47080,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-3783720f4686-PLUGIN",
         "f-3783720f4686-test_command",
         "f-3783720f4686-editor_root",
-        "f-3783720f4686-editor_settings"
+        "f-3783720f4686-editor_settings",
+        "python-test-debug-plan"
       ],
       "anchor": "output-3783720f4686",
       "narrative_owner": "mechanism:crates/hick-plugins"
@@ -47586,7 +47588,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-9a1aec043cf8-nearest_glob",
         "f-9a1aec043cf8-test_command",
         "test-source-candidates-module",
-        "test-run-provider-scope"
+        "test-run-provider-scope",
+        "test-debug-provider-plan",
+        "test-debug-provider-witness"
       ],
       "anchor": "output-9a1aec043cf8",
       "narrative_owner": "mechanism:crates/hick-plugins"
@@ -50465,6 +50469,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "f-24a9413a429b-profiles",
+        "source-test-debug-launcher-module",
         "f-24a9413a429b-reading",
         "f-24a9413a429b-use_declaration-2",
         "f-24a9413a429b-use_declaration",
@@ -53198,7 +53203,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-02909c42fcb1-LocatedAction",
         "f-02909c42fcb1-repl",
         "f-02909c42fcb1-Response",
-        "f-02909c42fcb1-InstallOffer"
+        "f-02909c42fcb1-InstallOffer",
+        "source-test-debug-start-wire"
       ],
       "anchor": "output-02909c42fcb1",
       "narrative_owner": "mechanism:crates/hickory-cli"
@@ -53919,7 +53925,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-09ea558208cd-git_head",
         "f-09ea558208cd-now_rfc3339_public",
         "f-09ea558208cd-now_rfc3339",
-        "f-09ea558208cd-rand_id"
+        "f-09ea558208cd-rand_id",
+        "source-test-debug-http-module"
       ],
       "anchor": "output-09ea558208cd",
       "narrative_owner": "mechanism:crates/hickory-cli"
@@ -68820,7 +68827,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "test-sources-browser-values",
         "test-sources-browser-current",
-        "test-sources-browser-selection"
+        "test-sources-browser-selection",
+        "test-sources-browser-debug-choice",
+        "test-sources-browser-debug-json"
       ]
     },
     "apps/web/src/simple/TestSources.test.ts": {
@@ -68831,7 +68840,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "133f0c03c3fb17ca8196f18a40c05155011fea33b864d32e84c38a5ff67fd1fc",
       "construction": "fragments",
       "fragments": [
-        "test-sources-browser-witness"
+        "test-sources-browser-witness",
+        "test-sources-browser-debug-witness"
       ]
     },
     "apps/apple-simple/Sources/TestSources.swift": {
@@ -68844,7 +68854,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "test-sources-apple-values",
         "test-sources-apple-current",
-        "test-sources-apple-selection"
+        "test-sources-apple-selection",
+        "test-sources-apple-debug"
       ]
     },
     "apps/apple-simple/Tests/TestSourcesTests.swift": {
@@ -68933,7 +68944,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "source-tests-browser-setup",
         "source-tests-browser-run",
-        "source-tests-browser-retention"
+        "source-tests-browser-retention",
+        "source-tests-browser-debug-flow"
       ]
     },
     "apps/web/src/simple/SourceTestIndex.ts": {
@@ -71023,6 +71035,46 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "test-debug-android-witness"
+      ]
+    },
+    "crates/hickory-cli/src/serve/test_debug.rs": {
+      "source": ".hickory-source/mechanisms/test-debug-service.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "12d4f9216ec58c986789e87b689287de7fd0204aadc4e3c9dd6d5c1b5ad208fe",
+      "construction": "fragments",
+      "fragments": [
+        "test-debug-service-types",
+        "test-debug-service-admission",
+        "test-debug-service-http",
+        "test-debug-service-witness",
+        "test-debug-service-live-witness"
+      ],
+      "narrative_owner": "mechanism:test-debug-service"
+    },
+    "crates/hickory-cli/src/test_debug_sessions.rs": {
+      "source": ".hickory-source/mechanisms/test-debug-session.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "f7d7d3f53b4813fa8bc3917abd189c932fa83d3ded4417492a1de2ffcb0160e8",
+      "construction": "fragments",
+      "fragments": [
+        "test-debug-session-inputs",
+        "test-debug-session-launch"
+      ],
+      "narrative_owner": "mechanism:test-debug-session"
+    },
+    "apps/web/src/simple/TestSourcesView.test.tsx": {
+      "source": ".hickory-source/frontends/test-source-view-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "f018ca562f21f00245c1d6c082430e9e8347cb0855ba52371da4817f37a5febe",
+      "construction": "fragments",
+      "fragments": [
+        "source-test-view-browser-debug-witness"
       ]
     },
     "scripts/native-debug-smoke.rs": {

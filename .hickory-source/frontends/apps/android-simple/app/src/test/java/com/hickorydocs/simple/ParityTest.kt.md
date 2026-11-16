@@ -17,6 +17,7 @@ import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 
@@ -1088,6 +1089,47 @@ class NativeDebugTest {
             val revision=debug.breakpointModel.intents.getValue(buffer.debugIdentity).revision;buffer.state.edit{append("# unsaved\n")};debug.toggle(buffer,1,"value == 2");assertEquals(revision,debug.breakpointModel.intents.getValue(buffer.debugIdentity).revision);assertTrue(debug.breakpointRows(buffer).isEmpty());assertTrue(debug.message.contains("unbound",ignoreCase=true));assertEquals(loaded.content,engine.file(file).content);assertTrue(buffer.dirty)
             debug.stop();await("Literal-path session stopped"){!debug.active}
         }finally{if(debug.active)debug.stop();debug.close()}
+    }
+    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+    @Test(timeout=120000) fun liveSourceAdjacentPytestDebugPreservesEditorAndRetainsSelection()=kotlinx.coroutines.runBlocking {
+        val origin=System.getenv("HICKORY_NATIVE_TEST_DEBUG_ORIGIN");org.junit.Assume.assumeNotNull(origin)
+        val path=System.getenv("HICKORY_NATIVE_TEST_DEBUG_INPUT") ?: "test_choice.py"
+        val engine=Engine(origin!!);val workspace=Workspace(this);workspace.engine=engine
+        val tree=engine.files().second
+        fun find(nodes:List<FileNode>):FileNode? {for(node in nodes){if(node.path==path)return node;find(node.children)?.let{return it}};return null}
+        // Authored inputs must use their indexed document identity and read
+        // endpoint, just as the editor does; the plain-file API refuses them.
+        val file=find(tree) ?: error("Source test fixture input is not listed: $path")
+        val loaded=engine.file(file);val buffer=DocumentBuffer(file,loaded);val state=buffer.state
+        workspace.buffers[path]=buffer;workspace.rootFiles=tree;workspace.show(path);workspace.showTests=true
+        val debug=NativeDebugger(engine,this);workspace.debugger=debug
+        val index=SourceTestIndex(this,0){input,source->SourceTestScan.decode(engine.request("POST","/api/tests/source-candidates",JSONObject().put("path",input).put("source",source)))}
+        workspace.sourceTestIndex=index;buffer.testIndex=index
+        buffer.inspectTests={line->launch {workspace.inspectTestSource(buffer,line)}}
+        suspend fun await(label:String,condition:()->Boolean){repeat(1000){if(condition())return;kotlinx.coroutines.delay(30)};error("$label: ${debug.status} ${debug.message} ${workspace.testSources.notice}")}
+        try {
+            assertFalse("The fixture input must be writable, not another construction's generated output",buffer.readOnly)
+            state.edit{append("# earlier native edit\n")};assertTrue(buffer.text.endsWith("# earlier native edit\n"));state.undoState.undo();assertEquals(loaded.content,buffer.text);assertTrue(state.undoState.canRedo)
+            buffer.readTestSources();await("indexed selected source-test gutter"){buffer.sourceTestRows().any{it.second.name=="test_selected"}}
+            val row=buffer.sourceTestRows().single{it.second.name=="test_selected"};buffer.inspectTests!!.invoke(row.first)
+            val model=workspace.testSources;await("source-test gutter opens floating observation"){model.observation!=null&&workspace.showTests}
+            val facts=model.observation?.second ?: error(model.notice)
+            val selected=facts.candidates.single{it.name=="test_selected"};assertEquals("TestChoice::test_selected",selected.nameFilter)
+            val line=buffer.text.lines().indexOfFirst{"# source-test-breakpoint" in it};check(line>=0)
+            buffer.state.edit{selection=androidx.compose.ui.text.TextRange(1,3)};val selection=buffer.state.selection;val scroll=buffer.sourceScroll.value
+            debug.toggle(buffer,line);model.debug(selected,TestSourceSelection.NAME_FILTER,workspace)
+            await("selected saved test pause"){debug.status in listOf("paused","failed")};assertEquals(debug.message,"paused",debug.status)
+            assertEquals(1,model.debugRuns.size);assertEquals(facts.fingerprint,model.debugRuns.single().fingerprint);assertEquals(facts.sourceHashes,model.debugRuns.single().contributors)
+            debug.evaluate("selected_value");await("selected test evaluation"){debug.values["selected_value"]!=null};assertEquals("41",debug.values["selected_value"])
+            workspace.showTests=false
+            debug.step("continue");await("selected test process completion"){!debug.active}
+            assertEquals(debug.message,"finished",debug.status);assertEquals("finished",model.debugRuns.single().state)
+            assertEquals(0,model.debugRuns.single().exit)
+            // Check after actual completion, so this cannot pass merely because
+            // a stopped test never reached its accidentally included sibling.
+            val files=engine.request("GET","/api/files").toString();assertFalse(files.contains("sibling-ran.txt"))
+            assertSame(buffer,workspace.currentBuffer);assertSame(state,buffer.state);assertEquals(selection,buffer.state.selection);assertEquals(scroll,buffer.sourceScroll.value);assertEquals(loaded.content,buffer.text);assertFalse(buffer.dirty);assertTrue(state.undoState.canRedo)
+        }finally{index.stop();if(debug.active)debug.stop();debug.close()}
     }
     @Test fun liveNativeDebugChannel() = kotlinx.coroutines.runBlocking {
         val origin = System.getenv("HICKORY_NATIVE_DEBUG_ORIGIN")

@@ -17,13 +17,11 @@ pub mod scaffold;
 pub mod session_writes;
 pub mod testing;
 pub mod typed_client;
-
 pub use debug::{DebugCandidate, DebugRecipe, PORT_PLACEHOLDER, Transport};
 pub use install::{Asset, Installer};
 use std::collections::HashSet;
 use std::path::{Component, Path};
 use std::sync::LazyLock;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InterfaceKind {
     SessionWrites,
@@ -46,13 +44,11 @@ pub enum InterfaceKind {
     Profiling,
     Coverage,
 }
-
 #[derive(Debug, Clone, Copy)]
 pub struct LspCandidate {
     pub bin: &'static str,
     pub args: &'static [&'static str],
 }
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FormulaBackend {
     pub language: &'static str,
@@ -61,20 +57,17 @@ pub struct FormulaBackend {
     pub interpreters: &'static [&'static str],
     pub source: &'static str,
 }
-
 #[derive(Debug, Clone, Copy)]
 pub enum EnvValue {
     Literal(&'static str),
     /// Relative to a host-selected state directory, never a permission grant.
     StatePath(&'static str),
 }
-
 #[derive(Debug, Clone, Copy)]
 pub struct Environment {
     pub name: &'static str,
     pub value: EnvValue,
 }
-
 #[derive(Debug)]
 pub enum Interface {
     SessionWrites {
@@ -113,6 +106,7 @@ pub enum Interface {
     },
     TestRunner {
         plan: testing::Planner,
+        debug: Option<testing::DebugPlanner>,
         detect: Option<testing::candidates::Detector>,
         scope: testing::Scope,
     },
@@ -148,7 +142,6 @@ pub enum Interface {
         script: &'static str,
     },
 }
-
 impl Interface {
     /// An ecosystem may share tooling while offering fewer features for an alias.
     pub fn supports(&self, language: &str) -> bool {
@@ -196,14 +189,12 @@ impl Interface {
         }
     }
 }
-
 #[derive(Debug)]
 pub struct Plugin {
     pub id: &'static str,
     pub languages: &'static [&'static str],
     pub interfaces: &'static [Interface],
 }
-
 /// Immutable ownership registry. Registration order never resolves conflicts.
 pub struct Registry {
     plugins: &'static [&'static Plugin],

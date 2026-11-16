@@ -56,6 +56,7 @@ pub static PLUGIN: Plugin = Plugin {
             target: crate::typed_client::emit::Target::Python,
         },
         Interface::TestRunner {
+            debug: Some(test_debug_command),
             plan: test_command,
             detect: Some(crate::testing::candidates::python),
             scope: crate::testing::Scope::File,
@@ -89,7 +90,6 @@ pub static PLUGIN: Plugin = Plugin {
         },
     ],
 };
-
 </storycode:copy>
 <a id="f-3783720f4686-test_command"></a>
 ### `test_command`
@@ -123,6 +123,11 @@ fn test_command(
         .unwrap_or(file)
         .to_string_lossy()
         .replace('\\', "/");
+    let rel_to_dir = if rel_to_dir.starts_with('-') {
+        format!("./{rel_to_dir}")
+    } else {
+        rel_to_dir
+    };
     let target = if name.is_empty() {
         rel_to_dir
     } else {
@@ -141,7 +146,6 @@ fn test_command(
         ],
     })
 }
-
 </storycode:copy>
 <a id="f-3783720f4686-editor_root"></a>
 ### `editor_root`
@@ -177,6 +181,31 @@ fn editor_settings(kind: Option<&str>, root: &std::path::Path) -> serde_json::Va
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-plugins/src/languages/python.rs"><storycode:paste select="#f-3783720f4686-PLUGIN"/><storycode:paste select="#f-3783720f4686-test_command"/><storycode:paste select="#f-3783720f4686-editor_root"/><storycode:paste select="#f-3783720f4686-editor_settings"/></storycode:file>
+
+## Launch the selected pytest family through the debugger
+
+Reuse the Run provider’s interpreter, cwd and literal node-id argument. The
+[debugpy module launch](https://github.com/microsoft/debugpy/wiki/Debug-configuration-settings)
+selects pytest instead of executing the test file as a script. Clear the generic
+program key explicitly; retain the test file only for adapter discovery and source
+mapping. Runner process exit is not a per-case test verdict.
+
+<storycode:copy id="python-test-debug-plan">
+fn test_debug_command(
+    root: &std::path::Path,
+    file: &std::path::Path,
+    name: &str,
+) -> Result<crate::testing::TestDebugCommand, String> {
+    let command = test_command(root, file, name)?;
+    Ok(crate::testing::TestDebugCommand {
+        title: format!("Debug {}", command.title),
+        cwd: command.cwd,
+        program: file.to_path_buf(),
+        launch: serde_json::json!({"program":null,"module":"pytest","python":command.argv[0],"args":command.argv[3..]}),
+        framework: "pytest",
+    })
+}
+</storycode:copy>
+<storycode:file path="crates/hick-plugins/src/languages/python.rs"><storycode:paste select="#f-3783720f4686-PLUGIN"/><storycode:paste select="#f-3783720f4686-test_command"/><storycode:paste select="#f-3783720f4686-editor_root"/><storycode:paste select="#f-3783720f4686-editor_settings"/><storycode:paste select="#python-test-debug-plan"/></storycode:file>
 
 </storycode:doc>

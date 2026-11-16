@@ -174,6 +174,10 @@ Admit startup/build/failure replies only for that current identity. Keep at most
 64 retired identity/document pairs solely for one-shot cleanup of late owned
 Started replies; an unknown identity never grants permission to stop a session.
 
+Saved source-test Debug enters this same transport through a dedicated `start_test` request. Its provider plan is descriptive; admission still recomputes saved contributors in the engine. The pending launch captures the exact plan, facts and a host lifetime predicate. Before adopting Started, require that predicate, the source hash and every binding field, including the complete checked contributor map. An ordinary profile is never selected as a fallback, and test preparation never exposes a temporary profile in the picker.
+
+The owned 30-second deadline retires an unconfirmed launch without retrying. Closing the reading invalidates its preparation, while a positively identified late owned Started can be stopped once. After adoption, keep the process-outcome observer independent of the floating reading: it records completion and available debugger output even if the reading closes. A process exit does not supply a collected test-case verdict. These explanations cover the new admission/lifetime boundaries; they do not resolve the narrative map's other unexplained engine remainder.
+
 <ui:copy id="simple-android-debug-session">
 fun debugURI(path: String): String = languageURI(path)
 data class NativeDebugTarget(val path: String, val line: Int, val end: Int)
@@ -199,6 +203,10 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
     private var frameRequest:String?=null
     private data class Movement(val request:String,val stop:String,val thread:Long,val frame:Long?,val current:Boolean,val variables:List<JSONObject>,val reading:NativeThreadReading?)
     private var movement:Movement?=null
+    private data class SourceTestLaunch(val body:JSONObject,val plan:TestDebugPlan,val facts:SourceTestScan,val current:()->Boolean,val admitted:(String)->Unit,val rejected:(String)->Unit,val outcome:(String,String,Int?)->Unit)
+    private var sourceTestDeadline:kotlinx.coroutines.Job?=null
+    private var sourceTestLaunch:SourceTestLaunch?=null
+    private var sourceTestOutcome:((String,String,Int?)->Unit)?=null
     private var launchRequest:String?=null
     private var launchDocument:String?=null
     private val retiredLaunches=linkedMapOf<String,String>()
@@ -337,15 +345,26 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
         catch (failure: Exception) { if (epoch == current) message = "${failure.message} Save or refresh this file and try debugging again." }
     }
-    suspend fun launch(profile: JSONObject) {
+    suspend fun launchSourceTest(buffer:DocumentBuffer,body:JSONObject,plan:TestDebugPlan,facts:SourceTestScan,current:()->Boolean,admitted:(String)->Unit,rejected:(String)->Unit,outcome:(String,String,Int?)->Unit) {
+        if(active||!current()||!plan.available||buffer.dirty||buffer.saving||buffer.resourceDeleted){rejected("Test Debug context changed or another debugger is active. No Start was sent.");return}
+        close();registerSource(buffer);owner=buffer.file.path;launchBuffer=buffer;launchSource=buffer.text
+        val profile=JSONObject().put("id","source-test")
+        catalog=JSONObject().put("fingerprint","");profiles=emptyList();launchProgram=null
+        val pending=SourceTestLaunch(JSONObject(body.toString()),plan,facts,current,admitted,rejected,outcome)
+        sourceTestLaunch=pending;catalogNotices=plan.notices
+        launch(profile,pending)
+    }
+    suspend fun launch(profile:JSONObject)=launch(profile,null)
+    private suspend fun launch(profile: JSONObject,test:SourceTestLaunch?) {
         val buffer = launchBuffer; val catalog = catalog
-        if (buffer == null || catalog == null || profiles.none { it.optString("id") == profile.optString("id") } || buffer.text != launchSource || buffer.file.path!=owner || buffer.resourceDeleted || buffer.dirty || buffer.saving || active) {
+        if (buffer == null || catalog == null || (test==null&&profiles.none { it.optString("id") == profile.optString("id") }) || buffer.text != launchSource || buffer.file.path!=owner || buffer.resourceDeleted || buffer.dirty || buffer.saving || active) {
             message = "The source or launch target changed. Save and choose Debug again."; return
         }
+        if(test!=null&&!test.current()){sourceTestLaunch=null;test.rejected("Test Debug context changed before launch. No Start was sent.");return}
         val preparation=epoch;val ticket=++launchTicket;val namespace=sourceLineage.epoch;val primarySource=sourceSnapshot(buffer)
         val candidates=breakpointModel.intents.values.filter{intent->val current=currentBreakpointSource(intent.source.identity);current!=null&&current.saved&&breakpointPaths[current.path]==current.identity&&breakpointModel.matches(intent,current)}
         val hashes=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default){candidates.associate{it.source.identity to debugHash(it.source.text)} to debugHash(primarySource.text)}
-        if(sourceLineage.epoch!=namespace||sourceSnapshot(buffer)!=primarySource||epoch!=preparation||ticket!=launchTicket||active||buffer.text!=launchSource||buffer.dirty||buffer.saving||candidates.any{intent->val current=currentBreakpointSource(intent.source.identity);current==null||!current.saved||!breakpointModel.matches(intent,current)||breakpointModel.intents[intent.source.identity]?.revision!=intent.revision}){message="Source or breakpoint intentions changed while preparing launch. Review and choose Debug again.";return}
+        if((test!=null&&!test.current())||sourceLineage.epoch!=namespace||sourceSnapshot(buffer)!=primarySource||epoch!=preparation||ticket!=launchTicket||active||buffer.text!=launchSource||buffer.dirty||buffer.saving||candidates.any{intent->val current=currentBreakpointSource(intent.source.identity);current==null||!current.saved||!breakpointModel.matches(intent,current)||breakpointModel.intents[intent.source.identity]?.revision!=intent.revision}){message="Source or breakpoint intentions changed while preparing launch. Review and choose Debug again.";sourceTestLaunch=null;test?.rejected?.invoke(message);return}
         for(intent in candidates)breakpointModel.stamp(intent.source.identity,intent.revision,hashes.first.getValue(intent.source.identity))
         launchHash=hashes.second
         launchSourceBindings=candidates.associate{it.source.identity to (it.source to hashes.first.getValue(it.source.identity))}+(buffer.debugIdentity to (sourceSnapshot(buffer) to hashes.second))
@@ -374,7 +393,9 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         val sources=JSONObject();val sourceHashes=JSONObject();var primary=JSONArray()
         for(intent in candidates){val source=currentBreakpointSource(intent.source.identity) ?: continue;breakpointModel.request(source,"pending-start",launchRequest!!);if(source.path==owner)primary=JSONArray(intent.marks) else {sources.put(debugURI(source.path),JSONArray(intent.marks));sourceHashes.put(debugURI(source.path),hashes.first.getValue(source.identity))}}
         request.put("breakpoints",primary).put("sources",sources).put("source_hashes",sourceHashes)
+        if(test!=null){request.put("op","start_test").put("doc",test.plan.sourceURI).put("source_test",test.body);request.remove("profile");request.remove("program")}
         send(request)
+        if(test!=null){val id=launchRequest;sourceTestDeadline?.cancel();sourceTestDeadline=scope.launch {kotlinx.coroutines.delay(30_000);if(id!=null&&launchRequest==id&&sourceTestLaunch===test&&sessionID==null)fail("Test Debug admission was not confirmed within 30 seconds. No request was retried; a late owned session will be stopped.")}}
     }
     private fun send(request: JSONObject) {
         emitForTest?.let { it(request); return }
@@ -392,8 +413,8 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         if(emit!=null)emit(stop) else if(socket?.send((byteArrayOf(3)+stop.toString().toByteArray(Charsets.UTF_8)).toByteString())!=true)message="Cleanup of retired owned debugger session $session was not confirmed. Inspect it before further debug work; no cleanup command was retried."
         return true
     }
-    private fun fail(detail: String) { sourceLineage.clear();movement=null;retireLaunch();retireThreads(true);breakpointModel.retireSession();runSourceHashes=emptyMap();status = "failed"; message = detail; sessionID = null; pausedLine = null; variables = emptyList(); frames = emptyList(); values = emptyMap() }
-    fun close() { sourceLineage.clear();catalogNotices=emptyList();movement=null;launchTicket++;retireLaunch();retireThreads(true);breakpointModel.retireSession();runSourceHashes=emptyMap();stopPending = false; epoch = UUID.randomUUID(); socket?.cancel(); socket = null; sessionID = null; status = "idle"; pausedLine = null; frames = emptyList(); variables = emptyList(); values = emptyMap(); profiles = emptyList() }
+    private fun fail(detail: String) { sourceTestDeadline?.cancel();sourceTestDeadline=null;val pending=sourceTestLaunch;sourceTestLaunch=null;pending?.rejected?.invoke(detail);sessionID?.let{sourceTestOutcome?.invoke(it,"failed",null)};sourceTestOutcome=null;sourceLineage.clear();movement=null;retireLaunch();retireThreads(true);breakpointModel.retireSession();runSourceHashes=emptyMap();status = "failed"; message = detail; sessionID = null; pausedLine = null; variables = emptyList(); frames = emptyList(); values = emptyMap() }
+    fun close() { sourceTestDeadline?.cancel();sourceTestDeadline=null;sourceTestLaunch?.rejected?.invoke("Test Debug preparation closed. No replacement was requested.");sourceTestLaunch=null;sessionID?.let{sourceTestOutcome?.invoke(it,"closed",null)};sourceTestOutcome=null;sourceLineage.clear();catalogNotices=emptyList();movement=null;launchTicket++;retireLaunch();retireThreads(true);breakpointModel.retireSession();runSourceHashes=emptyMap();stopPending = false; epoch = UUID.randomUUID(); socket?.cancel(); socket = null; sessionID = null; status = "idle"; pausedLine = null; frames = emptyList(); variables = emptyList(); values = emptyMap(); profiles = emptyList() }
     fun receive(event: JSONObject) {
         val kind = event.optString("event")
         if(kind=="started"){
@@ -409,9 +430,12 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         } else if (event.optional("session") == null || event.optional("session") != sessionID) return
         when (kind) {
             "started" -> {
+                val test=sourceTestLaunch
+                if(test!=null&&(!test.current()||!test.plan.admits(event.optJSONObject("source_test"),test.facts))){fail("Test Debug receipt or source context changed. The owned session was not adopted.");cleanupRetiredLaunch(event);return}
                 if(event.optString("source_hash")!=launchHash){fail("Debugger source receipt does not match this launch. Its owned session was not adopted; review source and launch again.");cleanupRetiredLaunch(event);return}
                 retireThreads(true);message="";output = emptyList(); sessionID = event.getString("session");capabilities = event.optJSONObject("capabilities") ?: JSONObject();status = "running"
                 runSourceHashes=launchSourceBindings.values.associate{it.first.path to it.second};sourceSnapshots=launchSourceBindings.values.associate{it.first.path to it.first.text};breakpointModel.adoptStart(launchRequest!!,sessionID!!);bind(event,owner)
+                if(test!=null){sourceTestDeadline?.cancel();sourceTestDeadline=null;sourceTestLaunch=null;sourceTestOutcome=test.outcome;test.admitted(sessionID!!)}
                 if(stopPending){stopPending=false;stop()}
             }
             "stopped" -> {
@@ -460,7 +484,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
                 if(pendingValues[expression]==null||debugStop(event.opt("stop"))!=stoppedGeneration||debugInteger(event.opt("thread"))!=stoppedThread||debugInteger(event.opt("frame"))!=selectedFrame||event.optional("request_id")!=pendingValues[expression])return
                 pendingValues.remove(expression);values = values + (expression to event.getString("value"));variableTree.replace(variableScope(),"eval:$expression",listOf(JSONObject().put("name",expression).put("value",event.getString("value")).put("variables_reference",event.opt("reference"))))
             }
-            "finished", "ended" -> { movement=null;retireThreads(true);status = "finished"; sessionID = null; pausedLine = null; frames = emptyList(); variables = emptyList(); values = emptyMap() }
+            "finished", "ended" -> { sessionID?.let{sourceTestOutcome?.invoke(it,kind,if(event.isNull("exit_code"))null else event.optInt("exit_code"))};sourceTestOutcome=null;movement=null;retireThreads(true);status = "finished"; sessionID = null; pausedLine = null; frames = emptyList(); variables = emptyList(); values = emptyMap() }
             "failed" -> {
                 val request=event.optional("request_id");if(request!=null&&sessionID?.let{breakpointModel.refuse(it,request,event.optString("message"))}==true){message="Breakpoint update refused: "+event.optString("message")+" Review the current source before applying again.";return};if(request!=null&&variableTree.refuse(request,event.optString("message")+" Expand again explicitly; the paused stack is retained."))return;val expression=pendingValues.entries.firstOrNull{it.value==request}?.key
                 movement?.takeIf{request==it.request}?.let{old->if(event.optBoolean("scope_retired")){movement=null;retireThreads(true);status="running";variables=emptyList();values=emptyMap();message=event.optString("message")+" Movement resumed execution, but a new pause is not confirmed. Historical frames are readable; positions and evaluation are unavailable. Stop remains available.";return};movement=null;status="paused";stoppedGeneration=old.stop;stoppedThread=old.thread;selectedFrame=old.frame;framesCurrent=old.current;variables=old.variables;threadReading=old.reading;syncVariableTree();message=event.optString("message")+" The move was refused; the prior reported pause is retained. Inspect it before another move.";return}

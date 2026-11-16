@@ -251,6 +251,7 @@ const sessions = new Map<string, DebugSession>();
 
 <storycode:copy id="f-238f66c701b0-listeners">
 const listeners = new Set<() => void>();
+let sessionRevision=0;
 
 </storycode:copy>
 <a id="f-238f66c701b0-emit"></a>
@@ -258,6 +259,7 @@ const listeners = new Set<() => void>();
 
 <storycode:copy id="f-238f66c701b0-emit">
 function emit() {
+  sessionRevision++;
   for (const listener of listeners) listener();
 }
 
@@ -270,6 +272,12 @@ function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
+
+/** Reading adapters retain an owner id, never look up a later session by spelling. */
+export const subscribePlainDebugSessions=(listener:()=>void)=>subscribe(listener);
+export const plainDebugSessionsSnapshot=()=>sessionRevision;
+export function readPlainDebugOwner(owner:string):DebugSession|null{return sessions.get(owner)??null;}
+export function readPlainDebugBuffer(identity:object):{owner:string;debug:DebugSession}|null {const host=bufferHosts.get(identity),debug=host&&sessions.get(host.id);return host&&debug?{owner:host.id,debug}:null;}
 
 </storycode:copy>
 <a id="f-238f66c701b0-ensurePlainDebugHost"></a>
@@ -1880,7 +1888,7 @@ pub async fn list(
         .profiles()
         .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
     Ok(Json(
-        json!({"debug_protocol":3,"notices":context.notices(),"profiles":profiles,"fingerprint":context.fingerprint(),"viewed":context.viewed,"workspace":state.index.root(),"configuration":crate::launch_profiles::CONFIG}),
+        json!({"debug_protocol":3,"test_debug_protocol":1,"notices":context.notices(),"profiles":profiles,"fingerprint":context.fingerprint(),"viewed":context.viewed,"workspace":state.index.root(),"configuration":crate::launch_profiles::CONFIG}),
     ))
 }
 </storycode:copy>

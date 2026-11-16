@@ -36,6 +36,7 @@ pub static PLUGIN: Plugin = Plugin {
             },
         },
         Interface::TestRunner {
+            debug: None,
             plan: test_command,
             detect: Some(crate::testing::candidates::rust),
             scope: crate::testing::Scope::Crate,
@@ -56,7 +57,6 @@ pub static PLUGIN: Plugin = Plugin {
         },
     ],
 };
-
 </storycode:copy>
 <a id="f-e752d4988cd1-test_command"></a>
 ### `test_command`

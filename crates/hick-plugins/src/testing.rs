@@ -74,3 +74,73 @@ pub fn scope(language: &str) -> Result<Scope, String> {
         )),
     }
 }
+pub type DebugPlanner = fn(&Path, &Path, &str) -> Result<TestDebugCommand, String>;
+/// A language-owned launch configuration, never a client-supplied command.
+#[derive(Debug)]
+pub struct TestDebugCommand {
+    pub title: String,
+    pub cwd: PathBuf,
+    pub program: PathBuf,
+    pub launch: serde_json::Value,
+    pub framework: &'static str,
+}
+pub fn test_debug_command(
+    root: &Path,
+    file: &Path,
+    name: &str,
+    language: &str,
+) -> Result<TestDebugCommand, String> {
+    let language = crate::routing::language_id(language).unwrap_or(language);
+    if !file.starts_with(root) {
+        return Err("Test source is outside the runtime workspace".into());
+    }
+    match crate::registry().interface(language, crate::InterfaceKind::TestRunner) {
+        Some(crate::Interface::TestRunner {
+            debug: Some(plan), ..
+        }) => plan(root, file, name),
+        _ => Err(format!(
+            "The {language} test provider does not supply a debugger launch. Run is available separately; no ordinary-file Debug fallback was performed."
+        )),
+    }
+}
+#[cfg(test)]
+mod debug_plan_tests {
+    use super::*;
+    #[test]
+    fn python_debug_uses_the_same_qualified_pytest_family_without_shell_parsing() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("-literal %2F #.py");
+        std::fs::write(
+            &file,
+            "class TestChoice:\n    def test_selected(self): pass\n",
+        )
+        .unwrap();
+        let plan = test_debug_command(
+            directory.path(),
+            &file,
+            "TestChoice::test_selected",
+            "python",
+        )
+        .unwrap();
+        assert_eq!(plan.framework, "pytest");
+        assert_eq!(plan.program, file);
+        assert_eq!(plan.launch["module"], "pytest");
+        assert!(plan.launch["program"].is_null());
+        assert_eq!(
+            plan.launch["args"][0],
+            "./-literal %2F #.py::TestChoice::test_selected"
+        );
+    }
+    #[test]
+    fn absent_debug_provider_never_falls_back_to_a_run_command() {
+        let directory = tempfile::tempdir().unwrap();
+        let error = test_debug_command(
+            directory.path(),
+            &directory.path().join("test.rs"),
+            "test_selected",
+            "rust",
+        )
+        .unwrap_err();
+        assert!(error.contains("does not supply a debugger launch"));
+    }
+}

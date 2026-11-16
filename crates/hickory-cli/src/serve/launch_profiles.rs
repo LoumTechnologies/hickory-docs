@@ -46,7 +46,7 @@ pub async fn list(
         .profiles()
         .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
     Ok(Json(
-        json!({"debug_protocol":3,"notices":context.notices(),"profiles":profiles,"fingerprint":context.fingerprint(),"viewed":context.viewed,"workspace":state.index.root(),"configuration":crate::launch_profiles::CONFIG}),
+        json!({"debug_protocol":3,"test_debug_protocol":1,"notices":context.notices(),"profiles":profiles,"fingerprint":context.fingerprint(),"viewed":context.viewed,"workspace":state.index.root(),"configuration":crate::launch_profiles::CONFIG}),
     ))
 }
 #[derive(Deserialize)]

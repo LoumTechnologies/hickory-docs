@@ -22,6 +22,7 @@ pub static PLUGIN: Plugin = Plugin {
             },
         },
         Interface::TestRunner {
+            debug: None,
             plan: test_command,
             detect: Some(crate::testing::candidates::rust),
             scope: crate::testing::Scope::Crate,
@@ -42,7 +43,6 @@ pub static PLUGIN: Plugin = Plugin {
         },
     ],
 };
-
 fn test_command(
     root: &std::path::Path,
     file: &std::path::Path,

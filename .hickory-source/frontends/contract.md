@@ -36,7 +36,7 @@ until reconstruction, focused safety checks and the connected path pass.
 | Navigation and intelligence | Semantic queries, bounded workspace acquisition, search and retained navigation trails have focused evidence below. Complete provider indexing and native physical interaction are not established by those receipts. |
 | Safe changes, cleanup, generation and templates | Multi-source draft review/undo, cleanup and nested source snippets have focused evidence. Ordered resource publication and saved/draft undo now have connected browser/provider and native controller acceptance. Canonical-entry moves and ambiguous native wire path identities still refuse. Semantic cleanup, reusable generation/template catalog, full snippet transforms/variable contexts, multi-caret templates and mirrored native IME remain open. |
 | Diagnostics and contextual fixes | Source-bound Problems, exact provider action resolution and multi-source action review have focused evidence. Complete bulk-fix workflow and provider analysis completeness remain open. |
-| Tests and coverage | Source declarations, saved-run admission, discovery/results and source-bound imported coverage have focused evidence. An actual Python collector now retains failed-run coverage and reruns only the failed case, marking the earlier source evidence historical after a source change. Source-adjacent test debugging, collector-to-host end-to-end acceptance and the remaining supported collectors remain open. |
+| Tests and coverage | Source declarations, saved-run admission, discovery/results and source-bound imported coverage have focused evidence. An actual Python collector now retains failed-run coverage and reruns only the failed case, marking the earlier source evidence historical after a source change. Python/pytest source-adjacent Debug now has actual writable physical/authored gutter acceptance on browser, macOS and Android, with the shared Apple path building for iOS. Other test-debug providers remain explicitly unavailable. Collector-to-host end-to-end acceptance and the remaining supported collectors remain open. |
 | Review and recovery | Diffs, staging, immutable history, attribution and choosing a conflict stage have focused evidence. Resource recovery publication/adoption and ordered text/resource undo now have actual-engine acceptance. Invalid historical construction drafts and partial-state restoration still refuse. Arbitrary conflict composition, delete/rename conflicts, ordinary-save local history and crash/session/layout restoration remain open. |
 | Debugger | Inline launch, profile selection, breakpoints, frames and evaluation have focused slices. Explicit threads, scoped caller locals, immediate running-session controls and pre-launch protocol admission now have actual-engine browser and native controller evidence. Attach, adapter-owned source content, complete stack paging, source-bound breakpoint retention after edits and supported-adapter acceptance breadth remain open. |
 | Connected behavior readings | Captured construction/contributor/output readings have focused evidence. Complete contract/explanation/implementation/test/execution-evidence relationships remain open; detected tests are not execution evidence. |
@@ -124,6 +124,69 @@ breakpoint replacement still need serialized-state acceptance; executed movement
 flows are sequential. Firefox/WebKit and supported native adapter breadth are not
 established by Python/debugpy and local Chromium receipts. This entry is a
 progress ledger, not complete debugger parity.
+
+## Saved source-test Debug integration in progress, 2026-11-16
+
+The shared service now plans a saved test selection without launching a process,
+then recomputes candidate, contributor hashes and provider admission at the
+separate `start_test` operation. Ordinary Debug cannot silently accept that test
+payload. Started binds the exact author, selection and checked contributors;
+retained process outcomes do not become invented test-case verdicts. The initial
+provider is Python/pytest; other language providers explicitly remain unavailable.
+
+Four admission/wire checks and two provider-plan checks passed. The imported-author
+mapping check passed, including literal coordinates and retained entry ownership.
+The actual debugpy witness first exposed rejection of a present null program for
+module launch. The shared DAP boundary now omits that explicit clearing sentinel;
+its focused check passes. After adding the fixture's explicit project-environment
+declaration, the actual shared witness passed both physical and authored inputs:
+selected body breakpoint, scoped `41` evaluation, Continue through exit zero,
+sibling sentinel absent, unchanged authors, no authored output leaked to the host,
+and finished registry reaping. Four admission checks and the class-qualified
+candidate check also passed on that revision. This checks the shared path, not a
+substitute for each host's connected acceptance.
+
+The browser passes TypeScript checking and 110 focused checks, including stale
+choice/binding guards and a process finishing before its retained row arrives.
+Actual physical and authored flows passed through the existing source gutter and
+floating test surface: explicit selected-family Debug, user body breakpoint,
+locals/watch `41`, retained debugger link, Stop, then a fresh selected-family run
+through exit zero. The sibling sentinel stayed absent. Editor identity, geometry,
+source and disk bytes stayed unchanged; the authored path also checked selection
+and scroll through the retained link. An initial authored attempt caught and
+removed an unrelated ordinary-profile selection dependency; the dedicated admitted
+test plan owns this launch path. No ordinary Debug fallback is permitted.
+Apple's Swift and iOS builds pass, and both actual writable physical/authored
+paths pass through the real WorkspaceView and source-test gutter. User-only
+breakpoints, locals/watch `41`, Stop, retained links and a fresh zero-breakpoint
+selected-family run through completion pass. The sibling sentinel remains absent;
+real native insertion/Undo before execution and Redo afterwards preserve the same
+editor, caret and geometry. Its canonical numeric-protocol guard remains included
+in the focused model checks. Android passes nine focused guard checks,
+full Kotlin compilation and both actual writable physical/authored gutter flows.
+Its index-to-gutter adapter opens the existing floating test model; explicit
+selected-family Debug reaches the user breakpoint, evaluates `41`, completes with
+exit zero and leaves the sibling sentinel absent. Native insertion/Undo before
+execution and retained Redo afterwards pass with the same editor, selection,
+scroll and text. Closing/reopening a popover retires pending admission permanently;
+active-process outcomes remain retained independently of visibility. Public
+native-smoke preparation caught an Android SDK directory spelling mismatch; its
+exact major/minor-layout correction passed a focused check. Six preparation checks
+and an explicitly executed cold/reuse/failure witness passed. Both public native
+smoke commands then executed exactly four actual debugger flows without skips;
+the workflow is committed separately as `b1f7f8aa`.
+Native undo acceptance subsequently exposed a fixture collision: the authored
+example claimed the nominal physical file as its generated output. The shared
+Rust witness already uses separate plain/authored fixtures; the host runner is
+being corrected to construct a distinct authored target and require that its
+physical file has no generated owner. Earlier host physical runtime receipts do
+not establish writable physical-editor acceptance. The browser reran both inputs against the corrected fixture and passed, explicitly
+checking actual CodeMirror readOnly false/editable true before launch, with exact
+selection and scroll preservation on both. Apple reran both corrected-fixture inputs and passed, including actual writable
+native insertion and retained undo/redo. Android also passed both corrected inputs
+through its real index-to-gutter adapter.
+These receipts do not establish complete cross-platform testing parity, other
+providers or physical-input/accessibility acceptance.
 
 ## Saved test-debug choice guard, 2026-11-16
 

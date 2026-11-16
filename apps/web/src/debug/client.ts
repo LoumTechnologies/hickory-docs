@@ -112,6 +112,7 @@ export type DebugEvent =
   | { event: "reading"; session: string; reading: import("./observations").ObservationReading }
   | {
       event: "started";
+      source_test?:import("../simple/TestSources").SourceTestDebugBinding|null;
       source_hash?:string|null;
       request_id?:string|null;
       session: string;
@@ -243,6 +244,7 @@ export interface DebugWire {
   provider?: {protocol:number;workspace:string;sources:import("./SourceGuards").DebugSourceCapability};
 }
 
+import {parseSourceTestDebugJson} from "../simple/TestSources";
 export class DebugClient {
   private listeners = new Set<(event: DebugEvent) => void>();
 
@@ -253,7 +255,9 @@ export class DebugClient {
   handleFrame(frame: Uint8Array): boolean {
     if (frame.length < 2 || frame[0] !== CHANNEL_DEBUG) return false;
     try {
-      const event = JSON.parse(new TextDecoder().decode(frame.subarray(1))) as DebugEvent;
+      const raw=new TextDecoder().decode(frame.subarray(1));
+      const event = JSON.parse(raw) as DebugEvent;
+      if(event.event==='started'&&event.source_test)parseSourceTestDebugJson(raw);
       for (const listener of this.listeners) listener(event);
     } catch {
       // A frame we cannot read is dropped rather than thrown: one bad message
@@ -281,6 +285,9 @@ export class DebugClient {
     // accident.
     this.send({ op: "start", doc, breakpoints, program,source_hash,source_hashes,...(request_id?{request_id}:{}), ...(profile ? {profile:{id:profile.id,fingerprint:profile.fingerprint}} : {}), ...(project && project !== "new" ? {project} : {}), ...(sources && Object.keys(sources).length ? {sources} : {}) });
   }
+
+  /** A distinct verb prevents an older engine from ignoring test selection. */
+  startTest(doc:string,breakpoints:DebugBreakpoint[],sources:Record<string,DebugBreakpoint[]>,request_id:string,source_hash:string,source_hashes:Record<string,string>,source_test:import('../api/testSources').SourceTestRunRequest){this.send({op:'start_test',doc,breakpoints,request_id,source_hash,source_hashes,source_test,...(Object.keys(sources).length?{sources}:{})});}
 
   located(session: string, location: string, scope: import("./observations").ObservationScope, how: "jump" | "run_to") {
     this.send({ op: "located", session, location, scope, how });

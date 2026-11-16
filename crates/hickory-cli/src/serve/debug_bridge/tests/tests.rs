@@ -58,6 +58,7 @@ async fn real_adapter_relocation_and_stale_actions_share_the_reading() {
             request_id: Some("reading-start".into()),
             source_hash: Some(super::super::source_tests::digest(source.as_bytes())),
             source_hashes: Default::default(),
+            source_test: None,
             doc: "hick:///demo.md".into(),
             breakpoints: vec![hick_dap::Breakpoint {
                 line: 3,
@@ -188,6 +189,7 @@ async fn a_failed_build_reaches_the_client_before_the_failure() {
                 &std::fs::read(dir.path().join("a.md")).unwrap(),
             )),
             source_hashes: Default::default(),
+            source_test: None,
             doc: "hick:///a.md".into(),
             breakpoints: vec![],
             program: None,

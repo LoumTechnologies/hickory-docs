@@ -140,6 +140,7 @@ async fn handle_with(
     let output_id = request.session_id().map(str::to_owned);
     let about = about_of(&request);
     let request_id = match &request {
+        Request::StartTest(value) => Some(value.request_id.clone()),
         Request::Start { request_id, .. }
         | Request::Threads { request_id, .. }
         | Request::SelectThread { request_id, .. }
@@ -157,6 +158,7 @@ async fn handle_with(
     let lines = lines_of(&request);
     let doc = match &request {
         Request::Start { doc, .. } => Some(doc.clone()),
+        Request::StartTest(value) => Some(value.doc.clone()),
         _ => None,
     };
     // Collected out here rather than inside, because the case that needs it
@@ -330,7 +332,7 @@ The name of the request, for a failure to point at.
 /// The name of the request, for a failure to point at.
 fn about_of(request: &Request) -> &'static str {
     match request {
-        Request::Start { .. } => "start",
+        Request::Start { .. } | Request::StartTest(_) => "start",
         Request::Breakpoints { .. } => "breakpoints",
         Request::SourceBreakpoints { .. } => "source_breakpoints",
         Request::State { .. } => "state",
@@ -357,6 +359,7 @@ The document lines a request is about, when it is about lines.
 /// The document lines a request is about, when it is about lines.
 fn lines_of(request: &Request) -> Vec<u32> {
     match request {
+        Request::StartTest(value) => value.breakpoints.iter().map(|bp| bp.line).collect(),
         Request::Start { breakpoints, .. } | Request::Breakpoints { breakpoints, .. } => {
             breakpoints.iter().map(|b| b.line).collect()
         }
@@ -461,7 +464,37 @@ async fn handle_inner(
     started_operation: &mut Option<tokio::sync::OwnedMutexGuard<()>>,
     progress: &mut (impl FnMut(&[Response]) + Send),
 ) -> Result<Vec<Response>, Failure> {
+    let (request, test_launch) = match request {
+        Request::StartTest(value) => (
+            Request::Start {
+                doc: value.doc,
+                request_id: Some(value.request_id),
+                breakpoints: value.breakpoints,
+                program: None,
+                project: None,
+                profile: None,
+                sources: value.sources,
+                source_hash: Some(value.source_hash),
+                source_hashes: value.source_hashes,
+                source_test: None,
+            },
+            Some(value.source_test),
+        ),
+        Request::Start {
+            source_test: Some(_),
+            ..
+        } => {
+            return Err((
+                None,
+                anyhow::anyhow!(
+                    "Source tests require the start_test operation; ordinary Debug fallback is disabled"
+                ),
+            ));
+        }
+        other => (other, None),
+    };
     match request {
+        Request::StartTest(_) => unreachable!("Test launch was normalized above"),
         Request::Located {
             session,
             location,
@@ -521,6 +554,7 @@ async fn handle_inner(
             sources,
             source_hash,
             source_hashes,
+            source_test: _,
         } => {
             intent_ticket(request_id.as_deref()).map_err(|e| (None, e))?;
             let primary_hash = sources::valid_hash(source_hash.as_deref())
@@ -555,7 +589,43 @@ async fn handle_inner(
             // file that is not one is debugged as itself, in its own project,
             // with the folder the app opened as the root that bounds the
             // search for that project.
-            let started = if let Some(profile) = profile {
+            let mut test_binding = None;
+            let started = if let Some(request) = test_launch {
+                let workspace = root.to_path_buf();
+                let admitted = tokio::task::spawn_blocking(move || {
+                    super::test_debug::admit(&workspace, &request)
+                })
+                .await
+                .map_err(|error| (None, anyhow::anyhow!("Test admission failed: {error}")))?
+                .map_err(|error| (None, anyhow::anyhow!("{}", error.detail())))?;
+                if !admitted.plan.available {
+                    return Err((
+                        None,
+                        anyhow::anyhow!(
+                            "{}",
+                            admitted
+                                .plan
+                                .reason
+                                .as_deref()
+                                .unwrap_or("Test Debug is unavailable")
+                        ),
+                    ));
+                }
+                if admitted.plan.source_uri != doc
+                    || admitted.plan.source_hash != source_hash.as_deref().unwrap_or("")
+                {
+                    return Err((
+                        None,
+                        anyhow::anyhow!(
+                            "Test debug input identity changed. Refresh source tests before launching."
+                        ),
+                    ));
+                }
+                test_binding = Some(admitted.binding);
+                registry
+                    .start_test_with_sources(admitted.launch, &sources, &mut on_build)
+                    .await
+            } else if let Some(profile) = profile {
                 let context = registry
                     .launch_context(
                         root,
@@ -617,6 +687,7 @@ async fn handle_inner(
                 doc,
                 capabilities: live.session.capabilities().clone(),
                 source_hash: live.session.primary_source_hash(),
+                source_test: test_binding,
                 breakpoints: statuses,
             });
             out.extend(sources::statuses(&session, &live));

@@ -71,3 +71,30 @@ class TestDebugChoices {
         return request
     }
 }
+
+// A plan describes an available provider, but grants no execution. Start rechecks
+// saved contributors; its receipt must match every retained descriptor field.
+class TestDebugPlan private constructor(private val value:JSONObject) {
+    val available get()=value.getBoolean("available")
+    val reason get()=value.optString("reason","This test provider cannot debug the selected scope.")
+    val sourceURI get()=value.getString("source_uri")
+    val sourceHash get()=value.getString("source_hash")
+    val framework get()=value.getString("framework")
+    val notices get()=value.getJSONArray("notices").let {a->(0 until a.length()).map{a.getString(it)}}
+    fun admits(binding:JSONObject?,facts:SourceTestScan):Boolean {
+        if(binding==null||(binding.opt("version") as? Number)?.toString()?.toIntOrNull()!=1)return false
+        val fields=listOf("workspace_id","input_path","input_hash","analysis_fingerprint","candidate_id","candidate_name","language","framework")
+        if(fields.any{binding.opt(it)!=value.opt(it)}||binding.optJSONObject("selection")?.optString("kind")!=value.getJSONObject("selection").getString("kind"))return false
+        val hashes=binding.optJSONObject("checked_sources") ?: return false
+        return hashes.keys().asSequence().associateWith{hashes.opt(it)}==facts.sourceHashes
+    }
+    companion object {
+        fun decode(reply:JSONObject,choice:TestDebugChoice):TestDebugPlan {
+            val value=JSONObject(reply.toString());val facts=choice.facts;val before=choice.snapshot
+            require(facts.workspaceID.isNotEmpty()&&facts.inputHash.matches(Regex("[0-9a-f]{64}"))&&(value.opt("version") as? Number)?.toString()?.toIntOrNull()==1&&testDebugProtocolSupported(value)){"Unsupported test debug plan."}
+            val expected=mapOf("workspace_id" to facts.workspaceID,"input_path" to facts.inputPath,"input_hash" to facts.inputHash,"source_hash" to facts.inputHash,"analysis_fingerprint" to facts.fingerprint,"candidate_id" to choice.candidate.id,"candidate_name" to choice.candidate.name,"language" to choice.candidate.language,"source_uri" to languageURI(facts.inputPath))
+            require(expected.all{(key,text)->value.optString(key)==text}&&value.getJSONObject("selection").getString("kind")==choice.selection.wire&&facts.sourceHashes[facts.inputPath]==facts.inputHash&&debugHash(before.request.source)==facts.inputHash){"The test debug plan does not match the captured saved source and selection. Refresh candidates."}
+            return TestDebugPlan(value)
+        }
+    }
+}

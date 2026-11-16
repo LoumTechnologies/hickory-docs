@@ -93,16 +93,38 @@ class TestDebugChoices {
         return request
     }
 }
+
+// A plan describes an available provider, but grants no execution. Start rechecks
+// saved contributors; its receipt must match every retained descriptor field.
+class TestDebugPlan private constructor(private val value:JSONObject) {
+    val available get()=value.getBoolean("available")
+    val reason get()=value.optString("reason","This test provider cannot debug the selected scope.")
+    val sourceURI get()=value.getString("source_uri")
+    val sourceHash get()=value.getString("source_hash")
+    val framework get()=value.getString("framework")
+    val notices get()=value.getJSONArray("notices").let {a->(0 until a.length()).map{a.getString(it)}}
+    fun admits(binding:JSONObject?,facts:SourceTestScan):Boolean {
+        if(binding==null||(binding.opt("version") as? Number)?.toString()?.toIntOrNull()!=1)return false
+        val fields=listOf("workspace_id","input_path","input_hash","analysis_fingerprint","candidate_id","candidate_name","language","framework")
+        if(fields.any{binding.opt(it)!=value.opt(it)}||binding.optJSONObject("selection")?.optString("kind")!=value.getJSONObject("selection").getString("kind"))return false
+        val hashes=binding.optJSONObject("checked_sources") ?: return false
+        return hashes.keys().asSequence().associateWith{hashes.opt(it)}==facts.sourceHashes
+    }
+    companion object {
+        fun decode(reply:JSONObject,choice:TestDebugChoice):TestDebugPlan {
+            val value=JSONObject(reply.toString());val facts=choice.facts;val before=choice.snapshot
+            require(facts.workspaceID.isNotEmpty()&&facts.inputHash.matches(Regex("[0-9a-f]{64}"))&&(value.opt("version") as? Number)?.toString()?.toIntOrNull()==1&&testDebugProtocolSupported(value)){"Unsupported test debug plan."}
+            val expected=mapOf("workspace_id" to facts.workspaceID,"input_path" to facts.inputPath,"input_hash" to facts.inputHash,"source_hash" to facts.inputHash,"analysis_fingerprint" to facts.fingerprint,"candidate_id" to choice.candidate.id,"candidate_name" to choice.candidate.name,"language" to choice.candidate.language,"source_uri" to languageURI(facts.inputPath))
+            require(expected.all{(key,text)->value.optString(key)==text}&&value.getJSONObject("selection").getString("kind")==choice.selection.wire&&facts.sourceHashes[facts.inputPath]==facts.inputHash&&debugHash(before.request.source)==facts.inputHash){"The test debug plan does not match the captured saved source and selection. Refresh candidates."}
+            return TestDebugPlan(value)
+        }
+    }
+}
 </ui:copy>
 
 ## Check the admission boundary without inventing a launch protocol
 
-These focused tests construct the existing saved-source request only. They must
-not be described as a usable Debug action or a provider integration test. A later
-UI adapter must call the final one-shot check immediately before its existing
-debugger write, after asynchronous capability and preparation work. The shared
-engine must independently recompute the scan, candidate, target bytes and saved
-contributors before any runner effect.
+These focused tests exercise immutable choice, exact plan and receipt binding, and the dedicated debugger transport admission boundary. The floating source-test adapter calls the final one-shot check after provider planning. The shared engine independently recomputes the scan, candidate, target bytes and saved contributors before any runner effect. Model checks alone do not prove real provider execution.
 
 <ui:copy id="test-debug-android-witness">
 package com.hickorydocs.simple
@@ -110,6 +132,7 @@ package com.hickorydocs.simple
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
+import kotlinx.coroutines.async
 
 class TestDebugTest {
     private val supported=JSONObject().put("test_debug_protocol",1)
@@ -122,6 +145,64 @@ class TestDebugTest {
         return before to SourceTestScan(1,"cases.md","analysis-fingerprint",mapOf("cases.md" to "source-hash","helper.md" to "helper-hash"),listOf(candidate),"project",true,emptyList(),emptyList(),emptyList(),listOf("unused.md"))
     }
     private fun refuses(body:()->Unit){assertTrue(runCatching(body).isFailure)}
+
+    @Test fun planAndReceiptBindEverySavedDescriptorAndContributor(){
+        val (before,old)=fixture();val hash=debugHash(before.request.source)
+        val facts=old.copy(workspaceID="server-workspace",inputHash=hash,sourceHashes=mapOf("cases.md" to hash,"helper.md" to "helper-hash"))
+        val model=TestDebugChoices();val choice=model.offer(context(),before,facts,"opaque-candidate",TestSourceSelection.NAME_FILTER)
+        val value=JSONObject().put("version",1).put("test_debug_protocol",1).put("available",true).put("workspace_id",facts.workspaceID).put("input_path",facts.inputPath).put("input_hash",hash).put("source_hash",hash).put("analysis_fingerprint",facts.fingerprint).put("candidate_id",choice.candidate.id).put("candidate_name",choice.candidate.name).put("selection",JSONObject().put("kind","name_filter")).put("language","python").put("framework","pytest").put("source_uri",languageURI(facts.inputPath)).put("notices",org.json.JSONArray())
+        val plan=TestDebugPlan.decode(value,choice)
+        val binding=JSONObject(value.toString()).put("checked_sources",JSONObject(facts.sourceHashes))
+        assertTrue(plan.admits(binding,facts));assertFalse(plan.admits(null,facts))
+        for(key in listOf("workspace_id","input_path","input_hash","analysis_fingerprint","candidate_id","candidate_name","language","framework"))assertFalse(plan.admits(JSONObject(binding.toString()).put(key,"changed"),facts))
+        assertFalse(plan.admits(JSONObject(binding.toString()).put("checked_sources",JSONObject(mapOf("cases.md" to hash))),facts))
+        assertFalse(plan.admits(JSONObject(binding.toString()).put("checked_sources",JSONObject(facts.sourceHashes+mapOf("extra" to "hash"))),facts))
+        for(key in listOf("workspace_id","input_path","input_hash","source_hash","analysis_fingerprint","candidate_id","candidate_name","language","source_uri"))refuses{TestDebugPlan.decode(JSONObject(value.toString()).put(key,"changed"),choice)}
+        value.put("candidate_name","mutated after decode");assertTrue(plan.admits(binding,facts))
+    }
+
+    @Test fun dedicatedTransportRejectsStaleOwnedReceiptAndRetainsProcessOutcome()=kotlinx.coroutines.runBlocking {
+        val (before,old)=fixture();val hash=debugHash(before.request.source)
+        val facts=old.copy(workspaceID="server-workspace",inputHash=hash,sourceHashes=mapOf("cases.md" to hash))
+        val choices=TestDebugChoices();val choice=choices.offer(context(),before,facts,"opaque-candidate",TestSourceSelection.NAME_FILTER)
+        val descriptor=JSONObject().put("version",1).put("test_debug_protocol",1).put("available",true).put("workspace_id",facts.workspaceID).put("input_path",facts.inputPath).put("input_hash",hash).put("source_hash",hash).put("analysis_fingerprint",facts.fingerprint).put("candidate_id",choice.candidate.id).put("candidate_name",choice.candidate.name).put("selection",JSONObject().put("kind","name_filter")).put("language","python").put("framework","pytest").put("source_uri",languageURI(facts.inputPath)).put("notices",org.json.JSONArray())
+        val plan=TestDebugPlan.decode(descriptor,choice);val binding=JSONObject(descriptor.toString()).put("checked_sources",JSONObject(facts.sourceHashes))
+        val file=FileNode("cases.md","cases.md",false,emptyList(),null,null);val buffer=DocumentBuffer(file,FileText(before.request.source,"saved"))
+        val debug=NativeDebugger(Engine("http://127.0.0.1:1"),this);val sent=mutableListOf<JSONObject>();debug.emitForTest={sent+=it};var current=true;var admitted:String?=null;var rejected="";var outcome=""
+        fun started(request:JSONObject,session:String)=JSONObject().put("event","started").put("request_id",request.getString("request_id")).put("doc",request.getString("doc")).put("session",session).put("source_hash",hash).put("source_test",binding)
+        suspend fun launch(){debug.launchSourceTest(buffer,JSONObject().put("candidate_id",choice.candidate.id),plan,facts,{current},{admitted=it},{rejected=it},{id,state,exit->outcome="$id:$state:$exit"})}
+        try {
+            val unsupported=TestDebugPlan.decode(JSONObject(descriptor.toString()).put("available",false).put("reason","Runner does not provide test debugging"),choice)
+            debug.launchSourceTest(buffer,JSONObject(),unsupported,facts,{true},{error("unexpected admission")},{rejected=it},{_,_,_->})
+            assertTrue(sent.isEmpty());assertTrue(rejected.contains("No Start"))
+            launch();val first=sent.last();assertEquals("start_test",first.getString("op"));assertFalse(first.has("profile"));assertFalse(first.has("program"));assertEquals(0,first.getJSONArray("breakpoints").length())
+            current=false;debug.receive(started(first,"retired"));assertNull(admitted);assertTrue(rejected.isNotBlank());assertEquals("stop",sent.last().getString("op"));assertEquals("retired",sent.last().getString("session"))
+            current=true;launch();val second=sent.last();val count=sent.size
+            debug.receive(started(first,"foreign").put("request_id","unknown"));assertEquals(count,sent.size);assertNull(admitted)
+            debug.receive(started(second,"current"));assertEquals("current",admitted)
+            val activeCount=sent.size;launch();assertEquals(activeCount,sent.size);assertTrue(rejected.contains("another debugger"))
+            current=false;debug.receive(JSONObject().put("event","finished").put("session","current").put("exit_code",0));assertEquals("current:finished:0",outcome)
+        }finally{debug.close()}
+    }
+
+    @Test(timeout=10000) fun dismissAndReopenCannotReviveDelayedPlan()=kotlinx.coroutines.runBlocking {
+        val entered=java.util.concurrent.CountDownLatch(1);val release=java.util.concurrent.CountDownLatch(1);val reply=java.util.concurrent.atomic.AtomicReference("{}")
+        val server=com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1",0),0)
+        server.createContext("/api/tests/debug-plan"){exchange->entered.countDown();release.await(5,java.util.concurrent.TimeUnit.SECONDS);val bytes=reply.get().toByteArray();exchange.sendResponseHeaders(200,bytes.size.toLong());exchange.responseBody.use{it.write(bytes)}};server.start()
+        val engine=Engine("http://127.0.0.1:${server.address.port}");val workspace=Workspace(this);workspace.engine=engine
+        val file=FileNode("cases.md","cases.md",false,emptyList(),null,null);val buffer=DocumentBuffer(file,FileText("source","saved"));workspace.buffers[file.path]=buffer;workspace.show(file.path);workspace.showTests=true
+        val debug=NativeDebugger(engine,this);workspace.debugger=debug;val sent=mutableListOf<JSONObject>();debug.emitForTest={sent+=it}
+        val model=workspace.testSources;val before=model.snapshot(workspace)!!;val (_,old)=fixture();val hash=debugHash(before.request.source);val facts=old.copy(workspaceID="server-workspace",inputHash=hash,sourceHashes=mapOf("cases.md" to hash));model.observation=before to facts
+        val candidate=facts.candidates.single()
+        val descriptor=JSONObject().put("version",1).put("test_debug_protocol",1).put("available",true).put("workspace_id",facts.workspaceID).put("input_path",facts.inputPath).put("input_hash",hash).put("source_hash",hash).put("analysis_fingerprint",facts.fingerprint).put("candidate_id",candidate.id).put("candidate_name",candidate.name).put("selection",JSONObject().put("kind","name_filter")).put("language","python").put("framework","pytest").put("source_uri",languageURI(facts.inputPath)).put("notices",org.json.JSONArray())
+        assertTrue(TestDebugPlan.decode(descriptor,TestDebugChoices().offer(context(),before,facts,candidate.id,TestSourceSelection.NAME_FILTER)).available);reply.set(descriptor.toString())
+        try {
+            val pending=async{model.debug(facts.candidates.single(),TestSourceSelection.NAME_FILTER,workspace)}
+            repeat(100){if(entered.count>0)kotlinx.coroutines.delay(10)};assertEquals(0L,entered.count);assertTrue(model.debugging)
+            workspace.showTests=false;assertFalse(model.debugging);workspace.showTests=true;release.countDown();pending.await()
+            assertTrue(sent.isEmpty());assertFalse(model.debugging);assertEquals("idle",debug.status)
+        }finally{release.countDown();debug.close();server.stop(0)}
+    }
 
     @Test fun exactChoiceProducesExistingSavedRequestOnce(){
         val (before,facts)=fixture();val context=context();val model=TestDebugChoices()
@@ -190,14 +271,11 @@ class TestDebugTest {
 
 ## Construction and verification status
 
-This mechanism is a foundation, not a connected Debug feature. The construction
-is registered and generated; the full Android source compiled on 2026-11-16 and
-all six `TestDebugTest` methods passed with zero skips. They exercised only this
-choice policy and the existing saved-source request model. No new test-debug
-wire, UI action or runner provider is implemented here. Positive acceptance
-still requires real runner debugging through the engine and retained session
-identity, as well as explicit unsupported-provider and stale-launch paths.
-Physical input and accessibility acceptance remain separate.
+On 2026-11-16 the final full Android production/test Kotlin compilation passed. All nine focused `TestDebugTest` methods executed with zero skips: the original six choice checks, exact plan/receipt descriptor and contributor checks, dedicated transport cleanup/outcome checks, and a delayed valid HTTP plan that cannot revive after dismissal/reopening.
+
+The actual `NativeDebugTest.liveSourceAdjacentPytestDebugPreservesEditorAndRetainsSelection` then passed separately for physical `test_choice.py` (2.395 seconds) and authored `test_doc.md` (2.488 seconds), each with zero skips. The maintained fixture startup verified that the physical input remained plain and independent of the authored output. Each run used the real source index and existing gutter inspection callback, provider plan and dedicated engine/debugpy transport; a user breakpoint paused the selected `TestChoice::test_selected` family, evaluation returned 41, Continue reached process exit zero, and the sibling sentinel remained absent after completion. The same editor, selection, scroll and native redo history survived an actual earlier edit/undo. Retained identity and process outcome were checked after the floating reading closed.
+
+These checks execute native controller and adapter paths, not physical Compose gutter input or an accessibility walkthrough. Other provider support, discovered case verdicts, device keyboard/IME and accessibility acceptance remain unverified.
 
 <ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/TestDebug.kt"><ui:paste select="#test-debug-android-policy"/></ui:file>
 <ui:file path="apps/android-simple/app/src/test/java/com/hickorydocs/simple/TestDebugTest.kt"><ui:paste select="#test-debug-android-witness"/></ui:file>

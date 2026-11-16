@@ -206,6 +206,9 @@ export interface DebugStripProps {
   valueHistory?:string[];valueNotice?:string|null;
   expandValue?:(id:string)=>void;collapseValue?:(id:string)=>void;closeValues?:()=>void;
   refreshState?:()=>void;positionSourceBound?:boolean;
+  sourceTest?:import('../simple/TestSources').SourceTestDebugProcess|null;
+  sourceTestIntent?:import('../simple/TestSources').PreparedSourceTestDebug|null;
+  releaseSourceTest?:()=>void;
   launchNotices?:string[];
   breakpointNotice?:string|null;
   breakpointIntentions?:{source:string;marks:import('./client').DebugBreakpoint[];namespace:string|null}[];
@@ -285,10 +288,11 @@ export function DebugStrip(props: DebugStripProps) {
     if (["idle", "paused", "running", "finished"].includes(props.status)) attemptedInstallations.current.clear();
   }, [props.status]);
   const [targetLine,setTargetLine]=useState("1");
+  const testChoice=props.sourceTestIntent?.choice??props.sourceTest?.choice;
   const paused = props.status === "paused",selectedSourceFrame=props.frames.find(frame=>frame.id===props.selectedFrame);
   // A terminal state: the session no longer exists, and the strip's job is
   // to say how it ended and offer the way back in.
-  const over = props.status === "finished" || props.status === "failed";
+  const over = props.status === "finished" || props.status === "failed" || props.status === "idle"&&!!testChoice;
   const back = backwardsControl(props.capabilities);
   const { onStep, status } = props;
 
@@ -312,7 +316,7 @@ export function DebugStrip(props: DebugStripProps) {
 
   // Idle means no session and nothing to say: the script's gutter icon is the
   // way in, and chrome for a debugger nobody started is noise.
-  if (props.status === "idle") return null;
+  if (props.status === "idle"&&!testChoice) return null;
 
   // Shown while the build is the thing happening, and kept when the start
   // failed — which is the case it exists for. Once the program is running,
@@ -332,7 +336,7 @@ export function DebugStrip(props: DebugStripProps) {
       {/* The way back in, once the session is over: the server reaped it
           with the program, so the only meaningful verb left is a fresh
           start — with the breakpoints kept locally for exactly this. */}
-      {over && !props.offerInstall && (
+      {over && !props.offerInstall && !testChoice && (
         <IconButton
           glyph="▶"
           label="Debug again"
@@ -408,13 +412,14 @@ export function DebugStrip(props: DebugStripProps) {
             : "End the session. The scratch copy it ran in is deleted with it."
         }
         className="debug-strip__stop"
-        onClick={props.onStop}
+        onClick={over&&testChoice?props.releaseSourceTest??props.onStop:props.onStop}
       />
       {props.locationActions}
       {/* The stack, as a combo box: pick a frame, and the gutter marks, the
           paused line and the inline values follow it. */}
       <MoreActions glyph="⚙" label="Debug options" retainOnAction onOpenChange={open=>{if(!open)props.closeValues?.();}}>
       <span>{props.launchTarget ?? props.program ?? ""} · {statusWord(props.status, props.exitCode)}</span>
+      {testChoice&&<section aria-label="Test debug process"><strong>{testChoice.candidateName} · {testChoice.selection.kind}</strong><p>Process-only debugger state: {props.sourceTest?.phase??props.status}. Collected test verdicts are unavailable.</p>{!['starting','running','paused','unconfirmed','stopping'].includes(props.status)&&<button type="button" onClick={props.releaseSourceTest}>Release retained test selection</button>}<p>Use Source tests to prepare a fresh Debug choice. This session does not restart as an ordinary program.</p></section>}
       {!over && <>
       {paused&&props.frames.length>0&&<p>{(selectedSourceFrame?.source_reference??0)>0?"The adapter owns this frame source; workspace text is not its source bytes.":selectedSourceFrame?.source_hash?"Source identities come from captured mappings and are checked before navigation; they do not prove the executed runtime revision.":"Frame source identity is unbound; locations open readable text without a precise source position."}</p>}
       {paused&&props.readThreads&&<section aria-label="Debugger threads"><button type="button" disabled={props.threadStop==null||props.threadSelecting} onClick={props.readThreads}>{props.threadPending?'Refresh thread request':'Read threads'}</button>
@@ -505,7 +510,7 @@ export function DebugStrip(props: DebugStripProps) {
           {props.message}
         </span>
       )}
-      {props.offerInstall && (
+      {props.offerInstall && !testChoice && (
         <MissingTool
           offer={props.offerInstall}
           detail={props.message}

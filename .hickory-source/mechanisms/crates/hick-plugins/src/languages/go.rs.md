@@ -26,6 +26,7 @@ pub static PLUGIN: Plugin = Plugin {
             target: crate::typed_client::emit::Target::Go,
         },
         Interface::TestRunner {
+            debug: None,
             plan: test_command,
             detect: Some(crate::testing::candidates::go),
             scope: crate::testing::Scope::Package,
@@ -49,7 +50,6 @@ pub static PLUGIN: Plugin = Plugin {
         },
     ],
 };
-
 </storycode:copy>
 <a id="f-9b16480d1289-test_command"></a>
 ### `test_command`

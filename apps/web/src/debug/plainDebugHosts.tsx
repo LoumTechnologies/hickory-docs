@@ -62,8 +62,10 @@ export function retirePlainDebugIdentity(identity:object):boolean {
 }
 const sessions = new Map<string, DebugSession>();
 const listeners = new Set<() => void>();
+let sessionRevision=0;
 
 function emit() {
+  sessionRevision++;
   for (const listener of listeners) listener();
 }
 
@@ -71,6 +73,12 @@ function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
+
+/** Reading adapters retain an owner id, never look up a later session by spelling. */
+export const subscribePlainDebugSessions=(listener:()=>void)=>subscribe(listener);
+export const plainDebugSessionsSnapshot=()=>sessionRevision;
+export function readPlainDebugOwner(owner:string):DebugSession|null{return sessions.get(owner)??null;}
+export function readPlainDebugBuffer(identity:object):{owner:string;debug:DebugSession}|null {const host=bufferHosts.get(identity),debug=host&&sessions.get(host.id);return host&&debug?{owner:host.id,debug}:null;}
 
 /** Ask for a host for `path`. Idempotent; hosts are never removed. */
 export function ensurePlainDebugHost(value: string|PlainHost): void {

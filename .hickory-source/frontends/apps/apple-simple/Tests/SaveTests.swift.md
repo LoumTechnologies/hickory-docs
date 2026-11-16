@@ -801,6 +801,57 @@ final class NativeDebugTests: XCTestCase {
         XCTAssertEqual(debug.values["value"],"1",debug.evaluationNotice);XCTAssertEqual(buffer.text,loaded.content);XCTAssertEqual(buffer.selection,NSRange(location:2,length:0));XCTAssertFalse(buffer.dirty)
         debug.stop();for _ in 0..<200 {if !debug.active{break};try await Task.sleep(for:.milliseconds(50))};XCTAssertFalse(debug.active,debug.message)
     }
+    @MainActor func testLiveSourceAdjacentPytestDebugPreservesEditorAndRetainsSelection()async throws {
+        #if os(macOS)
+        guard let origin=ProcessInfo.processInfo.environment["HICKORY_NATIVE_TEST_DEBUG_ORIGIN"] else{throw XCTSkip("Set HICKORY_NATIVE_TEST_DEBUG_ORIGIN to the isolated source-test Debug fixture.")}
+        let engine=try Engine(address:origin),space=Workspace(),path=ProcessInfo.processInfo.environment["HICKORY_NATIVE_TEST_DEBUG_INPUT"] ?? "test_choice.py",tree=try await engine.files()
+        func find(_ files:[FileNode])->FileNode?{for file in files{if exactUTF8(file.path,path){return file};if let nested=find(file.children ?? []){return nested}};return nil}
+        let file=try XCTUnwrap(find(tree.tree)),debug=NativeDebugger(engine:engine)
+        space.engine=engine;space.rootFiles=tree.tree;space.debugger=debug
+        let buffer=try await space.loadBuffer(file)
+        XCTAssertFalse(buffer.readOnly,"Fixture input must be a writable physical/authored source, not another document's generated target.");guard !buffer.readOnly else{return}
+        space.layout.activate(file.path,in:"document-group");debug.sourceBuffers={ [weak space] in guard let space else{return []};return Array(space.buffers.values)}
+        _ = NSApplication.shared;NSApp.setActivationPolicy(.regular);NSApp.activate(ignoringOtherApps:true)
+        let host=NSHostingView(rootView:WorkspaceView(workspace:space)),window=NSWindow(contentRect:NSRect(x:0,y:0,width:700,height:480),styleMask:[.titled],backing:.buffered,defer:false);window.contentView=host;window.makeKeyAndOrderFront(nil);host.layoutSubtreeIfNeeded()
+        defer{debug.close();window.orderOut(nil);buffer.language?.close();space.sourceTestIndex?.stop()}
+        func editor(_ view:NSView)->NSTextView?{if let text=view as? NSTextView{return text};return view.subviews.lazy.compactMap{editor($0)}.first}
+        for _ in 0..<200{if editor(host) != nil{break};try await Task.sleep(for:.milliseconds(10))}
+        let native=try XCTUnwrap(editor(host)),insertion=native.string.range(of:"</h:file>").map{NSRange($0,in:native.string).location} ?? native.string.utf16.count
+        native.insertText("# source test native undo proof\n",replacementRange:NSRange(location:insertion,length:0));XCTAssertTrue(native.string.contains("# source test native undo proof"),"Native insertion must actually change editable fixture text.");await buffer.save(using:engine);XCTAssertFalse(buffer.dirty,buffer.error)
+        native.setSelectedRange(NSRange(location:2,length:0));let undo=try XCTUnwrap(native.undoManager),scroll=try XCTUnwrap(native.enclosingScrollView),geometry=scroll.convert(scroll.bounds,to:host),source=buffer.text
+        let line=try XCTUnwrap(source.components(separatedBy:"\n").firstIndex(where:{$0.contains("# source-test-breakpoint")}));debug.toggle(buffer,line:line)
+        buffer.readTestSources()
+        for _ in 0..<400{if buffer.sourceTestRows().contains(where:{$0.candidate.name_filter?.contains("TestChoice::test_selected")==true}){break};try await Task.sleep(for:.milliseconds(25))}
+        let row=try XCTUnwrap(buffer.sourceTestRows().first(where:{$0.candidate.name_filter?.contains("TestChoice::test_selected")==true}),space.sourceTestIndex?.records[file.path]?.notice ?? "No current source-adjacent selected test row")
+        let model=space.testSources;XCTAssertNotNil(buffer.inspectTests);buffer.inspectTests?(row.line)
+        for _ in 0..<400{if model.observation != nil{break};try await Task.sleep(for:.milliseconds(25))}
+        XCTAssertTrue(space.showTests);XCTAssertTrue(model.current(space),model.notice)
+        let candidate=try XCTUnwrap(model.observation?.1.candidates.first(where:{$0.name_filter?.contains("TestChoice::test_selected")==true}),model.notice)
+        if ["md","markdown"].contains((path as NSString).pathExtension){XCTAssertNotNil(candidate.source);XCTAssertTrue(exactUTF8(candidate.source?.path,path))}
+        var outbound:[[String:Any]]=[];debug.observeRequestForTest={outbound.append($0)}
+        await model.debug(candidate,.nameFilter,workspace:space)
+        for _ in 0..<400{if debug.status=="paused" || debug.status=="failed"{break};try await Task.sleep(for:.milliseconds(50))}
+        XCTAssertEqual(debug.status,"paused",model.notice+debug.message);guard debug.status=="paused" else{return}
+        XCTAssertTrue(debug.sourceMatches(buffer),debug.message);XCTAssertEqual(debug.line(in:file.path),line,"Stopped source position must map to the selected physical/authored input.")
+        let session=try XCTUnwrap(debug.sessionID),link=try XCTUnwrap(model.debugRuns.first);XCTAssertEqual(link.id,session);XCTAssertEqual(link.selection,"name_filter");XCTAssertEqual(link.name,candidate.name)
+        let start=try XCTUnwrap(outbound.first(where:{$0["op"] as? String=="start_test"}));XCTAssertNotNil(start["source_test"]);XCTAssertNil(start["profile"]);XCTAssertNil(start["program"]);XCTAssertEqual((start["breakpoints"] as? [[String:Any]])?.count,1)
+        debug.readFrameLocals();for _ in 0..<200{if !debug.frameBusy{break};try await Task.sleep(for:.milliseconds(50))};XCTAssertTrue(debug.variables.contains{$0["name"] as? String=="selected_value" && $0["value"] as? String=="41"},debug.frameNotice)
+        debug.evaluate("selected_value",watch:true);for _ in 0..<200{if debug.values["selected_value"] != nil{break};try await Task.sleep(for:.milliseconds(50))};XCTAssertEqual(debug.values["selected_value"],"41",debug.evaluationNotice)
+        await model.inspectDebug(link,workspace:space);XCTAssertFalse(space.showTests);XCTAssertEqual(debug.sessionID,session)
+        XCTAssertTrue(editor(host) === native,"Original native editor remains mounted");XCTAssertTrue(native.undoManager === undo,"Original native undo manager retained");XCTAssertTrue(undo.canUndo,"Native insertion undo remains available");XCTAssertEqual(scroll.convert(scroll.bounds,to:host),geometry);XCTAssertEqual(native.selectedRange(),NSRange(location:2,length:0));XCTAssertEqual(buffer.text,source)
+        debug.stop();for _ in 0..<200{if !debug.active{break};try await Task.sleep(for:.milliseconds(50))};XCTAssertFalse(debug.active,debug.message);XCTAssertEqual(debug.retainedSessionID,session);XCTAssertEqual(model.debugRuns.first?.id,session)
+        // A stopped first process cannot prove sibling exclusion through completion.
+        // Explicitly remove the user's BP, then admit the same saved filter anew.
+        debug.toggle(buffer,line:line);space.showTests=true;await model.debug(candidate,.nameFilter,workspace:space)
+        for _ in 0..<400{if debug.status=="finished" || debug.status=="failed"{break};try await Task.sleep(for:.milliseconds(50))}
+        XCTAssertEqual(debug.status,"finished",model.notice+debug.message)
+        let completed=try XCTUnwrap(model.debugRuns.first);XCTAssertNotEqual(completed.id,session);XCTAssertEqual(completed.state,"process finished");XCTAssertTrue(completed.exit==nil || completed.exit==0,"Reported nonzero process exit; an absent exit remains uncollected.");XCTAssertEqual(model.debugRuns.count,2);XCTAssertEqual(model.debugRuns.last?.id,session)
+        let filteredStarts=outbound.filter{$0["op"] as? String=="start_test"};XCTAssertEqual(filteredStarts.count,2);XCTAssertEqual((filteredStarts.last?["breakpoints"] as? [[String:Any]])?.count,0)
+        XCTAssertTrue(editor(host) === native);XCTAssertTrue(native.undoManager === undo);XCTAssertEqual(scroll.convert(scroll.bounds,to:host),geometry);XCTAssertEqual(buffer.text,source)
+        let finalTree=try await engine.files();func contains(_ files:[FileNode])->Bool{files.contains{$0.path=="sibling-ran.txt" || contains($0.children ?? [])}};XCTAssertFalse(contains(finalTree.tree),"Filtered Debug executed a sibling test")
+        undo.undo();XCTAssertTrue(undo.canRedo,"Native insertion undo must retain coordinated redo");XCTAssertFalse(native.string.contains("# source test native undo proof"),"Undo must remove the original native insertion");XCTAssertEqual(buffer.text,native.string)
+        #endif
+    }
     @MainActor func testLiveNativeThreadSelectionAndScopedEvaluation()async throws {
         guard let origin=ProcessInfo.processInfo.environment["HICKORY_NATIVE_DEBUG_ORIGIN"] else{throw XCTSkip("Set HICKORY_NATIVE_DEBUG_ORIGIN for the real multi-thread debugger fixture.")}
         let engine=try Engine(address:origin),file=FileNode(name:"debug.py",path:"debug.py",dir:false),loaded=try await engine.file(file)

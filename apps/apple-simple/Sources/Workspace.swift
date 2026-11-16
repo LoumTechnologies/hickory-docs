@@ -3,6 +3,7 @@ import Observation
 
 @MainActor @Observable final class DocumentBuffer: Identifiable {
     let id = UUID()
+    var debugInspection=UUID()
     var showSnippetTools=false
     @ObservationIgnored lazy var snippets=SourceSnippetController(buffer:self)
     var file: FileNode
@@ -206,7 +207,7 @@ import Observation
     var sourceTestIndex:SourceTestIndex?
     var testSources=TestSourcesModel()
     var coverage=SimpleCoverageState();var showCoverage=false
-    var showTests=false
+    var showTests=false {didSet{if !showTests{testSources.closeDebugPreparation(self)}}}
     var showReview=false
     var gitReview=GitReviewModel()
     var showHistory=false
@@ -496,6 +497,7 @@ import Observation
         if let buffer = bufferForTab(tab), buffer.dirty || buffer.saving {
             status = "Unsaved edits retained. Save this document before closing its tab."; return
         }
+        if let buffer=bufferForTab(tab){testSources.sourceClosed(buffer,workspace:self)}
         layout.remove(tab)
         if !layout.groups().contains(where: { $0.id == focused }) { focused = layout.groups()[0].id }
     }

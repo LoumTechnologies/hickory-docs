@@ -21,6 +21,7 @@ pub static PLUGIN: Plugin = Plugin {
             },
         },
         Interface::TestRunner {
+            debug: None,
             plan: test_command,
             detect: Some(crate::testing::candidates::csharp),
             scope: crate::testing::Scope::Project,

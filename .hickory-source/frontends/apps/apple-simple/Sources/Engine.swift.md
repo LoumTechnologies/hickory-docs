@@ -66,6 +66,7 @@ struct Engine {
             let detail = object?["error"] as? String ?? String(data: data.prefix(600), encoding: .utf8) ?? "Request refused"
             throw EngineError(message: "\(detail) (HTTP \(response.statusCode)). Check the server and retry after reviewing its current state.")
         }
+        if path.hasPrefix("/api/tests/"){try validateSourceTestJSON(data)}
         return try JSONDecoder().decode(T.self, from: data)
     }
 </ui:copy>
@@ -789,6 +790,9 @@ Keep renderer handles out of the runtime model. It retains exact source relation
     private var topVariables: [[String: Any]] = []
     private var stopPending = false
     private var pendingLaunch:NativeDebugLaunch?
+    private var pendingSourceTest:(plan:SourceTestDebugPlan,facts:SourceTestScan,current:()->Bool,admitted:(String)->Void,rejected:(String)->Void,outcome:(String,String,Int?)->Void)?
+    private var testOutcomes:[String:(String,String,Int?)->Void]=[:]
+    var retainedSessionID:String?
     private var activeLaunch:NativeDebugLaunch?
     private var retiredLaunches:[NativeDebugLaunch]=[]
     var launchRequestID:String? {pendingLaunch?.id ?? activeLaunch?.id}
@@ -796,7 +800,13 @@ Keep renderer handles out of the runtime model. It retains exact source relation
         for value in [pendingLaunch,activeLaunch].compactMap({$0}) where !retiredLaunches.contains(where:{$0.id==value.id}) {retiredLaunches.append(value)}
         retiredLaunches=Array(retiredLaunches.suffix(64));pendingLaunch=nil;activeLaunch=nil
     }
+    // A plan read participates in the same latest-choice lifetime as ordinary profile reads,
+    // without discarding the previous inactive runtime reading or guessing a launch target.
+    func claimTestPreparation()->UUID? {guard !active else{return nil};epoch=UUID();profiles=[];return epoch}
+    func testPreparationCurrent(_ preparation:UUID)->Bool {epoch==preparation}
+    func sourceInspectionBuffer()->DocumentBuffer? {launchBuffer}
     @discardableResult func beginLaunchRequest()->String {
+        retainedSessionID=nil
         launchNamespace=sourceNamespace;sourceIdentities=[:]
         for buffer in (sourceBuffers?() ?? [])+[launchBuffer].compactMap({$0})+breakpointBuffers.values.compactMap({$0.buffer}) where !buffer.resourceDeleted {let key=Data(buffer.file.path.utf8);if sourceIdentities[key]==nil{sourceIdentities[key]=NativeDebugSourceIdentity(buffer:NativeDebugBufferRef(buffer),id:buffer.id,path:buffer.file.path,confirmed:true)}}
         launchBoundHash=nil;boundSources=[:];breakpointRequests=[:];sourceHashes=[Data(owner.utf8):nativeSourceHash(launchSource)];ambiguousSources=[]
@@ -944,23 +954,14 @@ Keep renderer handles out of the runtime model. It retains exact source relation
             message = "The source or launch target changed. Save and choose Debug again."; return
         }
         let launch=beginLaunchRequest();message = ""; profiles = []; values = [:]; variables = []; frames = []; pausedLine = nil; offer = nil
-        var url = URLComponents(url: engine.origin, resolvingAgainstBaseURL: false)!
-        url.scheme = engine.origin.scheme == "https" ? "wss" : "ws"; url.path = "/api/ws"; url.queryItems = [URLQueryItem(name: "doc", value: "workspace")]
-        let socket = engine.session.webSocketTask(with: url.url!); self.socket = socket; let current = epoch; socket.resume()
-        receiver = Task { [weak self] in
-            do {
-                while !Task.isCancelled {
-                    let frame = try await socket.receive()
-                    guard let self else{return}
-                    if case .data(let bytes)=frame,bytes.first==3,let event=try? JSONSerialization.jsonObject(with:bytes.dropFirst()) as? [String:Any] {
-                        if self.epoch==current {self.receive(event)}else{_ = self.stopRetiredLaunch(event);return}
-                    }else if self.epoch != current{return}
-                }
-            } catch { if let self, self.epoch == current, !Task.isCancelled { self.fail("Debugger disconnected: \(error.localizedDescription). Stop or reconnect explicitly; commands were not retried.") } }
-        }
+        openTransport()
         var request: [String: Any] = ["op": "start", "request_id":launch,"doc": nativeDebugURI(owner), "breakpoints": breakpoints[owner] ?? [],
             "profile": ["id": profile.id, "fingerprint": catalog.fingerprint]]
         if let launchProgram { request["program"] = launchProgram }
+        appendLaunchBreakpoints(launch,to:&request)
+        send(request)
+    }
+    private func appendLaunchBreakpoints(_ launch:String,to request:inout [String:Any]) {
         let primaryKey=Data(owner.utf8)
         if intentSources[primaryKey]==nil {if breakpointIntents(owner).isEmpty{intentSources[primaryKey]=launchSource}else{breakpointNotice="Breakpoint intentions without a captured source remain unbound. Place them explicitly on current text before launch binding."}}
         if let source=intentSources[primaryKey],!exactUTF8(source,launchSource){breakpointNotice="Earlier source intentions are retained. This launch omitted stale positions; place intentions explicitly on current source."}
@@ -971,7 +972,45 @@ Keep renderer handles out of the runtime model. It retains exact source relation
         var sources:[String:[[String:Any]]]=[:],hashes:[String:String]=[:]
         for (path,_) in breakpoints where !exactUTF8(path,owner) {let key=Data(path.utf8);if let source=intentSources[key],let buffer=breakpointBuffers[key]?.buffer,!buffer.dirty,!buffer.saving,!buffer.resourceDeleted,exactUTF8(buffer.file.path,path),intentOwners[key]==buffer.id,exactUTF8(source,buffer.text){sources[nativeDebugURI(path)]=breakpointIntents(path);hashes[nativeDebugURI(path)]=nativeSourceHash(source);breakpointRequests[key]=NativeDebugBreakpointRequest(id:launch,source:source)}}
         request["sources"]=sources;request["source_hashes"]=hashes
-        send(request)
+    }
+    // Saved test choices never become profile/program guesses. Only their captured request reaches the shared engine admission.
+    func launchSourceTest(_ buffer:DocumentBuffer,body:[String:Any],plan:SourceTestDebugPlan,facts:SourceTestScan,current:@escaping ()->Bool,admitted:@escaping (String)->Void,rejected:@escaping (String)->Void,outcome:@escaping (String,String,Int?)->Void={_,_,_ in}) {
+        guard !active,current(),plan.available,!buffer.dirty,!buffer.saving,!buffer.resourceDeleted else{rejected("Test Debug context changed or another debugger is active. No Start was sent.");return}
+        guard !breakpoints.keys.contains(where:{$0==buffer.file.path && !exactUTF8($0,buffer.file.path)}) else{rejected("Canonically equivalent breakpoint path aliases are unsupported. No test Start was sent.");return}
+        close();owner=buffer.file.path;launchBuffer=buffer;launchSource=buffer.text;preparationNamespace=sourceNamespace
+        breakpointBuffers[Data(owner.utf8)]=NativeDebugBufferRef(buffer)
+        let launch=beginLaunchRequest();pendingSourceTest=(plan,facts,current,admitted,rejected,outcome);catalogNotices=plan.notices
+        values=[:];variables=[];frames=[];pausedLine=nil;profiles=[];offer=nil
+        openTransport()
+        var request:[String:Any]=["op":"start_test","request_id":launch,"doc":plan.source_uri,"source_test":body]
+        appendLaunchBreakpoints(launch,to:&request);send(request)
+        Task{[weak self] in try? await Task.sleep(for:.seconds(30));self?.expireSourceTestPreparation(launch)}
+    }
+    func expireSourceTestPreparation(_ request:String) {
+        guard pendingLaunch?.id==request,let pending=pendingSourceTest else{return}
+        pendingSourceTest=nil;retireLaunches();status="failed";message="Test Debug admission was not confirmed within 30 seconds. No request was retried. A late owned session will be stopped.";pending.rejected(message)
+    }
+    func retireSourceTestPreparation() {
+        guard pendingSourceTest != nil else{return}
+        pendingSourceTest=nil;retireLaunches();status="idle";message="Test Debug preparation closed. No replacement run was requested."
+    }
+    private func openTransport() {
+        if emitForTest != nil{return}
+        var url = URLComponents(url: engine.origin, resolvingAgainstBaseURL: false)!
+        url.scheme = engine.origin.scheme == "https" ? "wss" : "ws"; url.path = "/api/ws"; url.queryItems = [URLQueryItem(name: "doc", value: "workspace")]
+        let socket = engine.session.webSocketTask(with: url.url!); self.socket = socket; let current = epoch; socket.resume()
+        receiver = Task { [weak self] in
+            do {
+                while !Task.isCancelled {
+                    let frame = try await socket.receive()
+                    guard let self else{return}
+                    if case .data(let bytes)=frame,bytes.first==3 {
+                        let json=Data(bytes.dropFirst());try validateSourceTestJSON(json)
+                        if let event=try? JSONSerialization.jsonObject(with:json) as? [String:Any]{if self.epoch==current {self.receive(event)}else{_ = self.stopRetiredLaunch(event);return}}
+                    }else if self.epoch != current{return}
+                }
+            } catch { if let self, self.epoch == current, !Task.isCancelled { self.fail("Debugger disconnected: \(error.localizedDescription). Stop or reconnect explicitly; commands were not retried.") } }
+        }
     }
     private func send(_ request: [String: Any]) {
         observeRequestForTest?(request)
@@ -985,8 +1024,11 @@ Keep renderer handles out of the runtime model. It retains exact source relation
             catch { if self.epoch == current { self.fail("Debugger command failed: \(error.localizedDescription). Reconnect explicitly; it was not retried.") } }
         }
     }
-    private func fail(_ detail: String) { retireLaunches();resetThreads();status = "failed"; message = detail; sessionID = nil; pausedLine = nil; variables = []; frames = []; values = [:] }
+    private func retireTestReadings(_ notice:String){let readings=testOutcomes;testOutcomes=[:];for (session,callback) in readings{callback(session,notice,nil)}}
+    private func fail(_ detail: String) { retireTestReadings("debugger reading failed / process outcome unknown");let test=pendingSourceTest;pendingSourceTest=nil;test?.rejected(detail);retireLaunches();resetThreads();status = "failed"; message = detail; sessionID = nil; pausedLine = nil; variables = []; frames = []; values = [:] }
     func close() {
+        retireTestReadings("debugger reading closed / process outcome unknown")
+        pendingSourceTest=nil
         retireLaunches()
         epoch = UUID(); receiver?.cancel(); sender?.cancel(); socket?.cancel(with: .normalClosure, reason: nil); socket = nil
         resetThreads();stopPending = false; sessionID = nil; status = "idle"; pausedLine = nil; frames = []; variables = []; values = [:]; profiles = []
@@ -1011,11 +1053,19 @@ Session, launch, stopped generation, thread, selected frame and latest request i
         }else {guard let id=event["session"] as? String,id==sessionID else{return}}
         switch kind {
         case "started":
+            if let pending=pendingSourceTest {
+                guard pending.current(),let raw=event["source_test"],let bytes=try? JSONSerialization.data(withJSONObject:raw),let binding=try? JSONDecoder().decode(SourceTestDebugBinding.self,from:bytes),pending.plan.admits(binding,pending.facts),exactUTF8(event["source_hash"] as? String,pending.plan.source_hash) else {
+                    if let session=event["session"] as? String{send(["op":"stop","session":session])}
+                    pendingSourceTest=nil;retireLaunches();status="failed";message="Test Debug admission no longer matches the selected saved candidate. Its owned session was stopped.";pending.rejected(message);return
+                }
+            }
             launchBoundHash=(event["source_hash"] as? String)==nativeSourceHash(launchSource) ? event["source_hash"] as? String:nil
             if launchBoundHash==nil {message="The engine did not confirm the captured primary source hash. Runtime controls remain available; primary source positions and movement are unbound."}
             pauseUnconfirmed=false;movementRequest=nil;activeLaunch=pendingLaunch;pendingLaunch=nil
             resetThreads();output = []
             sessionID = event["session"] as? String; capabilities = event["capabilities"] as? [String: Any] ?? [:]; status = "running"
+            retainedSessionID=sessionID
+            if let pending=pendingSourceTest,let session=sessionID {pendingSourceTest=nil;testOutcomes[session]=pending.outcome;pending.admitted(session)}
             receiveBreakpointReceipt(event,path:owner)
             if stopPending { stopPending = false; stop() }
         case "stopped":
@@ -1060,8 +1110,11 @@ Session, launch, stopped generation, thread, selected frame and latest request i
             guard status=="paused",let bytes=try? JSONSerialization.data(withJSONObject:event),let value=try? JSONDecoder().decode(NativeDebugValue.self,from:bytes),let request=evaluations[Data(value.expression.utf8)]?.request,value.request_id==request.id,value.stop==request.stop,value.stop==latestThreadStop,value.thread==request.thread,value.thread==selectedThread,value.frame==request.frame,value.frame==selectedFrame else{return}
             evaluations.removeValue(forKey:Data(value.expression.utf8));values[value.expression]=value.value
             if let reference=value.reference,reference>0,reference<=Int64(Int32.max) {let node=variableNode(["name":value.expression,"value":value.value,"variables_reference":reference],depth:0);evaluationRoots[Data(value.expression.utf8)]=node.id;variableNodes[node.id]=node;variableRoots.append(node.id)}
-        case "finished", "ended": retireLaunches();resetThreads();status = "finished"; sessionID = nil; pausedLine = nil; variables = []; frames = []; values = [:]
+        case "finished", "ended":
+            if let session=sessionID{testOutcomes.removeValue(forKey:session)?(session,kind=="finished" ? "process finished":"debugger ended / process verdict uncollected",nativeDebugID(event["exit_code"]))}
+            retireLaunches();resetThreads();status = "finished"; sessionID = nil; pausedLine = nil; variables = []; frames = []; values = [:]
         case "failed":
+            if let pending=pendingSourceTest,event["request_id"] as? String==pendingLaunch?.id {pendingSourceTest=nil;pending.rejected(event["message"] as? String ?? "Test Debug admission refused.")}
             if ["breakpoints","source_breakpoints"].contains(event["about"] as? String ?? "") {guard let id=event["request_id"] as? String,let key=breakpointRequests.first(where:{$0.value.id==id})?.key else{return};breakpointRequests.removeValue(forKey:key);boundSources=[:];breakpointNotice="Breakpoint binding refused: "+(event["message"] as? String ?? "Provider could not bind current source.");return}
             if ["step","jump","run_to"].contains(event["about"] as? String ?? "") {guard status=="running",let id=event["request_id"] as? String,let request=movementRequest,id==request.id else{return};movementRequest=nil
                 let retired=event["scope_retired"].map{raw->Bool in guard let number=raw as? NSNumber,CFGetTypeID(number)==CFBooleanGetTypeID() else{return true};return number.boolValue} ?? false

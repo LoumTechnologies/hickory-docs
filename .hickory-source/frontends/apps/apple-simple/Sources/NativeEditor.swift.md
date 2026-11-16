@@ -2346,7 +2346,8 @@ struct NativeDebugRail: View {
         }.background(.quaternary.opacity(0.2))
         .popover(isPresented: Binding(get: { details != nil }, set: { if !$0 { details = nil } })) {
             if let details { ScrollView { controls(details).padding(10) }.frame(width: 330).frame(maxHeight: 460) }
-        }.task(id: buffer.base) { await buffer.refreshReceipts() }
+        }.onChange(of:buffer.debugInspection){_,_ in if debug.hasSessionReading{details=0}}
+        .task(id: buffer.base) { await buffer.refreshReceipts() }
     }
     @ViewBuilder private func controls(_ line: Int) -> some View {
         VStack(alignment: .leading, spacing: 8) {

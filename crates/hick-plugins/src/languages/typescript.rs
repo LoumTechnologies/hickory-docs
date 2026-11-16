@@ -32,6 +32,7 @@ pub static PLUGIN: Plugin = Plugin {
             target: crate::typed_client::emit::Target::TypeScript,
         },
         Interface::TestRunner {
+            debug: None,
             plan: test_command,
             detect: Some(crate::testing::candidates::javascript),
             scope: crate::testing::Scope::FileFilter,
@@ -73,7 +74,6 @@ pub static PLUGIN: Plugin = Plugin {
         },
     ],
 };
-
 pub(super) fn test_command(
     root: &std::path::Path,
     file: &std::path::Path,

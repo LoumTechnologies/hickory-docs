@@ -54,7 +54,8 @@ pub(crate) fn post_observation(method: &axum::http::Method, path: &str) -> bool 
     *method == Method::POST
         && matches!(
             path,
-            "/api/tests/source-candidates"
+            "/api/tests/debug-plan"
+                | "/api/tests/source-candidates"
                 | "/api/construction/reading"
                 | "/api/changes/plan-resources"
                 | "/api/changes/resource-targets"
@@ -75,6 +76,7 @@ mod observation_tests {
         let held = writes.lock().await;
         for path in [
             "/api/tests/source-candidates",
+            "/api/tests/debug-plan",
             "/api/construction/reading",
             "/api/changes/plan-resources",
             "/api/changes/resource-targets",

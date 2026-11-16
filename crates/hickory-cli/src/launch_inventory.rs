@@ -63,6 +63,20 @@ pub fn validate_workspace_path(path: &str) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// A workspace spelling is not a pre-encoded URI. Encode each UTF-8 byte once.
+pub fn workspace_source_uri(path: &str) -> Result<String, String> {
+    validate_workspace_path(path)?;
+    let mut uri = String::from("hick:///");
+    for byte in path.bytes() {
+        if byte.is_ascii_alphanumeric() || b"/-_.!~*'()".contains(&byte) {
+            uri.push(byte as char);
+        } else {
+            uri.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    Ok(uri)
+}
 /// Keep the two domains distinct while sharing read-only provider discovery.
 pub enum LaunchInputs {
     Constructed(ProjectTree),

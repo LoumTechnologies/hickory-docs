@@ -243,7 +243,12 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     var sourceTestIndex:SourceTestIndex?=null
     var testSources by mutableStateOf(TestSourcesModel())
     var coverage by mutableStateOf(SimpleCoverageState());var showCoverage by mutableStateOf(false)
-    var showTests by mutableStateOf(false)
+    private var testsVisible by mutableStateOf(false)
+    // Every dismissal retires admission, including Escape/outside-click paths.
+    // Reopening a floating reading cannot resurrect its earlier launch choice.
+    var showTests:Boolean
+        get()=testsVisible
+        set(value){if(!value&&testsVisible)testSources.closeDebugPreparation();testsVisible=value}
     var showReview by mutableStateOf(false)
     var gitReview by mutableStateOf(GitReviewModel())
     var showHistory by mutableStateOf(false)

@@ -7,6 +7,7 @@ use serde_json::Value;
 #[derive(Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Request {
+    StartTest(TestStart),
     /// Start a session over a document, with breakpoints in document lines.
     Start {
         doc: String,
@@ -29,6 +30,8 @@ pub enum Request {
         source_hash: Option<String>,
         #[serde(default)]
         source_hashes: std::collections::HashMap<String, String>,
+        #[serde(default)]
+        source_test: Option<crate::serve::source_tests::RunRequest>,
     },
     /// Replace the breakpoint set while a session is running.
     Breakpoints {
@@ -180,7 +183,7 @@ pub enum Request {
 impl Request {
     pub fn session_id(&self) -> Option<&str> {
         match self {
-            Self::Start { .. } => None,
+            Self::Start { .. } | Self::StartTest(_) => None,
             Self::Located { session, .. }
             | Self::Breakpoints { session, .. }
             | Self::SourceBreakpoints { session, .. }
@@ -232,6 +235,8 @@ pub enum Response {
         capabilities: hick_dap::Capabilities,
         breakpoints: Vec<hick_dap::BreakpointStatus>,
         source_hash: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source_test: Option<crate::serve::test_debug::Binding>,
     },
     /// Where execution is now — the paused line the gutter marks, and the
     /// values the editor shows inline.
@@ -376,4 +381,18 @@ pub struct InstallOffer {
     /// `hick lsp install` and `hick index install` are the same gesture.
     pub kind: String,
     pub language: String,
+}
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TestStart {
+    pub doc: String,
+    pub request_id: String,
+    #[serde(default)]
+    pub breakpoints: Vec<Breakpoint>,
+    #[serde(default)]
+    pub sources: std::collections::HashMap<String, Vec<Breakpoint>>,
+    pub source_hash: String,
+    #[serde(default)]
+    pub source_hashes: std::collections::HashMap<String, String>,
+    pub source_test: crate::serve::source_tests::RunRequest,
 }

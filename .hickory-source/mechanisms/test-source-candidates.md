@@ -163,17 +163,24 @@ pub fn python(language: &str, source: &str) -> Result<CandidateScan, String> {
         if node.kind() != "function_definition" {
             return None;
         }
-        let item = named(node, source)?;
+        let mut item = named(node, source)?;
         if !item.name.starts_with("test_") {
             return None;
         }
+        let mut classes = Vec::new();
         let mut parent = node.parent();
         while let Some(at) = parent {
             if at.kind() == "function_definition" {
                 return None;
             }
+            if at.kind() == "class_definition" {
+                classes.push(text(at.child_by_field_name("name")?, source)?.to_owned());
+            }
             parent = at.parent()
         }
+        classes.reverse();
+        classes.push(item.name.clone());
+        item.filter = Some(classes.join("::"));
         Some(item)
     })
 }
@@ -183,7 +190,31 @@ pub fn python(language: &str, source: &str) -> Result<CandidateScan, String> {
 
 A quoted example and a function nested in a helper must not gain runnable marks. A valid declaration remains readable when a later syntax error makes the scan partial.
 
+Python methods need their containing classes in the runner family filter. Bare
+method names can select no test or the wrong family. Keep syntax confidence
+separate from runner discovery and retain the qualified name without executing
+imports or test code.
+
 <ui:copy id="test-source-python-witness">
+    #[test]
+    fn python_method_filters_preserve_their_class_family() {
+        let source = "class TestFirst:\n    def test_same(self): pass\nclass TestSecond:\n    def test_same(self): pass\ndef test_plain(): pass\n";
+        let found = detect("python", source).unwrap();
+        let filters: Vec<_> = found
+            .candidates
+            .iter()
+            .map(|item| item.name_filter.as_deref().unwrap())
+            .collect();
+        assert_eq!(
+            filters,
+            [
+                "TestFirst::test_same",
+                "TestSecond::test_same",
+                "test_plain"
+            ]
+        );
+    }
+
     #[test]
     fn python_candidates_exclude_examples_and_keep_partial_evidence() {
         let source = "example = \"\"\"\ndef test_example(): pass\n\"\"\"\ndef test_real():\n    pass\ndef helper():\n    def test_nested(): pass\n";

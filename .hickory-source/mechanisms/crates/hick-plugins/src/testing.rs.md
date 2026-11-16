@@ -133,6 +133,95 @@ pub fn scope(language: &str) -> Result<Scope, String> {
 }
 </storycode:copy>
 
-<storycode:file path="crates/hick-plugins/src/testing.rs"><storycode:paste select="#f-9a1aec043cf8-Planner"/><storycode:paste select="#f-9a1aec043cf8-TestCommand"/><storycode:paste select="#f-9a1aec043cf8-nearest"/><storycode:paste select="#f-9a1aec043cf8-nearest_glob"/><storycode:paste select="#f-9a1aec043cf8-test_command"/><storycode:paste select="#test-source-candidates-module"/><storycode:paste select="#test-run-provider-scope"/></storycode:file>
+
+## Keep test runner debug plans owned by the language provider
+
+Run commands are not executable debug targets. Extend the existing static runner
+interface with an optional debug planner, retaining explicit absence for other
+providers. The engine passes only a revalidated target and selection; no renderer
+chooses argv, module or adapter launch keys.
+
+<storycode:copy id="test-debug-provider-plan">
+pub type DebugPlanner = fn(&Path, &Path, &str) -> Result<TestDebugCommand, String>;
+/// A language-owned launch configuration, never a client-supplied command.
+#[derive(Debug)]
+pub struct TestDebugCommand {
+    pub title: String,
+    pub cwd: PathBuf,
+    pub program: PathBuf,
+    pub launch: serde_json::Value,
+    pub framework: &'static str,
+}
+pub fn test_debug_command(
+    root: &Path,
+    file: &Path,
+    name: &str,
+    language: &str,
+) -> Result<TestDebugCommand, String> {
+    let language = crate::routing::language_id(language).unwrap_or(language);
+    if !file.starts_with(root) {
+        return Err("Test source is outside the runtime workspace".into());
+    }
+    match crate::registry().interface(language, crate::InterfaceKind::TestRunner) {
+        Some(crate::Interface::TestRunner {
+            debug: Some(plan), ..
+        }) => plan(root, file, name),
+        _ => Err(format!(
+            "The {language} test provider does not supply a debugger launch. Run is available separately; no ordinary-file Debug fallback was performed."
+        )),
+    }
+}
+</storycode:copy>
+
+## Verify module selection and unavailable provider refusal
+
+These checks do not start tests or a debugger. They establish that the Python
+provider preserves its qualified family as one argv item and that an unimplemented
+provider does not silently become ordinary program debugging.
+
+<storycode:copy id="test-debug-provider-witness">
+#[cfg(test)]
+mod debug_plan_tests {
+    use super::*;
+    #[test]
+    fn python_debug_uses_the_same_qualified_pytest_family_without_shell_parsing() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("-literal %2F #.py");
+        std::fs::write(
+            &file,
+            "class TestChoice:\n    def test_selected(self): pass\n",
+        )
+        .unwrap();
+        let plan = test_debug_command(
+            directory.path(),
+            &file,
+            "TestChoice::test_selected",
+            "python",
+        )
+        .unwrap();
+        assert_eq!(plan.framework, "pytest");
+        assert_eq!(plan.program, file);
+        assert_eq!(plan.launch["module"], "pytest");
+        assert!(plan.launch["program"].is_null());
+        assert_eq!(
+            plan.launch["args"][0],
+            "./-literal %2F #.py::TestChoice::test_selected"
+        );
+    }
+    #[test]
+    fn absent_debug_provider_never_falls_back_to_a_run_command() {
+        let directory = tempfile::tempdir().unwrap();
+        let error = test_debug_command(
+            directory.path(),
+            &directory.path().join("test.rs"),
+            "test_selected",
+            "rust",
+        )
+        .unwrap_err();
+        assert!(error.contains("does not supply a debugger launch"));
+    }
+}
+</storycode:copy>
+<storycode:file path="crates/hick-plugins/src/testing.rs"><storycode:paste select="#f-9a1aec043cf8-Planner"/><storycode:paste select="#f-9a1aec043cf8-TestCommand"/><storycode:paste select="#f-9a1aec043cf8-nearest"/><storycode:paste select="#f-9a1aec043cf8-nearest_glob"/><storycode:paste select="#f-9a1aec043cf8-test_command"/><storycode:paste select="#test-source-candidates-module"/><storycode:paste select="#test-run-provider-scope"/><storycode:paste select="#test-debug-provider-plan"/><storycode:paste select="#test-debug-provider-witness"/></storycode:file>
 
 </storycode:doc>

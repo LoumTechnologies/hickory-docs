@@ -13,7 +13,7 @@ use std::{
     io::Read,
     path::{Component, Path, PathBuf},
 };
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
     pub path: String,
@@ -33,7 +33,7 @@ pub struct SourcePoint {
     pub character: u32,
     pub hash: String,
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Candidate {
     pub id: String,
     pub language: String,
@@ -68,8 +68,9 @@ pub struct Scan {
     /// Retained only for compiler-fact consumers; never serialized by test endpoints.
     #[serde(skip)]
     pub(crate) source_texts: BTreeMap<String, String>,
+    #[serde(skip)]
+    pub(crate) debug_state: Option<(hick_lsp::document::HickDocumentState, PathBuf)>,
 }
-
 pub(crate) fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
@@ -85,7 +86,12 @@ pub(crate) fn relative(base: &Path, path: &str) -> Result<String, String> {
     let mut parts = vec![];
     for part in base.join(path).components() {
         match part {
-            Component::Normal(value) => parts.push(value.to_string_lossy().into_owned()),
+            Component::Normal(value) => parts.push(
+                value
+                    .to_str()
+                    .ok_or("Source names must be UTF-8")?
+                    .to_owned(),
+            ),
             Component::CurDir => {}
             Component::ParentDir => {
                 if parts.pop().is_none() {
@@ -98,7 +104,7 @@ pub(crate) fn relative(base: &Path, path: &str) -> Result<String, String> {
         }
     }
     let result = parts.join("/");
-    hick_lang::validate_project_path(&result)?;
+    crate::launch_profiles::inventory::validate_workspace_path(&result)?;
     Ok(result)
 }
 pub(crate) fn saved_source(root: &Path, path: &str) -> Result<String, String> {
@@ -134,7 +140,6 @@ pub(crate) fn saved_source(root: &Path, path: &str) -> Result<String, String> {
     }
     Ok(value)
 }
-
 fn point(path: &str, line: u32, character: u32, hash: &str) -> SourcePoint {
     SourcePoint {
         path: path.into(),
@@ -194,6 +199,7 @@ fn base_scan(request: &Request, path: &str, root: &Path) -> Scan {
         project_context: None,
         tree: None,
         source_texts: BTreeMap::new(),
+        debug_state: None,
     }
 }
 fn seal(mut scan: Scan) -> Scan {
@@ -213,7 +219,6 @@ fn seal(mut scan: Scan) -> Scan {
     scan.fingerprint=digest(&serde_json::to_vec(&json!({"version":scan.version,"workspace":scan.workspace_id,"scope":scan.scope,"entry":scan.project_entry,"sources":scan.source_hashes,"targets":scan.candidates.iter().map(|c|(&c.id,&c.target.path,&c.target.hash,&c.run_scope)).collect::<Vec<_>>()})).unwrap());
     scan
 }
-
 fn project_state(
     root: &Path,
     request: &Request,
@@ -448,6 +453,8 @@ fn scan_captured(
     }
     result.unsupported_languages = unsupported.into_iter().collect();
     if retain_sources {
+        let entry = result.project_entry.as_deref().unwrap_or(&path);
+        result.debug_state = Some((state.clone(), root.join(entry)));
         result.source_texts = if state.selected_project.is_some() {
             state
                 .project_sources
@@ -491,7 +498,7 @@ pub(crate) fn check_saved_sources(
     }
     Ok(checked)
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RunRequest {
     pub version: u32,
@@ -501,7 +508,7 @@ pub struct RunRequest {
     pub candidate_id: String,
     pub selection: Selection,
 }
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RunInput {
     Saved {},
@@ -511,6 +518,28 @@ pub enum RunInput {
 pub enum Selection {
     ContainingScope {},
     NameFilter {},
+}
+/// Shared selection authority for saved Run and Debug. It grants no execution.
+pub(crate) fn select_saved_candidate<'a>(
+    scan: &'a Scan,
+    request: &RunRequest,
+) -> ApiResult<(&'a Candidate, String)> {
+    if !scan.fingerprint.eq_ignore_ascii_case(&request.fingerprint) {
+        return Err(ApiError::conflict(
+            "The analyzed source set changed. Refresh test candidates before running.",
+        ));
+    }
+    let candidate = scan
+        .candidates
+        .iter()
+        .find(|item| item.id == request.candidate_id)
+        .ok_or_else(|| {
+            ApiError::conflict(
+                "This source candidate changed. Refresh candidates or use runner discovery.",
+            )
+        })?;
+    let name=match request.selection {Selection::ContainingScope {}=>String::new(),Selection::NameFilter {}=>candidate.name_filter.clone().ok_or_else(||ApiError::unprocessable("This candidate needs runner discovery. Discover concrete cases or explicitly run the containing scope."))?};
+    Ok((candidate, name))
 }
 /// Recompute the source model before selecting a saved target. Older engines
 /// have no such route, so an unsupported admission protocol cannot fall back.
@@ -527,29 +556,18 @@ pub async fn run(
         RunInput::Saved {} => {}
     }
     let root = state.index.root().to_path_buf();
-    let scan = tokio::task::spawn_blocking(move || scan(&root, &request.analysis))
-        .await
-        .map_err(|e| {
-            ApiError::internal(format!(
-                "Source test analysis failed: {e}. Refresh and retry."
-            ))
-        })?
-        .map_err(ApiError::unprocessable)?;
-    if !scan.fingerprint.eq_ignore_ascii_case(&request.fingerprint) {
-        return Err(ApiError::conflict(
-            "The analyzed source set changed. Refresh test candidates before running.",
-        ));
-    }
-    let candidate = scan
-        .candidates
-        .iter()
-        .find(|item| item.id == request.candidate_id)
-        .ok_or_else(|| {
-            ApiError::conflict(
-                "This source candidate changed. Refresh candidates or use runner discovery.",
-            )
-        })?;
-    let name=match request.selection {Selection::ContainingScope {}=>String::new(),Selection::NameFilter {}=>candidate.name_filter.clone().ok_or_else(||ApiError::unprocessable("This candidate needs runner discovery. Discover concrete cases or explicitly run the containing scope."))?};
+    let (scan, request) = tokio::task::spawn_blocking(move || {
+        let scan = scan(&root, &request.analysis)?;
+        Ok::<_, String>((scan, request))
+    })
+    .await
+    .map_err(|e| {
+        ApiError::internal(format!(
+            "Source test analysis failed: {e}. Refresh and retry."
+        ))
+    })?
+    .map_err(ApiError::unprocessable)?;
+    let (candidate, name) = select_saved_candidate(&scan, &request)?;
     let body = super::test_run::RunBody {
         path: candidate.target.path.clone(),
         name,

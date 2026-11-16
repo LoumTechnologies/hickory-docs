@@ -8,6 +8,7 @@ use std::{
 #[derive(Clone)]
 pub struct Mapping {
     observation_source: Option<Vec<u8>>,
+    observation_document: Option<PathBuf>,
     source_hashes: HashMap<PathBuf, String>,
     /// Generated file path (as the adapter sees it) -> the document's mapping.
     files: HashMap<PathBuf, hick_lsp::position_map::PositionMap>,
@@ -104,6 +105,7 @@ impl Mapping {
                     )
                 })
                 .collect(),
+            observation_document: None,
             observation_source: tree
                 .entries()
                 .get(program)
@@ -129,6 +131,7 @@ impl Mapping {
                 .map(|source| HashMap::from([(file.to_path_buf(), Self::source_digest(source))]))
                 .unwrap_or_default(),
             observation_source: source,
+            observation_document: None,
             files: HashMap::new(),
             document: file.to_path_buf(),
             plain: true,
@@ -149,7 +152,11 @@ impl Mapping {
         self.observation_source.clone().map(|bytes| {
             hick_observe::Source::capture(
                 "document".into(),
-                self.document.to_string_lossy().into_owned(),
+                self.observation_document
+                    .as_ref()
+                    .unwrap_or(&self.document)
+                    .to_string_lossy()
+                    .into_owned(),
                 bytes,
             )
         })
@@ -191,6 +198,7 @@ impl Mapping {
                 )))
                 .collect(),
             observation_source: Some(state.doc.source.as_bytes().to_vec()),
+            observation_document: None,
             files,
             document: document.to_path_buf(),
             plain: false,
@@ -213,6 +221,9 @@ impl Mapping {
                 line,
             ));
         }
+        if let Some(document) = &self.observation_document {
+            return self.to_generated_in(document, line);
+        }
         crate::project::generated_line(&self.files, line)
     }
 
@@ -225,6 +236,12 @@ impl Mapping {
             return self
                 .source_location(path, line)
                 .filter(|(p, _)| p == &self.document)
+                .map(|(_, line)| line);
+        }
+        if let Some(document) = &self.observation_document {
+            return self
+                .source_location(path, line)
+                .filter(|(owner, _)| same_file(owner, document))
                 .map(|(_, line)| line);
         }
         let map = self.file_map(path)?;
@@ -272,7 +289,7 @@ impl Mapping {
                 .map(|path| (path, line));
         }
         if same_file(document, &self.document) {
-            return self.to_generated(line);
+            return crate::project::generated_line(&self.files, line);
         }
         let name = document
             .strip_prefix(self.document.parent()?)
@@ -426,5 +443,74 @@ mod observation_tests {
         );
         let foreign = PathBuf::from("hick-project:///fedcba9876543210/literal%20%252F%20%23.py");
         assert!(mapping.to_generated_in(&foreign, 1).is_none());
+    }
+    #[test]
+    fn imported_test_author_keeps_its_primary_coordinates_and_entry_origin_root() {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime = tempfile::tempdir().unwrap();
+        let entry = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"parts.md\" /></h:doc>";
+        let author = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\">\n<h:file path=\"test_choice.py\">\ndef test_selected():\n    value=41\n    assert value==41\n</h:file>\n</h:doc>";
+        let sources = std::collections::BTreeMap::from([
+            ("project.md".into(), entry.into()),
+            ("parts.md".into(), author.into()),
+        ]);
+        let state =
+            hick_lsp::document::HickDocumentState::from_project("project.md", &sources).unwrap();
+        let source_root = directory.path().canonicalize().unwrap();
+        let entry_path = source_root.join("project.md");
+        let author_path = source_root.join("parts.md");
+        std::fs::write(&entry_path, entry).unwrap();
+        std::fs::write(&author_path, author).unwrap();
+        let mapping = Mapping::for_state(&entry_path, &state, runtime.path())
+            .unwrap()
+            .with_primary_source(&author_path, author)
+            .unwrap();
+        let line = author
+            .lines()
+            .position(|line| line.contains("value=41"))
+            .unwrap() as u32;
+        let (generated, at) = mapping
+            .to_generated(line)
+            .expect("the imported test body has one generated location");
+        assert_eq!(
+            generated,
+            runtime
+                .path()
+                .canonicalize()
+                .unwrap()
+                .join("test_choice.py")
+        );
+        assert_eq!(
+            mapping.source_location(&generated, at),
+            Some((author_path.clone(), line))
+        );
+        assert_eq!(mapping.to_document(&generated, at), Some(line));
+        assert_eq!(
+            mapping.observation_source().unwrap().uri,
+            author_path.to_string_lossy()
+        );
+        assert!(
+            Mapping::for_state(&entry_path, &state, runtime.path())
+                .unwrap()
+                .with_primary_source(&author_path, "changed")
+                .is_err()
+        );
+    }
+}
+impl Mapping {
+    /// Observe an imported author without rebasing compiler origin names onto it.
+    pub fn with_primary_source(mut self, document: &Path, source: &str) -> Result<Self> {
+        let expected = self.source_hash(document).ok_or_else(|| {
+            anyhow::anyhow!("Selected test author is absent from the captured construction")
+        })?;
+        anyhow::ensure!(
+            expected == Self::source_digest(source.as_bytes()),
+            "Selected test author changed during preparation"
+        );
+        if !same_file(document, &self.document) {
+            self.observation_document = Some(document.to_path_buf());
+        }
+        self.observation_source = Some(source.as_bytes().to_vec());
+        Ok(self)
     }
 }

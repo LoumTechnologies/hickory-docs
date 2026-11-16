@@ -176,6 +176,7 @@ export async function request<T>(
   path: string,
   body?: unknown,
   keepalive = false,
+  decodeRaw?: (raw:string)=>T,
 ): Promise<T> {
   if (mockHandler) {
     return (await mockHandler(method, path, body)) as T;
@@ -201,7 +202,7 @@ export async function request<T>(
       throw await apiError(res);
     }
     if (res.status === 204) return undefined as T;
-    return (await res.json()) as T;
+    return decodeRaw?decodeRaw(await res.text()):(await res.json()) as T;
   }
 }
 

@@ -922,6 +922,18 @@ class Program
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/src/debug_sessions.rs"><storycode:paste select="#f-24a9413a429b-profiles"/><storycode:paste select="#f-24a9413a429b-reading"/><storycode:paste select="#f-24a9413a429b-use_declaration-2"/><storycode:paste select="#f-24a9413a429b-use_declaration"/><storycode:paste select="#f-24a9413a429b-IDLE_TIMEOUT"/><storycode:paste select="#f-24a9413a429b-Live"/><storycode:paste select="#debug-reference-provenance"/><storycode:paste select="#f-24a9413a429b-impl-Live"/><storycode:paste select="#f-24a9413a429b-Registry"/><storycode:paste select="#debug-session-identity"/><storycode:paste select="#f-24a9413a429b-impl-Registry"/><storycode:paste select="#f-24a9413a429b-tracing_adapter"/><storycode:paste select="#f-24a9413a429b-is_document"/><storycode:paste select="#f-24a9413a429b-repository_of"/><storycode:paste select="#f-24a9413a429b-project_dir_of"/><storycode:paste select="#f-24a9413a429b-tests"/></storycode:file>
+
+## Connect source-test preparation to the existing session registry
+
+The separate launcher owns runtime assembly and provider configuration. It calls
+the same registry registration and session lifecycle, so test launches do not
+create a parallel debugger or bypass source/stop authority.
+
+<storycode:copy id="source-test-debug-launcher-module">
+#[path = "test_debug_sessions.rs"]
+mod test_launcher;
+pub(crate) use test_launcher::TestLaunch;
+</storycode:copy>
+<storycode:file path="crates/hickory-cli/src/debug_sessions.rs"><storycode:paste select="#f-24a9413a429b-profiles"/><storycode:paste select="#source-test-debug-launcher-module"/><storycode:paste select="#f-24a9413a429b-reading"/><storycode:paste select="#f-24a9413a429b-use_declaration-2"/><storycode:paste select="#f-24a9413a429b-use_declaration"/><storycode:paste select="#f-24a9413a429b-IDLE_TIMEOUT"/><storycode:paste select="#f-24a9413a429b-Live"/><storycode:paste select="#debug-reference-provenance"/><storycode:paste select="#f-24a9413a429b-impl-Live"/><storycode:paste select="#f-24a9413a429b-Registry"/><storycode:paste select="#debug-session-identity"/><storycode:paste select="#f-24a9413a429b-impl-Registry"/><storycode:paste select="#f-24a9413a429b-tracing_adapter"/><storycode:paste select="#f-24a9413a429b-is_document"/><storycode:paste select="#f-24a9413a429b-repository_of"/><storycode:paste select="#f-24a9413a429b-project_dir_of"/><storycode:paste select="#f-24a9413a429b-tests"/></storycode:file>
 
 </storycode:doc>

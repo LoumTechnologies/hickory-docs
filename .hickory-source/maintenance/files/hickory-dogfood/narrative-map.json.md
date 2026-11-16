@@ -154618,6 +154618,125 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "basis": "explained-behavior"
     },
     {
+      "id": "test-debug-service-types",
+      "output": "crates/hickory-cli/src/serve/test_debug.rs",
+      "page": ".hickory-source/mechanisms/test-debug-service.md",
+      "symbol": "test debug service types",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-debug-service-admission",
+      "output": "crates/hickory-cli/src/serve/test_debug.rs",
+      "page": ".hickory-source/mechanisms/test-debug-service.md",
+      "symbol": "test debug service admission",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-debug-service-http",
+      "output": "crates/hickory-cli/src/serve/test_debug.rs",
+      "page": ".hickory-source/mechanisms/test-debug-service.md",
+      "symbol": "test debug service http",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-debug-service-witness",
+      "output": "crates/hickory-cli/src/serve/test_debug.rs",
+      "page": ".hickory-source/mechanisms/test-debug-service.md",
+      "symbol": "test debug service witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-debug-session-inputs",
+      "output": "crates/hickory-cli/src/test_debug_sessions.rs",
+      "page": ".hickory-source/mechanisms/test-debug-session.md",
+      "symbol": "test debug session inputs",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-debug-session-launch",
+      "output": "crates/hickory-cli/src/test_debug_sessions.rs",
+      "page": ".hickory-source/mechanisms/test-debug-session.md",
+      "symbol": "test debug session launch",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-debug-launcher-module",
+      "output": "crates/hickory-cli/src/debug_sessions.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md",
+      "symbol": "source test debug launcher module",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-debug-http-module",
+      "output": "crates/hickory-cli/src/serve/mod.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/mod.rs.md",
+      "symbol": "source test debug http module",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-debug-start-wire",
+      "output": "crates/hickory-cli/src/serve/debug_protocol.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/debug_protocol.rs.md",
+      "symbol": "source test debug start wire",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-debug-primary-source-mapping",
+      "output": "crates/hick-dap/src/mapping.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-dap/src/mapping.rs.md",
+      "symbol": "test debug primary source mapping",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-debug-provider-plan",
+      "output": "crates/hick-plugins/src/testing.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-plugins/src/testing.rs.md",
+      "symbol": "test debug provider plan",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-debug-provider-witness",
+      "output": "crates/hick-plugins/src/testing.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-plugins/src/testing.rs.md",
+      "symbol": "test debug provider witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-sources-apple-debug",
+      "output": "apps/apple-simple/Sources/TestSources.swift",
+      "page": ".hickory-source/frontends/test-sources-apple.md",
+      "symbol": "test sources apple debug",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-sources-browser-debug-choice",
+      "output": "apps/web/src/simple/TestSources.ts",
+      "page": ".hickory-source/frontends/test-sources-browser.md",
+      "symbol": "test sources browser debug choice",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-sources-browser-debug-json",
+      "output": "apps/web/src/simple/TestSources.ts",
+      "page": ".hickory-source/frontends/test-sources-browser.md",
+      "symbol": "test sources browser debug json",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-sources-browser-debug-witness",
+      "output": "apps/web/src/simple/TestSources.test.ts",
+      "page": ".hickory-source/frontends/test-sources-browser.md",
+      "symbol": "test sources browser debug witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-test-view-browser-debug-witness",
+      "output": "apps/web/src/simple/TestSourcesView.test.tsx",
+      "page": ".hickory-source/frontends/test-source-view-browser.md",
+      "symbol": "source test view browser debug witness",
+      "basis": "explained-behavior"
+    },
+    {
       "id": "native-debug-smoke-process-tools",
       "output": "scripts/native-debug-smoke.rs",
       "page": ".hickory-source/frontends/scripts/test-native-debug.py.md",
@@ -154650,6 +154769,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "output": "scripts/native-debug-smoke.rs",
       "page": ".hickory-source/frontends/scripts/test-native-debug.py.md",
       "symbol": "native debug smoke preparation tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "python-test-debug-plan",
+      "output": "crates/hick-plugins/src/languages/python.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-plugins/src/languages/python.rs.md",
+      "symbol": "python test debug plan",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-tests-browser-debug-flow",
+      "output": "scripts/test-source-tests-browser.py",
+      "page": ".hickory-source/frontends/test-source-browser-witness.md",
+      "symbol": "source tests browser debug flow",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-debug-service-live-witness",
+      "output": "crates/hickory-cli/src/serve/test_debug.rs",
+      "page": ".hickory-source/mechanisms/test-debug-service.md",
+      "symbol": "test debug service live witness",
       "basis": "explained-behavior"
     }
   ],

@@ -120,7 +120,7 @@ export function DebuggableDocument(props: DebuggableDocumentProps) {
       {debug.status === "running" && <button type="button" onClick={() => backend?.pause()}>Pause</button>}
       {stale && <span role="status">Running previous revision {runRevision}. <button type="button" onClick={start}>Restart with edits</button></span>}
     </div>
-    <DebugStrip launchNotices={debug.launchNotices} reading={debug.reading} readingChanged={stale} status={debug.status} message={debug.message} capabilities={debug.capabilities}
+    <DebugStrip sourceTestIntent={debug.sourceTestIntent} sourceTest={debug.sourceTest} releaseSourceTest={debug.releaseSourceTest} launchNotices={debug.launchNotices} reading={debug.reading} readingChanged={stale} status={debug.status} message={debug.message} capabilities={debug.capabilities}
       frames={debug.frames} selectedFrame={debug.selectedFrame} watches={debug.watches} exitCode={debug.exitCode}
       onStart={start} onStop={debug.stop} onStep={debug.step} onSelectFrame={debug.selectFrame}
       onJumpHere={() => {}} onAddWatch={() => document.getElementById(`watch-${props.path}`)?.focus()}

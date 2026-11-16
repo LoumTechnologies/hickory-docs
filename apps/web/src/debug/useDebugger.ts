@@ -13,6 +13,7 @@ import type { TranscriptEvent } from "../api/types";
 import { DebugClient,DebugThreads,DebugLaunches,debugAdapterId } from "./client";
 import {documentUri} from "../lsp/documentUri";
 import {withDebugProtocol,launchCatalogNotices} from "./launchProfiles";
+import {prepareSourceTestDebug,sourceTestDebugStarted,sourceTestDebugBinding,retainedSourceTestDebugChoice,type PreparedSourceTestDebug,type SourceTestDebugProcess} from "../simple/TestSources";
 import {DebugBreakpointModel,savedDebugSources,stampDebugSource,type DebugSourceCapability,type DebugSourceReading,type DebugSourceProof,type CapturedDebugIntent} from "./SourceGuards";
 import {DebugValueTree,type DebugValueScope,type DebugValueNode} from "./DebugValueTree";
 import type {
@@ -37,6 +38,13 @@ export interface Watch {
 export interface DebugSession {
   /** Synchronous private lifecycle admission, before a React publication commits. */
   isActive?():boolean;
+  startSourceTest?(prepared:PreparedSourceTestDebug,current:()=>boolean):Promise<SourceTestDebugProcess>;
+  cancelSourceTestStart?(prepared:PreparedSourceTestDebug):void;
+  sourceTestProcesses?():readonly SourceTestDebugProcess[];
+  sourceTestInspectable?(session:string):boolean;
+  sourceTest?:SourceTestDebugProcess|null;
+  sourceTestIntent?:PreparedSourceTestDebug|null;
+  releaseSourceTest?():void;
   breakpointRows?():HeldBreakpoint[];
   capturedBreakpointIntents?():Record<string,CapturedDebugIntent>;
   launchNotices?:string[];
@@ -352,6 +360,11 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   const selectedFrameRef=useRef<number|null>(null);
   const evaluationSequence=useRef(0),evaluationRequests=useRef(new Map<string,{expression:string;context:"hover"|"watch"|"repl";stop:number;thread:number;frame:number|null}>()),latestEvaluation=useRef(new Map<string,string>());
   const [breakpointModel]=useState(()=>{const model=new DebugBreakpointModel();model.unknown(uri,initialBreakpoints.map(line=>({line})));return model;}),[,paintPolicy]=useState(0);
+  type TestPending={prepared:PreparedSourceTestDebug;current:()=>boolean;request:string|null;sent:boolean;resolve:(record:SourceTestDebugProcess)=>void;reject:(error:Error)=>void};
+  const testIntent=useRef<PreparedSourceTestDebug|null>(null),pendingTest=useRef<TestPending|null>(null),testHistory=useRef(new Map<string,SourceTestDebugProcess>()),testContext=useRef<string|null>(null),lastOwnedSession=useRef<string|null>(null),canceledTestRequests=useRef(new Set<string>()),testCleanup=useRef(new Set<string>());
+  const [testEpoch,paintTest]=useState(0);
+  function publishTest(session:string,phase:string,exitCode:number|null=null,message:string|null=null){const before=testHistory.current.get(session);if(before){testHistory.current.set(session,{...before,phase,exitCode,message});paintTest(value=>value+1);}}
+  function rejectTest(error:Error){const held=pendingTest.current;if(held){pendingTest.current=null;held.reject(error);}}
   const sourceReadings=useRef(new Map<string,DebugSourceReading>()),runProofs=useRef(new Map<string,DebugSourceProof>()),runHashes=useRef(new Map<string,string>()),sourceOperations=useRef(new Map<string,number>()),preparedStart=useRef<{request:string;proofs:Map<string,DebugSourceProof>}|null>(null);
   const [valueTree]=useState(()=>new DebugValueTree()),[treeRevision,paintTree]=useState(0),refreshTree=()=>paintTree(value=>value+1);
   const movement=useRef<{request:string;session:string;scope:{session:string;stop:number;thread:number};frames:Frame[];variables:Variable[];selected:number|null;observation:import("./observations").ObservationScope|null;roots:DebugValueNode[]}|null>(null),refreshTicket=useRef<string|null>(null);
@@ -384,7 +397,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   // event, so the request is parked here until its answer arrives.
   const pendingValues = useRef(new Map<string, (value: string | null) => void>());
 
-  function holdStatus(next:DebugStatus){statusRef.current=next;setStatus(next);}
+  function holdStatus(next:DebugStatus){statusRef.current=next;setStatus(next);if(sessionRef.current&&testHistory.current.has(sessionRef.current))publishTest(sessionRef.current,next);}
   function observationKey(scope:import("./observations").ObservationScope){return JSON.stringify([scope.session??null,scope.run,scope.stop,scope.frame,scope.invocation]);}
   function retireObservationScope(){scopeRef.current=null;setObservationScope(null);pendingReadings.current.clear();}
   function retireFrameRead(){frameRead.current=null;setFrameVariablesPending(false);setFrameVariablesMessage(null);}
@@ -427,10 +440,15 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       // A shared channel carries every pane's sessions; only ours is ours.
       // Before `started` there is no session to match, so a start that is
       // still in flight is recognised by the file it named.
+      if('session' in event&&typeof event.session==='string'&&testCleanup.current.has(event.session)){
+        if(event.event==='ended'||event.event==='finished'){testCleanup.current.delete(event.session);if(!testCleanup.current.size&&!canceledTestRequests.current.size&&!sessionRef.current&&!launches.current){holdStatus('idle');setMessage('Canceled test-debug session stopped. No collected test verdict was recorded.');}}return;
+      }
+      if(event.event==='failed'&&event.request_id&&canceledTestRequests.current.delete(event.request_id)){if(!canceledTestRequests.current.size&&!testCleanup.current.size&&!sessionRef.current&&!launches.current){holdStatus('idle');setMessage('Canceled test-debug Start was refused; no session was adopted.');}return;}
       if (!eventIsOurs(event, uri, sessionRef.current)) return;
       if(event.event==="started"){
         if(!event.request_id&&launches.current&&statusRef.current==="starting"){setMessage("A debugger startup reply has no caller identity; this view has not adopted it and the request remains unconfirmed.");return;}
-        const admission=launches.started(event.request_id,event.session);if(admission==="retired"){if(event.session!==sessionRef.current)client.stop(event.session);return;}if(admission!=="current")return;
+        const admission=launches.started(event.request_id,event.session);if(admission==="retired"){if(event.session!==sessionRef.current){if(event.request_id&&canceledTestRequests.current.delete(event.request_id))testCleanup.current.add(event.session);client.stop(event.session);}return;}if(admission!=="current")return;
+        const test=pendingTest.current;if(test&&test.request===event.request_id&&(!test.current()||event.source_hash!==test.prepared.choice.inputHash||!sourceTestDebugStarted(test.prepared,event.source_test))){launches.retire();testCleanup.current.add(event.session);client.stop(event.session);rejectTest(Error('The engine did not confirm this exact test-debug selection. Its positively owned session was stopped without adoption.'));holdStatus('unconfirmed');setMessage('Test-debug receipt mismatch; waiting for the owned session to stop.');return;}
       }else if(event.event==="build"||event.event==="failed"&&!event.session&&(event.about===undefined||event.about==="start")){
         if(!launches.matches(event.request_id))return;
       }
@@ -452,7 +470,8 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
           break;
         case "started": {
           setReading(null);
-          sessionRef.current = event.session;
+          sessionRef.current = event.session;lastOwnedSession.current=event.session;
+          const test=pendingTest.current;if(test&&test.request===event.request_id){const record:SourceTestDebugProcess={session:event.session,choice:retainedSourceTestDebugChoice(test.prepared.choice),binding:sourceTestDebugBinding(test.prepared),phase:'running',exitCode:null,message:null};testHistory.current.set(event.session,record);while(testHistory.current.size>32)testHistory.current.delete(testHistory.current.keys().next().value!);testContext.current=event.session;pendingTest.current=null;test.resolve(record);paintTest(value=>value+1);}
           setOutput([]);
           capabilitiesRef.current=event.capabilities;setCapabilities(event.capabilities);
           const prepared=preparedStart.current;runProofs.current=prepared&&prepared.request===event.request_id?new Map(prepared.proofs):new Map();runHashes.current.clear();
@@ -534,7 +553,8 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
         case "children":
           if(valueTree.admit(event))refreshTree();break;
         case "finished":
-          launches.retire();movement.current=null;refreshTicket.current=null;valueTree.retire();refreshTree();
+          publishTest(event.session,"process exited",event.exit_code??null);
+          rejectTest(Error("Test-debug preparation stopped."));launches.retire();movement.current=null;refreshTicket.current=null;valueTree.retire();refreshTree();
           // The server reaped the session with the program: the id no longer
           // answers, so forget it NOW. A step, hover or stop sent after this
           // would be a request to a dead session, answered only by an error.
@@ -550,6 +570,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
           setWatches((current) => current.map((watch) => ({ ...watch, value: null })));
           break;
         case "ended":
+          publishTest(event.session,"stopped");
           movement.current=null;refreshTicket.current=null;valueTree.retire();refreshTree();
           launches.retire();
           sessionRef.current = null;
@@ -562,6 +583,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
           setWatches((current) => current.map((watch) => ({ ...watch, value: null })));
           break;
         case "failed": {
+          if(!event.session&&pendingTest.current?.request===event.request_id)rejectTest(Error(event.message));
           if(event.about==='children'){if(valueTree.fail(event.request_id,event.message))refreshTree();break;}
           if(event.about==='step'||event.about==='jump'||event.about==='run_to'){
             const prior=movement.current;if(!prior||event.request_id!==prior.request||event.session!==prior.session)break;movement.current=null;setMessage(event.message);
@@ -613,7 +635,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   useEffect(() => {
     ownerMounted.current=true;ownerLifetime.current++;
     return () => {
-      ownerMounted.current=false;ownerLifetime.current++;movement.current=null;refreshTicket.current=null;valueTree.retire();scopeRef.current=null;pendingReadings.current.clear();launches.retire();const session=sessionRef.current;sessionRef.current=null;statusRef.current="idle";currentFrames.current=[];frameRead.current=null;evaluationRequests.current.clear();latestEvaluation.current.clear();for(const resolve of pendingValues.current.values())resolve(null);pendingValues.current.clear();
+      ownerMounted.current=false;ownerLifetime.current++;rejectTest(Error("Debugger owner closed before test admission."));movement.current=null;refreshTicket.current=null;valueTree.retire();scopeRef.current=null;pendingReadings.current.clear();launches.retire();const session=sessionRef.current;sessionRef.current=null;statusRef.current="idle";currentFrames.current=[];frameRead.current=null;evaluationRequests.current.clear();latestEvaluation.current.clear();for(const resolve of pendingValues.current.values())resolve(null);pendingValues.current.clear();
       if (client && session) client.stop(session);
     };
   }, [client,uri]);
@@ -656,19 +678,25 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   const launchProfile = useRef<import("./launchProfiles").LaunchSelection>();
   const launchContext = useRef(projectContext);
   useEffect(() => { launchContext.current = projectContext; launchProfile.current = undefined; }, [uri, projectContext]);
-  const start=useCallback((program?:string,sources:Record<string,HeldBreakpoint[]>={},selection?:string,profile?:import('./launchProfiles').LaunchSelection,origins:Record<string,CapturedDebugIntent>={})=>{
-    if(!client)return;if(launchAdmission.current?.()===false){setMessage('This source address is no longer owned by this editor. Existing controls still address its captured launch.');return;}
+  const start=useCallback((program?:string,sources:Record<string,HeldBreakpoint[]>={},selection?:string,profile?:import('./launchProfiles').LaunchSelection,origins:Record<string,CapturedDebugIntent>={},test?:TestPending)=>{
+    if(!test&&testIntent.current){setMessage('This debugger retains a test selection. Release that context in Debug options before ordinary program Debug, or prepare a fresh test Debug choice.');return;}
+    if(test&&(!test.current()||['starting','running','paused','unconfirmed','stopping'].includes(statusRef.current))){test.reject(Error('The source changed or this editor already owns an active debugger. No test launch was sent.'));return;}
+    if(!client){test?.reject(Error('Debugger transport unavailable.'));return;}if(launchAdmission.current?.()===false){setMessage('This source address is no longer owned by this editor. Existing controls still address its captured launch.');test?.reject(Error('Test source ownership changed.'));return;}
     const previous=sessionRef.current,request_id=launches.begin(),lifetime=ownerLifetime.current;launchContext.current=selection??launchContext.current;launchProfile.current=profile??(selection!==undefined?undefined:launchProfile.current);
-    const context=launchContext.current,chosen=launchProfile.current;threadModel.clear();retireObservationScope();retireFrameRead();retireEvaluations();valueTree.retire();refreshTree();refreshThreads();holdStatus('starting');clearFailure();setProgram(program??null);setLaunchTarget(chosen?.name??null);
+    if(test){testContext.current=null;testIntent.current=test.prepared;test.request=request_id;pendingTest.current=test;launchContext.current='new';launchProfile.current=undefined;}
+    const context=launchContext.current,chosen=launchProfile.current;threadModel.clear();retireObservationScope();retireFrameRead();retireEvaluations();valueTree.retire();refreshTree();refreshThreads();holdStatus('starting');clearFailure();setProgram(program??null);setLaunchTarget(test?.prepared.plan.name??chosen?.name??null);
     for(const [source,marks] of Object.entries(sources))if(source!==uri)breakpointModel.unknown(source,onTheWire(marks));
     const candidates=new Set([...breakpointModel.sources(),...Object.keys(origins)]);candidates.delete(uri);
     let primary:DebugSourceReading|Promise<DebugSourceReading>;const additional=new Map<string,DebugSourceReading|Promise<DebugSourceReading>>();
-    try{primary=readSource(uri);for(const source of candidates){const known=origins[source]??breakpointModel.captured(source);if(known&&(known.reading.current()||known.reading.provenance))additional.set(source,readSource(source));}}catch(error){launches.retire();holdStatus('failed');setMessage(error instanceof Error?error.message:String(error));return;}
+    try{primary=readSource(uri);for(const source of candidates){const known=origins[source]??breakpointModel.captured(source);if(known&&(known.reading.current()||known.reading.provenance))additional.set(source,readSource(source));}}catch(error){launches.retire();holdStatus('failed');setMessage(error instanceof Error?error.message:String(error));rejectTest(error instanceof Error?error:Error(String(error)));return;}
     const initial=Promise.resolve(primary);initial.catch(()=>{});for(const reading of additional.values())Promise.resolve(reading).catch(()=>{});
     const local=client.provider;
-    const protocol=local?(action:(catalog:{workspace:string;notices?:unknown})=>Promise<void>)=>local.protocol>=3?action({workspace:local.workspace}):Promise.reject(Error('This debugger provider does not implement guarded protocol3.')):(action:(catalog:{workspace:string;notices?:unknown})=>Promise<void>)=>withDebugProtocol({uri,project:context,program},action);
+    // The validated test-debug plan versions dedicated start_test admission,
+    // including protocol3 source/scope guards. An ordinary launch catalog
+    // would ask the reader to choose a file block the test plan already owns.
+    const protocol=test?(action:(catalog:{workspace:string;notices?:unknown})=>Promise<void>)=>initial.then(reading=>action({workspace:reading.workspace})):local?(action:(catalog:{workspace:string;notices?:unknown})=>Promise<void>)=>local.protocol>=3?action({workspace:local.workspace}):Promise.reject(Error('This debugger provider does not implement guarded protocol3.')):(action:(catalog:{workspace:string;notices?:unknown})=>Promise<void>)=>withDebugProtocol({uri,project:context,program},action);
     void protocol(async catalog=>{
-      if(ownerMounted.current&&ownerLifetime.current===lifetime&&launches.matches(request_id))setLaunchNotices(launchCatalogNotices(catalog));
+      if(ownerMounted.current&&ownerLifetime.current===lifetime&&launches.matches(request_id))setLaunchNotices([...launchCatalogNotices(catalog),...(test?.prepared.plan.notices??[])].slice(0,64));
       const reading=await initial;
       // Embedded startPausedAt is an explicit placement in this provider's
       // authored model, unlike unknown persisted path/line preferences.
@@ -680,13 +708,22 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       }
       const root=breakpointModel.request(uri,proof,null,request_id);
       if(!ownerMounted.current||ownerLifetime.current!==lifetime||launchContext.current!==context||launchProfile.current!==chosen||!launches.matches(request_id))return;
+      if(test&&(!test.current()||proof.hash!==test.prepared.choice.inputHash||uri!==test.prepared.choice.sourceUri))throw Error('Test-debug source or selection changed during preparation.');
       if(launchAdmission.current?.()===false||[...proofs.values()].some(value=>!value.current()))throw Error('Source ownership changed during debugger preparation. Observe it again.');
       preparedStart.current={request:request_id,proofs};runHashes.current.clear();runProofs.current.clear();repaintBreakpoints();sessionRef.current=null;if(previous)client.stop(previous);
-      client.start(uri,root?.marks??[],program,context,sets,chosen,request_id,proof.hash,hashes);
-    }).catch(error=>{if(!ownerMounted.current||!launches.matches(request_id))return;launches.retire();holdStatus('failed');setMessage(error instanceof Error?error.message:String(error));});
+      if(test){test.sent=true;client.startTest(uri,root?.marks??[],sets,request_id,proof.hash,hashes,test.prepared.choice.request);}else client.start(uri,root?.marks??[],program,context,sets,chosen,request_id,proof.hash,hashes);
+    }).catch(error=>{if(!ownerMounted.current||!launches.matches(request_id))return;launches.retire();holdStatus('failed');setMessage(error instanceof Error?error.message:String(error));rejectTest(error instanceof Error?error:Error(String(error)));});
   },[client,uri,projectContext]);
 
+  const startSourceTest=useCallback((prepared:PreparedSourceTestDebug,current:()=>boolean)=>new Promise<SourceTestDebugProcess>((resolve,reject)=>{
+    try{if(client?.provider)throw Error('This browser-local provider does not implement source-test Debug admission.');prepareSourceTestDebug(prepared.choice,prepared.plan);if(uri!==prepared.choice.sourceUri)throw Error('This debugger belongs to a different authored input.');start(undefined,{},undefined,undefined,{}, {prepared,current,request:null,sent:false,resolve,reject});}catch(error){reject(error instanceof Error?error:Error(String(error)));}
+  }),[start,client,uri]);
+  const cancelSourceTestStart=useCallback((prepared:PreparedSourceTestDebug)=>{const held=pendingTest.current;if(!held||held.prepared!==prepared)return;pendingTest.current=null;launches.retire();client?.cancelStart(uri);held.reject(Error(held.sent?'Test-debug admission canceled after dispatch; the owned late session will be stopped without adoption.':'Test-debug preparation canceled; no Start was sent.'));if(held.sent&&held.request){canceledTestRequests.current.add(held.request);holdStatus('unconfirmed');setMessage('Canceled test-debug request awaits its owned session cleanup.');}else {if(!testContext.current)testIntent.current=null;holdStatus('idle');paintTest(value=>value+1);}},[client,uri]);
+  const releaseSourceTest=useCallback(()=>{if(['starting','running','paused','unconfirmed','stopping'].includes(statusRef.current))return;testContext.current=null;testIntent.current=null;paintTest(value=>value+1);},[]);
+
   const stop = useCallback(() => {
+    if(pendingTest.current){cancelSourceTestStart(pendingTest.current.prepared);return;}
+    if(!sessionRef.current&&(canceledTestRequests.current.size||testCleanup.current.size)){for(const owned of testCleanup.current)client?.stop(owned);client?.cancelStart(uri);holdStatus(testCleanup.current.size?'stopping':'unconfirmed');setMessage('Waiting for positively owned test-debug cleanup; no current process or test verdict was adopted.');return;}
     launches.retire();movement.current=null;refreshTicket.current=null;
     if(sessionRef.current){setHistoricalFrames(currentFrames.current);currentFrames.current=[];setFrames([]);holdVariables([]);selectedFrameRef.current=null;setSelectedFrame(null);setPausedLine(null);threadModel.clear();retireObservationScope();retireFrameRead();retireEvaluations();valueTree.retire();refreshTree();refreshThreads();holdStatus('stopping');setMessage('Stopping debugger…');}
     if (client && statusRef.current === "starting") client.cancelStart(uri);
@@ -701,7 +738,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
     clearFailure();
     setCapabilities(null);
     setExitCode(null);
-  }, [client, uri]);
+  }, [client, uri,cancelSourceTestStart]);
 
   function moveDebug(kind:Step|'jump'|'run_to',line?:number){
     const session=sessionRef.current,scope=threadModel.scope;if(!client||!session||statusRef.current!=='paused'||!scope||threadModel.selecting||movement.current)return;
@@ -837,6 +874,9 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   // workspace — on every keystroke of the document beside it.
   const controller = useMemo(
     () => ({
+      startSourceTest,cancelSourceTestStart,releaseSourceTest,
+      sourceTestIntent:testIntent.current,sourceTest:testContext.current?testHistory.current.get(testContext.current)??null:null,
+      sourceTestProcesses:()=>[...testHistory.current.values()].map(record=>({...record})),sourceTestInspectable:(session:string)=>testContext.current===session&&(sessionRef.current===session||!['starting','running','paused','unconfirmed','stopping'].includes(statusRef.current)&&lastOwnedSession.current===session),
       isActive:()=>["starting","running","paused","unconfirmed","stopping"].includes(statusRef.current),
       launchNotices,breakpointRows:()=>currentRows(),capturedBreakpointIntents:capturedIntents,
       breakpointNotice:breakpointModel.notice(uri,sourceReadings.current.get(uri)??null,sessionRef.current,runHashes.current.get(uri)??null),
@@ -879,7 +919,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       removeWatch,
     }),
     [
-      launchNotices,treeRevision,expandValue,collapseValue,closeValues,refreshState,threadRevision,readThreads,selectThread,frameVariablesPending,frameVariablesMessage,stackMessage,historicalFrames,observationScope,captureFrame,
+      testEpoch,startSourceTest,cancelSourceTestStart,releaseSourceTest,launchNotices,treeRevision,expandValue,collapseValue,closeValues,refreshState,threadRevision,readThreads,selectThread,frameVariablesPending,frameVariablesMessage,stackMessage,historicalFrames,observationScope,captureFrame,
       reading,
       status,
       message,

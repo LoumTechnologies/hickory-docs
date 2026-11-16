@@ -499,6 +499,7 @@ mod independent_capability_tests {
             assert!(startup.result().is_none_or(|result| result.is_err()));
             for path in [
                 "/api/tests/source-candidates",
+                "/api/tests/debug-plan",
                 "/api/construction/reading",
                 "/api/changes/plan-resources",
                 "/api/changes/resource-targets",

@@ -110,7 +110,6 @@ pub mod testing;
 
 <storycode:copy id="f-ff0c576452e2-typed_client">
 pub mod typed_client;
-
 </storycode:copy>
 <a id="f-ff0c576452e2-use_declaration"></a>
 ### `use_declaration`
@@ -141,7 +140,6 @@ use std::path::{Component, Path};
 
 <storycode:copy id="f-ff0c576452e2-use_declaration-5">
 use std::sync::LazyLock;
-
 </storycode:copy>
 <a id="f-ff0c576452e2-InterfaceKind"></a>
 ### `InterfaceKind`
@@ -169,7 +167,6 @@ pub enum InterfaceKind {
     Profiling,
     Coverage,
 }
-
 </storycode:copy>
 <a id="f-ff0c576452e2-LspCandidate"></a>
 ### `LspCandidate`
@@ -180,7 +177,6 @@ pub struct LspCandidate {
     pub bin: &'static str,
     pub args: &'static [&'static str],
 }
-
 </storycode:copy>
 <a id="f-ff0c576452e2-FormulaBackend"></a>
 ### `FormulaBackend`
@@ -194,7 +190,6 @@ pub struct FormulaBackend {
     pub interpreters: &'static [&'static str],
     pub source: &'static str,
 }
-
 </storycode:copy>
 <a id="f-ff0c576452e2-EnvValue"></a>
 ### `EnvValue`
@@ -206,7 +201,6 @@ pub enum EnvValue {
     /// Relative to a host-selected state directory, never a permission grant.
     StatePath(&'static str),
 }
-
 </storycode:copy>
 <a id="f-ff0c576452e2-Environment"></a>
 ### `Environment`
@@ -217,7 +211,6 @@ pub struct Environment {
     pub name: &'static str,
     pub value: EnvValue,
 }
-
 </storycode:copy>
 <a id="f-ff0c576452e2-Interface"></a>
 ### `Interface`
@@ -261,6 +254,7 @@ pub enum Interface {
     },
     TestRunner {
         plan: testing::Planner,
+        debug: Option<testing::DebugPlanner>,
         detect: Option<testing::candidates::Detector>,
         scope: testing::Scope,
     },
@@ -296,7 +290,6 @@ pub enum Interface {
         script: &'static str,
     },
 }
-
 </storycode:copy>
 <a id="f-ff0c576452e2-impl-Interface"></a>
 ### `impl-Interface`
@@ -349,7 +342,6 @@ impl Interface {
         }
     }
 }
-
 </storycode:copy>
 <a id="f-ff0c576452e2-Plugin"></a>
 ### `Plugin`
@@ -361,7 +353,6 @@ pub struct Plugin {
     pub languages: &'static [&'static str],
     pub interfaces: &'static [Interface],
 }
-
 </storycode:copy>
 <a id="f-ff0c576452e2-Registry"></a>
 ### `Registry`

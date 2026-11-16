@@ -667,7 +667,18 @@ the pinned mapping and current physical identity before starting an adapter.
 Additional plain sources may join this snapshot only before startup, never by
 borrowing a file read after a pause. Internal capture callers can omit UI stamps.
 
+A module launch explicitly clears the ordinary program default with null. Remove
+that sentinel before sending DAP: debugpy rejects a present null program rather
+than treating it as absent. Keep every other adapter option unchanged.
+
 <storycode:copy id="debug-launch-source-admission">
+fn omit_cleared_module_program(arguments: &mut Value) {
+    if arguments.get("module").is_some_and(Value::is_string)
+        && arguments.get("program").is_some_and(Value::is_null)
+    {
+        arguments.as_object_mut().unwrap().remove("program");
+    }
+}
 impl Session {
     fn checked_mapping(
         mapping: Arc<Mapping>,
@@ -802,6 +813,7 @@ impl Session {
         // `__pendingTargetId` and all — which is what names the target this
         // connection is for.
         merge(&mut launch_args, &extra);
+        omit_cleared_module_program(&mut launch_args);
 
         // SENT, NOT AWAITED, and this is the one ordering that must be right.
         //
@@ -1516,6 +1528,18 @@ remain separate integration receipts.
 #[cfg(test)]
 mod source_admission_tests {
     use super::*;
+    #[test]
+    fn module_launch_omits_only_explicitly_cleared_program() {
+        let mut arguments = json!({"program":null,"module":"pytest","args":["test_x.py"]});
+        omit_cleared_module_program(&mut arguments);
+        assert!(arguments.get("program").is_none());
+        assert_eq!(arguments["module"], "pytest");
+        for mut unchanged in [json!({"program":"main.py","module":"x"}), json!({"program":null}), json!({"program":"main.py"})] {
+            let original = unchanged.clone();
+            omit_cleared_module_program(&mut unchanged);
+            assert_eq!(unchanged, original);
+        }
+    }
     #[test]
     fn launch_positions_require_pinned_and_current_bytes_before_adapter_start() {
         let root = tempfile::tempdir().unwrap();

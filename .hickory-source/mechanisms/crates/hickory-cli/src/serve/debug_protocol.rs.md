@@ -27,6 +27,7 @@ use serde_json::Value;
 #[derive(Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Request {
+    StartTest(TestStart),
     /// Start a session over a document, with breakpoints in document lines.
     Start {
         doc: String,
@@ -49,6 +50,8 @@ pub enum Request {
         source_hash: Option<String>,
         #[serde(default)]
         source_hashes: std::collections::HashMap<String, String>,
+        #[serde(default)]
+        source_test: Option<crate::serve::source_tests::RunRequest>,
     },
     /// Replace the breakpoint set while a session is running.
     Breakpoints {
@@ -205,7 +208,7 @@ pub enum Request {
 impl Request {
     pub fn session_id(&self) -> Option<&str> {
         match self {
-            Self::Start { .. } => None,
+            Self::Start { .. } | Self::StartTest(_) => None,
             Self::Located { session, .. }
             | Self::Breakpoints { session, .. }
             | Self::SourceBreakpoints { session, .. }
@@ -272,6 +275,8 @@ pub enum Response {
         capabilities: hick_dap::Capabilities,
         breakpoints: Vec<hick_dap::BreakpointStatus>,
         source_hash: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source_test: Option<crate::serve::test_debug::Binding>,
     },
     /// Where execution is now — the paused line the gutter marks, and the
     /// values the editor shows inline.
@@ -428,6 +433,31 @@ pub struct InstallOffer {
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/src/serve/debug_protocol.rs"><storycode:paste select="#f-02909c42fcb1-Request"/><storycode:paste select="#f-02909c42fcb1-impl-Request"/><storycode:paste select="#f-02909c42fcb1-LocatedAction"/><storycode:paste select="#f-02909c42fcb1-repl"/><storycode:paste select="#f-02909c42fcb1-Response"/><storycode:paste select="#f-02909c42fcb1-InstallOffer"/></storycode:file>
+
+## Give test launches a distinct effect verb
+
+An old engine can ignore an unknown optional field on ordinary Start. A distinct
+`start_test` verb instead fails before effects when unsupported, including a
+restart between HTTP planning and the socket send. Its strict payload excludes
+program/profile/project fallback and still uses the existing guarded launch
+fields. The server echoes the revalidated test binding only after actual startup.
+
+<storycode:copy id="source-test-debug-start-wire">
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TestStart {
+    pub doc: String,
+    pub request_id: String,
+    #[serde(default)]
+    pub breakpoints: Vec<Breakpoint>,
+    #[serde(default)]
+    pub sources: std::collections::HashMap<String, Vec<Breakpoint>>,
+    pub source_hash: String,
+    #[serde(default)]
+    pub source_hashes: std::collections::HashMap<String, String>,
+    pub source_test: crate::serve::source_tests::RunRequest,
+}
+</storycode:copy>
+<storycode:file path="crates/hickory-cli/src/serve/debug_protocol.rs"><storycode:paste select="#f-02909c42fcb1-Request"/><storycode:paste select="#f-02909c42fcb1-impl-Request"/><storycode:paste select="#f-02909c42fcb1-LocatedAction"/><storycode:paste select="#f-02909c42fcb1-repl"/><storycode:paste select="#f-02909c42fcb1-Response"/><storycode:paste select="#f-02909c42fcb1-InstallOffer"/><storycode:paste select="#source-test-debug-start-wire"/></storycode:file>
 
 </storycode:doc>

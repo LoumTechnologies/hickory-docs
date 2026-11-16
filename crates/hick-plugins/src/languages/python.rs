@@ -42,6 +42,7 @@ pub static PLUGIN: Plugin = Plugin {
             target: crate::typed_client::emit::Target::Python,
         },
         Interface::TestRunner {
+            debug: Some(test_debug_command),
             plan: test_command,
             detect: Some(crate::testing::candidates::python),
             scope: crate::testing::Scope::File,
@@ -75,7 +76,6 @@ pub static PLUGIN: Plugin = Plugin {
         },
     ],
 };
-
 fn test_command(
     root: &std::path::Path,
     file: &std::path::Path,
@@ -104,6 +104,11 @@ fn test_command(
         .unwrap_or(file)
         .to_string_lossy()
         .replace('\\', "/");
+    let rel_to_dir = if rel_to_dir.starts_with('-') {
+        format!("./{rel_to_dir}")
+    } else {
+        rel_to_dir
+    };
     let target = if name.is_empty() {
         rel_to_dir
     } else {
@@ -122,7 +127,6 @@ fn test_command(
         ],
     })
 }
-
 fn editor_root(path: &std::path::Path, base: &std::path::Path) -> std::path::PathBuf {
     hick_project_env::providers::uv::owner(path.parent().unwrap_or(base), base)
         .unwrap_or_else(|| base.to_path_buf())
@@ -141,4 +145,18 @@ fn editor_settings(kind: Option<&str>, root: &std::path::Path) -> serde_json::Va
         }
         _ => json!({}),
     }
+}
+fn test_debug_command(
+    root: &std::path::Path,
+    file: &std::path::Path,
+    name: &str,
+) -> Result<crate::testing::TestDebugCommand, String> {
+    let command = test_command(root, file, name)?;
+    Ok(crate::testing::TestDebugCommand {
+        title: format!("Debug {}", command.title),
+        cwd: command.cwd,
+        program: file.to_path_buf(),
+        launch: serde_json::json!({"program":null,"module":"pytest","python":command.argv[0],"args":command.argv[3..]}),
+        framework: "pytest",
+    })
 }

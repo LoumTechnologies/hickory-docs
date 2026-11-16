@@ -14,7 +14,7 @@ import {api} from "../api/client";
 import type {Buffer} from "./buffers";
 import {SourceTestIndex,indexedTestRows} from "./SourceTestIndex";
 export const SOURCE_TEST_INSPECTION="hickory:simple:inspect-source-tests";
-export interface SourceTestInspection {path:string;name:string;serial:number}
+export interface SourceTestInspection {path:string;name:string;serial:number;owner?:Buffer;revision?:number}
 const Context=createContext<SourceTestIndex|null>(null);
 const idleSubscribe=()=>()=>{},zero=()=>0;
 export function SourceTestGutterProvider({workspace,children}:{workspace:string;children:ReactNode}) {
@@ -36,7 +36,7 @@ export function useSourceTestLineActions(buffer:Buffer,view:EditorView|null) {
   for(const row of indexedTestRows(record)){const names=grouped.get(row.line)??[];names.push(row.candidate.name);grouped.set(row.line,names);}
   return [...grouped].filter(([line])=>line<view.state.doc.lines).map(([line,names])=>({at:view.state.doc.line(line+1).from,label:`Inspect source tests: ${names.join(", ")}`,run:()=>{
     if(buffer.resourceDeleted||!index?.current(buffer.file.path,buffer.text))return;
-    window.dispatchEvent(new CustomEvent(SOURCE_TEST_INSPECTION,{detail:{path:buffer.file.path,name:names.length===1?names[0]:"",serial:Date.now()}}));
+    window.dispatchEvent(new CustomEvent(SOURCE_TEST_INSPECTION,{detail:{path:buffer.file.path,name:names.length===1?names[0]:"",serial:Date.now(),owner:buffer,revision:buffer.sourceRevision}}));
   }}));
 }
 </ui:copy>

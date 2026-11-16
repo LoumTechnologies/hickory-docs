@@ -26,6 +26,9 @@ use tokio::sync::Mutex;
 
 #[path = "debug_profiles.rs"]
 mod profiles;
+#[path = "test_debug_sessions.rs"]
+mod test_launcher;
+pub(crate) use test_launcher::TestLaunch;
 #[path = "debug_reading.rs"]
 mod reading;
 pub use profiles::{LaunchContext, ProfileSelection};
