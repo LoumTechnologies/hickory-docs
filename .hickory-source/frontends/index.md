@@ -234,4 +234,6 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="debugger-values-browser.md" />
 
+<ui:include file="test-debug-android.md" />
+
 </ui:doc>

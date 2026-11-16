@@ -125,6 +125,15 @@ flows are sequential. Firefox/WebKit and supported native adapter breadth are no
 established by Python/debugpy and local Chromium receipts. This entry is a
 progress ledger, not complete debugger parity.
 
+## Saved test-debug choice guard, 2026-11-16
+
+The [Android choice policy](test-debug-android.md) captures a defensive copy of
+source-test facts and the originating editor, observation and workspace identity.
+A one-shot take reuses saved-run source admission and requires an explicit
+`test_debug_protocol = 1` capability. Six focused policy checks and full Kotlin
+compilation passed. This is a foundation: no test-debug provider, wire launch or
+usable source-adjacent Debug action is supplied by this model alone.
+
 ## Debugger threads and scoped observations, 2026-11-15
 
 The shared engine now lists actual adapter threads and admits selection against

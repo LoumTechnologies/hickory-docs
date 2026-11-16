@@ -71002,6 +71002,28 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "debug-value-tree-browser-tests"
       ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/TestDebug.kt": {
+      "source": ".hickory-source/frontends/test-debug-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "63b3e6a7e54287e8bb10bf11a1308b785b23c3ba6aa8ea556103839d1df580fb",
+      "construction": "fragments",
+      "fragments": [
+        "test-debug-android-policy"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/TestDebugTest.kt": {
+      "source": ".hickory-source/frontends/test-debug-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "6f804459501432394ed35947d2fe93dd97d4b473a0f60ea2b3bb8c857a263ca9",
+      "construction": "fragments",
+      "fragments": [
+        "test-debug-android-witness"
+      ]
     }
   },
   "evidence_records": [

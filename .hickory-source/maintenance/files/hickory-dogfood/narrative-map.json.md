@@ -154597,6 +154597,20 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "basis": "explained-behavior"
     },
     {
+      "id": "test-debug-android-policy",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/TestDebug.kt",
+      "page": ".hickory-source/frontends/test-debug-android.md",
+      "symbol": "test debug android policy",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "test-debug-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/TestDebugTest.kt",
+      "page": ".hickory-source/frontends/test-debug-android.md",
+      "symbol": "test debug android witness",
+      "basis": "explained-behavior"
+    },
+    {
       "id": "source-breakpoints-session-transaction-witness",
       "output": "crates/hick-dap/src/source_breakpoints.rs",
       "page": ".hickory-source/mechanisms/crates/hick-dap/src/source_breakpoints.rs.md",
