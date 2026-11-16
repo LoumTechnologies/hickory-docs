@@ -107,9 +107,9 @@ struct PaneView: View {
     let id: String
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
     @State private var initialRatio: Double?
-    @State private var dropBefore: String?
+    @State private var dropBefore: NativeSourceKey?
     @State private var paneEdge: String?
-    @State private var tabFrames: [String: CGRect] = [:]
+    @State private var tabFrames: [NativeSourceKey: CGRect] = [:]
     var body: some View {
         if let node = workspace.layout.nodes[id] {
             if let first = node.first, let second = node.second {
@@ -134,7 +134,7 @@ struct PaneView: View {
                 VStack(spacing: 0) {
                     ScrollView(.horizontal) {
                         HStack(spacing: 0) {
-                            ForEach(node.tabs, id: \.self) { tab in
+                            ForEach(node.tabs, id: \.nativeSourceKey) { tab in
                                 HStack(spacing: 0) {
                                     #if os(macOS)
                                     MacTabLabel(tab: tab, label: workspace.label(tab), activate: {
@@ -142,27 +142,27 @@ struct PaneView: View {
                                     }, dragging: { workspace.draggingTab = $0 }).fixedSize(horizontal: true, vertical: false).frame(height: 28)
                                     #else
                                     Button(workspace.label(tab)) { workspace.layout.activate(tab, in: id); workspace.focused = id }
-                                        .accessibilityAddTraits(node.active == tab ? .isSelected : [])
+                                        .accessibilityAddTraits(exactUTF8(node.active,tab) ? .isSelected : [])
                                     #endif
                                     Button("×") { workspace.close(tab) }.accessibilityLabel("Close \(workspace.label(tab))")
                                 }.padding(.horizontal, 5).frame(height: 28)
                                     .animation(SimpleMotion.animation(100, reduced: reducedMotion)) {
-                                        $0.background(node.active == tab ? Color.accentColor.opacity(0.12) : Color.clear)
+                                        $0.background(exactUTF8(node.active,tab) ? Color.accentColor.opacity(0.12) : Color.clear)
                                     }
-                                    .overlay(alignment: .top) { if node.active == tab { Rectangle().fill(Color.accentColor).frame(height: 2) } }
-                                    .overlay(alignment: .leading) { if dropBefore == tab { Rectangle().fill(Color.accentColor).frame(width: 2) } }
+                                    .overlay(alignment: .top) { if exactUTF8(node.active,tab) { Rectangle().fill(Color.accentColor).frame(height: 2) } }
+                                    .overlay(alignment: .leading) { if dropBefore==tab.nativeSourceKey { Rectangle().fill(Color.accentColor).frame(width: 2) } }
                                     #if os(macOS)
                                     .background(GeometryReader { geometry in
-                                        Color.clear.preference(key: TabFramePreference.self, value: [tab: geometry.frame(in: .named("tabs-" + id))])
+                                        Color.clear.preference(key: TabFramePreference.self, value: [tab.nativeSourceKey: geometry.frame(in: .named("tabs-" + id))])
                                     })
                                     #else
                                     .draggable(TabDrag(tab: tab))
                                     .dropDestination(for: TabDrag.self) { tabs, _ in
                                         dropBefore = nil
-                                        guard let dragged = tabs.first?.tab, workspace.layout.groups().contains(where: { $0.tabs.contains(dragged) }) else { return false }
+                                        guard let dragged = tabs.first?.tab, workspace.layout.groups().contains(where: { $0.tabs.containsSource(dragged) }) else { return false }
                                         workspace.layout.move(dragged, to: id, before: tab); workspace.focused = id; return true
                                     } isTargeted: { targeted in
-                                        if targeted { dropBefore = tab } else if dropBefore == tab { dropBefore = nil }
+                                        if targeted { dropBefore = tab.nativeSourceKey } else if dropBefore==tab.nativeSourceKey { dropBefore = nil }
                                     }
                                     #endif
                             }
@@ -174,16 +174,16 @@ struct PaneView: View {
                         .onPreferenceChange(TabFramePreference.self) { tabFrames = $0 }
                         .overlay {
                             MacDropSurface(hover: { point in
-                                    dropBefore = point.flatMap { point in node.tabs.first { tabFrames[$0]?.contains(point) == true } }
+                                    dropBefore = point.flatMap { point in node.tabs.first { tabFrames[$0.nativeSourceKey]?.contains(point) == true }?.nativeSourceKey }
                                 }, drop: { tab, point in
-                                    let before = node.tabs.first { tabFrames[$0]?.contains(point) == true }
+                                    let before = node.tabs.first { tabFrames[$0.nativeSourceKey]?.contains(point) == true }
                                     workspace.layout.move(tab, to: id, before: before); workspace.focused = id
                                     workspace.draggingTab = nil; dropBefore = nil; return true
                                 })
                         }
                         #else
                         .dropDestination(for: TabDrag.self) { tabs, _ in
-                            guard let tab = tabs.first?.tab, workspace.layout.groups().contains(where: { $0.tabs.contains(tab) }) else { return false }
+                            guard let tab = tabs.first?.tab, workspace.layout.groups().contains(where: { $0.tabs.containsSource(tab) }) else { return false }
                             dropBefore = nil
                             workspace.layout.move(tab, to: id); workspace.focused = id; return true
                         }
@@ -198,7 +198,7 @@ struct PaneView: View {
                                         paneEdge = point.map { dropEdge($0.x / max(1, geometry.size.width), $0.y / max(1, geometry.size.height)) ?? "center" }
                                     }, drop: { tab, point in
                                         paneEdge = nil
-                                        guard workspace.layout.groups().contains(where: { $0.id == id }), workspace.layout.groups().contains(where: { $0.tabs.contains(tab) }) else { return false }
+                                        guard workspace.layout.groups().contains(where: { $0.id == id }), workspace.layout.groups().contains(where: { $0.tabs.containsSource(tab) }) else { return false }
                                         if let edge = dropEdge(point.x / max(1, geometry.size.width), point.y / max(1, geometry.size.height)) {
                                             guard let focused = workspace.layout.dock(tab, to: id, edge: edge, newID: UUID().uuidString) else { return false }
                                             workspace.focused = focused
@@ -277,7 +277,7 @@ struct PaneView: View {
             guard let data, let payload = try? JSONDecoder().decode(TabDrag.self, from: data) else { return }
             let tab = payload.tab
             Task { @MainActor in
-                guard workspace.layout.groups().contains(where: { $0.id == group }), workspace.layout.groups().contains(where: { $0.tabs.contains(tab) }) else { return }
+                guard workspace.layout.groups().contains(where: { $0.id == group }), workspace.layout.groups().contains(where: { $0.tabs.containsSource(tab) }) else { return }
                 if selected == "center" { workspace.layout.move(tab, to: group); workspace.focused = group }
                 else if let focused = workspace.layout.dock(tab, to: group, edge: selected, newID: UUID().uuidString) { workspace.focused = focused }
             }
@@ -301,8 +301,8 @@ struct FileRows: View {
 #if os(macOS)
 import AppKit
 private struct TabFramePreference: PreferenceKey {
-    static var defaultValue: [String: CGRect] = [:]
-    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) { value.merge(nextValue(), uniquingKeysWith: { _, new in new }) }
+    static var defaultValue: [NativeSourceKey: CGRect] = [:]
+    static func reduce(value: inout [NativeSourceKey: CGRect], nextValue: () -> [NativeSourceKey: CGRect]) { value.merge(nextValue(), uniquingKeysWith: { _, new in new }) }
 }
 // Native destinations stay mounted, but never intercept normal editor clicks.
 @MainActor private enum NativeTabDragState {

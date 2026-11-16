@@ -1116,6 +1116,18 @@ impl Registry {
             "{} is a Run-only profile. Choose Run, or an application profile with a debug adapter.",
             profile.definition.name
         );
+        if let Some(endpoint) = &profile.definition.attach {
+            // Attach owns no program or scratch directory and grants no source
+            // revision proof. Existing frame/source readers remain read-only.
+            let mapping = context.mapping(&context.root)?;
+            on_build(BuildOutput::Note(format!(
+                "Attach {} · loopback port {} · external source revision unverified",
+                profile.definition.name, endpoint.port
+            )));
+            let session = Session::attach_to_endpoint(endpoint.port,
+                endpoint.arguments.clone(), Arc::new(mapping)).await?;
+            return self.register(session, None, Vec::new()).await;
+        }
         let (root, scratch) = context.prepare()?;
         let cwd = safe_cwd(&root, &profile.definition.cwd)?;
         run_build(&profile, &cwd, on_build).await?;
@@ -1325,10 +1337,29 @@ pub const CONFIG: &str = ".hick-launch.json";
 <a id="f-01e001976095-Definition"></a>
 ### `Definition`
 
+An explicit attach profile names a loopback DAP endpoint already started by the
+user (for example debugpy.listen). Discovery never enumerates or chooses a PID.
+Attach arguments remain provider-specific; the profile cannot also build or run.
+The existing Debug profile chooser uses the same fingerprinted selection and
+session controls. Disconnect detaches the target and its raw frames remain
+unverified against editor bytes. PID-driven adapters and host acceptance remain
+required work; endpoint configuration alone does not establish those outcomes.
+
 <storycode:copy id="f-01e001976095-Definition">
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+pub struct AttachEndpoint {
+    /// A user-configured loopback DAP endpoint, not a discovered arbitrary PID.
+    pub port: u16,
+    #[serde(default = "attach_arguments")]
+    pub arguments: serde_json::Value,
+}
+fn attach_arguments() -> serde_json::Value { serde_json::json!({}) }
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct Definition {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attach: Option<AttachEndpoint>,
     pub id: String,
     pub name: String,
     #[serde(default)]
@@ -1426,6 +1457,7 @@ fn profile(
         .is_some_and(|p| hick_dap::language_of(std::path::Path::new(p)).is_some());
     Profile {
         definition: Definition {
+            attach: None,
             id,
             name,
             program,
@@ -1661,7 +1693,7 @@ pub fn discover_with(
                 ));
             }
             validate(&definition, tree, CONFIG)?;
-            let can_debug = definition
+            let can_debug = definition.attach.is_some() || definition
                 .program
                 .as_ref()
                 .is_some_and(|p| hick_dap::language_of(std::path::Path::new(p)).is_some());
@@ -1725,8 +1757,17 @@ fn validate(p: &Definition, tree: &dyn SourceInventory, origin: &str) -> Result<
     if p.id.trim().is_empty() || p.name.trim().is_empty() {
         return Err(fail("id and name cannot be empty"));
     }
-    if p.program.is_some() != p.command.is_empty() {
-        return Err(fail("specify exactly one of program or command"));
+    if usize::from(p.program.is_some()) + usize::from(!p.command.is_empty()) + usize::from(p.attach.is_some()) != 1 {
+        return Err(fail("specify exactly one of program, command or attach"));
+    }
+    if let Some(attach) = &p.attach {
+        if attach.port == 0 || !attach.arguments.is_object()
+            || serde_json::to_vec(&attach.arguments).map_or(true, |bytes| bytes.len() > 64 * 1024) {
+            return Err(fail("attach needs a nonzero loopback DAP port and an argument object within 64 KiB"));
+        }
+        if !p.args.is_empty() || !p.env.is_empty() || !p.build.is_empty() || p.artifact.is_some() {
+            return Err(fail("attach cannot build, launch arguments, inject an environment or select an artifact"));
+        }
     }
     if let Some(path) = &p.program {
         tree.validate_path(path).map_err(|e| fail(&e))?;
@@ -1773,6 +1814,7 @@ fn validate(p: &Definition, tree: &dyn SourceInventory, origin: &str) -> Result<
 impl Profile {
     pub fn run_argv(&self, root: &std::path::Path) -> Result<Vec<String>, String> {
         let d = &self.definition;
+        if d.attach.is_some() { return Err("Attach profiles connect through Debug; they do not launch a Run process".into()); }
         let mut argv = if let Some(artifact) = &d.artifact {
             let artifact = root.join(artifact).to_string_lossy().into_owned();
             if d.program.as_ref().is_some_and(|p| p.ends_with(".cs")) {
@@ -1934,6 +1976,7 @@ pub(super) fn open_run(
     scratch: Option<tempfile::TempDir>,
     title: Option<String>,
 ) -> anyhow::Result<hick_term::SessionSummary> {
+    anyhow::ensure!(profile.definition.attach.is_none(), "Choose Debug for an attach profile; Run cannot launch an external target");
     let root_lease=state.resource_root.check(state.index.root()).map_err(anyhow::Error::msg)?;
     let cwd = crate::debug_sessions::safe_cwd(root, &profile.definition.cwd)?;
     let mut argv = profile.run_argv(root).map_err(anyhow::Error::msg)?;
@@ -2091,6 +2134,27 @@ fn manual_profiles_share_discovery_override_by_id_and_keep_argument_boundaries()
         ]
     );
     assert_eq!(profile.definition.env["GREETING"], "Hello");
+}
+
+#[test]
+fn endpoint_attach_is_explicit_debug_only_and_cannot_launch_or_build() {
+    let source = r#"{"version":1,"profiles":[{"id":"external","name":"External Python","attach":{"port":5678,"arguments":{"justMyCode":false}}}]}"#;
+    let inventory = tree(&[(launch_profiles::CONFIG, source)]);
+    let profile = launch_profiles::select(&inventory, Some("external")).unwrap();
+    assert!(profile.can_debug);
+    assert_eq!(profile.definition.attach.as_ref().unwrap().port, 5678);
+    assert!(profile.run_argv(std::path::Path::new("/unused")).unwrap_err().contains("Attach"));
+    for extra in [serde_json::json!({"program":"app.py"}), serde_json::json!({"command":["echo","wrong"]}),
+        serde_json::json!({"build":["echo","wrong"]}), serde_json::json!({"args":["wrong"]}),
+        serde_json::json!({"env":{"A":"wrong"}}), serde_json::json!({"artifact":"app.py"}),
+        serde_json::json!({"attach":{"port":0}}), serde_json::json!({"attach":{"port":5678,"host":"foreign"}}),
+        serde_json::json!({"attach":{"port":5678,"arguments":[]}})] {
+        let mut config: serde_json::Value = serde_json::from_str(source).unwrap();
+        for (key,value) in extra.as_object().unwrap() { config["profiles"][0][key] = value.clone(); }
+        let serialized = serde_json::to_string(&config).unwrap();
+        let inventory = tree(&[(launch_profiles::CONFIG, &serialized), ("app.py", "print(1)")]);
+        assert!(launch_profiles::discover(&inventory).is_err(), "accepted {extra}");
+    }
 }
 </storycode:copy>
 <a id="f-7149d905428b-ambiguous_targets_require_a_choice_and_unknown_configuration_is_not_silently_ignored"></a>
@@ -2282,5 +2346,96 @@ The selections below preserve the original byte order. Narrative reading order d
 - Executed checks: [the run record](../../../evidence/focused-checks.md) lists actual executions.
 - Human judgment: stakeholder priorities confirmed; individual requirement acceptance remains unrecorded.
 - Dependencies: exact cited-file hashes are in the capture and source entries. Transitive source and environment changes can also stale evidence.
+
+## Exercise an owned external debugpy target
+
+The fixture starts its own debugpy endpoint, then chooses its default attach
+profile through the existing source Debug gesture. Watch and Step use the real
+provider. Stop must leave that independently launched target running; only the
+fixture's explicit finish marker lets it exit. Retained source, editor state and
+native undo remain separate from runtime source authority. This browser witness
+does not establish native physical-input or other-adapter acceptance.
+
+<storycode:copy id="debug-endpoint-attach-browser-witness">
+#!/usr/bin/env python3
+"""Owned debugpy endpoint attach through the existing browser Debug gesture."""
+import argparse, importlib.util, json, os, signal, socket, tempfile, time
+from pathlib import Path
+ROOT=Path(__file__).resolve().parents[1]
+def sys_exit(code):
+ raise SystemExit(code)
+def wait(check,message):
+ deadline=time.monotonic()+30
+ while time.monotonic()<deadline:
+  value=check()
+  if value:return value
+  time.sleep(.03)
+ raise AssertionError(message)
+def port():
+ with socket.socket() as reservation:
+  reservation.bind(('127.0.0.1',0));return reservation.getsockname()[1]
+def main():
+ signal.signal(signal.SIGTERM,lambda signum,_frame:sys_exit(128+signum))
+ parser=argparse.ArgumentParser(description=__doc__)
+ parser.add_argument('--serve-only',action='store_true')
+ parser.add_argument('--engine',type=Path,default=ROOT/'target/source-edit-focus/debug/examples/engine_client')
+ parser.add_argument('--venv',type=Path,default=ROOT/'target/thread-debug-env')
+ args=parser.parse_args();python=args.venv.resolve()/'bin/python'
+ if not python.is_file():parser.error('Provide the prepared debugpy environment with --venv')
+ spec=importlib.util.spec_from_file_location('fixture',ROOT/'scripts/test-simple-browser.py')
+ fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
+ processes=[];driver=None
+ with tempfile.TemporaryDirectory(prefix='hickory-debug-attach-') as folder:
+  temporary=Path(folder);root=temporary/'workspace';root.mkdir();(root/'.git').mkdir()
+  endpoint=port();ready=temporary/'target-ready';finish=temporary/'finish-target'
+  source=('import debugpy, time\nfrom pathlib import Path\nvalue = 41\n'
+   f'debugpy.listen(("127.0.0.1", {endpoint}))\n'
+   f'Path({str(ready)!r}).write_text("ready")\n'
+   'debugpy.wait_for_client()\ndebugpy.breakpoint()\n'
+   f'while not Path({str(finish)!r}).exists():\n    time.sleep(0.02)\n')
+  (root/'main.py').write_text(source)
+  (root/'.hick-launch.json').write_text(json.dumps({'version':1,'profiles':[{'id':'external','name':'Owned external Python','attach':{'port':endpoint,'arguments':{'justMyCode':False}},'default':True}]}))
+  environment={**os.environ,'HICKORY_STATE_DIR':str(temporary/'state')}
+  try:
+   target=fixture.start([str(python),str(root/'main.py')],cwd=root);processes.append(target)
+   wait(lambda:ready.exists(),'Owned external debugpy endpoint did not become ready')
+   web_port=port()
+   server=fixture.start([str(args.engine.resolve()),str(root),'window',f'http://127.0.0.1:{web_port}'],env=environment);processes.append(server)
+   origin=fixture.origin(server)
+   if args.serve_only:
+    print(json.dumps({'origin':origin,'workspace':str(root),'input':'main.py','endpoint':endpoint,'target_pid':target.pid,'provider':'owned debugpy endpoint','acceptance':'not run'}),flush=True)
+    while True:time.sleep(1)
+   vite=fixture.start(['node','node_modules/vite/bin/vite.js','--config','vite.simple.config.ts','--host','127.0.0.1','--port',str(web_port),'--strictPort'],cwd=ROOT/'apps/web',env={**environment,'HICKORY_API_ORIGIN':origin});processes.append(vite)
+   driver=fixture.BrowserDriver(fixture.origin(vite)+'/simple.html')
+   driver.act('open',path='main.py');driver.act('remember-editor',path='main.py')
+   size=driver.act('editor-size',path='main.py');driver.act('debug-start',path='main.py')
+   wait(lambda:any('paused' in status.lower() for status in driver.act('debug-state')),'Existing Debug gesture did not attach and pause')
+   assert target.poll() is None
+   driver.act('source-tests-edit',path='main.py',text='\n# retained unsaved attach draft\n')
+   selection=driver.act('construction-source',path='main.py',selection=True)
+   assert driver.act('debug-watch',expression='value')=='41'
+   driver.act('debug-step')
+   wait(lambda:any('paused' in status.lower() for status in driver.act('debug-state')),'Attached process did not step')
+   assert driver.act('editor-is-retained',path='main.py') and driver.act('editor-size',path='main.py')==size
+   assert driver.act('construction-source',path='main.py',selection=True)==selection
+   driver.act('debug-stop');time.sleep(.15)
+   assert target.poll() is None,'Disconnect terminated an externally owned target'
+   assert (root/'main.py').read_text()==source
+   assert not driver.act('debug-diagnostics')['errors']
+   driver.act('undo',path='main.py');assert driver.act('construction-source',path='main.py')==source
+   finish.write_text('Allow only this owned fixture target to finish')
+   target.wait(timeout=15);assert target.returncode==0
+   print('PASS real debugpy endpoint/browser: existing Debug profile, attach/pause/watch/step, detach leaves external target running, retained editor/selection/geometry/undo/unsaved text and unchanged source disk',flush=True)
+  except Exception:
+   if driver:
+    print('Attach diagnostics:',json.dumps(driver.act('debug-diagnostics'),ensure_ascii=False),flush=True)
+    print('Attach wire:',json.dumps(driver.act('debug-wire')),flush=True)
+   raise
+  finally:
+   if driver:driver.close()
+   for process in reversed(processes):fixture.stop(process)
+if __name__=='__main__':main()
+</storycode:copy>
+<storycode:file path="scripts/test-debug-attach.py"><storycode:paste select="#debug-endpoint-attach-browser-witness"/></storycode:file>
 
 </storycode:doc>

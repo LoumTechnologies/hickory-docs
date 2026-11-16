@@ -34,7 +34,7 @@ private enum WorkspaceHistoryStep {case drafts(ChangePlan);case resource(String)
     private var resolver:(([String:Any]) async throws->[String:Any])?
     private var acquisition:((String) async throws->SourceSnapshot)?
     private var actionQuery:(() async throws->[[String:Any]])?
-    private var captured: (sources:[String:SourceSnapshot], current:()->Bool)?
+    private var captured: (sources:NativeSourceMap<SourceSnapshot>, current:()->Bool)?
     private var undo: [WorkspaceHistoryStep] = []
     private var redo: [WorkspaceHistoryStep] = []
     private(set) var historySnapshot=UUID()
@@ -81,7 +81,7 @@ private enum WorkspaceHistoryStep {case drafts(ChangePlan);case resource(String)
         resolver=resolution ?? {[weak language] action in guard let language else{throw EngineError(message:"Provider changed. Prepare actions again.")};return try await language.resolveProposal(action)}
         let valid=captured!.current
         let propose: (String,String) async throws->Any = proposal ?? {kind,name in try await language.propose(kind,name:name)}
-                var listed:[String:FileNode]=[:]
+                var listed:NativeSourceMap<FileNode>=[:]
                 func collect(_ nodes:[FileNode]){for file in nodes{if !file.dir{listed[file.path]=file};collect(file.children ?? [])}};collect(workspace.rootFiles)
         let load:(String) async throws->SourceSnapshot=acquisition ?? {[weak workspace] path in
                     guard let workspace else{throw EngineError(message:"Workspace closed. Prepare again.")}
@@ -217,7 +217,7 @@ All buffers and retained editors are preflighted before any model changes. Commi
 
 <ui:copy id="simple-apple-workspace-changes-application">
 @MainActor extension Workspace {
-    func sourceSnapshots() -> [String:SourceSnapshot] { buffers.mapValues { SourceSnapshot(text:$0.text,writable:!$0.readOnly && !$0.saving) } }
+    func sourceSnapshots() -> NativeSourceMap<SourceSnapshot> { buffers.mapValues { SourceSnapshot(text:$0.text,writable:!$0.readOnly && !$0.saving) } }
     func applyWorkspacePlan(_ plan: ChangePlan) throws -> String {
         if let refusal = validateChangePlan(plan,sources:sourceSnapshots()) { throw EngineError(message:refusal) }
         let targets = plan.patches.map { patch in (buffer:buffers[patch.path]!,patch:patch,edits:patch.edits.map { NativeSourceEdit(range:NSRange(location:$0.from,length:$0.to-$0.from),text:$0.text) }) }

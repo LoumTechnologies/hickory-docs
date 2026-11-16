@@ -26,6 +26,7 @@ struct PaneNode: Identifiable, Equatable {
     var first: String? = nil
     var second: String? = nil
     var ratio: Double = 0.5
+    static func ==(a:Self,b:Self)->Bool {a.id==b.id&&a.tabs.map(NativeSourceKey.init)==b.tabs.map(NativeSourceKey.init)&&a.active.map(NativeSourceKey.init)==b.active.map(NativeSourceKey.init)&&a.axis==b.axis&&a.first==b.first&&a.second==b.second&&a.ratio==b.ratio}
 }
 struct PaneLayout {
     var rootID = "root"
@@ -57,7 +58,7 @@ struct PaneLayout {
     }
     mutating func activate(_ tab: String, in group: String) {
         guard var node = nodes[group], node.axis == nil else { return }
-        if !node.tabs.contains(tab) { node.tabs.append(tab) }
+        if !node.tabs.containsSource(tab) { node.tabs.append(tab) }
         node.active = tab; nodes[group] = node
     }
     // Preserve node identities when a sibling takes over the freed rectangle.
@@ -81,15 +82,15 @@ struct PaneLayout {
         retain(rootID); nodes = kept
     }
     mutating func remove(_ tab: String) {
-        guard groups().contains(where: { $0.tabs.contains(tab) }) else { return }
-        let keepDocument = tab != "files" && groups().contains { $0.tabs.contains("files") } && groups().filter { !$0.tabs.contains("files") }.allSatisfy { $0.tabs.allSatisfy { $0 == tab } }
+        guard groups().contains(where: { $0.tabs.containsSource(tab) }) else { return }
+        let keepDocument = tab != "files" && groups().contains { $0.tabs.containsSource("files") } && groups().filter { !$0.tabs.containsSource("files") }.allSatisfy { $0.tabs.allSatisfy { exactUTF8($0,tab) } }
         detach(tab); if !keepDocument { collapse() }
     }
     private mutating func detach(_ tab: String) {
-        for group in groups() where group.tabs.contains(tab) {
+        for group in groups() where group.tabs.containsSource(tab) {
             var changed = group
-            changed.tabs.removeAll { $0 == tab }
-            if changed.active == tab { changed.active = changed.tabs.last }
+            changed.tabs.removeAll { exactUTF8($0,tab) }
+            if exactUTF8(changed.active,tab) { changed.active = changed.tabs.last }
             nodes[group.id] = changed
         }
     }
@@ -100,11 +101,11 @@ Validate a move before removing membership. Splitting replaces the leaf position
 <ui:copy id="simple-bcf63acd46-1">
     mutating func move(_ tab: String, to target: String, before: String? = nil) {
         guard let destination = groups().first(where: { $0.id == target }),
-              groups().contains(where: { $0.tabs.contains(tab) }),
-              before == nil || destination.tabs.contains(before!), !exactUTF8(before,tab) else { return }
+              groups().contains(where: { $0.tabs.containsSource(tab) }),
+              before == nil || destination.tabs.containsSource(before!), !exactUTF8(before,tab) else { return }
         detach(tab)
         guard var node = nodes[target] else { return }
-        let index = before.flatMap { node.tabs.firstIndex(of: $0) } ?? node.tabs.count
+        let index = before.flatMap { node.tabs.firstSourceIndex($0) } ?? node.tabs.count
         node.tabs.insert(tab, at: index); node.active = tab; nodes[target] = node
         collapse()
     }
@@ -112,7 +113,7 @@ Validate a move before removing membership. Splitting replaces the leaf position
         let retained = "retained-" + newID
         guard ["left", "right", "top", "bottom"].contains(edge), !newID.isEmpty,
               nodes[newID] == nil, nodes[retained] == nil,
-              groups().contains(where: { $0.id == target }), groups().contains(where: { $0.tabs.contains(tab) }) else { return nil }
+              groups().contains(where: { $0.id == target }), groups().contains(where: { $0.tabs.containsSource(tab) }) else { return nil }
         detach(tab)
         var old = nodes[target]!; old.id = retained; nodes[retained] = old
         nodes[newID] = PaneNode(id: newID, tabs: [tab], active: tab)

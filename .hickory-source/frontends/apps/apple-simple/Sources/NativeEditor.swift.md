@@ -3,6 +3,8 @@
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
+Each cached native text view owns its UndoManager. Switching tabs must not make one source undo another source's last edit through a shared window manager. Snippet and guarded draft transactions reuse that same per-editor manager, so reparenting preserves both native typing and coordinated source history.
+
 When an empty pane closes, the surviving editor can move to a new position in the SwiftUI tree. Keep its native editor cached for selection, scroll and undo, but give each representable a fresh host. Reparent the editor inside that host; reusing the representable root lets teardown of the old tree location interfere with its new owner.
 
 SwiftUI owns the surrounding workspace; AppKit and UIKit own editing. Cache native views by buffer identity so changing a tab parent does not reconstruct text, undo history, selection or scroll. Delegates update only that buffer.
@@ -641,6 +643,8 @@ struct SimpleWordSelection {
 #if os(macOS)
 import AppKit
 final class SimpleMacTextView: NSTextView {
+    private let sourceUndoManager=UndoManager()
+    override var undoManager:UndoManager? {sourceUndoManager}
     // Intercept only explicitly configured arrow chords. All other editing stays in AppKit.
     private var wordSelection = SimpleWordSelection()
     override func keyDown(with event: NSEvent) {
@@ -669,6 +673,8 @@ final class SimpleMacTextView: NSTextView {
 #else
 import UIKit
 private final class SimpleTextView: UITextView {
+    private let sourceUndoManager=UndoManager()
+    override var undoManager:UndoManager? {sourceUndoManager}
     var snippetActive:(()->Bool)?
     var snippetCommand:((Int)->Bool)?
     // UIKit retains native input and composition; hardware arrows only change selection.
@@ -2387,7 +2393,7 @@ struct NativeDebugRail: View {
                 }
                 if debug.active { Button("Stop", systemImage: "stop.fill") { debug.stop() } }
             }
-            if debug.owner == buffer.file.path { ForEach(debug.targets) { target in Button("Debug file \(target.path)") { Task { await debug.prepare(buffer, program: target.path) } } } }
+            if exactUTF8(debug.owner,buffer.file.path) { ForEach(debug.targets) { target in Button("Debug file \(target.path)") { Task { await debug.prepare(buffer, program: target.path) } } } }
             ForEach(debug.profiles,id: \.exactID) { profile in Button("Debug \(profile.name)") { debug.launch(profile); opened = nil } }
             if debug.offer != nil { Button("Install debugger", systemImage: "arrow.down.to.line") { Task { await debug.install() } } }
             if !debug.message.isEmpty { Text(debug.message).font(.caption).textSelection(.enabled) }

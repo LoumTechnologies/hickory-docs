@@ -50,6 +50,27 @@ fn manual_profiles_share_discovery_override_by_id_and_keep_argument_boundaries()
     );
     assert_eq!(profile.definition.env["GREETING"], "Hello");
 }
+
+#[test]
+fn endpoint_attach_is_explicit_debug_only_and_cannot_launch_or_build() {
+    let source = r#"{"version":1,"profiles":[{"id":"external","name":"External Python","attach":{"port":5678,"arguments":{"justMyCode":false}}}]}"#;
+    let inventory = tree(&[(launch_profiles::CONFIG, source)]);
+    let profile = launch_profiles::select(&inventory, Some("external")).unwrap();
+    assert!(profile.can_debug);
+    assert_eq!(profile.definition.attach.as_ref().unwrap().port, 5678);
+    assert!(profile.run_argv(std::path::Path::new("/unused")).unwrap_err().contains("Attach"));
+    for extra in [serde_json::json!({"program":"app.py"}), serde_json::json!({"command":["echo","wrong"]}),
+        serde_json::json!({"build":["echo","wrong"]}), serde_json::json!({"args":["wrong"]}),
+        serde_json::json!({"env":{"A":"wrong"}}), serde_json::json!({"artifact":"app.py"}),
+        serde_json::json!({"attach":{"port":0}}), serde_json::json!({"attach":{"port":5678,"host":"foreign"}}),
+        serde_json::json!({"attach":{"port":5678,"arguments":[]}})] {
+        let mut config: serde_json::Value = serde_json::from_str(source).unwrap();
+        for (key,value) in extra.as_object().unwrap() { config["profiles"][0][key] = value.clone(); }
+        let serialized = serde_json::to_string(&config).unwrap();
+        let inventory = tree(&[(launch_profiles::CONFIG, &serialized), ("app.py", "print(1)")]);
+        assert!(launch_profiles::discover(&inventory).is_err(), "accepted {extra}");
+    }
+}
 // Guarantee: docs/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project.md
 #[test]
 fn ambiguous_targets_require_a_choice_and_unknown_configuration_is_not_silently_ignored() {

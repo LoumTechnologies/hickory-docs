@@ -61,8 +61,8 @@ func providerActionPaths(_ action:[String:Any])throws->[String] {
     guard let items=raw as? [[String:Any]],!items.isEmpty,items.count<=10000 else{throw EngineError(message:"Malformed provider source acquisition")}
     return try items.map {item in guard let uri=item["uri"] as? String,let path=SemanticLocation(uri:uri,line:0,character:0).path else{throw EngineError(message:"Unsupported provider acquisition source")};return path}
 }
-func planWorkspaceEdit(_ title: String, raw: Any, sources: [String: SourceSnapshot],allowNoop:Bool=false) throws -> ChangePlan {
-    var groups: [String: [SourceReplacement]] = [:]
+func planWorkspaceEdit(_ title: String, raw: Any, sources: NativeSourceMap<SourceSnapshot>,allowNoop:Bool=false) throws -> ChangePlan {
+    var groups: NativeSourceMap<[SourceReplacement]> = [:]
     for target in try workspaceEditTargets(raw) {
         let path=target.path,items=target.items
         guard let source=sources[path] else{throw EngineError(message:"Acquire the affected source before preparing this proposal: \(path)")}
@@ -99,12 +99,12 @@ func invertChangePlan(_ plan: ChangePlan) -> ChangePlan {
         return SourcePatch(path:patch.path,before:patch.after,after:patch.before,edits:edits)
     })
 }
-func validateChangePlan(_ plan: ChangePlan, sources: [String: SourceSnapshot]) -> String? {
+func validateChangePlan(_ plan: ChangePlan, sources: NativeSourceMap<SourceSnapshot>) -> String? {
     for patch in plan.patches { guard let source = sources[patch.path], source.writable, exactUTF8(source.text,patch.before) else { return "Source changed, is unavailable, read-only or saving: \(patch.path). Prepare a fresh proposal." } }
     return nil
 }
 func validateReferencedTargets(_ plan: ChangePlan, referencePaths: [String]) throws {
-    let targets = Set(plan.patches.map(\.path)), missing = Set(referencePaths).subtracting(targets).sorted()
+    let targets = Set(plan.patches.map{NativeSourceKey($0.path)}), missing = Set(referencePaths.map(NativeSourceKey.init)).subtracting(targets).map(\.string).sorted()
     guard missing.isEmpty else { throw EngineError(message:"Rename omitted reported reference source targets: \(missing.joined(separator:", ")). Refresh project analysis and prepare again. No edits were applied.") }
 }
 </ui:copy>

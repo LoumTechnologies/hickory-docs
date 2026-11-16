@@ -269,4 +269,6 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="behavior-readings-apple.md" />
 
+<ui:include file="source-identity-apple.md" />
+
 </ui:doc>

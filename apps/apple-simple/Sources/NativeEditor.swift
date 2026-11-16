@@ -450,6 +450,8 @@ struct SimpleWordSelection {
 #if os(macOS)
 import AppKit
 final class SimpleMacTextView: NSTextView {
+    private let sourceUndoManager=UndoManager()
+    override var undoManager:UndoManager? {sourceUndoManager}
     // Intercept only explicitly configured arrow chords. All other editing stays in AppKit.
     private var wordSelection = SimpleWordSelection()
     override func keyDown(with event: NSEvent) {
@@ -478,6 +480,8 @@ final class SimpleMacTextView: NSTextView {
 #else
 import UIKit
 private final class SimpleTextView: UITextView {
+    private let sourceUndoManager=UndoManager()
+    override var undoManager:UndoManager? {sourceUndoManager}
     var snippetActive:(()->Bool)?
     var snippetCommand:((Int)->Bool)?
     // UIKit retains native input and composition; hardware arrows only change selection.
@@ -2230,7 +2234,7 @@ struct NativeDebugRail: View {
                 }
                 if debug.active { Button("Stop", systemImage: "stop.fill") { debug.stop() } }
             }
-            if debug.owner == buffer.file.path { ForEach(debug.targets) { target in Button("Debug file \(target.path)") { Task { await debug.prepare(buffer, program: target.path) } } } }
+            if exactUTF8(debug.owner,buffer.file.path) { ForEach(debug.targets) { target in Button("Debug file \(target.path)") { Task { await debug.prepare(buffer, program: target.path) } } } }
             ForEach(debug.profiles,id: \.exactID) { profile in Button("Debug \(profile.name)") { debug.launch(profile); opened = nil } }
             if debug.offer != nil { Button("Install debugger", systemImage: "arrow.down.to.line") { Task { await debug.install() } } }
             if !debug.message.isEmpty { Text(debug.message).font(.caption).textSelection(.enabled) }

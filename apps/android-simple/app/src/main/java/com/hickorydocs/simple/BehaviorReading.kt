@@ -20,6 +20,13 @@ fun behaviorSnapshot(raw:JSONObject,context:JSONObject,address:String,runtime:St
  val graph=raw.getJSONObject("graph");graph.getJSONObject("nodes");graph.getJSONArray("edges");val checks=graph.getJSONArray("checks");check(checks.length()<=10000){"Check reading exceeds bounded capacity."};val seen=mutableSetOf<String>()
  return BehaviorSnapshot(raw.getString("workspace_id"),raw.getString("reading_fingerprint"),context.toString(),raw.toString(),(0 until checks.length()).map{val item=checks.getJSONObject(it);val id=item.getString("id");check(id.isNotEmpty()&&seen.add(id)){"Ambiguous check identity."};BehaviorCheck(id,item.getString("label"),item.getString("path"),item.get("available") as? Boolean ?: error("Malformed check availability."),item.getString("reason"))},raw.opt("verification_available")==true,address,runtime)
 }
+internal fun behaviorRetainedContext(w:Workspace,entry:String,focus:String?):JSONObject {
+ val sources=JSONObject();val missing=JSONArray();val unaddressed=JSONObject();val guards=JSONObject();val roster=(w.buffers.values+w.retainedResourceEditors.values+w.retainedResourceTabs.values).distinct().filter{it.file.generatedBy==null};check(roster.size<=4096){"Retained behavior context exceeds its editor budget."};var bytes=0L
+ for(b in roster){val path=b.file.path;check(b.text.length<=8*1024*1024){"Retained behavior source exceeds its capture budget."};bytes+=b.text.toByteArray(Charsets.UTF_8).size.toLong()+path.toByteArray(Charsets.UTF_8).size+(b.saveGuard?.length ?: 0);check(bytes<=32L*1024*1024){"Retained behavior context exceeds32MiB."};val addressable=!path.startsWith("Untitled-")&&!path.startsWith('/')&&path.split('/').none{it==".."||it=="."};val named=addressable&&!b.resourceDeleted&&w.buffers[path]===b
+  if(named){check(!sources.has(path)){"Retained behavior source identity is ambiguous."};sources.put(path,b.text);b.saveGuard?.takeIf{it.isNotEmpty()}?.let{guards.put(path,it)}}else{unaddressed.put(b.debugIdentity,b.text);if(addressable&&b.resourceDeleted&&w.buffers[path]==null)missing.put(path)}
+ }
+ return JSONObject().put("version",1).put("entry",entry).put("sources",sources).put("missing_sources",missing).put("focus",focus ?: JSONObject.NULL).put("unaddressed_sources",unaddressed).put("saved_guards",guards)
+}
 class BehaviorReadingModel(private val transport:(suspend(Engine,String,JSONObject?)->JSONObject)?=null){
  var value by mutableStateOf<BehaviorSnapshot?>(null);private set
  var notice by mutableStateOf("");private set
@@ -38,8 +45,7 @@ class BehaviorReadingModel(private val transport:(suspend(Engine,String,JSONObje
  fun close(){ticket++;sourceTicket++;sourceLoading=false;current={false};loading=false;profiles=emptyList()}
  suspend fun read(w:Workspace,entry:String,focus:String?){val engine=w.engine ?: run{notice="Connect to a workspace server.";return};val address=engine.sourceRootAddress ?: run{notice="Refresh Files to bind the exact workspace address.";return};val runtime=engine.sourceWorkspaceID ?: run{notice="Refresh Files to bind this engine workspace lifetime.";return};val rows=w.buffers.toMap();val namespace=w.captureRetainedSourceNamespace()
   val valid={namespace()&&engine.sourceRootAddress==address&&engine.sourceWorkspaceID==runtime&&w.showConstruction}
-  val sources=JSONObject();val missing=JSONArray();rows.forEach{(path,b)->if(b.file.generatedBy==null&&(path.endsWith(".md",true)||path.endsWith(".markdown",true))){if(b.resourceDeleted)missing.put(path) else sources.put(path,b.text)}}
-  read(engine,address,JSONObject().put("version",1).put("entry",entry).put("sources",sources).put("focus",focus ?: JSONObject.NULL).put("missing_sources",missing),runtime,valid)
+  try{read(engine,address,behaviorRetainedContext(w,entry,focus),runtime,valid)}catch(e:Exception){notice=e.message.orEmpty()}
  }
  suspend fun read(engine:Engine,address:String,context:JSONObject,runtime:String,current:()->Boolean){val input=JSONObject(context.toString());val id=++ticket;sourceTicket++;sourceLoading=false;this.current={false};loading=true;profiles=emptyList();notice="Reading connected behavior…"
   try{val raw=call(engine,"/api/behavior/reading",input);if(id!=ticket)return;val next=behaviorSnapshot(raw,input,address,runtime);value=next;this.engine=engine;this.current=current

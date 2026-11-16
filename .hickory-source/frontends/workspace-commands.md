@@ -378,6 +378,12 @@ Menus and action search need one vocabulary and one availability decision. The s
     "label": "Saved file attribution",
     "group": "View",
     "requires": "editor"
+  },
+  {
+    "id": "agent.proposals",
+    "label": "Agent proposal review",
+    "group": "View",
+    "requires": "always"
   }
 ]
 </ui:copy>

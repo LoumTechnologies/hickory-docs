@@ -34,8 +34,14 @@ export interface LaunchQuery { uri: string; project?: string; program?: string; 
 <a id="f-1a7a9a03aa8d-LaunchProfile"></a>
 ### `LaunchProfile`
 
+An endpoint attach profile uses the existing chooser and Debug controls. Its
+compact row names the loopback port and unverified external source revision.
+Run is unavailable in both the visual button and the action bridge; the engine
+also refuses that route before spawning anything.
+
 <storycode:copy id="f-1a7a9a03aa8d-LaunchProfile">
 export interface LaunchProfile {
+  attach?: {port:number;arguments:Record<string,unknown>};
   id: string; name: string; origin: string; program: string | null; command: string[];
   args: string[]; env: Record<string,string>; cwd: string; build: string[]; default: boolean; can_debug: boolean;
 }
@@ -174,15 +180,15 @@ export function LaunchProfiles() {
   useUiReading("launch profile picker", state ? { notice: state.notice ?? null, error: state.error ?? null,
     viewed: state.catalog?.viewed ?? null, context: state.contextLabel ?? "Latest compatible project", configuration: state.catalog?.configuration ?? null,
     profiles: state.catalog?.profiles.map(profile => ({ id: profile.id, name: profile.name, origin: profile.origin, default: profile.default,
-      displayed_command: profile.program ?? profile.command.join(" "), can_debug: profile.can_debug })) ?? [],
+      displayed_command: profile.attach ? `Attach · loopback port ${profile.attach.port} · external source revision unverified` : profile.program ?? profile.command.join(" "), can_debug: profile.can_debug, can_run: !profile.attach })) ?? [],
     scope: "Displayed picker metadata only. Selecting a profile requests launch; it does not attest process startup or debugging success." } : { open: false });
   useUiCommands(state ? [
     { key: "launch-picker:close", command: { label: "Close launch profiles", parent: "launch-profiles", subject: "launch-profiles:visibility", parameters: {}, prerequisites: [],
       read: () => ({ revision: revision(), enabled: true }), execute: async () => { state.settle(null); return { status: "completed", value: { dismissal_requested: true, launched: false } }; } } },
     ...(state.catalog?.profiles.flatMap(profile => (["run", "debug"] as const).map(mode => ({ key: `launch-picker:${profile.id}:${mode}`, command: {
       label: `${mode === "run" ? "Run" : "Debug"} ${profile.name}`, parent: "launch-profiles", subject: "launch-profiles:selection", parameters: {}, prerequisites: ["Launch resolves against the captured project and profile fingerprint"],
-      read: () => ({ revision: revision(), enabled: mode === "run" || profile.can_debug&&supportsDebugProtocol(state.catalog!), ...(mode === "debug"&&!supportsDebugProtocol(state.catalog!)?{reason:debugProtocolNotice}:!profile.can_debug && mode === "debug" ? { reason: "This command profile supports Run; choose an application profile to debug." } : {}) }),
-      execute: async () => { state.settle({ profile, mode }); return { status: "completed" as const, value: { selection_requested: true, mode, profile: profile.id, launch_completed: false } }; },
+      read: () => ({ revision: revision(), enabled: mode === "run" ? !profile.attach : profile.can_debug&&supportsDebugProtocol(state.catalog!), ...(mode === "run"&&profile.attach?{reason:"Attach connects through Debug and cannot launch a Run process."}:mode === "debug"&&!supportsDebugProtocol(state.catalog!)?{reason:debugProtocolNotice}:!profile.can_debug && mode === "debug" ? { reason: "This command profile supports Run; choose an application profile to debug." } : {}) }),
+      execute: async () => { if(mode === "run" && profile.attach)throw new Error("Choose Debug for an attach profile"); state.settle({ profile, mode }); return { status: "completed" as const, value: { selection_requested: true, mode, profile: profile.id, launch_completed: false } }; },
     } }))) ?? []),
   ] : []);
   if(!state)return null;
@@ -201,8 +207,8 @@ export function LaunchProfiles() {
         {!state.catalog.profiles.length && <p>No launch targets found. Add a profile in {state.catalog.configuration}.</p>}
         {state.catalog.profiles.map(profile=><section key={profile.id} className="launch-profile-option">
           <strong>{profile.name}</strong><span className="muted">{profile.origin}{profile.default?" · default":""}</span>
-          <code>{profile.program ?? profile.command.join(" ")}</code>
-          <span><button type="button" onClick={()=>state.settle({profile,mode:"run"})}>Run {profile.name}</button>
+          <code>{profile.attach ? `Attach · loopback port ${profile.attach.port} · external source revision unverified` : profile.program ?? profile.command.join(" ")}</code>
+          <span><button type="button" disabled={!!profile.attach} onClick={()=>state.settle({profile,mode:"run"})}>Run {profile.name}</button>
           <button type="button" disabled={!profile.can_debug||!supportsDebugProtocol(state.catalog!)} data-tip={!profile.can_debug?"This command profile supports Run; choose an application profile to debug.":undefined}
             onClick={()=>state.settle({profile,mode:"debug"})}>Debug {profile.name}</button></span>
         </section>)}
@@ -284,6 +290,19 @@ it("refuses old-daemon direct startup without effects and leaves picker Run usab
  await expect(withDebugProtocol({uri:"hick:///app.py"},effect)).rejects.toThrow("protocol 3");expect(effect).not.toHaveBeenCalled();
  render(<LaunchProfiles/>);const pending=launchWithProfiles({uri:"hick:///app.py"},effect);await screen.findByRole("button",{name:"Run app"});expect((screen.getByRole("button",{name:"Debug app"}) as HTMLButtonElement).disabled).toBe(true);
  fireEvent.click(screen.getByRole("button",{name:"Close launch profiles"}));await pending;expect(effect).not.toHaveBeenCalled();
+});
+
+it("shows explicit endpoint source limits and makes attach Debug-only",async()=>{
+ const endpoint={...profile("external"),program:null,attach:{port:5678,arguments:{}}};
+ vi.mocked(request).mockResolvedValue(catalog([endpoint]));
+ render(<LaunchProfiles/>);const start=vi.fn();let pending!:Promise<void>;
+ act(()=>{pending=launchWithProfiles({uri:"hick:///app.py"},start,{choose:true});});
+ const button=await screen.findByRole("button",{name:"Debug external"});
+ expect(screen.getByText(/Attach · loopback port 5678 · external source revision unverified/)).toBeTruthy();
+ expect((screen.getByRole("button",{name:"Run external"}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(button);await pending;
+ expect(start).toHaveBeenLastCalledWith({id:"external",fingerprint:"one",name:"external"});
+ expect(request).not.toHaveBeenCalledWith("POST","/api/launch-profiles/run",expect.anything());
 });
 </storycode:copy>
 <a id="f-af7d3cd605b8-expression_statement-5"></a>

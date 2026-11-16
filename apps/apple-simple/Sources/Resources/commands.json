@@ -370,5 +370,11 @@
     "label": "Saved file attribution",
     "group": "View",
     "requires": "editor"
+  },
+  {
+    "id": "agent.proposals",
+    "label": "Agent proposal review",
+    "group": "View",
+    "requires": "always"
   }
 ]

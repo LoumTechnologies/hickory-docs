@@ -314,12 +314,11 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         return tree
     }
     internal fun captureRetainedSourceNamespace():()->Boolean {
-        val epoch=generation;val server=engine;val namespace=buffers.toMap()
-        data class Captured(val buffer:DocumentBuffer,val revision:Long,val source:String,val base:String,val hash:String,val file:FileNode,val deleted:Boolean,val selection:TextRange)
-        val snapshots=namespace.mapValues{(_,b)->Captured(b,b.sourceRevision,b.text,b.base,b.hash,b.file,b.resourceDeleted,b.state.selection)}
-        // SnapshotStateMap key views use identity equality. Materialize their
-        // values before comparing with the retained ordinary Map key set.
-        return {generation==epoch&&engine===server&&buffers.keys.toSet()==namespace.keys&&snapshots.all{(path,s)->val b=s.buffer;buffers[path]===b&&b.sourceRevision==s.revision&&b.text==s.source&&b.base==s.base&&b.hash==s.hash&&b.file===s.file&&b.resourceDeleted==s.deleted&&b.state.selection==s.selection&&!b.saving&&b.state.composition==null}}
+        val epoch=generation;val server=engine;val addresses=buffers.toMap();val retained=retainedResourceEditors.toMap();val tabs=retainedResourceTabs.toMap()
+        data class Captured(val buffer:DocumentBuffer,val revision:Long,val source:String,val base:String,val hash:String,val guard:String?,val file:FileNode,val deleted:Boolean,val selection:TextRange)
+        val snapshots=(addresses.values+retained.values+tabs.values).distinct().map{b->Captured(b,b.sourceRevision,b.text,b.base,b.hash,b.saveGuard,b.file,b.resourceDeleted,b.state.selection)}
+        fun same(current:Map<String,DocumentBuffer>,before:Map<String,DocumentBuffer>)=current.size==before.size&&before.all{(path,b)->current[path]===b}
+        return {generation==epoch&&engine===server&&same(buffers,addresses)&&same(retainedResourceEditors,retained)&&same(retainedResourceTabs,tabs)&&snapshots.all{s->val b=s.buffer;b.sourceRevision==s.revision&&b.text==s.source&&b.base==s.base&&b.hash==s.hash&&b.saveGuard==s.guard&&b.file===s.file&&b.resourceDeleted==s.deleted&&b.state.selection==s.selection&&!b.saving&&b.state.composition==null}}
     }
     fun captureResourceEditors(patches:List<ResourceEditorPatch>,restoring:Map<String,DocumentBuffer> = emptyMap()):()->Boolean {
         val paths=patches.associate{it.path to buffers[it.path]}

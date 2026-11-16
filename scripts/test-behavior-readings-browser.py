@@ -1,5 +1,5 @@
 """Owned repository: connected readings, relevant verification and retained receipts."""
-import argparse,hashlib,importlib.util,json,os,shutil,signal,socket,subprocess,tempfile,threading,time,urllib.error,urllib.request,uuid
+import argparse,hashlib,importlib.util,json,os,shutil,signal,socket,subprocess,tempfile,threading,time,urllib.error,urllib.request,urllib.parse,uuid
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 def prepare(root):
@@ -65,7 +65,25 @@ def main():
     stopped=threading.Event()
     for event in (signal.SIGTERM,signal.SIGINT):signal.signal(event,lambda *_:stopped.set())
     print(json.dumps({'origin':backend,**details}),flush=True);stopped.wait();return
-   context={'version':1,'entry':'project.md','focus':'a.py','sources':{'source.md':source},'missing_sources':[]};reading=api(backend,'/api/behavior/reading',context)
+   opened=api(backend,'/api/open-file',{'path':'source.md'});loaded=api(backend,'/api/docs/'+urllib.parse.quote(opened['doc_id'],safe=''))
+   context={'version':1,'entry':'project.md','focus':'a.py','sources':{'source.md':source},'missing_sources':[],'unaddressed_sources':{},'saved_guards':{'source.md':loaded['save_guard']}};reading=api(backend,'/api/behavior/reading',context)
+   # Revoke a captured profile before any editor is opened. Restored bytes do not
+   # resurrect its old physical guard; the later editor receives its initial baseline explicitly.
+   profile_scope={key:reading[key] for key in ['engine_workspace_id','workspace_id','reading_fingerprint']};profile_scope['context']=context
+   profiles=api(backend,'/api/behavior/profiles',profile_scope);stale_choice=next(profile for profile in profiles['profiles'] if profile['id']=='stale-manual-check');stale_check=next(check for check in reading['graph']['checks'] if check['label']=='Explicit unsupported check')
+   (root/'source.md').write_text(source.replace('Stale manual check','Changed stale profile'))
+   api(backend,'/api/behavior/verify',{'version':1,**profile_scope,'check_id':stale_check['id'],'request_id':uuid.uuid4().hex,'profile':{'id':stale_choice['id'],'fingerprint':profiles['fingerprint']}},expected=409)
+   (root/'source.md').write_text(source);assert not Path(details['stale_manual']).exists()
+   loaded=api(backend,'/api/docs/'+urllib.parse.quote(opened['doc_id'],safe=''));context={**context,'saved_guards':{'source.md':loaded['save_guard']}};reading=api(backend,'/api/behavior/reading',context)
+   assert reading['verification_available'] is True,reading['graph']['notices']
+   # Readability survives missing loaded authority and anonymous construction ownership.
+   for changed_context in [{**context,'saved_guards':{}},{**context,'unaddressed_sources':{'opaque-retained':'<h:doc xmlns:h="http://www.hickorydocs.com/1.0"><h:file path="other.py">value=99</h:file></h:doc>'}}]:
+    unavailable=api(backend,'/api/behavior/reading',changed_context);assert unavailable['verification_available'] is False and any(node['label']=='Answer behavior' for node in unavailable['graph']['nodes'].values()),unavailable
+    selected_check=next(check for check in unavailable['graph']['checks'] if check['available']);api(backend,'/api/behavior/verify',{'version':1,'engine_workspace_id':unavailable['engine_workspace_id'],'workspace_id':unavailable['workspace_id'],'reading_fingerprint':unavailable['reading_fingerprint'],'check_id':selected_check['id'],'request_id':uuid.uuid4().hex,'context':changed_context},expected=409)
+   unrelated=root/'retained-notes.txt';unrelated.write_text('ordinary retained notes');note=api(backend,'/api/file?path=retained-notes.txt');guarded_context={**context,'sources':{**context['sources'],'retained-notes.txt':'ordinary retained notes'},'saved_guards':{**context['saved_guards'],'retained-notes.txt':note['save_guard']}}
+   assert api(backend,'/api/behavior/reading',guarded_context)['verification_available'] is True
+   replacement=root/'replacement-notes.txt';replacement.write_text(unrelated.read_text());replacement.replace(unrelated)
+   stale_guard=api(backend,'/api/behavior/reading',guarded_context);assert stale_guard['verification_available'] is False and stale_guard['graph']['checks'],stale_guard
    output=next(output for output in reading['construction']['outputs'] if output['path']=='a.py');assert output['after']['hash']==hashlib.sha256(implementation.encode()).hexdigest(),output
    vite=fixture.start(['node','node_modules/vite/bin/vite.js','--config','vite.simple.config.ts','--host','127.0.0.1','--port',str(port),'--strictPort'],cwd=ROOT/'apps/web',env={**environment,'HICKORY_API_ORIGIN':backend});processes.append(vite)
    driver=fixture.BrowserDriver(fixture.origin(vite)+'/simple.html');driver.act('open',path='source.md');driver.act('remember-editor',path='source.md');size=driver.act('editor-size',path='source.md');before=driver.act('construction-source',path='source.md',selection=True)
@@ -81,8 +99,6 @@ def main():
    selected=next(check for check in reading['graph']['checks'] if check['label']=='test_selected' and check['available']);proof={'version':1,'engine_workspace_id':reading['engine_workspace_id'],'workspace_id':reading['workspace_id'],'reading_fingerprint':reading['reading_fingerprint'],'check_id':selected['id'],'context':context}
    existing=verify_receipts(root);api(backend,'/api/behavior/verify',{**proof,'request_id':uuid.uuid4().hex,'workspace_id':'f'*64},expected=409);assert verify_receipts(root)==existing
    (root/'a.py').write_text(implementation.replace('41','99'));api(backend,'/api/behavior/verify',{**proof,'request_id':uuid.uuid4().hex},expected=409);assert verify_receipts(root)==existing;(root/'a.py').write_text(implementation)
-   # Explicit profile inventory revocation refuses before process creation.
-   driver.act('behavior-profiles',label='Stale manual check');(root/'source.md').write_text(source.replace('Stale manual check','Changed stale profile'));driver.act('behavior-profile-run');refused=driver.act('behavior-refused');assert 'changed' in refused.lower(),refused;(root/'source.md').write_text(source);assert not Path(details['stale_manual']).exists()
    assert verify_receipts(root)==existing
    coverage_receipts(backend,root,source,implementation)
    captured=api(backend,'/api/behavior/reading',context);rows=captured['evidence']['records'];assert any(row['evidence_kind']=='automated-collector' and row['freshness']=='current-captured-bytes' for row in rows),rows;assert any(row['freshness']=='stale' for row in rows),rows;assert any(row['origin']=='unknown' for row in rows),rows;assert any(row['evidence_kind']=='manual-or-imported' for row in rows),rows
@@ -95,7 +111,7 @@ def main():
    driver.act('construction-history',redo=False);assert driver.act('construction-source',path='source.md')==source;driver.act('construction-history',redo=True);assert driver.act('construction-source',path='source.md')==dirty['source']
    assert (root/'source.md').read_text()==source and (root/'a.py').read_text()==implementation;assert not sibling.exists();assert not driver.act('debug-diagnostics')['errors']
    # The process belongs to the admitted engine, independently of its source directory.
-   driver.act('construction-history',redo=False);driver.act('construction-read',entry='project.md',focus='a.py');driver.act('behavior-ready');driver.act('behavior-check',label='Explicit unsupported check');driver.act('behavior-profiles',label='Held manual check');driver.act('behavior-profile-run')
+   driver.act('construction-history',redo=False);driver.act('construction-open');driver.act('construction-read',entry='project.md',focus='a.py');driver.act('behavior-ready');driver.act('behavior-check',label='Explicit unsupported check');driver.act('behavior-profiles',label='Held manual check');driver.act('behavior-profile-run')
    deadline=time.monotonic()+10
    while time.monotonic()<deadline and not Path(details['held_ready']).exists():time.sleep(.05)
    assert Path(details['held_ready']).read_text()=='ready'
@@ -111,7 +127,7 @@ def main():
    assert driver.act('editor-is-retained',path='source.md') and driver.act('editor-size',path='source.md')==size
    identity=uuid.uuid4().hex;api(backend,'/api/behavior/verify',{**proof,'request_id':identity},expected=409);assert not (root/'.hick-cache/behavior-verification'/f'{identity}.json').exists()
    fixture.stop(engine)
-   restarted=fixture.start([os.environ.get('HICKORY_SIMPLE_TEST_ENGINE',str(ROOT/'target/source-edit-focus/debug/examples/engine_client')),str(root),'window',ui],env=environment);processes.append(restarted);new_origin=fixture.origin(restarted)
+   restarted=fixture.start([os.environ.get('HICKORY_SIMPLE_TEST_ENGINE',str(ROOT/'target/source-edit-focus/debug/examples/engine_client')),str(root),'window',ui],env={**environment,'HICKORY_STATE_DIR':str(folder/'restarted-state')});processes.append(restarted);new_origin=fixture.origin(restarted)
    fresh=api(new_origin,'/api/behavior/reading',context);assert fresh['workspace_id']!=reading['workspace_id'];assert fresh['engine_workspace_id']!=reading['engine_workspace_id']
    api(new_origin,'/api/behavior/verify',{**proof,'request_id':identity},expected=409)
    api(new_origin,'/api/behavior/verify',{**proof,'engine_workspace_id':fresh['engine_workspace_id'],'request_id':identity},expected=409)

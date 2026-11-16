@@ -21,7 +21,7 @@ struct FileNode: Codable, Identifiable {
     var doc_id: String?
     var generated_by: String?
     var language: String?
-    var id: String { path }
+    var id: NativeSourceKey { NativeSourceKey(path) }
 }
 struct FileTree: Decodable { var root: String; var root_path: String? = nil; var workspace_id: String? = nil; var tree: [FileNode] }
 struct FileText: Decodable { var path: String; var content: String; var hash: String; var save_guard: String? = nil; var save_guard_reason: String? = nil }
@@ -448,7 +448,7 @@ Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet
               locations.contains(location), location.path != nil, locationSymbolQuery == nil || exactUTF8(locationSymbolQuery,symbolQuery) else {
             locationStatus = "Location is stale or outside authored workspace files. Run the query again."; return
         }
-        if location.path == buffer.file.path {
+        if exactUTF8(location.path,buffer.file.path) {
             guard let offset = languageOffset(buffer.text, ["line": location.line, "character": location.character]),
                   buffer.selectSourceRange?(NSRange(location: offset, length: 0), buffer.text) == true else {
                 locationStatus = "Location no longer fits this source. Query again."; return
@@ -633,7 +633,7 @@ struct NativeDebugProfile: Decodable, Identifiable {
     var id: String; var name: String; var program: String?; var can_debug: Bool
     var exactID:Data {Data(id.utf8)}
 }
-struct NativeDebugTarget: Identifiable { var path: String; var line: Int; var end: Int; var id: String { "\(path):\(line)" } }
+struct NativeDebugTarget: Identifiable { var path: String; var line: Int; var end: Int; var id: NativeSourceKey {NativeSourceKey("\(path):\(line)")} }
 struct NativeDebugRender: Decodable {
     struct Block: Decodable { var kind: String; var path: String?; var span: [Int]? }
     var blocks: [Block]
@@ -710,7 +710,8 @@ Keep renderer handles out of the runtime model. It retains exact source relation
 @MainActor @Observable final class NativeDebugger {
     var status = "idle"
     var message = ""
-    var owner = ""
+    private var ownerKey=NativeSourceKey("")
+    var owner:String {get{ownerKey.string}set{ownerKey=NativeSourceKey(newValue)}}
     var sessionID: String?
     private(set) var threads:[NativeDebugThread]=[]
     private(set) var selectedThread:Int64?
@@ -746,7 +747,7 @@ Keep renderer handles out of the runtime model. It retains exact source relation
     var frames: [[String: Any]] = []
     var variables: [[String: Any]] = []
     var capabilities: [String: Any] = [:]
-    private(set) var breakpoints: [String: [[String: Any]]] = [:]
+    private(set) var breakpoints: NativeSourceMap<[[String:Any]]> = [:]
     private var intentSources:[Data:String]=[:]
     private var boundSources:[Data:String]=[:]
     private var breakpointRequests:[Data:NativeDebugBreakpointRequest]=[:]
@@ -766,7 +767,8 @@ Keep renderer handles out of the runtime model. It retains exact source relation
     var watches: [String] = []
     var profiles: [NativeDebugProfile] = []
     var targets: [NativeDebugTarget] = []
-    private var launchProgram: String?
+    private var launchProgramKey:NativeSourceKey?
+    private var launchProgram:String? {get{launchProgramKey?.string}set{launchProgramKey=newValue.map(NativeSourceKey.init)}}
     var catalog: NativeDebugCatalog?
     var catalogNotices:[String]=[]
     @ObservationIgnored var sourceBuffers:(()->[DocumentBuffer])?
@@ -775,7 +777,8 @@ Keep renderer handles out of the runtime model. It retains exact source relation
     private var sourceNamespace:UInt64=0
     private var launchNamespace:UInt64=0
     private var preparationNamespace:UInt64=0
-    var launchSource = ""
+    private var launchText=ExactSourceText("")
+    var launchSource:String {get{launchText.text}set{launchText=ExactSourceText(newValue)}}
     private var launchBoundHash:String?
     private var sourceHashes:[Data:String]=[:]
     private var ambiguousSources=Set<Data>()
@@ -918,7 +921,6 @@ Keep renderer handles out of the runtime model. It retains exact source relation
         guard !active else { message = "Stop the current debugger before launching another program."; return }
         guard !buffer.resourceDeleted else{message="Deleted source is retained history. Restore its proven identity or save a copy before a new launch.";return}
         guard !buffer.dirty, !buffer.saving else { message = "Save this file before debugging so the adapter runs the displayed text."; return }
-        guard !breakpoints.keys.contains(where:{$0==buffer.file.path && !exactUTF8($0,buffer.file.path)}) else{status="unavailable";message="This native host cannot distinguish two canonically equivalent breakpoint path keys. Source is retained; no Debug command was sent.";return}
         close(); let current = epoch;preparationNamespace=sourceNamespace;catalogNotices=[]
         owner = buffer.file.path; launchBuffer = buffer;breakpointBuffers[Data(owner.utf8)]=NativeDebugBufferRef(buffer); launchSource = buffer.text; sourceHashes = [Data(owner.utf8):nativeSourceHash(launchSource)];ambiguousSources=[]; message = "Resolving launch targets…"; profiles = []; targets = []
         do {
@@ -980,7 +982,6 @@ Keep renderer handles out of the runtime model. It retains exact source relation
     // Saved test choices never become profile/program guesses. Only their captured request reaches the shared engine admission.
     func launchSourceTest(_ buffer:DocumentBuffer,body:[String:Any],plan:SourceTestDebugPlan,facts:SourceTestScan,current:@escaping ()->Bool,admitted:@escaping (String)->Void,rejected:@escaping (String)->Void,outcome:@escaping (String,String,Int?)->Void={_,_,_ in}) {
         guard !active,current(),plan.available,!buffer.dirty,!buffer.saving,!buffer.resourceDeleted else{rejected("Test Debug context changed or another debugger is active. No Start was sent.");return}
-        guard !breakpoints.keys.contains(where:{$0==buffer.file.path && !exactUTF8($0,buffer.file.path)}) else{rejected("Canonically equivalent breakpoint path aliases are unsupported. No test Start was sent.");return}
         close();owner=buffer.file.path;launchBuffer=buffer;launchSource=buffer.text;preparationNamespace=sourceNamespace
         breakpointBuffers[Data(owner.utf8)]=NativeDebugBufferRef(buffer)
         let launch=beginLaunchRequest();pendingSourceTest=(plan,facts,current,admitted,rejected,outcome);catalogNotices=plan.notices
@@ -1234,7 +1235,7 @@ Breakpoint changes, stepping, stopping and evaluation remain explicit model oper
 <ui:copy id="native-debug-session-commands-apple">
     private func breakpointIntents(_ path:String)->[[String:Any]] {(breakpoints[path] ?? []).map{mark in var clean:[String:Any]=["line":mark["line"] ?? 0];if let condition=mark["condition"] as? String{clean["condition"]=condition};return clean}}
     func sourceChanged(_ buffer:DocumentBuffer) {let key=Data(buffer.file.path.utf8);breakpointBuffers[key]=NativeDebugBufferRef(buffer);guard !(breakpoints[buffer.file.path] ?? []).isEmpty || breakpointRequests[key] != nil || boundSources[key] != nil else{return};if buffer.dirty || intentSources[key].map({!exactUTF8($0,buffer.text)})==true {breakpointRequests.removeValue(forKey:key);boundSources.removeValue(forKey:key);breakpointNotice="Breakpoint intentions belong to earlier text. Save and explicitly update them before binding new positions."}}
-    func breakpointMarkers(_ buffer:DocumentBuffer)->[[String:Any]] {guard !breakpoints.keys.contains(where:{$0==buffer.file.path && !exactUTF8($0,buffer.file.path)}) else{return []};let key=Data(buffer.file.path.utf8);guard identityMatches(buffer,path:buffer.file.path,confirmed:true),intentOwners[key]==buffer.id,!buffer.dirty,let source=intentSources[key],exactUTF8(source,buffer.text) else{return []};let bound=sessionID != nil && active && boundSources[key].map{exactUTF8($0,buffer.text)}==true;return (breakpoints[buffer.file.path] ?? []).map{mark in var item=mark;if bound {item["line"]=item["display_line"] ?? item["line"]}else{item["state"]="pending"};return item}}
+    func breakpointMarkers(_ buffer:DocumentBuffer)->[[String:Any]] {let key=Data(buffer.file.path.utf8);guard identityMatches(buffer,path:buffer.file.path,confirmed:true),intentOwners[key]==buffer.id,!buffer.dirty,let source=intentSources[key],exactUTF8(source,buffer.text) else{return []};let bound=sessionID != nil && active && boundSources[key].map{exactUTF8($0,buffer.text)}==true;return (breakpoints[buffer.file.path] ?? []).map{mark in var item=mark;if bound {item["line"]=item["display_line"] ?? item["line"]}else{item["state"]="pending"};return item}}
     private func receiveBreakpointReceipt(_ event:[String:Any],path:String) {let key=Data(path.utf8);guard let request=breakpointRequests[key],event["request_id"] as? String==request.id else{return};guard event["source_hash"] as? String==nativeSourceHash(request.source),intentSources[key].map({exactUTF8($0,request.source)})==true else{breakpointRequests.removeValue(forKey:key);boundSources.removeValue(forKey:key);breakpointNotice="Breakpoint receipt did not confirm the captured intention source. Positions remain unbound.";return};if let buffer=breakpointBuffers[key]?.buffer {guard identityMatches(buffer,path:path,confirmed:false),intentOwners[key]==buffer.id,!buffer.dirty,!buffer.saving,exactUTF8(buffer.file.path,path),exactUTF8(buffer.text,request.source) else{breakpointRequests.removeValue(forKey:key);boundSources.removeValue(forKey:key);breakpointNotice="Editor ownership/text changed before the breakpoint receipt. Positions remain unbound.";return}}
         let statuses=event["breakpoints"] as? [[String:Any]] ?? [];guard statuses.allSatisfy({nativeDebugLine($0["line"]) != nil && ($0["moved_to"]==nil || $0["moved_to"] is NSNull || nativeDebugLine($0["moved_to"]) != nil)}) else{breakpointNotice="Malformed breakpoint receipt refused; intentions retained.";return};var held=breakpoints[path] ?? []
         for index in held.indices {if let status=statuses.first(where:{$0["line"] as? Int==held[index]["line"] as? Int}) {held[index]["state"]=status["state"];held[index]["display_line"]=nativeDebugLine(status["moved_to"]) ?? nativeDebugLine(held[index]["line"]);held[index]["message"]=status["message"]}}
@@ -1248,7 +1249,7 @@ Breakpoint changes, stepping, stopping and evaluation remain explicit model oper
         if sourceIdentities[key]==nil,sourceNamespace==launchNamespace,let proof=exactUTF8(buffer.file.path,owner) ? launchBoundHash:sourceHashes[key] {_ = admitSourceReading(buffer,path:buffer.file.path,proof:proof)}
         toggle(buffer.file.path,line:line,condition:condition,source:buffer.text,writable:!buffer.dirty && !buffer.saving && !buffer.resourceDeleted)
     }
-    func toggle(_ path:String,line:Int,condition:String?=nil,source:String?=nil,writable:Bool=true) {guard line>=0,line<=Int(Int32.max) else{breakpointNotice="Invalid breakpoint coordinate refused; current intentions are retained.";return};guard !breakpoints.keys.contains(where:{$0==path && !exactUTF8($0,path)}) else{breakpointNotice="Canonical-equivalent native breakpoint path aliases are unsupported; no request was sent.";return};let key=Data(path.utf8);let text=source
+    func toggle(_ path:String,line:Int,condition:String?=nil,source:String?=nil,writable:Bool=true) {guard line>=0,line<=Int(Int32.max) else{breakpointNotice="Invalid breakpoint coordinate refused; current intentions are retained.";return};let key=Data(path.utf8);let text=source
         if text==nil {var unknown:[String:Any]=["line":line,"source_hash":"unknown"];if let condition{unknown["condition"]=condition};retainedBreakpointIntents[key,default:[]].append(unknown);breakpointNotice="Unbound path-only intention retained. Place it explicitly on current source; no coordinates were sent.";return}
         if let text,line>=text.components(separatedBy:"\n").count {breakpointNotice="Breakpoint position is outside the captured source. Current intentions are retained.";return}
         if let text,let buffer=breakpointBuffers[key]?.buffer,(!exactUTF8(buffer.file.path,path) || !exactUTF8(buffer.text,text)){breakpointNotice="Stale breakpoint source/ownership refused. Current intentions and editor text are retained.";return}

@@ -18,6 +18,19 @@ it("refuses old-daemon direct startup without effects and leaves picker Run usab
  render(<LaunchProfiles/>);const pending=launchWithProfiles({uri:"hick:///app.py"},effect);await screen.findByRole("button",{name:"Run app"});expect((screen.getByRole("button",{name:"Debug app"}) as HTMLButtonElement).disabled).toBe(true);
  fireEvent.click(screen.getByRole("button",{name:"Close launch profiles"}));await pending;expect(effect).not.toHaveBeenCalled();
 });
+
+it("shows explicit endpoint source limits and makes attach Debug-only",async()=>{
+ const endpoint={...profile("external"),program:null,attach:{port:5678,arguments:{}}};
+ vi.mocked(request).mockResolvedValue(catalog([endpoint]));
+ render(<LaunchProfiles/>);const start=vi.fn();let pending!:Promise<void>;
+ act(()=>{pending=launchWithProfiles({uri:"hick:///app.py"},start,{choose:true});});
+ const button=await screen.findByRole("button",{name:"Debug external"});
+ expect(screen.getByText(/Attach · loopback port 5678 · external source revision unverified/)).toBeTruthy();
+ expect((screen.getByRole("button",{name:"Run external"}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(button);await pending;
+ expect(start).toHaveBeenLastCalledWith({id:"external",fingerprint:"one",name:"external"});
+ expect(request).not.toHaveBeenCalledWith("POST","/api/launch-profiles/run",expect.anything());
+});
 // Guarantee: docs/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project.md
 it("uses the one discovered app while keeping the viewed library as the debug source",async()=>{
   vi.mocked(request).mockResolvedValue(catalog([profile("greeting")]));

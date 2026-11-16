@@ -285,6 +285,18 @@ impl Registry {
             "{} is a Run-only profile. Choose Run, or an application profile with a debug adapter.",
             profile.definition.name
         );
+        if let Some(endpoint) = &profile.definition.attach {
+            // Attach owns no program or scratch directory and grants no source
+            // revision proof. Existing frame/source readers remain read-only.
+            let mapping = context.mapping(&context.root)?;
+            on_build(BuildOutput::Note(format!(
+                "Attach {} · loopback port {} · external source revision unverified",
+                profile.definition.name, endpoint.port
+            )));
+            let session = Session::attach_to_endpoint(endpoint.port,
+                endpoint.arguments.clone(), Arc::new(mapping)).await?;
+            return self.register(session, None, Vec::new()).await;
+        }
         let (root, scratch) = context.prepare()?;
         let cwd = safe_cwd(&root, &profile.definition.cwd)?;
         run_build(&profile, &cwd, on_build).await?;

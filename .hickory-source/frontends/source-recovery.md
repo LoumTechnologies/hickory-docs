@@ -460,7 +460,7 @@ import org.json.JSONObject
 // Preparation and publication are separate states. A failed POST is never
 // retried: only the original request's read-only status may be consulted.
 class ResourceChangeReview(private val transport:(suspend(String,String,JSONObject?)->JSONObject)?=null) {
- data class Review(val proposal:JSONObject,val facts:JSONObject,val plan:JSONObject,val saved:Map<String,ResourceSaved>,val restoration:Boolean,val fingerprint:String?,val current:()->Boolean,val restoring:Map<String,DocumentBuffer>,val published:((String,String)->Unit)?=null)
+ data class Review(val proposal:JSONObject,val facts:JSONObject,val plan:JSONObject,val saved:Map<String,ResourceSaved>,val restoration:Boolean,val fingerprint:String?,val current:()->Boolean,val restoring:Map<String,DocumentBuffer>,val published:((String,String)->Unit)?=null,val preflight:(suspend ()->Unit)?=null)
  var review by mutableStateOf<Review?>(null);private set
  var notice by mutableStateOf("");private set
  var busy by mutableStateOf(false);private set
@@ -472,6 +472,13 @@ class ResourceChangeReview(private val transport:(suspend(String,String,JSONObje
  private fun nonce()=java.util.UUID.randomUUID().toString().replace("-","")
  private fun hash(text:String)=java.security.MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8)).joinToString(""){"%02x".format(it)}
  private suspend fun call(workspace:Workspace,method:String,path:String,body:JSONObject?=null)=transport?.invoke(method,path,body) ?: (workspace.engine ?: error("Connect to a workspace server first.")).request(method,path,body)
+ internal fun acceptSealed(workspace:Workspace,proposal:JSONObject,facts:JSONObject,plan:JSONObject,current:()->Boolean,preflight:suspend ()->Unit,published:((String,String)->Unit)?=null):Review {
+  check(!busy&&pending==null&&current()){ "Finish the current publication and refresh the complete proposal." }
+  val copied=JSONObject(proposal.toString());val reviewedFacts=JSONObject(facts.toString());val reviewedPlan=JSONObject(plan.toString());val paths=resourcePatches(reviewedPlan).map{it.path}
+  check(paths.isNotEmpty()&&paths.distinct().size==paths.size&&reviewedPlan.get("version")==1&&copied.getJSONObject("inputs").getString("context")==reviewedPlan.getString("context")&&reviewedFacts.getString("context")==reviewedPlan.getString("context")&&reviewedFacts.getString("workspace")==workspace.engine?.sourceWorkspaceID&&reviewedFacts.getJSONArray("protected_targets").length()==0){"Sealed resource consequences do not match this workspace."}
+  val saved=resourceSavedMap(reviewedFacts.getJSONObject("saved_sources"));check(saved.keys==paths.toSet()){ "Sealed proposal does not contain the complete saved namespace." }
+  ticket++;return Review(copied,reviewedFacts,reviewedPlan,saved,false,null,current,emptyMap(),published,preflight).also{review=it;notice="Complete sealed proposal staged for guarded Save. No file was written."}
+ }
  fun dismiss(){if(pending!=null)return;ticket++;review=null;busy=false}
  fun reset(){ticket++;review=null;pending=null;publishedWorkspace=null;lastRecovery=null;lastWorkspace=null;busy=false;notice=""}
 </ui:copy>
@@ -543,6 +550,8 @@ or a changed original editor refuses the whole acquisition.
   return Triple(captured,inputs,current)
  }
 </ui:copy>
+
+The Android sealed-proposal adapter reuses this same publisher rather than teaching an agent view how to adopt files. It installs immutable engine inputs, plan and consequences only after host admission. An optional read-only final preflight revalidates the whole seal before consuming the save action; the same editor lease and review object must still be current after that await. Ordinary reviews keep the default empty preflight.
 
 ### Review all ordered resource consequences
 
@@ -624,7 +633,8 @@ and direct the user to retained recovery evidence.
  suspend fun apply(workspace:Workspace,expected:Review?=review) {
   val value=review ?: return;if(busy||pending!=null)return
   if(value!==expected){notice="Resource review changed. Read the current proposal before saving.";return}
-  try{check(value.current()){"Source changed after review. Prepare again."}}catch(error:Exception){notice=error.message.orEmpty();return}
+  busy=true
+  try{check(value.current()){"Source changed after review. Prepare again."};value.preflight?.invoke();check(review===value&&pending==null&&value.current()){ "Proposal or source changed during final admission. Nothing was sent." }}catch(error:CancellationException){throw error}catch(error:Exception){notice=error.message.orEmpty();return}finally{busy=false}
   val request=nonce();pending=request to value;publishedWorkspace=workspace;review=null;busy=true
   val body=JSONObject().put("request_id",request).put("reviewed_fingerprint",value.facts.getString("fingerprint")).put("proposal",value.proposal)
   if(value.restoration)body.put("reviewed_recovery_fingerprint",value.fingerprint)

@@ -75,6 +75,7 @@ pub(super) fn open_run(
     scratch: Option<tempfile::TempDir>,
     title: Option<String>,
 ) -> anyhow::Result<hick_term::SessionSummary> {
+    anyhow::ensure!(profile.definition.attach.is_none(), "Choose Debug for an attach profile; Run cannot launch an external target");
     let root_lease=state.resource_root.check(state.index.root()).map_err(anyhow::Error::msg)?;
     let cwd = crate::debug_sessions::safe_cwd(root, &profile.definition.cwd)?;
     let mut argv = profile.run_argv(root).map_err(anyhow::Error::msg)?;

@@ -32,23 +32,41 @@ The Apple graph port builds for macOS and iOS and passes its four local cases;
 the actual native graph flow now passes after correcting retained-process query encoding.
 Android's corrected complete adapter-source actual flow now passes without skips.
 
-The next safety checkpoint adds physically observed equal-byte namespace swaps
-and rollback refusal for foreign replacements (11 focused publisher cases pass).
-Persisted inverse proof and legacy-history reading pass eight source-history and
-five restoration cases. Post-effect owned-process retention passes seventeen
-shared graph cases, including foreign-Hub and forged disk-terminal refusals; its
-complete root-loss browser acceptance is still pending.
-All-suffix/unaddressed graph authority, agent proposal host application and the
-other open ledger outcomes remain required. No broad regression run or status
-monitoring was performed.
+The subsequent safety checkpoint passes eleven publisher cases for physical
+equal-byte namespace swaps and rollback refusal for foreign replacements, eight
+source-history cases for persisted inverse proof and legacy reading, and five
+restoration cases. Eighteen shared graph cases and forty focused browser cases
+pass. The complete seven-field browser graph flow passes original-guard and
+anonymous-construction refusals while retaining readable relationships, followed
+by owned-process completion after root replacement without foreign cache writes.
+Both native graph captures now carry named drafts, original guards and typed
+unaddressed drafts. Six Apple and ten Android focused graph/capture cases pass;
+each native actual flow passes unknown-construction refusal while keeping known
+contract text readable, then restores verification after removing that draft.
+Agent proposal host application and the other open ledger outcomes remain
+required. No broad regression run or status monitoring was performed.
+
+Native source identity now compares UTF-8 bytes across buffer maps, tabs, pending
+reads and plan snapshots. Six focused identity cases pass, including mounted
+canonical-distinct editors with independent Undo/Redo. The native views now retain
+separate undo managers, closing the cross-editor undo failure exposed by that
+witness. Thirty-five affected focused cases pass individually, and macOS/iOS
+builds pass. Utility-tab name collisions and real names resembling unnamed draft
+sentinels remain open; these checks do not certify every filename or physical
+input/accessibility acceptance.
 
 The debugger now has an endpoint-attach engine primitive. Its real TCP protocol
 witness passes: attach rather than launch, detach with terminateDebuggee false,
 external frames retain raw coordinates and source references without editor
 revision proof, and mapped run-to/jump/breakpoints refuse. The four focused source
 admission cases and two partial/canceled breakpoint transaction cases pass. This establishes the transport safety boundary;
-profile/host selection, real-provider attachment and usable host acceptance remain
-open, so attach is not yet counted as a completed user workflow.
+explicit profile selection now reaches the browser through the existing Debug
+gesture. Seven shared profile cases and ten browser picker cases pass. The owned
+debugpy browser flow passes pause, watch, step and detach while the independently
+launched target remains running, with editor identity/selection/geometry/undo and
+unsaved text retained. Native attach acceptance, PID-driven provider attachment
+and other supported adapters remain open; these receipts establish only the
+explicit loopback debugpy endpoint workflow.
 
 ## Current integration ledger
 

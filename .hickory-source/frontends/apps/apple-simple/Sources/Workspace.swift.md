@@ -227,7 +227,7 @@ import Observation
     func openSearchHit(_ hit: WorkspaceSearchHit) async {
         guard let engine else { return }
         let current = generation, request = search.revision
-        func find(_ nodes: [FileNode]) -> FileNode? { for node in nodes { if node.path == hit.path { return node }; if let child = find(node.children ?? []) { return child } }; return nil }
+        func find(_ nodes: [FileNode]) -> FileNode? { for node in nodes { if exactUTF8(node.path,hit.path) { return node }; if let child = find(node.children ?? []) { return child } }; return nil }
         guard let file = buffers[hit.path]?.file ?? find(rootFiles), !file.dir else { search.notice = "File no longer listed. Refresh files and search again."; return }
         do {
             let source: String
@@ -301,7 +301,7 @@ import Observation
     var focused = "document-group"
     var rootFiles: [FileNode] = []
     var files: [FileNode] = []
-    var buffers: [String: DocumentBuffer] = [:]
+    var buffers: NativeSourceMap<DocumentBuffer> = [:]
 </ui:copy>
 
 ## Adopt confirmed sources without replacing native editors
@@ -395,9 +395,9 @@ The remaining workspace operations reuse the adopted buffers and current namespa
     var engine: Engine?
     var address = ProcessInfo.processInfo.environment["HICKORY_API_ORIGIN"] ?? ""
     var connecting = false
-    private var loading: [String:Task<DocumentBuffer, Error>] = [:]
+    private var loading: NativeSourceMap<Task<DocumentBuffer, Error>> = [:]
     private var languageConnection: NativeLanguageConnection?
-    private var newestOpen: [String: String] = [:]
+    private var newestOpen: [String: NativeSourceKey] = [:]
     let agent = AgentSession()
     let terminal = TerminalSession()
     private var generation = UUID()
@@ -446,6 +446,7 @@ Foreground file opening and background intelligence share one acquisition path. 
         let current = generation
         let pending = Task { @MainActor [weak self] () async throws -> DocumentBuffer in
             let text = try await engine.file(file)
+            guard exactUTF8(text.path,file.path) else{throw EngineError(message:"File reply names a different source spelling. Its text was not attached to another editor; reopen the exact file.")}
             guard let self, self.generation == current else { throw CancellationError() }
             if let available = self.buffers[file.path] { return available }
             return self.retainBuffer(file, text:text, engine:engine)
@@ -461,7 +462,7 @@ Foreground file opening and background intelligence share one acquisition path. 
             guard let self, let buffer, let path = diagramFilePath(href, relativeTo: buffer.file.path) else { return }
             Task {
                 func find(_ nodes: [FileNode]) -> FileNode? {
-                    for node in nodes { if node.path == path { return node }; if let file = find(node.children ?? []) { return file } }
+                    for node in nodes { if exactUTF8(node.path,path) { return node }; if let file = find(node.children ?? []) { return file } }
                     return nil
                 }
                 if find(self.files) == nil { await self.refresh() }
@@ -491,13 +492,13 @@ Foreground file opening and background intelligence share one acquisition path. 
             return
         }
         let current = generation
-        let target = layout.groups().first(where: { $0.id == focused && !$0.tabs.contains("files") })?.id
-            ?? layout.groups().first(where: { !$0.tabs.contains("files") })?.id ?? focused
-        newestOpen[target] = file.path; focused = target
+        let target = layout.groups().first(where: { $0.id == focused && !$0.tabs.containsSource("files") })?.id
+            ?? layout.groups().first(where: { !$0.tabs.containsSource("files") })?.id ?? focused
+        newestOpen[target] = file.path.nativeSourceKey; focused = target
         do {
             _ = try await loadBuffer(file)
             guard current == generation else { return }
-            if newestOpen[target] == file.path {
+            if newestOpen[target] == file.path.nativeSourceKey {
                 let live = layout.groups().first(where: { $0.id == target })?.id ?? layout.groups()[0].id
                 layout.activate(file.path,in:live); focused = live; status = file.path
                 if recordNavigation, let arrived = currentSemanticLocation() { navigationTrail.record(from:departed,to:arrived) }
@@ -519,18 +520,18 @@ Foreground file opening and background intelligence share one acquisition path. 
         let departed = currentSemanticLocation()
         guard let path = location.path else { return }
         func find(_ nodes: [FileNode]) -> FileNode? {
-            for node in nodes { if node.path == path { return node }; if let child = find(node.children ?? []) { return child } }; return nil
+            for node in nodes { if exactUTF8(node.path,path) { return node }; if let child = find(node.children ?? []) { return child } }; return nil
         }
         guard let file = buffers[path]?.file ?? find(rootFiles), !file.dir else { status = "Location not found: \(path). Refresh files and query again."; return }
         let current = generation
         await open(file, recordNavigation: false)
-        guard isCurrent(), generation == current, active == path, let buffer = buffers[path] else { return }
+        guard isCurrent(), generation == current, exactUTF8(active,path), let buffer = buffers[path] else { return }
         if buffer.dirty && !allowDirty && departed?.path != path { status = "Save \(path) and query again before using a cross-file source position."; return }
         let source = buffer.text
         if let expectedSource, !exactUTF8(source,expectedSource) { status = "Source changed. Refresh the query before navigating."; return }
         guard let offset = languageOffset(source, ["line": location.line, "character": location.character]) else { status = "Location no longer fits \(path). Query again."; return }
         for _ in 0..<20 {
-            guard isCurrent(), generation == current, exactUTF8(buffer.text,source), (!buffer.dirty || allowDirty || departed?.path == path) else { return }
+            guard isCurrent(), generation == current, exactUTF8(buffer.text,source), (!buffer.dirty || allowDirty || exactUTF8(departed?.path,path)) else { return }
             if buffer.selectSourceRange?(NSRange(location: offset, length: 0), source) == true { if recordHistory { navigationTrail.record(from: departed, to: location) }; buffer.focusSource?(); onRevealed(); return }
             try? await Task.sleep(for: .milliseconds(25))
         }
@@ -570,7 +571,7 @@ Foreground file opening and background intelligence share one acquisition path. 
         show("terminal"); await terminal.open(using: engine)
     }
     func show(_ tab: String) {
-        let target = layout.groups().first(where: { $0.tabs.contains(tab) })?.id ?? (tab != "files" ? layout.groups().first(where: { $0.id == focused && !$0.tabs.contains("files") })?.id ?? layout.groups().first(where: { !$0.tabs.contains("files") })?.id : nil) ?? focused
+        let target = layout.groups().first(where: { $0.tabs.containsSource(tab) })?.id ?? (tab != "files" ? layout.groups().first(where: { $0.id == focused && !$0.tabs.containsSource("files") })?.id ?? layout.groups().first(where: { !$0.tabs.containsSource("files") })?.id : nil) ?? focused
         layout.activate(tab, in: target); focused = target
     }
     func close(_ tab: String) {
@@ -598,7 +599,8 @@ Foreground file opening and background intelligence share one acquisition path. 
     }
     var savingAll = false
     var fileCommand: String?
-    var filePath = ""
+    private var filePathKey=NativeSourceKey("")
+    var filePath:String {get{filePathKey.string}set{filePathKey=NativeSourceKey(newValue)}}
     func newTab() {
         let path = "Untitled-" + UUID().uuidString
         buffers[path] = DocumentBuffer(file: FileNode(name: "Untitled \(buffers.keys.filter { $0.hasPrefix("Untitled-") }.count + 1)", path: path, dir: false), text: FileText(path: path, content: "", hash: ""))
@@ -609,7 +611,7 @@ Foreground file opening and background intelligence share one acquisition path. 
         guard let command = fileCommand, let engine else { status = "Connect to a workspace server first."; return }
         let path = filePath; let source = currentBuffer; fileCommand = nil
         func find(_ nodes: [FileNode]) -> FileNode? {
-            for node in nodes { if node.path == path { return node }; if let found = find(node.children ?? []) { return found } }; return nil
+            for node in nodes { if exactUTF8(node.path,path) { return node }; if let found = find(node.children ?? []) { return found } }; return nil
         }
         if command == "Save As" {
             guard let source, !source.saving, !path.isEmpty else { return }

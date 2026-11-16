@@ -71830,6 +71830,40 @@
       "fragments": [
         "behavior-readings-apple-tests"
       ]
+    },
+    "apps/apple-simple/Sources/SourceIdentity.swift": {
+      "source": ".hickory-source/frontends/source-identity-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "8b25956cc7572f29a3f89fcfb929be48a74c09745d281ee12b6219711ed55ecf",
+      "construction": "fragments",
+      "fragments": [
+        "source-identity-apple-model"
+      ]
+    },
+    "apps/apple-simple/Tests/NativeSourceIdentityTests.swift": {
+      "source": ".hickory-source/frontends/source-identity-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "a556851b1b7a5b10ca18a28c14161320884fc503322b307ad89a9bf799bb4746",
+      "construction": "fragments",
+      "fragments": [
+        "source-identity-apple-tests"
+      ]
+    },
+    "scripts/test-debug-attach.py": {
+      "source": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
+      "owner": "debugging/launch-profiles-choose-targets-within-the-viewed-project.md",
+      "used_by": [],
+      "role": "test",
+      "sha256": "3ab275868d74f1e3c5388f4518190ae8da215dbfb7529a18c2d94435974f0a5e",
+      "construction": "fragments",
+      "fragments": [
+        "debug-endpoint-attach-browser-witness"
+      ],
+      "narrative_owner": "debugging/launch-profiles-choose-targets-within-the-viewed-project.md"
     }
   },
   "evidence_records": [

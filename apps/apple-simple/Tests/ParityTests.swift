@@ -64,7 +64,7 @@ final class ParityTests: XCTestCase {
         let apps = URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let fixture = try XCTUnwrap(JSONSerialization.jsonObject(with:Data(contentsOf:apps.appendingPathComponent("simple-contract/change-plan-cases.json"))) as? [String:Any])
         let rawSources = fixture["sources"] as! [String:[String:Any]]
-        let sources = rawSources.mapValues { SourceSnapshot(text:$0["text"] as! String,writable:$0["writable"] as! Bool) }
+        let sources = NativeSourceMap(rawSources.mapValues { SourceSnapshot(text:$0["text"] as! String,writable:$0["writable"] as! Bool) })
         let plan = try planWorkspaceEdit("Rename",raw:fixture["edit"]!,sources:sources)
         let expected = fixture["after"] as! [String:String]
         XCTAssertEqual(Dictionary(uniqueKeysWithValues:plan.patches.map { ($0.path,$0.after) }),expected)

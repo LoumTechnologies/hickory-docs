@@ -9,7 +9,18 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const CONFIG: &str = ".hick-launch.json";
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+pub struct AttachEndpoint {
+    /// A user-configured loopback DAP endpoint, not a discovered arbitrary PID.
+    pub port: u16,
+    #[serde(default = "attach_arguments")]
+    pub arguments: serde_json::Value,
+}
+fn attach_arguments() -> serde_json::Value { serde_json::json!({}) }
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct Definition {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attach: Option<AttachEndpoint>,
     pub id: String,
     pub name: String,
     #[serde(default)]
@@ -65,6 +76,7 @@ fn profile(
         .is_some_and(|p| hick_dap::language_of(std::path::Path::new(p)).is_some());
     Profile {
         definition: Definition {
+            attach: None,
             id,
             name,
             program,
@@ -266,7 +278,7 @@ pub fn discover_with(
                 ));
             }
             validate(&definition, tree, CONFIG)?;
-            let can_debug = definition
+            let can_debug = definition.attach.is_some() || definition
                 .program
                 .as_ref()
                 .is_some_and(|p| hick_dap::language_of(std::path::Path::new(p)).is_some());
@@ -315,8 +327,17 @@ fn validate(p: &Definition, tree: &dyn SourceInventory, origin: &str) -> Result<
     if p.id.trim().is_empty() || p.name.trim().is_empty() {
         return Err(fail("id and name cannot be empty"));
     }
-    if p.program.is_some() != p.command.is_empty() {
-        return Err(fail("specify exactly one of program or command"));
+    if usize::from(p.program.is_some()) + usize::from(!p.command.is_empty()) + usize::from(p.attach.is_some()) != 1 {
+        return Err(fail("specify exactly one of program, command or attach"));
+    }
+    if let Some(attach) = &p.attach {
+        if attach.port == 0 || !attach.arguments.is_object()
+            || serde_json::to_vec(&attach.arguments).map_or(true, |bytes| bytes.len() > 64 * 1024) {
+            return Err(fail("attach needs a nonzero loopback DAP port and an argument object within 64 KiB"));
+        }
+        if !p.args.is_empty() || !p.env.is_empty() || !p.build.is_empty() || p.artifact.is_some() {
+            return Err(fail("attach cannot build, launch arguments, inject an environment or select an artifact"));
+        }
     }
     if let Some(path) = &p.program {
         tree.validate_path(path).map_err(|e| fail(&e))?;
@@ -358,6 +379,7 @@ fn validate(p: &Definition, tree: &dyn SourceInventory, origin: &str) -> Result<
 impl Profile {
     pub fn run_argv(&self, root: &std::path::Path) -> Result<Vec<String>, String> {
         let d = &self.definition;
+        if d.attach.is_some() { return Err("Attach profiles connect through Debug; they do not launch a Run process".into()); }
         let mut argv = if let Some(artifact) = &d.artifact {
             let artifact = root.join(artifact).to_string_lossy().into_owned();
             if d.program.as_ref().is_some_and(|p| p.ends_with(".cs")) {

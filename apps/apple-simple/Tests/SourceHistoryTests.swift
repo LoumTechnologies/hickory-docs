@@ -37,9 +37,10 @@ import Darwin
     }
     func testCreationOwnershipCapturesDirtyConstructionAndRefusesUnboundBaseline()async throws {
         let(space,buffer,_,window)=native();defer{window.contentView=nil;ResponseProtocol.beforeResponse=nil;ResponseProtocol.responsesByPath=[:]}
-        space.sourceWorkspaceID="runtime-workspace";let doc=DocumentBuffer(file:FileNode(name:"project.md",path:"project.md",dir:false,doc_id:"project"),text:FileText(path:"project.md",content:"saved construction",hash:"old"));doc.text="<h:file path=\"copy.txt\">draft output</h:file>";space.buffers["project.md"]=doc;ResponseProtocol.resetRequests()
-        do{_ = try await space.createSourceCopy(buffer,path:"copy.txt");XCTFail("Unbound construction must refuse before effects")}catch{}
-        XCTAssertEqual(ResponseProtocol.requestCount("/api/source-history/create"),0);XCTAssertNil(space.buffers["copy.txt"]);XCTAssertEqual(doc.text,"<h:file path=\"copy.txt\">draft output</h:file>")
+        space.sourceWorkspaceID="runtime-workspace";let doc=DocumentBuffer(file:FileNode(name:"project.md",path:"project.md",dir:false,doc_id:"project"),text:FileText(path:"project.md",content:"saved construction",hash:"old"));doc.text="<h:file path=\"copy.txt\">draft output</h:file>";space.buffers["project.md"]=doc;ResponseProtocol.resetRequests();ResponseProtocol.status=409;ResponseProtocol.response=Data(#"{"error":"Original loaded physical guard is required for the selected construction."}"#.utf8)
+        space.fileCommand="Save As";space.filePath="copy.txt";await space.performFileCommand();XCTAssertTrue(space.status.contains("Original loaded physical guard"),space.status);XCTAssertTrue(space.status.contains("Original edits are retained"));XCTAssertFalse(buffer.saving)
+        let body=try XCTUnwrap(ResponseProtocol.requestBodies("/api/source-history/create").last),capture=try XCTUnwrap(body["ownership"] as? [String:Any]);XCTAssertEqual((capture["ownership_sources"] as? [String:String])?["project.md"],doc.text);XCTAssertNil((body["saved_guards"] as? [String:String])?["project.md"])
+        XCTAssertEqual(ResponseProtocol.requestCount("/api/source-history/create"),1);XCTAssertEqual(ResponseProtocol.requestCount("/api/file"),0);XCTAssertEqual(ResponseProtocol.requestCount("/api/files/op"),0);XCTAssertNil(space.buffers["copy.txt"]);XCTAssertEqual(buffer.text,"draft");XCTAssertNil(doc.savedGuard);XCTAssertEqual(doc.text,"<h:file path=\"copy.txt\">draft output</h:file>")
     }
     func testOnlyReviewedDefinitiveFailureReleasesMatchingConsumedSaveAttempt()async throws {
         let(space,buffer,editor,window)=native();defer{window.contentView=nil;ResponseProtocol.beforeResponse=nil;ResponseProtocol.responsesByPath=[:]}

@@ -155652,6 +155652,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/behavior-readings-apple.md",
       "symbol": "behavior readings apple tests",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "source-identity-apple-model",
+      "output": "apps/apple-simple/Sources/SourceIdentity.swift",
+      "page": ".hickory-source/frontends/source-identity-apple.md",
+      "symbol": "source identity apple model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-identity-apple-tests",
+      "output": "apps/apple-simple/Tests/NativeSourceIdentityTests.swift",
+      "page": ".hickory-source/frontends/source-identity-apple.md",
+      "symbol": "source identity apple tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-endpoint-attach-browser-witness",
+      "output": "scripts/test-debug-attach.py",
+      "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
+      "symbol": "debug endpoint attach browser witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {
