@@ -70732,6 +70732,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "source-recovery-apple-0",
+        "source-recovery-apple-wire",
+        "source-recovery-apple-publication",
         "source-recovery-apple-1"
       ]
     },
@@ -70744,6 +70746,12 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "source-recovery-android-0",
+        "source-resource-capture-android",
+        "source-resource-acquisition-android",
+        "source-resource-proposal-android",
+        "source-resource-restoration-android",
+        "source-resource-publication-android",
+        "source-resource-wire-android",
         "source-recovery-android-1"
       ]
     },

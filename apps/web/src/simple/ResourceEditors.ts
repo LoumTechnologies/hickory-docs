@@ -4,6 +4,7 @@ import {editorForBuffer} from './Document';
 import {EditorView} from '@codemirror/view';
 import {isolateHistory} from '@codemirror/commands';
 import type {Transaction} from '@codemirror/state';
+import {isGroup,groups,type Layout} from './layout';
 export interface ResourceSource {identity:string;text:string}
 export interface ResourceEditorPatch {path:string;before:ResourceSource|null;after:ResourceSource|null}
 export interface ResourceEditorCapture<T> {editor:T;source:string}
@@ -77,4 +78,99 @@ export function adoptResourceReceipt(buffers:Buffers,patches:readonly ResourceEd
   buffers.values.set(route.to,buffer);for(const [id,held] of retained)if(held===buffer)retained.delete(id);
  }
  for(const {buffer} of prepared)buffer.publish();buffers.changed();return routes;
+}
+
+export interface ResourceWireState {kind:'file'|'missing';identity?:string;text?:string}
+export interface ResourceWirePlan {version:number;context:string;title:string;patches:{path:string;before:ResourceWireState;after:ResourceWireState}[]}
+export interface ResourceConstructionLayer {entries:string[];removed_entries:string[];output_paths:string[]}
+export interface ResourceConstructionFacts {version:number;workspace:string;context:string;fingerprint:string;protected_targets:string[];saved:ResourceConstructionLayer;draft:ResourceConstructionLayer}
+function currentResourceFacts(facts:ResourceConstructionFacts,workspace:string,context:string){return facts.version===1&&facts.workspace===workspace&&facts.context===context&&/^[0-9a-f]{64}$/.test(facts.fingerprint)&&facts.protected_targets.length===0;}
+export interface ResourceRestoreReview {
+ operation:'restore'|'save';record:string;fingerprint:string;consequence:string;workspace:string;context:string;
+ facts:ResourceConstructionFacts;plan:ResourceWirePlan;patches:ResourceEditorPatch[];saved:Record<string,ResourceSaved>;savedBefore:Record<string,ResourceSaved>;
+ proposal:unknown;current:()=>boolean;restoring:Map<string,Buffer>;
+}
+export type ResourceTransport=<T>(route:string,body:unknown)=>Promise<T>;
+export function resourceWirePatches(plan:ResourceWirePlan):ResourceEditorPatch[]{
+ if(plan.version!==1||!plan.context||!plan.patches.length||plan.patches.length>1000)throw new Error('Resource plan is unavailable or exceeds the review bound.');
+ const side=(value:ResourceWireState):ResourceSource|null=>{if(value.kind==='missing')return null;if(value.kind!=='file'||!value.identity||typeof value.text!=='string')throw new Error('Resource source identity is unavailable.');return {identity:value.identity,text:value.text};};
+ return plan.patches.map(patch=>({path:patch.path,before:side(patch.before),after:side(patch.after)}));
+}
+/** Preparation observes current saved sources and drafts; it never publishes. */
+export async function prepareResourceRestore(buffers:Buffers,record:{id:string;workspace:string;fingerprint:string;paths:{path:string;saved_after:{kind:string}}[]},acquire:(path:string)=>Promise<Buffer>,load:ResourceTransport,alive:()=>boolean,hash:(text:string)=>Promise<string>=async text=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text))),byte=>byte.toString(16).padStart(2,'0')).join('')):Promise<ResourceRestoreReview>{
+ if(!/^[0-9a-f]{32}$/.test(record.id)||!record.paths.length||record.paths.length>1000)throw new Error('Choose a bounded recovery record.');
+ for(const item of record.paths)if(item.saved_after.kind==='file')await acquire(item.path);
+ if(!alive())throw new Error('Workspace or recovery selection changed. Prepare restoration again.');
+ const paths=new Set(record.paths.map(item=>item.path));if(paths.size!==record.paths.length)throw new Error('Recovery paths are not unique.');
+ const captures=[...buffers.values].map(([path,buffer])=>({path,buffer,text:buffer.text,base:buffer.base,hash:buffer.hash,version:buffer.version,file:buffer.file,metadata:JSON.stringify(buffer.file),readonly:buffer.readonly,transient:buffer.transient}));
+ const current=()=>alive()&&buffers.values.size===captures.length&&captures.every(row=>buffers.values.get(row.path)===row.buffer&&row.buffer.text===row.text&&row.buffer.base===row.base&&row.buffer.hash===row.hash&&row.buffer.version===row.version&&row.buffer.file===row.file&&JSON.stringify(row.buffer.file)===row.metadata&&row.buffer.readonly===row.readonly&&row.buffer.transient===row.transient&&!row.buffer.saving)&&record.paths.every(item=>captures.some(row=>row.path===item.path)||!buffers.values.has(item.path));
+ const drafts:Record<string,unknown>=Object.create(null);for(const row of captures){if(!paths.has(row.path))continue;if(row.buffer.readonly||row.buffer.transient||row.buffer.saving)throw new Error('Choose writable current source before restoration.');drafts[row.path]={text:row.text,base_sha256:await hash(row.base),version:row.version,writable:true};}
+ if(!current())throw new Error('Source changed while preparing restoration.');
+ const context=crypto.randomUUID().replaceAll('-',''),capture={context,edit:{changes:Object.fromEntries(record.paths.map(item=>['hick:///'+item.path.split('/').map(encodeURIComponent).join('/'),[]]))},drafts,ownership_sources:Object.fromEntries([...buffers.values].filter(([,buffer])=>!buffer.readonly&&!buffer.transient).map(([path,buffer])=>[path,buffer.text]))};
+ const inputs=await load<{workspace:string;context:string;refusals:Record<string,string>}>('/api/changes/resource-inputs',capture);
+ if(!current()||inputs.workspace!==record.workspace||inputs.context!==context||Object.keys(inputs.refusals).length)throw new Error('Current source acquisition refused or changed. Prepare restoration again.');
+ const proposal={recovery_id:record.id,inputs,capture};
+ const prepared=await load<{version:number;restoration:{recovery_fingerprint:string;workspace:string;context:string;plan:ResourceWirePlan;saved_before:Record<string,ResourceSaved>;saved_after:Record<string,ResourceSaved>};consequences:ResourceConstructionFacts}>('/api/changes/prepare-restoration',proposal);
+ if(!current()||prepared.version!==1||prepared.restoration.workspace!==record.workspace||prepared.restoration.context!==context||prepared.restoration.recovery_fingerprint!==record.fingerprint||!currentResourceFacts(prepared.consequences,record.workspace,context))throw new Error('Recovery evidence or source ownership changed. Read and prepare again.');
+ const patches=resourceWirePatches(prepared.restoration.plan),restoring=new Map<string,Buffer>();
+ for(const patch of patches)if(patch.after&&!patches.some(item=>item.before?.identity===patch.after!.identity)){const held=buffers.retainedResources.get(patch.after.identity);if(held)restoring.set(patch.after.identity,held);}
+ const live=new Map<string,ResourceEditorCapture<Buffer>>();for(const patch of patches)if(patch.before){const buffer=buffers.values.get(patch.path);if(!buffer||buffer.text!==patch.before.text)throw new Error("Current resource source does not match the reviewed restoration. Preserve drafts and prepare again.");live.set(patch.before.identity,{editor:buffer,source:buffer.text});}
+ routeResourceEditors(patches,live,new Map([...restoring].map(([identity,editor])=>[identity,{editor,source:editor.text}])));
+ const editorCurrent=captureResourceEditors(buffers,patches,restoring);
+ return {operation:'restore',facts:prepared.consequences,record:record.id,fingerprint:record.fingerprint,consequence:prepared.consequences.fingerprint,workspace:record.workspace,context,plan:prepared.restoration.plan,patches,saved:prepared.restoration.saved_after,savedBefore:prepared.restoration.saved_before,proposal,current:()=>current()&&editorCurrent(),restoring};
+}
+const resourceAttempts=new WeakMap<ResourceRestoreReview,string>();
+/** Never retry a failed/uncertain write here. The caller requires a new review. */
+export async function publishResourceRestore(buffers:Buffers,review:ResourceRestoreReview,load:ResourceTransport):Promise<{routes:ResourceEditorRoute<Buffer>[];recovery:string}>{
+ const earlier=resourceAttempts.get(review);if(earlier)throw new Error('This review already has publication request '+earlier+'. Inspect its retained recovery; it will not be retried.');
+ if(!review.current())throw new Error('Source changed after review. Prepare restoration again.');
+ for(const patch of review.patches)if(patch.before){const buffer=buffers.values.get(patch.path),view=buffer&&editorForBuffer(buffer)?.view;if(!buffer||view&&(view.composing||view.state.doc.toString()!==buffer.text||view.state.readOnly||!view.state.facet(EditorView.editable)))throw new Error('Finish composition and restore current source before publication.');}
+ const request=crypto.randomUUID().replaceAll('-','');resourceAttempts.set(review,request);
+ let receipt:ResourceReceipt;try{receipt=await load<ResourceReceipt>(review.operation==='save'?'/api/changes/resource-save':'/api/changes/restore-resources',{request_id:request,reviewed_fingerprint:review.consequence,...(review.operation==='restore'?{reviewed_recovery_fingerprint:review.fingerprint}:{}),proposal:review.proposal});}catch(error){throw new Error(String(error)+' Publication request '+request+' is not confirmed. Inspect Source recovery using this identity before another review.');}
+ let routes:ResourceEditorRoute<Buffer>[];try{routes=adoptResourceReceipt(buffers,review.patches,receipt,{request,workspace:review.workspace,context:review.context,saved:new Map(Object.entries(review.saved))},review.current,review.restoring);}catch(error){throw new Error(String(error)+" Publication request "+request+"; retained recovery "+(receipt.outcome?.recovery??"unknown")+". Preserve local drafts while inspecting the result.");}
+ const match=receipt.outcome.recovery.match(/(?:^|\/)resource-changes\/([0-9a-f]{32})\/[^/]+$/);if(!match)throw new Error('Source restored but inverse recovery identity is unavailable. Inspect Source recovery.');
+ return {routes,recovery:match[1]};
+}
+
+
+/** Route tabs by reviewed source identity, retaining deleted placement for inverse restoration. */
+export function resourceLayout(layout:Layout,routes:readonly ResourceEditorRoute<Buffer>[],placements:Map<Buffer,{group:string;index:number;active:boolean}>):Layout {
+ const byPath=new Map(routes.filter(route=>route.from!==null).map(route=>[route.from!,route]));
+ for(const group of groups(layout))group.tabs.forEach((path,index)=>{const route=byPath.get(path);if(route?.to===null&&route.editor)placements.set(route.editor,{group:group.id,index,active:group.active===path});});
+ const routeTree=(node:Layout):Layout=>{
+  if(!isGroup(node))return {...node,first:routeTree(node.first),second:routeTree(node.second)};
+  const tabs=node.tabs.flatMap(path=>{const route=byPath.get(path);return route?(route.to===null?[]:[route.to]):[path];});
+  const moved=node.active?byPath.get(node.active):undefined;let active=moved?moved.to:node.active;
+  for(const route of [...routes].sort((a,b)=>(a.editor?placements.get(a.editor)?.index??0:0)-(b.editor?placements.get(b.editor)?.index??0:0)))if(route.from===null&&route.to!==null&&route.editor){const held=placements.get(route.editor);if(held?.group===node.id){tabs.splice(Math.min(held.index,tabs.length),0,route.to);if(held.active)active=route.to;placements.delete(route.editor);}}
+  return {...node,tabs,active:active&&tabs.includes(active)?active:tabs.at(-1)??null};
+ };return routeTree(layout);
+}
+export function isResourceEdit(edit:unknown):boolean{return !!edit&&typeof edit==='object'&&Array.isArray((edit as {documentChanges?:unknown}).documentChanges)&&((edit as {documentChanges:unknown[]}).documentChanges).some(item=>!!item&&typeof item==='object'&&'kind' in item);}
+/** A resource proposal is acquired as a whole; no text-only fallback may escape review. */
+export async function prepareResourceSave(buffers:Buffers,title:string,edit:unknown,acquire:(path:string)=>Promise<Buffer>,load:ResourceTransport,alive:()=>boolean,hash:(text:string)=>Promise<string>=resourceHash):Promise<ResourceRestoreReview>{
+ const context=crypto.randomUUID().replaceAll('-',''),targets=await load<{paths:string[]}>('/api/changes/resource-targets',{edit});
+ if(!alive()||!targets.paths.length||targets.paths.length>1000||new Set(targets.paths).size!==targets.paths.length)throw new Error('Resource targets changed or exceed the review bound.');
+ const initial=await captureResourceInputs(buffers,targets.paths,context,edit,load,alive,hash);
+ for(const path of targets.paths)if(initial.inputs.sources[path]?.kind==='file'){const buffer=await acquire(path);if(buffer.text!==initial.inputs.sources[path].text)throw new Error('Referenced source changed during acquisition. Prepare the provider action again.');}
+ const captured=await captureResourceInputs(buffers,targets.paths,context,edit,load,alive,hash);
+ for(const path of targets.paths){const before=initial.inputs.sources[path],after=captured.inputs.sources[path];if(before?.kind!==after?.kind||before?.text!==after?.text||JSON.stringify(initial.inputs.saved_sources[path])!==JSON.stringify(captured.inputs.saved_sources[path]))throw new Error('Saved or draft resource input changed during acquisition. Prepare the whole action again.');}
+ const plan=await load<{plan:ResourceWirePlan}>('/api/changes/plan-resources',{context,title,edit,sources:captured.inputs.sources});
+ if(!captured.current())throw new Error('Source changed while planning resource operations.');
+ const proposal={inputs:captured.inputs,capture:captured.capture,plan:plan.plan},facts=await load<ResourceConstructionFacts&{saved_sources:Record<string,ResourceSaved>}>('/api/changes/resource-consequences',proposal);
+ if(!captured.current()||!currentResourceFacts(facts,captured.inputs.workspace,context)||!facts.saved_sources)throw new Error('Resource ownership changed or saved consequences are unavailable. Prepare again.');
+ const patches=resourceWirePatches(plan.plan),editorCurrent=captureResourceEditors(buffers,patches);
+ if(patches.some(patch=>patch.before&&buffers.values.get(patch.path)?.text!==patch.before.text))throw new Error('Acquire every reviewed resource source before publication.');
+ return {operation:'save',facts,record:'',fingerprint:'',consequence:facts.fingerprint,workspace:captured.inputs.workspace,context,plan:plan.plan,patches,saved:facts.saved_sources,savedBefore:captured.inputs.saved_sources,proposal,current:()=>captured.current()&&editorCurrent(),restoring:new Map()};
+}
+const resourceHash=async(text:string)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text))),byte=>byte.toString(16).padStart(2,'0')).join('');
+interface ResourceInputs {workspace:string;context:string;refusals:Record<string,string>;sources:Record<string,ResourceWireState>;saved_sources:Record<string,ResourceSaved>}
+async function captureResourceInputs(buffers:Buffers,targetPaths:string[],context:string,edit:unknown,load:ResourceTransport,alive:()=>boolean,hash:(text:string)=>Promise<string>){
+ const paths=new Set(targetPaths),captures=[...buffers.values].map(([path,buffer])=>({path,buffer,text:buffer.text,base:buffer.base,hash:buffer.hash,version:buffer.version,file:buffer.file,metadata:JSON.stringify(buffer.file),readonly:buffer.readonly,transient:buffer.transient}));
+ const current=()=>alive()&&buffers.values.size===captures.length&&captures.every(row=>buffers.values.get(row.path)===row.buffer&&row.buffer.text===row.text&&row.buffer.base===row.base&&row.buffer.hash===row.hash&&row.buffer.version===row.version&&row.buffer.file===row.file&&JSON.stringify(row.buffer.file)===row.metadata&&row.buffer.readonly===row.readonly&&row.buffer.transient===row.transient&&!row.buffer.saving);
+ const drafts:Record<string,unknown>=Object.create(null);for(const row of captures){if(!paths.has(row.path))continue;if(row.readonly||row.transient||row.buffer.saving)throw new Error('Choose writable current resource source.');drafts[row.path]={text:row.text,base_sha256:await hash(row.base),version:row.version,writable:true};}
+ if(!current())throw new Error('Source changed while capturing resource inputs.');
+ const capture={context,edit,drafts,ownership_sources:Object.fromEntries(captures.filter(row=>!row.readonly&&!row.transient).map(row=>[row.path,row.text]))};
+ const inputs=await load<ResourceInputs>('/api/changes/resource-inputs',capture);
+ if(!current()||inputs.context!==context||!inputs.workspace||Object.keys(inputs.refusals).length)throw new Error('Current source acquisition refused or changed. Prepare again.');
+ return {inputs,capture,current};
 }

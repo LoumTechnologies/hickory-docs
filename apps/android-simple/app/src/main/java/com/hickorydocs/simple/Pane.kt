@@ -1080,7 +1080,7 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
         "terminal" -> TerminalPane(workspace)
         "agent" -> AgentPane(workspace.engine, workspace.agent, workspace)
         null -> Text("Open a file or move a tab here", modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-        else -> workspace.buffers[tab]?.let { buffer ->
+        else -> workspace.bufferForTab(tab)?.let { buffer ->
             Column(Modifier.fillMaxSize()) {
                 LanguageEditor(buffer, workspace.debugger, Modifier.weight(1f).fillMaxWidth().onFocusChanged { if (it.isFocused) workspace.focused = group })
                 if (buffer.error.isNotEmpty()) Text(buffer.error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(6.dp))

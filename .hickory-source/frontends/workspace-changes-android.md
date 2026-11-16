@@ -3,7 +3,9 @@
 
 For maintainers changing workspace services independently of the editor renderer.
 
-The existing Edit menu requests a rename, formatting or provider action. Capture all retained source buffers and the originating selection before asking; an obsolete provider answer or edited target cannot become a preview. The preview pages every before/after line without reserving editor space. Application preflights every target, including retained editors and IME state, before synchronously committing the prepared replacements. It changes drafts only. The same exact inverse model drives bounded workspace undo/redo; later local edits refuse coordinated undo rather than being overwritten. Provider commands and resource operations remain explicit unsupported results, not partially applied edits.
+The existing Edit menu requests a rename, formatting or provider action. Capture all retained source buffers and the originating selection before asking; an obsolete provider answer or edited target cannot become a preview. Text-only previews page every before/after line without reserving editor space. Application preflights every target, including retained editors and IME state, before synchronously committing the prepared draft replacements. Ordered resource edits transfer whole to the engine-backed source review before text-only discovery can reject or partially apply them. Provider commands remain explicit unsupported results.
+
+Bounded workspace history orders draft inverses and resource recovery identities together. A draft entry uses the exact inverse model. A resource entry prepares its saved/draft restoration through the shared engine and waits for explicit review and confirmed publication before moving the new inverse identity to the opposite stack. Capture the history revision as part of review authority: an interleaved applied change must retire the older undo proposal even when its source text later returns to the same bytes. Local text edits still fail the source capture instead of being overwritten.
 
 Rename discovery acquires previously unopened reference targets through the existing workspace buffer loader. Their language sessions synchronize before a fresh reference query; the discovering answer cannot authorize edits against later-loaded text. Acquisition never activates a tab. Captured source snapshots remain immutable inputs to the final provider proposal, and complete draft-plan validation still precedes application. Native preparation retains its own fixed request-validity closure so an older reply cannot borrow a newer request's authority.
 
@@ -46,8 +48,13 @@ class WorkspaceChanges {
     private var actionQuery:suspend ()->List<JSONObject> = {error("Prepare provider actions first.")}
     private var sources: Map<String,SourceSnapshot> = emptyMap()
     private var current: ()->Boolean = { false }
-    private val undo = mutableListOf<ChangePlan>(); private val redo = mutableListOf<ChangePlan>()
-    fun reset() { revision++; mode=null; plan=null; choices=emptyList(); sources=emptyMap(); current={false}; undo.clear(); redo.clear(); notice="" }
+    private sealed interface History {
+        data class Draft(val plan:ChangePlan):History
+        data class Resource(val record:String,val workspace:String):History
+    }
+    private val undo=mutableListOf<History>();private val redo=mutableListOf<History>();private var historyRevision=0L
+    fun recordResource(record:String,workspace:String){undo.add(History.Resource(record,workspace));while(undo.size>32)undo.removeAt(0);redo.clear();historyRevision++}
+    fun reset() { revision++;historyRevision++; mode=null; plan=null; choices=emptyList(); sources=emptyMap(); current={false}; undo.clear(); redo.clear(); notice="" }
     fun close(workspace: Workspace) { revision++; mode=null; workspace.currentBuffer?.focusSource?.invoke() }
     fun updateName(value: String) { revision++; name=value; plan=null; choices=emptyList(); notice="" }
     fun open(kind: String, workspace: Workspace) {
@@ -55,9 +62,18 @@ class WorkspaceChanges {
         if (kind != "undo" && kind != "redo") return
         val history = if (kind == "undo") undo else redo
         val target = history.lastOrNull() ?: run { notice="No workspace change to $kind."; return }
-        runCatching { workspace.applyWorkspacePlan(target) }.onSuccess {
-            history.removeAt(history.lastIndex); (if (kind == "undo") redo else undo).add(invertChangePlan(target))
-            notice="Workspace $kind applied to ${target.patches.size} drafts. Not saved or verified."
+        if(target is History.Resource){
+            val expected=historyRevision;val valid={historyRevision==expected&&history.lastOrNull()===target}
+            mode=null;workspace.reviewResourceHistory(target.record,target.workspace,valid){record,sourceWorkspace->
+                check(valid()){"Workspace history changed. Inspect recovery before another undo."}
+                history.removeAt(history.lastIndex);(if(kind=="undo")redo else undo).add(History.Resource(record,sourceWorkspace));historyRevision++
+            }
+            return
+        }
+        target as History.Draft
+        runCatching { workspace.applyWorkspacePlan(target.plan) }.onSuccess {
+            history.removeAt(history.lastIndex); (if (kind == "undo") redo else undo).add(History.Draft(invertChangePlan(target.plan)));historyRevision++
+            notice="Workspace $kind applied to ${target.plan.patches.size} drafts. Not saved or verified."
         }.onFailure { notice=it.message.orEmpty() }
     }
     suspend fun prepare(workspace: Workspace,proposal:(suspend (String,String)->Any)?=null,resolution:(suspend (JSONObject)->JSONObject)?=null,acquisition:(suspend (String)->SourceSnapshot)?=null) {
@@ -122,8 +138,15 @@ class WorkspaceChanges {
         val request=++revision;sources=snapshots;current={revision==request&&targets.all{(buffer,text,selection)->workspace.buffers[buffer.file.path]===buffer&&buffer.text==text&&buffer.state.selection==selection}}
         mode="proposal";plan=next;choices=emptyList();referencePaths=emptyList();notice="";file=0;page=0;actionPage=0
     }
-    private fun install(title: String, edit: Any?, workspace: Workspace) {
+    private suspend fun install(title: String, edit: Any?, workspace: Workspace) {
         check(current()) { "Source, selection or provider changed. Prepare again." }
+        val resourceEdit=edit as? JSONObject
+        if(resourceEdit?.optJSONArray("documentChanges")?.let{rows->(0 until rows.length()).any{rows.optJSONObject(it)?.has("kind")==true}}==true){
+            val valid=current
+            workspace.resourceChanges.prepare(workspace,title,resourceEdit,valid)
+            if(workspace.resourceChanges.review!=null){mode=null;workspace.showRecovery=true}else notice=workspace.resourceChanges.notice
+            return
+        }
         val next=planWorkspaceEdit(title,edit,sources,allowNoop=mode=="cleanup")
         validateChangePlan(next,workspace.sourceSnapshots())?.let { error(it) }
         validateReferencedTargets(next,referencePaths)
@@ -146,7 +169,9 @@ class WorkspaceChanges {
                 check(revision==request&&choiceRevision==choice&&valid()){"Source, selection or provider changed. Prepare actions again."}
                 resolved.optJSONObject("disabled")?.let{error(it.optString("reason","Provider action disabled"))}
                 check(resolved.isNull("command")){"This action requires a provider command; its edit has not been applied."}
-                SourceProposal(providerActionPaths(resolved),resolved)
+                val edit=resolved.optJSONObject("edit")
+                val resources=edit?.optJSONArray("documentChanges")?.let{rows->(0 until rows.length()).any{rows.optJSONObject(it)?.has("kind")==true}}==true
+                SourceProposal(if(resources)emptyList() else providerActionPaths(resolved),resolved)
             },load,{revision==request&&choiceRevision==choice&&valid()})
             if(revision!=request||choiceRevision!=choice)return
             sources=acquired.sources;val resolved=acquired.value
@@ -159,7 +184,7 @@ class WorkspaceChanges {
             check(current()) { "Source, selection or provider changed. Prepare again." }
             workspace.applyWorkspacePlan(next)
         }.onSuccess {
-            undo.add(invertChangePlan(next)); while(undo.size>32) undo.removeAt(0); redo.clear(); plan=null; current={false}
+            undo.add(History.Draft(invertChangePlan(next))); while(undo.size>32) undo.removeAt(0); redo.clear();historyRevision++; plan=null; current={false}
             notice="Applied ${next.patches.size} source drafts. Not saved or verified. Use Save All after reviewing; Undo workspace change restores this batch."
         }.onFailure { notice=it.message.orEmpty() }
     }

@@ -123,6 +123,16 @@ Require exact original actions and producing provider identity, return complete 
         if os.environ.get("HICKORY_CONTROLLED_ACTION_OTHER"):
             other=uri.rsplit("/",1)[0]+"/other.py"
             result["edit"]["changes"][other]=[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"other_fixed"}]
+        if os.environ.get("HICKORY_CONTROLLED_ACTION_RESOURCES"):
+            base=uri.rsplit("/",1)[0]
+            result["edit"]={"documentChanges":[
+                {"textDocument":{"uri":uri,"version":91},"edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"python_fixed"}]},
+                {"kind":"create","uri":base+"/created.py"},
+                {"textDocument":{"uri":base+"/created.py","version":None},"edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":"created = 1\n"}]},
+                {"kind":"rename","oldUri":base+"/other.py","newUri":base+"/moved.py"},
+                {"textDocument":{"uri":base+"/moved.py","version":None},"edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"other_fixed"}]},
+                {"kind":"delete","uri":base+"/delete.py"}
+            ]}
         if opaque.get("slow"):
             def release(identity=identity,result=result):
                 deadline=time.monotonic()+10

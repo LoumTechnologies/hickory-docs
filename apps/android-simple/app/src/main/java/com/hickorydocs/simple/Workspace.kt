@@ -156,7 +156,7 @@ class DocumentBuffer(file: FileNode, loaded: FileText) {
     var error by mutableStateOf("")
     val text get() = state.text.toString()
     val dirty by derivedStateOf { text != base }
-    val readOnly get() = file.generatedBy != null
+    val readOnly get() = resourceDeleted || file.generatedBy != null
     suspend fun save(engine: Engine) {
         if (resourceDeleted || !dirty || saving || readOnly) return
         val submitted = text; val previous = base; val previousHash = hash
@@ -246,8 +246,38 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     var focused by mutableStateOf("document-group")
     var rootFiles by mutableStateOf<List<FileNode>>(emptyList())
     var files by mutableStateOf<List<FileNode>>(emptyList())
+    var directoryScope by mutableStateOf("")
     val buffers = mutableStateMapOf<String, DocumentBuffer>()
     val retainedResourceEditors=mutableMapOf<String,DocumentBuffer>()
+    // Deleted tabs use opaque addresses: reusing a filesystem path must not
+    // replace the old editor or silently redirect its unsaved text.
+    val retainedResourceTabs=mutableStateMapOf<String,DocumentBuffer>()
+    val resourceChanges=ResourceChangeReview()
+    fun reviewResourceHistory(record:String,workspace:String,current:()->Boolean,published:(String,String)->Unit){
+        showRecovery=true
+        workspaceScope.launch{resourceChanges.openHistory(this@Workspace,record,workspace,current,published)}
+    }
+    fun bufferForTab(tab:String?)=buffers[tab] ?: retainedResourceTabs[tab]
+    private fun scopedFiles(tree:List<FileNode>):List<FileNode>{
+        if(directoryScope.isEmpty())return tree
+        fun find(nodes:List<FileNode>):FileNode?=nodes.firstNotNullOfOrNull{if(it.path==directoryScope)it else find(it.children)}
+        return find(tree)?.takeIf{it.dir}?.children ?: emptyList()
+    }
+    private fun resourceTree(patches:List<ResourceEditorPatch>,published:Collection<ResourcePublishedFile<FileNode>>):List<FileNode>{
+        val paths=patches.map{it.path}.toSet()
+        fun prune(nodes:List<FileNode>):List<FileNode> = nodes.mapNotNull{node->if(!node.dir&&node.path in paths)null else node.copy(children=prune(node.children))}
+        fun insert(nodes:List<FileNode>,file:FileNode,parts:List<String>,depth:Int):List<FileNode>{
+            if(depth==parts.lastIndex){check(nodes.none{it.path==file.path}){"A directory occupies a published source address. Refresh files and inspect recovery."};return nodes+file}
+            val path=parts.take(depth+1).joinToString("/");val previous=nodes.find{it.path==path}
+            check(previous==null||previous.dir){"A parent changed in the file index. Refresh files and inspect recovery."}
+            val parent=previous ?: FileNode(parts[depth],path,true,emptyList(),null,null)
+            val next=parent.copy(children=insert(parent.children,file,parts,depth+1))
+            return if(previous==null)nodes+next else nodes.map{if(it===previous)next else it}
+        }
+        var tree=prune(rootFiles)
+        for(entry in published)tree=insert(tree,entry.file,entry.file.path.split('/'),0)
+        return tree
+    }
     fun captureResourceEditors(patches:List<ResourceEditorPatch>,restoring:Map<String,DocumentBuffer> = emptyMap()):()->Boolean {
         val paths=patches.associate{it.path to buffers[it.path]}
         data class Capture(val buffer:DocumentBuffer,val text:String,val base:String,val hash:String,val file:FileNode)
@@ -259,6 +289,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         val server=engine ?: error("Reconnect and inspect Source recovery before changing editors.")
         check(current()) {"Editor drafts or baselines changed after review. Preserve them and inspect Source recovery."}
         val files=confirmedResourceFiles(patches,receipt,request,workspace,context,expected){it.path to (!it.dir&&it.generatedBy==null)}
+        val nextTree=resourceTree(patches,files.values)
         val live=patches.mapNotNull{patch->patch.before?.let{before->val buffer=buffers[patch.path] ?: error("Source editor unavailable. Inspect recovery.");check(!buffer.saving&&!buffer.readOnly){"Source editor is saving or read-only. Inspect recovery."};before.identity to ResourceEditorCapture(buffer,buffer.text)}}.toMap()
         check(restoring.values.all{buffer->buffer.resourceDeleted&&retainedResourceEditors.values.any{it===buffer}&&buffers.values.none{it===buffer}}){"Restoration must select a retained deleted editor. Inspect Source recovery."}
         val routes=routeResourceEditors(patches,live,restoring.mapValues{ResourceEditorCapture(it.value,it.value.text)})
@@ -267,19 +298,29 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
             check(buffer.state.composition==null){"Finish composition before adopting source editors. Inspect recovery."}
             check(route.to==null||patches.any{it.path==route.to&&it.before!=null}||!buffers.containsKey(route.to)){"A destination editor appeared after review. Inspect recovery."}
         }
-        generation=UUID.randomUUID();loading.values.forEach{it.cancel()};loading.clear()
+        val addresses=linkedMapOf<String,String>()
+        for((route,buffer) in targets){
+            val destination=route.to ?: ("deleted-resource:"+UUID.randomUUID())
+            route.from?.let{addresses[it]=destination}
+            retainedResourceTabs.filterValues{it===buffer}.keys.forEach{addresses[it]=destination}
+        }
+        val nextLayout=layout.copy(nodes=layout.nodes.mapValues{(_,node)->node.copy(tabs=node.tabs.map{addresses[it] ?: it},active=node.active?.let{addresses[it] ?: it})})
+        generation=UUID.randomUUID();loading.values.forEach{it.cancel()};loading.clear();newestOpen.clear()
         // Retire the whole URI namespace before attaching destinations, including swaps.
         for((_,buffer) in targets){buffer.language?.close();buffer.language=null}
         for((route,_) in targets)route.from?.let{buffers.remove(it)}
         for((route,buffer) in targets){
             val path=route.to
-            if(path==null){buffer.resourceDeleted=true;retainedResourceEditors[route.identity]=buffer;continue}
+            if(path==null){buffer.resourceDeleted=true;retainedResourceEditors[route.identity]=buffer;route.from?.let{retainedResourceTabs[addresses.getValue(it)]=buffer};continue}
             val entry=files.getValue(path)
             if(buffer.text!=route.after){buffer.state.edit{replace(0,length,route.after!!)}}
             buffer.file=entry.file;buffer.base=entry.saved.text!!;buffer.hash=entry.hash;buffer.resourceDeleted=false;buffer.error=""
             buffers[path]=buffer;retainedResourceEditors.entries.removeAll{it.value===buffer}
+            retainedResourceTabs.entries.removeAll{it.value===buffer}
             retainBuffer(entry.file,FileText(route.after!!,entry.hash),server,buffer)
         }
+        layout=nextLayout
+        rootFiles=nextTree;this.files=scopedFiles(nextTree)
         return routes
     }
 
@@ -295,14 +336,16 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     val agent = AgentSession()
     val terminal = TerminalSession()
     val active get() = layout.nodes[focused]?.active
-    val currentBuffer get() = buffers[active]
-    val hasUnsavedChanges get() = agent.prompt.isNotEmpty() || agent.running || (buffers.values+retainedResourceEditors.values).any { it.dirty || it.saving } || debugger?.active == true
+    val currentBuffer get() = bufferForTab(active)
+    val hasUnsavedChanges get() = agent.prompt.isNotEmpty() || agent.running || resourceChanges.busy || resourceChanges.hasPending || (buffers.values+retainedResourceEditors.values).any { it.dirty || it.saving } || debugger?.active == true
     suspend fun connect(): Boolean {
         if (connecting) return false
         if (hasUnsavedChanges) { status = "Save documents and send or clear draft messages before changing workspace servers."; return false }
         connecting = true
         try {
             val next = Engine(address); val (root, tree) = next.files()
+            directoryScope=""
+            resourceChanges.reset();retainedResourceTabs.clear()
             agent.turns = emptyList(); agent.error = ""; terminal.id = null; terminal.error = ""
             debugger?.close(); debugger = NativeDebugger(next, workspaceScope)
             debugger?.onLocation = { path, line -> workspaceScope.launch { revealDebug(path, line) } }
@@ -315,7 +358,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     }
     suspend fun refresh() {
         val current = generation; val server = engine ?: return
-        try { val (root, tree) = server.files(); if (generation == current) { files = tree; rootFiles = tree; status = root } }
+        try { val (root, tree) = server.files(); if (generation == current) { rootFiles = tree;files=scopedFiles(tree);status = root } }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { if (generation == current) status = "${failure.message} Check the server and refresh again." }
     }
@@ -409,7 +452,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         layout = layout.activate(tab, target); focused = target
     }
     fun close(tab: String) {
-        val buffer = buffers[tab]
+        val buffer = bufferForTab(tab)
         if (buffer != null && (buffer.dirty || buffer.saving)) { status = "Unsaved edits retained. Save this document before closing its tab."; return }
         layout = layout.remove(tab)
         if (layout.groups().none { it.id == focused }) focused = layout.groups().first().id
@@ -425,7 +468,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     }
     fun label(tab: String) = when (tab) {
         "files" -> "Files"; "agent" -> "Agent"; "terminal" -> "Terminal"
-        else -> (buffers[tab]?.file?.name ?: tab.substringAfterLast('/')) + if (buffers[tab]?.dirty == true) " •" else ""
+        else -> (bufferForTab(tab)?.file?.name ?: tab.substringAfterLast('/')) + (if(bufferForTab(tab)?.resourceDeleted==true) " (deleted)" else "") + if (bufferForTab(tab)?.dirty == true) " •" else ""
     }
     var savingAll = false
     var fileCommand by mutableStateOf<String?>(null)
@@ -438,17 +481,25 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     suspend fun performFileCommand() {
         val command = fileCommand ?: return
         val server = engine ?: run { status = "Connect to a workspace server first."; return }
-        val path = filePath; val source = currentBuffer; fileCommand = null
+        val path = filePath; val source = currentBuffer; val sourceTab=active;fileCommand = null
         fun find(nodes: List<FileNode>): FileNode? {
             for (node in nodes) { if (node.path == path) return node; find(node.children)?.let { return it } }; return null
         }
         if (command == "Save As") {
             if (source == null || source.saving || path.isEmpty()) return
-            if (path == source.file.path) { source.save(server); return }
+            if (path == source.file.path) {
+                if(source.resourceDeleted){status="The original source is deleted. Choose a different unused path to save its retained text as a copy.";return}
+                source.save(server); return
+            }
             val submitted = source.text
             source.saving = true
             fun finish() {
-                if (source.text == submitted) { layout = layout.remove(source.file.path); buffers.remove(source.file.path) }
+                if (source.text == submitted&&sourceTab!=null&&bufferForTab(sourceTab)===source) {
+                    layout=layout.remove(sourceTab)
+                    if(buffers[source.file.path]===source)buffers.remove(source.file.path)
+                    retainedResourceTabs.remove(sourceTab)
+                    if(source.resourceDeleted&&retainedResourceTabs.values.none{it===source}&&buffers.values.none{it===source})retainedResourceEditors.entries.removeAll{it.value===source}
+                }
             }
             try {
                 if (path.endsWith(".md", ignoreCase = true)) {
@@ -470,11 +521,11 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { status = "${failure.message} Original edits are retained. Choose an unused path and retry Save As." }
             finally { source.saving = false }
-        } else if (command == "Open Directory" && path.isEmpty()) { refresh(); show("files") }
+        } else if (command == "Open Directory" && path.isEmpty()) { directoryScope="";refresh(); show("files") }
         else {
             val file = find(files)
             if (file == null || file.dir != (command == "Open Directory")) { status = "Path not found. Refresh and choose a path in this workspace."; return }
-            if (file.dir) { files = file.children; show("files") } else open(file)
+            if (file.dir) { directoryScope=file.path;files = file.children; show("files") } else open(file)
         }
     }
     suspend fun saveAll() {

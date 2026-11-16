@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import {request} from "../api/client";
+import {api,request} from "../api/client";
+import {ResourceConsequencesView} from "./SourceRecovery";
+import {isResourceEdit,prepareResourceSave,prepareResourceRestore,publishResourceRestore,type ResourceRestoreReview,type ResourceEditorRoute} from "./ResourceEditors";
 import { createPortal } from "react-dom";
 import { isolateHistory } from "@codemirror/commands";
 import { type Transaction } from "@codemirror/state";
@@ -13,7 +15,7 @@ import { utf16ToPosition } from "../lsp/positions";
 import type { CodeAction } from "../lsp/client";
 import type { Buffer, Buffers } from "./buffers";
 import { semanticLocations, semanticPath } from "./Intelligence";
-import { providerActionPaths,validateReferencedTargets, planWorkspaceEdit, invertChangePlan, validateChangePlan, type SourceSnapshot, type ChangePlan } from "./ChangePlan";
+import { WorkspaceChangeHistory,type WorkspaceHistoryToken,providerActionPaths,validateReferencedTargets, planWorkspaceEdit, invertChangePlan, validateChangePlan, type SourceSnapshot, type ChangePlan } from "./ChangePlan";
 import {workspaceChangeEventName as eventName,type ChangeCommand} from "./WorkspaceChangeEvents";
 export type {ChangeCommand} from "./WorkspaceChangeEvents";
 export function workspaceSnapshots(buffers: Buffers): Map<string, SourceSnapshot> { return new Map([...buffers.values].map(([path, buffer]) => [path, { text: buffer.text, writable: !buffer.readonly && !buffer.saving && !buffer.transient }])); }
@@ -33,25 +35,50 @@ export function applyWorkspacePlan(buffers: Buffers, plan: ChangePlan): void {
     if (target.buffer.text !== target.after) target.buffer.edit(target.after);
   }
 }
-export function WorkspaceChanges({ buffers, current, focus,files }: { files:FileNode[];buffers: Buffers; current: () => Buffer | undefined; focus: () => void }) {
+export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,history }: { files:FileNode[];buffers: Buffers; current: () => Buffer | undefined; focus: () => void;adoptResources:(routes:ResourceEditorRoute<Buffer>[])=>void;history:WorkspaceChangeHistory }) {
   const lookup = useWorkspaceLanguageLookup(),readOutline=useWorkspaceOutlineReader();
   const [mode, setMode] = useState<ChangeCommand | "proposal" | null>(null), [name, setName] = useState(""), [notice, setNotice] = useState("");
+  const [resource,setResource]=useState<ResourceRestoreReview|null>(null),[publishing,setPublishing]=useState(false);
   const [plan, setPlan] = useState<ChangePlan | null>(null), [choices, setChoices] = useState<CodeAction[]>([]);
   const [file, setFile] = useState(0), [page, setPage] = useState(0), [actionPage, setActionPage] = useState(0);
-  const undo = useRef<ChangePlan[]>([]), redo = useRef<ChangePlan[]>([]), ticket = useRef(0),choiceTicket=useRef(0);
+  const resourceHistory=useRef<WorkspaceHistoryToken|null>(null),busy=useRef(false),ticket = useRef(0),choiceTicket=useRef(0);
   const captured = useRef<{ sources: Map<string, SourceSnapshot>; references: string[]; current: () => boolean;request:number;choices:CodeAction[];resolve:(action:CodeAction)=>Promise<CodeAction>;acquire:(path:string)=>Promise<SourceSnapshot>;query?:()=>Promise<CodeAction[]> } | null>(null);
   const input = useRef<HTMLInputElement>(null), panel = useRef<HTMLDivElement>(null);
-  const close = () => { ticket.current++; setMode(null); focus(); };
-  const install = (title: string, edit: unknown) => {
+  const close = () => { if(publishing)return;ticket.current++; setResource(null);setMode(null); focus(); };
+  async function acquireResource(path:string){const existing=buffers.values.get(path);if(existing)return existing;const response=await api.files();const find=(nodes:FileNode[]):FileNode|undefined=>{for(const file of nodes){if(!file.dir&&file.path===path)return file;const nested=find(file.children??[]);if(nested)return nested;}};const file=find(response.tree);if(!file)throw new Error("Current resource source is unavailable: "+path);return await buffers.open(file);}
+  async function prepareHistory(token:WorkspaceHistoryToken,id:number){
+    if(token.entry.kind!=="resource")return;setNotice("Preparing reviewed resource "+token.direction+"…");
+    try{const record=await request<import("./SourceRecovery").RecoveryReading>("GET","/api/changes/resource-recovery?id="+encodeURIComponent(token.entry.recovery));
+      if(record.id!==token.entry.recovery)throw new Error("Recovery identity changed.");
+      const review=await prepareResourceRestore(buffers,record,acquireResource,(route,body)=>request("POST",route,body),()=>ticket.current===id&&history.current(token));
+      if(ticket.current!==id||!history.current(token))throw new Error("Workspace history changed. Prepare again.");resourceHistory.current=token;setResource(review);setFile(0);setPage(0);setNotice("Review complete saved and draft consequences before workspace "+token.direction+".");
+    }catch(error){if(ticket.current===id)setNotice(String(error));}
+  }
+  const install = async (title: string, edit: unknown) => {
     const capture = captured.current;
     if (!capture?.current()) throw new Error("Source, selection or provider changed. Prepare the proposal again.");
+    resourceHistory.current=null;
+    if(isResourceEdit(edit)){
+      setPlan(null);setResource(null);setNotice("Preparing complete source resource changes…");
+      const reviewed=await prepareResourceSave(buffers,title,edit,async path=>{await capture.acquire(path);const buffer=buffers.values.get(path);if(!buffer)throw new Error("Resource source was not retained.");return buffer;},(route,body)=>request("POST",route,body),()=>captured.current===capture&&capture.current());
+      if(!capture.current())throw new Error("Source or provider changed. Prepare again.");setResource(reviewed);setChoices([]);setFile(0);setPage(0);setNotice("Review saved source consequences. This explicit action saves resources; generated outputs are not materialized.");return;
+    }
+    setResource(null);
     const next = planWorkspaceEdit(title, edit, capture.sources, mode === "cleanup"), refusal = validateChangePlan(next, workspaceSnapshots(buffers));
     if (refusal) throw new Error(refusal); validateReferencedTargets(next, capture.references); if(!next.patches.length){setPlan(null);setNotice("No trailing ASCII spaces or tabs to remove.");return;} setPlan(next); setChoices([]); setFile(0); setPage(0); setNotice("");
   };
   useEffect(() => {
     const command = (event: Event) => {
+      if(busy.current)return;
       const detail=(event as CustomEvent).detail;
       if(detail?.kind==='proposal'){
+        if(isResourceEdit(detail.edit)){
+          try{const targets=[...detail.expected].map(([path,text]:[string,string])=>{const buffer=buffers.values.get(path),view=buffer&&editorForBuffer(buffer)?.view;if(!buffer||buffer.text!==text||buffer.readonly||buffer.saving||buffer.transient)throw new Error('Reviewed resource source changed or is unavailable.');return {path,buffer,text,view,selection:view?.state.selection};});
+            const id=++ticket.current,valid=()=>id===ticket.current&&targets.every(target=>buffers.values.get(target.path)===target.buffer&&target.buffer.text===target.text&&(!target.view||!!target.selection&&target.view.state.selection.eq(target.selection)));
+            captured.current={sources:workspaceSnapshots(buffers),references:[],current:valid,request:id,choices:[],resolve:async()=>{throw new Error('This is a reviewed source proposal.');},acquire:async path=>{const target=targets.find(item=>item.path===path);if(!target||!valid())throw new Error('Every existing resource target must be captured in the proposal.');return {text:target.text,writable:true};}};
+            setMode('proposal');setPlan(null);setChoices([]);detail.accepted=true;void install(detail.title,detail.edit).catch(error=>{if(id===ticket.current)setNotice(String(error));});
+          }catch(error){detail.error=String(error);}return;
+        }
         try{
           const sources=workspaceSnapshots(buffers),next=planWorkspaceEdit(detail.title,detail.edit,sources);
           const targets=next.patches.map(patch=>{
@@ -68,11 +95,12 @@ export function WorkspaceChanges({ buffers, current, focus,files }: { files:File
       }
       const next = (event as CustomEvent).detail as ChangeCommand;
       if (!["rename", "actions", "format", "cleanup", "undo", "redo"].includes(next)) return;
-      ticket.current++; setMode(next); setPlan(null); setChoices([]); setName(""); setNotice(""); setActionPage(0);
+      if(busy.current)return;ticket.current++;resourceHistory.current=null; setResource(null);setMode(next); setPlan(null); setChoices([]); setName(""); setNotice(""); setActionPage(0);
       if (next === "undo" || next === "redo") {
-        const history = next === "undo" ? undo.current : redo.current, target = history.at(-1);
-        if (!target) { setNotice(`No workspace change to ${next}.`); return; }
-        try { applyWorkspacePlan(buffers, target); history.pop(); const inverse = invertChangePlan(target); (next === "undo" ? redo.current : undo.current).push(inverse); setNotice(`Workspace ${next} applied to ${target.patches.length} drafts. Not saved or verified.`); }
+        const token=history.preview(next);
+        if (!token) { setNotice(`No workspace change to ${next}.`); return; }
+        if(token.entry.kind==='resource'){void prepareHistory(token,ticket.current);return;}
+        try { const target=token.entry.plan;applyWorkspacePlan(buffers, target);history.commit(token,{kind:'draft',plan:invertChangePlan(target)});setNotice(`Workspace ${next} applied to ${target.patches.length} drafts. Not saved or verified.`); }
         catch (error) { setNotice(String(error)); }
       }
     };
@@ -80,6 +108,7 @@ export function WorkspaceChanges({ buffers, current, focus,files }: { files:File
   }, [buffers]);
   useEffect(() => { if (mode === "rename") input.current?.focus(); else if (mode) panel.current?.focus(); }, [mode]);
   async function prepare() {
+    if(busy.current)return;
     if (mode === "cleanup") {
       const buffer=current(),view=buffer&&editorForBuffer(buffer)?.view;
       if(!buffer||!view||buffer.readonly||buffer.saving||buffer.transient){setNotice("Choose writable source before preparing cleanup.");return;}
@@ -90,7 +119,7 @@ export function WorkspaceChanges({ buffers, current, focus,files }: { files:File
       try{
         const edit=await request<unknown>("POST","/api/changes/cleanup",{uri:"hick:///"+buffer.file.path.split("/").map(encodeURIComponent).join("/"),source,profile:"trim_trailing_horizontal"});
         if(!valid()){if(id===ticket.current)setNotice("Source or selection changed. Prepare cleanup again.");return;}
-        install("Trim trailing whitespace",edit);
+        await install("Trim trailing whitespace",edit);
       }catch(error){if(id===ticket.current)setNotice(String(error));}
       return;
     }
@@ -125,10 +154,11 @@ export function WorkspaceChanges({ buffers, current, focus,files }: { files:File
       const result = await client.request(method, params);
       if (!valid()) { if (id === ticket.current) setNotice("Source, selection or provider changed. Prepare the proposal again."); return; }
       if (mode === "actions") { const choices:CodeAction[]=Array.isArray(result)?structuredClone(result):[];captured.current!.choices=choices;setChoices(choices); setNotice(Array.isArray(result) && result.length ? "Choose a provider action to preview." : "No provider actions here. Support depends on the installed language server."); }
-      else install(mode === "rename" ? `Rename to ${name}` : "Format source", mode === "format" ? { changes: { [uri]: result } } : result);
+      else await install(mode === "rename" ? `Rename to ${name}` : "Format source", mode === "format" ? { changes: { [uri]: result } } : result);
     } catch (error) { if (id===ticket.current) setNotice(String(error)); }
   }
   const choose = async (action: CodeAction) => {
+    if(busy.current)return;
     const capture=captured.current,choice=++choiceTicket.current;
     const owned=()=>!!capture&&captured.current===capture&&capture.request===ticket.current&&choiceTicket.current===choice;
     try {
@@ -146,25 +176,37 @@ export function WorkspaceChanges({ buffers, current, focus,files }: { files:File
         if(!owned()||!capture.current())throw new Error("Source, selection or provider changed. Prepare actions again.");
         if(resolved.disabled)throw new Error(resolved.disabled.reason);
         if(resolved.command)throw new Error("This action requires a provider command; its edit has not been applied.");
-        return {paths:providerActionPaths(resolved),value:resolved};
+        let paths:string[];
+        if(isResourceEdit(resolved.edit)){
+          const observed=await request<{sources:Record<string,{kind:string}>;refusals:Record<string,string>}>("POST","/api/changes/resource-inputs",{context:crypto.randomUUID().replaceAll('-',''),edit:resolved.edit});
+          if(Object.keys(observed.refusals).length)throw new Error("Resource sources cannot be acquired. Refresh the workspace and prepare again.");paths=Object.entries(observed.sources).filter(([,source])=>source.kind==='file').map(([path])=>path);
+        }else paths=providerActionPaths(resolved);
+        return {paths,value:resolved};
       },capture.acquire,()=>owned()&&capture.current());
       if(!owned())return;
       capture.sources=acquired.sources;const resolved=acquired.value;
-      install(resolved.title,resolved.edit);
+      await install(resolved.title,resolved.edit);
     }catch(error){if(owned())setNotice(String(error));}
   };
+  async function saveResources(){if(!resource||publishing)return;const review=resource,token=resourceHistory.current;choiceTicket.current++;if(token&&!history.current(token)){setNotice("Workspace history changed. Prepare again.");return;}setResource(null);busy.current=true;setPublishing(true);setNotice("Publishing reviewed source resources…");
+    try{const result=await publishResourceRestore(buffers,review,(route,body)=>request("POST",route,body));adoptResources(result.routes);if(token)history.commit(token,{kind:'resource',recovery:result.recovery});else history.record({kind:'resource',recovery:result.recovery});resourceHistory.current=null;setNotice("Saved source resources. Review Source recovery record "+result.recovery+" for coordinated inverse restoration. Generated files and checks were not run.");}
+    catch(error){setNotice(String(error)+" Preserve drafts and inspect Source recovery before another publication.");}finally{busy.current=false;setPublishing(false);}
+  }
   function apply() {
     if (!plan) return;
-    try { if (!captured.current?.current()) throw new Error("Source, selection or provider changed. Prepare the proposal again."); applyWorkspacePlan(buffers, plan); undo.current = [...undo.current.slice(-31), invertChangePlan(plan)]; redo.current = []; setPlan(null); setNotice(`Applied ${plan.patches.length} source drafts. Not saved or verified. Use Save All after reviewing; Undo workspace change restores this batch.`); }
+    try { if (!captured.current?.current()) throw new Error("Source, selection or provider changed. Prepare the proposal again."); applyWorkspacePlan(buffers, plan); history.record({kind:'draft',plan:invertChangePlan(plan)}); setPlan(null); setNotice(`Applied ${plan.patches.length} source drafts. Not saved or verified. Use Save All after reviewing; Undo workspace change restores this batch.`); }
     catch (error) { setNotice(String(error)); }
   }
   if (!mode) return null;
   const patch = plan?.patches[Math.min(file, plan.patches.length - 1)], before = patch?.before.split("\n") ?? [], after = patch?.after.split("\n") ?? [], last = Math.max(0, Math.ceil(Math.max(before.length, after.length) / 100) - 1), selected = Math.min(page, last);
   return createPortal(<div ref={panel} tabIndex={-1} className="simple-workspace-problems" role="dialog" aria-label="Workspace change preview" onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); close(); } }}>
-    <button aria-label="Close change preview" onClick={close}>×</button><strong>Workspace change preview</strong><p>Source drafts · not saved or verified</p>
-    {mode === "rename" && <input ref={input} aria-label="New symbol name" value={name} onChange={event => { ticket.current++; setPlan(null); setChoices([]); setName(event.target.value); setNotice(""); }} />}
-    {!["undo", "redo", "proposal"].includes(mode) && <button disabled={mode === "rename" && !name.trim()} onClick={() => { void prepare(); }}>Prepare {mode === "actions" ? "provider actions" : mode === "format" ? "formatting" : mode === "cleanup" ? "cleanup" : "rename"}</button>}
+    <button disabled={publishing} aria-label="Close change preview" onClick={close}>×</button><strong>Workspace change preview</strong><p>{resource?"Reviewed source resource publication":"Source drafts · not saved or verified"}</p>
+    {mode === "rename" && <input disabled={publishing} ref={input} aria-label="New symbol name" value={name} onChange={event => { ticket.current++; setPlan(null); setChoices([]); setName(event.target.value); setNotice(""); }} />}
+    {!["undo", "redo", "proposal"].includes(mode) && <button disabled={publishing||(mode === "rename" && !name.trim())} onClick={() => { void prepare(); }}>Prepare {mode === "actions" ? "provider actions" : mode === "format" ? "formatting" : mode === "cleanup" ? "cleanup" : "rename"}</button>}
     {notice && <p role="status">{notice}</p>}
+    {resource&&<section aria-label="Resource change preview"><strong>{resource.plan.title}</strong><p>{resource.patches.length} reviewed paths · saved sources and drafts</p><select aria-label="Resource preview source" value={file} onChange={event=>{setFile(Number(event.target.value));setPage(0);}}>{resource.patches.map((item,index)=><option key={item.path} value={index}>{item.path}</option>)}</select>
+    {resource.patches.slice(file,file+1).map(item=><div key={item.path}><strong>Current draft</strong><pre>{item.before?.text.slice(page*16000,(page+1)*16000)??'Source absent'}</pre><strong>After draft</strong><pre>{item.after?.text.slice(page*16000,(page+1)*16000)??'Source absent'}</pre><strong>Current saved baseline</strong><pre>{resource.savedBefore[item.path]?.kind==='file'?(resource.savedBefore[item.path] as {text:string}).text.slice(page*16000,(page+1)*16000):'Source absent'}</pre><strong>After saved baseline</strong><pre>{resource.saved[item.path]?.kind==='file'?(resource.saved[item.path] as {text:string}).text.slice(page*16000,(page+1)*16000):'Source absent'}</pre><p>Text page {page+1} · 16,000 characters per side</p><button disabled={!page} onClick={()=>setPage(page-1)}>Previous text</button><button disabled={Math.max(item.before?.text.length??0,item.after?.text.length??0,resource.savedBefore[item.path]?.kind==='file'?(resource.savedBefore[item.path] as {text:string}).text.length:0,resource.saved[item.path]?.kind==='file'?(resource.saved[item.path] as {text:string}).text.length:0)<=(page+1)*16000} onClick={()=>setPage(page+1)}>Next text</button></div>)}
+    <ResourceConsequencesView review={resource}/><button disabled={publishing} onClick={()=>{void saveResources();}}>Save reviewed source resources</button></section>}
     {choices.slice(actionPage * 100, (actionPage + 1) * 100).map((action, index) => <div key={index}><button onClick={() => {void choose(action);}}>{action.title}</button>{action.disabled && <small>{action.disabled.reason}</small>}</div>)}
     {choices.length > 100 && <div><button disabled={!actionPage} onClick={() => setActionPage(actionPage - 1)}>Previous actions</button><button disabled={(actionPage + 1) * 100 >= choices.length} onClick={() => setActionPage(actionPage + 1)}>Next actions</button></div>}
     {plan && patch && <><p>{plan.title} · {plan.patches.length} source files</p>{mode === "rename" && <p>Reference targets: {new Set(captured.current?.references).size} files · project analysis scope not established</p>}<select aria-label="Preview source file" value={file} onChange={event => { setFile(Number(event.target.value)); setPage(0); }}>{plan.patches.map((patch, index) => <option key={patch.path} value={index}>{patch.path}</option>)}</select>

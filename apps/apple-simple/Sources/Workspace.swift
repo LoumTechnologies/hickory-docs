@@ -167,7 +167,7 @@ import Observation
     var saving = false
     var error = ""
     private(set) var dirty = false
-    var readOnly: Bool { file.generated_by != nil }
+    var readOnly: Bool { resourceDeleted || file.generated_by != nil }
     init(file: FileNode, text: FileText) {
         self.file = file; self.sourceValue = ExactSourceText(text.content); base = text.content; hash = text.hash; refreshInline()
     }
@@ -259,7 +259,12 @@ import Observation
     var rootFiles: [FileNode] = []
     var files: [FileNode] = []
     var buffers: [String: DocumentBuffer] = [:]
+    let resourceRestoration=ResourceRestoration()
     var retainedResourceEditors:[String:DocumentBuffer]=[:]
+    func retainedResourceTab(_ buffer:DocumentBuffer)->String {"\0resource:"+buffer.id.uuidString}
+    func bufferForTab(_ tab:String)->DocumentBuffer? {
+        buffers[tab] ?? retainedResourceEditors.values.first { exactUTF8(retainedResourceTab($0),tab) }
+    }
     func captureResourceEditors(_ patches:[ResourceEditorPatch],restoring:[String:DocumentBuffer]=[:])->()->Bool {
         let session=generation
         let paths=patches.map{($0.path,buffers[$0.path])}
@@ -287,8 +292,14 @@ import Observation
         for (route,buffer,edits) in targets {
             if let path=route.to,!patches.contains(where:{exactUTF8($0.path,path)&&$0.before != nil}),buffers[path] != nil {throw EngineError(message:"A destination editor appeared after review. Inspect recovery.")}
             let probe=edits.isEmpty ? [NativeSourceEdit(range:NSRange(location:0,length:0),text:"")]:edits
-            if buffer.applySourceEdits != nil,buffer.canReflectWorkspaceEdits?(probe,buffer.text) != true {throw EngineError(message:"Finish composition before adopting source editors. Inspect recovery.")}
+            if !(buffer.resourceDeleted && edits.isEmpty),buffer.applySourceEdits != nil,buffer.canReflectWorkspaceEdits?(probe,buffer.text) != true {throw EngineError(message:"Finish composition before adopting source editors. Inspect recovery.")}
         }
+        var addresses:[Data:String]=[:]
+        for (route,buffer,_) in targets {
+            let from=route.from ?? retainedResourceTab(buffer)
+            addresses[Data(from.utf8)]=route.to ?? retainedResourceTab(buffer)
+        }
+        let adoptedLayout=try layout.remappingTabs(addresses)
         generation=UUID();loading.values.forEach{$0.cancel()};loading=[:]
         // Release every old URI before attaching any destination: swaps otherwise
         // collide with the other editor's still-live language subscription.
@@ -302,6 +313,7 @@ import Observation
             buffers[path]=buffer;retainedResourceEditors = retainedResourceEditors.filter{$0.value !== buffer}
             _ = retainBuffer(entry.file,text:FileText(path:path,content:route.after!,hash:entry.hash),engine:engine,existing:buffer)
         }
+        layout=adoptedLayout
         return routes
     }
 
@@ -318,8 +330,8 @@ import Observation
     private var generation = UUID()
     var sourceNavigationEpoch:UUID {generation}
     var active: String? { layout.nodes[focused]?.active }
-    var currentBuffer: DocumentBuffer? { active.flatMap { buffers[$0] } }
-    var hasUnsavedChanges: Bool { !agent.prompt.isEmpty || agent.running || (Array(buffers.values)+Array(retainedResourceEditors.values)).contains { $0.dirty || $0.saving } || debugger?.active == true }
+    var currentBuffer: DocumentBuffer? { active.flatMap { bufferForTab($0) } }
+    var hasUnsavedChanges: Bool { resourceRestoration.busy || resourceRestoration.hasPending || !agent.prompt.isEmpty || agent.running || (Array(buffers.values)+Array(retainedResourceEditors.values)).contains { $0.dirty || $0.saving } || debugger?.active == true }
     func connect() async -> Bool {
         guard !connecting else { return false }
         guard !hasUnsavedChanges else { status = "Save documents and send or clear draft messages before changing workspace servers."; return false }
@@ -464,7 +476,7 @@ import Observation
         layout.activate(tab, in: target); focused = target
     }
     func close(_ tab: String) {
-        if let buffer = buffers[tab], buffer.dirty || buffer.saving {
+        if let buffer = bufferForTab(tab), buffer.dirty || buffer.saving {
             status = "Unsaved edits retained. Save this document before closing its tab."; return
         }
         layout.remove(tab)
@@ -483,7 +495,7 @@ import Observation
         if tab == "files" { return "Files" }
         if tab == "agent" { return "Agent" }
         if tab == "terminal" { return "Terminal" }
-        return (buffers[tab]?.file.name ?? (tab as NSString).lastPathComponent) + (buffers[tab]?.dirty == true ? " •" : "")
+        return (bufferForTab(tab)?.file.name ?? (tab as NSString).lastPathComponent) + (bufferForTab(tab)?.resourceDeleted == true ? " (retained)" : "") + (bufferForTab(tab)?.dirty == true ? " •" : "")
     }
     var savingAll = false
     var fileCommand: String?
@@ -502,11 +514,14 @@ import Observation
         }
         if command == "Save As" {
             guard let source, !source.saving, !path.isEmpty else { return }
-            if path == source.file.path { await source.save(using: engine); return }
+            if exactUTF8(path,source.file.path),!source.resourceDeleted { await source.save(using: engine); return }
             let submitted = source.text
             source.saving = true; defer { source.saving = false }
             func finish() {
-                if exactUTF8(source.text,submitted) { layout.remove(source.file.path); buffers.removeValue(forKey: source.file.path) }
+                if exactUTF8(source.text,submitted) {
+                    if buffers[source.file.path] === source {layout.remove(source.file.path);buffers.removeValue(forKey:source.file.path)}
+                    else if source.resourceDeleted {layout.remove(retainedResourceTab(source));retainedResourceEditors=retainedResourceEditors.filter{$0.value !== source}}
+                }
             }
             do {
                 struct Created: Decodable { var path: String }

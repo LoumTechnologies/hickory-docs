@@ -52,6 +52,7 @@ import {editorForBuffer} from './Document';
 import {EditorView} from '@codemirror/view';
 import {isolateHistory} from '@codemirror/commands';
 import type {Transaction} from '@codemirror/state';
+import {isGroup,groups,type Layout} from './layout';
 export interface ResourceSource {identity:string;text:string}
 export interface ResourceEditorPatch {path:string;before:ResourceSource|null;after:ResourceSource|null}
 export interface ResourceEditorCapture<T> {editor:T;source:string}
@@ -99,6 +100,8 @@ export function confirmedResourceFiles(patches:readonly ResourceEditorPatch[],re
 /** Adopt only an already confirmed publication; this function never writes files. */
 </ui:copy>
 
+The browser recovery adapter acquires every current source before reviewing an inverse. It hashes saved baselines independently from drafts, binds the selected record and compiler consequence fingerprints, and refuses changed buffers or ownership drafts before publication. A failed or uncertain publication is never retried automatically. Confirmed receipts alone authorize editor adoption. Route tabs in one transformation so swaps cannot collide; retain deleted pane placement by explicit buffer handle for a later inverse. Reconfigure the cached editor address without replacing its text history.
+
 Capture current buffer authority before network publication. Adoption preflights
 every editor before removing addresses, retires delayed reads and retains deleted
 objects outside the writable namespace. Ordinary Save cannot write those objects.
@@ -138,6 +141,101 @@ export function adoptResourceReceipt(buffers:Buffers,patches:readonly ResourceEd
   buffers.values.set(route.to,buffer);for(const [id,held] of retained)if(held===buffer)retained.delete(id);
  }
  for(const {buffer} of prepared)buffer.publish();buffers.changed();return routes;
+}
+
+export interface ResourceWireState {kind:'file'|'missing';identity?:string;text?:string}
+export interface ResourceWirePlan {version:number;context:string;title:string;patches:{path:string;before:ResourceWireState;after:ResourceWireState}[]}
+export interface ResourceConstructionLayer {entries:string[];removed_entries:string[];output_paths:string[]}
+export interface ResourceConstructionFacts {version:number;workspace:string;context:string;fingerprint:string;protected_targets:string[];saved:ResourceConstructionLayer;draft:ResourceConstructionLayer}
+function currentResourceFacts(facts:ResourceConstructionFacts,workspace:string,context:string){return facts.version===1&&facts.workspace===workspace&&facts.context===context&&/^[0-9a-f]{64}$/.test(facts.fingerprint)&&facts.protected_targets.length===0;}
+export interface ResourceRestoreReview {
+ operation:'restore'|'save';record:string;fingerprint:string;consequence:string;workspace:string;context:string;
+ facts:ResourceConstructionFacts;plan:ResourceWirePlan;patches:ResourceEditorPatch[];saved:Record<string,ResourceSaved>;savedBefore:Record<string,ResourceSaved>;
+ proposal:unknown;current:()=>boolean;restoring:Map<string,Buffer>;
+}
+export type ResourceTransport=<T>(route:string,body:unknown)=>Promise<T>;
+export function resourceWirePatches(plan:ResourceWirePlan):ResourceEditorPatch[]{
+ if(plan.version!==1||!plan.context||!plan.patches.length||plan.patches.length>1000)throw new Error('Resource plan is unavailable or exceeds the review bound.');
+ const side=(value:ResourceWireState):ResourceSource|null=>{if(value.kind==='missing')return null;if(value.kind!=='file'||!value.identity||typeof value.text!=='string')throw new Error('Resource source identity is unavailable.');return {identity:value.identity,text:value.text};};
+ return plan.patches.map(patch=>({path:patch.path,before:side(patch.before),after:side(patch.after)}));
+}
+/** Preparation observes current saved sources and drafts; it never publishes. */
+export async function prepareResourceRestore(buffers:Buffers,record:{id:string;workspace:string;fingerprint:string;paths:{path:string;saved_after:{kind:string}}[]},acquire:(path:string)=>Promise<Buffer>,load:ResourceTransport,alive:()=>boolean,hash:(text:string)=>Promise<string>=async text=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text))),byte=>byte.toString(16).padStart(2,'0')).join('')):Promise<ResourceRestoreReview>{
+ if(!/^[0-9a-f]{32}$/.test(record.id)||!record.paths.length||record.paths.length>1000)throw new Error('Choose a bounded recovery record.');
+ for(const item of record.paths)if(item.saved_after.kind==='file')await acquire(item.path);
+ if(!alive())throw new Error('Workspace or recovery selection changed. Prepare restoration again.');
+ const paths=new Set(record.paths.map(item=>item.path));if(paths.size!==record.paths.length)throw new Error('Recovery paths are not unique.');
+ const captures=[...buffers.values].map(([path,buffer])=>({path,buffer,text:buffer.text,base:buffer.base,hash:buffer.hash,version:buffer.version,file:buffer.file,metadata:JSON.stringify(buffer.file),readonly:buffer.readonly,transient:buffer.transient}));
+ const current=()=>alive()&&buffers.values.size===captures.length&&captures.every(row=>buffers.values.get(row.path)===row.buffer&&row.buffer.text===row.text&&row.buffer.base===row.base&&row.buffer.hash===row.hash&&row.buffer.version===row.version&&row.buffer.file===row.file&&JSON.stringify(row.buffer.file)===row.metadata&&row.buffer.readonly===row.readonly&&row.buffer.transient===row.transient&&!row.buffer.saving)&&record.paths.every(item=>captures.some(row=>row.path===item.path)||!buffers.values.has(item.path));
+ const drafts:Record<string,unknown>=Object.create(null);for(const row of captures){if(!paths.has(row.path))continue;if(row.buffer.readonly||row.buffer.transient||row.buffer.saving)throw new Error('Choose writable current source before restoration.');drafts[row.path]={text:row.text,base_sha256:await hash(row.base),version:row.version,writable:true};}
+ if(!current())throw new Error('Source changed while preparing restoration.');
+ const context=crypto.randomUUID().replaceAll('-',''),capture={context,edit:{changes:Object.fromEntries(record.paths.map(item=>['hick:///'+item.path.split('/').map(encodeURIComponent).join('/'),[]]))},drafts,ownership_sources:Object.fromEntries([...buffers.values].filter(([,buffer])=>!buffer.readonly&&!buffer.transient).map(([path,buffer])=>[path,buffer.text]))};
+ const inputs=await load<{workspace:string;context:string;refusals:Record<string,string>}>('/api/changes/resource-inputs',capture);
+ if(!current()||inputs.workspace!==record.workspace||inputs.context!==context||Object.keys(inputs.refusals).length)throw new Error('Current source acquisition refused or changed. Prepare restoration again.');
+ const proposal={recovery_id:record.id,inputs,capture};
+ const prepared=await load<{version:number;restoration:{recovery_fingerprint:string;workspace:string;context:string;plan:ResourceWirePlan;saved_before:Record<string,ResourceSaved>;saved_after:Record<string,ResourceSaved>};consequences:ResourceConstructionFacts}>('/api/changes/prepare-restoration',proposal);
+ if(!current()||prepared.version!==1||prepared.restoration.workspace!==record.workspace||prepared.restoration.context!==context||prepared.restoration.recovery_fingerprint!==record.fingerprint||!currentResourceFacts(prepared.consequences,record.workspace,context))throw new Error('Recovery evidence or source ownership changed. Read and prepare again.');
+ const patches=resourceWirePatches(prepared.restoration.plan),restoring=new Map<string,Buffer>();
+ for(const patch of patches)if(patch.after&&!patches.some(item=>item.before?.identity===patch.after!.identity)){const held=buffers.retainedResources.get(patch.after.identity);if(held)restoring.set(patch.after.identity,held);}
+ const live=new Map<string,ResourceEditorCapture<Buffer>>();for(const patch of patches)if(patch.before){const buffer=buffers.values.get(patch.path);if(!buffer||buffer.text!==patch.before.text)throw new Error("Current resource source does not match the reviewed restoration. Preserve drafts and prepare again.");live.set(patch.before.identity,{editor:buffer,source:buffer.text});}
+ routeResourceEditors(patches,live,new Map([...restoring].map(([identity,editor])=>[identity,{editor,source:editor.text}])));
+ const editorCurrent=captureResourceEditors(buffers,patches,restoring);
+ return {operation:'restore',facts:prepared.consequences,record:record.id,fingerprint:record.fingerprint,consequence:prepared.consequences.fingerprint,workspace:record.workspace,context,plan:prepared.restoration.plan,patches,saved:prepared.restoration.saved_after,savedBefore:prepared.restoration.saved_before,proposal,current:()=>current()&&editorCurrent(),restoring};
+}
+const resourceAttempts=new WeakMap<ResourceRestoreReview,string>();
+/** Never retry a failed/uncertain write here. The caller requires a new review. */
+export async function publishResourceRestore(buffers:Buffers,review:ResourceRestoreReview,load:ResourceTransport):Promise<{routes:ResourceEditorRoute<Buffer>[];recovery:string}>{
+ const earlier=resourceAttempts.get(review);if(earlier)throw new Error('This review already has publication request '+earlier+'. Inspect its retained recovery; it will not be retried.');
+ if(!review.current())throw new Error('Source changed after review. Prepare restoration again.');
+ for(const patch of review.patches)if(patch.before){const buffer=buffers.values.get(patch.path),view=buffer&&editorForBuffer(buffer)?.view;if(!buffer||view&&(view.composing||view.state.doc.toString()!==buffer.text||view.state.readOnly||!view.state.facet(EditorView.editable)))throw new Error('Finish composition and restore current source before publication.');}
+ const request=crypto.randomUUID().replaceAll('-','');resourceAttempts.set(review,request);
+ let receipt:ResourceReceipt;try{receipt=await load<ResourceReceipt>(review.operation==='save'?'/api/changes/resource-save':'/api/changes/restore-resources',{request_id:request,reviewed_fingerprint:review.consequence,...(review.operation==='restore'?{reviewed_recovery_fingerprint:review.fingerprint}:{}),proposal:review.proposal});}catch(error){throw new Error(String(error)+' Publication request '+request+' is not confirmed. Inspect Source recovery using this identity before another review.');}
+ let routes:ResourceEditorRoute<Buffer>[];try{routes=adoptResourceReceipt(buffers,review.patches,receipt,{request,workspace:review.workspace,context:review.context,saved:new Map(Object.entries(review.saved))},review.current,review.restoring);}catch(error){throw new Error(String(error)+" Publication request "+request+"; retained recovery "+(receipt.outcome?.recovery??"unknown")+". Preserve local drafts while inspecting the result.");}
+ const match=receipt.outcome.recovery.match(/(?:^|\/)resource-changes\/([0-9a-f]{32})\/[^/]+$/);if(!match)throw new Error('Source restored but inverse recovery identity is unavailable. Inspect Source recovery.');
+ return {routes,recovery:match[1]};
+}
+
+
+/** Route tabs by reviewed source identity, retaining deleted placement for inverse restoration. */
+export function resourceLayout(layout:Layout,routes:readonly ResourceEditorRoute<Buffer>[],placements:Map<Buffer,{group:string;index:number;active:boolean}>):Layout {
+ const byPath=new Map(routes.filter(route=>route.from!==null).map(route=>[route.from!,route]));
+ for(const group of groups(layout))group.tabs.forEach((path,index)=>{const route=byPath.get(path);if(route?.to===null&&route.editor)placements.set(route.editor,{group:group.id,index,active:group.active===path});});
+ const routeTree=(node:Layout):Layout=>{
+  if(!isGroup(node))return {...node,first:routeTree(node.first),second:routeTree(node.second)};
+  const tabs=node.tabs.flatMap(path=>{const route=byPath.get(path);return route?(route.to===null?[]:[route.to]):[path];});
+  const moved=node.active?byPath.get(node.active):undefined;let active=moved?moved.to:node.active;
+  for(const route of [...routes].sort((a,b)=>(a.editor?placements.get(a.editor)?.index??0:0)-(b.editor?placements.get(b.editor)?.index??0:0)))if(route.from===null&&route.to!==null&&route.editor){const held=placements.get(route.editor);if(held?.group===node.id){tabs.splice(Math.min(held.index,tabs.length),0,route.to);if(held.active)active=route.to;placements.delete(route.editor);}}
+  return {...node,tabs,active:active&&tabs.includes(active)?active:tabs.at(-1)??null};
+ };return routeTree(layout);
+}
+export function isResourceEdit(edit:unknown):boolean{return !!edit&&typeof edit==='object'&&Array.isArray((edit as {documentChanges?:unknown}).documentChanges)&&((edit as {documentChanges:unknown[]}).documentChanges).some(item=>!!item&&typeof item==='object'&&'kind' in item);}
+/** A resource proposal is acquired as a whole; no text-only fallback may escape review. */
+export async function prepareResourceSave(buffers:Buffers,title:string,edit:unknown,acquire:(path:string)=>Promise<Buffer>,load:ResourceTransport,alive:()=>boolean,hash:(text:string)=>Promise<string>=resourceHash):Promise<ResourceRestoreReview>{
+ const context=crypto.randomUUID().replaceAll('-',''),targets=await load<{paths:string[]}>('/api/changes/resource-targets',{edit});
+ if(!alive()||!targets.paths.length||targets.paths.length>1000||new Set(targets.paths).size!==targets.paths.length)throw new Error('Resource targets changed or exceed the review bound.');
+ const initial=await captureResourceInputs(buffers,targets.paths,context,edit,load,alive,hash);
+ for(const path of targets.paths)if(initial.inputs.sources[path]?.kind==='file'){const buffer=await acquire(path);if(buffer.text!==initial.inputs.sources[path].text)throw new Error('Referenced source changed during acquisition. Prepare the provider action again.');}
+ const captured=await captureResourceInputs(buffers,targets.paths,context,edit,load,alive,hash);
+ for(const path of targets.paths){const before=initial.inputs.sources[path],after=captured.inputs.sources[path];if(before?.kind!==after?.kind||before?.text!==after?.text||JSON.stringify(initial.inputs.saved_sources[path])!==JSON.stringify(captured.inputs.saved_sources[path]))throw new Error('Saved or draft resource input changed during acquisition. Prepare the whole action again.');}
+ const plan=await load<{plan:ResourceWirePlan}>('/api/changes/plan-resources',{context,title,edit,sources:captured.inputs.sources});
+ if(!captured.current())throw new Error('Source changed while planning resource operations.');
+ const proposal={inputs:captured.inputs,capture:captured.capture,plan:plan.plan},facts=await load<ResourceConstructionFacts&{saved_sources:Record<string,ResourceSaved>}>('/api/changes/resource-consequences',proposal);
+ if(!captured.current()||!currentResourceFacts(facts,captured.inputs.workspace,context)||!facts.saved_sources)throw new Error('Resource ownership changed or saved consequences are unavailable. Prepare again.');
+ const patches=resourceWirePatches(plan.plan),editorCurrent=captureResourceEditors(buffers,patches);
+ if(patches.some(patch=>patch.before&&buffers.values.get(patch.path)?.text!==patch.before.text))throw new Error('Acquire every reviewed resource source before publication.');
+ return {operation:'save',facts,record:'',fingerprint:'',consequence:facts.fingerprint,workspace:captured.inputs.workspace,context,plan:plan.plan,patches,saved:facts.saved_sources,savedBefore:captured.inputs.saved_sources,proposal,current:()=>captured.current()&&editorCurrent(),restoring:new Map()};
+}
+const resourceHash=async(text:string)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text))),byte=>byte.toString(16).padStart(2,'0')).join('');
+interface ResourceInputs {workspace:string;context:string;refusals:Record<string,string>;sources:Record<string,ResourceWireState>;saved_sources:Record<string,ResourceSaved>}
+async function captureResourceInputs(buffers:Buffers,targetPaths:string[],context:string,edit:unknown,load:ResourceTransport,alive:()=>boolean,hash:(text:string)=>Promise<string>){
+ const paths=new Set(targetPaths),captures=[...buffers.values].map(([path,buffer])=>({path,buffer,text:buffer.text,base:buffer.base,hash:buffer.hash,version:buffer.version,file:buffer.file,metadata:JSON.stringify(buffer.file),readonly:buffer.readonly,transient:buffer.transient}));
+ const current=()=>alive()&&buffers.values.size===captures.length&&captures.every(row=>buffers.values.get(row.path)===row.buffer&&row.buffer.text===row.text&&row.buffer.base===row.base&&row.buffer.hash===row.hash&&row.buffer.version===row.version&&row.buffer.file===row.file&&JSON.stringify(row.buffer.file)===row.metadata&&row.buffer.readonly===row.readonly&&row.buffer.transient===row.transient&&!row.buffer.saving);
+ const drafts:Record<string,unknown>=Object.create(null);for(const row of captures){if(!paths.has(row.path))continue;if(row.readonly||row.transient||row.buffer.saving)throw new Error('Choose writable current resource source.');drafts[row.path]={text:row.text,base_sha256:await hash(row.base),version:row.version,writable:true};}
+ if(!current())throw new Error('Source changed while capturing resource inputs.');
+ const capture={context,edit,drafts,ownership_sources:Object.fromEntries(captures.filter(row=>!row.readonly&&!row.transient).map(row=>[row.path,row.text]))};
+ const inputs=await load<ResourceInputs>('/api/changes/resource-inputs',capture);
+ if(!current()||inputs.context!==context||!inputs.workspace||Object.keys(inputs.refusals).length)throw new Error('Current source acquisition refused or changed. Prepare again.');
+ return {inputs,capture,current};
 }
 </ui:copy>
 
@@ -286,10 +384,67 @@ const views=vi.hoisted(()=>new WeakMap());
 vi.mock('./Document',()=>({editorForBuffer:(buffer:Buffer)=>views.get(buffer)}));
 import {EditorState} from '@codemirror/state';
 import {history,undoDepth} from '@codemirror/commands';
-import {routeResourceEditors,adoptResourceReceipt,captureResourceEditors,type ResourceEditorPatch,type ResourceReceipt,type ResourceSaved} from './ResourceEditors';
+import {WorkspaceChangeHistory} from './ChangePlan';
+import {prepareResourceSave,prepareResourceRestore,publishResourceRestore,resourceLayout,routeResourceEditors,adoptResourceReceipt,captureResourceEditors,type ResourceEditorPatch,type ResourceReceipt,type ResourceSaved} from './ResourceEditors';
 // Contract: .hickory-source/frontends/contract.md (resource namespace preservation).
 const source=(identity:string,text=identity)=>({identity,text});
 describe('resource editor identity routing',()=>{
+ it('captures prototype-looking source names literally and refuses mismatching restored source before publication',async()=>{
+  const buffers=new Buffers(()=>{}),buffer=new Buffer({path:'__proto__',name:'__proto__',dir:false},'base','',()=>{});buffer.edit('dirty');buffers.values.set('__proto__',buffer);let context='',reads=0;
+  const record={id:'a'.repeat(32),workspace:'scope',fingerprint:'b'.repeat(64),paths:[{path:'__proto__',saved_after:{kind:'file'}}]};
+  const load=async<T>(route:string,body:unknown):Promise<T>=>{reads++;const request=body as Record<string,any>;
+   if(route.endsWith('resource-inputs')){context=request.context;expect(Object.hasOwn(request.drafts,'__proto__')).toBe(true);expect(Object.getPrototypeOf(request.drafts)).toBeNull();expect(request.drafts['__proto__'].text).toBe('dirty');return {workspace:'scope',context,refusals:{}} as T;}
+   expect(route).toBe('/api/changes/prepare-restoration');return {version:1,restoration:{workspace:'scope',context,recovery_fingerprint:record.fingerprint,saved_before:{},saved_after:{},plan:{version:1,context,title:'Refuse stale restoration',patches:[{path:'__proto__',before:{kind:'file',identity:'source',text:'base'},after:{kind:'file',identity:'source',text:'older'}}]}},consequences:{version:1,workspace:'scope',context,fingerprint:'c'.repeat(64),protected_targets:[],saved:{entries:[],removed_entries:[],output_paths:[]},draft:{entries:[],removed_entries:[],output_paths:[]}}} as T;
+  };
+  await expect(prepareResourceRestore(buffers,record,async()=>buffer,load,()=>true,async()=> 'd'.repeat(64))).rejects.toThrow('does not match');expect(reads).toBe(2);expect(buffer.text).toBe('dirty');expect(buffer.base).toBe('base');
+ });
+
+ it('previews whole resource publication, rejects expanded namespaces and consumes uncertain requests without retry',async()=>{
+  const buffers=new Buffers(()=>{}),buffer=new Buffer({path:'old.txt',name:'old.txt',dir:false},'source','old',()=>{});buffers.values.set('old.txt',buffer);
+  const saved:ResourceSaved={kind:'file',text:'source',sha256:'a'.repeat(64),readonly:false,executable:false,mode:0o600},edit={documentChanges:[{kind:'rename',oldUri:'hick:///old.txt',newUri:'hick:///new.txt'}]};
+  let context='',writes=0;const workspace='scope';
+  const load=async<T>(route:string,body:unknown):Promise<T>=>{const request=body as Record<string,any>;context=request.context??context;
+   if(route.endsWith('resource-targets'))return {paths:['old.txt','new.txt']} as T;
+   if(route.endsWith('resource-inputs'))return {workspace,context,refusals:{},sources:{'old.txt':{kind:'file',identity:'source',text:'source'},'new.txt':{kind:'missing'}},saved_sources:{'old.txt':saved,'new.txt':{kind:'missing'}}} as T;
+   if(route.endsWith('plan-resources'))return {plan:{version:1,context,title:'Move source',patches:[{path:'old.txt',before:{kind:'file',identity:'source',text:'source'},after:{kind:'missing'}},{path:'new.txt',before:{kind:'missing'},after:{kind:'file',identity:'source',text:'source'}}]}} as T;
+   if(route.endsWith('resource-consequences'))return {version:1,workspace,context,saved:{entries:[],removed_entries:[],output_paths:[]},draft:{entries:[],removed_entries:[],output_paths:[]},fingerprint:'c'.repeat(64),protected_targets:[],saved_sources:{'old.txt':{kind:'missing'},'new.txt':saved}} as T;
+   writes++;throw new Error('Transport result unavailable');
+  };
+  const prepare=()=>prepareResourceSave(buffers,'Move source',edit,async()=>buffer,load,()=>true,async()=> 'a'.repeat(64));
+  const changed=await prepare();const extra=new Buffer({path:'extra.md',name:'extra.md',dir:false},'new ownership','',()=>{});buffers.values.set('extra.md',extra);expect(changed.current()).toBe(false);buffers.values.delete('extra.md');buffer.file.generated_by='owner';expect(changed.current()).toBe(false);delete buffer.file.generated_by;
+  const review=await prepare();expect(review.operation).toBe('save');expect(review.saved['new.txt']).toEqual(saved);expect(review.savedBefore['old.txt']).toEqual(saved);
+  await expect(publishResourceRestore(buffers,review,load)).rejects.toThrow('not confirmed');await expect(publishResourceRestore(buffers,review,load)).rejects.toThrow('already has publication request');expect(writes).toBe(1);expect(buffers.values.get('old.txt')).toBe(buffer);expect(buffers.values.has('new.txt')).toBe(false);
+ });
+ it('coordinates draft and resource undo with a bounded history and retires interleaved review tokens',()=>{
+  const history=new WorkspaceChangeHistory(),draft={title:'Source',patches:[]};history.record({kind:'draft',plan:draft});history.record({kind:'resource',recovery:'record'});
+  const old=history.preview('undo')!;history.record({kind:'draft',plan:draft});expect(history.current(old)).toBe(false);expect(()=>history.commit(old,{kind:'resource',recovery:'wrong'})).toThrow('history changed');
+  const latest=history.preview('undo')!;history.commit(latest,{kind:'draft',plan:draft});expect(history.preview('redo')?.entry.kind).toBe('draft');const resource=history.preview('undo')!;expect(resource.entry).toEqual({kind:'resource',recovery:'record'});history.commit(resource,{kind:'resource',recovery:'inverse'});expect(history.preview('redo')?.entry).toEqual({kind:'resource',recovery:'inverse'});
+  for(let i=0;i<40;i++)history.record({kind:'resource',recovery:String(i)});let count=0;for(let next=history.preview('undo');next;next=history.preview('undo')){history.commit(next,{kind:'resource',recovery:'redo'});count++;}expect(count).toBe(32);
+ });
+
+ it('prepares and publishes explicit restoration with separate baselines, identity-bound receipts and no stale retry',async()=>{
+  const buffers=new Buffers(()=>{}),buffer=new Buffer({path:'b.txt',name:'b.txt',dir:false},'dirty','old',()=>{});buffers.values.set('b.txt',buffer);
+  const saved:ResourceSaved={kind:'file',text:'saved',sha256:'a'.repeat(64),readonly:false,executable:false,mode:null};
+  const calls:string[]=[];let context='',workspace='workspace';
+  const load=async<T>(route:string,body:unknown):Promise<T>=>{calls.push(route);const request=body as Record<string,any>;
+   if(route.endsWith('resource-inputs')){context=request.context;expect(request.drafts['b.txt'].text).toBe('dirty');return {workspace,context,refusals:{}} as T;}
+   if(route.endsWith('prepare-restoration'))return {version:1,restoration:{workspace,context,recovery_fingerprint:'c'.repeat(64),saved_before:{'b.txt':{...saved,text:'dirty'},'a.txt':{kind:'missing'}},saved_after:{'a.txt':saved,'b.txt':{kind:'missing'}},plan:{version:1,context,title:'Restore',patches:[{path:'b.txt',before:{kind:'file',identity:'source',text:'dirty'},after:{kind:'missing'}},{path:'a.txt',before:{kind:'missing'},after:{kind:'file',identity:'source',text:'dirty'}}]}},consequences:{version:1,workspace,context,saved:{entries:[],removed_entries:[],output_paths:[]},draft:{entries:[],removed_entries:[],output_paths:[]},fingerprint:'d'.repeat(64),protected_targets:[]}} as T;
+   expect(route).toBe('/api/changes/restore-resources');return {version:1,request_id:request.request_id,workspace,context,outcome:{complete:true,recovery:'.hick-cache/resource-changes/'+ 'e'.repeat(32)+'/manifest.json',applied:['a.txt','b.txt']},saved_sources:{'a.txt':saved,'b.txt':{kind:'missing'}},source_files:[{file:{path:'a.txt',name:'a.txt',dir:false},saved,hash:'new'}]} as T;
+  };
+  const record={id:'b'.repeat(32),workspace,fingerprint:'c'.repeat(64),paths:[{path:'a.txt',saved_after:{kind:'missing'}},{path:'b.txt',saved_after:{kind:'file'}}]};
+  const prepare=()=>prepareResourceRestore(buffers,record,async()=>buffer,load,()=>true,async()=> 'a'.repeat(64));
+  const stale=await prepare();buffer.edit('independent');await expect(publishResourceRestore(buffers,stale,load)).rejects.toThrow('Source changed');expect(calls.filter(route=>route.endsWith('restore-resources'))).toHaveLength(0);
+  buffer.edit('dirty');const review=await prepare(),result=await publishResourceRestore(buffers,review,load);expect(result.recovery).toBe('e'.repeat(32));expect(buffers.values.get('a.txt')).toBe(buffer);expect(buffers.values.has('b.txt')).toBe(false);expect(buffer.text).toBe('dirty');expect(buffer.base).toBe('saved');expect(buffer.dirty).toBe(true);
+  await expect(publishResourceRestore(buffers,review,load)).rejects.toThrow('already has publication request');expect(calls.filter(route=>route.endsWith('restore-resources'))).toHaveLength(1);
+ });
+ it('routes live tab swaps without losing pane identity and explicitly restores deleted placement',()=>{
+  const a=new Buffer({path:'a',name:'a',dir:false},'a','',()=>{}),b=new Buffer({path:'b',name:'b',dir:false},'b','',()=>{}),placements=new Map<Buffer,{group:string;index:number;active:boolean}>();
+  const layout={id:'pane',tabs:['a','b'],active:'a'},route=(editor:Buffer,from:string|null,to:string|null)=>({identity:editor.text,from,to,before:editor.text,after:editor.text,editor});
+  const swapped=resourceLayout(layout,[route(a,'a','b'),route(b,'b','a')],placements);expect(swapped).toEqual({id:'pane',tabs:['b','a'],active:'b'});expect(layout.tabs).toEqual(['a','b']);
+  const deleted=resourceLayout(swapped,[route(a,'b',null)],placements);expect(deleted).toEqual({id:'pane',tabs:['a'],active:'a'});expect(placements.get(a)).toEqual({group:'pane',index:0,active:true});
+  const restored=resourceLayout(deleted,[route(a,null,'restored')],placements);expect(restored).toEqual({id:'pane',tabs:['restored','a'],active:'restored'});expect(placements.size).toBe(0);
+ });
+
  it('adopts a confirmed move, deletion and restoration into live buffers with separate saved baselines',async()=>{
   const buffers=new Buffers(()=>{}),a=new Buffer({path:'old.py',name:'old.py',dir:false},'saved','old-hash',()=>{});a.edit('dirty');buffers.values.set('old.py',a);
   const state=EditorState.create({doc:'saved',extensions:[history()]}).update({changes:{from:0,to:5,insert:'dirty'},selection:{anchor:2}}).state;
@@ -359,6 +514,43 @@ import XCTest
 // Contract: .hickory-source/frontends/contract.md (resource namespace preservation).
 final class ResourceEditorsTests:XCTestCase {
  final class Editor {var selection=2;var scroll=108;var undo=["old"]}
+ func testTabAddressesMoveSimultaneouslyWithoutChangingPaneGeometry() throws {
+  var layout=PaneLayout();layout.activate("a.py",in:"document-group");layout.activate("b.py",in:"document-group")
+  let before=layout
+  let swapped=try layout.remappingTabs([Data("a.py".utf8):"b.py",Data("b.py".utf8):"a.py"])
+  XCTAssertEqual(swapped.nodes["document-group"]?.tabs,["b.py","a.py"]);XCTAssertEqual(swapped.nodes["document-group"]?.active,"a.py")
+  XCTAssertEqual(swapped.nodes["root"],before.nodes["root"]);XCTAssertEqual(swapped.rootID,before.rootID)
+  XCTAssertThrowsError(try layout.remappingTabs([Data("a.py".utf8):"b.py"]))
+  XCTAssertEqual(layout.nodes,before.nodes)
+ }
+ @MainActor func testLiveReceiptAdoptsMoveDeletionAndExplicitRetainedRestoration() throws {
+  let workspace=Workspace();workspace.engine=try Engine(address:"http://127.0.0.1:1")
+  let source=ResourceSource(identity:"source",text:"dirty"),missing=ResourceSaved(kind:"missing")
+  let saved=ResourceSaved(kind:"file",text:"saved",sha256:String(repeating:"a",count:64),readonly:false,executable:false,mode:nil)
+  let buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"saved",hash:"old"));buffer.text="dirty";buffer.selection=NSRange(location:2,length:1)
+  workspace.buffers["a.py"]=buffer;workspace.layout.activate("a.py",in:"document-group")
+  let geometry=workspace.layout.nodes["root"]
+  func receipt(_ paths:[String],_ values:[String:ResourceSaved],_ path:String?)->ResourcePublication<FileNode> {
+   ResourcePublication(version:1,request_id:"request",workspace:"workspace",context:"context",outcome:.init(complete:true,recovery:"record",applied:paths),saved_sources:values,source_files:path.map{[.init(file:FileNode(name:$0,path:$0,dir:false),saved:saved,hash:"fresh")]} ?? [])
+  }
+  let move=[ResourceEditorPatch(path:"a.py",before:source,after:nil),ResourceEditorPatch(path:"b.py",before:nil,after:source)]
+  let moving=workspace.captureResourceEditors(move)
+  _ = try workspace.adoptResourceReceipt(move,receipt:receipt(["a.py","b.py"],["a.py":missing,"b.py":saved],"b.py"),request:"request",workspace:"workspace",context:"context",expected:["a.py":missing,"b.py":saved],current:moving)
+  XCTAssertTrue(workspace.buffers["b.py"] === buffer);XCTAssertNil(workspace.buffers["a.py"]);XCTAssertEqual(workspace.active,"b.py");XCTAssertTrue(workspace.currentBuffer === buffer)
+  XCTAssertEqual(buffer.selection,NSRange(location:2,length:1));XCTAssertEqual(buffer.text,"dirty");XCTAssertEqual(buffer.base,"saved");XCTAssertTrue(buffer.dirty)
+  let deletion=[ResourceEditorPatch(path:"b.py",before:source,after:nil)]
+  _ = try workspace.adoptResourceReceipt(deletion,receipt:receipt(["b.py"],["b.py":missing],nil),request:"request",workspace:"workspace",context:"context",expected:["b.py":missing],current:workspace.captureResourceEditors(deletion))
+  let retained=workspace.active!
+  XCTAssertTrue(buffer.readOnly);XCTAssertTrue(workspace.currentBuffer === buffer);XCTAssertNil(workspace.buffers["b.py"]);XCTAssertTrue(workspace.hasUnsavedChanges)
+  workspace.close(retained);XCTAssertEqual(workspace.active,retained)
+  let restore=[ResourceEditorPatch(path:"b.py",before:nil,after:source)]
+  let restoring=["source":buffer]
+  _ = try workspace.adoptResourceReceipt(restore,receipt:receipt(["b.py"],["b.py":saved],"b.py"),request:"request",workspace:"workspace",context:"context",expected:["b.py":saved],current:workspace.captureResourceEditors(restore,restoring:restoring),restoring:restoring)
+  XCTAssertTrue(workspace.currentBuffer === buffer);XCTAssertEqual(workspace.active,"b.py");XCTAssertFalse(buffer.readOnly);XCTAssertTrue(workspace.retainedResourceEditors.isEmpty)
+  XCTAssertEqual(workspace.layout.nodes["root"],geometry);XCTAssertEqual(buffer.selection,NSRange(location:2,length:1))
+  buffer.language?.close()
+ }
+
  func testMoveDeleteRestoreAndCreateKeepOpaqueEditorState() throws {
   let editor=Editor(),a=ResourceSource(identity:"a",text:"dirty"),capture=ResourceEditorCapture(editor:editor,source:"dirty")
   let move=try routeResourceEditors([ResourceEditorPatch(path:"a.py",before:a,after:nil),ResourceEditorPatch(path:"b.py",before:nil,after:a)],live:["a":capture]);XCTAssertTrue(move[0].editor===editor);XCTAssertEqual(move[0].to,"b.py")

@@ -25,6 +25,22 @@ struct PaneLayout {
         if let first = node.first, let second = node.second { return groups(first) + groups(second) }
         return [node]
     }
+    // Resolve the complete transition against the original namespace, so swaps
+    // cannot consume a destination already renamed by an earlier route.
+    func remappingTabs(_ addresses: [Data:String]) throws -> PaneLayout {
+        var next = self
+        var used = Set<Data>()
+        for group in groups() {
+            var node = group
+            node.tabs = group.tabs.map { addresses[Data($0.utf8)] ?? $0 }
+            guard node.tabs.allSatisfy({ used.insert(Data($0.utf8)).inserted }) else {
+                throw NSError(domain:"PaneLayout",code:1,userInfo:[NSLocalizedDescriptionKey:"A destination tab already exists. Preserve editors and inspect recovery."])
+            }
+            node.active = group.active.map { addresses[Data($0.utf8)] ?? $0 }
+            next.nodes[group.id] = node
+        }
+        return next
+    }
     mutating func activate(_ tab: String, in group: String) {
         guard var node = nodes[group], node.axis == nil else { return }
         if !node.tabs.contains(tab) { node.tabs.append(tab) }

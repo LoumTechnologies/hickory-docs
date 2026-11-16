@@ -9,6 +9,8 @@ Docking first validates a live source/target, direction and fresh node identitie
 
 Drops use a destination tab identity as an optional insertion anchor. Validate it before removing the source; compute its index afterward, so forward and backward moves use the same rule. An absent anchor appends, while a self-drop leaves selection unchanged. This only changes layout membership, never document buffers.
 
+Resource publication remaps all open addresses simultaneously against the old tree. Swaps retain their original tab order and active source; deleted sources use an internal retained-buffer address. Reject collisions before adopting any buffer. Keep every branch, ratio and empty leaf unchanged so publication cannot collapse panes or move code.
+
 <ui:copy id="simple-bcf63acd46-0">
 import Foundation
 
@@ -36,6 +38,22 @@ struct PaneLayout {
         guard let node = nodes[id ?? rootID] else { return [] }
         if let first = node.first, let second = node.second { return groups(first) + groups(second) }
         return [node]
+    }
+    // Resolve the complete transition against the original namespace, so swaps
+    // cannot consume a destination already renamed by an earlier route.
+    func remappingTabs(_ addresses: [Data:String]) throws -> PaneLayout {
+        var next = self
+        var used = Set<Data>()
+        for group in groups() {
+            var node = group
+            node.tabs = group.tabs.map { addresses[Data($0.utf8)] ?? $0 }
+            guard node.tabs.allSatisfy({ used.insert(Data($0.utf8)).inserted }) else {
+                throw NSError(domain:"PaneLayout",code:1,userInfo:[NSLocalizedDescriptionKey:"A destination tab already exists. Preserve editors and inspect recovery."])
+            }
+            node.active = group.active.map { addresses[Data($0.utf8)] ?? $0 }
+            next.nodes[group.id] = node
+        }
+        return next
     }
     mutating func activate(_ tab: String, in group: String) {
         guard var node = nodes[group], node.axis == nil else { return }

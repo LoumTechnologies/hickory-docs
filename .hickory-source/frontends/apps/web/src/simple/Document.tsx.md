@@ -3,7 +3,7 @@
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
-CodeMirror owns typing, selection, scroll and undo. Cache the editor by buffer identity and move its existing DOM between hosts. Buffer notifications update the status, not React-controlled document text.
+CodeMirror owns typing, selection, scroll and undo. Cache the editor by buffer identity and move its existing DOM between hosts. Buffer notifications update the status, not React-controlled document text. A source move reconfigures the cached editor’s address attribute while retaining the same DOM, selection, scroll and text history.
 
 The minimap reserves forty units beside the text rather than overlaying readable lines. Its navigation changes scroll, never saved bytes. Language controls float over the editor and do not reflow it. Browser capabilities use the existing LSP client and its snapshot guards; native keyword and word-list previews deliberately do not claim semantic results. Native styling does not replace text, preserving the platform undo and selection model. Preview coloring skips very large files instead of delaying readable text indefinitely.
 
@@ -214,7 +214,7 @@ function localFold(state: EditorState, from: number, markdown: boolean) {
   if (!ranges) { ranges = new Map(simpleFoldRanges(state.doc.toString(), markdown).map(range => [range.from, range])); foldCache.set(state.doc, ranges); }
   return ranges.get(state.doc.lineAt(from).to) ?? null;
 }
-const editors = new WeakMap<Buffer, { view: EditorView; language: Compartment; prose: Compartment; completion:Compartment; richAttached?: boolean; toggleBreakpoint?: (line: number) => void }>();
+const editors = new WeakMap<Buffer, { view: EditorView; language: Compartment; prose: Compartment; completion:Compartment; address:Compartment; richAttached?: boolean; toggleBreakpoint?: (line: number) => void }>();
 export const SIMPLE_EDITOR_ATTACHED = "hickory:simple-editor-attached";
 export function editorForBuffer(buffer: Buffer) { return editors.get(buffer); }
 export function openFind(buffer: Buffer) { const view = editors.get(buffer)?.view; if (view) openSearchPanel(view); }
@@ -300,7 +300,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
   useLayoutEffect(() => {
     let cached = editors.get(buffer);
     if (!cached) {
-      const language = new Compartment(), prose = new Compartment(), completion=new Compartment();
+      const language = new Compartment(), prose = new Compartment(), completion=new Compartment(), address=new Compartment();
       const view = new EditorView({ dispatchTransactions:dispatchSourceSnippetTransactions,state: EditorState.create({ doc: buffer.text, extensions: [
         history(), sourceSnippets({writable:()=>!buffer.readonly&&!buffer.saving,notice:value=>buffer.setCompletionNotice(value)}), layoutEditorGutters.of(false), gutterIconLayout, indentUnit.of(simpleIndent(buffer.text)), EditorState.tabSize.of(4), drawSelection(), EditorState.allowMultipleSelections.of(true), rectangularSelection(), crosshairCursor(), lineNumbers({ domEventHandlers: { mousedown: (editor, block, event) => {
           const line = breakpointLine(editor.state, editor.state.doc.lineAt(block.from).number - 1);
@@ -314,14 +314,15 @@ export function Document({ buffer }: { buffer: Buffer }) {
         foldService.of((state, from) => localFold(state, from, /\.(md|markdown)$/i.test(buffer.file.path))), EditorView.lineWrapping, language.of([]), prose.of([]), completion.of(completions({})),
         keymap.of([...wordNavigationKeys, { key: "Enter", run: view => simpleEnter(view, buffer.file.path) }, { key: "Tab", run: simpleTab, shift: indentLess }, { key: "Ctrl-Space", run: startCompletion }, ...searchKeymap, ...foldKeymap, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
         EditorState.readOnly.of(buffer.readonly), EditorView.editable.of(!buffer.readonly),
-        EditorView.contentAttributes.of({ "aria-label": buffer.file.path }),
+        address.of(EditorView.contentAttributes.of({ "aria-label": buffer.file.path })),
         EditorView.updateListener.of(update => {
           if (update.docChanged) buffer.edit(update.state.doc.toString());
         }),
         EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { overflow: "auto", fontFamily: "ui-monospace, monospace", fontSize: "13px" } }),
       ] }) });
-      cached = { view, language, prose, completion }; editors.set(buffer, cached); window.dispatchEvent(new Event(SIMPLE_EDITOR_ATTACHED));
+      cached = { view, language, prose, completion, address }; editors.set(buffer, cached); window.dispatchEvent(new Event(SIMPLE_EDITOR_ATTACHED));
     }
+    cached.view.dispatch({effects:cached.address.reconfigure(EditorView.contentAttributes.of({"aria-label":buffer.file.path}))});
     cached.toggleBreakpoint = line => { if (!buffer.transient) debugRef.current.toggleBreakpoint(line); };
     host.current?.append(cached.view.dom);
     window.dispatchEvent(new Event(SIMPLE_EDITOR_ATTACHED));

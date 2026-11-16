@@ -154244,6 +154244,62 @@
       "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Workspace.kt.md",
       "symbol": "simple-resource-adoption-android-workspace",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "source-recovery-apple-wire",
+      "output": "apps/apple-simple/Sources/SourceRecovery.swift",
+      "page": ".hickory-source/frontends/source-recovery.md",
+      "symbol": "Decode state separately from provider metadata",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-recovery-apple-publication",
+      "output": "apps/apple-simple/Sources/SourceRecovery.swift",
+      "page": ".hickory-source/frontends/source-recovery.md",
+      "symbol": "Keep review, publication and editor adoption distinct",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-resource-capture-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceRecovery.kt",
+      "page": ".hickory-source/frontends/source-recovery.md",
+      "symbol": "Capture of reviewed source resources",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-resource-acquisition-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceRecovery.kt",
+      "page": ".hickory-source/frontends/source-recovery.md",
+      "symbol": "Acquisition of reviewed source resources",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-resource-proposal-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceRecovery.kt",
+      "page": ".hickory-source/frontends/source-recovery.md",
+      "symbol": "Proposal of reviewed source resources",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-resource-restoration-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceRecovery.kt",
+      "page": ".hickory-source/frontends/source-recovery.md",
+      "symbol": "Restoration of reviewed source resources",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-resource-publication-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceRecovery.kt",
+      "page": ".hickory-source/frontends/source-recovery.md",
+      "symbol": "Publication of reviewed source resources",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-resource-wire-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceRecovery.kt",
+      "page": ".hickory-source/frontends/source-recovery.md",
+      "symbol": "Wire of reviewed source resources",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

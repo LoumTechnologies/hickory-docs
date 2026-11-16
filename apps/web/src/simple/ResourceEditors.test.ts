@@ -6,10 +6,67 @@ const views=vi.hoisted(()=>new WeakMap());
 vi.mock('./Document',()=>({editorForBuffer:(buffer:Buffer)=>views.get(buffer)}));
 import {EditorState} from '@codemirror/state';
 import {history,undoDepth} from '@codemirror/commands';
-import {routeResourceEditors,adoptResourceReceipt,captureResourceEditors,type ResourceEditorPatch,type ResourceReceipt,type ResourceSaved} from './ResourceEditors';
+import {WorkspaceChangeHistory} from './ChangePlan';
+import {prepareResourceSave,prepareResourceRestore,publishResourceRestore,resourceLayout,routeResourceEditors,adoptResourceReceipt,captureResourceEditors,type ResourceEditorPatch,type ResourceReceipt,type ResourceSaved} from './ResourceEditors';
 // Contract: .hickory-source/frontends/contract.md (resource namespace preservation).
 const source=(identity:string,text=identity)=>({identity,text});
 describe('resource editor identity routing',()=>{
+ it('captures prototype-looking source names literally and refuses mismatching restored source before publication',async()=>{
+  const buffers=new Buffers(()=>{}),buffer=new Buffer({path:'__proto__',name:'__proto__',dir:false},'base','',()=>{});buffer.edit('dirty');buffers.values.set('__proto__',buffer);let context='',reads=0;
+  const record={id:'a'.repeat(32),workspace:'scope',fingerprint:'b'.repeat(64),paths:[{path:'__proto__',saved_after:{kind:'file'}}]};
+  const load=async<T>(route:string,body:unknown):Promise<T>=>{reads++;const request=body as Record<string,any>;
+   if(route.endsWith('resource-inputs')){context=request.context;expect(Object.hasOwn(request.drafts,'__proto__')).toBe(true);expect(Object.getPrototypeOf(request.drafts)).toBeNull();expect(request.drafts['__proto__'].text).toBe('dirty');return {workspace:'scope',context,refusals:{}} as T;}
+   expect(route).toBe('/api/changes/prepare-restoration');return {version:1,restoration:{workspace:'scope',context,recovery_fingerprint:record.fingerprint,saved_before:{},saved_after:{},plan:{version:1,context,title:'Refuse stale restoration',patches:[{path:'__proto__',before:{kind:'file',identity:'source',text:'base'},after:{kind:'file',identity:'source',text:'older'}}]}},consequences:{version:1,workspace:'scope',context,fingerprint:'c'.repeat(64),protected_targets:[],saved:{entries:[],removed_entries:[],output_paths:[]},draft:{entries:[],removed_entries:[],output_paths:[]}}} as T;
+  };
+  await expect(prepareResourceRestore(buffers,record,async()=>buffer,load,()=>true,async()=> 'd'.repeat(64))).rejects.toThrow('does not match');expect(reads).toBe(2);expect(buffer.text).toBe('dirty');expect(buffer.base).toBe('base');
+ });
+
+ it('previews whole resource publication, rejects expanded namespaces and consumes uncertain requests without retry',async()=>{
+  const buffers=new Buffers(()=>{}),buffer=new Buffer({path:'old.txt',name:'old.txt',dir:false},'source','old',()=>{});buffers.values.set('old.txt',buffer);
+  const saved:ResourceSaved={kind:'file',text:'source',sha256:'a'.repeat(64),readonly:false,executable:false,mode:0o600},edit={documentChanges:[{kind:'rename',oldUri:'hick:///old.txt',newUri:'hick:///new.txt'}]};
+  let context='',writes=0;const workspace='scope';
+  const load=async<T>(route:string,body:unknown):Promise<T>=>{const request=body as Record<string,any>;context=request.context??context;
+   if(route.endsWith('resource-targets'))return {paths:['old.txt','new.txt']} as T;
+   if(route.endsWith('resource-inputs'))return {workspace,context,refusals:{},sources:{'old.txt':{kind:'file',identity:'source',text:'source'},'new.txt':{kind:'missing'}},saved_sources:{'old.txt':saved,'new.txt':{kind:'missing'}}} as T;
+   if(route.endsWith('plan-resources'))return {plan:{version:1,context,title:'Move source',patches:[{path:'old.txt',before:{kind:'file',identity:'source',text:'source'},after:{kind:'missing'}},{path:'new.txt',before:{kind:'missing'},after:{kind:'file',identity:'source',text:'source'}}]}} as T;
+   if(route.endsWith('resource-consequences'))return {version:1,workspace,context,saved:{entries:[],removed_entries:[],output_paths:[]},draft:{entries:[],removed_entries:[],output_paths:[]},fingerprint:'c'.repeat(64),protected_targets:[],saved_sources:{'old.txt':{kind:'missing'},'new.txt':saved}} as T;
+   writes++;throw new Error('Transport result unavailable');
+  };
+  const prepare=()=>prepareResourceSave(buffers,'Move source',edit,async()=>buffer,load,()=>true,async()=> 'a'.repeat(64));
+  const changed=await prepare();const extra=new Buffer({path:'extra.md',name:'extra.md',dir:false},'new ownership','',()=>{});buffers.values.set('extra.md',extra);expect(changed.current()).toBe(false);buffers.values.delete('extra.md');buffer.file.generated_by='owner';expect(changed.current()).toBe(false);delete buffer.file.generated_by;
+  const review=await prepare();expect(review.operation).toBe('save');expect(review.saved['new.txt']).toEqual(saved);expect(review.savedBefore['old.txt']).toEqual(saved);
+  await expect(publishResourceRestore(buffers,review,load)).rejects.toThrow('not confirmed');await expect(publishResourceRestore(buffers,review,load)).rejects.toThrow('already has publication request');expect(writes).toBe(1);expect(buffers.values.get('old.txt')).toBe(buffer);expect(buffers.values.has('new.txt')).toBe(false);
+ });
+ it('coordinates draft and resource undo with a bounded history and retires interleaved review tokens',()=>{
+  const history=new WorkspaceChangeHistory(),draft={title:'Source',patches:[]};history.record({kind:'draft',plan:draft});history.record({kind:'resource',recovery:'record'});
+  const old=history.preview('undo')!;history.record({kind:'draft',plan:draft});expect(history.current(old)).toBe(false);expect(()=>history.commit(old,{kind:'resource',recovery:'wrong'})).toThrow('history changed');
+  const latest=history.preview('undo')!;history.commit(latest,{kind:'draft',plan:draft});expect(history.preview('redo')?.entry.kind).toBe('draft');const resource=history.preview('undo')!;expect(resource.entry).toEqual({kind:'resource',recovery:'record'});history.commit(resource,{kind:'resource',recovery:'inverse'});expect(history.preview('redo')?.entry).toEqual({kind:'resource',recovery:'inverse'});
+  for(let i=0;i<40;i++)history.record({kind:'resource',recovery:String(i)});let count=0;for(let next=history.preview('undo');next;next=history.preview('undo')){history.commit(next,{kind:'resource',recovery:'redo'});count++;}expect(count).toBe(32);
+ });
+
+ it('prepares and publishes explicit restoration with separate baselines, identity-bound receipts and no stale retry',async()=>{
+  const buffers=new Buffers(()=>{}),buffer=new Buffer({path:'b.txt',name:'b.txt',dir:false},'dirty','old',()=>{});buffers.values.set('b.txt',buffer);
+  const saved:ResourceSaved={kind:'file',text:'saved',sha256:'a'.repeat(64),readonly:false,executable:false,mode:null};
+  const calls:string[]=[];let context='',workspace='workspace';
+  const load=async<T>(route:string,body:unknown):Promise<T>=>{calls.push(route);const request=body as Record<string,any>;
+   if(route.endsWith('resource-inputs')){context=request.context;expect(request.drafts['b.txt'].text).toBe('dirty');return {workspace,context,refusals:{}} as T;}
+   if(route.endsWith('prepare-restoration'))return {version:1,restoration:{workspace,context,recovery_fingerprint:'c'.repeat(64),saved_before:{'b.txt':{...saved,text:'dirty'},'a.txt':{kind:'missing'}},saved_after:{'a.txt':saved,'b.txt':{kind:'missing'}},plan:{version:1,context,title:'Restore',patches:[{path:'b.txt',before:{kind:'file',identity:'source',text:'dirty'},after:{kind:'missing'}},{path:'a.txt',before:{kind:'missing'},after:{kind:'file',identity:'source',text:'dirty'}}]}},consequences:{version:1,workspace,context,saved:{entries:[],removed_entries:[],output_paths:[]},draft:{entries:[],removed_entries:[],output_paths:[]},fingerprint:'d'.repeat(64),protected_targets:[]}} as T;
+   expect(route).toBe('/api/changes/restore-resources');return {version:1,request_id:request.request_id,workspace,context,outcome:{complete:true,recovery:'.hick-cache/resource-changes/'+ 'e'.repeat(32)+'/manifest.json',applied:['a.txt','b.txt']},saved_sources:{'a.txt':saved,'b.txt':{kind:'missing'}},source_files:[{file:{path:'a.txt',name:'a.txt',dir:false},saved,hash:'new'}]} as T;
+  };
+  const record={id:'b'.repeat(32),workspace,fingerprint:'c'.repeat(64),paths:[{path:'a.txt',saved_after:{kind:'missing'}},{path:'b.txt',saved_after:{kind:'file'}}]};
+  const prepare=()=>prepareResourceRestore(buffers,record,async()=>buffer,load,()=>true,async()=> 'a'.repeat(64));
+  const stale=await prepare();buffer.edit('independent');await expect(publishResourceRestore(buffers,stale,load)).rejects.toThrow('Source changed');expect(calls.filter(route=>route.endsWith('restore-resources'))).toHaveLength(0);
+  buffer.edit('dirty');const review=await prepare(),result=await publishResourceRestore(buffers,review,load);expect(result.recovery).toBe('e'.repeat(32));expect(buffers.values.get('a.txt')).toBe(buffer);expect(buffers.values.has('b.txt')).toBe(false);expect(buffer.text).toBe('dirty');expect(buffer.base).toBe('saved');expect(buffer.dirty).toBe(true);
+  await expect(publishResourceRestore(buffers,review,load)).rejects.toThrow('already has publication request');expect(calls.filter(route=>route.endsWith('restore-resources'))).toHaveLength(1);
+ });
+ it('routes live tab swaps without losing pane identity and explicitly restores deleted placement',()=>{
+  const a=new Buffer({path:'a',name:'a',dir:false},'a','',()=>{}),b=new Buffer({path:'b',name:'b',dir:false},'b','',()=>{}),placements=new Map<Buffer,{group:string;index:number;active:boolean}>();
+  const layout={id:'pane',tabs:['a','b'],active:'a'},route=(editor:Buffer,from:string|null,to:string|null)=>({identity:editor.text,from,to,before:editor.text,after:editor.text,editor});
+  const swapped=resourceLayout(layout,[route(a,'a','b'),route(b,'b','a')],placements);expect(swapped).toEqual({id:'pane',tabs:['b','a'],active:'b'});expect(layout.tabs).toEqual(['a','b']);
+  const deleted=resourceLayout(swapped,[route(a,'b',null)],placements);expect(deleted).toEqual({id:'pane',tabs:['a'],active:'a'});expect(placements.get(a)).toEqual({group:'pane',index:0,active:true});
+  const restored=resourceLayout(deleted,[route(a,null,'restored')],placements);expect(restored).toEqual({id:'pane',tabs:['restored','a'],active:'restored'});expect(placements.size).toBe(0);
+ });
+
  it('adopts a confirmed move, deletion and restoration into live buffers with separate saved baselines',async()=>{
   const buffers=new Buffers(()=>{}),a=new Buffer({path:'old.py',name:'old.py',dir:false},'saved','old-hash',()=>{});a.edit('dirty');buffers.values.set('old.py',a);
   const state=EditorState.create({doc:'saved',extensions:[history()]}).update({changes:{from:0,to:5,insert:'dirty'},selection:{anchor:2}}).state;

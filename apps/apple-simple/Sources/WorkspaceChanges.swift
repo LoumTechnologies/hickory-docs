@@ -1,5 +1,7 @@
 import SwiftUI
 import Observation
+struct ResourceHistoryIntent {var direction:String;var record:String;var token:UUID}
+private enum WorkspaceHistoryStep {case drafts(ChangePlan);case resource(String)}
 @MainActor @Observable final class WorkspaceChanges {
     var mode: String?
     var name = "" { didSet { if !exactUTF8(name,oldValue) { revision = UUID(); plan = nil; choices = []; notice = "" } } }
@@ -15,20 +17,39 @@ import Observation
     private var acquisition:((String) async throws->SourceSnapshot)?
     private var actionQuery:(() async throws->[[String:Any]])?
     private var captured: (sources:[String:SourceSnapshot], current:()->Bool)?
-    private var undo: [ChangePlan] = []
-    private var redo: [ChangePlan] = []
-    func reset() { revision = UUID(); mode = nil; captured = nil; plan = nil; choices = []; undo = []; redo = []; notice = "" }
-    func close(_ workspace: Workspace) { revision = UUID(); mode = nil; workspace.currentBuffer?.focusSource?() }
+    private var undo: [WorkspaceHistoryStep] = []
+    private var redo: [WorkspaceHistoryStep] = []
+    private(set) var historySnapshot=UUID()
+    func resourceHistoryRecord(_ direction:String)->String? {
+        if case .resource(let record)? = (direction=="undo" ? undo.last:redo.last) {return record};return nil
+    }
+    func recordResourcePublication(_ record:String,intent:ResourceHistoryIntent?) {
+        if let intent,intent.token==historySnapshot,resourceHistoryRecord(intent.direction)==intent.record {
+            if intent.direction=="undo" {undo.removeLast();redo=Array(redo.suffix(31))+[.resource(record)]}
+            else {redo.removeLast();undo=Array(undo.suffix(31))+[.resource(record)]}
+        }else {undo=Array(undo.suffix(31))+[.resource(record)];redo=[]}
+        historySnapshot=UUID()
+    }
+    func reset() { revision = UUID(); mode = nil; captured = nil; plan = nil; choices = []; undo = []; redo = []; historySnapshot=UUID(); notice = "" }
+    func close(_ workspace: Workspace) { revision = UUID(); mode = nil; workspace.resourceRestoration.cancel();workspace.currentBuffer?.focusSource?() }
     func open(_ kind: String, workspace: Workspace) {
         revision = UUID(); mode = kind; name = ""; plan = nil; choices = []; notice = ""; actionPage = 0
         guard kind == "undo" || kind == "redo" else { return }
         let target = kind == "undo" ? undo.last : redo.last
         guard let target else { notice = "No workspace change to \(kind)."; return }
-        do {
-            let refresh = try workspace.applyWorkspacePlan(target)
-            if kind == "undo" { undo.removeLast(); redo.append(invertChangePlan(target)) } else { redo.removeLast(); undo.append(invertChangePlan(target)) }
-            notice = "Workspace \(kind) applied to \(target.patches.count) drafts. Not saved or verified." + refresh
-        } catch { notice = error.localizedDescription }
+        switch target {
+        case .resource(let record):
+            let intent=ResourceHistoryIntent(direction:kind,record:record,token:historySnapshot)
+            Task {await workspace.resourceRestoration.prepareHistory(workspace,intent:intent)}
+            notice="Prepare and review saved-source restoration before publishing this workspace \(kind)."
+        case .drafts(let target):
+            do {
+                let refresh=try workspace.applyWorkspacePlan(target)
+                if kind=="undo" {undo.removeLast();redo.append(.drafts(invertChangePlan(target)))}else{redo.removeLast();undo.append(.drafts(invertChangePlan(target)))}
+                historySnapshot=UUID()
+                notice="Workspace \(kind) applied to \(target.patches.count) drafts. Not saved or verified."+refresh
+            }catch{notice=error.localizedDescription}
+        }
     }
     func prepare(_ workspace: Workspace,proposal:((String,String) async throws->Any)?=nil,resolution:(([String:Any]) async throws->[String:Any])?=nil,acquisition:((String) async throws->SourceSnapshot)?=nil) async {
         if mode == "cleanup" { await prepareCleanup(workspace,proposal:proposal); return }
@@ -68,6 +89,10 @@ import Observation
             let result = try await propose(kind,nextName)
             guard valid() else { if revision == request { notice = "Source, selection or provider changed. Prepare again." }; return }
             if kind == "actions" { choices = result as? [[String:Any]] ?? []; notice = choices.isEmpty ? "No provider actions here. Support depends on the installed language server." : "Choose a provider action to preview." }
+            else if isResourceWorkspaceEdit(result) {
+                await workspace.resourceRestoration.prepareEdit(workspace,title:kind == "rename" ? "Rename to \(nextName)":"Provider resource change",edit:result,current:valid,requery:{try await propose(kind,nextName)})
+                if valid(){plan=nil;choices=[];notice=workspace.resourceRestoration.notice}
+            }
             else { try install(kind == "rename" ? "Rename to \(nextName)" : "Format source", edit:result, workspace:workspace) }
         } catch { if revision == request { notice = error.localizedDescription } }
     }
@@ -123,6 +148,20 @@ import Observation
             if let disabled=action["disabled"] as? [String:Any]{throw EngineError(message:disabled["reason"] as? String ?? "Provider action disabled")}
             plan=nil;notice="Resolving complete provider action…"
             var first:[String:Any]?=try await resolver(action)
+            if let resolved=first,let edit=resolved["edit"],isResourceWorkspaceEdit(edit) {
+                guard self.revision==request,self.choiceRevision==choice,captured.current() else{throw EngineError(message:"Source, selection or provider changed. Prepare actions again.")}
+                if let disabled=resolved["disabled"] as? [String:Any]{throw EngineError(message:disabled["reason"] as? String ?? "Provider action disabled")}
+                guard resolved["command"]==nil else{throw EngineError(message:"This action requires a provider command; no edit portion was applied.")}
+                await workspace.resourceRestoration.prepareEdit(workspace,title:resolved["title"] as? String ?? "Provider resource action",edit:edit,current:{self.revision==request && self.choiceRevision==choice && captured.current()},requery:{
+                    let candidates=try await actionQuery().filter{exactUTF8($0["title"] as? String ?? "",action["title"] as? String ?? "") && exactUTF8($0["kind"] as? String ?? "",action["kind"] as? String ?? "")}
+                    guard candidates.count==1 else{throw EngineError(message:"The selected resource action changed or is ambiguous. Prepare again.")}
+                    let next=try await resolver(candidates[0])
+                    guard next["command"]==nil,next["disabled"]==nil,let edit=next["edit"],isResourceWorkspaceEdit(edit) else{throw EngineError(message:"The complete provider resource action changed. No changes were applied.")}
+                    return edit
+                })
+                if revision==request,choiceRevision==choice {plan=nil;choices=[];notice=workspace.resourceRestoration.notice}
+                return
+            }
             let acquired=try await acquireSourceProposal(captured.sources,query:{
                 let resolved:[String:Any]
                 if let initial=first{resolved=initial;first=nil}
@@ -147,7 +186,7 @@ import Observation
         do {
             guard captured?.current() == true else { throw EngineError(message:"Source, selection or provider changed. Prepare again.") }
             let refresh = try workspace.applyWorkspacePlan(plan)
-            undo = Array(undo.suffix(31)) + [invertChangePlan(plan)]; redo = []; self.plan = nil; captured = nil
+            undo = Array(undo.suffix(31)) + [.drafts(invertChangePlan(plan))]; redo = []; historySnapshot=UUID(); self.plan = nil; captured = nil
             notice = "Applied \(plan.patches.count) source drafts. Not saved or verified. Use Save All after reviewing; Undo workspace change restores this batch." + refresh
         } catch { notice = error.localizedDescription }
     }
@@ -177,10 +216,11 @@ struct WorkspaceChangesView: View {
         let actionSnapshot=changes.actionSnapshot
         VStack(alignment:.leading,spacing:8) {
             HStack { Text("Workspace change preview").font(.headline); Spacer(); Button("Close") { changes.close(workspace) } }
-            Text("Source drafts · not saved or verified").font(.caption)
+            Text(workspace.resourceRestoration.review==nil ? "Source drafts · not saved or verified":"Saved baselines and separate dirty drafts · review before publication").font(.caption)
             if changes.mode == "rename" { TextField("New symbol name",text:$changes.name).textFieldStyle(.roundedBorder) }
             if changes.mode != "undo", changes.mode != "redo", changes.mode != "proposal" { Button(changes.mode == "actions" ? "Prepare provider actions" : changes.mode == "format" ? "Prepare formatting" : changes.mode == "cleanup" ? "Prepare cleanup" : "Prepare rename") { Task { await changes.prepare(workspace) } }.disabled(changes.mode == "rename" && changes.name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty) }
             if !changes.notice.isEmpty { Text(changes.notice).font(.caption) }
+            ResourceRestorationPreview(workspace:workspace,model:workspace.resourceRestoration)
             ScrollView { VStack(alignment:.leading,spacing:6) {
                 ForEach(Array(changes.choices.indices.dropFirst(changes.actionPage*100).prefix(100)),id:\.self) { index in
                     Button(changes.choices[index]["title"] as? String ?? "Provider action") { Task {await changes.choose(index,workspace:workspace,expectedSnapshot:actionSnapshot)} }

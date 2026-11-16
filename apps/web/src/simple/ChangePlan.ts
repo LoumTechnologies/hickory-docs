@@ -85,3 +85,14 @@ export function validateReferencedTargets(plan: ChangePlan, referencePaths: read
   const missing = [...new Set(referencePaths)].filter(path => !targets.has(path));
   if (missing.length) throw new Error(`Rename omitted reported reference source targets: ${missing.join(", ")}. Refresh project analysis and prepare again. No edits were applied.`);
 }
+export type WorkspaceHistoryEntry={kind:'draft';plan:ChangePlan}|{kind:'resource';recovery:string};
+export interface WorkspaceHistoryToken {readonly direction:'undo'|'redo';readonly revision:number;readonly entry:WorkspaceHistoryEntry}
+/** History records inverses only after whole-batch confirmation; preview tokens are not write authority. */
+export class WorkspaceChangeHistory {
+ private undo:WorkspaceHistoryEntry[]=[];private redo:WorkspaceHistoryEntry[]=[];private revision=0;
+ stamp(){return this.revision;}
+ record(entry:WorkspaceHistoryEntry){this.undo=[...this.undo.slice(-31),entry];this.redo=[];this.revision++;}
+ preview(direction:'undo'|'redo'):WorkspaceHistoryToken|null {const entry=this[direction].at(-1);return entry?Object.freeze({direction,entry,revision:this.revision}):null;}
+ current(token:WorkspaceHistoryToken):boolean{return token.revision===this.revision&&this[token.direction].at(-1)===token.entry;}
+ commit(token:WorkspaceHistoryToken,inverse:WorkspaceHistoryEntry){if(!this.current(token))throw new Error('Workspace history changed after review. Prepare undo or redo again.');this[token.direction].pop();const other=token.direction==='undo'?'redo':'undo';this[other]=[...this[other].slice(-31),inverse];this.revision++;}
+}

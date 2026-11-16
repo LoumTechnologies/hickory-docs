@@ -14,6 +14,137 @@ import kotlinx.coroutines.launch
 import java.net.URLEncoder
 import org.json.JSONObject
 
+// Preparation and publication are separate states. A failed POST is never
+// retried: only the original request's read-only status may be consulted.
+class ResourceChangeReview(private val transport:(suspend(String,String,JSONObject?)->JSONObject)?=null) {
+ data class Review(val proposal:JSONObject,val facts:JSONObject,val plan:JSONObject,val saved:Map<String,ResourceSaved>,val restoration:Boolean,val fingerprint:String?,val current:()->Boolean,val restoring:Map<String,DocumentBuffer>,val published:((String,String)->Unit)?=null)
+ var review by mutableStateOf<Review?>(null);private set
+ var notice by mutableStateOf("");private set
+ var busy by mutableStateOf(false);private set
+ var lastRecovery by mutableStateOf<String?>(null);private set
+ var lastWorkspace by mutableStateOf<String?>(null);private set
+ private var ticket=0L
+ private var pending:Pair<String,Review>?=null
+ private var publishedWorkspace:Workspace?=null
+ private fun nonce()=java.util.UUID.randomUUID().toString().replace("-","")
+ private fun hash(text:String)=java.security.MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8)).joinToString(""){"%02x".format(it)}
+ private suspend fun call(workspace:Workspace,method:String,path:String,body:JSONObject?=null)=transport?.invoke(method,path,body) ?: (workspace.engine ?: error("Connect to a workspace server first.")).request(method,path,body)
+ fun dismiss(){if(pending!=null)return;ticket++;review=null;busy=false}
+ fun reset(){ticket++;review=null;pending=null;publishedWorkspace=null;lastRecovery=null;lastWorkspace=null;busy=false;notice=""}
+ private suspend fun capture(workspace:Workspace,paths:List<String>,edit:JSONObject,valid:()->Boolean):Pair<JSONObject,()->Boolean> {
+  check(paths.isNotEmpty()&&paths.size<=1000&&paths.distinct().size==paths.size){"Choose a bounded complete source proposal."}
+  val epoch=workspace.sourceNavigationEpoch
+  fun find(nodes:List<FileNode>,path:String):FileNode?=nodes.firstNotNullOfOrNull{if(it.path==path)it else find(it.children,path)}
+  for(path in paths){check(valid()&&workspace.sourceNavigationEpoch==epoch){"Source or workspace changed. Prepare again."};find(workspace.rootFiles,path)?.takeUnless{it.dir}?.let{workspace.loadBuffer(it)}}
+  fun authored()=workspace.buffers.filter{(path,buffer)->!path.startsWith("Untitled-")&&!buffer.resourceDeleted&&buffer.file.generatedBy==null}
+  val namespace=authored().toMap();val captured=paths.associateWith{workspace.buffers[it]}
+  data class Snapshot(val buffer:DocumentBuffer,val text:String,val base:String,val hash:String,val file:FileNode)
+  val snapshots=namespace.values.map{check(!it.saving&&!it.readOnly&&it.state.composition==null){"Finish source input and saves before preparing resources."};Snapshot(it,it.text,it.base,it.hash,it.file)}
+  val current={valid()&&workspace.sourceNavigationEpoch==epoch&&authored().let{it.keys==namespace.keys&&it.all{(path,buffer)->namespace[path]===buffer}}&&captured.all{(path,buffer)->workspace.buffers[path]===buffer}&&snapshots.all{it.buffer.text==it.text&&it.buffer.base==it.base&&it.buffer.hash==it.hash&&it.buffer.file===it.file&&!it.buffer.saving&&it.buffer.state.composition==null}}
+  check(current()){"Source changed. Prepare again."}
+  val drafts=JSONObject();snapshots.filter{it.file.path in paths}.forEach{drafts.put(it.file.path,JSONObject().put("text",it.text).put("base_sha256",hash(it.base)).put("version",JSONObject.NULL).put("writable",true))}
+  val ownership=JSONObject();snapshots.filter{it.file.path.endsWith(".md",true)||it.file.path.endsWith(".markdown",true)}.forEach{ownership.put(it.file.path,it.text)}
+  val capture=JSONObject().put("context",nonce()).put("edit",edit).put("drafts",drafts).put("project_entry",JSONObject.NULL).put("ownership_sources",ownership)
+  return capture to current
+ }
+ private suspend fun acquire(workspace:Workspace,paths:List<String>,edit:JSONObject,valid:()->Boolean):Triple<JSONObject,JSONObject,()->Boolean> {
+  var (captured,current)=capture(workspace,paths,edit,valid)
+  var inputs=call(workspace,"POST","/api/changes/resource-inputs",captured)
+  check(current()){"Source changed during acquisition. Prepare again."}
+  val sources=inputs.getJSONObject("sources")
+  val missing=paths.filter{sources.getJSONObject(it).getString("kind")=="file"&&workspace.buffers[it]==null}
+  if(missing.isNotEmpty()){
+   // Discovery observes saved existence; it never grants a write. Refresh the
+   // file index and acquire those editors without changing the active pane,
+   // then discard the discovery authority and capture all sources again.
+   workspace.refresh();check(current()){"Workspace changed during source discovery. Prepare again."}
+   val next=capture(workspace,paths,edit,valid);captured=next.first;current=next.second
+   check(missing.all{workspace.buffers[it]!=null}){"Current source is not available in the file index: ${missing.joinToString()}. Refresh files and prepare again."}
+   inputs=call(workspace,"POST","/api/changes/resource-inputs",captured)
+   check(current()){"Source changed after discovery. Prepare again."}
+  }
+  return Triple(captured,inputs,current)
+ }
+ suspend fun prepare(workspace:Workspace,title:String,edit:JSONObject,valid:()->Boolean={true}) {
+  if(busy||pending!=null){notice="Inspect the pending publication status before preparing another resource change.";return}
+  val id=++ticket;busy=true;review=null;notice="Reading current resource authority…"
+  try {
+   val targets=call(workspace,"POST","/api/changes/resource-targets",JSONObject().put("edit",edit)).getJSONArray("paths");val paths=(0 until targets.length()).map{targets.getString(it)}
+   val (capture,inputs,current)=acquire(workspace,paths,edit,valid)
+   check(current()&&id==ticket){"Source changed during acquisition. Prepare again."}
+   val plan=call(workspace,"POST","/api/changes/plan-resources",JSONObject().put("context",inputs.getString("context")).put("title",title).put("edit",edit).put("sources",inputs.getJSONObject("sources"))).getJSONObject("plan")
+   val proposal=JSONObject().put("inputs",inputs).put("capture",capture).put("plan",plan)
+   val facts=call(workspace,"POST","/api/changes/resource-consequences",proposal)
+   check(current()&&id==ticket){"Source changed during analysis. Prepare again."}
+   val patches=resourcePatches(plan);check(patches.all{it.before==null||workspace.buffers[it.path]?.text==it.before.text}){"Refresh files to acquire every existing source editor, then prepare again."}
+   check(facts.getJSONArray("protected_targets").length()==0){"A proposed path becomes generated. Change its authored construction instead."}
+   val expected=resourceSavedMap(facts.getJSONObject("saved_sources"))
+   review=Review(proposal,facts,plan,expected,false,null,current,emptyMap());workspace.showRecovery=true;notice="Review source drafts, saved publication and generated consequences before Save resources."
+  }catch(error:CancellationException){throw error}catch(error:Exception){if(id==ticket)notice=error.message.orEmpty()}finally{if(id==ticket)busy=false}
+ }
+ suspend fun openHistory(workspace:Workspace,record:String,expectedWorkspace:String,current:()->Boolean,published:(String,String)->Unit){
+  if(busy||pending!=null){notice="Settle the pending resource change before workspace undo or redo.";return}
+  val id=++ticket;busy=true
+  try{
+   check(current()){"Workspace history changed. Choose Undo or Redo again."}
+   val reading=recoveryReading(call(workspace,"GET","/api/changes/resource-recovery?id="+URLEncoder.encode(record,"UTF-8")))
+   check(id==ticket&&current()&&reading.id==record&&reading.workspace==expectedWorkspace){"Workspace history or recovery identity changed. Refresh recovery and choose Undo or Redo again."}
+   busy=false;restore(workspace,reading,current,published)
+  }catch(error:CancellationException){throw error}catch(error:Exception){if(id==ticket)notice=error.message.orEmpty()}finally{if(id==ticket)busy=false}
+ }
+ suspend fun restore(workspace:Workspace,reading:RecoveryReading,valid:()->Boolean={true},published:((String,String)->Unit)?=null) {
+  if(busy||pending!=null){notice="Inspect the pending publication status before preparing restoration.";return}
+  val id=++ticket;busy=true;review=null;notice="Preparing saved baselines and drafts independently…"
+  try {
+   val paths=reading.paths.map{it.path};val changes=JSONObject();paths.forEach{changes.put(languageURI(it),org.json.JSONArray())}
+   val (capture,inputs,current)=acquire(workspace,paths,JSONObject().put("changes",changes),valid)
+   check(current()&&id==ticket){"Source changed during acquisition. Prepare restoration again."}
+   val proposal=JSONObject().put("recovery_id",reading.id).put("inputs",inputs).put("capture",capture)
+   val prepared=call(workspace,"POST","/api/changes/prepare-restoration",proposal);val restoration=prepared.getJSONObject("restoration");val facts=prepared.getJSONObject("consequences");val plan=restoration.getJSONObject("plan")
+   check(current()&&id==ticket&&restoration.getString("recovery_fingerprint")==reading.fingerprint&&restoration.getString("workspace")==reading.workspace){"Recovery evidence or workspace changed. Refresh and prepare again."}
+   check(facts.getJSONArray("protected_targets").length()==0){"Restored source becomes generated. Reconcile its authored construction first."}
+   val patches=resourcePatches(plan);check(patches.all{it.before==null||workspace.buffers[it.path]?.text==it.before.text}){"Refresh files and acquire every current source before restoring."}
+   val retained=patches.mapNotNull{it.after?.let{after->workspace.retainedResourceEditors[after.identity]?.let{buffer->after.identity to buffer}}}.toMap()
+   val held=retained.mapValues{it.value.text};val guard={current()&&retained.all{(identity,buffer)->workspace.retainedResourceEditors[identity]===buffer&&buffer.text==held[identity]}}
+   review=Review(proposal,facts,plan,resourceSavedMap(restoration.getJSONObject("saved_after")),true,reading.fingerprint,guard,retained,published);notice="Review the complete restoration. Saved baselines and unsaved drafts remain separate."
+  }catch(error:CancellationException){throw error}catch(error:Exception){if(id==ticket)notice=error.message.orEmpty()}finally{if(id==ticket)busy=false}
+ }
+ suspend fun apply(workspace:Workspace,expected:Review?=review) {
+  val value=review ?: return;if(busy||pending!=null)return
+  if(value!==expected){notice="Resource review changed. Read the current proposal before saving.";return}
+  try{check(value.current()){"Source changed after review. Prepare again."}}catch(error:Exception){notice=error.message.orEmpty();return}
+  val request=nonce();pending=request to value;publishedWorkspace=workspace;review=null;busy=true
+  val body=JSONObject().put("request_id",request).put("reviewed_fingerprint",value.facts.getString("fingerprint")).put("proposal",value.proposal)
+  if(value.restoration)body.put("reviewed_recovery_fingerprint",value.fingerprint)
+  try{adopt(workspace,request,value,call(workspace,"POST",if(value.restoration)"/api/changes/restore-resources" else "/api/changes/resource-save",body))}
+  catch(error:CancellationException){notice="Publication may have started. Inspect its status or Source recovery; do not repeat Save.";throw error}
+  catch(error:Exception){notice="${error.message} Publication is unconfirmed. Inspect status or Source recovery; this action will not be retried."}
+  finally{busy=false}
+ }
+ suspend fun status(workspace:Workspace){val (request,value)=pending ?: return;if(busy)return;busy=true
+  try{check(publishedWorkspace===workspace){"Workspace changed. Inspect recovery in the original workspace."};adopt(workspace,request,value,call(workspace,"GET","/api/changes/resource-save?request_id=$request"))}
+  catch(error:CancellationException){throw error}catch(error:Exception){notice=error.message.orEmpty()+" Inspect retained recovery before another publication."}finally{busy=false}
+ }
+ private fun adopt(workspace:Workspace,request:String,value:Review,raw:JSONObject){
+  val receipt=resourcePublication(raw);val patches=resourcePatches(value.plan)
+  workspace.adoptResourceReceipt(patches,receipt,request,value.facts.getString("workspace"),value.facts.getString("context"),value.saved,value.current,value.restoring)
+  val recovery=receipt.recovery.substringBeforeLast('/').substringAfterLast('/')
+  value.published?.invoke(recovery,receipt.workspace) ?: workspace.changes.recordResource(recovery,receipt.workspace)
+  lastRecovery=recovery;lastWorkspace=receipt.workspace;pending=null;publishedWorkspace=null
+  notice="Saved resources confirmed. Drafts and editor state retained. Restore this new recovery record to reverse the change; no checks were executed."
+ }
+ val hasPending get()=pending!=null
+ val pendingRecovery get()=pending?.first
+ val pendingWorkspace get()=pending?.second?.facts?.getString("workspace")
+}
+fun resourcePatches(plan:JSONObject):List<ResourceEditorPatch>{
+ val rows=plan.getJSONArray("patches")
+ fun side(value:JSONObject):ResourceSource? {require(value.getString("kind") in listOf("file","missing")){"Unsupported resource state. Prepare again."};return if(value.getString("kind")=="file")ResourceSource(value.getString("identity"),value.getString("text")) else null}
+ return (0 until rows.length()).map{val row=rows.getJSONObject(it);ResourceEditorPatch(row.getString("path"),side(row.getJSONObject("before")),side(row.getJSONObject("after")))}
+}
+fun resourceSavedMap(raw:JSONObject)=raw.keys().asSequence().associateWith{key->val value=raw.getJSONObject(key);if(value.getString("kind")=="missing")ResourceSaved("missing") else ResourceSaved("file",value.getString("text"),value.getString("sha256"),value.getBoolean("readonly"),value.getBoolean("executable"),if(value.isNull("mode"))null else value.getInt("mode"))}
+fun resourcePublication(raw:JSONObject):ResourcePublication<FileNode>{val outcome=raw.getJSONObject("outcome");val rows=raw.getJSONArray("source_files");val applied=outcome.getJSONArray("applied");return ResourcePublication(raw.getInt("version"),raw.getString("request_id"),raw.getString("workspace"),raw.getString("context"),outcome.getBoolean("complete"),outcome.getString("recovery"),(0 until applied.length()).map{applied.getString(it)},if(raw.isNull("saved_sources"))null else resourceSavedMap(raw.getJSONObject("saved_sources")),(0 until rows.length()).map{val row=rows.getJSONObject(it);val file=row.getJSONObject("file");ResourcePublishedFile(FileNode(file.getString("name"),file.getString("path"),file.getBoolean("dir"),emptyList(),if(file.isNull("doc_id"))null else file.getString("doc_id"),if(file.isNull("generated_by"))null else file.getString("generated_by"),if(file.isNull("language"))null else file.getString("language")),resourceSavedMap(JSONObject().put("entry",row.getJSONObject("saved"))).getValue("entry"),row.getString("hash"))})}
+
 data class RecoveryPage(val version:Int,val workspace:String,val ids:List<String>,val next:String?,val ignored:Int)
 data class RecoverySummary(val kind:String,val bytes:Int?,val sha256:String?)
 data class RecoveryPath(val path:String,val snapshots:Map<String,RecoverySummary>)
@@ -30,8 +161,8 @@ class RecoveryReader {
    page=next;notice=if(next.ids.isEmpty())"No retained resource recovery records." else "Choose a retained record. Identities are sorted, not chronological."
   }catch(error:CancellationException){throw error}catch(error:Exception){if(id==ticket){page=null;notice=error.message.orEmpty()}}finally{if(id==ticket)loading=false}
  }
- suspend fun read(record:String,path:String?=null,snapshot:String="draft_before",load:suspend(String)->RecoveryReading){val workspace=page?.workspace;val previous=value?.takeIf{it.id==record};val id=++ticket;loading=true;value=null;notice="Reading retained source evidence…"
-  try{check(workspace!=null&&page?.ids?.contains(record)==true){"Refresh recovery identities before selecting a record."};val parts=snapshot.split('_');check(parts.size==2&&parts[0] in listOf("saved","draft")&&parts[1] in listOf("before","after")){"Choose a supported recovery snapshot."}
+ suspend fun read(record:String,path:String?=null,snapshot:String="draft_before",expectedWorkspace:String?=null,load:suspend(String)->RecoveryReading){val workspace=expectedWorkspace ?: page?.workspace;val previous=value?.takeIf{it.id==record};val id=++ticket;loading=true;value=null;notice="Reading retained source evidence…"
+  try{check(workspace!=null&&record.matches(Regex("[0-9a-f]{32}"))&&(expectedWorkspace!=null||page?.ids?.contains(record)==true||previous?.workspace==workspace)){"Refresh recovery identities before selecting a record."};val parts=snapshot.split('_');check(parts.size==2&&parts[0] in listOf("saved","draft")&&parts[1] in listOf("before","after")){"Choose a supported recovery snapshot."}
    val reply=load("/api/changes/resource-recovery?id="+URLEncoder.encode(record,"UTF-8")+(path?.let{"&path="+URLEncoder.encode(it,"UTF-8")+"&"+parts[0]+"="+parts[1]} ?: ""));if(id!=ticket)return
    check(reply.version==1&&reply.workspace==workspace&&reply.id==record&&reply.fingerprint.matches(Regex("[0-9a-f]{64}"))&&(previous==null||previous.fingerprint==reply.fingerprint)&&(path==null||reply.paths.any{it.path==path})){"Recovery evidence changed. Refresh identities and read again."}
    value=reply;notice="Retained evidence only. Current source and editor drafts are unchanged."
@@ -39,15 +170,33 @@ class RecoveryReader {
  }
 }
 @Composable fun SourceRecoveryView(workspace:Workspace){
- val model=remember{RecoveryReader()};val scope=rememberCoroutineScope();val engine=workspace.engine;var path by remember{mutableStateOf("")};var snapshot by remember{mutableStateOf("draft_before")};var recordMenu by remember{mutableStateOf(false)};var pathMenu by remember{mutableStateOf(false)}
+ val model=remember{RecoveryReader()};val resources=workspace.resourceChanges;val scope=rememberCoroutineScope();val engine=workspace.engine;var path by remember{mutableStateOf("")};var snapshot by remember{mutableStateOf("draft_before")};var recordMenu by remember{mutableStateOf(false)};var pathMenu by remember{mutableStateOf(false)}
+ var reviewFile by remember(resources.review){mutableStateOf(0)}
  suspend fun list(after:String?=null){if(engine==null){model.notice="Connect to a workspace server first.";return};path="";model.list(after){recoveryPage(engine.request("GET",it))}}
- suspend fun read(id:String,path:String?=null,snapshot:String="draft_before"){if(engine==null)return;model.read(id,path,snapshot){recoveryReading(engine.request("GET",it))}}
- LaunchedEffect(engine){list()};DisposableEffect(model){onDispose{model.close()}}
+ suspend fun read(id:String,path:String?=null,snapshot:String="draft_before",expectedWorkspace:String?=null){if(engine==null)return;model.read(id,path,snapshot,expectedWorkspace ?: model.value?.takeIf{it.id==id}?.workspace){recoveryReading(engine.request("GET",it))}}
+ LaunchedEffect(engine){list()};DisposableEffect(model){onDispose{model.close();resources.dismiss()}}
  Column(Modifier.widthIn(max=680.dp).heightIn(max=680.dp).padding(16.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){
   Text("Source recovery",style=MaterialTheme.typography.titleMedium);Row{TextButton(enabled=!model.loading,onClick={scope.launch{list()}}){Text("Refresh records")};TextButton(onClick={workspace.showRecovery=false;workspace.currentBuffer?.focusSource?.invoke()}){Text("Close")}}
   Text(model.notice,fontSize=12.sp)
+  if(resources.notice.isNotEmpty())Text(resources.notice,fontSize=12.sp)
+  if(resources.hasPending)TextButton(enabled=!resources.busy,onClick={scope.launch{resources.status(workspace)}}){Text("Inspect original publication status")}
+  resources.pendingRecovery?.let{record->SelectionContainer{Text("Original publication: $record",fontSize=12.sp)};TextButton(enabled=!resources.busy,onClick={scope.launch{read(record,expectedWorkspace=resources.pendingWorkspace)}}){Text("Inspect interrupted request recovery")}}
+  resources.lastRecovery?.let{record->SelectionContainer{Text("Latest recovery: $record",fontSize=12.sp)};TextButton(enabled=!resources.busy,onClick={scope.launch{read(record,expectedWorkspace=resources.lastWorkspace)}}){Text("Review inverse / redo from latest recovery")}}
+  resources.review?.let{review->
+   Text(review.plan.getString("title"),style=MaterialTheme.typography.titleSmall)
+   Text("Save publishes the reviewed saved states. Draft text can differ from its saved baseline. Generated output is analyzed, never materialized by this action.",fontSize=12.sp)
+   val patches=resourcePatches(review.plan)
+   Row{TextButton(enabled=reviewFile>0,onClick={reviewFile--}){Text("Previous source")};Text("${reviewFile+1} / ${patches.size}",fontSize=12.sp);TextButton(enabled=reviewFile+1<patches.size,onClick={reviewFile++}){Text("Next source")}}
+   patches.getOrNull(reviewFile)?.let{patch->
+    Text(patch.path,style=MaterialTheme.typography.titleSmall)
+    listOf("Current draft" to patch.before?.text,"Reviewed draft" to patch.after?.text,"Reviewed saved baseline" to review.saved[patch.path]?.text).forEach{(label,text)->Text(label,fontSize=12.sp);SelectionContainer{Text(text?.take(16000) ?: "Source absent",fontFamily=FontFamily.Monospace,fontSize=12.sp)};if(text!=null&&text.length>16000)Text("First 16,000 characters shown.",fontSize=12.sp)}
+   }
+   listOf("saved","draft").forEach{layer->val outputs=review.facts.getJSONObject(layer).getJSONArray("output_paths");Text("$layer construction consequences: ${outputs.length()} outputs; execution evidence not queried.",fontSize=12.sp);SelectionContainer{Text((0 until minOf(outputs.length(),300)).joinToString("\n"){outputs.getString(it)},fontFamily=FontFamily.Monospace,fontSize=12.sp)};if(outputs.length()>300)Text("First 300 output paths shown.",fontSize=12.sp)}
+   Row{TextButton(enabled=!resources.busy,onClick={scope.launch{resources.apply(workspace,review)}}){Text(if(review.restoration)"Save reviewed restoration" else "Save resources")};TextButton(enabled=!resources.busy,onClick={resources.dismiss()}){Text("Discard review")}}
+  }
   model.page?.let{page->Box{TextButton(enabled=!model.loading,onClick={recordMenu=true}){Text(model.value?.id ?: "Choose retained record")};DropdownMenu(expanded=recordMenu,onDismissRequest={recordMenu=false}){page.ids.forEach{id->DropdownMenuItem(text={Text(id)},onClick={recordMenu=false;path="";scope.launch{read(id)}})}}};if(page.ignored>0)Text("${page.ignored} unrecognized entries omitted.",fontSize=12.sp);page.next?.let{next->TextButton(enabled=!model.loading,onClick={scope.launch{list(next)}}){Text("Next 100 identities")}}}
   model.value?.let{value->Text(value.title+if(value.titleTruncated)"…" else "",style=MaterialTheme.typography.titleSmall);Text((if(value.allApplied)"Every path has an applied receipt." else "The record does not confirm every path was applied.")+" These receipts describe the recorded operation, not current disk state.",fontSize=12.sp);if(value.unrecognized>0)Text("${value.unrecognized} unrecognized files in this record.",fontSize=12.sp)
+   TextButton(enabled=!model.loading&&!resources.busy&&!resources.hasPending,onClick={scope.launch{resources.restore(workspace,value)}}){Text("Prepare complete saved / draft restoration")}
    Box{TextButton(enabled=!model.loading,onClick={pathMenu=true}){Text(path.ifEmpty{"Choose recorded source"})};DropdownMenu(expanded=pathMenu,onDismissRequest={pathMenu=false}){value.paths.forEach{item->DropdownMenuItem(text={Text(item.path)},onClick={pathMenu=false;path=item.path;scope.launch{read(value.id,path,snapshot)}})}}}
    listOf("saved_before","draft_before","saved_after","draft_after").forEach{side->TextButton(enabled=!model.loading,onClick={snapshot=side;if(path.isNotEmpty())scope.launch{read(value.id,path,side)}}){Text((if(snapshot==side)"✓ " else "")+side.replace('_',' '))}}
    value.paths.find{it.path==path}?.snapshots?.get(snapshot)?.let{selected->SelectionContainer{Text(if(selected.kind=="missing")"Source absent in this snapshot." else "${selected.bytes} UTF-8 bytes · ${selected.sha256}",fontSize=12.sp)};val text=if(snapshot.startsWith("saved"))value.savedText else value.draftText;if(text!=null){SelectionContainer{Text(text.take(32000),fontFamily=FontFamily.Monospace,fontSize=12.sp)};if(text.length>32000)Text("First 32,000 characters shown.",fontSize=12.sp)}}

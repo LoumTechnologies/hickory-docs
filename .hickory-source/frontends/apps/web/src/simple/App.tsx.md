@@ -30,6 +30,8 @@ import { WorkspaceChanges, requestWorkspaceChange } from "./WorkspaceChanges";
 import { WorkspaceAnalysisView, requestWorkspaceAnalysis } from "./WorkspaceAnalysisView";
 import { WorkspaceSearch } from "./WorkspaceSearch";
 import {SourceRecoveryView} from "./SourceRecovery";
+import {WorkspaceChangeHistory} from "./ChangePlan";
+import {resourceLayout,type ResourceEditorRoute} from "./ResourceEditors";
 import {ConstructionReadingView,constructionPointOffset} from "./ConstructionReading";
 import {GitAttributionView} from "./GitAttribution";
 import {GitHistoryView,type GitHistoryRequest} from "./GitHistory";
@@ -75,6 +77,7 @@ function EditorSettings() {
 }
 export function App() {
   const [layout, setLayout] = useState<Layout>(initialLayout);
+  const liveLayout=useRef(layout);liveLayout.current=layout;
   const [focused, setFocused] = useState("document-group");
   const [terminal] = useState(() => new TerminalSession());
   const [agent] = useState(() => new AgentSession());
@@ -99,8 +102,10 @@ export function App() {
   const [, refreshTrail] = useState(0);
   const [status, setStatus] = useState("Choose a file");
   const [, refresh] = useState(0);
+  const [changeHistory]=useState(()=>new WorkspaceChangeHistory());
   const [buffers] = useState(() => new Buffers(() => refresh(value => value + 1)));
   const requested = useRef(new Map<string, string>());
+  const resourcePlacements=useRef(new Map<Buffer,{group:string;index:number;active:boolean}>());
   function newTab() {
     const path = `Untitled-${crypto.randomUUID()}`;
     buffers.values.set(path, new Buffer({ name: `Untitled ${[...buffers.values.keys()].filter(key => key.startsWith("Untitled-")).length + 1}`, path, dir: false }, "", "", () => refresh(value => value + 1)));
@@ -340,9 +345,13 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
       openLocation(point.path,point.line,point.character,true,source);setShowTests(false);
     }} terminal={id=>{terminal.id=id;terminal.error="";terminal.publish();openTab("terminal");setShowTests(false);}} />
     <SearchEverywhereView visible={showEverywhere} setVisible={setShowEverywhere} buffers={buffers} files={workspaceFiles} analysis={analysis} commands={commands} openFile={path=>{const file=buffers.values.get(path)?.file??findPath(path);if(file)void openFileVisit(file);else setNotice("File no longer listed. Refresh the workspace.");}} focusCurrent={()=>{if(buffer)editorForBuffer(buffer)?.view.focus();}} />
-    <WorkspaceChanges files={workspaceFiles} buffers={buffers} current={() => buffer} focus={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />
+    <WorkspaceChanges history={changeHistory} adoptResources={routes=>{requested.current.clear();const next=resourceLayout(liveLayout.current,routes,resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();}} files={workspaceFiles} buffers={buffers} current={() => buffer} focus={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />
     <WorkspaceSearch visible={showWorkspaceSearch} close={() => { setShowWorkspaceSearch(false); if (buffer) editorForBuffer(buffer)?.view.focus(); }} buffers={buffers} files={workspaceFiles} />
-    {showRecovery&&<SourceRecoveryView key={"recovery:"+workspaceRoot} close={()=>{setShowRecovery(false);if(buffer)editorForBuffer(buffer)?.view.focus();}}/>}
+    {showRecovery&&<SourceRecoveryView key={"recovery:"+workspaceRoot} buffers={buffers} epoch={()=>changeHistory.stamp()} alive={()=>workspaceIdentity.current===workspaceRoot} acquire={async path=>{
+      const identity=workspaceIdentity.current,response=await api.files();if(workspaceIdentity.current!==identity||response.root!==identity)throw new Error("Workspace changed. Read recovery again.");
+      const find=(nodes:FileNode[]):FileNode|undefined=>{for(const file of nodes){if(file.path===path&&!file.dir)return file;const nested=find(file.children??[]);if(nested)return nested;}};
+      const file=buffers.values.get(path)?.file??find(response.tree);if(!file)throw new Error("Recovery source is not available in the current workspace: "+path);return await buffers.open(file);
+    }} adopt={(routes:ResourceEditorRoute<Buffer>[],recovery:string)=>{changeHistory.record({kind:"resource",recovery});requested.current.clear();const next=resourceLayout(liveLayout.current,routes,resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();setNotice("Source restoration confirmed; saved baselines and drafts are retained separately.");}} close={()=>{setShowRecovery(false);if(buffer)editorForBuffer(buffer)?.view.focus();}}/>}
     {showConstruction&&<ConstructionReadingView key={"construction:"+workspaceRoot} sources={()=>Object.fromEntries([...buffers.values].filter(([,item])=>!item.readonly).map(([path,item])=>[path,item.text]))} navigate={async(point,current)=>{
       const identity=workspaceIdentity.current,file=buffers.values.get(point.path)?.file??findPath(point.path);if(!file)throw new Error("Source no longer listed. Refresh the construction reading.");
       const target=await buffers.open(file),source=target.text;

@@ -21,6 +21,30 @@ The complete outcome includes:
 
 These are required outcomes. Existing verification paragraphs establish only the explicitly tested slices; unsupported providers, missing relationships and unexecuted native acceptance must remain visible. JetBrains-specific language engines are supplied through existing language/provider interfaces; the UI must never claim an unavailable refactoring or an unmeasured test result.
 
+## Current integration ledger
+
+This ledger reconciles the required outcome with the implementation inspected on
+2026-11-15. The dated paragraphs below retain focused evidence for their own
+revisions; they do not collectively certify complete parity. A foundation or a
+model witness is not a completed host interaction. Work in progress stays open
+until reconstruction, focused safety checks and the connected path pass.
+
+| Required outcome | Established slices and remaining acceptance |
+| --- | --- |
+| Navigation and intelligence | Semantic queries, bounded workspace acquisition, search and retained navigation trails have focused evidence below. Complete provider indexing and native physical interaction are not established by those receipts. |
+| Safe changes, cleanup, generation and templates | Multi-source draft review/undo, cleanup and nested source snippets have focused evidence. Ordered resource publication and saved/draft undo now have connected browser/provider and native controller acceptance. Canonical-entry moves and ambiguous native wire path identities still refuse. Semantic cleanup, reusable generation/template catalog, full snippet transforms/variable contexts, multi-caret templates and mirrored native IME remain open. |
+| Diagnostics and contextual fixes | Source-bound Problems, exact provider action resolution and multi-source action review have focused evidence. Complete bulk-fix workflow and provider analysis completeness remain open. |
+| Tests and coverage | Source declarations, saved-run admission, discovery/results and source-bound imported coverage have focused evidence. Source-adjacent test debugging and supported automatic collector end-to-end acceptance remain open. |
+| Review and recovery | Diffs, staging, immutable history, attribution and choosing a conflict stage have focused evidence. Resource recovery publication/adoption and ordered text/resource undo now have actual-engine acceptance. Invalid historical construction drafts and partial-state restoration still refuse. Arbitrary conflict composition, delete/rename conflicts, ordinary-save local history and crash/session/layout restoration remain open. |
+| Debugger | Inline launch, profile selection, breakpoints, frames and evaluation have focused slices. Attach, explicit threads and verified supported-adapter end-to-end acceptance remain open. |
+| Connected behavior readings | Captured construction/contributor/output readings have focused evidence. Complete contract/explanation/implementation/test/execution-evidence relationships remain open; detected tests are not execution evidence. |
+| Change impact and relevant verification | Compiler saved/draft output consequences exist. Complete mechanism/check relationships and selection/execution of relevant verification with explicit unknown dependencies remain open. |
+| Agent proposal review | Retained agent conversation and existing guarded source-change mechanisms are foundations. Coherent agent proposals connecting explanation, implementation, generated consequences and checks through guarded application remain open. |
+
+Physical native input, assistive technology and device IME acceptance remain
+unverified unless an explicit executed receipt says otherwise. No row is a claim
+of complete JetBrains/ReSharper parity.
+
 ## Semantic intelligence extension, 2026-11-14
 
 The extracted TypeScript, Swift and Kotlin intelligence modules now normalize nested outlines, flat workspace symbols, declarations and caller/callee items into named source locations. The existing menus and floating language surfaces expose these nine queries; the later type-hierarchy extension adds supertypes and subtypes. Position reads flush pending source before asking a provider. Six focused browser semantic witnesses and three focused model/snapshot witnesses on each native implementation pass. TypeScript and native compilation, plus the iOS simulator build, are checked separately. The real Python browser flow exercises cross-file definitions/usages, exact columns, file outlines, workspace symbols, incoming/outgoing calls, stationary geometry and unchanged disk bytes. Native pointer and live-provider acceptance remain unverified by these model checks.

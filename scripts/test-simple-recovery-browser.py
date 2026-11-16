@@ -30,7 +30,26 @@ def main():
    driver.act("recovery-close");assert driver.act("editor-is-retained",path="b.txt");assert driver.act("editor-size",path="b.txt")==size;assert driver.act("construction-source",path="b.txt")==current
    driver.act("construction-history",redo=False);assert driver.act("construction-source",path="b.txt")==draft;driver.act("construction-history",redo=True);assert driver.act("construction-source",path="b.txt")==current
    assert (root/"b.txt").read_text()==draft and not (root/"a #😀.txt").exists()
-   print("PASS: View menu recovery discovery, exact named saved/dirty/absent snapshot reading, retained editor geometry/identity/draft/undo/redo, unchanged saved source")
+   # The newer local draft must refuse restoration without touching saved files.
+   driver.act("recovery-open");driver.act("recovery-read",record=record,path="a #😀.txt",snapshot="saved_before")
+   refused=" ".join(driver.act("recovery-prepare"));assert "refus" in refused.lower() or "match" in refused.lower() or "changed" in refused.lower(),refused
+   assert (root/"b.txt").read_text()==draft and not (root/"a #😀.txt").exists()
+   driver.act("recovery-close");driver.act("construction-history",redo=False);assert driver.act("construction-source",path="b.txt")==draft
+   driver.act("recovery-open");driver.act("recovery-read",record=record,path="a #😀.txt",snapshot="saved_before");prepared=" ".join(driver.act("recovery-prepare"));assert "Review every" in prepared,prepared
+   # A change after review refuses before the save route is used.
+   driver.act("construction-set-source",path="b.txt",source=current)
+   refused=" ".join(driver.act("recovery-publish"));assert "changed" in refused.lower(),refused
+   assert (root/"b.txt").read_text()==draft and not (root/"a #😀.txt").exists()
+   driver.act("recovery-close");driver.act("construction-history",redo=False)
+   driver.act("recovery-open");driver.act("recovery-read",record=record,path="a #😀.txt",snapshot="saved_before");driver.act("recovery-prepare");published=" ".join(driver.act("recovery-publish"));assert "Restored saved baselines" in published,published
+   assert (root/"a #😀.txt").read_text()==saved and not (root/"b.txt").exists()
+   assert driver.act("construction-source",path="a #😀.txt")==draft
+   assert driver.act("editor-is-retained",path="a #😀.txt",previous="b.txt");assert driver.act("editor-size",path="a #😀.txt")==size
+   inverse=" ".join(driver.act("recovery-prepare",inverse=True));assert "Review every" in inverse,inverse
+   published=" ".join(driver.act("recovery-publish"));assert "Restored saved baselines" in published,published
+   driver.act("recovery-close");assert driver.act("editor-is-retained",path="b.txt");assert driver.act("editor-size",path="b.txt")==size
+   assert driver.act("construction-source",path="b.txt")==draft and (root/"b.txt").read_text()==draft and not (root/"a #😀.txt").exists()
+   print("PASS: menu recovery reading, stale draft/review refusal, guarded saved/draft restore and inverse, retained editor identity/geometry and explicit saved baseline")
   finally:
    if driver:driver.close()
    for process in reversed(processes):fixture.stop(process)

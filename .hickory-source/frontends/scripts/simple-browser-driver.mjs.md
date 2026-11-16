@@ -179,7 +179,7 @@ try {
         case "source-tests-revisions": {const panel=page.getByRole("dialog",{name:"Source tests",exact:true});await panel.getByText("Saved revisions checked at admission",{exact:true}).click();value=await panel.innerText();break;}
         case "source-tests-close": await page.getByRole("button",{name:"Close source tests",exact:true}).click();break;
         case "remember-editor": rememberedEditors.set(request.path, await editor(request.path).elementHandle()); break;
-        case "editor-is-retained": value = await editor(request.path).evaluate((node, previous) => node === previous, rememberedEditors.get(request.path)); break;
+        case "editor-is-retained": value = await editor(request.path).evaluate((node, previous) => node === previous, rememberedEditors.get(request.previous??request.path)); break;
         case "navigate-history":
           await menu("Edit", request.direction === "back" ? "Navigate back" : "Navigate forward");
           await editor(request.path).waitFor(); break;
@@ -209,7 +209,7 @@ try {
           await page.keyboard.insertText(request.text); break;
         case "change-open": await menu("Edit", request.command || "Rename symbol"); await page.getByRole("dialog",{name:"Workspace change preview",exact:true}).waitFor(); break;
         case "action-choose": {
-          const panel=page.getByRole("dialog",{name:"Workspace change preview",exact:true});await panel.getByRole("button",{name:request.title,exact:true}).click();await panel.getByRole("button",{name:"Apply to source drafts",exact:true}).waitFor();break;
+          const panel=page.getByRole("dialog",{name:"Workspace change preview",exact:true});await panel.getByRole("button",{name:request.title,exact:true}).click();await panel.getByRole("button",{name:request.resources?"Save reviewed source resources":"Apply to source drafts",exact:true}).waitFor();value=await panel.innerText();break;
         }
         case "change-prepare": {
           const panel=page.getByRole("dialog",{name:"Workspace change preview",exact:true});
@@ -223,6 +223,8 @@ try {
           value={text:await panel.innerText(),size:await editor(request.path).locator("..").evaluate(node=>({width:node.clientWidth,height:node.clientHeight}))}; break;
         }
         case "change-file": await page.getByRole("combobox",{name:"Preview source file"}).selectOption({label:request.path}); break;
+        case "change-resource-ready":await page.getByRole("button",{name:"Save reviewed source resources",exact:true}).waitFor();value=await page.getByRole("dialog",{name:"Workspace change preview",exact:true}).innerText();break;
+        case "change-resource-save":{const panel=page.getByRole("dialog",{name:"Workspace change preview",exact:true});await panel.getByRole("button",{name:"Save reviewed source resources",exact:true}).click();await page.waitForFunction(()=>!document.querySelector('button[aria-label="Close change preview"]')?.disabled);value=await panel.innerText();break;}
         case "change-apply": await page.getByRole("button",{name:"Apply to source drafts",exact:true}).click(); break;
         case "change-close": await page.getByRole("button",{name:"Close change preview",exact:true}).click(); break;
         case "workspace-search-query": {
@@ -318,6 +320,8 @@ try {
         case "type-source-selection":await editor(request.path).focus();await page.keyboard.insertText(request.text);break;
         case "recovery-open":await menu("View","Source recovery");await page.waitForFunction(()=>{const text=document.querySelector('[role="dialog"][aria-label="Source recovery"] [role="status"]')?.textContent;return !!text&&!text.startsWith("Reading");});break;
         case "recovery-read":{const panel=page.getByRole("dialog",{name:"Source recovery",exact:true});const settled=()=>page.waitForFunction(()=>{const text=document.querySelector('[role="dialog"][aria-label="Source recovery"] [role="status"]')?.textContent;return !!text&&!text.startsWith("Reading");});if(request.record){await panel.getByLabel("Retained record",{exact:true}).selectOption(request.record);await settled();}if(request.path){await panel.getByLabel("Recorded source",{exact:true}).selectOption(request.path);await settled();}await panel.getByLabel("Snapshot",{exact:true}).selectOption(request.snapshot);await settled();value=await panel.locator("pre").count()?await panel.locator("pre").textContent():null;break;}
+        case "recovery-prepare":{const panel=page.getByRole("dialog",{name:"Source recovery",exact:true});await panel.getByRole("button",{name:request.inverse?"Prepare inverse restoration":"Prepare restoration",exact:true}).click();await page.waitForFunction(()=>!Array.from(document.querySelectorAll('[role="dialog"][aria-label="Source recovery"] button')).find(button=>button.textContent==="Close")?.disabled);value=await panel.locator('[role="status"]').allTextContents();break;}
+        case "recovery-publish":{const panel=page.getByRole("dialog",{name:"Source recovery",exact:true});await panel.getByRole("button",{name:"Restore reviewed saved sources and drafts",exact:true}).click();await page.waitForFunction(()=>!Array.from(document.querySelectorAll('[role="dialog"][aria-label="Source recovery"] button')).find(button=>button.textContent==="Close")?.disabled);value=await panel.locator('[role="status"]').allTextContents();break;}
         case "recovery-close":await page.getByRole("dialog",{name:"Source recovery",exact:true}).getByRole("button",{name:"Close",exact:true}).click();break;
         case "construction-open":await menu("View","Construction reading");await page.getByRole("dialog",{name:"Construction reading",exact:true}).waitFor();break;
         case "construction-read":{const panel=page.getByRole("dialog",{name:"Construction reading",exact:true});await panel.getByLabel("Construction entry",{exact:true}).fill(request.entry);await panel.getByLabel("Contributor or output (optional)",{exact:true}).fill(request.focus??"");await panel.getByRole("button",{name:"Read captured drafts",exact:true}).click();await page.waitForFunction(()=>{const text=document.querySelector('[role="dialog"][aria-label="Construction reading"] [role="status"]')?.textContent;return !!text&&!text.startsWith("Reading");});value=await panel.innerText();break;}
