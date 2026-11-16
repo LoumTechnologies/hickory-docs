@@ -4,8 +4,17 @@ data class SnippetSession(val source:String,val fields:List<SnippetField>,val ac
 data class SnippetInput(val session:SnippetSession,val edits:List<NativeSourceEdit>,val selection:CompletionSelection)
 data class SnippetAdvance(val session:SnippetSession?,val selection:CompletionSelection)
 private fun snippetScalar(text:String,at:Int):Boolean=at in 0..text.length&&!(at>0&&at<text.length&&(Character.isHighSurrogate(text[at-1])&&Character.isLowSurrogate(text[at])||text[at-1]=='\r'&&text[at]=='\n'))
+// A shared forest admission check runs before any retained choices vector is
+// copied. Empty alternatives still occupy slots; UTF-8 payloads add to them.
+internal fun snippetMetadataCost(fields:List<SnippetField>,budget:Long=1048576L):Long? {
+ if(fields.size>4096)return null;var bytes=0L
+ for(field in fields){if(field.choices.size>4096)return null;val floor=64L+32L*field.choices.size;if(floor>budget-bytes)return null;bytes+=floor
+  for(choice in field.choices){if(choice.length.toLong()>budget-bytes)return null;val payload=choice.toByteArray(Charsets.UTF_8).size.toLong();if(payload>budget-bytes)return null;bytes+=payload}
+ }
+ return bytes
+}
 fun beginSnippet(source:String,fields:List<SnippetField>):SnippetSession? {
- if(fields.isEmpty()||fields.size>4096||fields.any{it.id==null||it.id !in 0..4095||it.index !in 0..1004096||it.from>it.to||!snippetScalar(source,it.from)||!snippetScalar(source,it.to)}||fields.count{it.index==0}!=1||fields.any{it.index==0&&it.from!=it.to})return null
+ if(fields.isEmpty()||snippetMetadataCost(fields)==null||fields.any{it.id==null||it.id !in 0..4095||it.index !in 0..1004096||it.from>it.to||!snippetScalar(source,it.from)||!snippetScalar(source,it.to)}||fields.count{it.index==0}!=1||fields.any{it.index==0&&it.from!=it.to})return null
  val ids=fields.associateBy{it.id!!};if(ids.size!=fields.size)return null;val visited=mutableSetOf<Int>()
  for(field in fields){val chain=mutableSetOf<Int>();var next:SnippetField?=field
   while(next!=null&&!visited.contains(next.id!!)){val value=next;if(!chain.add(value.id!!))return null;val identity=value.parent ?: break;val parent=ids[identity] ?: return null;if(parent.from>value.from||parent.to<value.to)return null;next=parent};visited.addAll(chain)
@@ -71,19 +80,26 @@ fun completeSnippet(session:SnippetSession,source:String,primary:SourceReplaceme
  return SnippetInput(input.session.copy(source=after,fields=fields),edits.map{NativeSourceEdit(it.from,it.to,it.text)},CompletionSelection(input.selection.from+shift,input.selection.to+shift))
 }
 fun nestSnippet(session:SnippetSession,source:String,primary:SourceReplacement,additional:List<SourceReplacement>,inner:List<SnippetField>):SnippetInput? {
- if(session.scopes.size>=32||inner.isEmpty())return null
- val exit=inner.firstOrNull{it.index==0} ?: return null;val parsed=beginSnippet(primary.text,inner);if(parsed==null&&(inner.size!=1||exit.id==null||exit.parent!=null||exit.from!=exit.to||!snippetScalar(primary.text,exit.from)))return null
+ if(session.scopes.size>=32||inner.isEmpty()||snippetMetadataCost(session.fields)==null)return null
+ val innerBytes=snippetMetadataCost(inner) ?: return null
+ val exit=inner.firstOrNull{it.index==0} ?: return null
  val origin=session.fields.firstOrNull{it.id==session.current&&it.from<=primary.from&&it.to>=primary.to} ?: return null
  val input=completeSnippet(session,source,primary,additional) ?: return null;val parents=input.session.fields.filter{it.index==session.active};val current=parents.firstOrNull{it.id==input.session.current} ?: return null
  val relative=primary.from-origin.from;val order=inner.filter{it.index>0}.map{it.index}.distinct().sorted()
+ if(order.isNotEmpty()){
+  val retainedBytes=snippetMetadataCost(input.session.fields) ?: return null
+  if(parents.isEmpty()||innerBytes>(1048576L-retainedBytes)/parents.size||input.session.fields.size.toLong()+parents.size.toLong()*inner.size>4096)return null
+ }
+ // Only after the entire mirrored proposal fits may validation clone an inner
+ // vector. A rejected nested proposal publishes no session or text edits.
+ val parsed=beginSnippet(primary.text,inner);if(parsed==null&&(inner.size!=1||exit.id==null||exit.parent!=null||exit.from!=exit.to||!snippetScalar(primary.text,exit.from)))return null
  if(order.isEmpty()){val caret=current.from+relative+exit.from;return input.copy(selection=CompletionSelection(caret,caret))}
- if(input.session.fields.size.toLong()+parents.size.toLong()*inner.size>4096)return null
  var nextIndex=input.session.fields.maxOf{it.index}+1;val indices=(order+0).associateWith{nextIndex++};if(nextIndex>1004097)return null
  val used=input.session.fields.map{it.id!!}.toMutableSet();val fields=input.session.fields.toMutableList();var nextId=0;var exitId = -1;var currentId = -1
  for(parent in parents){val ids=mutableMapOf<Int,Int>();for(field in inner){while(nextId in used)nextId++;if(nextId>=4096)return null;ids[field.id!!]=nextId;used.add(nextId++)}
   for(field in inner){val id=ids.getValue(field.id!!);fields.add(field.copy(id=id,index=indices.getValue(field.index),parent=field.parent?.let{ids.getValue(it)} ?: parent.id,from=parent.from+relative+field.from,to=parent.from+relative+field.to));if(parent.id==current.id){if(field.index==0)exitId=id else if(field.id==parsed!!.current)currentId=id}}
  }
- if(fields.sumOf{field->64L+field.choices.sumOf{it.toByteArray(Charsets.UTF_8).size.toLong()}}>1048576||beginSnippet(input.session.source,fields)==null)return null
+ if(snippetMetadataCost(fields)==null||beginSnippet(input.session.source,fields)==null)return null
  val selected=fields.firstOrNull{it.id==currentId} ?: return null;val scope=SnippetScope(order.map{indices.getValue(it)},indices.getValue(0),exitId,session.active,input.session.current)
  return input.copy(session=input.session.copy(fields=fields,active=scope.order[0],current=currentId,scopes=input.session.scopes+scope),selection=CompletionSelection(selected.from,selected.to))
 }

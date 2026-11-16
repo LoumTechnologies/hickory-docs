@@ -12,8 +12,9 @@ export function completionExpansion(item:unknown):CompletionExpansion|undefined 
  const fields:SnippetField[]=raw.fields.map(value=>{
   if(!value||typeof value!=='object')throw new Error('Malformed snippet field');
   const field=value as Record<string,unknown>,index=number(field.index),from=number(field.from),to=number(field.to);
-  if(index>1004096||from>to||to>text.length||!Array.isArray(field.choices)||field.choices.some(value=>typeof value!=='string'))throw new Error('Malformed snippet field');
-  metadataBytes+=64+(field.choices as string[]).reduce((sum,value)=>sum+new TextEncoder().encode(value).length,0);if(metadataBytes>1048576)throw new Error('Snippet metadata expansion limit exceeded');
+  if(index>1004096||from>to||to>text.length||!Array.isArray(field.choices))throw new Error('Malformed snippet field');
+  if(field.choices.length>4096||metadataBytes+64+field.choices.length*32>1048576)throw new Error('Snippet metadata expansion limit exceeded');
+  metadataBytes+=64;for(const choice of field.choices){if(typeof choice!=='string')throw new Error('Malformed snippet field');metadataBytes+=32+new TextEncoder().encode(choice).length;if(metadataBytes>1048576)throw new Error('Snippet metadata expansion limit exceeded');}
   sourceChangeOffset(text,utf16ToPosition(text,from));sourceChangeOffset(text,utf16ToPosition(text,to));
   const ancestry:Pick<SnippetField,'id'|'parent'>={};
   if(field.id!==undefined){ancestry.id=number(field.id);ancestry.parent=field.parent===null?null:number(field.parent);if(ancestry.id>=4096||ancestry.parent!==null&&ancestry.parent>=4096)throw new Error('Malformed snippet ancestry');}

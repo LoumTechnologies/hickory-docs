@@ -236,4 +236,12 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="test-debug-android.md" />
 
+<ui:include file="source-templates-browser.md" />
+
+<ui:include file="source-templates-android.md" />
+
+<ui:include file="source-templates-apple.md" />
+
+<ui:include file="scripts/test-native-templates.py.md" />
+
 </ui:doc>

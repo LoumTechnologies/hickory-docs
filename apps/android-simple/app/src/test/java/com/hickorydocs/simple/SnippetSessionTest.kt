@@ -27,4 +27,14 @@ class SnippetSessionTest {
    }
   }
  }
+ @Test fun nestedEmptyChoiceAmplificationIsRefusedBeforeInnerClone(){
+  val source="aaaaaaaa";val outer=(0 until 8).map{SnippetField(1,it,it+1,emptyList(),it,null)}+SnippetField(0,8,8,emptyList(),8,null)
+  val session=beginSnippet(source,outer)!!;var reads=0
+  val emptyChoices=object:AbstractList<String>(){override val size=4096;override fun get(index:Int):String{reads++;return ""}}
+  val inner=listOf(SnippetField(1,0,0,emptyChoices,0,null),SnippetField(0,0,0,emptyList(),1,null))
+  assertNull(nestSnippet(session,source,SourceReplacement(0,1,""),emptyList(),inner));assertEquals(4096,reads)
+  assertNull(beginSnippet("",listOf(SnippetField(1,0,0,List(4097){""},0,null),SnippetField(0,0,0,emptyList(),1,null))))
+  assertNotNull(beginSnippet("",listOf(SnippetField(1,0,0,List(4096){""},0,null),SnippetField(0,0,0,emptyList(),1,null))))
+ }
+
 }

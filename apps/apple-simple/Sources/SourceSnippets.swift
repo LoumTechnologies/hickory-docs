@@ -1,7 +1,17 @@
 import Foundation
 import Observation
 struct SourceSnippetHistoryContext {var fields:[SnippetField];var active:Int;var current:Int;var scopes:[SnippetScope]=[]}
-func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {value?.fields.reduce(0){sum,field in sum+64+field.choices.reduce(0){$0+$1.utf16.count*2}} ?? 0}
+func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {
+    guard let value else{return 0};let limit=32*1024*1024;var bytes=0
+    for field in value.fields {
+        guard bytes<=limit-64 else{return limit+1};bytes+=64
+        for choice in field.choices {
+            let count=choice.utf8.count
+            guard count<=limit-32,bytes<=limit-32-count else{return limit+1};bytes+=32+count
+        }
+    }
+    return bytes
+}
 @MainActor @Observable final class SourceSnippetController {
     private weak var buffer:DocumentBuffer?
     private(set) var intent=0

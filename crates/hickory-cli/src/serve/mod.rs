@@ -846,6 +846,16 @@ pub(crate) fn router(state: LocalState) -> Router {
                 .layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)),
         )
         .route(
+            "/templates/catalog",
+            post(source_templates::catalog)
+                .layer(axum::extract::DefaultBodyLimit::max(12 * 1024 * 1024)),
+        )
+        .route(
+            "/templates/plan",
+            post(source_templates::plan)
+                .layer(axum::extract::DefaultBodyLimit::max(12 * 1024 * 1024)),
+        )
+        .route(
             "/tests/debug-plan",
             post(test_debug::plan).layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)),
         )
@@ -945,3 +955,4 @@ pub(crate) fn rand_id() -> u64 {
     now.rotate_left(17) ^ n
 }
 pub mod test_debug;
+pub mod source_templates;

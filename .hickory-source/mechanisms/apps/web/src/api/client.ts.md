@@ -167,6 +167,26 @@ export function installMockHandler(h: MockHandler) {
 }
 
 </storycode:copy>
+## Keep versioned proposal JSON exact at its raw boundary
+
+JSON.parse merges duplicate keys and erases noncanonical numeric protocol
+spellings. Shared source-test and template admission use this small codec before
+structural model validation. It preserves exact Unicode key identities and
+leaves ordinary editor reads on their existing decoder. Template endpoints must
+pass this check even when a caller supplies an additional decoder.
+
+<storycode:copy id="api-protocol-json-browser">
+export function parseProtocolJson(raw:string):unknown {
+ const stack:(Set<string>|null)[]=[];let i=0;
+ while(i<raw.length){const char=raw[i];if(char==='{'){stack.push(new Set());i++;continue;}if(char==='['){stack.push(null);i++;continue;}if(char==='}'||char===']'){stack.pop();i++;continue;}if(char!=='"'){i++;continue;}
+  const start=i++;let escaped=false;for(;i<raw.length;i++){const next=raw[i];if(escaped){escaped=false;continue;}if(next==='\\'){escaped=true;continue;}if(next==='"')break;}const end=++i;let at=i;while(/\s/.test(raw[at]??'')&&at<raw.length)at++;
+  if(raw[at]!==':')continue;const key=JSON.parse(raw.slice(start,end)) as string,keys=stack[stack.length-1];if(!keys)throw Error('Malformed Protocol object key.');if(keys.has(key))throw Error('Duplicate Protocol JSON key refused.');keys.add(key);
+  if(key==='version'||key==='test_debug_protocol'||key==='template_protocol'){at++;while(/\s/.test(raw[at]??'')&&at<raw.length)at++;if(raw[at]==='-'||/[0-9]/.test(raw[at]??'')){let last=at;while(last<raw.length&&!/[\s,}\]]/.test(raw[last]))last++;if(!/^(0|[1-9][0-9]*)$/.test(raw.slice(at,last)))throw Error('Protocol JSON requires canonical integer versions.');}}
+ }
+ return JSON.parse(raw) as unknown;
+}
+</storycode:copy>
+
 <a id="f-1e909407d4cd-request"></a>
 ### `request`
 
@@ -202,6 +222,7 @@ export async function request<T>(
       throw await apiError(res);
     }
     if (res.status === 204) return undefined as T;
+    if(path.startsWith('/api/templates/')){const raw=await res.text(),value=parseProtocolJson(raw);return decodeRaw?decodeRaw(raw):value as T;}
     return decodeRaw?decodeRaw(await res.text()):(await res.json()) as T;
   }
 }
@@ -528,7 +549,7 @@ export const api = {
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/api/client.ts"><storycode:paste select="#f-1e909407d4cd-MOCK"/><storycode:paste select="#f-1e909407d4cd-ApiError"/><storycode:paste select="#f-1e909407d4cd-ERROR_TEXT_LIMIT"/><storycode:paste select="#f-1e909407d4cd-apiError"/><storycode:paste select="#f-1e909407d4cd-MockHandler"/><storycode:paste select="#f-1e909407d4cd-mockHandler"/><storycode:paste select="#f-1e909407d4cd-installMockHandler"/><storycode:paste select="#f-1e909407d4cd-request"/><storycode:paste select="#f-1e909407d4cd-inFlightRenders"/><storycode:paste select="#f-1e909407d4cd-dedupedRender"/><storycode:paste select="#f-1e909407d4cd-api"/></storycode:file>
+<storycode:file path="apps/web/src/api/client.ts"><storycode:paste select="#f-1e909407d4cd-MOCK"/><storycode:paste select="#f-1e909407d4cd-ApiError"/><storycode:paste select="#f-1e909407d4cd-ERROR_TEXT_LIMIT"/><storycode:paste select="#f-1e909407d4cd-apiError"/><storycode:paste select="#f-1e909407d4cd-MockHandler"/><storycode:paste select="#f-1e909407d4cd-mockHandler"/><storycode:paste select="#f-1e909407d4cd-installMockHandler"/><storycode:paste select="#api-protocol-json-browser"/><storycode:paste select="#f-1e909407d4cd-request"/><storycode:paste select="#f-1e909407d4cd-inFlightRenders"/><storycode:paste select="#f-1e909407d4cd-dedupedRender"/><storycode:paste select="#f-1e909407d4cd-api"/></storycode:file>
 
 ## Forwarding witness
 

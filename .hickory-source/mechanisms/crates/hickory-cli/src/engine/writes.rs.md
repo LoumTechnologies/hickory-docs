@@ -54,7 +54,9 @@ pub(crate) fn post_observation(method: &axum::http::Method, path: &str) -> bool 
     *method == Method::POST
         && matches!(
             path,
-            "/api/tests/debug-plan"
+            "/api/templates/catalog"
+                | "/api/templates/plan"
+                | "/api/tests/debug-plan"
                 | "/api/tests/source-candidates"
                 | "/api/construction/reading"
                 | "/api/changes/plan-resources"
@@ -75,6 +77,8 @@ mod observation_tests {
         let writes = std::sync::Arc::new(tokio::sync::Mutex::new(()));
         let held = writes.lock().await;
         for path in [
+            "/api/templates/catalog",
+            "/api/templates/plan",
             "/api/tests/source-candidates",
             "/api/tests/debug-plan",
             "/api/construction/reading",

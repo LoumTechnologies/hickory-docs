@@ -2,6 +2,20 @@ import XCTest
 @testable import HickorySimple
 final class SnippetSessionTests:XCTestCase {
     func fields(_ values:[[String:Any]])->[SnippetField]{values.map{SnippetField(index:$0["index"] as! Int,from:$0["from"] as! Int,to:$0["to"] as! Int,choices:$0["choices"] as! [String],id:$0["id"] as? Int,parent:$0["parent"] as? Int)}}
+    func testNestedEmptyChoicesReserveAllMirrorsBeforePublication()throws {
+        let source="aaaaaaaa",outer=(0..<8).map{SnippetField(index:1,from:$0,to:$0+1,choices:[],id:$0,parent:nil)}+[SnippetField(index:0,from:8,to:8,choices:[],id:8,parent:nil)]
+        let session=try XCTUnwrap(beginSnippet(source,fields:outer))
+        let inner=[SnippetField(index:1,from:0,to:0,choices:Array(repeating:"",count:4096),id:0,parent:nil),SnippetField(index:0,from:0,to:0,choices:[],id:1,parent:nil)]
+        XCTAssertNotNil(beginSnippet("",fields:inner))
+        XCTAssertNil(nestSnippet(session,source:source,primary:SourceReplacement(from:0,to:1,text:""),additional:[],inner:inner))
+        XCTAssertTrue(exactUTF8(session.source,source));XCTAssertEqual(session.fields.count,9)
+        var excessive=inner;excessive[0].choices.append("")
+        XCTAssertNil(beginSnippet("",fields:excessive))
+        let amplified=(0..<8).map{SnippetField(index:1,from:0,to:0,choices:inner[0].choices,id:$0,parent:nil)}+[SnippetField(index:0,from:0,to:0,choices:[],id:8,parent:nil)]
+        XCTAssertNil(beginSnippet("",fields:amplified))
+        let ordinary=[SnippetField(index:1,from:0,to:1,choices:["x","y"],id:0,parent:nil),SnippetField(index:0,from:1,to:1,choices:[],id:1,parent:nil)]
+        XCTAssertNotNil(nestSnippet(session,source:source,primary:SourceReplacement(from:0,to:1,text:"x"),additional:[],inner:ordinary))
+    }
     func testSharedLinkedEditsScopeAndTraversal()throws {
         let apps=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let vectors=try JSONSerialization.jsonObject(with:Data(contentsOf:apps.appendingPathComponent("simple-contract/snippet-session-cases.json"))) as! [String:Any]

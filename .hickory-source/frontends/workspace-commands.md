@@ -104,6 +104,12 @@ Menus and action search need one vocabulary and one availability decision. The s
     "requires": "writable"
   },
   {
+    "id": "source.templates",
+    "label": "Insert reusable template…",
+    "group": "Edit",
+    "requires": "writable"
+  },
+  {
     "id": "document.cleanup",
     "label": "Trim Trailing Whitespace…",
     "group": "Edit",

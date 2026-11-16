@@ -17,3 +17,9 @@ it('refuses empty text that amplifies choice metadata beyond the shared budget',
  const fields=Array.from({length:1030},(_,id)=>({id,parent:null,index:1,from:0,to:0,choices:['',alternative]}));fields.push({id:1030,parent:null,index:0,from:0,to:0,choices:[]});
  expect(()=>completionExpansion({label:'large choices',insertTextFormat:2,insertText:syntax,data:{hickory_snippet:{version:1,syntax,text:'',fields}}})).toThrow(/metadata/);
 });
+it('counts every empty alternative and refuses cumulative mirror metadata before expansion',()=>{
+ const item=(count:number,mirrors=1)=>{const choices=Array<string>(count).fill(''),syntax='${1|'+','.repeat(count-1)+'|}'+'$1'.repeat(mirrors-1)+'$0',fields=Array.from({length:mirrors},(_,id)=>({id,parent:null,index:1,from:0,to:0,choices}));fields.push({id:mirrors,parent:null,index:0,from:0,to:0,choices:[]});return {label:'empty alternatives',insertTextFormat:2,insertText:syntax,data:{hickory_snippet:{version:1,syntax,text:'',fields}}};};
+ expect(completionExpansion(item(4096))?.fields?.[0].choices).toHaveLength(4096);
+ expect(()=>completionExpansion(item(4097))).toThrow(/metadata/);
+ expect(()=>completionExpansion(item(4096,8))).toThrow(/metadata/);
+});

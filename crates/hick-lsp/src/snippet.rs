@@ -3,6 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 const MAX_BYTES: usize = 262_144;
 const MAX_OUTPUT: usize = 1_048_576;
 const MAX_FIELDS: usize = 4096;
+const MAX_CHOICES: usize = 4096;
+const CHOICE_OVERHEAD: usize = 32;
 const MAX_DEPTH: usize = 32;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -141,17 +143,23 @@ impl Parser<'_> {
                                 _ => return self.fail("Unsupported snippet choice escape"),
                             },
                             Some(',') => {
+                                if choices.len() >= MAX_CHOICES {
+                                    return self.fail("Snippet choice limit exceeded");
+                                }
                                 choices.push(std::mem::take(&mut value));
                             }
-                            Some('|') if self.take() == Some('}') => {
+                            Some('|') => {
+                                if self.take() != Some('}') {
+                                    return self.fail("Malformed snippet choice terminator");
+                                }
+                                if choices.len() >= MAX_CHOICES {
+                                    return self.fail("Snippet choice limit exceeded");
+                                }
                                 choices.push(value);
                                 break;
                             }
                             Some(ch) => value.push(ch),
                             None => return self.fail("Unclosed snippet choice"),
-                        }
-                        if choices.len() > MAX_FIELDS {
-                            return self.fail("Snippet choice limit exceeded");
                         }
                     }
                 }
@@ -243,6 +251,24 @@ impl Renderer<'_> {
         let parent = self.parents.last().copied();
         self.parents.push(id);
         let from = self.offset;
+        // Reserve each alternative's storage even when its text is empty,
+        // before cloning a definition for this mirrored occurrence.
+        let metadata = match self.definitions.get(&index) {
+            Some(value) => value
+                .choices
+                .iter()
+                .try_fold(64usize, |cost, choice| {
+                    cost.checked_add(CHOICE_OVERHEAD)?.checked_add(choice.len())
+                })
+                .ok_or("Snippet metadata expansion limit exceeded")?,
+            None => 64,
+        };
+        let total = self
+            .metadata_bytes
+            .checked_add(metadata)
+            .filter(|bytes| *bytes <= MAX_OUTPUT)
+            .ok_or("Snippet metadata expansion limit exceeded")?;
+        self.metadata_bytes = total;
         let definition = self.definitions.get(&index).cloned();
         if let Some(definition) = &definition {
             self.render(&definition.nodes, depth + 1)?;
@@ -251,15 +277,6 @@ impl Renderer<'_> {
         self.parents.pop();
         if self.fields.len() >= MAX_FIELDS {
             return Err("Snippet expansion field limit exceeded".into());
-        }
-        let metadata = 64
-            + definition
-                .as_ref()
-                .map(|value| value.choices.iter().map(String::len).sum::<usize>())
-                .unwrap_or(0);
-        self.metadata_bytes += metadata;
-        if self.metadata_bytes > MAX_OUTPUT {
-            return Err("Snippet metadata expansion limit exceeded".into());
         }
         self.fields.push(SnippetField {
             id,
@@ -462,10 +479,30 @@ mod tests {
         );
     }
     #[test]
+    fn every_empty_alternative_is_charged_before_mirrored_expansion() {
+        let list = format!("${{1|{}|}}", ",".repeat(MAX_CHOICES - 1));
+        let one = expand_snippet(&list, &BTreeMap::new()).unwrap();
+        assert_eq!(one.fields[0].choices.len(), MAX_CHOICES);
+        let mirrored = format!("{list}{}", "$1".repeat(8));
+        assert!(mirrored.len() < MAX_BYTES);
+        assert!(
+            expand_snippet(&mirrored, &BTreeMap::new())
+                .unwrap_err()
+                .contains("metadata")
+        );
+        let one_too_many = format!("${{1|{}|}}", ",".repeat(MAX_CHOICES));
+        assert!(
+            expand_snippet(&one_too_many, &BTreeMap::new())
+                .unwrap_err()
+                .contains("choice limit")
+        );
+    }
+    #[test]
     fn malformed_cyclic_unsupported_and_excessive_input_refuse() {
         for text in [
             "${1",
             "${1|a,b}",
+            "${1|a|x,b|}",
             "${1:${1}}",
             "${1:a}${1:b}",
             "${0:no}",

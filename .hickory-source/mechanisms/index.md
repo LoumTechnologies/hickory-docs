@@ -343,4 +343,6 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="test-debug-session.md" />
 
+<storycode:include file="source-template-service.md" />
+
 </storycode:doc>

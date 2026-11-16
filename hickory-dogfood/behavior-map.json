@@ -22035,6 +22035,7 @@
         "f-1e909407d4cd-MockHandler",
         "f-1e909407d4cd-mockHandler",
         "f-1e909407d4cd-installMockHandler",
+        "api-protocol-json-browser",
         "f-1e909407d4cd-request",
         "f-1e909407d4cd-inFlightRenders",
         "f-1e909407d4cd-dedupedRender",
@@ -53918,7 +53919,8 @@
         "f-09ea558208cd-now_rfc3339_public",
         "f-09ea558208cd-now_rfc3339",
         "f-09ea558208cd-rand_id",
-        "source-test-debug-http-module"
+        "source-test-debug-http-module",
+        "source-template-http-module"
       ],
       "anchor": "output-09ea558208cd",
       "narrative_owner": "mechanism:crates/hickory-cli"
@@ -71083,6 +71085,164 @@
         "native-debug-smoke-preparation",
         "native-debug-smoke-preparation-tests"
       ]
+    },
+    "crates/hickory-cli/src/serve/source_templates.rs": {
+      "source": ".hickory-source/mechanisms/source-template-service.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "d3dc9a0bc6434a11b5461e22cabb1bef2c2f9d89a19c8da1e139770a5016d398",
+      "construction": "fragments",
+      "fragments": [
+        "source-template-inputs",
+        "source-template-catalog",
+        "source-template-planning",
+        "source-template-http",
+        "source-template-witness"
+      ],
+      "narrative_owner": "mechanism:source-template-service"
+    },
+    "apps/web/src/simple/SourceTemplates.ts": {
+      "source": ".hickory-source/frontends/source-templates-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "018fd015b3e152fc32638e063d7bfa549c1efe277bef90ffc6ac8e6a24b59979",
+      "construction": "fragments",
+      "fragments": [
+        "source-templates-browser-capture",
+        "source-templates-browser-apply"
+      ]
+    },
+    "apps/web/src/simple/SourceTemplatesView.tsx": {
+      "source": ".hickory-source/frontends/source-templates-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "b47df07bc9be55ea5a3db6c1cd5d49ad7a867249cec1ba72e67cbb45815bdd49",
+      "construction": "fragments",
+      "fragments": [
+        "source-templates-browser-view"
+      ]
+    },
+    "apps/web/src/simple/SourceTemplates.test.ts": {
+      "source": ".hickory-source/frontends/source-templates-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "e538d7cf9698ce820ab17a9a1652f1dd1631a2b1fad18d75fd4ded075dedac7e",
+      "construction": "fragments",
+      "fragments": [
+        "source-templates-browser-witness"
+      ]
+    },
+    "apps/web/src/simple/SourceTemplatesView.test.tsx": {
+      "source": ".hickory-source/frontends/source-templates-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "8c748a1c14e31b1affd1dc21e9f54f105cc5b4df18ac3b6c09758495bb43c2ae",
+      "construction": "fragments",
+      "fragments": [
+        "source-templates-browser-view-witness"
+      ]
+    },
+    "scripts/test-source-templates-browser.py": {
+      "source": ".hickory-source/frontends/source-templates-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "3d641087934328118f726d026e6f76e1491de7cd4e6be01b68fd7dbc59bebcc0",
+      "construction": "fragments",
+      "fragments": [
+        "source-templates-browser-flow"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceTemplates.kt": {
+      "source": ".hickory-source/frontends/source-templates-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "0221a324e1ce5971398cad10a8be7bf7925b17398d26a80c4504abbf24a86f2c",
+      "construction": "fragments",
+      "fragments": [
+        "source-templates-android-policy",
+        "source-templates-android-plan",
+        "source-templates-android-host",
+        "source-templates-android-view"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SourceTemplateTest.kt": {
+      "source": ".hickory-source/frontends/source-templates-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "8b0d2cff1a5e587a79dd37378a1da6fee481aa532e7db1996759516a497790b8",
+      "construction": "fragments",
+      "fragments": [
+        "source-templates-android-witness"
+      ]
+    },
+    "scripts/test-source-template-service.py": {
+      "source": ".hickory-source/mechanisms/source-template-service.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "06fdaf384303ea080417448b19fd029290f5585f8da9a2c85ef70a220cc50998",
+      "construction": "fragments",
+      "fragments": [
+        "source-template-http-witness"
+      ],
+      "narrative_owner": "mechanism:source-template-service"
+    },
+    "apps/apple-simple/Sources/SourceTemplates.swift": {
+      "source": ".hickory-source/frontends/source-templates-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "8e0eb600f4dc2486912ba075869284dbfc0a776bbdb23bffd6555271315dcbba",
+      "construction": "fragments",
+      "fragments": [
+        "source-templates-apple-values",
+        "source-templates-apple-policy",
+        "source-templates-apple-controller",
+        "source-templates-apple-view"
+      ]
+    },
+    "scripts/test-native-templates.py": {
+      "source": ".hickory-source/frontends/scripts/test-native-templates.py.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "288f1dadbb014445289ca80e7580a507edb5fcd0a002076ba94cc3153ef0b1a1",
+      "construction": "fragments",
+      "fragments": [
+        "native-template-fixture-prepare",
+        "native-template-fixture-runtime"
+      ]
+    },
+    "apps/apple-simple/Tests/SourceTemplateTests.swift": {
+      "source": ".hickory-source/frontends/source-templates-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "b9e0ff1b2c37a3bb2c4f260bd23eb0418b90c9e953605be6b5310e36f6a30b6e",
+      "construction": "fragments",
+      "fragments": [
+        "source-templates-apple-witness"
+      ]
+    },
+    "apps/apple-simple/Tests/SourceDraftHistoryTests.swift": {
+      "source": ".hickory-source/mechanisms/source-completion-acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "98079402d2553025cd2e84538893ea66e6d810784851abfe38460242f29d2cd3",
+      "construction": "fragments",
+      "fragments": [
+        "native-source-draft-history-tests"
+      ],
+      "narrative_owner": "mechanism:source-completion-acceptance"
     }
   },
   "evidence_records": [

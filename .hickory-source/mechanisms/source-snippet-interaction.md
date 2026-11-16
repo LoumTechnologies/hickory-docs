@@ -5,7 +5,7 @@ For maintainers changing template behavior independently of editor layout. Sourc
 
 ## Attach source-bound field interaction to the existing editor
 
-A compartment owns snippet state, source checks, linked input, numeric traversal, choices and history effects. Complete mirroring is prepared before a transaction; rejected intent leaves ordinary input authoritative. Compose the original input transaction with the remaining source changes so its input metadata survives. History effects retain both directions of source, field state and intended selection. The dispatch bridge composes the original transaction with a verified replay selection, preserving the framework history annotation and input metadata; it never creates replacement source changes. This avoids inferring a caret from the old selection when a compound edit had an explicit result. History effects retain bounded context tokens: old text undo remains owned by CodeMirror when the estimated 32 MiB context budget evicts a field snapshot. Field marks use paint only, and choices reuse the existing completion popup.
+A compartment owns snippet state, source checks, linked input, numeric traversal, choices and history effects. Complete mirroring is prepared before a transaction; rejected intent leaves ordinary input authoritative. Compose the original input transaction with the remaining source changes so its input metadata survives. History effects retain both directions of source, field state and intended selection. The dispatch bridge composes the original transaction with a verified replay selection, preserving the framework history annotation and input metadata; it never creates replacement source changes. This avoids inferring a caret from the old selection when a compound edit had an explicit result. History estimates count 128 bytes per snapshot and cap retained tokens at 4096, including empty/no-session snapshots. They count 32 bytes of overhead for every choice, even an empty alternative, before retaining a snapshot. Oversized context is not copied into the cache and does not evict unrelated valid snapshots. History effects retain bounded context tokens: old text undo remains owned by CodeMirror when the estimated 32 MiB context budget evicts a field snapshot. Field marks use paint only, and choices reuse the existing completion popup.
 
 <ui:copy id="source-snippets-browser">
 import {EditorSelection,EditorState,Prec,StateEffect,StateField,type Transaction,type Extension} from '@codemirror/state';
@@ -20,15 +20,22 @@ import type {CompletionDraft} from './CompletionPlan';
 export const setSourceSnippet=StateEffect.define<SnippetSession|null>();
 interface SnippetSnapshot {source:string;session:SnippetSession|null;selection:EditorSelection}
 interface SnippetReplay {target:symbol;inverse:symbol}
-const snippetSnapshots=new Map<symbol,{value:SnippetSnapshot;cost:number}>();let snippetSnapshotBytes=0;
-function holdSnippetSnapshot(value:SnippetSnapshot):symbol {
- const token=Symbol('snippet history'),cost=value.source.length*2+(value.session?.fields.reduce((sum,field)=>sum+64+field.choices.reduce((bytes,value)=>bytes+value.length*2,0),0)??0);
- const normalized={...value,session:value.session?{...value.session,source:value.source}:null};
- snippetSnapshots.set(token,{value:normalized,cost});snippetSnapshotBytes+=cost;
- while(snippetSnapshotBytes>32*1024*1024&&snippetSnapshots.size){const oldest=snippetSnapshots.keys().next().value!;snippetSnapshotBytes-=snippetSnapshots.get(oldest)!.cost;snippetSnapshots.delete(oldest);}
- return token;
+export function createSourceSnippetHistory(limit=32*1024*1024,maxEntries=4096){
+ if(!Number.isSafeInteger(limit)||limit<=0||!Number.isSafeInteger(maxEntries)||maxEntries<1||maxEntries>4096)throw Error('Invalid snippet history budget');
+ const snapshots=new Map<symbol,{value:SnippetSnapshot;cost:number}>();let bytes=0;
+ return {hold(value:SnippetSnapshot):symbol {
+  // Count the retained UTF-16 strings and every alternative, including empty
+  // choices, before constructing or retaining a snapshot. Oversized context
+  // never evicts unrelated valid history; CodeMirror still owns text undo.
+  const token=Symbol('snippet history'),cost=128+value.source.length*2+(value.session?.fields.reduce((sum,field)=>sum+64+field.choices.reduce((total,choice)=>total+32+choice.length*2,0),0)??0);
+  if(cost>limit)return token;
+  const normalized={...value,session:value.session?{...value.session,source:value.source}:null};snapshots.set(token,{value:normalized,cost});bytes+=cost;
+  while((bytes>limit||snapshots.size>maxEntries)&&snapshots.size){const oldest=snapshots.keys().next().value!;bytes-=snapshots.get(oldest)!.cost;snapshots.delete(oldest);}return token;
+ },read(token:symbol):SnippetSnapshot|undefined{return snapshots.get(token)?.value;}};
 }
-function snippetSnapshot(token:symbol):SnippetSnapshot|undefined{return snippetSnapshots.get(token)?.value;}
+const snippetHistory=createSourceSnippetHistory();
+function holdSnippetSnapshot(value:SnippetSnapshot):symbol{return snippetHistory.hold(value);}
+function snippetSnapshot(token:symbol):SnippetSnapshot|undefined{return snippetHistory.read(token);}
 const replaySourceSnippet=StateEffect.define<SnippetReplay>();
 export function dispatchSourceSnippetTransactions(transactions:readonly Transaction[],view:EditorView){
  let state=view.state;const updates:Transaction[]=[];
@@ -121,11 +128,23 @@ export function openSourceSnippetChoices(view:EditorView):boolean {const session
 
 A source-bound controller exposes navigation and choices through existing selection and edit callbacks. The native editor still owns composition, permissions and actual batch/undo application. Stale intent and failed reflection retire the capability rather than blocking ordinary text input. A prepared change plan verifies its entire predicted source before entering history.
 
+The existing native history pool retains optional field contexts under a 32 MiB logical quota and 4096-token limit. Compute field and choice overhead before retaining its copy-on-write value; empty alternatives must not make a large context appear free. Oversized or evicted field context never disables ordinary source undo.
+
 <ui:copy id="source-snippets-apple">
 import Foundation
 import Observation
 struct SourceSnippetHistoryContext {var fields:[SnippetField];var active:Int;var current:Int;var scopes:[SnippetScope]=[]}
-func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {value?.fields.reduce(0){sum,field in sum+64+field.choices.reduce(0){$0+$1.utf16.count*2}} ?? 0}
+func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {
+    guard let value else{return 0};let limit=32*1024*1024;var bytes=0
+    for field in value.fields {
+        guard bytes<=limit-64 else{return limit+1};bytes+=64
+        for choice in field.choices {
+            let count=choice.utf8.count
+            guard count<=limit-32,bytes<=limit-32-count else{return limit+1};bytes+=32+count
+        }
+    }
+    return bytes
+}
 @MainActor @Observable final class SourceSnippetController {
     private weak var buffer:DocumentBuffer?
     private(set) var intent=0
@@ -196,6 +215,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.TextRange
+// Charge actual retained vector slots, including empty alternatives. Stop at
+// budget+1 before retaining a context; the journal owns source text separately.
+internal fun snippetHistoryCost(context:SnippetSession?,budget:Long=32L*1024*1024):Long {
+ if(context==null)return 0
+ val cap=budget+1;var bytes=0L
+ fun add(value:Long):Boolean {if(value<0||value>budget-bytes){bytes=cap;return false};bytes+=value;return true}
+ for(field in context.fields){if(!add(64L)||field.choices.size>4096||!add(32L*field.choices.size))return cap;for(choice in field.choices)if(!add(2L*choice.length))return cap}
+ for(scope in context.scopes)if(!add(64L)||!add(8L*scope.order.size))return cap
+ return bytes
+}
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 class SourceSnippetController(private val buffer:DocumentBuffer) {
  // Core input state advances synchronously; publish outside a TextFieldBuffer transformation.
@@ -203,7 +232,7 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
  var intent=0;private set
  private var revision by mutableIntStateOf(0)
  var notice by mutableStateOf("");private set
- private val contexts=SourceUndoContexts<SnippetSession?>({context->context?.fields?.sumOf{field->64L+field.choices.sumOf{it.length.toLong()*2}} ?: 0L})
+ private val contexts=SourceUndoContexts<SnippetSession?>({context->snippetHistoryCost(context)})
  val recordSerial get()=contexts.serial
  val canUndo get()=buffer.state.undoState.canUndo
  val canRedo get()=buffer.state.undoState.canRedo
@@ -223,13 +252,15 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
  }
  fun undoSource():Boolean {
   if(buffer.readOnly||buffer.state.composition!=null||!canUndo)return false
-  val before=buffer.text;buffer.state.undoState.undo();val selected=buffer.state.selection
+  val before=buffer.text;val oldSelection=buffer.state.selection;buffer.state.undoState.undo();val selected=buffer.state.selection
+  if(before!=buffer.text||selected!=oldSelection)buffer.advanceSourceRevision()
   val target=contexts.undo(before,buffer.text,selected.start,selected.end);restore(target?.context)
   if(target?.context==null){notice="Text edit undone · draft";buffer.language?.completionNotice=notice};return true
  }
  fun redoSource():Boolean {
   if(buffer.readOnly||buffer.state.composition!=null||!canRedo)return false
-  val before=buffer.text;buffer.state.undoState.redo();val selected=buffer.state.selection
+  val before=buffer.text;val oldSelection=buffer.state.selection;buffer.state.undoState.redo();val selected=buffer.state.selection
+  if(before!=buffer.text||selected!=oldSelection)buffer.advanceSourceRevision()
   val target=contexts.redo(before,buffer.text,selected.start,selected.end);restore(target?.context)
   if(target?.context==null){notice="Text edit redone · draft";buffer.language?.completionNotice=notice};return true
  }
@@ -306,7 +337,7 @@ import {acceptCompletion,completionStatus,setSelectedCompletion} from '@codemirr
 import {waitFor} from '@testing-library/react';
 import {completions} from '../lsp/completion';
 import {beginSnippet} from './SnippetSession';
-import {sourceSnippets,setSourceSnippet,readSourceSnippet,moveSourceSnippet,openSourceSnippetChoices,dispatchSourceSnippetTransactions} from './SourceSnippets';
+import {sourceSnippets,setSourceSnippet,readSourceSnippet,moveSourceSnippet,openSourceSnippetChoices,dispatchSourceSnippetTransactions,createSourceSnippetHistory} from './SourceSnippets';
 import type {SnippetField} from './SnippetExpansion';
 import {acceptSourceCompletion} from './SourceCompletion';
 import {readCompletionAcceptance} from '../lsp/completionAcceptance';
@@ -390,6 +421,8 @@ it('coincident empty mirrors preserve every occurrence in actual editor input',(
  const fields=[field(0,1,0,0),field(1,2,0,0),field(2,1,0,0),field(3,0,0,0)],{view,close}=fixture('',fields);
  try{view.dispatch({changes:{from:0,insert:'x'},selection:{anchor:1},userEvent:'input.type'});expect(view.state.doc.toString()).toBe('xx');expect(view.state.selection.main.head).toBe(1);expect(moveSourceSnippet(view,1)).toBe(true);expect(view.state.selection.main.head).toBe(1);view.dispatch({changes:{from:1,insert:'y'},selection:{anchor:2},userEvent:'input.type'});expect(view.state.doc.toString()).toBe('xyx');}finally{close();}
 });
+it('charges empty alternative overhead before retaining bounded snippet history',()=>{const cache=createSourceSnippetHistory(400),fields=[field(0,1,0,1,['','','','']),field(1,0,1,1)],session=beginSnippet('a',fields)!,snapshot={source:'a',session,selection:EditorState.create({doc:'a'}).selection};const first=cache.hold(snapshot),second=cache.hold(snapshot);expect(cache.read(first)).toBeUndefined();expect(cache.read(second)?.session?.fields[0].choices).toHaveLength(4);const oversized={...snapshot,session:beginSnippet('a',[field(0,1,0,1,Array<string>(16).fill('')),field(1,0,1,1)])!},rejected=cache.hold(oversized);expect(cache.read(rejected)).toBeUndefined();expect(cache.read(second)).toBeDefined();});
+it('bounds empty no-session history by both fixed token cost and entry capacity',()=>{const snapshot={source:'',session:null,selection:EditorState.create().selection},count=createSourceSnippetHistory(400,2),a=count.hold(snapshot),b=count.hold(snapshot),c=count.hold(snapshot);expect(count.read(a)).toBeUndefined();expect(count.read(b)).toBeDefined();expect(count.read(c)).toBeDefined();const bytes=createSourceSnippetHistory(250),first=bytes.hold(snapshot),last=bytes.hold(snapshot);expect(bytes.read(first)).toBeUndefined();expect(bytes.read(last)).toBeDefined();});
 </ui:copy>
 
 <ui:file path="apps/web/src/simple/SourceSnippets.test.ts"><ui:paste select="#source-snippets-browser-tests"/></ui:file>
@@ -406,6 +439,12 @@ import AppKit
 @testable import HickorySimple
 @MainActor final class SourceSnippetInteractionTests:XCTestCase {
     func fields()->[SnippetField]{[SnippetField(index:1,from:0,to:1,choices:["a","long"],id:0),SnippetField(index:1,from:4,to:5,choices:["a","long"],id:1),SnippetField(index:0,from:5,to:5,choices:[],id:2)]}
+    func testHistoryCostChargesEveryEmptyChoice() {
+        let field=SnippetField(index:1,from:0,to:0,choices:Array(repeating:"",count:4096),id:0)
+        XCTAssertEqual(snippetHistoryCost(SourceSnippetHistoryContext(fields:[field],active:1,current:0)),64+4096*32)
+        var unicode=field;unicode.choices=["😀e\u{301}"]
+        XCTAssertEqual(snippetHistoryCost(SourceSnippetHistoryContext(fields:[unicode],active:1,current:0)),64+32+7)
+    }
     func testActualMacInputAndHistoryCarryFieldState()throws {
         #if os(macOS)
         let source="a + a",buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"a + a",hash:"base")),editor:MacEditor
@@ -602,18 +641,22 @@ class SourceUndoContexts<C>(private val contextCost:(C)->Long,private val budget
  private val past=mutableListOf<Step<C>>();private val future=mutableListOf<Step<C>>()
  var serial=0L;private set
  val retained:Boolean get()=past.isNotEmpty()||future.isNotEmpty()
- private fun cost(step:Step<C>)=2L*step.before.source.length+2L*step.after.source.length+contextCost(step.before.context)+contextCost(step.after.context)
+ init{require(budget in 0 until Long.MAX_VALUE)}
+ private fun sum(vararg values:Long):Long {var total=0L;for(value in values){if(value<0||value>budget-total)return budget+1;total+=value};return total}
+ private fun cost(step:Step<C>)=sum(2L*step.before.source.length,2L*step.after.source.length,contextCost(step.before.context),contextCost(step.after.context))
  private fun trim(){var bytes=past.sumOf{cost(it)}+future.sumOf{cost(it)};while((bytes>budget||past.size+future.size>4096)&&past.isNotEmpty()){bytes-=cost(past.removeAt(0))};while((bytes>budget||past.size+future.size>4096)&&future.isNotEmpty()){bytes-=cost(future.removeAt(future.lastIndex))}}
  private fun clear(){past.clear();future.clear()}
  fun record(before:SourceUndoSnapshot<C>,after:SourceUndoSnapshot<C>) {
   if(before.source==after.source)return
+  val next=Step(before,after);if(cost(next)>budget)return
   if(past.lastOrNull()?.after?.source?.let{it!=before.source}==true)clear()
-  future.clear();past.add(Step(before,after));serial++;trim()
+  future.clear();past.add(next);serial++;trim()
  }
  fun replaceLastAfter(beforeSource:String,after:SourceUndoSnapshot<C>,since:Long):Boolean {
   val last=past.lastOrNull() ?: return false
   if(serial<=since||last.before.source!=beforeSource||last.after.source!=after.source||last.after.anchor!=after.anchor||last.after.head!=after.head)return false
-  past[past.lastIndex]=last.copy(after=after);trim();return true
+  val next=last.copy(after=after);if(cost(next)>budget)return false
+  past[past.lastIndex]=next;trim();return true
  }
  fun undo(beforeSource:String,afterSource:String,anchor:Int,head:Int):SourceUndoSnapshot<C>? {
   if(past.lastOrNull()?.after?.source!=beforeSource){clear();return null}
@@ -653,6 +696,21 @@ class SourceUndoContextsTest {
  @Test fun evictingMetadataDoesNotProposeAnySourceWrite(){
   val journal=SourceUndoContexts<String>({0},budget=8);journal.record(snapshot("aa",2,"one"),snapshot("bbb",3,"two"));assertFalse(journal.retained);assertNull(journal.undo("bbb","aa",2,2))
  }
+ @Test fun oversizedContextDoesNotEvictUnrelatedHistoryOrOverflow(){
+  val journal=SourceUndoContexts<String>({if(it=="huge")Long.MAX_VALUE else 0L},budget=400)
+  journal.record(snapshot("a",1,"first"),snapshot("ab",2,"second"));val serial=journal.serial
+  journal.record(snapshot("ab",2,"second"),snapshot("abc",3,"huge"));assertEquals(serial,journal.serial)
+  assertFalse(journal.replaceLastAfter("a",snapshot("ab",2,"huge"),0));assertEquals("first",journal.undo("ab","a",1,1)?.context)
+ }
+ @Test fun emptyChoiceSlotsConsumeNativeHistoryBudget(){
+  val field=SnippetField(1,0,0,List(10){""},0,null);val session=SnippetSession("",listOf(field),1,0)
+  assertEquals(384L,snippetHistoryCost(session,400));assertEquals(401L,snippetHistoryCost(session.copy(fields=listOf(field.copy(choices=List(11){""}))),400))
+  val journal=SourceUndoContexts<SnippetSession?>({snippetHistoryCost(it,400)},budget=400)
+  journal.record(SourceUndoSnapshot("a",1,1,null),SourceUndoSnapshot("ab",2,2,null))
+  journal.record(SourceUndoSnapshot("ab",2,2,session),SourceUndoSnapshot("abc",3,3,session))
+  assertNotNull(journal.undo("ab","a",1,1))
+ }
+
 }
 </ui:copy>
 

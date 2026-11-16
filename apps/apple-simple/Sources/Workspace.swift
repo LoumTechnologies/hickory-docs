@@ -8,8 +8,10 @@ import Observation
     @ObservationIgnored lazy var snippets=SourceSnippetController(buffer:self)
     var file: FileNode
     var resourceDeleted = false
+    // Source equality alone must not revive a preview after edit/undo.
+    var sourceEditIdentity=UUID()
     private var sourceValue:ExactSourceText {
-        didSet {let changed = !exactUTF8(text,base);if dirty != changed {dirty=changed};if sourceValue != oldValue {snippets.sourceChanged(text);language?.changed();refreshInline()}}
+        didSet {let changed = !exactUTF8(text,base);if dirty != changed {dirty=changed};if sourceValue != oldValue {sourceEditIdentity=UUID();snippets.sourceChanged(text);language?.changed();refreshInline()}}
     }
     var text:String {get {sourceValue.text} set {sourceValue=ExactSourceText(newValue)}}
     var sourceRevision:ExactSourceText {sourceValue}
@@ -22,6 +24,7 @@ import Observation
     @ObservationIgnored var canRedoSource:(()->Bool)?
     @ObservationIgnored var undoSource:(()->Bool)?
     @ObservationIgnored var redoSource:(()->Bool)?
+    @ObservationIgnored var sourceEditorState:(()->NativeSourceEditorState?)?
     @ObservationIgnored var applyCompletionDraft: ((CompletionDraft,NSRange)->Bool)?
     @ObservationIgnored var applyLanguageCompletion: ((NSRange, String, String, NSRange) -> Bool)?
     @ObservationIgnored var selection = NSRange(location: 0, length: 0)
@@ -205,6 +208,7 @@ import Observation
     }
     var analysis = WorkspaceAnalysis()
     var sourceTestIndex:SourceTestIndex?
+    var sourceTemplates=SourceTemplatesModel()
     var testSources=TestSourcesModel()
     var coverage=SimpleCoverageState();var showCoverage=false
     var showTests=false {didSet{if !showTests{testSources.closeDebugPreparation(self)}}}
@@ -346,7 +350,7 @@ import Observation
             debugger?.close()
             for buffer in buffers.values { buffer.language?.close() }
             languageConnection?.close();languageConnection=nil
-            analysis.stop(); analysis=WorkspaceAnalysis(); showAnalysis=false; showEverywhere=false;showTests=false;showReview=false;showHistory=false;showAttribution=false;showConstruction=false;showRecovery=false;gitAttribution.close();gitAttribution=GitAttributionModel(path:"");gitHistory.close();gitHistory=GitHistoryModel();gitReview.close();gitReview=GitReviewModel();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=nil
+            sourceTemplates.close();analysis.stop(); analysis=WorkspaceAnalysis(); showAnalysis=false; showEverywhere=false;showTests=false;showReview=false;showHistory=false;showAttribution=false;showConstruction=false;showRecovery=false;gitAttribution.close();gitAttribution=GitAttributionModel(path:"");gitHistory.close();gitHistory=GitHistoryModel();gitReview.close();gitReview=GitReviewModel();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=nil
             generation = UUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; debugger = NativeDebugger(engine: next)
             if let debug=debugger {debug.sourceBuffers={ [weak self] in guard let self else{return []};return Array(self.buffers.values)+Array(self.retainedResourceEditors.values)};debug.onLocation={ [weak self,weak debug] location in guard let self,let debug else{return};let scope=self.generation;Task {[weak self,weak debug] in guard let self,let debug,self.generation==scope else{return};await self.revealDebug(location,debug:debug)}}}; files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); retainedResourceEditors = [:]; buffers = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
             layout = PaneLayout(); focused = "document-group"; status = tree.root
@@ -497,7 +501,7 @@ import Observation
         if let buffer = bufferForTab(tab), buffer.dirty || buffer.saving {
             status = "Unsaved edits retained. Save this document before closing its tab."; return
         }
-        if let buffer=bufferForTab(tab){testSources.sourceClosed(buffer,workspace:self)}
+        if let buffer=bufferForTab(tab){sourceTemplates.sourceClosed(buffer);testSources.sourceClosed(buffer,workspace:self)}
         layout.remove(tab)
         if !layout.groups().contains(where: { $0.id == focused }) { focused = layout.groups()[0].id }
     }

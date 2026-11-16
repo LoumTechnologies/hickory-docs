@@ -71,7 +71,7 @@ func validateSourceTestJSON(_ data:Data)throws {
             let key=try JSONDecoder().decode(String.self,from:Data(bytes[start..<index])),position=objects.count-1
             guard objects[position][key]==nil else{throw EngineError(message:"Duplicate or canonically equivalent JSON keys are unsupported by this native host. Source-test admission was refused without merging contributors.")}
             objects[position][key]=Data(key.utf8)
-            if key=="version" || key=="test_debug_protocol" {
+            if key=="version" || key=="test_debug_protocol" || key=="template_protocol" {
                 var value=next+1;while value<bytes.count,[UInt8(9),10,13,32].contains(bytes[value]){value+=1}
                 if value<bytes.count,(bytes[value]==45 || (48...57).contains(bytes[value])) {
                     var end=value;while end<bytes.count,![UInt8(9),10,13,32,44,125,93].contains(bytes[end]){end+=1}

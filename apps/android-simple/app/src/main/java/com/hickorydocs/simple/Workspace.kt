@@ -16,6 +16,13 @@ import java.util.UUID
 
 class DocumentBuffer(file: FileNode, loaded: FileText) {
     val debugIdentity=UUID.randomUUID().toString()
+    // This intent token advances synchronously in owned edit/selection/undo
+    // paths; source-equal undo cannot revive a reviewed template request.
+    private var sourceRevisionValue=0L
+    private var sourceRevisionPublished by mutableStateOf(0L)
+    val sourceRevision:Long get(){sourceRevisionPublished;return sourceRevisionValue}
+    fun advanceSourceRevision(publish:Boolean=true){sourceRevisionValue++;if(publish)publishSourceRevision()}
+    fun publishSourceRevision(){sourceRevisionPublished=sourceRevisionValue}
     var file by mutableStateOf(file)
     var resourceDeleted by mutableStateOf(false)
     val sourceScroll = androidx.compose.foundation.ScrollState(0)
@@ -126,7 +133,9 @@ class DocumentBuffer(file: FileNode, loaded: FileText) {
     fun selectSourceRange(from: Int, to: Int, source: String): Boolean {
         if (text != source || state.composition != null || !validSourceEdits(listOf(NativeSourceEdit(from, to, "")), source.length)) return false
         if (!applyingMulti) clearMulti()
+        val previousSelection=state.selection
         clearFolds(); state.edit { selection = TextRange(from, to) }
+        if(state.selection!=previousSelection)advanceSourceRevision()
         val selected=state.selection;val scroll=sourceScroll.value
         debugRevealSource=source;debugRevealCurrent={text==source&&state.selection==selected&&sourceScroll.value==scroll}
         debugReveal = source.take(from).count { it == '\n' } to ((debugReveal?.second ?: 0) + 1)
@@ -134,12 +143,14 @@ class DocumentBuffer(file: FileNode, loaded: FileText) {
     }
     fun applySourceEdits(edits: List<NativeSourceEdit>, source: String,resultSelection:TextRange?=null): Boolean {
         if (readOnly || saving || text != source || state.composition != null || !(edits.isEmpty()&&resultSelection!=null||validSourceEdits(edits, source.length))) return false
+        val previousSelection=state.selection
         val snippetBefore=snippets.captureBefore(source,state.selection)
         val resultLength=source.length+edits.sumOf {it.text.length-(it.to-it.from)}
         if(resultSelection!=null&&(resultSelection.min<0||resultSelection.max>resultLength))return false
         if (!applyingMulti) clearMulti()
         clearFolds()
         state.edit { edits.sortedByDescending { it.from }.forEach { replace(it.from, it.to, it.text) };if(resultSelection!=null)selection=resultSelection }
+        if(text!=source||state.selection!=previousSelection)advanceSourceRevision()
         snippets.finishTextChange(snippetBefore,text,state.selection);if(snippetBefore!=null)snippets.publish()
         return true
     }
@@ -198,6 +209,11 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     }
     var analysis by mutableStateOf(WorkspaceAnalysis()); private set
     var sourceTestIndex:SourceTestIndex?=null
+    var sourceTemplates by mutableStateOf(SourceTemplatesModel())
+    private var templatesVisible by mutableStateOf(false)
+    var showTemplates:Boolean
+        get()=templatesVisible
+        set(value){if(!value&&templatesVisible)sourceTemplates.close();templatesVisible=value}
     var testSources by mutableStateOf(TestSourcesModel())
     var coverage by mutableStateOf(SimpleCoverageState());var showCoverage by mutableStateOf(false)
     private var testsVisible by mutableStateOf(false)
@@ -316,6 +332,8 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         }
         val nextLayout=layout.copy(nodes=layout.nodes.mapValues{(_,node)->node.copy(tabs=node.tabs.map{addresses[it] ?: it},active=node.active?.let{addresses[it] ?: it})})
         debugger?.resourceSourcesChanged(targets.map{(route,buffer)->NativeSourceRoute(buffer.debugIdentity,route.from,route.to,route.after,route.to?.let{path->files.getValue(path).saved.text==route.after}==true)})
+        sourceTemplates.close()
+        targets.forEach{(_,buffer)->buffer.advanceSourceRevision()}
         generation=UUID.randomUUID();loading.values.forEach{it.cancel()};loading.clear();newestOpen.clear()
         // Retire the whole URI namespace before attaching destinations, including swaps.
         for((_,buffer) in targets){buffer.language?.close();buffer.language=null}
@@ -360,7 +378,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
             agent.turns = emptyList(); agent.error = ""; terminal.id = null; terminal.error = ""
             debugger?.close(); debugger = NativeDebugger(next, workspaceScope)
             debugger?.onLocation = { path, line -> workspaceScope.launch { revealDebug(path, line) } }
-            buffers.values.forEach { it.language?.close() }; languageConnection?.close();languageConnection=null; analysis.stop();analysis=WorkspaceAnalysis();showAnalysis=false;showEverywhere=false;showTests=false;showReview=false;showHistory=false;showAttribution=false;showConstruction=false;showRecovery=false;gitAttribution.close();gitAttribution=GitAttributionModel("");gitHistory.close();gitHistory=GitHistoryModel();gitReview.close();gitReview=GitReviewModel();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=null;generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); retainedResourceEditors.clear(); buffers.clear(); loading.values.forEach {it.cancel()}; loading.clear()
+            buffers.values.forEach { it.language?.close() }; languageConnection?.close();languageConnection=null; analysis.stop();analysis=WorkspaceAnalysis();showAnalysis=false;showEverywhere=false;showTests=false;showTemplates=false;sourceTemplates.close();sourceTemplates=SourceTemplatesModel();showReview=false;showHistory=false;showAttribution=false;showConstruction=false;showRecovery=false;gitAttribution.close();gitAttribution=GitAttributionModel("");gitHistory.close();gitHistory=GitHistoryModel();gitReview.close();gitReview=GitReviewModel();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=null;generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); retainedResourceEditors.clear(); buffers.clear(); loading.values.forEach {it.cancel()}; loading.clear()
             layout = PaneLayout(); focused = "document-group"; status = root
             return true
         } catch (cancelled: CancellationException) { throw cancelled }

@@ -19,3 +19,11 @@ it('derives complete linked source edits, field scope and traversal from shared 
   }
  }
 });
+it('rejects excessive begin metadata and predicts nested choice fanout before cloning',()=>{
+ const field=(id:number,index:number,choices:string[]=[])=>({id,parent:null,index,from:0,to:0,choices});
+ expect(beginSnippet('',[field(0,1,Array<string>(4097).fill('')),field(1,0)])).toBeNull();
+ const outer=beginSnippet('',[...Array.from({length:8},(_,id)=>field(id,1)),field(8,0)])!,before=JSON.stringify(outer);let reads=0;
+ const choices=new Proxy(Array<string>(4096).fill(''),{get(target,key,receiver){if(typeof key==='string'&&/^[0-9]+$/.test(key))reads++;return Reflect.get(target,key,receiver);}}),inner=[field(0,1,choices),field(1,0)];
+ expect(nestSnippet(outer,'',{from:0,to:0,text:''},[],inner)).toBeNull();expect(reads).toBe(4096);expect(JSON.stringify(outer)).toBe(before);
+ const small=nestSnippet(outer,'',{from:0,to:0,text:''},[],[field(0,1,['','']),field(1,0)]);expect(small?.session.scopes).toHaveLength(1);
+});

@@ -12,6 +12,8 @@ The completion planner retains separate primary and additional edits. Mirror the
 
 A source-bound session owns ordered occurrences and active intent. Only an edit wholly inside a current active occurrence can produce linked replacements. Parent edits retire descendants; child edits update enclosing mirrors. Coincident empty mirrors produce ordered text for every occurrence, while explicit ancestry distinguishes them from nested fields. Validate scalar boundaries and fanout before producing a proposal. A stale or unsupported edit returns no linked plan so the host can retain ordinary input.
 
+The pure capacity check counts field overhead and every alternative, including empty strings, before cloning choices. Nested proposals reserve the retained forest plus the complete inner metadata multiplied by the number of outer mirrors; an excessive proposal returns no edits or new session.
+
 <ui:copy id="snippet-session-browser">
 import type {SnippetField} from './SnippetExpansion';
 export interface SnippetScope {order:number[];exitIndex:number;exitId:number;outerActive:number;outerCurrent:number}
@@ -19,8 +21,13 @@ export interface SnippetSession {source:string;fields:SnippetField[];active:numb
 export interface SnippetEdit {from:number;to:number;text:string}
 export interface SnippetInput {session:SnippetSession;edits:SnippetEdit[];selection:{from:number;to:number}}
 const scalar=(text:string,at:number)=>Number.isSafeInteger(at)&&at>=0&&at<=text.length&&!(at>0&&at<text.length&&((text.charCodeAt(at-1)>=0xd800&&text.charCodeAt(at-1)<=0xdbff&&text.charCodeAt(at)>=0xdc00&&text.charCodeAt(at)<=0xdfff)||(text[at-1]==='\r'&&text[at]==='\n')));
+function snippetMetadataCost(fields:readonly SnippetField[]):number|null {
+ if(fields.length>4096)return null;let bytes=0;
+ for(const field of fields){if(!field||!Array.isArray(field.choices)||field.choices.length>4096)return null;bytes+=64+field.choices.length*32;if(bytes>1048576)return null;for(const choice of field.choices){if(typeof choice!=='string'||choice.length>1048576-bytes)return null;bytes+=choice.length?new TextEncoder().encode(choice).length:0;if(bytes>1048576)return null;}}
+ return bytes;
+}
 export function beginSnippet(source:string,fields:readonly SnippetField[]):SnippetSession|null {
- if(!fields.length||fields.length>4096||fields.some(field=>field.id===undefined||!Number.isSafeInteger(field.id)||field.id!<0||field.id!>=4096||!scalar(source,field.from)||!scalar(source,field.to)||field.from>field.to||!Number.isSafeInteger(field.index)||field.index<0||field.index>1004096||field.parent!=null&&!Number.isSafeInteger(field.parent)))return null;
+ if(!fields.length||fields.length>4096||snippetMetadataCost(fields)===null||fields.some(field=>field.id===undefined||!Number.isSafeInteger(field.id)||field.id!<0||field.id!>=4096||!scalar(source,field.from)||!scalar(source,field.to)||field.from>field.to||!Number.isSafeInteger(field.index)||field.index<0||field.index>1004096||field.parent!=null&&!Number.isSafeInteger(field.parent)))return null;
  const ids=new Map(fields.map(field=>[field.id!,field]));if(ids.size!==fields.length||fields.filter(field=>field.index===0).length!==1||fields.some(field=>field.index===0&&field.from!==field.to))return null;
  for(const field of fields){const seen=new Set<number>();let next:SnippetField|undefined=field;while(next){if(seen.has(next.id!))return null;seen.add(next.id!);if(next.parent==null)break;const parent=ids.get(next.parent!);if(!parent||parent.from>next.from||parent.to<next.to)return null;next=parent;}}
  const active=Math.min(...fields.map(field=>field.index).filter(index=>index>0));
@@ -107,20 +114,22 @@ export function completeSnippet(session:SnippetSession,source:string,primary:Sni
  return {session:{...input.session,source:after,fields},edits,selection:{from:input.selection.from+shift,to:input.selection.to+shift}};
 }
 export function nestSnippet(session:SnippetSession,source:string,primary:SnippetEdit,additional:readonly SnippetEdit[],inner:readonly SnippetField[]):SnippetInput|null {
- if((session.scopes?.length??0)>=32||!inner.length)return null;
- const parsed=beginSnippet(primary.text,inner),exit=inner.find(field=>field.index===0);if(!exit||(!parsed&&(inner.length!==1||exit.id===undefined||exit.parent!=null||exit.from!==exit.to||!scalar(primary.text,exit.from))))return null;
+ if((session.scopes?.length??0)>=32||!inner.length||snippetMetadataCost(session.fields)===null)return null;
+ const innerBytes=snippetMetadataCost(inner),exit=inner.find(field=>field.index===0);if(innerBytes===null||!exit)return null;
  const origin=session.fields.find(field=>field.id===session.current&&field.from<=primary.from&&field.to>=primary.to);if(!origin)return null;
  const input=completeSnippet(session,source,primary,additional);if(!input)return null;
  const parents=input.session.fields.filter(field=>field.index===session.active),current=parents.find(field=>field.id===input.session.current);if(!current)return null;
  const relative=primary.from-origin.from,order=[...new Set(inner.filter(field=>field.index>0).map(field=>field.index))].sort((a,b)=>a-b);
+ if(order.length){const retainedBytes=snippetMetadataCost(input.session.fields);if(retainedBytes===null||retainedBytes+parents.length*innerBytes>1048576||input.session.fields.length+parents.length*inner.length>4096)return null;}
+ // Reserve the complete mirrored forest before beginSnippet can clone inner choices.
+ const parsed=beginSnippet(primary.text,inner);if(!parsed&&(inner.length!==1||exit.id===undefined||exit.parent!=null||exit.from!==exit.to||!scalar(primary.text,exit.from)))return null;
  if(!order.length){const caret=current.from+relative+exit.from;return {...input,selection:{from:caret,to:caret}};}
- if(input.session.fields.length+parents.length*inner.length>4096)return null;
  let nextIndex=Math.max(...input.session.fields.map(field=>field.index))+1;const indices=new Map([...order,0].map(index=>[index,nextIndex++]));if(nextIndex>1004097)return null;
  const used=new Set(input.session.fields.map(field=>field.id!)),fields=[...input.session.fields];let nextId=0,exitId=-1,currentId=-1;
  for(const parent of parents){const ids=new Map<number,number>();for(const field of inner){while(used.has(nextId))nextId++;if(nextId>=4096)return null;ids.set(field.id!,nextId);used.add(nextId++);}
   for(const field of inner){const id=ids.get(field.id!)!;fields.push({...field,id,index:indices.get(field.index)!,parent:field.parent==null?parent.id!:ids.get(field.parent)!,from:parent.from+relative+field.from,to:parent.from+relative+field.to});if(parent.id===current.id){if(field.index===0)exitId=id;else if(field.id===parsed!.current)currentId=id;}}
  }
- if(fields.reduce((sum,field)=>sum+64+field.choices.reduce((n,text)=>n+new TextEncoder().encode(text).length,0),0)>1048576||!beginSnippet(input.session.source,fields))return null;
+ if(snippetMetadataCost(fields)===null||!beginSnippet(input.session.source,fields))return null;
  const scope:SnippetScope={order:order.map(index=>indices.get(index)!),exitIndex:indices.get(0)!,exitId,outerActive:session.active,outerCurrent:input.session.current},active=scope.order[0],selected=fields.find(field=>field.id===currentId);if(!selected)return null;
  return {...input,session:{...input.session,fields,active,current:currentId,scopes:[...(input.session.scopes??[]),scope]},selection:{from:selected.from,to:selected.to}};
 }
@@ -130,7 +139,7 @@ export function nestSnippet(session:SnippetSession,source:string,primary:Snippet
 
 ## Keep Apple field editing independent of the view
 
-Use the same occurrence and revision model as the browser, with exact UTF-8 comparisons and UTF-16 editor coordinates. Parent/child scope is explicit, coincident insertions preserve every occurrence and no-op edits retain nested fields. This pure model returns the complete native edit batch and final selection; it neither edits a view nor saves a file.
+Use the same occurrence and revision model as the browser, with exact UTF-8 comparisons and UTF-16 editor coordinates. Parent/child scope is explicit, coincident insertions preserve every occurrence and no-op edits retain nested fields. Before retaining a forest, charge each field 64 bytes and each choice 32 bytes plus its UTF-8 payload, with at most 4096 choices per field and one MiB total. Nested insertion reserves all mirrored inner forests before constructing them. This pure model returns the complete native edit batch and final selection; it neither edits a view nor saves a file.
 
 <ui:copy id="snippet-session-apple">
 import Foundation
@@ -138,6 +147,18 @@ struct SnippetScope {var order:[Int];var exitIndex:Int;var exitId:Int;var outerA
 struct SnippetSession {var source:String;var fields:[SnippetField];var active:Int;var current:Int;var scopes:[SnippetScope]=[]}
 struct SnippetInput {var session:SnippetSession;var edits:[NativeSourceEdit];var selection:CompletionSelection}
 struct SnippetAdvance {var session:SnippetSession?;var selection:CompletionSelection}
+// Admit retained metadata before constructing another field forest. Empty
+// alternatives still occupy slots; payload accounting uses exact UTF-8 bytes.
+func snippetMetadataCost(_ fields:[SnippetField])->Int? {
+    guard fields.count<=4096 else{return nil};var bytes=0
+    for field in fields {
+        guard field.choices.count<=4096 else{return nil}
+        let floor=64+32*field.choices.count
+        guard floor<=1048576-bytes else{return nil};bytes+=floor
+        for choice in field.choices{let size=choice.utf8.count;guard size<=1048576-bytes else{return nil};bytes+=size}
+    }
+    return bytes
+}
 private func snippetScalar(_ text:NSString,_ at:Int)->Bool {
     guard at>=0,at<=text.length else{return false}
     if at>0,at<text.length{let before=text.character(at:at-1),after=text.character(at:at);if (before>=0xd800&&before<=0xdbff&&after>=0xdc00&&after<=0xdfff)||(before==13&&after==10){return false}}
@@ -145,7 +166,7 @@ private func snippetScalar(_ text:NSString,_ at:Int)->Bool {
 }
 func beginSnippet(_ source:String,fields:[SnippetField])->SnippetSession? {
     let text=source as NSString
-    guard !fields.isEmpty,fields.count<=4096,fields.allSatisfy({field in field.id != nil && field.id!>=0 && field.id!<4096 && field.index>=0 && field.index<=1004096 && field.from<=field.to && snippetScalar(text,field.from) && snippetScalar(text,field.to)}),fields.filter({$0.index==0}).count==1,!fields.contains(where:{$0.index==0&&$0.from != $0.to}) else{return nil}
+    guard !fields.isEmpty,snippetMetadataCost(fields) != nil,fields.allSatisfy({field in field.id != nil && field.id!>=0 && field.id!<4096 && field.index>=0 && field.index<=1004096 && field.from<=field.to && snippetScalar(text,field.from) && snippetScalar(text,field.to)}),fields.filter({$0.index==0}).count==1,!fields.contains(where:{$0.index==0&&$0.from != $0.to}) else{return nil}
     var ids:[Int:SnippetField]=[:]
     for field in fields{guard ids[field.id!]==nil else{return nil};ids[field.id!]=field}
     var visited:Set<Int>=[]
@@ -156,7 +177,7 @@ func beginSnippet(_ source:String,fields:[SnippetField])->SnippetSession? {
     return SnippetSession(source:source,fields:fields,active:active,current:first.id!)
 }
 func advanceSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,direction:Int)->SnippetAdvance? {
-    guard exactUTF8(source,session.source),from<=to,(direction==1||direction == -1),session.fields.contains(where:{$0.index==session.active&&$0.from<=from&&$0.to>=to}) else{return nil}
+    guard snippetMetadataCost(session.fields) != nil,exactUTF8(source,session.source),from<=to,(direction==1||direction == -1),session.fields.contains(where:{$0.index==session.active&&$0.from<=from&&$0.to>=to}) else{return nil}
     let scope=session.scopes.last,order=scope.map{$0.order+[$0.exitIndex]} ?? (Array(Set(session.fields.map{$0.index}.filter{$0>0})).sorted()+[0])
     guard let at=order.firstIndex(of:session.active),order.indices.contains(at+direction),let field=session.fields.first(where:{$0.index==order[at+direction]}) else{return nil}
     if let scope,field.index==scope.exitIndex{guard let exit=session.fields.first(where:{$0.id==scope.exitId}) else{return nil};var resumed=session;resumed.fields.removeAll{scope.order.contains($0.index)||$0.index==scope.exitIndex};resumed.active=scope.outerActive;resumed.current=scope.outerCurrent;resumed.scopes.removeLast();return SnippetAdvance(session:resumed,selection:CompletionSelection(from:exit.from,to:exit.to))}
@@ -174,7 +195,7 @@ Capture and numeric traversal above retain a source-bound intent, without editor
 private struct SnippetReplacement {var from:Int;var to:Int;var text:String;var owners:[Int]}
 func editSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:String)->SnippetInput? {
     let original=source as NSString
-    guard exactUTF8(source,session.source),from<=to,snippetScalar(original,from),snippetScalar(original,to),session.active != 0 else{return nil}
+    guard snippetMetadataCost(session.fields) != nil,exactUTF8(source,session.source),from<=to,snippetScalar(original,from),snippetScalar(original,to),session.active != 0 else{return nil}
     func terminal(_ field:SnippetField)->Bool{field.index==0 || session.scopes.contains(where:{$0.exitIndex==field.index})}
     let fields=session.fields,ids=Dictionary(uniqueKeysWithValues:fields.map{($0.id!,$0)})
     func ancestor(_ parent:Int,_ child:Int)->Bool{var current=ids[child];for _ in 0...fields.count{guard let value=current else{return false};if value.id==parent{return true};current=value.parent.flatMap{ids[$0]}};return false}
@@ -243,13 +264,14 @@ func completeSnippet(_ session:SnippetSession,source:String,primary:SourceReplac
     return SnippetInput(session:next,edits:edits.map{NativeSourceEdit(range:NSRange(location:$0.from,length:$0.to-$0.from),text:$0.text)},selection:CompletionSelection(from:input.selection.from+shift,to:input.selection.to+shift))
 }
 func nestSnippet(_ session:SnippetSession,source:String,primary:SourceReplacement,additional:[SourceReplacement],inner:[SnippetField])->SnippetInput? {
-    guard session.scopes.count<32,!inner.isEmpty,let exit=inner.first(where:{$0.index==0}) else{return nil}
+    guard session.scopes.count<32,!inner.isEmpty,let innerCost=snippetMetadataCost(inner),let exit=inner.first(where:{$0.index==0}) else{return nil}
     let parsed=beginSnippet(primary.text,fields:inner);guard parsed != nil || (inner.count==1 && exit.id != nil && exit.parent==nil && exit.from==exit.to && snippetScalar(primary.text as NSString,exit.from)) else{return nil}
     guard let origin=session.fields.first(where:{$0.id==session.current&&$0.from<=primary.from&&$0.to>=primary.to}),let input=completeSnippet(session,source:source,primary:primary,additional:additional) else{return nil}
     let parents=input.session.fields.filter{$0.index==session.active};guard let current=parents.first(where:{$0.id==input.session.current}) else{return nil}
     let relative=primary.from-origin.from,order=Array(Set(inner.filter{$0.index>0}.map{$0.index})).sorted()
     if order.isEmpty{var result=input;let caret=current.from+relative+exit.from;result.selection=CompletionSelection(from:caret,to:caret);return result}
-    guard input.session.fields.count+parents.count*inner.count<=4096 else{return nil}
+    // Reserve the complete mirror fanout before appending any nested fields.
+    guard input.session.fields.count+parents.count*inner.count<=4096,let retainedCost=snippetMetadataCost(input.session.fields),parents.count<=(1048576-retainedCost)/innerCost else{return nil}
     var nextIndex=input.session.fields.map{$0.index}.max()!+1,indices:[Int:Int]=[:]
     for index in order+[0]{indices[index]=nextIndex;nextIndex+=1};guard nextIndex<=1004097 else{return nil}
     var used=Set(input.session.fields.map{$0.id!}),fields=input.session.fields,nextId=0,exitId = -1,currentId = -1
@@ -259,7 +281,7 @@ func nestSnippet(_ session:SnippetSession,source:String,primary:SourceReplacemen
             if parent.id==current.id{if field.index==0{exitId=id}else if field.id==parsed!.current{currentId=id}}
         }
     }
-    guard fields.reduce(0,{sum,field in sum+64+field.choices.reduce(0){$0+$1.utf8.count}})<=1048576,beginSnippet(input.session.source,fields:fields) != nil,let selected=fields.first(where:{$0.id==currentId}) else{return nil}
+    guard beginSnippet(input.session.source,fields:fields) != nil,let selected=fields.first(where:{$0.id==currentId}) else{return nil}
     let scope=SnippetScope(order:order.map{indices[$0]!},exitIndex:indices[0]!,exitId:exitId,outerActive:session.active,outerCurrent:input.session.current)
     var result=input;result.session.fields=fields;result.session.active=scope.order[0];result.session.current=currentId;result.session.scopes.append(scope);result.selection=CompletionSelection(from:selected.from,to:selected.to);return result
 }
@@ -278,8 +300,17 @@ data class SnippetSession(val source:String,val fields:List<SnippetField>,val ac
 data class SnippetInput(val session:SnippetSession,val edits:List<NativeSourceEdit>,val selection:CompletionSelection)
 data class SnippetAdvance(val session:SnippetSession?,val selection:CompletionSelection)
 private fun snippetScalar(text:String,at:Int):Boolean=at in 0..text.length&&!(at>0&&at<text.length&&(Character.isHighSurrogate(text[at-1])&&Character.isLowSurrogate(text[at])||text[at-1]=='\r'&&text[at]=='\n'))
+// A shared forest admission check runs before any retained choices vector is
+// copied. Empty alternatives still occupy slots; UTF-8 payloads add to them.
+internal fun snippetMetadataCost(fields:List<SnippetField>,budget:Long=1048576L):Long? {
+ if(fields.size>4096)return null;var bytes=0L
+ for(field in fields){if(field.choices.size>4096)return null;val floor=64L+32L*field.choices.size;if(floor>budget-bytes)return null;bytes+=floor
+  for(choice in field.choices){if(choice.length.toLong()>budget-bytes)return null;val payload=choice.toByteArray(Charsets.UTF_8).size.toLong();if(payload>budget-bytes)return null;bytes+=payload}
+ }
+ return bytes
+}
 fun beginSnippet(source:String,fields:List<SnippetField>):SnippetSession? {
- if(fields.isEmpty()||fields.size>4096||fields.any{it.id==null||it.id !in 0..4095||it.index !in 0..1004096||it.from>it.to||!snippetScalar(source,it.from)||!snippetScalar(source,it.to)}||fields.count{it.index==0}!=1||fields.any{it.index==0&&it.from!=it.to})return null
+ if(fields.isEmpty()||snippetMetadataCost(fields)==null||fields.any{it.id==null||it.id !in 0..4095||it.index !in 0..1004096||it.from>it.to||!snippetScalar(source,it.from)||!snippetScalar(source,it.to)}||fields.count{it.index==0}!=1||fields.any{it.index==0&&it.from!=it.to})return null
  val ids=fields.associateBy{it.id!!};if(ids.size!=fields.size)return null;val visited=mutableSetOf<Int>()
  for(field in fields){val chain=mutableSetOf<Int>();var next:SnippetField?=field
   while(next!=null&&!visited.contains(next.id!!)){val value=next;if(!chain.add(value.id!!))return null;val identity=value.parent ?: break;val parent=ids[identity] ?: return null;if(parent.from>value.from||parent.to<value.to)return null;next=parent};visited.addAll(chain)
@@ -359,19 +390,26 @@ fun completeSnippet(session:SnippetSession,source:String,primary:SourceReplaceme
  return SnippetInput(input.session.copy(source=after,fields=fields),edits.map{NativeSourceEdit(it.from,it.to,it.text)},CompletionSelection(input.selection.from+shift,input.selection.to+shift))
 }
 fun nestSnippet(session:SnippetSession,source:String,primary:SourceReplacement,additional:List<SourceReplacement>,inner:List<SnippetField>):SnippetInput? {
- if(session.scopes.size>=32||inner.isEmpty())return null
- val exit=inner.firstOrNull{it.index==0} ?: return null;val parsed=beginSnippet(primary.text,inner);if(parsed==null&&(inner.size!=1||exit.id==null||exit.parent!=null||exit.from!=exit.to||!snippetScalar(primary.text,exit.from)))return null
+ if(session.scopes.size>=32||inner.isEmpty()||snippetMetadataCost(session.fields)==null)return null
+ val innerBytes=snippetMetadataCost(inner) ?: return null
+ val exit=inner.firstOrNull{it.index==0} ?: return null
  val origin=session.fields.firstOrNull{it.id==session.current&&it.from<=primary.from&&it.to>=primary.to} ?: return null
  val input=completeSnippet(session,source,primary,additional) ?: return null;val parents=input.session.fields.filter{it.index==session.active};val current=parents.firstOrNull{it.id==input.session.current} ?: return null
  val relative=primary.from-origin.from;val order=inner.filter{it.index>0}.map{it.index}.distinct().sorted()
+ if(order.isNotEmpty()){
+  val retainedBytes=snippetMetadataCost(input.session.fields) ?: return null
+  if(parents.isEmpty()||innerBytes>(1048576L-retainedBytes)/parents.size||input.session.fields.size.toLong()+parents.size.toLong()*inner.size>4096)return null
+ }
+ // Only after the entire mirrored proposal fits may validation clone an inner
+ // vector. A rejected nested proposal publishes no session or text edits.
+ val parsed=beginSnippet(primary.text,inner);if(parsed==null&&(inner.size!=1||exit.id==null||exit.parent!=null||exit.from!=exit.to||!snippetScalar(primary.text,exit.from)))return null
  if(order.isEmpty()){val caret=current.from+relative+exit.from;return input.copy(selection=CompletionSelection(caret,caret))}
- if(input.session.fields.size.toLong()+parents.size.toLong()*inner.size>4096)return null
  var nextIndex=input.session.fields.maxOf{it.index}+1;val indices=(order+0).associateWith{nextIndex++};if(nextIndex>1004097)return null
  val used=input.session.fields.map{it.id!!}.toMutableSet();val fields=input.session.fields.toMutableList();var nextId=0;var exitId = -1;var currentId = -1
  for(parent in parents){val ids=mutableMapOf<Int,Int>();for(field in inner){while(nextId in used)nextId++;if(nextId>=4096)return null;ids[field.id!!]=nextId;used.add(nextId++)}
   for(field in inner){val id=ids.getValue(field.id!!);fields.add(field.copy(id=id,index=indices.getValue(field.index),parent=field.parent?.let{ids.getValue(it)} ?: parent.id,from=parent.from+relative+field.from,to=parent.from+relative+field.to));if(parent.id==current.id){if(field.index==0)exitId=id else if(field.id==parsed!!.current)currentId=id}}
  }
- if(fields.sumOf{field->64L+field.choices.sumOf{it.toByteArray(Charsets.UTF_8).size.toLong()}}>1048576||beginSnippet(input.session.source,fields)==null)return null
+ if(snippetMetadataCost(fields)==null||beginSnippet(input.session.source,fields)==null)return null
  val selected=fields.firstOrNull{it.id==currentId} ?: return null;val scope=SnippetScope(order.map{indices.getValue(it)},indices.getValue(0),exitId,session.active,input.session.current)
  return input.copy(session=input.session.copy(fields=fields,active=scope.order[0],current=currentId,scopes=input.session.scopes+scope),selection=CompletionSelection(selected.from,selected.to))
 }
@@ -3057,6 +3095,14 @@ it('derives complete linked source edits, field scope and traversal from shared 
   }
  }
 });
+it('rejects excessive begin metadata and predicts nested choice fanout before cloning',()=>{
+ const field=(id:number,index:number,choices:string[]=[])=>({id,parent:null,index,from:0,to:0,choices});
+ expect(beginSnippet('',[field(0,1,Array<string>(4097).fill('')),field(1,0)])).toBeNull();
+ const outer=beginSnippet('',[...Array.from({length:8},(_,id)=>field(id,1)),field(8,0)])!,before=JSON.stringify(outer);let reads=0;
+ const choices=new Proxy(Array<string>(4096).fill(''),{get(target,key,receiver){if(typeof key==='string'&&/^[0-9]+$/.test(key))reads++;return Reflect.get(target,key,receiver);}}),inner=[field(0,1,choices),field(1,0)];
+ expect(nestSnippet(outer,'',{from:0,to:0,text:''},[],inner)).toBeNull();expect(reads).toBe(4096);expect(JSON.stringify(outer)).toBe(before);
+ const small=nestSnippet(outer,'',{from:0,to:0,text:''},[],[field(0,1,['','']),field(1,0)]);expect(small?.session.scopes).toHaveLength(1);
+});
 </ui:copy>
 
 <ui:file path="apps/web/src/simple/SnippetSession.test.ts"><ui:paste select="#snippet-session-browser-tests"/></ui:file>
@@ -3070,6 +3116,20 @@ import XCTest
 @testable import HickorySimple
 final class SnippetSessionTests:XCTestCase {
     func fields(_ values:[[String:Any]])->[SnippetField]{values.map{SnippetField(index:$0["index"] as! Int,from:$0["from"] as! Int,to:$0["to"] as! Int,choices:$0["choices"] as! [String],id:$0["id"] as? Int,parent:$0["parent"] as? Int)}}
+    func testNestedEmptyChoicesReserveAllMirrorsBeforePublication()throws {
+        let source="aaaaaaaa",outer=(0..<8).map{SnippetField(index:1,from:$0,to:$0+1,choices:[],id:$0,parent:nil)}+[SnippetField(index:0,from:8,to:8,choices:[],id:8,parent:nil)]
+        let session=try XCTUnwrap(beginSnippet(source,fields:outer))
+        let inner=[SnippetField(index:1,from:0,to:0,choices:Array(repeating:"",count:4096),id:0,parent:nil),SnippetField(index:0,from:0,to:0,choices:[],id:1,parent:nil)]
+        XCTAssertNotNil(beginSnippet("",fields:inner))
+        XCTAssertNil(nestSnippet(session,source:source,primary:SourceReplacement(from:0,to:1,text:""),additional:[],inner:inner))
+        XCTAssertTrue(exactUTF8(session.source,source));XCTAssertEqual(session.fields.count,9)
+        var excessive=inner;excessive[0].choices.append("")
+        XCTAssertNil(beginSnippet("",fields:excessive))
+        let amplified=(0..<8).map{SnippetField(index:1,from:0,to:0,choices:inner[0].choices,id:$0,parent:nil)}+[SnippetField(index:0,from:0,to:0,choices:[],id:8,parent:nil)]
+        XCTAssertNil(beginSnippet("",fields:amplified))
+        let ordinary=[SnippetField(index:1,from:0,to:1,choices:["x","y"],id:0,parent:nil),SnippetField(index:0,from:1,to:1,choices:[],id:1,parent:nil)]
+        XCTAssertNotNil(nestSnippet(session,source:source,primary:SourceReplacement(from:0,to:1,text:"x"),additional:[],inner:ordinary))
+    }
     func testSharedLinkedEditsScopeAndTraversal()throws {
         let apps=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let vectors=try JSONSerialization.jsonObject(with:Data(contentsOf:apps.appendingPathComponent("simple-contract/snippet-session-cases.json"))) as! [String:Any]
@@ -3133,6 +3193,16 @@ class SnippetSessionTest {
    }
   }
  }
+ @Test fun nestedEmptyChoiceAmplificationIsRefusedBeforeInnerClone(){
+  val source="aaaaaaaa";val outer=(0 until 8).map{SnippetField(1,it,it+1,emptyList(),it,null)}+SnippetField(0,8,8,emptyList(),8,null)
+  val session=beginSnippet(source,outer)!!;var reads=0
+  val emptyChoices=object:AbstractList<String>(){override val size=4096;override fun get(index:Int):String{reads++;return ""}}
+  val inner=listOf(SnippetField(1,0,0,emptyChoices,0,null),SnippetField(0,0,0,emptyList(),1,null))
+  assertNull(nestSnippet(session,source,SourceReplacement(0,1,""),emptyList(),inner));assertEquals(4096,reads)
+  assertNull(beginSnippet("",listOf(SnippetField(1,0,0,List(4097){""},0,null),SnippetField(0,0,0,emptyList(),1,null))))
+  assertNotNull(beginSnippet("",listOf(SnippetField(1,0,0,List(4096){""},0,null),SnippetField(0,0,0,emptyList(),1,null))))
+ }
+
 }
 </ui:copy>
 

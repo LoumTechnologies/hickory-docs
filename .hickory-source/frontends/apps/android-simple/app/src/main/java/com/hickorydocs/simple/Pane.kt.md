@@ -977,6 +977,7 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                         }
                     }
                     }
+                    if(changes.changeCount>0||selection!=originalSelection){buffer.advanceSourceRevision(false);scope.launch{buffer.publishSourceRevision()}}
                     buffer.snippets.finishTextChange(snippetBefore,asCharSequence(),selection)
                     // Retire display state after the input transaction, outside its receiver.
                     scope.launch { kotlinx.coroutines.yield();buffer.snippets.sourceChanged(buffer.text);buffer.clearFolds(); if (!buffer.applyingMulti) buffer.clearMulti() }
@@ -1029,6 +1030,7 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                         } else simpleWordOffset(source, selection.end, forward, navigationMode == "pieces")
                         buffer.clearFolds(); buffer.clearMulti()
                         buffer.state.edit { this.selection = TextRange(if (event.isShiftPressed) selection.start else head, head) }
+                        if(buffer.state.selection!=selection)buffer.advanceSourceRevision()
                         true
                     } else if (event.type == KeyEventType.KeyDown && (event.key == Key.Tab || event.key == Key.Enter) && hiddenTyping) {
                         buffer.tableSourceVisible = true; buffer.clearFolds(); true

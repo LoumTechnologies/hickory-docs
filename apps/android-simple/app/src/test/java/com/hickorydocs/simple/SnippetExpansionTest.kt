@@ -23,4 +23,16 @@ class SnippetExpansionTest {
   assertTrue(runCatching{completionExpansion(item)}.isFailure)
  }
 
+ @Test fun emptyAlternativesHaveCountAndSlotBudgetsBeforeCopy(){
+  fun item(count:Int,mirrors:Int):JSONObject {
+   val alternatives=org.json.JSONArray();repeat(count){alternatives.put("")};val fields=org.json.JSONArray()
+   repeat(mirrors){fields.put(JSONObject().put("id",it).put("parent",JSONObject.NULL).put("index",1).put("from",0).put("to",0).put("choices",alternatives))}
+   fields.put(JSONObject().put("id",mirrors).put("parent",JSONObject.NULL).put("index",0).put("from",0).put("to",0).put("choices",org.json.JSONArray()))
+   return JSONObject().put("label","empty choices").put("insertTextFormat",2).put("insertText","syntax").put("data",JSONObject().put("hickory_snippet",JSONObject().put("version",1).put("syntax","syntax").put("text","").put("fields",fields)))
+  }
+  assertEquals(4096,completionExpansion(item(4096,1))!!.fields.first().choices.size)
+  assertTrue(runCatching{completionExpansion(item(4097,1))}.isFailure)
+  assertTrue(runCatching{completionExpansion(item(4096,8))}.isFailure)
+ }
+
 }

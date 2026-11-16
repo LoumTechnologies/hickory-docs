@@ -6,7 +6,9 @@ import CryptoKit
     private static var contextOrder:[UUID]=[]
     private static var contextBytes=0
     private static func hold<Context>(_ value:Context,cost:Int,restore:@escaping (Context)->Void)->UUID {
-        let id=UUID(),weight=max(0,min(cost,32*1024*1024+1));contexts[id]=ContextEntry(cost:weight,restore:{restore(value)});contextOrder.append(id);contextBytes+=weight
+        let id=UUID(),weight=max(0,cost)
+        guard weight<=32*1024*1024 else{return id}
+        contexts[id]=ContextEntry(cost:weight,restore:{restore(value)});contextOrder.append(id);contextBytes+=weight
         while contextBytes>32*1024*1024 || contextOrder.count>4096 {
             let old=contextOrder.removeFirst();if let value=contexts.removeValue(forKey:old){contextBytes-=value.cost}
         }

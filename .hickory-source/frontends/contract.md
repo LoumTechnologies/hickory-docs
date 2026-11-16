@@ -34,7 +34,7 @@ until reconstruction, focused safety checks and the connected path pass.
 | Required outcome | Established slices and remaining acceptance |
 | --- | --- |
 | Navigation and intelligence | Semantic queries, bounded workspace acquisition, search and retained navigation trails have focused evidence below. Complete provider indexing and native physical interaction are not established by those receipts. |
-| Safe changes, cleanup, generation and templates | Multi-source draft review/undo, cleanup and nested source snippets have focused evidence. Ordered resource publication and saved/draft undo now have connected browser/provider and native controller acceptance. Canonical-entry moves and ambiguous native wire path identities still refuse. Semantic cleanup, reusable generation/template catalog, full snippet transforms/variable contexts, multi-caret templates and mirrored native IME remain open. |
+| Safe changes, cleanup, generation and templates | Multi-source draft review/undo, cleanup and nested source snippets have focused evidence. Ordered resource publication and saved/draft undo now have connected browser/provider and native controller acceptance. Canonical-entry moves and ambiguous native wire path identities still refuse. A reusable template catalog now has reviewed Apply and coordinated field/history acceptance across the hosts, with rendered browser/macOS and native Android controller evidence. Semantic cleanup/provider generation, full snippet transforms/variable contexts, multi-caret templates and mirrored native IME remain open. |
 | Diagnostics and contextual fixes | Source-bound Problems, exact provider action resolution and multi-source action review have focused evidence. Complete bulk-fix workflow and provider analysis completeness remain open. |
 | Tests and coverage | Source declarations, saved-run admission, discovery/results and source-bound imported coverage have focused evidence. An actual Python collector now retains failed-run coverage and reruns only the failed case, marking the earlier source evidence historical after a source change. Python/pytest source-adjacent Debug now has actual writable physical/authored gutter acceptance on browser, macOS and Android, with the shared Apple path building for iOS. Other test-debug providers remain explicitly unavailable. Collector-to-host end-to-end acceptance and the remaining supported collectors remain open. |
 | Review and recovery | Diffs, staging, immutable history, attribution and choosing a conflict stage have focused evidence. Resource recovery publication/adoption and ordered text/resource undo now have actual-engine acceptance. Invalid historical construction drafts and partial-state restoration still refuse. Arbitrary conflict composition, delete/rename conflicts, ordinary-save local history and crash/session/layout restoration remain open. |
@@ -125,7 +125,56 @@ flows are sequential. Firefox/WebKit and supported native adapter breadth are no
 established by Python/debugpy and local Chromium receipts. This entry is a
 progress ledger, not complete debugger parity.
 
-## Saved source-test Debug integration in progress, 2026-11-16
+## Reviewed reusable source-template catalog, 2026-11-16
+
+The [shared template service](../mechanisms/source-template-service.md) reads
+built-in and bounded data-only `.hickory/templates.json` definitions. Catalog and
+plan replies bind the canonical source path, exact UTF-8 hash, UTF-16 selection,
+workspace and definition fingerprint. Literal template lines follow captured
+indentation; variables retain their own text. The shared snippet mechanism owns
+field expansion, explicit unsupported syntax and output limits. Plans neither
+execute commands nor save files.
+
+Six focused shared checks passed for Unicode/scalar selection, indentation,
+workspace definitions, changed catalogs, unsupported syntax and foreign catalog
+links. A real-engine HTTP witness passed repeat-plan identity, catalog revocation,
+generated-file/physical-alias/escaped-path refusals and unchanged authored bytes.
+The focused read-gate witness passed with both template routes. Six shared snippet
+checks passed after fixing empty-choice metadata amplification and a malformed
+choice terminator that previously consumed a character. The real HTTP witness
+also refused an all-empty mirrored choice definition before emitting a plan.
+Every alternative now reserves storage, even when empty. Session creation and
+nested mirroring reserve their complete field/choice cost before copying; undo
+context admission rejects oversized entries without evicting older valid context.
+The browser cache also charges empty snapshots and bounds its token count.
+
+Browser TypeScript checking and 145 focused template/snippet/history/command/API
+and affected saved-test checks passed. Its actual visual flow passed Edit menu
+and action search, unchanged preview, held-Apply catalog revocation with no draft
+change, reviewed Apply, Unicode and selected-text variables, mirrors, choices,
+field traversal and exact undo/redo. Stale source, rendered read-only editor,
+disabled command and engine refusal passed. Editor identity, geometry, unsaved
+source and disk stayed retained. A real saved-test Debug regression passed after
+sharing the raw protocol codec and correcting the driver's DOM editability probe.
+
+Android passes full Kotlin compilation and 24 focused expansion/session/history/
+interaction/template methods with zero skips. Its actual engine/controller flow
+passed shared command dispatch, fresh-plan Apply, native fields, menu undo/redo,
+manifest revocation and generated-source refusal. Editor state, selection, scroll
+and saved bytes remain retained. That witness does not render a Compose window or
+verify geometry, physical pointer/IME or accessibility.
+
+Apple passes macOS and iOS simulator builds and 21 focused methods with zero
+skips. The fresh-engine actual WorkspaceView flow passed unchanged preview,
+reviewed Apply, linked native typing, undo/redo, retained editor and geometry,
+provider revocation and read-only refusal. Native emoji/combining-text field and
+history checks passed. Physical keyboard/pointer, VoiceOver and device IME remain
+unexecuted. Full snippet transforms, embedded-language/complete variable contexts,
+mirrored native IME and multi-caret templates remain required open work. These
+receipts establish the catalog and guarded common-subset behavior, not full IDE
+parity.
+
+## Guarded saved source-test Debug, 2026-11-16
 
 The shared service now plans a saved test selection without launching a process,
 then recomputes candidate, contributor hashes and provider admission at the
@@ -186,7 +235,8 @@ selection and scroll preservation on both. Apple reran both corrected-fixture in
 native insertion and retained undo/redo. Android also passed both corrected inputs
 through its real index-to-gutter adapter.
 These receipts do not establish complete cross-platform testing parity, other
-providers or physical-input/accessibility acceptance.
+providers or physical-input/accessibility acceptance. The supported saved-test
+Debug implementation and its paired evidence are committed as `ef463247`.
 
 ## Saved test-debug choice guard, 2026-11-16
 

@@ -154791,6 +154791,195 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/test-debug-service.md",
       "symbol": "test debug service live witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "source-template-inputs",
+      "output": "crates/hickory-cli/src/serve/source_templates.rs",
+      "page": ".hickory-source/mechanisms/source-template-service.md",
+      "symbol": "source template inputs",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-template-catalog",
+      "output": "crates/hickory-cli/src/serve/source_templates.rs",
+      "page": ".hickory-source/mechanisms/source-template-service.md",
+      "symbol": "source template catalog",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-template-planning",
+      "output": "crates/hickory-cli/src/serve/source_templates.rs",
+      "page": ".hickory-source/mechanisms/source-template-service.md",
+      "symbol": "source template planning",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-template-http",
+      "output": "crates/hickory-cli/src/serve/source_templates.rs",
+      "page": ".hickory-source/mechanisms/source-template-service.md",
+      "symbol": "source template http",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-template-witness",
+      "output": "crates/hickory-cli/src/serve/source_templates.rs",
+      "page": ".hickory-source/mechanisms/source-template-service.md",
+      "symbol": "source template witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-template-http-module",
+      "output": "crates/hickory-cli/src/serve/mod.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/mod.rs.md",
+      "symbol": "source template http module",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-templates-browser-capture",
+      "output": "apps/web/src/simple/SourceTemplates.ts",
+      "page": ".hickory-source/frontends/source-templates-browser.md",
+      "symbol": "source templates browser capture",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-templates-browser-apply",
+      "output": "apps/web/src/simple/SourceTemplates.ts",
+      "page": ".hickory-source/frontends/source-templates-browser.md",
+      "symbol": "source templates browser apply",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-templates-browser-view",
+      "output": "apps/web/src/simple/SourceTemplatesView.tsx",
+      "page": ".hickory-source/frontends/source-templates-browser.md",
+      "symbol": "source templates browser view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-templates-browser-witness",
+      "output": "apps/web/src/simple/SourceTemplates.test.ts",
+      "page": ".hickory-source/frontends/source-templates-browser.md",
+      "symbol": "source templates browser witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-templates-browser-view-witness",
+      "output": "apps/web/src/simple/SourceTemplatesView.test.tsx",
+      "page": ".hickory-source/frontends/source-templates-browser.md",
+      "symbol": "source templates browser view witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-templates-browser-flow",
+      "output": "scripts/test-source-templates-browser.py",
+      "page": ".hickory-source/frontends/source-templates-browser.md",
+      "symbol": "source templates browser flow",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-templates-android-policy",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceTemplates.kt",
+      "page": ".hickory-source/frontends/source-templates-android.md",
+      "symbol": "source templates android policy",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-templates-android-plan",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceTemplates.kt",
+      "page": ".hickory-source/frontends/source-templates-android.md",
+      "symbol": "source templates android plan",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-templates-android-host",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceTemplates.kt",
+      "page": ".hickory-source/frontends/source-templates-android.md",
+      "symbol": "source templates android host",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-templates-android-view",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SourceTemplates.kt",
+      "page": ".hickory-source/frontends/source-templates-android.md",
+      "symbol": "source templates android view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-templates-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SourceTemplateTest.kt",
+      "page": ".hickory-source/frontends/source-templates-android.md",
+      "symbol": "source templates android witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-template-http-witness",
+      "output": "scripts/test-source-template-service.py",
+      "page": ".hickory-source/mechanisms/source-template-service.md",
+      "symbol": "source template http witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-templates-apple-values",
+      "output": "apps/apple-simple/Sources/SourceTemplates.swift",
+      "page": ".hickory-source/frontends/source-templates-apple.md",
+      "symbol": "source templates apple values",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-templates-apple-policy",
+      "output": "apps/apple-simple/Sources/SourceTemplates.swift",
+      "page": ".hickory-source/frontends/source-templates-apple.md",
+      "symbol": "source templates apple policy",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-templates-apple-controller",
+      "output": "apps/apple-simple/Sources/SourceTemplates.swift",
+      "page": ".hickory-source/frontends/source-templates-apple.md",
+      "symbol": "source templates apple controller",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-templates-apple-view",
+      "output": "apps/apple-simple/Sources/SourceTemplates.swift",
+      "page": ".hickory-source/frontends/source-templates-apple.md",
+      "symbol": "source templates apple view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-template-fixture-prepare",
+      "output": "scripts/test-native-templates.py",
+      "page": ".hickory-source/frontends/scripts/test-native-templates.py.md",
+      "symbol": "native template fixture prepare",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-template-fixture-runtime",
+      "output": "scripts/test-native-templates.py",
+      "page": ".hickory-source/frontends/scripts/test-native-templates.py.md",
+      "symbol": "native template fixture runtime",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "api-protocol-json-browser",
+      "output": "apps/web/src/api/client.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/api/client.ts.md",
+      "symbol": "api protocol json browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-templates-apple-witness",
+      "output": "apps/apple-simple/Tests/SourceTemplateTests.swift",
+      "page": ".hickory-source/frontends/source-templates-apple.md",
+      "symbol": "source templates apple witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-source-draft-history-tests",
+      "output": "apps/apple-simple/Tests/SourceDraftHistoryTests.swift",
+      "page": ".hickory-source/mechanisms/source-completion-acceptance.md",
+      "symbol": "native source draft history tests",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

@@ -10,15 +10,22 @@ import type {CompletionDraft} from './CompletionPlan';
 export const setSourceSnippet=StateEffect.define<SnippetSession|null>();
 interface SnippetSnapshot {source:string;session:SnippetSession|null;selection:EditorSelection}
 interface SnippetReplay {target:symbol;inverse:symbol}
-const snippetSnapshots=new Map<symbol,{value:SnippetSnapshot;cost:number}>();let snippetSnapshotBytes=0;
-function holdSnippetSnapshot(value:SnippetSnapshot):symbol {
- const token=Symbol('snippet history'),cost=value.source.length*2+(value.session?.fields.reduce((sum,field)=>sum+64+field.choices.reduce((bytes,value)=>bytes+value.length*2,0),0)??0);
- const normalized={...value,session:value.session?{...value.session,source:value.source}:null};
- snippetSnapshots.set(token,{value:normalized,cost});snippetSnapshotBytes+=cost;
- while(snippetSnapshotBytes>32*1024*1024&&snippetSnapshots.size){const oldest=snippetSnapshots.keys().next().value!;snippetSnapshotBytes-=snippetSnapshots.get(oldest)!.cost;snippetSnapshots.delete(oldest);}
- return token;
+export function createSourceSnippetHistory(limit=32*1024*1024,maxEntries=4096){
+ if(!Number.isSafeInteger(limit)||limit<=0||!Number.isSafeInteger(maxEntries)||maxEntries<1||maxEntries>4096)throw Error('Invalid snippet history budget');
+ const snapshots=new Map<symbol,{value:SnippetSnapshot;cost:number}>();let bytes=0;
+ return {hold(value:SnippetSnapshot):symbol {
+  // Count the retained UTF-16 strings and every alternative, including empty
+  // choices, before constructing or retaining a snapshot. Oversized context
+  // never evicts unrelated valid history; CodeMirror still owns text undo.
+  const token=Symbol('snippet history'),cost=128+value.source.length*2+(value.session?.fields.reduce((sum,field)=>sum+64+field.choices.reduce((total,choice)=>total+32+choice.length*2,0),0)??0);
+  if(cost>limit)return token;
+  const normalized={...value,session:value.session?{...value.session,source:value.source}:null};snapshots.set(token,{value:normalized,cost});bytes+=cost;
+  while((bytes>limit||snapshots.size>maxEntries)&&snapshots.size){const oldest=snapshots.keys().next().value!;bytes-=snapshots.get(oldest)!.cost;snapshots.delete(oldest);}return token;
+ },read(token:symbol):SnippetSnapshot|undefined{return snapshots.get(token)?.value;}};
 }
-function snippetSnapshot(token:symbol):SnippetSnapshot|undefined{return snippetSnapshots.get(token)?.value;}
+const snippetHistory=createSourceSnippetHistory();
+function holdSnippetSnapshot(value:SnippetSnapshot):symbol{return snippetHistory.hold(value);}
+function snippetSnapshot(token:symbol):SnippetSnapshot|undefined{return snippetHistory.read(token);}
 const replaySourceSnippet=StateEffect.define<SnippetReplay>();
 export function dispatchSourceSnippetTransactions(transactions:readonly Transaction[],view:EditorView){
  let state=view.state;const updates:Transaction[]=[];

@@ -5,6 +5,12 @@ import AppKit
 @testable import HickorySimple
 @MainActor final class SourceSnippetInteractionTests:XCTestCase {
     func fields()->[SnippetField]{[SnippetField(index:1,from:0,to:1,choices:["a","long"],id:0),SnippetField(index:1,from:4,to:5,choices:["a","long"],id:1),SnippetField(index:0,from:5,to:5,choices:[],id:2)]}
+    func testHistoryCostChargesEveryEmptyChoice() {
+        let field=SnippetField(index:1,from:0,to:0,choices:Array(repeating:"",count:4096),id:0)
+        XCTAssertEqual(snippetHistoryCost(SourceSnippetHistoryContext(fields:[field],active:1,current:0)),64+4096*32)
+        var unicode=field;unicode.choices=["😀e\u{301}"]
+        XCTAssertEqual(snippetHistoryCost(SourceSnippetHistoryContext(fields:[unicode],active:1,current:0)),64+32+7)
+    }
     func testActualMacInputAndHistoryCarryFieldState()throws {
         #if os(macOS)
         let source="a + a",buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"a + a",hash:"base")),editor:MacEditor

@@ -4,6 +4,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.TextRange
+// Charge actual retained vector slots, including empty alternatives. Stop at
+// budget+1 before retaining a context; the journal owns source text separately.
+internal fun snippetHistoryCost(context:SnippetSession?,budget:Long=32L*1024*1024):Long {
+ if(context==null)return 0
+ val cap=budget+1;var bytes=0L
+ fun add(value:Long):Boolean {if(value<0||value>budget-bytes){bytes=cap;return false};bytes+=value;return true}
+ for(field in context.fields){if(!add(64L)||field.choices.size>4096||!add(32L*field.choices.size))return cap;for(choice in field.choices)if(!add(2L*choice.length))return cap}
+ for(scope in context.scopes)if(!add(64L)||!add(8L*scope.order.size))return cap
+ return bytes
+}
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 class SourceSnippetController(private val buffer:DocumentBuffer) {
  // Core input state advances synchronously; publish outside a TextFieldBuffer transformation.
@@ -11,7 +21,7 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
  var intent=0;private set
  private var revision by mutableIntStateOf(0)
  var notice by mutableStateOf("");private set
- private val contexts=SourceUndoContexts<SnippetSession?>({context->context?.fields?.sumOf{field->64L+field.choices.sumOf{it.length.toLong()*2}} ?: 0L})
+ private val contexts=SourceUndoContexts<SnippetSession?>({context->snippetHistoryCost(context)})
  val recordSerial get()=contexts.serial
  val canUndo get()=buffer.state.undoState.canUndo
  val canRedo get()=buffer.state.undoState.canRedo
@@ -31,13 +41,15 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
  }
  fun undoSource():Boolean {
   if(buffer.readOnly||buffer.state.composition!=null||!canUndo)return false
-  val before=buffer.text;buffer.state.undoState.undo();val selected=buffer.state.selection
+  val before=buffer.text;val oldSelection=buffer.state.selection;buffer.state.undoState.undo();val selected=buffer.state.selection
+  if(before!=buffer.text||selected!=oldSelection)buffer.advanceSourceRevision()
   val target=contexts.undo(before,buffer.text,selected.start,selected.end);restore(target?.context)
   if(target?.context==null){notice="Text edit undone · draft";buffer.language?.completionNotice=notice};return true
  }
  fun redoSource():Boolean {
   if(buffer.readOnly||buffer.state.composition!=null||!canRedo)return false
-  val before=buffer.text;buffer.state.undoState.redo();val selected=buffer.state.selection
+  val before=buffer.text;val oldSelection=buffer.state.selection;buffer.state.undoState.redo();val selected=buffer.state.selection
+  if(before!=buffer.text||selected!=oldSelection)buffer.advanceSourceRevision()
   val target=contexts.redo(before,buffer.text,selected.start,selected.end);restore(target?.context)
   if(target?.context==null){notice="Text edit redone · draft";buffer.language?.completionNotice=notice};return true
  }

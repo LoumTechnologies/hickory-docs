@@ -3,6 +3,18 @@ struct SnippetScope {var order:[Int];var exitIndex:Int;var exitId:Int;var outerA
 struct SnippetSession {var source:String;var fields:[SnippetField];var active:Int;var current:Int;var scopes:[SnippetScope]=[]}
 struct SnippetInput {var session:SnippetSession;var edits:[NativeSourceEdit];var selection:CompletionSelection}
 struct SnippetAdvance {var session:SnippetSession?;var selection:CompletionSelection}
+// Admit retained metadata before constructing another field forest. Empty
+// alternatives still occupy slots; payload accounting uses exact UTF-8 bytes.
+func snippetMetadataCost(_ fields:[SnippetField])->Int? {
+    guard fields.count<=4096 else{return nil};var bytes=0
+    for field in fields {
+        guard field.choices.count<=4096 else{return nil}
+        let floor=64+32*field.choices.count
+        guard floor<=1048576-bytes else{return nil};bytes+=floor
+        for choice in field.choices{let size=choice.utf8.count;guard size<=1048576-bytes else{return nil};bytes+=size}
+    }
+    return bytes
+}
 private func snippetScalar(_ text:NSString,_ at:Int)->Bool {
     guard at>=0,at<=text.length else{return false}
     if at>0,at<text.length{let before=text.character(at:at-1),after=text.character(at:at);if (before>=0xd800&&before<=0xdbff&&after>=0xdc00&&after<=0xdfff)||(before==13&&after==10){return false}}
@@ -10,7 +22,7 @@ private func snippetScalar(_ text:NSString,_ at:Int)->Bool {
 }
 func beginSnippet(_ source:String,fields:[SnippetField])->SnippetSession? {
     let text=source as NSString
-    guard !fields.isEmpty,fields.count<=4096,fields.allSatisfy({field in field.id != nil && field.id!>=0 && field.id!<4096 && field.index>=0 && field.index<=1004096 && field.from<=field.to && snippetScalar(text,field.from) && snippetScalar(text,field.to)}),fields.filter({$0.index==0}).count==1,!fields.contains(where:{$0.index==0&&$0.from != $0.to}) else{return nil}
+    guard !fields.isEmpty,snippetMetadataCost(fields) != nil,fields.allSatisfy({field in field.id != nil && field.id!>=0 && field.id!<4096 && field.index>=0 && field.index<=1004096 && field.from<=field.to && snippetScalar(text,field.from) && snippetScalar(text,field.to)}),fields.filter({$0.index==0}).count==1,!fields.contains(where:{$0.index==0&&$0.from != $0.to}) else{return nil}
     var ids:[Int:SnippetField]=[:]
     for field in fields{guard ids[field.id!]==nil else{return nil};ids[field.id!]=field}
     var visited:Set<Int>=[]
@@ -21,7 +33,7 @@ func beginSnippet(_ source:String,fields:[SnippetField])->SnippetSession? {
     return SnippetSession(source:source,fields:fields,active:active,current:first.id!)
 }
 func advanceSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,direction:Int)->SnippetAdvance? {
-    guard exactUTF8(source,session.source),from<=to,(direction==1||direction == -1),session.fields.contains(where:{$0.index==session.active&&$0.from<=from&&$0.to>=to}) else{return nil}
+    guard snippetMetadataCost(session.fields) != nil,exactUTF8(source,session.source),from<=to,(direction==1||direction == -1),session.fields.contains(where:{$0.index==session.active&&$0.from<=from&&$0.to>=to}) else{return nil}
     let scope=session.scopes.last,order=scope.map{$0.order+[$0.exitIndex]} ?? (Array(Set(session.fields.map{$0.index}.filter{$0>0})).sorted()+[0])
     guard let at=order.firstIndex(of:session.active),order.indices.contains(at+direction),let field=session.fields.first(where:{$0.index==order[at+direction]}) else{return nil}
     if let scope,field.index==scope.exitIndex{guard let exit=session.fields.first(where:{$0.id==scope.exitId}) else{return nil};var resumed=session;resumed.fields.removeAll{scope.order.contains($0.index)||$0.index==scope.exitIndex};resumed.active=scope.outerActive;resumed.current=scope.outerCurrent;resumed.scopes.removeLast();return SnippetAdvance(session:resumed,selection:CompletionSelection(from:exit.from,to:exit.to))}
@@ -32,7 +44,7 @@ func advanceSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,direc
 private struct SnippetReplacement {var from:Int;var to:Int;var text:String;var owners:[Int]}
 func editSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:String)->SnippetInput? {
     let original=source as NSString
-    guard exactUTF8(source,session.source),from<=to,snippetScalar(original,from),snippetScalar(original,to),session.active != 0 else{return nil}
+    guard snippetMetadataCost(session.fields) != nil,exactUTF8(source,session.source),from<=to,snippetScalar(original,from),snippetScalar(original,to),session.active != 0 else{return nil}
     func terminal(_ field:SnippetField)->Bool{field.index==0 || session.scopes.contains(where:{$0.exitIndex==field.index})}
     let fields=session.fields,ids=Dictionary(uniqueKeysWithValues:fields.map{($0.id!,$0)})
     func ancestor(_ parent:Int,_ child:Int)->Bool{var current=ids[child];for _ in 0...fields.count{guard let value=current else{return false};if value.id==parent{return true};current=value.parent.flatMap{ids[$0]}};return false}
@@ -94,13 +106,14 @@ func completeSnippet(_ session:SnippetSession,source:String,primary:SourceReplac
     return SnippetInput(session:next,edits:edits.map{NativeSourceEdit(range:NSRange(location:$0.from,length:$0.to-$0.from),text:$0.text)},selection:CompletionSelection(from:input.selection.from+shift,to:input.selection.to+shift))
 }
 func nestSnippet(_ session:SnippetSession,source:String,primary:SourceReplacement,additional:[SourceReplacement],inner:[SnippetField])->SnippetInput? {
-    guard session.scopes.count<32,!inner.isEmpty,let exit=inner.first(where:{$0.index==0}) else{return nil}
+    guard session.scopes.count<32,!inner.isEmpty,let innerCost=snippetMetadataCost(inner),let exit=inner.first(where:{$0.index==0}) else{return nil}
     let parsed=beginSnippet(primary.text,fields:inner);guard parsed != nil || (inner.count==1 && exit.id != nil && exit.parent==nil && exit.from==exit.to && snippetScalar(primary.text as NSString,exit.from)) else{return nil}
     guard let origin=session.fields.first(where:{$0.id==session.current&&$0.from<=primary.from&&$0.to>=primary.to}),let input=completeSnippet(session,source:source,primary:primary,additional:additional) else{return nil}
     let parents=input.session.fields.filter{$0.index==session.active};guard let current=parents.first(where:{$0.id==input.session.current}) else{return nil}
     let relative=primary.from-origin.from,order=Array(Set(inner.filter{$0.index>0}.map{$0.index})).sorted()
     if order.isEmpty{var result=input;let caret=current.from+relative+exit.from;result.selection=CompletionSelection(from:caret,to:caret);return result}
-    guard input.session.fields.count+parents.count*inner.count<=4096 else{return nil}
+    // Reserve the complete mirror fanout before appending any nested fields.
+    guard input.session.fields.count+parents.count*inner.count<=4096,let retainedCost=snippetMetadataCost(input.session.fields),parents.count<=(1048576-retainedCost)/innerCost else{return nil}
     var nextIndex=input.session.fields.map{$0.index}.max()!+1,indices:[Int:Int]=[:]
     for index in order+[0]{indices[index]=nextIndex;nextIndex+=1};guard nextIndex<=1004097 else{return nil}
     var used=Set(input.session.fields.map{$0.id!}),fields=input.session.fields,nextId=0,exitId = -1,currentId = -1
@@ -110,7 +123,7 @@ func nestSnippet(_ session:SnippetSession,source:String,primary:SourceReplacemen
             if parent.id==current.id{if field.index==0{exitId=id}else if field.id==parsed!.current{currentId=id}}
         }
     }
-    guard fields.reduce(0,{sum,field in sum+64+field.choices.reduce(0){$0+$1.utf8.count}})<=1048576,beginSnippet(input.session.source,fields:fields) != nil,let selected=fields.first(where:{$0.id==currentId}) else{return nil}
+    guard beginSnippet(input.session.source,fields:fields) != nil,let selected=fields.first(where:{$0.id==currentId}) else{return nil}
     let scope=SnippetScope(order:order.map{indices[$0]!},exitIndex:indices[0]!,exitId:exitId,outerActive:session.active,outerCurrent:input.session.current)
     var result=input;result.session.fields=fields;result.session.active=scope.order[0];result.session.current=currentId;result.session.scopes.append(scope);result.selection=CompletionSelection(from:selected.from,to:selected.to);return result
 }

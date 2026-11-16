@@ -6,7 +6,7 @@ import {acceptCompletion,completionStatus,setSelectedCompletion} from '@codemirr
 import {waitFor} from '@testing-library/react';
 import {completions} from '../lsp/completion';
 import {beginSnippet} from './SnippetSession';
-import {sourceSnippets,setSourceSnippet,readSourceSnippet,moveSourceSnippet,openSourceSnippetChoices,dispatchSourceSnippetTransactions} from './SourceSnippets';
+import {sourceSnippets,setSourceSnippet,readSourceSnippet,moveSourceSnippet,openSourceSnippetChoices,dispatchSourceSnippetTransactions,createSourceSnippetHistory} from './SourceSnippets';
 import type {SnippetField} from './SnippetExpansion';
 import {acceptSourceCompletion} from './SourceCompletion';
 import {readCompletionAcceptance} from '../lsp/completionAcceptance';
@@ -90,3 +90,5 @@ it('coincident empty mirrors preserve every occurrence in actual editor input',(
  const fields=[field(0,1,0,0),field(1,2,0,0),field(2,1,0,0),field(3,0,0,0)],{view,close}=fixture('',fields);
  try{view.dispatch({changes:{from:0,insert:'x'},selection:{anchor:1},userEvent:'input.type'});expect(view.state.doc.toString()).toBe('xx');expect(view.state.selection.main.head).toBe(1);expect(moveSourceSnippet(view,1)).toBe(true);expect(view.state.selection.main.head).toBe(1);view.dispatch({changes:{from:1,insert:'y'},selection:{anchor:2},userEvent:'input.type'});expect(view.state.doc.toString()).toBe('xyx');}finally{close();}
 });
+it('charges empty alternative overhead before retaining bounded snippet history',()=>{const cache=createSourceSnippetHistory(400),fields=[field(0,1,0,1,['','','','']),field(1,0,1,1)],session=beginSnippet('a',fields)!,snapshot={source:'a',session,selection:EditorState.create({doc:'a'}).selection};const first=cache.hold(snapshot),second=cache.hold(snapshot);expect(cache.read(first)).toBeUndefined();expect(cache.read(second)?.session?.fields[0].choices).toHaveLength(4);const oversized={...snapshot,session:beginSnippet('a',[field(0,1,0,1,Array<string>(16).fill('')),field(1,0,1,1)])!},rejected=cache.hold(oversized);expect(cache.read(rejected)).toBeUndefined();expect(cache.read(second)).toBeDefined();});
+it('bounds empty no-session history by both fixed token cost and entry capacity',()=>{const snapshot={source:'',session:null,selection:EditorState.create().selection},count=createSourceSnippetHistory(400,2),a=count.hold(snapshot),b=count.hold(snapshot),c=count.hold(snapshot);expect(count.read(a)).toBeUndefined();expect(count.read(b)).toBeDefined();expect(count.read(c)).toBeDefined();const bytes=createSourceSnippetHistory(250),first=bytes.hold(snapshot),last=bytes.hold(snapshot);expect(bytes.read(first)).toBeUndefined();expect(bytes.read(last)).toBeDefined();});

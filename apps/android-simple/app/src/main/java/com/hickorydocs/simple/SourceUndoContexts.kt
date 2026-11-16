@@ -6,18 +6,22 @@ class SourceUndoContexts<C>(private val contextCost:(C)->Long,private val budget
  private val past=mutableListOf<Step<C>>();private val future=mutableListOf<Step<C>>()
  var serial=0L;private set
  val retained:Boolean get()=past.isNotEmpty()||future.isNotEmpty()
- private fun cost(step:Step<C>)=2L*step.before.source.length+2L*step.after.source.length+contextCost(step.before.context)+contextCost(step.after.context)
+ init{require(budget in 0 until Long.MAX_VALUE)}
+ private fun sum(vararg values:Long):Long {var total=0L;for(value in values){if(value<0||value>budget-total)return budget+1;total+=value};return total}
+ private fun cost(step:Step<C>)=sum(2L*step.before.source.length,2L*step.after.source.length,contextCost(step.before.context),contextCost(step.after.context))
  private fun trim(){var bytes=past.sumOf{cost(it)}+future.sumOf{cost(it)};while((bytes>budget||past.size+future.size>4096)&&past.isNotEmpty()){bytes-=cost(past.removeAt(0))};while((bytes>budget||past.size+future.size>4096)&&future.isNotEmpty()){bytes-=cost(future.removeAt(future.lastIndex))}}
  private fun clear(){past.clear();future.clear()}
  fun record(before:SourceUndoSnapshot<C>,after:SourceUndoSnapshot<C>) {
   if(before.source==after.source)return
+  val next=Step(before,after);if(cost(next)>budget)return
   if(past.lastOrNull()?.after?.source?.let{it!=before.source}==true)clear()
-  future.clear();past.add(Step(before,after));serial++;trim()
+  future.clear();past.add(next);serial++;trim()
  }
  fun replaceLastAfter(beforeSource:String,after:SourceUndoSnapshot<C>,since:Long):Boolean {
   val last=past.lastOrNull() ?: return false
   if(serial<=since||last.before.source!=beforeSource||last.after.source!=after.source||last.after.anchor!=after.anchor||last.after.head!=after.head)return false
-  past[past.lastIndex]=last.copy(after=after);trim();return true
+  val next=last.copy(after=after);if(cost(next)>budget)return false
+  past[past.lastIndex]=next;trim();return true
  }
  fun undo(beforeSource:String,afterSource:String,anchor:Int,head:Int):SourceUndoSnapshot<C>? {
   if(past.lastOrNull()?.after?.source!=beforeSource){clear();return null}

@@ -22,5 +22,16 @@ final class SnippetExpansionTests:XCTestCase {
         fields.append(["id":1030,"parent":NSNull(),"index":0,"from":0,"to":0,"choices":[]])
         XCTAssertThrowsError(try completionExpansion(["label":"large choices","insertTextFormat":2,"insertText":syntax,"data":["hickory_snippet":["version":1,"syntax":syntax,"text":"","fields":fields]]]))
     }
+    func testEmptyChoicesReserveOverheadBeforeCopyingMetadata()throws {
+        func item(_ count:Int,_ mirrors:Int=1)->[String:Any] {
+            let choices=Array(repeating:"",count:count),syntax="${1|"+String(repeating:",",count:count-1)+"|}"+String(repeating:"$1",count:mirrors-1)+"$0"
+            var fields:[[String:Any]]=(0..<mirrors).map{["id":$0,"parent":NSNull(),"index":1,"from":0,"to":0,"choices":choices]}
+            fields.append(["id":mirrors,"parent":NSNull(),"index":0,"from":0,"to":0,"choices":[]])
+            return ["label":"empty alternatives","insertTextFormat":2,"insertText":syntax,"data":["hickory_snippet":["version":1,"syntax":syntax,"text":"","fields":fields]]]
+        }
+        XCTAssertEqual(try completionExpansion(item(4096))?.fields.first?.choices.count,4096)
+        XCTAssertThrowsError(try completionExpansion(item(4097)))
+        XCTAssertThrowsError(try completionExpansion(item(4096,8)))
+    }
 
 }

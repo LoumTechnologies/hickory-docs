@@ -46,12 +46,5 @@ export function sourceTestDebugBinding(prepared:PreparedSourceTestDebug):SourceT
 export function sourceTestDebugStarted(prepared:PreparedSourceTestDebug,binding:unknown):binding is SourceTestDebugBinding {
  const choice=prepared.choice,value=binding as SourceTestDebugBinding;return !!value&&value.version===1&&value.workspace_id===choice.workspace&&value.input_path===choice.inputPath&&value.input_hash===choice.inputHash&&value.analysis_fingerprint===choice.fingerprint&&value.candidate_id===choice.candidateId&&value.candidate_name===choice.candidateName&&sameSelection(value.selection,choice.selection)&&sameSources(value.checked_sources,choice.sources)&&value.language===choice.language&&value.framework===prepared.plan.framework;
 }
-export function parseSourceTestDebugJson(raw:string):unknown {
- const value:unknown=JSON.parse(raw),stack:(Set<string>|null)[]=[];let i=0;
- while(i<raw.length){const char=raw[i];if(char==='{'){stack.push(new Set());i++;continue;}if(char==='['){stack.push(null);i++;continue;}if(char==='}'||char===']'){stack.pop();i++;continue;}if(char!=='"'){i++;continue;}
-  const start=i++;let escaped=false;for(;i<raw.length;i++){const next=raw[i];if(escaped){escaped=false;continue;}if(next==='\\'){escaped=true;continue;}if(next==='"')break;}const end=++i;let at=i;while(/\s/.test(raw[at]??'')&&at<raw.length)at++;
-  if(raw[at]!==':')continue;const key=JSON.parse(raw.slice(start,end)) as string,keys=stack[stack.length-1];if(!keys)throw Error('Malformed Test Debug object key.');if(keys.has(key))throw Error('Duplicate Test Debug JSON key refused.');keys.add(key);
-  if(key==='version'||key==='test_debug_protocol'){at++;while(/\s/.test(raw[at]??'')&&at<raw.length)at++;if(raw[at]==='-'||/[0-9]/.test(raw[at]??'')){let last=at;while(last<raw.length&&!/[\s,}\]]/.test(raw[last]))last++;if(!/^(0|[1-9][0-9]*)$/.test(raw.slice(at,last)))throw Error('Test Debug protocol requires a canonical integer version.');}}
- }
- return value;
-}
+import {parseProtocolJson} from '../api/client';
+export function parseSourceTestDebugJson(raw:string):unknown{return parseProtocolJson(raw);}

@@ -695,6 +695,7 @@ private struct EquationLayout: Equatable {
 }
 #if os(macOS)
 @MainActor final class MacEditor: NSObject, NSTextViewDelegate {
+    private let sourceEditorIdentity=UUID()
     let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
     let text = SimpleMacTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
     let buffer: DocumentBuffer
@@ -782,6 +783,7 @@ private struct EquationLayout: Equatable {
         text.layoutManager?.delegate = folding
         buffer.toggleFold = { [weak self] line in self?.toggleFold(line) }
         buffer.focusSource = { [weak self] in guard let self else { return }; self.text.window?.makeFirstResponder(self.text) }
+        buffer.sourceEditorState={ [weak self] in guard let self else{return nil};return NativeSourceEditorState(identity:self.sourceEditorIdentity,source:self.text.string,selection:self.text.selectedRange(),composing:self.text.hasMarkedText(),editable:self.text.isEditable && !self.buffer.readOnly && !self.buffer.saving,attached:self.text.window != nil,selections:max(self.text.selectedRanges.count,self.buffer.multiRanges.count))}
         buffer.applyCompletionDraft = { [weak self] draft,initial in
             guard let self,self.text.selectedRange()==initial,self.text.selectedRanges.count==1,exactUTF8(draft.path,self.buffer.file.path) else{return false}
             return self.sourceDraftHistory.commit(draft.plan,path:draft.path,before:draft.before,selectionBefore:initial,selectionAfter:NSRange(location:draft.selection.from,length:draft.selection.to-draft.selection.from),contextBefore:self.buffer.snippets.historyContext,contextAfter:(draft.continuing ?? beginSnippet(draft.plan.patches.first?.after ?? draft.before,fields:draft.fields)).map{SourceSnippetHistoryContext(fields:$0.fields,active:$0.active,current:$0.current,scopes:$0.scopes)},manager:self.text.undoManager,
@@ -1267,6 +1269,7 @@ struct NativeEditor: NSViewRepresentable {
 #else
 import UIKit
 @MainActor private final class MobileEditor: NSObject, UITextViewDelegate {
+    private let sourceEditorIdentity=UUID()
     let text = SimpleTextView(usingTextLayoutManager: false)
     private let folding = FoldLayout()
     private let sourceDraftHistory=SourceDraftHistory()
@@ -1327,6 +1330,7 @@ import UIKit
         text.layoutManager.delegate = folding
         buffer.toggleFold = { [weak self] line in self?.toggleFold(line) }
         buffer.focusSource = { [weak self] in self?.text.becomeFirstResponder() }
+        buffer.sourceEditorState={ [weak self] in guard let self else{return nil};return NativeSourceEditorState(identity:self.sourceEditorIdentity,source:self.text.text ?? "",selection:self.text.selectedRange,composing:self.text.markedTextRange != nil,editable:self.text.isEditable && !self.buffer.readOnly && !self.buffer.saving,attached:self.text.window != nil,selections:max(1,self.buffer.multiRanges.count))}
         buffer.applyCompletionDraft = { [weak self] draft,initial in
             guard let self,self.text.selectedRange==initial,exactUTF8(draft.path,self.buffer.file.path) else{return false}
             return self.sourceDraftHistory.commit(draft.plan,path:draft.path,before:draft.before,selectionBefore:initial,selectionAfter:NSRange(location:draft.selection.from,length:draft.selection.to-draft.selection.from),contextBefore:self.buffer.snippets.historyContext,contextAfter:(draft.continuing ?? beginSnippet(draft.plan.patches.first?.after ?? draft.before,fields:draft.fields)).map{SourceSnippetHistoryContext(fields:$0.fields,active:$0.active,current:$0.current,scopes:$0.scopes)},manager:self.text.undoManager,

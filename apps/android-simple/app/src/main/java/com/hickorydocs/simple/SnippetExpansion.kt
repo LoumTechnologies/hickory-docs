@@ -11,8 +11,14 @@ fun completionExpansion(item:JSONObject):CompletionExpansion? {
  var metadataBytes=0L
  val fields=(0 until values.length()).map {offset->
   val value=values.optJSONObject(offset) ?: error("Malformed snippet field");val index=number(value.opt("index"));val from=number(value.opt("from"));val to=number(value.opt("to"));check(index<=1004096&&from<=to&&to<=text.length){"Malformed snippet field"}
-  val choices=value.optJSONArray("choices") ?: error("Malformed snippet choices");val options=(0 until choices.length()).map{choices.opt(it) as? String ?: error("Malformed snippet choices")}
-  metadataBytes+=64L+options.sumOf{it.toByteArray(Charsets.UTF_8).size.toLong()};check(metadataBytes<=1048576){"Snippet metadata expansion limit exceeded"}
+  val choices=value.optJSONArray("choices") ?: error("Malformed snippet choices")
+  check(choices.length()<=4096){"Snippet choice count limit exceeded"}
+  check(64L+32L*choices.length()<=1048576L-metadataBytes){"Snippet metadata expansion limit exceeded"}
+  metadataBytes+=64L+32L*choices.length()
+  for(choice in 0 until choices.length()){val option=choices.opt(choice) as? String ?: error("Malformed snippet choices");check(option.length.toLong()<=1048576L-metadataBytes){"Snippet metadata expansion limit exceeded"};val bytes=option.toByteArray(Charsets.UTF_8).size.toLong();check(bytes<=1048576L-metadataBytes){"Snippet metadata expansion limit exceeded"};metadataBytes+=bytes}
+  // Materialize a separate retained vector only after the whole field's quota
+  // has been admitted, including empty alternatives and their slots.
+  val options=(0 until choices.length()).map{choices.getString(it)}
   sourceChangeOffset(text,languagePosition(text,from));sourceChangeOffset(text,languagePosition(text,to))
   val id=if(value.has("id"))number(value.opt("id")) else null;val parent=if(value.has("id")&&!value.isNull("parent"))number(value.opt("parent")) else null
   check((id==null&&!value.has("parent")||id!=null&&id<4096&&value.has("parent"))&&(parent==null||parent<4096)){"Malformed snippet ancestry"}

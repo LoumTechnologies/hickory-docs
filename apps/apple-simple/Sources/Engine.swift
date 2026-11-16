@@ -54,7 +54,7 @@ struct Engine {
             let detail = object?["error"] as? String ?? String(data: data.prefix(600), encoding: .utf8) ?? "Request refused"
             throw EngineError(message: "\(detail) (HTTP \(response.statusCode)). Check the server and retry after reviewing its current state.")
         }
-        if path.hasPrefix("/api/tests/"){try validateSourceTestJSON(data)}
+        if path.hasPrefix("/api/tests/") || path.hasPrefix("/api/templates/"){try validateSourceTestJSON(data)}
         return try JSONDecoder().decode(T.self, from: data)
     }
     func find(_ query: String, regex: Bool, matchCase: Bool, wholeWord: Bool) async throws -> WorkspaceSearchResult {
